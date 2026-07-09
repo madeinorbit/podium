@@ -42,6 +42,10 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
         startNow: false,
         parentId,
         origin: opts.newSubissue.origin ?? 'human',
+        // A session re-homes here and works out of it — it is a real, trackable
+        // piece of work, so it is human-audience (visible on the board) even when
+        // an agent created it (#198). The "agent cuts a human-facing issue" case.
+        audience: 'human',
       })
       target = this.rowOrThrow(wire.id)
     } else {

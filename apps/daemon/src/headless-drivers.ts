@@ -36,6 +36,22 @@ export interface HeadlessTurnOutcome {
   output: string
 }
 
+/**
+ * A turn that failed AFTER the harness minted its session. The conversation
+ * exists on disk, so the caller must still learn its id — otherwise one
+ * interrupted/errored turn orphans the whole thread: no resume ref, no
+ * transcript binding, and the next turn silently starts a new conversation.
+ */
+export class HeadlessTurnError extends Error {
+  constructor(
+    message: string,
+    readonly harnessSessionId?: string,
+  ) {
+    super(message)
+    this.name = 'HeadlessTurnError'
+  }
+}
+
 export type HeadlessEmit = (event: HeadlessTurnEvent) => void
 
 export interface HeadlessTurnHandle {
@@ -121,6 +137,11 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
     let partial = ''
     let partialUuid = ''
     emit({ kind: 'status', status: 'starting' })
+    // Every throw below happens with `sessionId` possibly already learned from the
+    // SDK's init message — carry it out so the thread keeps its conversation.
+    const fail = (message: string): never => {
+      throw new HeadlessTurnError(message, sessionId || undefined)
+    }
     try {
       for await (const msg of q) {
         switch (msg.type) {
@@ -150,16 +171,23 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
             break
           case 'result':
             if (msg.subtype === 'success') output = msg.result
-            else throw new Error(`claude turn failed: ${msg.subtype}`)
+            else fail(`claude turn failed: ${msg.subtype}`)
             break
           default:
             break
         }
       }
+    } catch (err) {
+      // An SDK-thrown error (transport, tool crash) gets the same treatment.
+      if (err instanceof HeadlessTurnError) throw err
+      throw new HeadlessTurnError(
+        err instanceof Error ? err.message : String(err),
+        sessionId || undefined,
+      )
     } finally {
       clearTimeout(timer)
     }
-    if (interrupted) throw new Error('turn timed out')
+    if (interrupted) fail('turn timed out')
     if (!sessionId) throw new Error('claude turn ended without reporting a session id')
     return { harnessSessionId: sessionId, output }
   })()

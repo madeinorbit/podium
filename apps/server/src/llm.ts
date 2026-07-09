@@ -98,15 +98,23 @@ export function llmClient(
   }
 }
 
+/** Codex reasoning effort: honor the backend's configured effort (SP-6454 B3),
+ *  falling back to 'medium'. The Responses API takes low|medium|high. */
+function codexEffort(backend: LlmBackend): 'low' | 'medium' | 'high' {
+  const e = backend.harnessEffort
+  return e === 'low' || e === 'high' ? e : 'medium'
+}
+
 /** The `codex` provider needs no API key — it reuses the local ChatGPT login. */
 function codexClient(backend: LlmBackend, fetchImpl: FetchLike): LlmClient {
   if (!codexLoginPresent()) {
     throw new LlmConfigError("Codex isn't logged in on this server — run `codex login`.")
   }
   const model = backend.model && backend.model !== 'auto' ? backend.model : 'gpt-5.5'
+  const effort = codexEffort(backend)
   return {
     label: `codex · ${model} (ChatGPT subscription)`,
-    complete: (m, t) => codexCompleteWithAuth(fetchImpl, model, m, t),
+    complete: (m, t) => codexCompleteWithAuth(fetchImpl, model, m, t, effort),
   }
 }
 
@@ -131,14 +139,15 @@ async function codexCompleteWithAuth(
   model: string,
   messages: LlmMessage[],
   tools: LlmTool[],
+  effort: 'low' | 'medium' | 'high' = 'medium',
 ): Promise<LlmResponse> {
   let auth = await resolveCodexAuth(fetchImpl)
   try {
-    return await codexComplete(fetchImpl, auth, model, messages, tools)
+    return await codexComplete(fetchImpl, auth, model, messages, tools, effort)
   } catch (err) {
     if (err instanceof CodexHttpError && err.status === 401) {
       auth = await resolveCodexAuth(fetchImpl, { rejectedAccessToken: auth.accessToken })
-      return await codexComplete(fetchImpl, auth, model, messages, tools)
+      return await codexComplete(fetchImpl, auth, model, messages, tools, effort)
     }
     throw err
   }
@@ -183,6 +192,7 @@ export async function codexComplete(
   model: string,
   messages: LlmMessage[],
   tools: LlmTool[],
+  effort: 'low' | 'medium' | 'high' = 'medium',
 ): Promise<LlmResponse> {
   const { instructions, input } = toResponsesInput(messages)
   const body = {
@@ -201,7 +211,7 @@ export async function codexComplete(
           parallel_tool_calls: true,
         }
       : {}),
-    reasoning: { effort: 'medium' },
+    reasoning: { effort },
     stream: true,
     store: false,
   }

@@ -2,18 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { parseAssistantJson, suggestStage } from './issueAssistant'
 
 describe('suggestStage', () => {
-  const base = { stage: 'planning' as const, hasPlanArtifact: false, anyWorking: false, allIdleDone: false, prOpen: false, merged: false, testsGreen: false }
+  const base = { stage: 'planning' as const, hasPlanArtifact: false, anyWorking: false, allIdleDone: false, prOpen: false, merged: false }
   it('planning + plan artifact + idle -> in_progress', () => {
     expect(suggestStage({ ...base, hasPlanArtifact: true, allIdleDone: true })).toBe('in_progress')
   })
   it('pr open -> review', () => {
     expect(suggestStage({ ...base, stage: 'in_progress', prOpen: true })).toBe('review')
   })
-  it('merged -> verifying', () => {
-    expect(suggestStage({ ...base, stage: 'review', merged: true })).toBe('verifying')
-  })
-  it('verifying + tests green -> done', () => {
-    expect(suggestStage({ ...base, stage: 'verifying', testsGreen: true })).toBe('done')
+  it('merged -> done', () => {
+    expect(suggestStage({ ...base, stage: 'review', merged: true })).toBe('done')
   })
   it('returns null when no change vs current stage', () => {
     expect(suggestStage({ ...base, stage: 'review', prOpen: true })).toBeNull()

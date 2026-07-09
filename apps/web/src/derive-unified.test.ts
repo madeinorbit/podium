@@ -80,6 +80,7 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
+    audience: 'human' as const,
     draft: false,
     childCount: 0,
     childDoneCount: 0,
@@ -220,15 +221,16 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['s1'])
   })
 
-  it('includes drafts only when they have sessions; non-human issues stay out', () => {
+  it('includes drafts only when they have sessions; internal (audience:agent) issues stay out even with a session (#198)', () => {
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'dr1', draft: true, stage: 'backlog' }),
         issue({ id: 'dr2', draft: true, stage: 'backlog' }),
-        issue({ id: 'ag1', origin: 'agent' as IssueWire['origin'], stage: 'in_progress' }),
+        // Internal, with a live session — still excluded from the human work list.
+        issue({ id: 'ag1', audience: 'agent' as IssueWire['audience'], stage: 'in_progress' }),
       ],
-      [sess('x', '/elsewhere', { issueId: 'dr2' })],
+      [sess('x', '/elsewhere', { issueId: 'dr2' }), sess('y', '/ag', { issueId: 'ag1' })],
       [],
       NOW,
     )
@@ -403,10 +405,7 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
   it('suppresses an unread worktree row that has a currently-working session', () => {
     expect(
       rowUnreadEmphasized(
-        wtRow([
-          idle('a', '/w', { unread: true } as Partial<SessionMeta>),
-          working('b', '/w'),
-        ]),
+        wtRow([idle('a', '/w', { unread: true } as Partial<SessionMeta>), working('b', '/w')]),
       ),
     ).toBe(false)
   })
@@ -482,7 +481,7 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
-  it('exempts a pinned issue from move-out (stays in WORK even when fully working)', () => {
+  it('shows a working pinned issue in BOTH WORKING and WORK (no move-out)', () => {
     const { working: w, work } = partitionUnifiedWork(
       emptySections([]),
       [issue({ id: 'i', pinned: true })],
@@ -490,8 +489,35 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
       [],
       NOW,
     )
-    expect(w).toEqual([])
     expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['i'])
+    expect(w.map((e) => (e.kind === 'issue' ? e.row.issue.id : e.kind))).toEqual(['i'])
+  })
+
+  it('keeps a partially-working pinned issue whole in WORK and mirrors it into WORKING', () => {
+    const needs = owned('n', needsYou, 'i')
+    const run = owned('w', working, 'i')
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i', pinned: true })],
+      [needs, run],
+      [],
+      NOW,
+    )
+    const row = work[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(row.sessions.map((s) => s.sessionId).sort()).toEqual(['n', 'w'])
+    expect(w.map((e) => e.kind)).toEqual(['issue'])
+  })
+
+  it('keeps an idle pinned issue out of WORKING', () => {
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i', pinned: true })],
+      [owned('a', idle, 'i')],
+      [],
+      NOW,
+    )
+    expect(w).toEqual([])
+    expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
   it('moves a fully-working unowned worktree to WORKING', () => {

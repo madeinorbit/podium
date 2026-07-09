@@ -19,7 +19,6 @@ const STAGE_FILL: Record<IssueStage, number> = {
   planning: 0,
   in_progress: 1 / 3,
   review: 2 / 3,
-  verifying: 5 / 6,
   done: 1,
 }
 
@@ -28,13 +27,12 @@ const STAGE_CLASS: Record<IssueStage, string> = {
   planning: 'text-muted-foreground',
   in_progress: 'text-amber-500',
   review: 'text-sky-500',
-  verifying: 'text-violet-500',
   done: 'text-green-500',
 }
 
 /**
  * Linear-style workflow-state glyph: dashed circle (backlog), open circle
- * (planning), pie-fill circles (in_progress/review/verifying), check (done).
+ * (planning), pie-fill circles (in_progress/review), check (done).
  */
 export function StageGlyph({ stage, size = 14 }: { stage: IssueStage; size?: number }): JSX.Element {
   const label = STAGE_LABELS[stage]

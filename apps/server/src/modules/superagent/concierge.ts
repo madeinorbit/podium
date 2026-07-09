@@ -48,11 +48,12 @@ export interface ConciergeSessionInfo {
   phase?: string
   spawnedBy?: string
   issueSeq?: number
+  cwd?: string
 }
 
 const issueLine = (i: IssueWire): string => `#${i.seq} ${i.title} P${i.priority}`
 
-function eventLine(e: ConciergeEvent, seqOf: (id: string) => number | undefined): string {
+export function eventLine(e: ConciergeEvent, seqOf: (id: string) => number | undefined): string {
   const p = (e.payload ?? {}) as Record<string, unknown>
   const seq = typeof p.seq === 'number' ? p.seq : seqOf(e.subject)
   const extra =

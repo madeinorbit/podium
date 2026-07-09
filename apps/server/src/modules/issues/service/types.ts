@@ -180,8 +180,10 @@ export interface CreateIssueInput {
   assignee?: string
   labels?: string[]
   parentId?: string
-  /** Whose intent this issue captures; default 'human'. */
+  /** Who CREATED this issue; caller-derived, default 'human' (#198). */
   origin?: 'human' | 'agent'
+  /** Who this issue is FOR; agent-declared, default 'human' (#198). */
+  audience?: 'human' | 'agent'
   /** Draft vessel with a placeholder title (issue-as-workspace); default false. */
   draft?: boolean
   /** Client-supplied id (optimistic UI): used verbatim instead of minting a fresh

@@ -122,6 +122,10 @@ export const issueInputs = {
     assignee: z.string().optional(),
     labels: z.array(z.string()).optional(),
     parentId: z.string().optional(),
+    // #198: an agent opts a work item onto the human's top-level board with
+    // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
+    // caller (operator vs constrained agent), so provenance cannot be forged.
+    audience: z.enum(['human', 'agent']).optional(),
     mutationId: z.string().max(128).optional(),
   }),
   start: z.object({ id: z.string(), agentKind: z.string().optional() }),
@@ -472,7 +476,7 @@ export class IssueCommandService {
       } as never),
     )
   }
-  create(c: IssueCaller, input: In<'create'>) {
+  async create(c: IssueCaller, input: In<'create'>) {
     // issues.create ALWAYS creates locally in P7b (creating INTO the hub needs
     // repo mapping — spec §2.2). A repoPath that exists only among the hub's
     // mirrored issues is detectable: reject it clearly instead of silently
@@ -488,9 +492,50 @@ export class IssueCommandService {
         message: `repo ${input.repoPath} exists only on the hub — create the issue on the hub itself`,
       })
     }
-    return this.deps.withMutation(input.mutationId, 'issues.create', () =>
-      this.issues().createAndMaybeStart(input),
-    )
+    // #198 [spec:SP-a859]: two provenance axes, both derived HERE so they can't be forged.
+    //  - origin  = WHO CREATED it: the unconstrained operator (scope 'all', i.e.
+    //    the web UI / human) → 'human'; any constrained agent → 'agent'.
+    //  - audience = WHO IT IS FOR: operator creates are always human-facing; an
+    //    agent's creates default to 'agent' (internal working detail) and are
+    //    opted onto the board only when the agent passes audience: 'human'.
+    const isOperator = c.capability.scope.kind === 'all'
+    const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
+    const audience: 'human' | 'agent' = isOperator ? 'human' : (input.audience ?? 'agent')
+    // The orphan-internal guard is computed INSIDE withMutation so it is cached
+    // with the result: a replayed create (same mutationId) returns the identical
+    // payload even if the tree changed in between. An audience:'agent' issue is
+    // visible only when its parent chain reaches an audience:'human' ancestor
+    // (filterBoardScope). With none it is invisible — warn (don't block) so an
+    // unattached agent doesn't silently lose the issue.
+    return this.deps.withMutation(input.mutationId, 'issues.create', async () => {
+      const created = await this.issues().createAndMaybeStart({ ...input, origin, audience })
+      if (audience === 'agent' && !this.hasHumanAudienceAncestor(created)) {
+        return {
+          ...created,
+          warning:
+            'This issue is invisible: it is internal (audience: agent) but has no ' +
+            'human-facing parent. Pass `--audience human`, or attach to an issue first ' +
+            'so it nests under a tracked parent.',
+        }
+      }
+      return created
+    })
+  }
+
+  /** Walk an issue's parent chain; true iff some ancestor is human-audience —
+   *  i.e. the board's filterBoardScope will surface this (internal) issue nested
+   *  under it. Cycle-guarded. (#198) */
+  private hasHumanAudienceAncestor(issue: { parentId?: string | null }): boolean {
+    const seen = new Set<string>()
+    let parentId: string | null | undefined = issue.parentId
+    while (parentId && !seen.has(parentId)) {
+      seen.add(parentId)
+      const parent = this.issues().get(parentId)
+      if (!parent) return false
+      if (parent.audience === 'human') return true
+      parentId = parent.parentId
+    }
+    return false
   }
   start(c: IssueCaller, input: In<'start'>) {
     return this.issueWrite(c, 'start', input, () => this.issues().start(input.id, input.agentKind))

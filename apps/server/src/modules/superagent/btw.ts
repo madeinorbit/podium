@@ -3,7 +3,7 @@
  * blocks derived from a chat session's transcript — the seed for a fresh
  * `btw_<sessionId>` thread and the marked delta a re-opened thread gets.
  */
-import type { TranscriptItem } from '@podium/protocol'
+import type { HarnessAgent, TranscriptItem } from '@podium/protocol'
 
 export interface BtwSessionInfo {
   sessionId: string
@@ -135,6 +135,44 @@ export function buildBtwSeed(opts: {
     tail = tail.slice(Math.ceil(tail.length / 4))
   }
   return (head + userBlock + body).slice(0, maxChars)
+}
+
+/**
+ * Context handoff when the superagent's harness changes mid-thread (#199). The
+ * new harness has no native session, so seed its first turn with a deterministic
+ * digest of the OUTGOING harness's transcript: recap + every user message +
+ * a recent full-detail tail (same shape as buildBtwSeed). Best-effort — the new
+ * agent lacks the old harness's internal scratch state, but it picks up the
+ * conversation instead of starting cold. Budget-capped, trimming the tail first.
+ */
+export function buildHandoffSeed(opts: {
+  from: HarnessAgent
+  to: HarnessAgent
+  items: TranscriptItem[]
+  maxChars?: number
+  tailN?: number
+}): string {
+  const { from, to, items } = opts
+  const maxChars = opts.maxChars ?? 20_000
+  const tailN = opts.tailN ?? 20
+  const users = items.filter((i) => i.role === 'user' && i.text.trim())
+  const head =
+    `[HANDOFF]\n` +
+    `You are continuing this conversation; the harness was switched from ${from} ` +
+    `to ${to}. You do not have the previous session's internal state — this digest ` +
+    `is your context. Pick up where it left off.\n` +
+    `\n${buildBtwRecap(items)}\n`
+  const userBlock =
+    `\nUser's messages (oldest→newest):\n` +
+    users.map((u) => `- [${u.ts ?? '?'}] ${u.text.slice(0, 2000)}`).join('\n')
+  let tail = items.slice(-tailN)
+  let body = ''
+  while (tail.length > 0) {
+    body = `\n\nRecent activity (last ${tail.length} items):\n${tail.map(lineForItem).join('\n')}`
+    if (head.length + userBlock.length + body.length <= maxChars) break
+    tail = tail.slice(Math.ceil(tail.length / 4))
+  }
+  return head + userBlock + body
 }
 
 /** A re-open update: what changed in the origin session since the agent last looked. */

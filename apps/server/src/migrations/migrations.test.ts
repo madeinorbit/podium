@@ -38,6 +38,31 @@ describe('runMigrations', () => {
     expect(rows).toEqual(MIGRATIONS.map((m) => ({ version: m.version, name: m.name })))
   })
 
+  it('009 backfills audience FROM origin so the board filter matches the old origin filter (#198)', () => {
+    const db = openMemory()
+    // Bring the schema to just before 009, seed rows with each origin.
+    runMigrations(
+      db,
+      MIGRATIONS.filter((m) => m.version <= 8),
+    )
+    db.exec(
+      `INSERT INTO issues (id, repo_path, seq, title, stage, default_agent, created_at, updated_at, origin)
+       VALUES ('iss_h', '/r', 1, 'human one', 'backlog', 'claude-code', 't', 't', 'human'),
+              ('iss_a', '/r', 2, 'agent one', 'backlog', 'claude-code', 't', 't', 'agent')`,
+    )
+    // Apply 009.
+    runMigrations(db)
+    const rows = db.prepare('SELECT id, origin, audience FROM issues ORDER BY id').all() as {
+      id: string
+      origin: string
+      audience: string
+    }[]
+    expect(rows).toEqual([
+      { id: 'iss_a', origin: 'agent', audience: 'agent' },
+      { id: 'iss_h', origin: 'human', audience: 'human' },
+    ])
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)

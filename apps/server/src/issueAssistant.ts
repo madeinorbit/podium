@@ -8,14 +8,12 @@ export interface StageDigest {
   allIdleDone: boolean
   prOpen: boolean
   merged: boolean
-  testsGreen: boolean
 }
 
 export function suggestStage(d: StageDigest): IssueStage | null {
   let target: IssueStage = d.stage
-  if (d.merged) target = d.testsGreen ? 'done' : 'verifying'
+  if (d.merged) target = 'done'
   else if (d.prOpen) target = 'review'
-  else if (d.stage === 'verifying' && d.testsGreen) target = 'done'
   else if (d.stage === 'planning' && d.hasPlanArtifact && d.allIdleDone) target = 'in_progress'
   return target !== d.stage ? target : null
 }

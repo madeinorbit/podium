@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { nativeAccountId, resolveRole } from '@podium/runtime'
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
@@ -146,7 +147,7 @@ export function SidebarUnified(): JSX.Element {
     void trpc.settings.get
       .query()
       .then((s) => {
-        if (alive) setAgentSetting(s.sessionDefaults.agent)
+        if (alive) setAgentSetting(resolveRole(s, 'coding').harness)
       })
       .catch(() => {})
     return () => {
@@ -196,7 +197,7 @@ export function SidebarUnified(): JSX.Element {
     setView('workspace')
   }
 
-  /** Persist a menu-picked agent as the new default (sessionDefaults.agent).
+  /** Persist a menu-picked agent as the new default (roles.coding.accountId).
    *  'shell' isn't a valid session default — a shell pick spawns but doesn't
    *  change the sticky default. */
   async function persistDefaultAgent(kind: AgentKind): Promise<void> {
@@ -205,9 +206,12 @@ export function SidebarUnified(): JSX.Element {
       const current = await trpc.settings.get.query()
       const updated = await trpc.settings.set.mutate({
         ...current,
-        sessionDefaults: { ...current.sessionDefaults, agent: kind },
+        roles: {
+          ...current.roles,
+          coding: { ...current.roles.coding, accountId: nativeAccountId(kind) },
+        },
       })
-      setAgentSetting(updated.sessionDefaults.agent)
+      setAgentSetting(resolveRole(updated, 'coding').harness)
     } catch {
       setAgentSetting(kind) // optimistic — best-effort persistence
     }
@@ -566,7 +570,8 @@ export function SidebarUnified(): JSX.Element {
 
       <div className="mt-1 flex-1 overflow-y-auto pb-3">
         {/* WORKING — fully-working issues/worktrees and working sessions lifted
-            out of partially-working rows; everything here is REMOVED from WORK. */}
+            out of partially-working rows; these are REMOVED from WORK. Pinned
+            issues are the exception: they mirror here and stay in WORK. */}
         {working.length > 0 && (
           <div className="min-w-0">
             <CollapsibleSection
@@ -752,9 +757,11 @@ function UnifiedRowShell({
             <span
               className={cn(
                 'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
-                // Unread rows read bold (email-style) — the ONLY weight change in
-                // the row, independent of selection so the two never blur together.
-                unread && 'font-semibold',
+                // Unread rows lift to medium weight (email-style) — the ONLY weight
+                // change in the row, independent of selection so the two never blur
+                // together. Medium, not semibold: heavier reads as shouting once a
+                // whole list is unread.
+                unread && 'font-medium',
               )}
             >
               {label}

@@ -74,6 +74,17 @@ function defaultFormatError(error: unknown, fallback: string): string {
   return fallback
 }
 
+/** What this client has on screen, sent with every superagent turn (#225). Mirrors
+ *  the server's `UserFocus` zod schema (apps/server/src/modules/superagent/global.ts). */
+export interface UserFocus {
+  view?: MainView
+  worktreePath?: string
+  issueId?: string
+  focusedSessionId?: string
+  visibleSessionIds?: string[]
+  filePath?: string
+}
+
 export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   hub: SocketHub
   trpc: TApi
@@ -251,6 +262,11 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Count of not-yet-synced outbox entries (offline-authored writes waiting to
    *  replay) — drives the "pending" chip in HostIndicators. */
   outboxSize: number
+  /** What the user is LOOKING AT right now (#225): the screen, selected issue/
+   *  worktree, session(s) on screen. Ids only — the server resolves them to
+   *  titles/names. Read through a ref internally so this stays a stable function
+   *  identity and never forces a re-render on pane/session churn. */
+  getUserFocus: () => UserFocus
 }
 
 // The main-view union lives with the router (URL ↔ view mapping).
@@ -1043,6 +1059,27 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     reportViewState()
   }, [reportViewState])
 
+  // What the user is LOOKING AT, snapshotted for each superagent turn (#225): the
+  // screen, the selected issue/worktree, the session(s) on screen. Ids only — the
+  // server resolves them to titles/names. Read through a ref so consumers get a
+  // stable `getUserFocus` and never re-render on pane/session churn.
+  const userFocusRef = useRef<UserFocus>({})
+  {
+    const paneIds = [paneA, split ? paneB : null].filter((x): x is string => x != null)
+    const focusedId = split ? (focusedPane === 'A' ? paneA : paneB) : paneA
+    const isSession = (id: string) => sessions.some((s) => s.sessionId === id)
+    const focusedFile = focusedId ? fileTabs.find((f) => f.id === focusedId) : undefined
+    userFocusRef.current = {
+      view,
+      ...(selectedWorktree ? { worktreePath: selectedWorktree } : {}),
+      ...(selectedIssueId ? { issueId: selectedIssueId } : {}),
+      ...(focusedId && isSession(focusedId) ? { focusedSessionId: focusedId } : {}),
+      visibleSessionIds: paneIds.filter(isSession),
+      ...(focusedFile ? { filePath: focusedFile.path } : {}),
+    }
+  }
+  const getUserFocus = useMemo(() => () => userFocusRef.current, [])
+
   useEffect(() => {
     // Wait for the first repo load — otherwise a persisted (restored) selection
     // would be wiped against the still-empty repo list before discovery resolves.
@@ -1332,6 +1369,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     readFileScoped,
     writeFileScoped,
     listDir,
+    getUserFocus,
   }
   // Publish into the subscription store (created once; identity is the context
   // value). publish() shallow-compares, so a provider re-render where nothing

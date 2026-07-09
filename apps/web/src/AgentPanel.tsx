@@ -176,7 +176,7 @@ export function AgentPanel({
     trpc.settings.get
       .query()
       .then((s) => {
-        setStartScreen(s.sessionDefaults.startScreen)
+        setStartScreen(s.roles.coding.startScreen)
       })
       .catch(() => {
         /* keep default */

@@ -220,7 +220,7 @@ describe('machines store', () => {
     expect(s2.repos.listRepoPaths()).toEqual(['/a'])
     // The settings row written through migrate() survives the reopen — a proxy that
     // the meta table wasn't wiped.
-    expect(s2.settings.getSettings().sessionDefaults.agent).toBe('auto') // defaults always present
+    expect(s2.settings.getSettings().roles.coding.accountId).toBe('') // defaults always present
     s2.close()
     rmSync(file, { force: true })
   })

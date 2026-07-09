@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  computeEpicProgress,
+  computeEpicProgressMap,
   DEFAULT_DISPLAY,
+  filterBoardScope,
   orderIssues,
   readIssuesDisplay,
   writeIssuesDisplay,
@@ -50,6 +53,70 @@ describe('orderIssues', () => {
     const list = [issue({ id: 'a', priority: 3 }), issue({ id: 'b', priority: 0 })]
     orderIssues(list, 'priority')
     expect(list[0]?.id).toBe('a')
+  })
+})
+
+describe('filterBoardScope audience (#198)', () => {
+  it('hides internal (audience: agent) issues from the top level', () => {
+    const human = issue({ id: 'h', audience: 'human' })
+    const internal = issue({ id: 'a', audience: 'agent' })
+    const ids = filterBoardScope([human, internal], false).map((i) => i.id)
+    expect(ids).toEqual(['h'])
+  })
+  it('keys on audience, not origin: an agent-origin human-audience issue stays visible', () => {
+    // The "agent cut a human-facing epic" case — origin agent but on the board.
+    const agentEpic = issue({ id: 'e', origin: 'agent', audience: 'human' })
+    expect(filterBoardScope([agentEpic], false).map((i) => i.id)).toEqual(['e'])
+  })
+  it('keeps an internal child nested under a human-audience ancestor', () => {
+    const epic = issue({ id: 'e', audience: 'human' })
+    const child = issue({ id: 'c', audience: 'agent', parentId: 'e' })
+    const ids = filterBoardScope([epic, child], false)
+      .map((i) => i.id)
+      .sort()
+    expect(ids).toEqual(['c', 'e'])
+  })
+  it('drops an orphan internal issue with no human-audience ancestor', () => {
+    const orphan = issue({ id: 'o', audience: 'agent', parentId: undefined })
+    const nested = issue({ id: 'n', audience: 'agent', parentId: 'o' })
+    expect(filterBoardScope([orphan, nested], false)).toEqual([])
+  })
+  it('showAgentTasks reveals internal issues at the top level', () => {
+    const internal = issue({ id: 'a', audience: 'agent' })
+    expect(filterBoardScope([internal], true).map((i) => i.id)).toEqual(['a'])
+  })
+})
+
+describe('computeEpicProgress (#198)', () => {
+  it('returns null when the issue has no descendants', () => {
+    expect(computeEpicProgress([issue({ id: 'e' })], 'e')).toBeNull()
+  })
+  it('counts done/total across the whole descendant subtree', () => {
+    const epic = issue({ id: 'e' })
+    const c1 = issue({ id: 'c1', parentId: 'e', stage: 'done' })
+    const c2 = issue({ id: 'c2', parentId: 'e', stage: 'in_progress' })
+    const grandchild = issue({ id: 'g', parentId: 'c2', stage: 'done' })
+    const p = computeEpicProgress([epic, c1, c2, grandchild], 'e')
+    expect(p).toEqual({ total: 3, done: 2, liveAgents: 0 })
+  })
+  it('counts descendants with a live session', () => {
+    const epic = issue({ id: 'e' })
+    const busy = issue({
+      id: 'c',
+      parentId: 'e',
+      sessions: [{ status: 'live' } as never],
+    })
+    expect(computeEpicProgress([epic, busy], 'e')?.liveAgents).toBe(1)
+  })
+  it('map form computes every root over one shared index', () => {
+    const list = [
+      issue({ id: 'e1' }),
+      issue({ id: 'c1', parentId: 'e1', stage: 'done' }),
+      issue({ id: 'e2' }), // no descendants → null
+    ]
+    const map = computeEpicProgressMap(list, ['e1', 'e2'])
+    expect(map.get('e1')).toEqual({ total: 1, done: 1, liveAgents: 0 })
+    expect(map.get('e2')).toBeNull()
   })
 })
 

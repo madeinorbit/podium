@@ -10,13 +10,12 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { superagentHarnessAgent } from '@podium/runtime'
-import { HARNESS_MCP_SUPPORT } from '@podium/runtime'
-import { HarnessAgent } from '@podium/protocol'
+import { HARNESS_MCP_SUPPORT, resolveRole, roleApiBackend, superagentHarnessAgent } from '@podium/runtime'
+import { HarnessAgent, type IssueWire } from '@podium/protocol'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from '../../store'
-import { transcriptDelta, buildBtwDelta, buildBtwSeed, type BtwSessionInfo } from './btw'
+import { transcriptDelta, buildBtwDelta, buildBtwSeed, buildHandoffSeed, type BtwSessionInfo } from './btw'
 import {
   buildConciergeDelta,
   buildConciergeSeed,
@@ -26,6 +25,15 @@ import {
   type ConciergeEvent,
   type ConciergeSessionInfo,
 } from './concierge'
+import {
+  buildFocusBlock,
+  buildGlobalSeed,
+  type FocusIssueInfo,
+  type FocusSessionInfo,
+  type GlobalQuestion,
+  type GlobalRepoDigest,
+  type UserFocusInput,
+} from './global'
 import {
   type Args,
   buildSuperagentTools,
@@ -193,9 +201,48 @@ export class SuperagentService {
     return this.store.superagent.loadSuperagentMessages(threadId)
   }
 
+  /**
+   * Reset a thread's context (issue #225). The harness owns the conversation, so
+   * clearing the legacy buffered rows alone was a no-op the user could see —
+   * the real reset drops the harness+headless binding and the event watermark,
+   * so the NEXT turn is a first turn: a fresh harness session, re-primed with
+   * the seed digest. The old headless row is disposed (it has no PTY; nothing
+   * else points at it once the binding is gone).
+   *
+   * A btw/concierge thread IS its context — clearing one archives it, and
+   * re-opening the origin session/repo mints a freshly-seeded thread.
+   *
+   * Unlike sendTurn, clear RELEASES a terminal lock instead of refusing it: once
+   * the harness binding is dropped, the open terminal session resumes a harness
+   * conversation this thread no longer points at, so there is no second writer
+   * left to protect against. (Refusing here would strand the user on a thread
+   * they can neither chat with nor reset.) The PTY session itself lives on.
+   */
   clear(threadId = 'global'): void {
-    if (threadId === 'global') this.store.superagent.clearSuperagentMessages('global')
-    else this.store.superagent.archiveSuperagentThread(threadId)
+    const thread = this.store.superagent.getSuperagentThread(threadId)
+    if (this.turnInFlight.has(threadId)) {
+      throw new Error('a turn is running on this thread — wait for it to finish')
+    }
+    if (threadId !== 'global') {
+      this.store.superagent.archiveSuperagentThread(threadId)
+      return
+    }
+    this.store.superagent.clearSuperagentMessages('global')
+    if (!thread) return
+    this.store.superagent.updateSuperagentThreadBinding('global', {
+      harnessSessionId: null,
+      podiumSessionId: null,
+      terminalSessionId: null,
+    })
+    this.store.superagent.setThreadWatermark('global', '', undefined)
+    if (thread.podiumSessionId) {
+      // Best-effort: a stale/absent row must not block the reset the user asked for.
+      try {
+        this.modules.sessions.killSession({ sessionId: thread.podiumSessionId })
+      } catch {
+        // already gone
+      }
+    }
   }
 
   listThreads(): SuperagentThreadRow[] {
@@ -218,11 +265,14 @@ export class SuperagentService {
   async sendTurn({
     threadId,
     text,
+    focus,
   }: {
     threadId: string
     text: string
+    /** What the sending client has on screen (#225) — prepended to every turn. */
+    focus?: UserFocusInput
   }): Promise<{ threadId: string; podiumSessionId: string }> {
-    const thread = this.store.superagent.getSuperagentThread(threadId)
+    let thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is already running on this thread — stop it or wait for it to finish')
@@ -233,15 +283,37 @@ export class SuperagentService {
     let sessionId: string
     try {
       const settings = this.store.settings.getSettings()
-      // Freeze the agent onto the thread on first contact; later turns keep it
-      // even if the settings default changes (the harness session is agent-bound).
+      const intended = superagentHarnessAgent(settings)
       const frozen = HarnessAgent.safeParse(thread.agentKind)
-      const agent: HarnessAgent = frozen.success ? frozen.data : superagentHarnessAgent(settings)
-      if (!frozen.success) this.store.superagent.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+      // Freeze the agent onto the thread on first contact. On later turns, if the
+      // user has since changed the superagent harness, SWITCH (#199): the harness
+      // owns its native session so we can't retarget it — start a fresh one and
+      // hand off context digested from the outgoing harness's transcript.
+      let agent: HarnessAgent
+      let handoff: string | undefined
+      if (!frozen.success) {
+        agent = intended
+        this.store.superagent.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+      } else if (frozen.data !== intended) {
+        agent = intended
+        handoff = await this.buildHandoff(thread, frozen.data, intended)
+        // Drop the harness resume + headless row so this becomes a fresh first
+        // turn on the new harness (re-fetch the row to reflect the reset).
+        this.store.superagent.updateSuperagentThreadBinding(threadId, {
+          agentKind: agent,
+          harnessSessionId: null,
+          podiumSessionId: null,
+        })
+        const refreshed = this.store.superagent.getSuperagentThread(threadId)
+        if (refreshed) thread = refreshed
+      } else {
+        agent = frozen.data
+      }
       const cwd = this.threadCwd(thread)
       // Ensure the headless Podium session (recreate if the row was deleted).
-      const existing = thread.podiumSessionId
-        ? this.listSessions().find((s) => s.sessionId === thread.podiumSessionId)
+      const boundSessionId = thread.podiumSessionId
+      const existing = boundSessionId
+        ? this.listSessions().find((s) => s.sessionId === boundSessionId)
         : undefined
       if (existing) {
         sessionId = existing.sessionId
@@ -258,12 +330,15 @@ export class SuperagentService {
       // messages, no harness session) re-primes through the seed the same way.
       const firstTurn = !thread.harnessSessionId
       const context = await this.composeContext(thread, firstTurn)
-      const prompt = context ? `${context}\n\n${text}` : text
+      // Handoff (harness switch) leads, then the kind-specific seed/delta, then
+      // the user's current screen — closest to their message, where "this" resolves.
+      const preamble = [handoff, context, this.focusBlock(focus)].filter(Boolean).join('\n\n')
+      const prompt = preamble ? `${preamble}\n\n${text}` : text
       const systemPrompt =
         thread.kind === 'concierge'
           ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
           : SYSTEM_PROMPT
-      const backend = settings.superagent
+      const backend = resolveRole(settings, 'superagent')
       // Claude sessions are minted with our uuid so the thread↔transcript
       // binding is deterministic from turn 1; other harnesses report theirs.
       const sessionUuid = firstTurn && agent === 'claude-code' ? randomUUID() : undefined
@@ -273,7 +348,10 @@ export class SuperagentService {
           sessionId,
           threadId,
           agent,
-          model: backend.kind === 'harness' ? backend.harnessModel : 'auto',
+          // Harness execution uses the role's model; api execution (managed
+          // provider / codex) still runs a harness with no model override.
+          model: backend.execution === 'harness' ? backend.model : 'auto',
+          ...(backend.effort && backend.effort !== 'auto' ? { effort: backend.effort } : {}),
           cwd,
           prompt,
           systemPrompt,
@@ -288,15 +366,27 @@ export class SuperagentService {
       )
       void turn.then((result) => {
         this.turnInFlight.delete(threadId)
+        // Bind the harness session on the FIRST turn whether it succeeded or not.
+        // A turn that fails after the harness minted its session (interrupt, tool
+        // crash, error_during_execution) still wrote a real conversation to disk;
+        // dropping its id orphaned the thread — the transcript never bound, the
+        // "open in terminal" button stayed hidden, and the next turn silently
+        // started over in a fresh conversation instead of resuming.
+        //
+        // On FAILURE only a REPORTED id counts. Our minted `sessionUuid` is a
+        // fallback for a successful claude turn; a turn that died before the
+        // harness ever ran (`claude: command not found`) wrote no conversation,
+        // and binding that uuid would leave every later turn resuming a session
+        // that does not exist.
+        const harnessSessionId = result.harnessSessionId ?? (result.ok ? sessionUuid : undefined)
+        if (firstTurn && harnessSessionId) {
+          this.store.superagent.updateSuperagentThreadBinding(threadId, { harnessSessionId })
+          this.modules.headless.setHeadlessResume(sessionId, {
+            kind: RESUME_KIND[agent],
+            value: harnessSessionId,
+          })
+        }
         if (result.ok) {
-          const harnessSessionId = result.harnessSessionId ?? sessionUuid
-          if (firstTurn && harnessSessionId) {
-            this.store.superagent.updateSuperagentThreadBinding(threadId, { harnessSessionId })
-            this.modules.headless.setHeadlessResume(sessionId, {
-              kind: RESUME_KIND[agent],
-              value: harnessSessionId,
-            })
-          }
           this.modules.headless.broadcastHeadlessActivity(sessionId, { kind: 'turn-end' })
         } else {
           const error = result.error ?? 'unknown error'
@@ -314,6 +404,26 @@ export class SuperagentService {
       throw err
     }
     return { threadId, podiumSessionId: sessionId }
+  }
+
+  /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
+   *  own result broadcasts the turn-end). */
+  /** Manually reset the thread's harness session: the next turn mints a fresh one
+   *  (#199). Recovery escape hatch for a wedged/stale harness — keeps the thread
+   *  and its history; a deliberate reset starts the new session cold (unlike an
+   *  automatic harness switch, which hands off context). */
+  restartThread({ threadId }: { threadId: string }): void {
+    const thread = this.store.superagent.getSuperagentThread(threadId)
+    if (!thread) throw new Error(`unknown thread: ${threadId}`)
+    if (this.turnInFlight.has(threadId)) {
+      throw new Error('a turn is running on this thread — wait for it to finish')
+    }
+    const lockError = this.terminalLockError(thread)
+    if (lockError) throw new Error(lockError)
+    this.store.superagent.updateSuperagentThreadBinding(threadId, {
+      harnessSessionId: null,
+      podiumSessionId: null,
+    })
   }
 
   /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
@@ -358,9 +468,11 @@ export class SuperagentService {
   async conciergeTurn({
     repoPath,
     text,
+    focus,
   }: {
     repoPath: string
     text: string
+    focus?: UserFocusInput
   }): Promise<{ threadId: string; podiumSessionId: string; isNew: boolean }> {
     if (!this.repos.list().includes(repoPath)) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
@@ -376,7 +488,7 @@ export class SuperagentService {
         title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
       })
     }
-    const ack = await this.sendTurn({ threadId, text })
+    const ack = await this.sendTurn({ threadId, text, ...(focus ? { focus } : {}) })
     return { ...ack, isNew }
   }
 
@@ -429,6 +541,28 @@ export class SuperagentService {
     }
     this.store.superagent.updateSuperagentThreadBinding(thread.id, { terminalSessionId: null })
     return undefined
+  }
+
+  /** Digest the outgoing harness's transcript into a handoff seed for the new
+   *  harness on a mid-thread switch (#199). Best-effort: never blocks the turn. */
+  private async buildHandoff(
+    thread: SuperagentThreadRow,
+    from: HarnessAgent,
+    to: HarnessAgent,
+  ): Promise<string | undefined> {
+    const src = thread.podiumSessionId
+    if (!src) return undefined
+    try {
+      const { items } = await this.modules.rpc.readTranscript({
+        sessionId: src,
+        direction: 'before',
+        limit: 2000,
+      })
+      if (items.length === 0) return undefined
+      return buildHandoffSeed({ from, to, items })
+    } catch {
+      return undefined
+    }
   }
 
   /** The machine-authored context block for a turn: the concierge seed / issue-
@@ -503,7 +637,116 @@ export class SuperagentService {
       this.store.superagent.setThreadWatermark(thread.id, last?.id ?? thread.watermarkItemId ?? '', last?.ts)
       return update
     }
+    // Global thread: prime a fresh session with the cross-repo digest (#225). No
+    // re-entry delta — every turn already carries the [USER VIEW] block, and the
+    // orchestrator's tools cover anything else it wants to know.
+    if (thread.kind === 'global' && firstTurn) {
+      const maxEventId = this.store.events.maxEventId()
+      const seed = buildGlobalSeed({ ...this.globalDigest(maxEventId), maxEventId })
+      this.store.superagent.setThreadWatermark(thread.id, String(maxEventId), now())
+      return seed
+    }
     return undefined
+  }
+
+  /** Zero-LLM cross-repo digest: per-repo tracker counts, live sessions, open
+   *  questions, recent events. Inputs for buildGlobalSeed. */
+  private globalDigest(
+    maxEventId: number,
+  ): Omit<Parameters<typeof buildGlobalSeed>[0], 'maxEventId'> {
+    const issues = this.modules.issues
+    const repoPaths = this.repos.list()
+    const repos: GlobalRepoDigest[] = []
+    const questions: GlobalQuestion[] = []
+    const issueByWorktree = new Map<string, IssueWire>()
+    for (const repoPath of repoPaths) {
+      const all = issues.list(repoPath)
+      for (const i of all) if (i.worktreePath) issueByWorktree.set(i.worktreePath, i)
+      const needsHuman = all.filter((i) => i.needsHuman)
+      for (const i of needsHuman) {
+        questions.push({
+          repoPath,
+          seq: i.seq,
+          ...(i.humanQuestion ? { question: i.humanQuestion } : {}),
+        })
+      }
+      repos.push({
+        repoPath,
+        worktrees: new Set(all.map((i) => i.worktreePath).filter(Boolean)).size,
+        issues: all.length,
+        ready: issues.readyList(repoPath).length,
+        inProgress: all.filter((i) => i.stage === 'in_progress').length,
+        needsHuman: needsHuman.length,
+      })
+    }
+    const sessions: ConciergeSessionInfo[] = this.listSessions()
+      .filter((s) => s.status !== 'exited' && !s.archived && !s.headless)
+      .map((s) => this.sessionInfo(s.sessionId) ?? { sessionId: s.sessionId })
+    return {
+      repos,
+      sessions,
+      questions,
+      // The seed wants the NEWEST events; the log reads ascending, so anchor the
+      // cursor a window back from the head instead of at 0.
+      events: this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit)).events,
+    }
+  }
+
+  /** One live session, digested for a seed / focus block. */
+  private sessionInfo(sessionId: string): FocusSessionInfo | undefined {
+    const s = this.listSessions().find((x) => x.sessionId === sessionId)
+    if (!s) return undefined
+    const issue = s.issueId ? this.issueById(s.issueId) : undefined
+    return {
+      sessionId: s.sessionId,
+      ...((s.name ?? s.title) ? { name: s.name ?? s.title } : {}),
+      ...(s.agentKind ? { agentKind: s.agentKind } : {}),
+      ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
+      ...(s.status ? { status: s.status } : {}),
+      ...(s.spawnedBy ? { spawnedBy: s.spawnedBy } : {}),
+      ...(s.cwd ? { cwd: s.cwd } : {}),
+      ...(issue ? { issueSeq: issue.seq } : {}),
+    }
+  }
+
+  /** An issue by id, across every registered repo (ids are globally unique). */
+  private issueById(issueId: string): IssueWire | undefined {
+    for (const repoPath of this.repos.list()) {
+      const found = this.modules.issues.list(repoPath).find((i) => i.id === issueId)
+      if (found) return found
+    }
+    return undefined
+  }
+
+  /** The [USER VIEW] block for a turn: client-reported ids, resolved server-side
+   *  to names/titles/status. Undefined when the client reported nothing (an
+   *  MCP-driven or automation turn). */
+  private focusBlock(focus: UserFocusInput | undefined): string | undefined {
+    if (!focus) return undefined
+    const issue = focus.issueId ? this.issueById(focus.issueId) : undefined
+    const focused = focus.focusedSessionId ? this.sessionInfo(focus.focusedSessionId) : undefined
+    const alsoVisible = (focus.visibleSessionIds ?? [])
+      .filter((id) => id !== focus.focusedSessionId)
+      .map((id) => this.sessionInfo(id))
+      .filter((s): s is FocusSessionInfo => !!s)
+    return buildFocusBlock({
+      now: new Date().toISOString(),
+      ...(focus.view ? { view: focus.view } : {}),
+      ...(issue
+        ? {
+            issue: {
+              seq: issue.seq,
+              title: issue.title,
+              ...(issue.stage ? { stage: issue.stage } : {}),
+              ...(issue.repoPath ? { repoPath: issue.repoPath } : {}),
+            },
+          }
+        : {}),
+      ...(focus.worktreePath ? { worktreePath: focus.worktreePath } : {}),
+      ...(focused ? { focused } : {}),
+      ...(alsoVisible.length ? { alsoVisible } : {}),
+      ...(focus.filePath ? { filePath: focus.filePath } : {}),
+    })
   }
 
   /** Zero-LLM repo digest inputs: tracker slices + live sessions bound to the repo. */
@@ -550,9 +793,13 @@ export class SuperagentService {
    *  the last raw event id actually read (the safe watermark). */
   private issueEventsSince(
     sinceId: number,
-    repoPath: string,
+    /** Omitted on the global thread: events across every repo. */
+    repoPath?: string,
   ): { events: ConciergeEvent[]; overflowLastId?: number } {
-    const raw = this.store.events.listEventsSince(sinceId, { repoPath, limit: this.eventReadLimit })
+    const raw = this.store.events.listEventsSince(sinceId, {
+      ...(repoPath ? { repoPath } : {}),
+      limit: this.eventReadLimit,
+    })
     const events = raw
       .filter((e) => e.kind.startsWith('issue.'))
       .map((e) => ({ ts: e.ts, kind: e.kind, subject: e.subject, payload: e.payload }))

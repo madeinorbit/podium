@@ -138,6 +138,7 @@ export const DEMO_ISSUES: IssueWire[] = [
     updatedAt: min(20),
     archived: false,
     origin: 'human',
+    audience: 'human',
     draft: false,
     sessions: [],
     sessionSummary: { total: 1, byPhase: { needs_user: 1 } },

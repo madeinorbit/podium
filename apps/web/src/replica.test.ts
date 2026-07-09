@@ -133,6 +133,7 @@ function issue(id: string, title = id): IssueWire {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
+    audience: 'human' as const,
     draft: false,
   }
 }

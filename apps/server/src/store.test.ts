@@ -551,8 +551,8 @@ describe('settings', () => {
   it('returns defaults when nothing was ever saved', () => {
     const store = new SessionStore(':memory:')
     const s = store.settings.getSettings()
-    expect(s.sessionDefaults.agent).toBe('auto')
-    expect(s.superagent.provider).toBe('openrouter')
+    expect(s.roles.coding.accountId).toBe('') // '' = the role's default (claude-code)
+    expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
     expect(s.hibernation.memoryPct).toBe(80)
     store.close()
   })
@@ -563,14 +563,17 @@ describe('settings', () => {
     const s = a.settings.getSettings()
     a.settings.setSettings({
       ...s,
-      sessionDefaults: { ...s.sessionDefaults, agent: 'codex', model: 'gpt-5-codex' },
+      roles: {
+        ...s.roles,
+        coding: { ...s.roles.coding, accountId: 'native:codex', model: 'gpt-5-codex' },
+      },
       hibernation: { ...s.hibernation, memoryPct: 90 },
     })
     a.close()
     const b = new SessionStore(file)
     const loaded = b.settings.getSettings()
-    expect(loaded.sessionDefaults.agent).toBe('codex')
-    expect(loaded.sessionDefaults.model).toBe('gpt-5-codex')
+    expect(loaded.roles.coding.accountId).toBe('native:codex')
+    expect(loaded.roles.coding.model).toBe('gpt-5-codex')
     expect(loaded.hibernation.memoryPct).toBe(90)
     // untouched sections keep their defaults
     expect(loaded.notifications.web).toBe(true)

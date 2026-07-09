@@ -2,11 +2,12 @@
 // persistent harness sessions — sendTurn acks before completion, progress fans
 // out as headlessActivity frames, the harness session id becomes the thread's
 // resume value, and "open in terminal" takes a one-writer lock.
+import { type HarnessAgent, nativeAccountId } from '@podium/runtime'
 import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
-import { RESUME_KIND, SuperagentService, TURN_FAILED_MARKER } from './modules/superagent'
+import { buildHandoffSeed, RESUME_KIND, SuperagentService, TURN_FAILED_MARKER } from './modules/superagent'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -88,6 +89,134 @@ async function harness() {
   }
 }
 
+describe('global thread priming, clear, and per-turn user focus (#225)', () => {
+  it('re-primes with the seed after clear() — a cleared thread starts a fresh harness session', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'one' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    const first = h.registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(first?.harnessSessionId).toBe('h1')
+    const oldSessionId = first?.podiumSessionId
+    expect(oldSessionId).toBeTruthy()
+
+    h.sa.clear('global')
+
+    // Binding dropped + old headless row disposed.
+    const cleared = h.registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(cleared?.harnessSessionId).toBeUndefined()
+    expect(cleared?.podiumSessionId).toBeUndefined()
+    expect(h.registry.modules.sessions.listSessions().find((s) => s.sessionId === oldSessionId)).toBeUndefined()
+
+    // The next turn is a FIRST turn again: new session, no resume, re-primed.
+    const ack = await h.sa.sendTurn({ threadId: 'global', text: 'two' })
+    expect(ack.podiumSessionId).not.toBe(oldSessionId)
+    const req = h.turnReqs[1]!
+    expect(req.resumeValue).toBeUndefined()
+    expect(req.prompt).toContain('[SUPERAGENT CONTEXT]')
+  })
+
+  it('binds the harness session even when the FIRST turn fails — the thread keeps its conversation', async () => {
+    const h = await harness()
+    const { podiumSessionId } = await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    // The harness minted a session, then the turn died (interrupt / tool crash /
+    // error_during_execution). The conversation exists on disk.
+    h.resolveTurn(h.turnReqs[0]!, {
+      ok: false,
+      error: 'claude turn failed: error_during_execution',
+      harnessSessionId: 'h1',
+    })
+    await h.settle()
+
+    const thread = h.registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(thread?.harnessSessionId).toBe('h1')
+    // The headless session carries the resume ref, so its transcript binds...
+    const meta = h.registry.modules.sessions.listSessions().find((s) => s.sessionId === podiumSessionId)
+    expect(meta?.resume).toMatchObject({ kind: RESUME_KIND['claude-code'], value: 'h1' })
+    // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
+    await h.sa.sendTurn({ threadId: 'global', text: 'again' })
+    expect(h.turnReqs[1]!.resumeValue).toBe('h1')
+    h.resolveTurn(h.turnReqs[1]!)
+    await h.settle()
+    // "Open in terminal" is available again (it gates on harnessSessionId).
+    expect(() => h.sa.openInTerminal({ threadId: 'global' })).not.toThrow()
+  })
+
+  it('refuses to clear while a turn is running', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    expect(() => h.sa.clear('global')).toThrow(/turn is running/)
+  })
+
+  it('clear RELEASES a terminal lock — a locked thread can always be reset', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    const { sessionId } = h.sa.openInTerminal({ threadId: 'global' })
+    await expect(h.sa.sendTurn({ threadId: 'global', text: 'x' })).rejects.toThrow(
+      /open in a terminal/,
+    )
+
+    h.sa.clear('global')
+
+    const thread = h.registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(thread?.terminalSessionId).toBeUndefined()
+    // The PTY session the user opened keeps running — only the binding was dropped.
+    expect(h.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)).toBeTruthy()
+    // And chatting works again, from a freshly primed session.
+    const ack = await h.sa.sendTurn({ threadId: 'global', text: 'back to chat' })
+    expect(ack.podiumSessionId).toBeTruthy()
+    expect(h.turnReqs.at(-1)!.prompt).toContain('[SUPERAGENT CONTEXT]')
+  })
+
+  it('prepends what the user is looking at to EVERY turn, resolving ids server-side', async () => {
+    const h = await harness()
+    // A real session to focus, and the issue it belongs to.
+    const issue = h.registry.issues.create({
+      repoPath: '/r',
+      title: 'Fix the thing',
+      startNow: false,
+    })
+    const { sessionId } = h.registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/r' })
+
+    await h.sa.sendTurn({
+      threadId: 'global',
+      text: 'why is this stuck?',
+      focus: {
+        view: 'workspace',
+        worktreePath: '/r',
+        issueId: issue.id,
+        focusedSessionId: sessionId,
+        visibleSessionIds: [sessionId],
+      },
+    })
+    const first = h.turnReqs[0]!.prompt
+    expect(first).toContain('[USER VIEW @')
+    expect(first).toContain(`#${issue.seq} "Fix the thing"`)
+    expect(first).toContain('Worktree in view: /r')
+    expect(first).toContain('Focused pane:')
+    // The block sits closest to the user's message.
+    expect(first.indexOf('[USER VIEW @')).toBeGreaterThan(first.indexOf('[SUPERAGENT CONTEXT]'))
+    expect(first.endsWith('why is this stuck?')).toBe(true)
+
+    // And on LATER turns too — not just the primed first one.
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
+    await h.settle()
+    await h.sa.sendTurn({ threadId: 'global', text: 'and now?', focus: { view: 'issues' } })
+    const second = h.turnReqs[1]!.prompt
+    expect(second).toContain('[USER VIEW @')
+    expect(second).toContain('Screen: issues')
+    expect(second).not.toContain('[SUPERAGENT CONTEXT]') // seed is first-turn only
+  })
+
+  it('omits the block entirely when the caller reports no focus (MCP/automation turns)', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    expect(h.turnReqs[0]!.prompt).not.toContain('[USER VIEW')
+  })
+})
+
 describe('sendTurn (headless harness turns)', () => {
   it('acks before completion, creates the headless session, and dispatches the turn', async () => {
     const h = await harness()
@@ -98,7 +227,10 @@ describe('sendTurn (headless harness turns)', () => {
     expect(h.turnReqs).toHaveLength(1)
     const req = h.turnReqs[0]!
     expect(req.agent).toBe('claude-code') // settings default frozen on
-    expect(req.prompt).toBe('hello') // global thread: no context block
+    // Global thread: primed with the cross-repo digest seed, then the message.
+    expect(req.prompt).toContain('[SUPERAGENT CONTEXT]')
+    expect(req.prompt).toContain('/r')
+    expect(req.prompt.endsWith('hello')).toBe(true)
     expect(req.systemPrompt).toContain('superagent')
     expect(req.resumeValue).toBeUndefined() // first turn
     expect(req.sessionUuid).toBeTruthy() // claude: deterministic session uuid
@@ -364,5 +496,108 @@ describe('boot reconciliation for headless sessions', () => {
       agentKind: 'claude-code',
       resumeValue: 'h1',
     })
+  })
+})
+
+describe('harness switch + effort (#199)', () => {
+  const setSuperagentHarness = (
+    h: Awaited<ReturnType<typeof harness>>,
+    patch: { harness?: HarnessAgent; effort?: string },
+  ) => {
+    const cur = h.registry.sessionStore.settings.getSettings()
+    const harness = patch.harness ?? 'claude-code'
+    h.registry.sessionStore.settings.setSettings({
+      ...cur,
+      roles: {
+        ...cur.roles,
+        superagent: {
+          ...cur.roles.superagent,
+          accountId: nativeAccountId(harness),
+          harness,
+          ...(patch.effort !== undefined ? { effort: patch.effort } : {}),
+        },
+      },
+    })
+  }
+
+  it('switches the harness when the setting changes, starting a fresh session', async () => {
+    const h = await harness()
+    // First turn freezes claude-code and learns a harness session id.
+    const first = await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    expect(h.turnReqs[0]!.agent).toBe('claude-code')
+
+    // User picks a different harness in settings.
+    setSuperagentHarness(h, { harness: 'codex' })
+    const second = await h.sa.sendTurn({ threadId: 'global', text: 'still there?' })
+
+    const req = h.turnReqs[1]!
+    expect(req.agent).toBe('codex') // switched
+    expect(req.resumeValue).toBeUndefined() // fresh session, not resuming claude-1
+    expect(second.podiumSessionId).not.toBe(first.podiumSessionId) // new headless row
+    // The thread is re-bound to the new harness.
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.agentKind).toBe('codex')
+    expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.harnessSessionId).toBeFalsy()
+  })
+
+  it('does not switch when the setting is unchanged (resumes)', async () => {
+    const h = await harness()
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    await h.sa.sendTurn({ threadId: 'global', text: 'again' })
+    expect(h.turnReqs[1]!.agent).toBe('claude-code')
+    expect(h.turnReqs[1]!.resumeValue).toBe('claude-1') // same session
+  })
+
+  it('restartThread resets the harness session so the next turn is fresh', async () => {
+    const h = await harness()
+    const first = await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
+    await h.settle()
+    h.sa.restartThread({ threadId: 'global' })
+    const row = h.registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(row?.harnessSessionId).toBeFalsy()
+    expect(row?.podiumSessionId).toBeFalsy()
+    expect(row?.agentKind).toBe('claude-code') // agent kept, only the session reset
+    const second = await h.sa.sendTurn({ threadId: 'global', text: 'again' })
+    expect(second.podiumSessionId).not.toBe(first.podiumSessionId) // fresh session
+    expect(h.turnReqs[1]!.resumeValue).toBeUndefined()
+  })
+
+  it('plumbs harnessEffort into the turn request; auto sends none', async () => {
+    const h = await harness()
+    setSuperagentHarness(h, { harness: 'claude-code', effort: 'high' })
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    expect(h.turnReqs[0]!.effort).toBe('high')
+
+    const h2 = await harness()
+    setSuperagentHarness(h2, { harness: 'claude-code', effort: 'auto' })
+    await h2.sa.sendTurn({ threadId: 'global', text: 'hi' })
+    expect(h2.turnReqs[0]!.effort).toBeUndefined()
+  })
+})
+
+describe('buildHandoffSeed (#199)', () => {
+  it('frames the handoff and digests the outgoing transcript', () => {
+    const seed = buildHandoffSeed({
+      from: 'claude-code',
+      to: 'codex',
+      items: [
+        { id: '1', role: 'user', text: 'add a login page', ts: 't1' },
+        { id: '2', role: 'assistant', text: 'done', ts: 't2' },
+        { id: '3', role: 'tool', toolName: 'Edit', toolInput: 'login.tsx', text: '', ts: 't3' },
+      ],
+    })
+    expect(seed).toContain('[HANDOFF]')
+    expect(seed).toContain('from claude-code')
+    expect(seed).toContain('to codex')
+    expect(seed).toContain('add a login page') // user message carried verbatim
+    expect(seed).toContain('Recap:') // deterministic recap included
+  })
+
+  it('is empty-safe', () => {
+    expect(() => buildHandoffSeed({ from: 'codex', to: 'grok', items: [] })).not.toThrow()
   })
 })

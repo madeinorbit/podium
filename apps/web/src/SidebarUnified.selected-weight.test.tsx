@@ -48,6 +48,7 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
     sessions: [],
     sessionSummary: { total: 0, byPhase: {} },
     origin: 'human',
+    audience: 'human',
     draft: false,
     childCount: 0,
     childDoneCount: 0,
@@ -140,9 +141,9 @@ describe('SidebarUnified selection weight (#170 Fix 1)', () => {
     expect(label.className).not.toContain('font-medium')
   })
 
-  it('unread remains the sole bold signal', () => {
+  it('unread remains the sole weight signal', () => {
     render(<SidebarUnified />)
     const unreadLabel = screen.getByText('Unread issue')
-    expect(unreadLabel.className).toContain('font-semibold')
+    expect(unreadLabel.className).toContain('font-medium')
   })
 })

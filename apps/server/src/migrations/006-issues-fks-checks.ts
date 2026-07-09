@@ -25,9 +25,12 @@
  */
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { ISSUE_STAGES, IssueType } from '@podium/protocol'
+import { IssueType } from '@podium/protocol'
 
-const STAGES = ISSUE_STAGES
+// Frozen at the value IssueStage held when 006 shipped. An applied migration's
+// DDL must never move with the code — 'verifying' was dropped from the enum in
+// 010, which rebuilds this CHECK; 006 keeps emitting the schema it always did.
+const STAGES = ['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done'] as const
 const TYPES = IssueType.options
 
 function sqlList(values: readonly string[]): string {

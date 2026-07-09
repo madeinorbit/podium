@@ -1,14 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, TranscriptItem } from '@podium/protocol'
-import {
-  ArrowUpRight,
-  Eraser,
-  Mic,
-  PanelRightClose,
-  Send,
-  Sparkles,
-  SquareTerminal,
-} from 'lucide-react'
+import { ArrowUpRight, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -77,6 +69,7 @@ interface AtOption {
  */
 export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.Element {
   const {
+    hub,
     trpc,
     sessions,
     superThreadId,
@@ -84,9 +77,11 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     superRefreshKey,
     setPane,
     setSelectedWorktree,
+    setSelectedIssueId,
     setView,
   } = useStoreSelector(
     (s) => ({
+      hub: s.hub,
       trpc: s.trpc,
       sessions: s.sessions,
       superThreadId: s.superThreadId,
@@ -94,6 +89,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
       superRefreshKey: s.superRefreshKey,
       setPane: s.setPane,
       setSelectedWorktree: s.setSelectedWorktree,
+      setSelectedIssueId: s.setSelectedIssueId,
       setView: s.setView,
     }),
     shallowEqual,
@@ -136,6 +132,17 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     void refreshThreads()
   }, [trpc, superThreadId, superRefreshKey])
 
+  // The thread row learns its harnessSessionId only when a turn ENDS (the harness
+  // reports the id), and that id is what reveals the "open in terminal" button.
+  // Without this refetch the button stays hidden until a thread switch or reload.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshThreads is re-created each render
+  useEffect(() => {
+    if (!podiumSessionId) return
+    return hub.subscribeHeadless?.(podiumSessionId, (event) => {
+      if (event.kind === 'turn-end') void refreshThreads()
+    })
+  }, [hub, podiumSessionId])
+
   // "Open in terminal": focus the PTY session once its row lands in the
   // sessions broadcast (a fresh resume may beat the broadcast by a beat).
   const [focusSessionId, setFocusSessionId] = useState<string | null>(null)
@@ -144,10 +151,14 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     const s = sessions.find((x) => x.sessionId === focusSessionId)
     if (!s) return
     setFocusSessionId(null)
+    // Clear the issue selection first: an issue workspace scopes its tab strip to
+    // the issue's member sessions, so leaving it set showed the issue's (empty)
+    // workspace instead of the superagent's PTY session — a blank middle pane.
+    setSelectedIssueId(null)
     setSelectedWorktree(s.cwd)
     setPane('A', s.sessionId)
     setView('workspace')
-  }, [focusSessionId, sessions, setSelectedWorktree, setPane, setView])
+  }, [focusSessionId, sessions, setSelectedWorktree, setSelectedIssueId, setPane, setView])
 
   const openInTerminal = async () => {
     setError(null)
@@ -160,8 +171,17 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
     }
   }
 
+  // Reset the thread's context: the server drops the harness session (the next
+  // turn re-primes from the seed) and clears the legacy rows. A running turn or a
+  // terminal lock refuses — surface that instead of silently doing nothing (#225).
   const clear = async () => {
-    await trpc.superagent.clear.mutate({ threadId: superThreadId }).catch(() => {})
+    setError(null)
+    try {
+      await trpc.superagent.clear.mutate({ threadId: superThreadId })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return
+    }
     setLegacy([])
     // Clearing a btw thread archives it server-side; fall back to the global thread.
     if (superThreadId !== 'global') setSuperThreadId('global')
@@ -187,12 +207,11 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex min-w-0 items-center gap-2.5 border-b border-border px-[18px] py-3">
-        <h1 className="m-0 inline-flex flex-none items-center gap-[7px] text-[15px] font-medium text-foreground">
-          <Sparkles size={16} aria-hidden="true" />{' '}
-          <span className="truncate">
-            {conciergeRepo ? conciergeLabel(conciergeRepo) : 'Superagent'}
-          </span>
-        </h1>
+        {conciergeRepo && (
+          <h1 className="m-0 flex-none truncate text-[15px] font-medium text-foreground">
+            {conciergeLabel(conciergeRepo)}
+          </h1>
+        )}
         {threads.length > 1 &&
           (isMobile ? (
             <select

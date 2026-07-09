@@ -1,24 +1,16 @@
-import { normalizeSettings } from '@podium/runtime'
+import { nativeAccountId, normalizeSettings, resolveRole } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
-import { backendWithRunKind } from './SettingsView'
 
-describe('SettingsView Background LLM run target', () => {
-  it('drops a stale Codex harness agent when switching a migrated backend to harness', () => {
-    const backend = normalizeSettings({
-      workLlm: {
-        kind: 'api',
-        provider: 'codex',
-        model: 'gpt-5.5',
-        harnessAgent: 'codex',
-      },
-    }).workLlm
-
-    const next = backendWithRunKind(backend, 'harness')
-
-    expect(next).toMatchObject({
-      kind: 'harness',
-      harnessAgent: 'claude-code',
+describe('SettingsView background role migration', () => {
+  it('migrates a legacy codex-api work LLM onto the background role (Responses API)', () => {
+    const s = normalizeSettings({
+      workLlm: { kind: 'api', provider: 'codex', model: 'gpt-5.5', harnessAgent: 'codex' },
     })
-    expect(normalizeSettings({ workLlm: next }).workLlm.kind).toBe('harness')
+    expect(s.roles.background.accountId).toBe(nativeAccountId('codex'))
+    expect(resolveRole(s, 'background')).toMatchObject({
+      execution: 'api',
+      provider: 'codex',
+      model: 'gpt-5.5',
+    })
   })
 })

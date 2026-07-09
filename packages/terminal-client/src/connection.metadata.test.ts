@@ -64,6 +64,7 @@ const issue = (id: string, title: string): IssueWire => ({
   readAt: null,
   unread: false,
   origin: 'human',
+  audience: 'human',
   draft: false,
   sessions: [],
   sessionSummary: { total: 0, byPhase: {} },

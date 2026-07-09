@@ -25,6 +25,7 @@ export type Store = CoreStore<Trpc>
 
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/viewmodels'
+export type { UserFocus } from '@podium/client-core/react'
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),

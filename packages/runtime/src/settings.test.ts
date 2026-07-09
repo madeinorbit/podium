@@ -5,7 +5,11 @@ import {
   AUTO_CONTINUE_MAX_DELAY_MS,
   HARNESS_MCP_SUPPORT,
   HarnessAgent,
+  managedAccountId,
+  nativeAccountId,
   normalizeSettings,
+  resolveRole,
+  roleApiBackend,
   shouldPromptAutoContinue,
   superagentHarnessAgent,
 } from './settings'
@@ -22,25 +26,96 @@ describe('settings harness choices', () => {
       superagent: { kind: 'harness', harnessAgent: 'grok' },
     })
 
-    expect(s.sessionDefaults.agent).toBe('grok')
-    expect(s.superagent).toMatchObject({ kind: 'harness', harnessAgent: 'grok' })
+    expect(s.roles.coding.accountId).toBe(nativeAccountId('grok'))
+    expect(resolveRole(s, 'coding')).toMatchObject({ execution: 'harness', harness: 'grok' })
+    expect(resolveRole(s, 'superagent')).toMatchObject({ execution: 'harness', harness: 'grok' })
   })
 })
 
-describe('normalizeSettings — sessionDefaults.startScreen', () => {
+describe('normalizeSettings — coding.startScreen', () => {
   it('defaults startScreen to native', () => {
-    expect(normalizeSettings({}).sessionDefaults.startScreen).toBe('native')
+    expect(normalizeSettings({}).roles.coding.startScreen).toBe('native')
   })
 
-  it('accepts all three enum values', () => {
-    expect(normalizeSettings({ sessionDefaults: { startScreen: 'chat' } }).sessionDefaults.startScreen).toBe('chat')
-    expect(normalizeSettings({ sessionDefaults: { startScreen: 'auto' } }).sessionDefaults.startScreen).toBe('auto')
-    expect(normalizeSettings({ sessionDefaults: { startScreen: 'native' } }).sessionDefaults.startScreen).toBe('native')
+  it('carries startScreen through migration', () => {
+    expect(
+      normalizeSettings({ sessionDefaults: { startScreen: 'chat' } }).roles.coding.startScreen,
+    ).toBe('chat')
+    expect(
+      normalizeSettings({ sessionDefaults: { startScreen: 'auto' } }).roles.coding.startScreen,
+    ).toBe('auto')
   })
 
   it('fills in startScreen default for old blobs without it', () => {
     const s = normalizeSettings({ sessionDefaults: { agent: 'grok' } })
-    expect(s.sessionDefaults.startScreen).toBe('native')
+    expect(s.roles.coding.startScreen).toBe('native')
+  })
+})
+
+describe('normalizeSettings — legacy → roles migration', () => {
+  it('migrates the real live blob shape (superagent+workLlm on codex api, coding claude-code)', () => {
+    const s = normalizeSettings({
+      sessionDefaults: {
+        agent: 'claude-code',
+        model: 'auto',
+        subagentModel: 'auto',
+        effort: 'auto',
+        startScreen: 'native',
+      },
+      superagent: { kind: 'api', provider: 'codex', model: 'gpt-5.5' },
+      workLlm: { kind: 'api', provider: 'codex', model: 'gpt-5.4-mini' },
+    })
+    expect(s.roles.coding).toMatchObject({
+      accountId: nativeAccountId('claude-code'),
+      model: 'auto',
+    })
+    // codex api → native:codex account; one-shot/orchestrator roles run it as the Responses API.
+    expect(s.roles.superagent).toMatchObject({
+      accountId: nativeAccountId('codex'),
+      model: 'gpt-5.5',
+    })
+    expect(s.roles.background).toMatchObject({
+      accountId: nativeAccountId('codex'),
+      model: 'gpt-5.4-mini',
+    })
+    expect(resolveRole(s, 'superagent')).toMatchObject({
+      execution: 'api',
+      provider: 'codex',
+      model: 'gpt-5.5',
+    })
+    expect(resolveRole(s, 'background')).toMatchObject({
+      execution: 'api',
+      provider: 'codex',
+      model: 'gpt-5.4-mini',
+    })
+    // coding subagentStrategy back-filled (older blob predates it).
+    expect(s.roles.coding.subagentStrategy).toBe('builtin')
+  })
+
+  it('is idempotent — a blob already on `roles` is left as-is', () => {
+    const once = normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'grok' } })
+    const twice = normalizeSettings(once)
+    expect(twice.roles).toEqual(once.roles)
+  })
+
+  it('maps a managed api-key provider to a managed account', () => {
+    const s = normalizeSettings({
+      workLlm: { kind: 'api', provider: 'anthropic', model: 'claude-x' },
+    })
+    expect(s.roles.background.accountId).toBe(managedAccountId('anthropic'))
+    expect(resolveRole(s, 'background')).toMatchObject({ execution: 'api', provider: 'anthropic' })
+  })
+
+  it('roleApiBackend reconstructs an api LlmBackend for the llmClient path', () => {
+    const s = normalizeSettings({
+      workLlm: { kind: 'api', provider: 'anthropic', model: 'claude-x', harnessEffort: 'high' },
+    })
+    expect(roleApiBackend(s, 'background')).toMatchObject({
+      kind: 'api',
+      provider: 'anthropic',
+      model: 'claude-x',
+      harnessEffort: 'high',
+    })
   })
 })
 
@@ -62,45 +137,45 @@ describe('normalizeSettings — sidebar defaults', () => {
   })
 })
 
-describe('normalizeSettings — Codex harness migration', () => {
-  it('keeps a saved Codex harness superagent (codex mounts MCP now, issue #84)', () => {
+describe('normalizeSettings — Codex harness migration into roles', () => {
+  it('keeps a saved Codex harness superagent as a native codex account (MCP, issue #84)', () => {
     const s = normalizeSettings({
       superagent: { kind: 'harness', harnessAgent: 'codex', harnessModel: 'auto' },
     })
-    expect(s.superagent.kind).toBe('harness')
-    expect(s.superagent.harnessAgent).toBe('codex')
+    expect(s.roles.superagent.accountId).toBe(nativeAccountId('codex'))
+    // A codex HARNESS superagent runs codex (not the Responses API fallback).
+    expect(superagentHarnessAgent(s)).toBe('codex')
   })
 
-  it('still migrates the work LLM codex harness (chat-only consumer)', () => {
-    const s = normalizeSettings({
-      workLlm: { kind: 'harness', harnessAgent: 'codex' },
-    })
-    expect(s.workLlm.kind).toBe('api')
-    expect(s.workLlm.provider).toBe('codex')
-    expect(s.workLlm.model).toBe('gpt-5.5')
+  it('migrates a codex-harness work LLM to the codex api account (chat-only consumer)', () => {
+    const s = normalizeSettings({ workLlm: { kind: 'harness', harnessAgent: 'codex' } })
+    expect(s.roles.background.accountId).toBe(nativeAccountId('codex'))
+    expect(s.roles.background.model).toBe('gpt-5.5')
+    expect(resolveRole(s, 'background')).toMatchObject({ execution: 'api', provider: 'codex' })
   })
 
   it('keeps an explicit work LLM harness model when migrating', () => {
     const s = normalizeSettings({
       workLlm: { kind: 'harness', harnessAgent: 'codex', harnessModel: 'gpt-5.4' },
     })
-    expect(s.workLlm.provider).toBe('codex')
-    expect(s.workLlm.model).toBe('gpt-5.4')
+    expect(s.roles.background.model).toBe('gpt-5.4')
   })
 
-  it('leaves the Claude Code harness untouched', () => {
-    const s = normalizeSettings({
-      superagent: { kind: 'harness', harnessAgent: 'claude-code' },
+  it('maps a Claude Code harness superagent to the native claude-code account', () => {
+    const s = normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'claude-code' } })
+    expect(s.roles.superagent.accountId).toBe(nativeAccountId('claude-code'))
+    expect(resolveRole(s, 'superagent')).toMatchObject({
+      execution: 'harness',
+      harness: 'claude-code',
     })
-    expect(s.superagent.kind).toBe('harness')
-    expect(s.superagent.harnessAgent).toBe('claude-code')
   })
 
-  it('leaves an API backend untouched', () => {
+  it('maps an anthropic api backend to a managed account', () => {
     const s = normalizeSettings({
       superagent: { kind: 'api', provider: 'anthropic', model: 'claude-x' },
     })
-    expect(s.superagent).toMatchObject({ kind: 'api', provider: 'anthropic', model: 'claude-x' })
+    expect(s.roles.superagent.accountId).toBe(managedAccountId('anthropic'))
+    expect(s.roles.superagent.model).toBe('claude-x')
   })
 })
 
@@ -118,9 +193,9 @@ describe('superagentHarnessAgent (issue #84)', () => {
   })
   it("resolves 'auto' (and fresh defaults) to claude-code", () => {
     expect(superagentHarnessAgent(normalizeSettings({}))).toBe('claude-code')
-    expect(
-      superagentHarnessAgent(normalizeSettings({ sessionDefaults: { agent: 'auto' } })),
-    ).toBe('claude-code')
+    expect(superagentHarnessAgent(normalizeSettings({ sessionDefaults: { agent: 'auto' } }))).toBe(
+      'claude-code',
+    )
   })
   it('the capability matrix marks claude-code and codex full, the rest none', () => {
     expect(HARNESS_MCP_SUPPORT).toEqual({

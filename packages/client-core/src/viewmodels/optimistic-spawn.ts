@@ -114,6 +114,7 @@ export function optimisticDraftIssue(args: {
     readAt: args.nowIso,
     unread: false,
     origin: 'human',
+    audience: 'human',
     draft: true,
     // Derived server-side; the sidebar reads membership from the global session
     // list (by issueId), not this embedded array, so empty is correct.

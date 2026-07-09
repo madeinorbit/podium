@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeClosedPatch } from '@podium/domain'
 import type { IssueWire } from '@podium/protocol'
+import { resolveRole } from '@podium/runtime'
 import type { IssueRow } from '../../../store'
 import { IssueServiceReads } from './reads'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
@@ -130,10 +131,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       parentBranch:
         input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
       defaultAgent:
-        input.defaultAgent || this.deps.getSettings().sessionDefaults.agent || 'claude-code',
-      defaultModel: input.defaultModel || this.deps.getSettings().sessionDefaults.model || 'auto',
+        input.defaultAgent || resolveRole(this.deps.getSettings(), 'coding').harness,
+      defaultModel: input.defaultModel || this.deps.getSettings().roles.coding.model || 'auto',
       defaultEffort:
-        input.defaultEffort || this.deps.getSettings().sessionDefaults.effort || 'auto',
+        input.defaultEffort || this.deps.getSettings().roles.coding.effort || 'auto',
       machineId: input.machineId ?? null,
       linearId: input.linear?.id ?? null,
       linearIdentifier: input.linear?.identifier ?? null,
@@ -166,6 +167,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       updatedAt: ts,
       archived: false,
       origin: input.origin ?? 'human',
+      audience: input.audience ?? 'human',
       draft: input.draft ?? false,
     }
     if (input.priority != null) row.priority = input.priority

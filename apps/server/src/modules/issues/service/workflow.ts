@@ -2,7 +2,7 @@ import type { IssueWire, OrphanIssue } from '@podium/protocol'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
-import { llmClient } from '../../../llm'
+import { completeForRole } from '../../../llm-roles'
 import type { IssueRow } from '../../../store'
 import { IssueServiceMail } from './mail'
 import type { CreateIssueInput } from './types'
@@ -566,10 +566,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     }
     let result = null as ReturnType<typeof parseAssistantJson>
     try {
-      const factory = this.d.llm ?? llmClient
-      const client = factory(settings.workLlm, settings.apiKeys)
-      const resp = await client.complete(buildAssistantMessages(ctx), [])
-      result = parseAssistantJson(resp.text)
+      // The shared one-shot primitive (SP-6454): resolves the 'background' role's
+      // backend + account, runs one completion, parses into structured data.
+      const resp = await completeForRole(
+        { settings, llm: this.d.llm },
+        { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
+      )
+      result = resp.data
     } catch {
       result = null
     }

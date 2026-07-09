@@ -180,6 +180,7 @@ export abstract class IssueServiceCore {
       sessions,
       sessionSummary: summarizeSessions(sessions),
       origin: row.origin === 'agent' ? 'agent' : 'human',
+      audience: row.audience === 'agent' ? 'agent' : 'human',
       draft: row.draft ?? false,
     }
   }

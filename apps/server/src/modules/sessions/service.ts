@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
+import { resolveRole } from '@podium/runtime'
 import {
   AGENT_CAPABILITIES,
   AgentKind,
@@ -438,8 +439,10 @@ export class SessionsService {
     this.bus.emit('machine.connected', { machineId })
   }
 
-  detachDaemon(machineId: string): void {
-    this.machines.detach(machineId)
+  detachDaemon(machineId: string, send?: Send<ControlMessage>): void {
+    // A superseded socket's late close must not tear down the live registration, nor
+    // knock this machine's sessions back to 'reconnecting' behind the daemon's back.
+    if (!this.machines.detach(machineId, send)) return
     // Emitted HERE (not at the end) to preserve the pre-module ordering: the hosts
     // module drops this machine's health sample + rebroadcasts BEFORE the session
     // sweep below, exactly where the inline delete used to sit.
@@ -625,20 +628,16 @@ export class SessionsService {
   }): {
     sessionId: string
   } {
-    const defaults = this.store.settings.getSettings().sessionDefaults
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
-    // the issue's `defaultAgent` — which defaults to the 'auto' settings choice —
-    // `as AgentKind` at the boundary). 'auto' is NOT a valid AgentKind: persisting
-    // or broadcasting it fails the sessionsChanged zod-parse and silently wipes
-    // the whole session list on every client. safeParse anything that isn't a real
-    // kind back to the configured default (itself resolved out of 'auto').
+    // the issue's `defaultAgent` `as AgentKind` at the boundary). 'auto' is NOT a
+    // valid AgentKind: persisting or broadcasting it fails the sessionsChanged
+    // zod-parse and silently wipes the whole session list on every client.
+    // safeParse anything that isn't a real kind back to the coding role's harness.
     const requested = AgentKind.safeParse(input.agentKind)
     const agentKind = requested.success
       ? requested.data
-      : defaults.agent === 'auto'
-        ? 'claude-code'
-        : defaults.agent
+      : resolveRole(this.store.settings.getSettings(), 'coding').harness
     const prompt = input.initialPrompt?.trim() ? input.initialPrompt : undefined
     // argv delivery is race-free (the CLI reads the prompt at startup); only
     // argv-capable agents get it that way. Others fall through to a draft seed.
@@ -1409,10 +1408,10 @@ export class SessionsService {
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
   ): { model?: string; subagentModel?: string; effort?: string } {
-    const defaults = this.store.settings.getSettings().sessionDefaults
-    const model = override?.model ?? defaults.model
-    const effort = override?.effort ?? defaults.effort
-    const subagentModel = defaults.subagentModel
+    const coding = this.store.settings.getSettings().roles.coding
+    const model = override?.model ?? coding.model
+    const effort = override?.effort ?? coding.effort
+    const subagentModel = coding.subagentModel
     return {
       ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),
       ...(subagentModel !== 'auto' && AGENT_CAPABILITIES[agentKind].subagentModelEnv

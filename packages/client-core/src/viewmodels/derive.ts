@@ -1017,7 +1017,10 @@ function buildUnifiedRows(
     // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
     // session-less issue into the list.
     if (mine.length === 0) continue
-    if (!issue.draft && issue.origin !== 'human') continue
+    // #198: hide the agent's INTERNAL work (audience: 'agent') from the sidebar
+    // work list — keyed on audience, matching the board's filterBoardScope, so an
+    // agent-cut human-facing epic (origin agent, audience human) appears on both.
+    if (!issue.draft && issue.audience !== 'human') continue
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
       kind: 'issue',
@@ -1149,8 +1152,9 @@ function workingEntryActivity(e: WorkingEntry): number {
  *   - a partially-working row stays in WORK holding only its non-working
  *     sessions, and its working sessions are lifted into WORKING as individual
  *     rows — no duplication, a session shows in exactly one place;
- *   - a pinned issue is EXEMPT: pinning floats it to the top of WORK, so it stays
- *     there whole even when fully working.
+ *   - a pinned issue is EXEMPT from move-out: pinning floats it to the top of
+ *     WORK, so it stays there whole; when it has any working session it ALSO
+ *     appears in WORKING as its row (the one row shown in both places).
  * WORK keeps the banded order; WORKING reads most-recently-active first.
  */
 export function partitionUnifiedWork(
@@ -1166,6 +1170,7 @@ export function partitionUnifiedWork(
   for (const row of rows) {
     if (row.kind === 'issue' && row.issue.pinned) {
       work.push(row)
+      if (row.sessions.some(isSessionWorking)) working.push({ kind: 'issue', row })
       continue
     }
     const mine = rowSessions(row)

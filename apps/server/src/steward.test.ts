@@ -1,3 +1,4 @@
+import { normalizeSettings } from '@podium/runtime'
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -12,11 +13,11 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   // tests pass seedCursor: false to exercise the absent-row path.
   if (opts.seedCursor !== false) store.events.setStewardState('cursor', '0')
   const sessions = opts.sessions ?? []
-  const settings = {
+  const settings = normalizeSettings({
     steward: { enabled: opts.enabled ?? true },
     gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
     sessionDefaults: { agent: 'claude-code' },
-  } as never
+  })
   // Incrementing clock: a pinned constant made same-batch comments share
   // created_at, so order assertions fell to the cmt_<uuid> tie-break (flaky).
   let clockMs = Date.parse('2026-07-02T00:00:00.000Z')

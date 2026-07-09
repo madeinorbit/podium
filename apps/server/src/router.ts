@@ -13,6 +13,7 @@ import {
 import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { initTRPC, TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { accountViews } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
   type CloudAgentKind,
@@ -31,7 +32,7 @@ import { browseDirectories, type RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 import { isAllowedRoot } from './root-allowlist'
 import { searchAll } from './search'
-import type { SuperagentService } from './modules/superagent'
+import { type SuperagentService, UserFocus } from './modules/superagent'
 
 export interface Context {
   registry: SessionRegistry
@@ -610,7 +611,21 @@ export const appRouter = t.router({
     // arrives via the session's transcript stream + headlessActivity frames.
     sendTurn: t.procedure
       .input(
-        z.object({ threadId: z.string().default('global'), text: z.string().min(1).max(32_768) }),
+        z.object({
+          threadId: z.string().default('global'),
+          text: z.string().min(1).max(32_768),
+          focus: UserFocus.optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
+    // `send` is the same turn path (kept as the generic entry the panel uses).
+    send: t.procedure
+      .input(
+        z.object({
+          threadId: z.string().default('global'),
+          text: z.string().min(1).max(32_768),
+          focus: UserFocus.optional(),
+        }),
       )
       .mutation(({ ctx, input }) => ctx.superagent.sendTurn(input)),
     // Stop the thread's running headless turn.
@@ -625,6 +640,11 @@ export const appRouter = t.router({
     clear: t.procedure
       .input(z.object({ threadId: z.string().default('global') }))
       .mutation(({ ctx, input }) => ctx.superagent.clear(input.threadId)),
+    // Reset the thread's harness session — the next turn starts a fresh one
+    // (recovery for a wedged/stale harness; keeps the thread + history).
+    restart: t.procedure
+      .input(z.object({ threadId: z.string().default('global') }))
+      .mutation(({ ctx, input }) => ctx.superagent.restartThread(input)),
     // Ensure (or re-open) a btw thread for a chat session. The transcript seed /
     // re-open delta is prepended to the thread's next sendTurn.
     startBtw: t.procedure
@@ -634,7 +654,13 @@ export const appRouter = t.router({
     // the message as a headless harness turn (digest seed on the first turn,
     // issue-event delta on re-entry). Returns the sendTurn ack + isNew.
     concierge: t.procedure
-      .input(z.object({ repoPath: z.string().min(1), text: z.string().min(1).max(32_768) }))
+      .input(
+        z.object({
+          repoPath: z.string().min(1),
+          text: z.string().min(1).max(32_768),
+          focus: UserFocus.optional(),
+        }),
+      )
       .mutation(({ ctx, input }) => ctx.superagent.conciergeTurn(input)),
   }),
   conversations: t.router({
@@ -690,6 +716,12 @@ export const appRouter = t.router({
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
+  }),
+  accounts: t.router({
+    // The Accounts & Keys hub (SP-6454): native CLI logins on this machine
+    // (observed read-only) + managed API keys from settings. Read at call-time —
+    // native identity/quota drifts, so it's never cached as truth.
+    list: t.procedure.query(({ ctx }) => accountViews(mods(ctx).settings.getSettings())),
   }),
   tabs: t.router({
     listOrders: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listTabOrders()),

@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { normalizeSettings } from '@podium/runtime'
 import type { SessionMeta } from '@podium/protocol'
-import { SessionStore } from './store'
+import { describe, expect, it, vi } from 'vitest'
+import { repoOpCommand } from '../../daemon/src/repo-op'
 import { IssueService, type IssueDeps } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { repoOpCommand } from '../../daemon/src/repo-op'
+import { SessionStore } from './store'
 
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
@@ -12,7 +13,15 @@ function harness(sessions: SessionMeta[] = []) {
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
     listSessions: () => sessions,
-    getSettings: () => ({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }) as never,
+    getSettings: () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+      }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
@@ -24,9 +33,22 @@ function harness(sessions: SessionMeta[] = []) {
 }
 
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
-  ({ sessionId: cwd, agentKind: 'claude-code', title: 't', cwd, status: 'live', controllerId: null,
-     geometry: { cols: 80, rows: 24 }, epoch: 0, clientCount: 0, createdAt: 't', lastActiveAt: 't',
-     origin: { kind: 'spawn' }, archived: false, agentState: { phase, since: 't', openTaskCount: 0 } }) as unknown as SessionMeta
+  ({
+    sessionId: cwd,
+    agentKind: 'claude-code',
+    title: 't',
+    cwd,
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: 't',
+    lastActiveAt: 't',
+    origin: { kind: 'spawn' },
+    archived: false,
+    agentState: { phase, since: 't', openTaskCount: 0 },
+  }) as unknown as SessionMeta
 
 describe('IssueService repo_id scoping (#140)', () => {
   it('unifies one origin checked out at two paths into a single #N sequence', () => {
@@ -40,8 +62,18 @@ describe('IssueService repo_id scoping (#140)', () => {
     expect(a.seq).toBe(1)
     expect(b.seq).toBe(2) // shared sequence — NOT two colliding #1s
     // list from either checkout returns the unified set
-    expect(svc.list('/home/alice/app').map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
-    expect(svc.list('/home/bob/app').map((i) => i.id).sort()).toEqual([a.id, b.id].sort())
+    expect(
+      svc
+        .list('/home/alice/app')
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual([a.id, b.id].sort())
+    expect(
+      svc
+        .list('/home/bob/app')
+        .map((i) => i.id)
+        .sort(),
+    ).toEqual([a.id, b.id].sort())
   })
 
   it('resolveRef scopes a shared #N to the caller repo; unscoped stays ambiguous', () => {
@@ -71,7 +103,11 @@ describe('IssueService CRUD', () => {
   })
 
   it('toWire derives members + summary from live sessions', () => {
-    const { svc } = harness([sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/elsewhere')])
+    const { svc } = harness([
+      sess('/r/wt', 'working'),
+      sess('/r/wt/pkg', 'idle'),
+      sess('/elsewhere'),
+    ])
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     // simulate a started issue by updating the worktree path
     const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
@@ -88,7 +124,12 @@ describe('IssueService CRUD', () => {
 
   it('create honors a client-provided id verbatim (optimistic draft reconciliation)', () => {
     const { svc } = harness()
-    const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false, id: 'iss_client-supplied' })
+    const wire = svc.create({
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+      id: 'iss_client-supplied',
+    })
     expect(wire.id).toBe('iss_client-supplied')
     expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
   })
@@ -175,18 +216,27 @@ describe('IssueService unread (#124)', () => {
     const row = store.issues.getIssue(w.id)!
     // readAt AFTER all activity → read.
     expect(
-      svc.toWire({ ...row, updatedAt: '2026-06-01T00:00:00.000Z', readAt: '2026-06-06T00:00:00.000Z' })
-        .unread,
+      svc.toWire({
+        ...row,
+        updatedAt: '2026-06-01T00:00:00.000Z',
+        readAt: '2026-06-06T00:00:00.000Z',
+      }).unread,
     ).toBe(false)
     // A member session went active AFTER readAt → unread again.
     expect(
-      svc.toWire({ ...row, updatedAt: '2026-06-01T00:00:00.000Z', readAt: '2026-06-04T00:00:00.000Z' })
-        .unread,
+      svc.toWire({
+        ...row,
+        updatedAt: '2026-06-01T00:00:00.000Z',
+        readAt: '2026-06-04T00:00:00.000Z',
+      }).unread,
     ).toBe(true)
     // updatedAt itself postdates readAt → unread.
     expect(
-      svc.toWire({ ...row, updatedAt: '2026-06-10T00:00:00.000Z', readAt: '2026-06-06T00:00:00.000Z' })
-        .unread,
+      svc.toWire({
+        ...row,
+        updatedAt: '2026-06-10T00:00:00.000Z',
+        readAt: '2026-06-06T00:00:00.000Z',
+      }).unread,
     ).toBe(true)
   })
 })
@@ -264,7 +314,11 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
 
 describe('IssueService archive cascade to sessions (#133)', () => {
   it('archiving an issue archives its member sessions (so no orphan worktree row remains)', () => {
-    const { svc, setSessionArchived } = harness([sess('/r/wt'), sess('/r/wt/pkg'), sess('/elsewhere')])
+    const { svc, setSessionArchived } = harness([
+      sess('/r/wt'),
+      sess('/r/wt/pkg'),
+      sess('/elsewhere'),
+    ])
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.update(w.id, { worktreePath: '/r/wt' })
     setSessionArchived.mockClear()
@@ -391,13 +445,22 @@ describe('IssueService toWire needs_human (P4)', () => {
 describe('IssueService.start', () => {
   it('creates a worktree off parent, spawns the agent with the description as initialPrompt, moves to in_progress', async () => {
     const { svc, deps } = harness()
-    const created = svc.create({ repoPath: '/r', title: 'Fix login', description: 'do the thing', startNow: false })
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Fix login',
+      description: 'do the thing',
+      startNow: false,
+    })
     const started = await svc.start(created.id)
     expect(started.stage).toBe('in_progress')
     expect(started.branch).toBe('issue/1-fix-login')
     expect(started.worktreePath).toBe('/r/.worktrees/issue-1-fix-login')
-    expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
-      { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' }, undefined)
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      { path: '/r/.worktrees/issue-1-fix-login', branch: 'issue/1-fix-login', startPoint: 'main' },
+      undefined,
+    )
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
       agentKind: 'claude-code',
@@ -410,22 +473,40 @@ describe('IssueService.start', () => {
 
   it('routes worktree creation and the spawn to the issue machine when pinned', async () => {
     const { svc, deps } = harness()
-    const created = svc.create({ repoPath: '/r', title: 'Remote', startNow: false, machineId: 'mach-b' })
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
     expect(created.machineId).toBe('mach-b')
     await svc.start(created.id)
-    expect(deps.repoOp).toHaveBeenCalledWith('worktreeAdd', '/r',
-      expect.objectContaining({ branch: 'issue/1-remote' }), 'mach-b')
+    expect(deps.repoOp).toHaveBeenCalledWith(
+      'worktreeAdd',
+      '/r',
+      expect.objectContaining({ branch: 'issue/1-remote' }),
+      'mach-b',
+    )
     expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'mach-b' }))
     svc.addSession(created.id)
-    expect(deps.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ machineId: 'mach-b' }))
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ machineId: 'mach-b' }),
+    )
   })
 
   it('pre-flights the machine pin: a failing requireMachineForRepo aborts before any work', async () => {
     const { svc, deps } = harness()
     deps.requireMachineForRepo = vi.fn(() => {
-      throw new Error("machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin")
+      throw new Error(
+        "machine 'laptop' is offline — bring its daemon online or clear the issue's machine pin",
+      )
     })
-    const created = svc.create({ repoPath: '/r', title: 'Remote', startNow: false, machineId: 'mach-b' })
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Remote',
+      startNow: false,
+      machineId: 'mach-b',
+    })
     await expect(svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/r')
     expect(deps.repoOp).not.toHaveBeenCalled()
@@ -441,7 +522,9 @@ describe('IssueService.start', () => {
 
   it('unpinned issues skip the machine pre-flight', async () => {
     const { svc, deps } = harness()
-    deps.requireMachineForRepo = vi.fn(() => { throw new Error('should not be called') })
+    deps.requireMachineForRepo = vi.fn(() => {
+      throw new Error('should not be called')
+    })
     const created = svc.create({ repoPath: '/r', title: 'Local', startNow: false })
     await svc.start(created.id)
     expect(deps.requireMachineForRepo).not.toHaveBeenCalled()
@@ -477,7 +560,10 @@ describe('IssueService.start', () => {
 
   it('start fails clearly when the worktree op fails', async () => {
     const { svc, deps } = harness()
-    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, output: 'fatal: branch exists' })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      output: 'fatal: branch exists',
+    })
     const created = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
   })
@@ -558,12 +644,17 @@ describe('IssueService.action', () => {
     const { svc, deps, id } = await started()
     const r = await svc.action(id, 'rebase')
     expect(r.ok).toBe(true)
-    expect(deps.repoOp).toHaveBeenCalledWith('rebase', '/r/.worktrees/issue-1-x', { parentBranch: 'main' })
+    expect(deps.repoOp).toHaveBeenCalledWith('rebase', '/r/.worktrees/issue-1-x', {
+      parentBranch: 'main',
+    })
   })
 
   it('pr captures the PR url from output', async () => {
     const { svc, deps, id } = await started()
-    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: true, output: 'https://github.com/o/r/pull/42' })
+    ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      output: 'https://github.com/o/r/pull/42',
+    })
     const r = await svc.action(id, 'pr')
     expect(r.issue.prUrl).toBe('https://github.com/o/r/pull/42')
   })
@@ -656,7 +747,9 @@ describe('IssueService.parseCurrentBranch', () => {
     await svc.start(c.id)
     return { svc, deps, id: c.id }
   }
-  async function mergedBranch(statusOutput: string): Promise<{ ok: boolean; output: string; calls: string[] }> {
+  async function mergedBranch(
+    statusOutput: string,
+  ): Promise<{ ok: boolean; output: string; calls: string[] }> {
     const { svc, deps, id } = await startedSvc()
     const calls: string[] = []
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockImplementation(async (op: string) => {
@@ -749,18 +842,32 @@ describe('IssueService derived status (P1)', () => {
 describe('IssueService assistant', () => {
   function harnessWithLlm(json: string) {
     const { deps } = harness([])
-    deps.llm = (() => ({ label: 'fake', complete: async () => ({ text: json, toolCalls: [] }) })) as never
-    deps.repoOp = vi.fn(async (op: string) => ({ ok: true, output: op === 'status' ? '## issue/1-x' : 'abc plan' })) as never
-    deps.getSettings = (() => ({
-      gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
-      sessionDefaults: { agent: 'claude-code' }, integrations: { linearApiKey: '' },
-      issues: { assistantEnabled: true }, workLlm: { kind: 'api', provider: 'openrouter', model: 'm' }, apiKeys: {},
+    deps.llm = (() => ({
+      label: 'fake',
+      complete: async () => ({ text: json, toolCalls: [] }),
     })) as never
+    deps.repoOp = vi.fn(async (op: string) => ({
+      ok: true,
+      output: op === 'status' ? '## issue/1-x' : 'abc plan',
+    })) as never
+    deps.getSettings = () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+        issues: { assistantEnabled: true },
+        workLlm: { kind: 'api', provider: 'openrouter', model: 'm' },
+      })
     return { svc: new IssueService(deps), deps }
   }
 
   it('refreshAssistant writes activity notes + suggestion and broadcasts', async () => {
-    const { svc } = harnessWithLlm('{"activityNotes":"making progress","suggestedStage":"in_progress","suggestedReason":"plan done","blockedBy":[],"dependencyNote":""}')
+    const { svc } = harnessWithLlm(
+      '{"activityNotes":"making progress","suggestedStage":"in_progress","suggestedReason":"plan done","blockedBy":[],"dependencyNote":""}',
+    )
     const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     const wire = await svc.refreshAssistant(c.id)
@@ -769,7 +876,9 @@ describe('IssueService assistant', () => {
   })
 
   it('applySuggestion moves the stage and clears the suggestion', async () => {
-    const { svc } = harnessWithLlm('{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}')
+    const { svc } = harnessWithLlm(
+      '{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}',
+    )
     const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     await svc.refreshAssistant(c.id)
@@ -779,7 +888,9 @@ describe('IssueService assistant', () => {
   })
 
   it('dismissSuggestion clears without moving', async () => {
-    const { svc } = harnessWithLlm('{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}')
+    const { svc } = harnessWithLlm(
+      '{"activityNotes":"x","suggestedStage":"in_progress","suggestedReason":"r","blockedBy":[],"dependencyNote":""}',
+    )
     const c = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     await svc.refreshAssistant(c.id)
@@ -995,11 +1106,21 @@ describe('IssueService epic status (P2a)', () => {
     const epic = svc.create({ repoPath: '/r', title: 'E', type: 'epic', startNow: false })
     const c1 = svc.create({ repoPath: '/r', title: 'c1', parentId: epic.id, startNow: false })
     const c2 = svc.create({ repoPath: '/r', title: 'c2', parentId: epic.id, startNow: false })
-    expect(svc.epicStatus(epic.id)).toEqual({ id: epic.id, childCount: 2, childDoneCount: 0, complete: false })
+    expect(svc.epicStatus(epic.id)).toEqual({
+      id: epic.id,
+      childCount: 2,
+      childDoneCount: 0,
+      complete: false,
+    })
     expect(svc.closeEligibleEpics('/r')).toEqual([])
     svc.close(c1.id)
     svc.close(c2.id)
-    expect(svc.epicStatus(epic.id)).toEqual({ id: epic.id, childCount: 2, childDoneCount: 2, complete: true })
+    expect(svc.epicStatus(epic.id)).toEqual({
+      id: epic.id,
+      childCount: 2,
+      childDoneCount: 2,
+      complete: true,
+    })
     expect(svc.closeEligibleEpics('/r').map((w) => w.id)).toEqual([epic.id])
   })
 })
@@ -1008,7 +1129,13 @@ describe('IssueService.tree (issue #82)', () => {
   it('returns the whole subtree in one payload with blocks-deps as seqs', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
-    const c1 = svc.create({ repoPath: '/r', title: 'C1', parentId: epic.id, startNow: false, description: 'do  the\nthing' })
+    const c1 = svc.create({
+      repoPath: '/r',
+      title: 'C1',
+      parentId: epic.id,
+      startNow: false,
+      description: 'do  the\nthing',
+    })
     const c2 = svc.create({ repoPath: '/r', title: 'C2', parentId: epic.id, startNow: false })
     const g1 = svc.create({ repoPath: '/r', title: 'G1', parentId: c1.id, startNow: false })
     svc.addDep(c1.id, c2.id, 'blocks')
@@ -1052,7 +1179,12 @@ describe('IssueService.tree (issue #82)', () => {
 
   it('truncates descriptions to 300 chars and throws on an unknown ref', () => {
     const { svc } = harness()
-    const e = svc.create({ repoPath: '/r', title: 'E', startNow: false, description: 'x'.repeat(500) })
+    const e = svc.create({
+      repoPath: '/r',
+      title: 'E',
+      startNow: false,
+      description: 'x'.repeat(500),
+    })
     expect(svc.tree(e.id).root.description.length).toBe(300)
     expect(() => svc.tree('iss_nope')).toThrow()
   })
@@ -1090,9 +1222,24 @@ describe('IssueService supersede/duplicate (P2b)', () => {
 describe('IssueService findDuplicates (P2b)', () => {
   it('flags near-identical open issues above threshold', () => {
     const { svc } = harness()
-    svc.create({ repoPath: '/r', title: 'Fix login bug', description: 'cannot sign in', startNow: false })
-    svc.create({ repoPath: '/r', title: 'Fix login bug', description: 'cannot sign in', startNow: false })
-    svc.create({ repoPath: '/r', title: 'Add dark mode', description: 'theme toggle', startNow: false })
+    svc.create({
+      repoPath: '/r',
+      title: 'Fix login bug',
+      description: 'cannot sign in',
+      startNow: false,
+    })
+    svc.create({
+      repoPath: '/r',
+      title: 'Fix login bug',
+      description: 'cannot sign in',
+      startNow: false,
+    })
+    svc.create({
+      repoPath: '/r',
+      title: 'Add dark mode',
+      description: 'theme toggle',
+      startNow: false,
+    })
     const dups = svc.findDuplicates('/r', 0.6)
     expect(dups.length).toBe(1)
     expect(dups[0]!.score).toBe(1)
@@ -1128,10 +1275,15 @@ describe('IssueService search/count/stats (P2b)', () => {
     svc.create({ repoPath: '/r', title: 'Dark mode', priority: 2, startNow: false })
     const done = svc.create({ repoPath: '/r', title: 'Login done', startNow: false })
     svc.close(done.id)
-    expect(svc.search({ repoPath: '/r', text: 'login' }).map((w) => w.title).sort())
-      .toEqual(['Login done', 'Login fails'])
-    expect(svc.search({ repoPath: '/r', text: 'login', status: 'open' }).map((w) => w.title))
-      .toEqual(['Login fails'])
+    expect(
+      svc
+        .search({ repoPath: '/r', text: 'login' })
+        .map((w) => w.title)
+        .sort(),
+    ).toEqual(['Login done', 'Login fails'])
+    expect(
+      svc.search({ repoPath: '/r', text: 'login', status: 'open' }).map((w) => w.title),
+    ).toEqual(['Login fails'])
     expect(svc.search({ repoPath: '/r', priority: 0 }).map((w) => w.title)).toEqual(['Login fails'])
   })
 
@@ -1158,7 +1310,9 @@ describe('IssueService doctor/preflight (P2b)', () => {
     // by an external writer. doctor stays as read-side defense in depth.
     const raw = (store as unknown as { db: { exec(q: string): void } }).db
     raw.exec('PRAGMA foreign_keys = OFF')
-    raw.exec(`INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocks')`)
+    raw.exec(
+      `INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocks')`,
+    )
     raw.exec('PRAGMA foreign_keys = ON')
     const d = svc.doctor('/r')
     expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocks' }])
@@ -1510,7 +1664,12 @@ describe('IssueService.cleanup (issue #71)', () => {
     const r = await h.svc.cleanup(w.id)
     expect(r.ok).toBe(false)
     expect(r.output).toMatch(/worktree .* removed, but branch delete refused/)
-    expect(calls.map((c) => c.op)).toEqual(['status', 'isMergedInto', 'worktreeRemove', 'branchDelete'])
+    expect(calls.map((c) => c.op)).toEqual([
+      'status',
+      'isMergedInto',
+      'worktreeRemove',
+      'branchDelete',
+    ])
     // columns reflect reality: worktree gone, branch still recorded
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBeNull()
     expect(h.store.issues.getIssue(w.id)?.branch).toBe(BR)
@@ -1523,7 +1682,10 @@ describe('IssueService.cleanup (issue #71)', () => {
     const w = prepared(h)
     scriptRepoOp(h.deps, {
       status: { ok: true, output: CLEAN_STATUS },
-      worktreeRemove: { ok: false, output: `fatal: '${WT}' contains modified or untracked files, use --force to delete it` },
+      worktreeRemove: {
+        ok: false,
+        output: `fatal: '${WT}' contains modified or untracked files, use --force to delete it`,
+      },
     })
     const r = await h.svc.cleanup(w.id)
     expect(r.ok).toBe(false)
@@ -1638,14 +1800,20 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
 describe('IssueService.integrate (issue #70)', () => {
   const INT_BR = 'integrate/1-e'
   const INT_WT = '/r/.worktrees/integrate-1-e'
-  const GONE = { ok: false, output: `fatal: cannot change to '${INT_WT}': No such file or directory` }
+  const GONE = {
+    ok: false,
+    output: `fatal: cannot change to '${INT_WT}': No such file or directory`,
+  }
 
   type Call = { op: string; cwd: string; args?: Record<string, string> }
 
   /** repoOp stub scripted per call: `impl(op, cwd, args, call#)`; records every call. */
   function scriptOps(
     deps: IssueDeps,
-    impl: (op: string, args?: Record<string, string>) => { ok: boolean; output: string } | undefined,
+    impl: (
+      op: string,
+      args?: Record<string, string>,
+    ) => { ok: boolean; output: string } | undefined,
   ): Call[] {
     const calls: Call[] = []
     deps.repoOp = vi.fn(async (op, cwd, args) => {
@@ -1656,8 +1824,17 @@ describe('IssueService.integrate (issue #70)', () => {
   }
 
   /** Epic (seq 1, title 'E') + closed children with recorded branches. */
-  function epicWith(h: ReturnType<typeof harness>, kids: Array<{ branch?: string | null; closed?: boolean }>) {
-    const epic = h.svc.create({ repoPath: '/r', title: 'E', type: 'epic', parentBranch: 'main', startNow: false })
+  function epicWith(
+    h: ReturnType<typeof harness>,
+    kids: Array<{ branch?: string | null; closed?: boolean }>,
+  ) {
+    const epic = h.svc.create({
+      repoPath: '/r',
+      title: 'E',
+      type: 'epic',
+      parentBranch: 'main',
+      startNow: false,
+    })
     const children = kids.map((k, i) => {
       const c = h.svc.create({ repoPath: '/r', title: `K${i}`, parentId: epic.id, startNow: false })
       if (k.branch !== null) h.svc.update(c.id, { branch: k.branch ?? `issue/${c.seq}-k${i}` })
@@ -1695,7 +1872,11 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(r.ok).toBe(true)
     expect(calls).toEqual([
       { op: 'status', cwd: INT_WT },
-      { op: 'worktreeAddReset', cwd: '/r', args: { path: INT_WT, branch: INT_BR, startPoint: 'main' } },
+      {
+        op: 'worktreeAddReset',
+        cwd: '/r',
+        args: { path: INT_WT, branch: INT_BR, startPoint: 'main' },
+      },
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[0]!.branch! } },
       { op: 'mergeFfOnly', cwd: INT_WT, args: { branch: children[1]!.branch! } },
     ])
@@ -1719,7 +1900,11 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(calls[0]).toEqual({ op: 'status', cwd: INT_WT })
     // defensive un-wedge before the reset (result ignored; healthy = "no rebase in progress")
     expect(calls[1]).toEqual({ op: 'rebaseAbort', cwd: INT_WT })
-    expect(calls[2]).toEqual({ op: 'checkoutReset', cwd: INT_WT, args: { branch: INT_BR, startPoint: 'main' } })
+    expect(calls[2]).toEqual({
+      op: 'checkoutReset',
+      cwd: INT_WT,
+      args: { branch: INT_BR, startPoint: 'main' },
+    })
     expect(calls.some((c) => c.op === 'worktreeAdd' || c.op === 'worktreeAddReset')).toBe(false)
   })
 
@@ -1750,7 +1935,8 @@ describe('IssueService.integrate (issue #70)', () => {
         if (op === 'mergeFfOnly' && args?.branch === child.branch) {
           return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
         }
-        if (op === 'rebase') return { ok: false, output: 'CONFLICT (content): Merge conflict in src/a.ts' }
+        if (op === 'rebase')
+          return { ok: false, output: 'CONFLICT (content): Merge conflict in src/a.ts' }
         if (op === 'rebaseAbort') return { ok: false, output: 'error: could not abort' }
       }
       return undefined
@@ -1815,7 +2001,11 @@ describe('IssueService.integrate (issue #70)', () => {
       if (op === 'mergeFfOnly' && args?.branch === bad!.branch) {
         return { ok: false, output: 'fatal: Not possible to fast-forward, aborting.' }
       }
-      if (op === 'rebase') return { ok: false, output: 'CONFLICT (content): Merge conflict in src/a.ts\nerror: could not apply abc123' }
+      if (op === 'rebase')
+        return {
+          ok: false,
+          output: 'CONFLICT (content): Merge conflict in src/a.ts\nerror: could not apply abc123',
+        }
       return undefined
     })
     const r = await h.svc.integrate(epic.id)
@@ -1869,7 +2059,9 @@ describe('IssueService.integrate (issue #70)', () => {
     const calls = scriptOps(h.deps, () => undefined)
     const r = await h.svc.integrate(epic.id)
     expect(r.ok).toBe(true)
-    expect(calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)).toEqual([children[0]!.branch])
+    expect(calls.filter((c) => c.op === 'mergeFfOnly').map((c) => c.args?.branch)).toEqual([
+      children[0]!.branch,
+    ])
   })
 })
 
@@ -1901,7 +2093,9 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
     expect(report.map((e) => e.seq)).toEqual([epic.seq, a.seq, b.seq, c.seq])
     const byTitle = Object.fromEntries(report.map((e) => [e.title, e]))
     expect(byTitle.a!.ready).toBe(true)
-    expect(byTitle.a!.dependents).toEqual([{ seq: b.seq, title: 'b', type: 'blocks', closed: false }])
+    expect(byTitle.a!.dependents).toEqual([
+      { seq: b.seq, title: 'b', type: 'blocks', closed: false },
+    ])
     expect(byTitle.b!.blocked).toBe(true)
     expect(byTitle.b!.deps).toEqual([{ seq: a.seq, title: 'a', type: 'blocks', closed: false }])
     expect(byTitle.c!.closed).toBe(true)

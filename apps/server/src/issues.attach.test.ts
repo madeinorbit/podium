@@ -1,3 +1,4 @@
+import { normalizeSettings } from '@podium/runtime'
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -19,14 +20,14 @@ function harness(sessions: SessionMeta[] = []) {
         ...(issueBySession.get(s.sessionId) ? { issueId: issueBySession.get(s.sessionId)! } : {}),
       })),
     getSettings: () =>
-      ({
+      normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
           mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
-      }) as never,
+      }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
@@ -66,6 +67,7 @@ describe('origin/draft on create + wire', () => {
       title: 'Draft',
       startNow: false,
       origin: 'agent',
+      audience: 'agent',
       draft: true,
     })
     expect(b.origin).toBe('agent')
@@ -79,6 +81,7 @@ describe('origin/draft on create + wire', () => {
       title: 'Draft',
       startNow: false,
       origin: 'agent',
+      audience: 'agent',
       draft: true,
     })
     const row = store.issues.getIssue(b.id)!
@@ -210,6 +213,31 @@ describe('prime draft/attach variants', () => {
     const text = svc.prime({ boundIssueId: a.id })
     expect(text).toContain('You are working on #1: A')
     expect(text).toContain('podium issue attach --subissue')
+  })
+
+  // Agents attached to their own freshly-retitled issue left it in `backlog`
+  // forever: retitling names an issue but never advances its stage, and only
+  // `claim` sets in_progress. Prime has to say so, in both places.
+  it('draft prime tells the agent retitling leaves it in backlog', () => {
+    const { svc } = harness()
+    const d = svc.createDraftFor('/r')
+    const text = svc.prime({ boundIssueId: d.id })
+    expect(text).toContain('--stage planning')
+    expect(text).toContain('--stage in_progress')
+  })
+
+  it('bound issue still in backlog is told to advance the stage', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(svc.get(a.id)?.stage).toBe('backlog')
+    expect(svc.prime({ boundIssueId: a.id })).toContain('still in `backlog` but you are working it')
+  })
+
+  it('bound issue past backlog is not nagged about its stage', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.claim(a.id, 'agent')
+    expect(svc.prime({ boundIssueId: a.id })).not.toContain('still in `backlog`')
   })
 })
 

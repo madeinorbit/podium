@@ -17,7 +17,6 @@ describe('groupIssuesByStage', () => {
       'planning',
       'in_progress',
       'review',
-      'verifying',
       'done',
     ])
     expect(g[3]?.issues.map((i) => i.id)).toEqual(['b', 'a'])

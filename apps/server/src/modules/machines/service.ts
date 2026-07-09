@@ -88,10 +88,22 @@ export class MachinesService {
     }
   }
 
-  /** Drop a machine's daemon socket (the bookkeeping half of detachDaemon). */
-  detach(machineId: string): void {
+  /** Drop a machine's daemon socket (the bookkeeping half of detachDaemon).
+   *
+   *  `send` identifies the socket that closed. A daemon that reconnects before its
+   *  previous socket's `close` fires (the keepalive sweep terminates a wedged socket
+   *  a beat AFTER the new one has attached) would otherwise have its FRESH
+   *  registration deleted by the dead socket's close — leaving the machine
+   *  permanently unroutable while its daemon sits happily connected: every control
+   *  message queues in `pendingByMachine` and every daemon-routed tRPC call dies on
+   *  the 35s "no daemon answered" timeout.
+   *
+   *  Returns false when the closing socket is already superseded (nothing to do). */
+  detach(machineId: string, send?: Send<ControlMessage>): boolean {
+    if (send !== undefined && this.daemons.get(machineId) !== send) return false
     this.daemons.delete(machineId)
     this.invalidateMachineCache()
+    return true
   }
 
   /** True when `machineId` has a live daemon socket right now. */

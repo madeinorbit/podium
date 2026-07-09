@@ -11,8 +11,16 @@ export const ISSUE_SYSTEM_POINTER =
   'Run `podium issue prime` for your current issue, workflow, and ready work. ' +
   'Track durable or discovered work as issues (`podium issue create ...`, link a follow-up with ' +
   '`podium issue dep-add --fromId <new> --toId <current> --type discovered-from`), not markdown TODO files. ' +
+  'Issues you create default to INTERNAL (audience: agent) — your own working detail, kept off the ' +
+  "human's board. When you take on a chunk of work the human should track, cut a human-facing issue for it " +
+  '(`podium issue create --audience human`) and keep your breakdown as internal children under it, so the ' +
+  'human sees progress without your churn. Be deliberate about where the human-facing cut lines fall. ' +
   '`podium issue ready` lists unblocked work; ' +
-  '`podium issue claim`/`close` as you go. Editing an issue outside your assigned one needs `--outside-scope`. ' +
+  '`podium issue claim`/`close` as you go. Nothing advances an issue for you: an issue you are actively ' +
+  'working must never sit in `backlog` — set the stage yourself with ' +
+  '`podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that ' +
+  'creating or retitling an issue leaves it in `backlog`; only `claim` sets `in_progress`. ' +
+  'Editing an issue outside your assigned one needs `--outside-scope`. ' +
   'If this session is on the wrong issue (or a draft), re-home it: `podium issue attach --id <issue>` ' +
   'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
