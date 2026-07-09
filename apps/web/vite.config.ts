@@ -9,7 +9,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 // default keeps the maintainer's tailscale node working for the live instance.
 const allowedHosts = process.env.PODIUM_ALLOWED_HOSTS?.split(',')
   .map((h) => h.trim())
-  .filter(Boolean) ?? ['podium-host.example.com']
+  .filter(Boolean) ?? []
 
 // The app origin binds :55556 (plain http). `tailscale serve` terminates TLS on :55555 and
 // proxies here, so the primary URL is https://<host>:55555 — a secure context, which the
