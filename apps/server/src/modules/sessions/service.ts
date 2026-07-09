@@ -414,8 +414,10 @@ export class SessionsService {
     this.bus.emit('machine.connected', { machineId })
   }
 
-  detachDaemon(machineId: string): void {
-    this.machines.detach(machineId)
+  detachDaemon(machineId: string, send?: Send<ControlMessage>): void {
+    // A superseded socket's late close must not tear down the live registration, nor
+    // knock this machine's sessions back to 'reconnecting' behind the daemon's back.
+    if (!this.machines.detach(machineId, send)) return
     // Emitted HERE (not at the end) to preserve the pre-module ordering: the hosts
     // module drops this machine's health sample + rebroadcasts BEFORE the session
     // sweep below, exactly where the inline delete used to sit.

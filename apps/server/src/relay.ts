@@ -586,8 +586,8 @@ export class SessionRegistry {
     this.sessionsSvc.attachDaemon(machineId, send)
   }
 
-  detachDaemon(machineId: string): void {
-    this.sessionsSvc.detachDaemon(machineId)
+  detachDaemon(machineId: string, send?: Send<ControlMessage>): void {
+    this.sessionsSvc.detachDaemon(machineId, send)
   }
 
   // ---- tRPC control plane ----

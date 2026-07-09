@@ -160,6 +160,27 @@ describe('daemon socket auth', () => {
       Buffer.from(JSON.stringify({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'h' })),
     )
     ws.emit('close')
-    expect(detach).toHaveBeenCalledWith('m1')
+    // Close detaches against THIS socket's send fn, so a superseded socket's late
+    // close can't evict a daemon that has already reconnected.
+    expect(detach).toHaveBeenCalledWith('m1', expect.any(Function))
+  })
+
+  it('does not detach when the socket closes before it ever attached', () => {
+    const store = new SessionStore(':memory:')
+    store.upsertMachine({ id: 'm1', name: 'h', hostname: 'h', tokenHash: sha256('tok') })
+    const reg = new SessionRegistry(store)
+    const detach = vi.spyOn(reg, 'detachDaemon')
+    const ws = fakeWs()
+    wireDaemonSocket(ws as never, reg)
+    // A failed handshake (bad token) never attaches — closing must not detach the
+    // machine, which may well have a healthy daemon on another socket.
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'h' }),
+      ),
+    )
+    ws.emit('close')
+    expect(detach).not.toHaveBeenCalled()
   })
 })

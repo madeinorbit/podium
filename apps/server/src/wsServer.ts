@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server } from 'node:http'
 import {
+  type ControlMessage,
   type DaemonHandshake,
   type DaemonHandshakeReply,
   encode,
@@ -10,6 +11,7 @@ import {
 } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
 import type { SessionRegistry } from './relay'
+import type { Send } from './session'
 
 export interface WsHandle {
   close(): Promise<void>
@@ -192,6 +194,8 @@ export function sweepClientLiveness(
  */
 export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRegistry): void {
   let machineId: string | undefined
+  // The send fn registered for THIS socket — the identity `close` detaches against.
+  let send: Send<ControlMessage> | undefined
   // Reply helper. The reply `type` literals (helloOk/paired/…) collide with members
   // of other encode() unions, so annotate the value as a DaemonHandshakeReply to
   // pin it to the handshake schema.
@@ -228,7 +232,8 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       // the daemon's first-frame handshake parse then sees a sessionPriority frame, fails
       // ("malformed reply"), and refuses, looping forever. helloOk must be the first frame.
       reply({ type: 'helloOk', name: auth.name })
-      registry.attachDaemon(machineId, (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+      send = (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES)
+      registry.attachDaemon(machineId, send)
       return
     }
     try {
@@ -240,7 +245,9 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
     }
   })
   ws.on('close', () => {
-    if (machineId) registry.detachDaemon(machineId)
+    // Pass THIS socket's send fn: if the daemon already reconnected, the registry
+    // holds the new socket and this close must not evict it.
+    if (machineId && send) registry.detachDaemon(machineId, send)
   })
 }
 
