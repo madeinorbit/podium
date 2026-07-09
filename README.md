@@ -1,71 +1,66 @@
 # Podium
 
-Agent orchestration for driving coding agents (Claude Code, Codex) from a best-in-class
-web and mobile experience. A server backend, a per-machine daemon that wraps native agent
-CLIs over a PTY (tmux-style — no `-p` abstractions), and a responsive web UI where mobile
-is a first-class citizen.
+**Mission control for coding agents.** Run Claude Code, Codex, and other agent CLIs on your own machines and drive them from a fast web UI — on your desk or from your phone.
 
-Two pieces are built to stand alone as open-source libraries: a coding-agent process
-wrapper (`@podium/agent-bridge`) and a browser terminal presentation client
-(`@podium/terminal-client`), joined by a shared wire protocol (`@podium/protocol`).
+Podium wraps the *real* agent CLIs in real PTYs (tmux-style, no `-p` flag abstractions), keeps sessions alive across disconnects and restarts, and adds the coordination layer that turns a pile of terminals into a workflow: a native issue tracker agents can drive themselves, git-worktree-aware session grouping, multi-machine support, and signed self-updates.
 
-## Layout
-
-| Path | What it is |
-|------|------------|
-| `apps/server` | API / web backend (Hono + tRPC). |
-| `apps/daemon` | Per-machine agent host; wraps CLIs via `@podium/agent-bridge`. |
-| `apps/web` | Responsive web UI (React + Vite). |
-| `apps/desktop` | Tauri shell that wraps the compiled backend + web UI. |
-| `packages/protocol` | ★ Shared agent/terminal wire protocol. |
-| `packages/agent-bridge` | ★ Coding-agent CLI process wrapper (server-side PTY). |
-| `packages/terminal-client` | ★ Browser terminal presentation client. |
-| `packages/domain` | Pure Podium domain logic (issue stage machine, authz, snooze/identity predicates). |
-| `packages/runtime` | Node-runtime plumbing: config, sqlite shims, git identity, connectivity, auth-store. |
-| `tooling/tsconfig` | Shared TypeScript base configs. |
-
-★ = published to npm under `@podium/*`. See `ARCHITECTURE.md` for what-goes-where and the
-growth path, and `CONTRIBUTING.md` for setup.
+- **Real terminals, remotely.** Every agent runs in a persistent PTY session on your machine. Attach from any browser; nothing dies when you close the tab.
+- **Mobile first-class.** The web UI is a PWA built to run agents from a phone: check on a long task, answer an agent's question, kick off the next one.
+- **Agents that track their own work.** A built-in Linear-style issue tracker with a CLI/MCP surface agents use directly — they claim issues, file discovered work, and report progress while you watch the board.
+- **Worktree-native.** Sessions group by git worktree; parallel feature work across worktrees is the default workflow, not a hack.
+- **Multi-machine.** One server, many daemons: pair a VPS or a second workstation with a code and start agents on whichever machine has the repo.
+- **Self-hosted, single binary.** A compiled Bun binary for the headless server/daemon, plus an optional Tauri desktop app. Your code and your agent credentials stay on your machines.
 
 ## Install
 
-Install a prebuilt instance (linux-x64) with one line — it downloads the headless bundle,
-verifies its signature, and drops a `podium` binary in `~/.local/bin`:
+Prebuilt headless bundle (linux-x64 today; more platforms on the way). The installer downloads the bundle, **verifies its Ed25519 signature**, and drops `podium` into `~/.local/bin`:
 
 ```bash
-curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/madeinorbit/podium/releases/download/edge/install.sh | sh -s -- --channel edge
 ```
 
-Then run `podium` and finish setup in the browser at the printed URL, or run `podium setup`
-to configure it interactively in the terminal. To make the instance reachable without a
-domain and to pair extra machines, see **[docs/adding-a-machine.md](docs/adding-a-machine.md)**.
+Then run `podium` and finish setup in the browser at the printed URL (or `podium setup` for the terminal flow). To reach the instance from other devices and pair extra machines, see **[docs/adding-a-machine.md](docs/adding-a-machine.md)**.
 
-## Quick start
+Release artifacts ship with a `SHA256SUMS` file — verify a manual download with `sha256sum -c SHA256SUMS --ignore-missing`. Updates are applied by `podium update` (or the bundled auto-update timer) and are signature-checked before the install is swapped. Podium is pre-1.0: the `edge` channel tracks `main`; tagged stable releases will follow.
+
+## Run from source
 
 ```bash
 bun install
-bun run host       # runs the app: web UI + backend (relay + daemon), on Bun from source
+bun run host       # web UI + backend (server + daemon) from source
 ```
 
-Then open **http://localhost:55556** (the Vite dev server; it proxies the API/WebSockets to the
-backend on :18787). On first load, pick a folder and scan it for git repositories. No separate
-build step is needed — `bun run host` resolves the workspace packages from source.
+Open **http://localhost:55556** (Vite dev server, proxying to the backend on `:18787`). On first load, pick a folder and scan it for git repositories.
 
-Contributor checks:
+Requires **Bun ≥ 1.3.14** — package manager, task runner, bundler, *and* runtime. Node is not required to *run* the app: the agent bridge uses `Bun.Terminal` for PTYs and only falls back to `node-pty` under a Node dev entrypoint. Running the *test suite* DOES require a real **Node ≥ 22** (see Testing below). On macOS, install the Xcode Command Line Tools (`xcode-select --install`) — a C compiler builds the bundled `abduco` session helper on first run.
+
+Contributor checks (see [CONTRIBUTING.md](./CONTRIBUTING.md)):
 
 ```bash
 bun run typecheck
-bun run build      # builds the publishable libraries (NOT required to run the app)
 bun run lint
 bun run test
 ```
 
-Requires **Bun ≥ 1.3** — package manager, task runner, bundler, *and* runtime. The shipped
-binaries (`podium-server`, `podium-daemon`, `podium`) are `bun build --compile` artifacts
-that run on Bun alone. Node is **not** required to *run* the app: the agent-bridge
-auto-selects `Bun.Terminal` for PTYs under Bun and only falls back to `node-pty` if you run
-a dev entrypoint under Node (`tsx`). Running the *test suite* DOES require a real
-**Node ≥ 22** (see Testing below).
+### Web version (browser / mobile)
+
+All-in-one — server + daemon in one process, serving the built web UI:
+
+```bash
+bun run --filter @podium/web build              # build the web bundle the server serves
+bun --conditions=@podium/source scripts/cli.ts  # server + daemon on http://localhost:18787
+```
+
+Open <http://localhost:18787> — on a phone, point the browser at the same host (or add it to your home screen as a PWA).
+
+### Desktop version (Tauri)
+
+A native window that spawns the compiled backend and serves the same web UI locally. Requires the Rust + Tauri toolchain:
+
+```bash
+bun run --cwd apps/desktop dev      # dev: stage the compiled backend + web, open the window
+bun run --cwd apps/desktop build    # release build
+```
 
 ## Testing
 
@@ -75,7 +70,7 @@ The whole suite runs with one command from the repo root:
 bun run test    # vitest (all workspaces, web under happy-dom) + the bun-only suites
 ```
 
-Prerequisites: **Bun ≥ 1.3** and a real **Node ≥ 22** on PATH. Vitest runs under Node —
+Prerequisites: **Bun ≥ 1.3.14** and a real **Node ≥ 22** on PATH. Vitest runs under Node —
 do NOT symlink `node` → `bun`; Bun's Node shim breaks vitest's CJS interop (symptoms:
 `z.string is not a function`, `DOMPurify.sanitize is undefined`, `document is not defined`
 across hundreds of files).
@@ -101,45 +96,34 @@ cd tests/e2e && NODE_OPTIONS="--conditions=@podium/source" bunx playwright test 
 The `NODE_OPTIONS` condition is required so Playwright's loader resolves workspace
 packages from source instead of (possibly unbuilt) `dist/`.
 
-On macOS, install the Xcode Command Line Tools (`xcode-select --install`) — a C compiler is used
-to build the bundled `abduco` session helper on first run. See `CONTRIBUTING.md` for details.
+## Security model
 
-## Running Podium locally
+Read this before exposing a Podium instance to anything but yourself.
 
-Podium ships in two forms that share one backend — a coordinating **server** plus a
-per-machine **daemon** that wraps the agent CLIs (`claude`, `codex`) over a PTY.
+- **Agents execute real shell commands.** A Podium session is a genuine terminal on the host — anyone who can reach your Podium UI can do what a local shell user can do. Only connect machines and repositories you trust, and only share access with people you'd give a shell to.
+- **Loopback by default.** The server binds locally. The recommended way to reach it remotely is an authenticated overlay or tunnel (e.g. Tailscale) rather than a public bind.
+- **Set `PODIUM_PASSWORD` for any non-loopback bind.** The server warns — but stays up — if exposed without a password; setup flows treat the passwordless option as an explicit, confirmed opt-in. Treat a passwordless non-loopback bind as unsafe unless the network itself is trusted.
+- **Signed updates.** Headless update tarballs are Ed25519-signed and verified against the pinned public key before anything is swapped; the desktop app uses Tauri's updater signing separately.
 
-### Web version (browser / mobile)
+Found a vulnerability? Please report it privately — see [SECURITY.md](./SECURITY.md).
 
-All-in-one — server + daemon in one process, serving the built web UI:
+## Repository layout
 
-```bash
-bun run --filter @podium/web build              # build the web bundle the server serves
-bun --conditions=@podium/source scripts/cli.ts  # server + daemon on http://localhost:18787
-```
+| Path | What it is |
+|------|------------|
+| `apps/server` | API / web backend (Hono + tRPC). |
+| `apps/daemon` | Per-machine agent host; wraps agent CLIs via `@podium/agent-bridge`. |
+| `apps/cli` | The `podium` CLI (setup, update, issue/spec tooling). |
+| `apps/web` | Responsive web UI (React + Vite, PWA). |
+| `apps/desktop` | Tauri shell around the compiled backend + web UI. |
+| `packages/protocol` | Shared agent/terminal wire protocol. |
+| `packages/agent-bridge` | Coding-agent CLI process wrapper (server-side PTY). |
+| `packages/terminal-client` | Browser terminal presentation client. |
+| `packages/domain` | Pure domain logic (issue stages, authz, identity predicates). |
+| `packages/runtime` | Runtime plumbing: config, sqlite, git identity, auth. |
 
-Open <http://localhost:18787> — on a phone, point the browser at the same host.
-
-To iterate on the web UI with hot-reload, run the Vite dev server alongside the backend
-(it proxies the API + WebSockets to the backend on `:18787`):
-
-```bash
-bun --conditions=@podium/source scripts/cli.ts  # terminal 1 — backend
-bun run host:web                                # terminal 2 — Vite dev server on :55556
-```
-
-Then open <http://localhost:55556>.
-
-### Desktop version (Tauri)
-
-A native window that spawns the bun-compiled backend and serves the same web UI locally.
-Requires the Rust + Tauri toolchain:
-
-```bash
-bun run --cwd apps/desktop dev      # dev: stage the compiled backend + web, open the window
-bun run --cwd apps/desktop build    # release build
-```
+The `@podium/*` packages are consumed in-repo and are **not published to npm** (yet). See `ARCHITECTURE.md` for what-goes-where.
 
 ## License
 
-[Apache License 2.0](./LICENSE). © 2026 Michael Wirth and the Podium contributors.
+[Apache License 2.0](./LICENSE). © 2026 Michael Wirth and the Podium contributors. Third-party licenses are listed in [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
