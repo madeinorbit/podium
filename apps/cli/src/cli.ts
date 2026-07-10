@@ -4,12 +4,19 @@
  * With no config and no subcommand it runs `all-in-one` immediately AND serves the setup
  * UI (printed URL), so the box is usable at once; switching modes in the UI writes config
  * and asks for a restart.
+ *
+ * Structure (#251): `main()` is parse → `resolvePlan()` → one total switch. ALL mode /
+ * persistence / TTY / migration-debt branching lives in the pure `resolvePlan`, which
+ * turns (config, argv, env, tty) into a single typed `LaunchPlan` — so the whole
+ * combinatorial matrix is unit-testable without spawning anything.
  */
 
 import { loadConfig, needsSetup, type PodiumConfig, type PodiumMode } from '@podium/runtime/config'
 import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 
-export interface LaunchPlan {
+/** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
+ *  daemon options are computed from. Formerly the whole plan, now one field of it. */
+export interface ModePlan {
   mode: PodiumMode
   serverUrl?: string
   pairCode?: string
@@ -19,8 +26,8 @@ export interface LaunchPlan {
 
 const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 
-/** Pure resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
-export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
+/** Pure mode resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
+export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan {
   const sub = argv.find((a) => (SUBCOMMANDS as string[]).includes(a)) as PodiumMode | undefined
   // `all` is a friendly alias for all-in-one.
   const aliased = argv.includes('all') ? 'all-in-one' : undefined
@@ -43,6 +50,260 @@ export function resolvePlan(argv: string[], config: PodiumConfig): LaunchPlan {
   }
 }
 
+/** The env keys `resolvePlan` consults. Pass `process.env` (or a snapshot in tests). */
+export type EnvSnapshot = Readonly<Record<string, string | undefined>>
+
+/** How the in-process daemon authenticates to its server (see the launch matrix). */
+export type DaemonAuthKind =
+  /** all-in-one: same process as the server — handed its in-memory bootstrap token. */
+  | 'in-process-local'
+  /** `podium daemon --local`: the split daemon on a host box — NOT in-process with the
+   *  server, so it can't be handed the in-memory token; it authenticates as the LOCAL
+   *  machine via the shared secret file both sides read (exactly like scripts/daemon.ts). */
+  | 'local-split'
+  /** a remote/join daemon that auths via the config's pair code / token. */
+  | 'remote'
+
+/**
+ * The one typed launch decision. Every branch `main()` can take is a variant here,
+ * computed purely by `resolvePlan(config, argv, env, tty)`:
+ *
+ *  - utility subcommands (`update`, `issue`, `status`, …) — argv parsing (incl. their
+ *    usage errors) is folded in so `main()` needs no other dispatch;
+ *  - `reconcile-pending-persistence` — a web setup on a headless box recorded a
+ *    persistence INTENT it couldn't fulfill itself (issue #20);
+ *  - `interactive-setup` — TTY-gated; `reason: 'incomplete-headless-config'` is the box
+ *    configured before the persistence step existed (mode set, no `persistence`), routed
+ *    back into setup so it never silently runs in-process;
+ *  - `client` — nothing to run locally, just point at the server;
+ *  - `systemd-managed` / `detached-managed` — a bare `podium` on a headless-managed
+ *    install ensures the split is up and reports status, never hosts in this PID;
+ *  - `in-process` — actually host server and/or daemon here (desktop sidecar, explicit
+ *    component subcommands, and the headless `podium setup` web-serving fallback, which
+ *    is `roles.server` only with no registry claim).
+ */
+export type LaunchPlan =
+  | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
+  | { kind: 'channel'; target: string | undefined }
+  | { kind: 'join-config'; token: string }
+  | { kind: 'set-server'; target: string }
+  | { kind: 'repair-config' }
+  | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
+  | { kind: 'issue'; args: string[] }
+  | { kind: 'spec'; args: string[] }
+  | { kind: 'worktree'; args: string[] }
+  | { kind: 'status' }
+  | { kind: 'stop' }
+  | { kind: 'logs'; args: string[] }
+  /** Malformed invocation: print `message` to stderr and exit 2. */
+  | { kind: 'usage-error'; message: string }
+  | { kind: 'reconcile-pending-persistence'; port: number }
+  | {
+      kind: 'interactive-setup'
+      port: number
+      reason: 'explicit' | 'first-run' | 'incomplete-headless-config'
+    }
+  | { kind: 'client'; serverUrl: string | undefined }
+  | { kind: 'systemd-managed'; units: string[] }
+  | { kind: 'detached-managed'; port: number }
+  | {
+      kind: 'in-process'
+      port: number
+      /** Which components this PID hosts. */
+      roles: { server: boolean; daemon: boolean }
+      /** Run-registry role to claim before binding; undefined = no claim (the
+       *  headless `podium setup` path, which only serves the web setup UI). */
+      claimRole: 'server' | 'daemon' | 'all-in-one' | undefined
+      /** How the run-registry record is labeled (systemd unit / detached spawn / plain). */
+      runRecordMode: 'systemd' | 'detached' | 'foreground'
+      /** Present iff roles.daemon. */
+      daemonAuth: DaemonAuthKind | undefined
+      /** Mode + connection inputs (feeds daemonOptionsForPlan at execute time). */
+      modePlan: ModePlan
+      /** Print the setup-URL hint after the server comes up. */
+      showSetupHint: boolean
+    }
+
+/**
+ * THE pure launch resolver: (config, argv, env, tty) → LaunchPlan. No I/O, no
+ * process access — everything ambient is passed in, so the full mode × persistence ×
+ * pendingPersistence × TTY matrix is table-testable (cli.test.ts pins it).
+ */
+export function resolvePlan(
+  config: PodiumConfig,
+  argv: string[],
+  env: EnvSnapshot,
+  tty: boolean,
+): LaunchPlan {
+  const port = Number(env.PODIUM_PORT) || config.port || 18787
+
+  // ---- utility subcommands (historical dispatch order preserved) ----
+  // `podium update`: self-update the headless bundle from the configured feed.
+  if (argv[0] === 'update') {
+    const channel = (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as
+      | 'stable'
+      | 'edge'
+    return { kind: 'update', channel, feedOverride: env.PODIUM_UPDATE_FEED ?? config.updateFeed }
+  }
+  // `podium channel [stable|edge]`: show or switch the self-update channel.
+  if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
+  // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
+  // (used by `install.sh --join`). Writes config; the daemon is started separately.
+  if (argv[0] === 'join-config') {
+    return argv[1]
+      ? { kind: 'join-config', token: argv[1] }
+      : { kind: 'usage-error', message: 'usage: podium join-config <TOKEN>' }
+  }
+  // `podium set-server <url-or-join-code>`: rotate ONLY the server URL a joined daemon /
+  // client dials (issue #19). Preserves machine identity + token, so no re-pair.
+  if (argv[0] === 'set-server') {
+    return argv[1]
+      ? { kind: 'set-server', target: argv[1] }
+      : {
+          kind: 'usage-error',
+          message: 'usage: podium set-server <ws(s)://url | http(s)://url | join-code>',
+        }
+  }
+  // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
+  if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
+  // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join
+  // through the same engine the interactive flow uses (issue #20).
+  if (argv[0] === 'setup' && argv.includes('--join')) {
+    const token = argv[argv.indexOf('--join') + 1]
+    if (!token) {
+      return {
+        kind: 'usage-error',
+        message: 'usage: podium setup --join <TOKEN> [--persist systemd|detached]',
+      }
+    }
+    const persistIdx = argv.indexOf('--persist')
+    const persistence = persistIdx >= 0 ? argv[persistIdx + 1] : 'systemd'
+    if (persistence !== 'systemd' && persistence !== 'detached') {
+      return {
+        kind: 'usage-error',
+        message: `podium setup --persist must be systemd or detached (got '${persistence}')`,
+      }
+    }
+    return { kind: 'join-setup', token, persistence, port }
+  }
+  if (argv[0] === 'issue') return { kind: 'issue', args: argv.slice(1) }
+  if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
+  if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
+  if (argv[0] === 'status') return { kind: 'status' }
+  if (argv[0] === 'stop') return { kind: 'stop' }
+  if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
+
+  // ---- launch resolution ----
+  const modePlan = resolveModePlan(argv, config)
+  // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
+  // that can switch this box between modes. TTY-gated below; headless falls through to
+  // serving the web setup UI in-process.
+  const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
+  const explicitSub = SUBCOMMANDS.some((s) => argv.includes(s)) || argv.includes('all')
+  const bareInvocation = !explicitSub
+  // MIGRATION DEBT: a box configured before the persistence step existed (mode set, no
+  // `persistence`) — or one written by the web setup — would otherwise fall through to the
+  // in-process path. On a TTY, route a bare `podium` back into setup so it completes the
+  // split (pick persistence + start). Non-TTY keeps the in-process fallback (the desktop
+  // sidecar, which sets no persistence).
+  const incompleteHeadlessConfig =
+    bareInvocation &&
+    !!config.mode &&
+    config.mode !== 'client' &&
+    !config.persistence &&
+    !config.pendingPersistence
+
+  // A web setup on a headless box recorded a persistence INTENT it couldn't fulfill itself
+  // (the serving process can't self-daemonize — issue #20). Reconcile it here, non-
+  // interactively — works over SSH without a TTY. The mode guard mirrors
+  // reconcilePendingPersistence's own precondition, so executing the plan can't no-op
+  // (a pendingPersistence with mode unset/'client' falls through, as it always did).
+  if (
+    !forceSetup &&
+    bareInvocation &&
+    !config.persistence &&
+    config.pendingPersistence &&
+    (config.mode === 'all-in-one' || config.mode === 'server' || config.mode === 'daemon')
+  ) {
+    return { kind: 'reconcile-pending-persistence', port }
+  }
+
+  // Interactive setup gate (same predicate as cli-setup's shouldRunCliSetup): it's THE
+  // interactive command, so the only gate is a TTY — headless/systemd/piped runs must
+  // never block on a prompt, and fall through to serving the web UI instead.
+  if ((forceSetup || modePlan.showSetupHint || incompleteHeadlessConfig) && tty) {
+    return {
+      kind: 'interactive-setup',
+      port,
+      reason: forceSetup
+        ? 'explicit'
+        : incompleteHeadlessConfig
+          ? 'incomplete-headless-config'
+          : 'first-run',
+    }
+  }
+
+  if (!forceSetup && modePlan.mode === 'client') {
+    return { kind: 'client', serverUrl: modePlan.serverUrl }
+  }
+
+  // Headless-managed install: setup recorded a persistence mode (systemd|detached), which
+  // means this box runs the backend as INDEPENDENT processes, never in-process. A bare
+  // `podium` ensures the split is up and reports status. The desktop sidecar sets no
+  // persistence, so it falls through to the in-process path; an explicit `podium server`/
+  // `daemon` IS a component and runs in-process too.
+  if (!forceSetup && bareInvocation && config.persistence) {
+    if (config.persistence === 'systemd') {
+      const units =
+        modePlan.mode === 'daemon'
+          ? ['podium-daemon.service']
+          : modePlan.mode === 'server'
+            ? ['podium-server.service']
+            : ['podium-server.service', 'podium-daemon.service']
+      return { kind: 'systemd-managed', units }
+    }
+    return { kind: 'detached-managed', port }
+  }
+
+  // In-process hosting. `forceSetup` here is the headless `podium setup` fallback: serve
+  // the web setup UI (server only), claim no run-registry role.
+  const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
+  const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
+  const claimRole = forceSetup
+    ? undefined
+    : modePlan.mode === 'server'
+      ? ('server' as const)
+      : modePlan.mode === 'daemon'
+        ? ('daemon' as const)
+        : modePlan.mode === 'all-in-one'
+          ? ('all-in-one' as const)
+          : undefined
+  // NOTIFY_SOCKET ⇒ started under a systemd Type=notify unit; PODIUM_RUN_MODE=detached is
+  // set by the setup detached-spawn; otherwise a plain foreground run (desktop sidecar, dev).
+  const runRecordMode = env.NOTIFY_SOCKET
+    ? ('systemd' as const)
+    : env.PODIUM_RUN_MODE === 'detached'
+      ? ('detached' as const)
+      : ('foreground' as const)
+  const daemonAuth = !runDaemon
+    ? undefined
+    : modePlan.mode === 'daemon'
+      ? argv.includes('--local')
+        ? ('local-split' as const)
+        : ('remote' as const)
+      : ('in-process-local' as const)
+  return {
+    kind: 'in-process',
+    port,
+    roles: { server: runServer, daemon: runDaemon },
+    claimRole,
+    runRecordMode,
+    daemonAuth,
+    modePlan,
+    showSetupHint: forceSetup || modePlan.showSetupHint,
+  }
+}
+
 export interface DaemonStartOptions {
   serverUrl: string
   bootstrapToken?: string
@@ -55,7 +316,7 @@ export interface DaemonStartOptions {
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
 export function daemonOptionsForPlan(
-  plan: LaunchPlan,
+  plan: ModePlan,
   serverPort: number,
   localBootstrapToken?: string,
 ): DaemonStartOptions {
@@ -109,286 +370,27 @@ export interface HostModules {
   ): Promise<unknown>
 }
 
-export async function main(loadHost: () => Promise<HostModules>): Promise<void> {
-  const argv = process.argv.slice(2)
-  const config = loadConfig()
+type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
 
-  // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).
-  const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
-  installProcessSafetyNet('podium')
+/** Host server and/or daemon in THIS process, per the plan, then stay alive. */
+async function runInProcess(
+  plan: InProcessPlan,
+  loadHost: () => Promise<HostModules>,
+): Promise<void> {
+  const { port, roles, modePlan } = plan
 
-  // `podium update`: self-update the headless bundle from the configured feed, then exit.
-  if (argv[0] === 'update') {
-    const { runUpdate } = await import('./podium-update')
-    const channel = (process.env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as
-      | 'stable'
-      | 'edge'
-    const feedOverride = process.env.PODIUM_UPDATE_FEED ?? config.updateFeed
-    await runUpdate(feedOverride ? { channel, feedOverride } : { channel })
-    return
-  }
-
-  // `podium channel [stable|edge]`: show or switch the self-update channel `podium update` reads.
-  if (argv[0] === 'channel') {
-    const { applyChannel } = await import('./cli-channel')
-    try {
-      const { channel } = applyChannel(argv[1])
-      console.log(`podium update channel: ${channel}`)
-    } catch (e) {
-      console.error((e as Error).message)
-      process.exit(2)
-    }
-    return
-  }
-
-  // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
-  // (used by `install.sh --join`). Writes config + exits; the daemon is started separately.
-  if (argv[0] === 'join-config') {
-    const token = argv[1]
-    if (!token) {
-      console.error('usage: podium join-config <TOKEN>')
-      process.exit(2)
-    }
-    const { applyJoinToken } = await import('./cli-join')
-    try {
-      const { name, warning } = applyJoinToken(token)
-      console.log(`podium configured to join as "${name}"`)
-      if (warning) console.warn(`\nWarning: ${warning}`)
-    } catch (e) {
-      console.error(`invalid join token: ${(e as Error).message}`)
-      process.exit(2)
-    }
-    return
-  }
-
-  // `podium set-server <url-or-join-code>`: rotate ONLY the server URL a joined daemon /
-  // client dials (issue #19: e.g. a restarted tunnel minted a new URL). Preserves the
-  // machine identity + token (daemon.json) and every other config field, so no re-pair.
-  if (argv[0] === 'set-server') {
-    const target = argv[1]
-    if (!target) {
-      console.error('usage: podium set-server <ws(s)://url | http(s)://url | join-code>')
-      process.exit(2)
-    }
-    const { applyServerUrl } = await import('@podium/runtime/setup')
-    try {
-      const res = applyServerUrl(target)
-      console.log(`podium server URL set to ${res.serverUrl}`)
-      if (res.warning) console.warn(`\nWarning: ${res.warning}`)
-      console.log('Restart the daemon to apply (e.g. `podium stop && podium`).')
-    } catch (e) {
-      console.error((e as Error).message)
-      process.exit(2)
-    }
-    return
-  }
-
-  // `podium setup --repair` (#21): back up an existing-but-invalid config.json so setup can
-  // start fresh. Never destructive — the broken file is renamed, not deleted.
-  if (argv[0] === 'setup' && argv.includes('--repair')) {
-    const { repairConfig } = await import('./cli-setup')
-    const r = repairConfig()
-    if (r.state === 'ok') {
-      console.log('config.json is valid — nothing to repair.')
-    } else if (r.state === 'missing') {
-      console.log('No config.json yet — run `podium setup` to configure this box.')
-    } else {
-      console.log(`Backed up the invalid config to ${r.backupPath}`)
-      if (r.error) console.log(`(it failed to parse: ${r.error})`)
-      console.log('Run `podium setup` to configure this box fresh.')
-    }
-    return
-  }
-
-  // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join —
-  // one command that configures AND starts/persists the daemon through the same engine the
-  // interactive flow uses (issue #20). `install.sh --join` delegates here so the systemd
-  // unit text has a single source of truth (renderDaemonUnit).
-  if (argv[0] === 'setup' && argv.includes('--join')) {
-    const token = argv[argv.indexOf('--join') + 1]
-    if (!token) {
-      console.error('usage: podium setup --join <TOKEN> [--persist systemd|detached]')
-      process.exit(2)
-    }
-    const persistIdx = argv.indexOf('--persist')
-    const persist = persistIdx >= 0 ? argv[persistIdx + 1] : 'systemd'
-    if (persist !== 'systemd' && persist !== 'detached') {
-      console.error(`podium setup --persist must be systemd or detached (got '${persist}')`)
-      process.exit(2)
-    }
-    const { runJoinSetup } = await import('./cli-setup')
-    const port = Number(process.env.PODIUM_PORT) || config.port || 18787
-    try {
-      const { name, warning, result } = await runJoinSetup(token, persist, port)
-      console.log(`podium joined as "${name}".`)
-      console.log(result.message)
-      if (warning) console.warn(`\nWarning: ${warning}`)
-    } catch (e) {
-      console.error(`podium setup --join failed: ${(e as Error).message}`)
-      process.exit(2)
-    }
-    return
-  }
-
-  // `podium issue <command>`: drive the native issue tracker over the running server's API.
-  if (argv[0] === 'issue') {
-    const { issueCliMain } = await import('./issue-cli')
-    await issueCliMain(argv.slice(1))
-    return
-  }
-
-  // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
-  if (argv[0] === 'spec') {
-    const { specCliMain } = await import('./spec-cli')
-    await specCliMain(argv.slice(1))
-    return
-  }
-
-  // `podium worktree [path]`: agent declares the worktree it's working in (defaults
-  // to its cwd); the daemon resolves it to the git toplevel and regroups the session.
-  if (argv[0] === 'worktree') {
-    const { worktreeCliMain } = await import('./worktree-cli')
-    await worktreeCliMain(argv.slice(1))
-    return
-  }
-
-  // `podium status | stop | logs`: lifecycle over the run registry (server + daemon processes).
-  if (argv[0] === 'status') {
-    const { statusCommand } = await import('./cli-lifecycle')
-    statusCommand()
-    return
-  }
-  if (argv[0] === 'stop') {
-    const { stopCommand } = await import('./cli-lifecycle')
-    await stopCommand()
-    return
-  }
-  if (argv[0] === 'logs') {
-    const { logsCommand } = await import('./cli-lifecycle')
-    logsCommand(argv.slice(1))
-    return
-  }
-
-  // `podium setup` (or --reconfigure) re-enters the interactive flow: a mode-first menu that
-  // can switch this box into all-in-one / server / daemon and edit the URL/password. It's the
-  // interactive command, so the only gate is a TTY (headless falls through to serving the web
-  // UI). Runs for any current mode — switching mode after the fact is the whole point.
-  const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
-  const plan = resolvePlan(argv, config)
-  const port = Number(process.env.PODIUM_PORT) || config.port || 18787
-
-  // A box configured before the persistence step existed (mode set, no `persistence`) — or one
-  // written by the web setup — would otherwise fall through to the in-process path. On a TTY, route
-  // a bare `podium` back into setup so it completes the split (pick persistence + start). Non-TTY
-  // keeps the in-process fallback (the desktop sidecar, which sets no persistence).
-  const bareInvocation = !SUBCOMMANDS.some((s) => argv.includes(s)) && !argv.includes('all')
-  const incompleteHeadlessConfig =
-    bareInvocation &&
-    !!config.mode &&
-    config.mode !== 'client' &&
-    !config.persistence &&
-    !config.pendingPersistence
-
-  // A web setup on a headless box recorded a persistence INTENT it couldn't fulfill itself
-  // (the serving process can't self-daemonize — issue #20). Reconcile it here, non-
-  // interactively, so the box ends up with the same systemd/detached persistence a CLI
-  // setup would have left — works over SSH without a TTY.
-  if (!forceSetup && bareInvocation && !config.persistence && config.pendingPersistence) {
-    const { reconcilePendingPersistence } = await import('./cli-setup')
-    const res = await reconcilePendingPersistence(port)
-    if (res) {
-      console.log(res.message)
-      const { statusCommand } = await import('./cli-lifecycle')
-      statusCommand()
-      return
-    }
-  }
-
-  const { runCliSetup, shouldRunCliSetup } = await import('./cli-setup')
-  if (
-    shouldRunCliSetup({
-      forceSetup,
-      // plan.showSetupHint == bare invocation AND the config still needs setup; also re-run setup
-      // for an incompletely-configured headless box so it never silently runs in-process.
-      firstRunNeedsSetup: plan.showSetupHint || incompleteHeadlessConfig,
-      isTTY: Boolean(process.stdin.isTTY),
-    })
-  ) {
-    const { createInterface } = await import('node:readline/promises')
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-    await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, port)
-    rl.close()
-    return
-  }
-
-  if (!forceSetup && plan.mode === 'client') {
-    console.log(
-      `podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`,
-    )
-    console.log('(run `podium setup` to reconfigure this install)')
-    return
-  }
-
-  // Headless-managed install: setup recorded a persistence mode (systemd|detached), which means
-  // this box runs the backend as INDEPENDENT processes, never in-process. A bare `podium` (no
-  // explicit component subcommand) ensures the split is up and reports status, rather than hosting
-  // server+daemon in this PID. The desktop sidecar sets no persistence, so it falls through to the
-  // in-process path below; an explicit `podium server`/`daemon` IS a component and runs below too.
-  const explicitSub = SUBCOMMANDS.some((s) => argv.includes(s)) || argv.includes('all')
-  if (!forceSetup && !explicitSub && config.persistence) {
-    if (config.persistence === 'systemd') {
-      const units =
-        plan.mode === 'daemon'
-          ? ['podium-daemon.service']
-          : plan.mode === 'server'
-            ? ['podium-server.service']
-            : ['podium-server.service', 'podium-daemon.service']
-      try {
-        const { execFileSync } = await import('node:child_process')
-        execFileSync('systemctl', ['--user', 'start', ...units], { stdio: 'ignore' })
-      } catch (e) {
-        console.error(`podium: could not start systemd units — ${(e as Error).message}`)
-      }
-    } else {
-      const { ensureDetachedUp } = await import('./cli-spawn')
-      const { started } = await ensureDetachedUp(config, port)
-      if (started.length) console.log(`Started: ${started.join(', ')}`)
-    }
-    const { statusCommand } = await import('./cli-lifecycle')
-    statusCommand()
-    return
-  }
-
-  const runServer = forceSetup || plan.mode === 'all-in-one' || plan.mode === 'server'
-  const runDaemon = !forceSetup && (plan.mode === 'all-in-one' || plan.mode === 'daemon')
-
-  // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a stale
-  // holder (a force-killed desktop orphan, a crashed detached process) so we don't collide on the
-  // port or run two daemons over the same ~/.podium, then write our pidfile for status/stop. The
-  // in-process all-in-one is a single role; the split modes each claim their own.
-  const runRole = forceSetup
-    ? undefined
-    : plan.mode === 'server'
-      ? ('server' as const)
-      : plan.mode === 'daemon'
-        ? ('daemon' as const)
-        : plan.mode === 'all-in-one'
-          ? ('all-in-one' as const)
-          : undefined
-  if (runRole) {
-    // NOTIFY_SOCKET ⇒ started under a systemd Type=notify unit; PODIUM_RUN_MODE=detached is set by
-    // the setup detached-spawn; otherwise it's a plain foreground run (desktop sidecar, dev).
-    const runRecordMode = process.env.NOTIFY_SOCKET
-      ? ('systemd' as const)
-      : process.env.PODIUM_RUN_MODE === 'detached'
-        ? ('detached' as const)
-        : ('foreground' as const)
+  // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
+  // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
+  // collide on the port or run two daemons over the same ~/.podium, then write our pidfile
+  // for status/stop. The in-process all-in-one is a single role; the split modes each
+  // claim their own.
+  if (plan.claimRole) {
     const { registerProcess } = await import('@podium/runtime/run-registry')
     try {
       // Daemon-only mode hosts no local port; server/all-in-one record theirs.
-      await registerProcess(runRole, {
-        mode: runRecordMode,
-        ...(runRole === 'daemon' ? {} : { port }),
+      await registerProcess(plan.claimRole, {
+        mode: plan.runRecordMode,
+        ...(plan.claimRole === 'daemon' ? {} : { port }),
       })
     } catch (e) {
       // EPERM: a live, unkillable same-role process exists — refuse to double-run.
@@ -399,16 +401,16 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
 
   let serverPort = port
   let localBootstrapToken: string | undefined
-  const host = runServer || runDaemon ? await loadHost() : undefined
-  if (runServer && host) {
+  const host = roles.server || roles.daemon ? await loadHost() : undefined
+  if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
     try {
       server = await startServer({ port })
     } catch (err) {
-      // The port is taken (the common case on podium-host: the systemd podium-server already
-      // owns :18787). Print actionable guidance and exit cleanly rather than dumping a raw
-      // EADDRINUSE stack trace through the crash net (issue #8).
+      // The port is taken (the common case on podium-host: the systemd podium-server
+      // already owns :18787). Print actionable guidance and exit cleanly rather than
+      // dumping a raw EADDRINUSE stack trace through the crash net (issue #8).
       if (isAddressInUseError(err)) {
         console.error(portInUseMessage(port))
         process.exit(1)
@@ -418,29 +420,26 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
     console.log(`podium server up on http://localhost:${serverPort}`)
-    if (forceSetup || plan.showSetupHint) {
+    if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
   }
-  if (runDaemon && host) {
+  if (roles.daemon && host) {
     let daemonOptions: DaemonStartOptions
-    // `podium daemon --local` is the split daemon on a host box: it is NOT in-process with the
-    // server, so it can't be handed the server's in-memory bootstrap token. Instead it
-    // authenticates as the LOCAL machine via the shared secret file both sides read (exactly like
-    // scripts/daemon.ts), and connects to the local server. Without --local this is a remote/join
-    // daemon that auths via the config's pair code / token.
-    if (!forceSetup && plan.mode === 'daemon' && argv.includes('--local')) {
+    if (plan.daemonAuth === 'local-split') {
+      // `podium daemon --local` — see DaemonAuthKind: authenticate as the LOCAL machine
+      // via the shared secret file, connect to the local server.
       const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
       daemonOptions = {
-        serverUrl: plan.serverUrl ?? `ws://localhost:${port}`,
+        serverUrl: modePlan.serverUrl ?? `ws://localhost:${port}`,
         bootstrapToken: readOrCreateDaemonSecret(),
         machineId: LOCAL_MACHINE_ID,
         installCodexHooks: true,
       }
     } else {
       try {
-        daemonOptions = daemonOptionsForPlan(plan, serverPort, localBootstrapToken)
+        daemonOptions = daemonOptionsForPlan(modePlan, serverPort, localBootstrapToken)
       } catch (e) {
         console.error((e as Error).message)
         process.exit(2)
@@ -450,7 +449,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     // A REMOTE daemon whose handshake is terminally rejected must exit with a distinct
     // code (not crash-loop): the systemd unit's RestartPreventExitStatus matches it and
     // stops restarting; `podium status` then explains the blocked state (#19).
-    const remoteDaemon = plan.mode === 'daemon' && !argv.includes('--local')
+    const remoteDaemon = plan.daemonAuth === 'remote'
     await startDaemon({
       ...daemonOptions,
       ...(remoteDaemon
@@ -478,4 +477,179 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
   await new Promise(() => {})
+}
+
+export async function main(loadHost: () => Promise<HostModules>): Promise<void> {
+  const argv = process.argv.slice(2)
+  const config = loadConfig()
+
+  // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).
+  const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
+  installProcessSafetyNet('podium')
+
+  const plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
+
+  switch (plan.kind) {
+    case 'update': {
+      const { runUpdate } = await import('./podium-update')
+      await runUpdate(
+        plan.feedOverride
+          ? { channel: plan.channel, feedOverride: plan.feedOverride }
+          : { channel: plan.channel },
+      )
+      return
+    }
+    case 'channel': {
+      const { applyChannel } = await import('./cli-channel')
+      try {
+        const { channel } = applyChannel(plan.target)
+        console.log(`podium update channel: ${channel}`)
+      } catch (e) {
+        console.error((e as Error).message)
+        process.exit(2)
+      }
+      return
+    }
+    case 'join-config': {
+      const { applyJoinToken } = await import('./cli-join')
+      try {
+        const { name, warning } = applyJoinToken(plan.token)
+        console.log(`podium configured to join as "${name}"`)
+        if (warning) console.warn(`\nWarning: ${warning}`)
+      } catch (e) {
+        console.error(`invalid join token: ${(e as Error).message}`)
+        process.exit(2)
+      }
+      return
+    }
+    case 'set-server': {
+      const { applyServerUrl } = await import('@podium/runtime/setup')
+      try {
+        const res = applyServerUrl(plan.target)
+        console.log(`podium server URL set to ${res.serverUrl}`)
+        if (res.warning) console.warn(`\nWarning: ${res.warning}`)
+        console.log('Restart the daemon to apply (e.g. `podium stop && podium`).')
+      } catch (e) {
+        console.error((e as Error).message)
+        process.exit(2)
+      }
+      return
+    }
+    case 'repair-config': {
+      // Never destructive — the broken file is renamed, not deleted (#21).
+      const { repairConfig } = await import('./cli-setup')
+      const r = repairConfig()
+      if (r.state === 'ok') {
+        console.log('config.json is valid — nothing to repair.')
+      } else if (r.state === 'missing') {
+        console.log('No config.json yet — run `podium setup` to configure this box.')
+      } else {
+        console.log(`Backed up the invalid config to ${r.backupPath}`)
+        if (r.error) console.log(`(it failed to parse: ${r.error})`)
+        console.log('Run `podium setup` to configure this box fresh.')
+      }
+      return
+    }
+    case 'join-setup': {
+      const { runJoinSetup } = await import('./cli-setup')
+      try {
+        const { name, warning, result } = await runJoinSetup(
+          plan.token,
+          plan.persistence,
+          plan.port,
+        )
+        console.log(`podium joined as "${name}".`)
+        console.log(result.message)
+        if (warning) console.warn(`\nWarning: ${warning}`)
+      } catch (e) {
+        console.error(`podium setup --join failed: ${(e as Error).message}`)
+        process.exit(2)
+      }
+      return
+    }
+    // `podium issue <command>`: drive the native issue tracker over the running server's API.
+    case 'issue': {
+      const { issueCliMain } = await import('./issue-cli')
+      await issueCliMain(plan.args)
+      return
+    }
+    // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
+    case 'spec': {
+      const { specCliMain } = await import('./spec-cli')
+      await specCliMain(plan.args)
+      return
+    }
+    // `podium worktree [path]`: agent declares the worktree it's working in.
+    case 'worktree': {
+      const { worktreeCliMain } = await import('./worktree-cli')
+      await worktreeCliMain(plan.args)
+      return
+    }
+    case 'status': {
+      const { statusCommand } = await import('./cli-lifecycle')
+      statusCommand()
+      return
+    }
+    case 'stop': {
+      const { stopCommand } = await import('./cli-lifecycle')
+      await stopCommand()
+      return
+    }
+    case 'logs': {
+      const { logsCommand } = await import('./cli-lifecycle')
+      logsCommand(plan.args)
+      return
+    }
+    case 'usage-error': {
+      console.error(plan.message)
+      process.exit(2)
+      return
+    }
+    case 'reconcile-pending-persistence': {
+      const { reconcilePendingPersistence } = await import('./cli-setup')
+      // The plan is only emitted when reconcilePendingPersistence's own precondition
+      // holds (resolvePlan mirrors it), so `res` is always defined here in practice.
+      const res = await reconcilePendingPersistence(plan.port)
+      if (res) console.log(res.message)
+      const { statusCommand } = await import('./cli-lifecycle')
+      statusCommand()
+      return
+    }
+    case 'interactive-setup': {
+      const { runCliSetup } = await import('./cli-setup')
+      const { createInterface } = await import('node:readline/promises')
+      const rl = createInterface({ input: process.stdin, output: process.stdout })
+      await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
+      rl.close()
+      return
+    }
+    case 'client': {
+      console.log(
+        `podium client mode — open the web UI pointed at ${plan.serverUrl ?? '(no serverUrl configured)'}`,
+      )
+      console.log('(run `podium setup` to reconfigure this install)')
+      return
+    }
+    case 'systemd-managed': {
+      try {
+        const { execFileSync } = await import('node:child_process')
+        execFileSync('systemctl', ['--user', 'start', ...plan.units], { stdio: 'ignore' })
+      } catch (e) {
+        console.error(`podium: could not start systemd units — ${(e as Error).message}`)
+      }
+      const { statusCommand } = await import('./cli-lifecycle')
+      statusCommand()
+      return
+    }
+    case 'detached-managed': {
+      const { ensureDetachedUp } = await import('./cli-spawn')
+      const { started } = await ensureDetachedUp(config, plan.port)
+      if (started.length) console.log(`Started: ${started.join(', ')}`)
+      const { statusCommand } = await import('./cli-lifecycle')
+      statusCommand()
+      return
+    }
+    case 'in-process':
+      return runInProcess(plan, loadHost)
+  }
 }

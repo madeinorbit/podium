@@ -16,8 +16,10 @@ export {
   daemonOptionsForPlan,
   type HostModules,
   type LaunchPlan,
+  type ModePlan,
   main as cliMain,
   portInUseMessage,
+  resolveModePlan,
   resolvePlan,
 } from '../apps/cli/src/cli'
 
