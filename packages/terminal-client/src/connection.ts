@@ -262,6 +262,13 @@ export class SocketHub {
   // Per-session structured transcript subscriptions. The hub is a thin
   // delta-forwarder: it holds NO buffered items (ChatView owns history, seeded
   // from a tRPC read). It tracks only `since` — the cursor of the newest item
+  // Per-session headless-activity registrations, keyed by the caller's callback
+  // so re-registering the same cb dedups to one delivery + one unsubscribe.
+  private readonly headlessSubs = new Map<
+    string,
+    Map<(e: HeadlessActivityEvent) => void, () => void>
+  >()
+
   // forwarded so far — so a reconnect can resume the live stream from that point.
   // An entry exists while at least one observer is subscribed.
   private readonly transcripts = new Map<
@@ -536,7 +543,15 @@ export class SocketHub {
   private emit<K extends HubEventKind>(kind: K, ...payload: HubEvents[K]): void {
     const set = this.eventObservers.get(kind)
     if (set === undefined) return
-    for (const handler of set) (handler as unknown as HubEventHandler<K>)(...payload)
+    // Snapshot + membership check reproduces the pre-seam per-Set semantics:
+    // a handler REGISTERED during this emit starts with the NEXT event (the
+    // old per-session transcript entries were captured before routing, so a
+    // handoff re-subscription never saw the in-flight frame), while a handler
+    // UNSUBSCRIBED during this emit is skipped (old live-Set iteration).
+    for (const handler of [...set]) {
+      if (!set.has(handler)) continue
+      ;(handler as unknown as HubEventHandler<K>)(...payload)
+    }
   }
 
   sessions(): SessionMeta[] {
@@ -682,9 +697,30 @@ export class SocketHub {
    * @deprecated Use `on('headlessActivity', cb)` and filter by sessionId.
    */
   subscribeHeadless(sessionId: string, cb: (e: HeadlessActivityEvent) => void): () => void {
-    return this.on('headlessActivity', (sid, event) => {
+    // Dedup by the CALLER's callback per session (the old per-session Set
+    // semantics): re-registering the same cb must not double-deliver, and the
+    // one registration has one unsubscribe. A fresh wrapper closure per call
+    // would defeat the seam Set's identity dedup.
+    let subs = this.headlessSubs.get(sessionId)
+    if (!subs) {
+      subs = new Map()
+      this.headlessSubs.set(sessionId, subs)
+    }
+    const existing = subs.get(cb)
+    if (existing) return existing
+    const off = this.on('headlessActivity', (sid, event) => {
       if (sid === sessionId) cb(event)
     })
+    const unsubscribe = () => {
+      const current = this.headlessSubs.get(sessionId)
+      if (current?.get(cb) === unsubscribe) {
+        current.delete(cb)
+        if (current.size === 0) this.headlessSubs.delete(sessionId)
+        off()
+      }
+    }
+    subs.set(cb, unsubscribe)
+    return unsubscribe
   }
 
   /**

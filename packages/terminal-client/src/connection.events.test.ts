@@ -181,3 +181,59 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(b).toEqual([0])
   })
 })
+
+describe('Codex review round (#261)', () => {
+  it('subscribeHeadless dedups the same callback and one unsubscribe fully detaches it', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const seen: unknown[] = []
+    const cb = (e: unknown) => seen.push(e)
+    const un1 = hub.subscribeHeadless('s1', cb as never)
+    const un2 = hub.subscribeHeadless('s1', cb as never)
+    expect(un2).toBe(un1) // same registration → same unsubscribe
+    sock.recv({
+      type: 'headlessActivity',
+      sessionId: 's1',
+      event: { kind: 'turn-start' },
+    } as unknown as ServerMessage)
+    expect(seen).toHaveLength(1) // delivered once despite double registration
+    un1()
+    sock.recv({
+      type: 'headlessActivity',
+      sessionId: 's1',
+      event: { kind: 'turn-start' },
+    } as unknown as ServerMessage)
+    expect(seen).toHaveLength(1) // fully detached
+  })
+
+  it('a handler registered during an emit starts with the NEXT event, one unsubscribed mid-emit is skipped', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const late: unknown[] = []
+    let skippedCalls = 0
+    // First subscriber: registers a late handler and unsubscribes the third.
+    let unThird: (() => void) | undefined
+    hub.on('attention', () => {
+      hub.on('attention', (e) => late.push(e))
+      unThird?.()
+    })
+    unThird = hub.on('attention', () => {
+      skippedCalls += 1
+    })
+    const fire = () =>
+      sock.recv({
+        type: 'attentionEvent',
+        sessionId: 's1',
+        title: 'needs you',
+        body: 'b',
+      } as unknown as ServerMessage)
+    fire()
+    expect(late).toHaveLength(0) // registration during emit: not the in-flight frame
+    expect(skippedCalls).toBe(0) // unsubscribed during emit: skipped
+    fire()
+    expect(late).toHaveLength(1)
+    expect(skippedCalls).toBe(0)
+  })
+})
