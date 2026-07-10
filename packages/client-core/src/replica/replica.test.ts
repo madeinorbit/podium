@@ -9,7 +9,7 @@
  */
 
 import type { IssueWire, SessionMeta } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 
 function session(id: string): SessionMeta {
@@ -82,6 +82,45 @@ describe('replica row-notification coalescing (#262 review)', () => {
       { kind: 'sessions', sessions: ['b'], issues: ['i2'] },
       { kind: 'issues', sessions: ['b'], issues: ['i2'] },
     ])
+  })
+
+  it('a listener that writes back into the replica converges iteratively (no recursion, no dropped notification)', () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    let calls = 0
+    replica.subscribeRows('sessions', () => {
+      calls++
+      // First delivery reacts by writing again — the follow-up must arrive as
+      // ONE more delivery from the same (iterative) flush, not a recursive
+      // re-entry duplicating notifications or growing the stack.
+      if (calls === 1) replica.applyChanges('sessions', [session('b')], [])
+    })
+    replica.applyChanges('sessions', [session('a')], [])
+    expect(calls).toBe(2)
+    expect(
+      replica
+        .rows('sessions')
+        .map((s) => s.sessionId)
+        .sort(),
+    ).toEqual(['a', 'b'])
+  })
+
+  it('a listener that writes on EVERY notification is cut off instead of looping forever', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const replica = createReplica({ storage: memoryStorage() })
+      let calls = 0
+      replica.subscribeRows('sessions', () => {
+        calls++
+        replica.applyChanges('sessions', [{ ...session('x'), title: `t${calls}` }], [])
+      })
+      // Must return (bounded rounds), not blow the stack or spin.
+      replica.applyChanges('sessions', [session('a')], [])
+      expect(calls).toBeGreaterThan(0)
+      expect(calls).toBeLessThanOrEqual(101)
+      expect(err.mock.calls.some((c) => String(c[0]).includes('did not converge'))).toBe(true)
+    } finally {
+      err.mockRestore()
+    }
   })
 
   it('an untouched kind is not notified, and unsubscribe stops delivery', () => {

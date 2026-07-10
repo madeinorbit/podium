@@ -289,6 +289,10 @@ class TanstackReplica implements Replica {
   /** > 0 while inside batch()/an internal batch — notifications defer + dedupe. */
   private batchDepth = 0
   private readonly pendingRowNotify = new Set<ReplicaKind>()
+  /** True while flushRowNotify delivers: a listener that writes back into the
+   *  replica defers + coalesces into the SAME flush loop instead of recursing
+   *  (recursion duplicated notifications and could grow the stack unboundedly). */
+  private flushing = false
 
   constructor(init: ReplicaInit = {}) {
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
@@ -545,12 +549,16 @@ class TanstackReplica implements Replica {
     }
   }
 
-  /** Fire (or, inside a batch, defer + dedupe) `kind`'s row listeners. */
+  /** Fire (or, inside a batch/flush, defer + dedupe) `kind`'s row listeners. */
   private notifyRows(kind: ReplicaKind): void {
-    if (this.batchDepth > 0) {
+    if (this.batchDepth > 0 || this.flushing) {
       this.pendingRowNotify.add(kind)
       return
     }
+    this.deliverRows(kind)
+  }
+
+  private deliverRows(kind: ReplicaKind): void {
     const set = this.rowListeners.get(kind)
     if (!set || set.size === 0) return
     // Copy before iterating: a listener may unsubscribe (or subscribe) others.
@@ -564,13 +572,32 @@ class TanstackReplica implements Replica {
   }
 
   /** Deliver the notifications deferred during a batch — once per kind, against
-   *  the final state. A listener may write again (nested batch); that converges
-   *  because re-entrant notifications re-defer and re-flush. */
+   *  the final state. A listener may write again; those writes defer into this
+   *  SAME loop (iterative, guarded by `flushing` — never recursive) and get one
+   *  follow-up delivery per settled state. A listener that writes on EVERY
+   *  notification cannot converge; it's cut off after a bounded number of
+   *  rounds rather than looping forever. */
   private flushRowNotify(): void {
-    if (this.pendingRowNotify.size === 0) return
-    const pending = [...this.pendingRowNotify]
-    this.pendingRowNotify.clear()
-    for (const kind of pending) this.notifyRows(kind)
+    if (this.flushing || this.pendingRowNotify.size === 0) return
+    this.flushing = true
+    try {
+      let rounds = 0
+      while (this.pendingRowNotify.size > 0) {
+        if (++rounds > 100) {
+          console.error(
+            '[podium] replica row notifications did not converge (a listener writes on every ' +
+              'notification?) — dropping the remainder',
+          )
+          this.pendingRowNotify.clear()
+          return
+        }
+        const pending = [...this.pendingRowNotify]
+        this.pendingRowNotify.clear()
+        for (const kind of pending) this.deliverRows(kind)
+      }
+    } finally {
+      this.flushing = false
+    }
   }
 
   outboxStorage(): OutboxStorage {
