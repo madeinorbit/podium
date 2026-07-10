@@ -98,8 +98,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       for (const r of this.rows.values()) {
         if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
           continue
-        const blocksClosed = this.deps.store
-          .issues.listIssueDeps(r.id)
+        const blocksClosed = this.deps.store.issues
+          .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
         if (blocksClosed && this.toWire(r, sessionList, commentCounts).ready) {
           this.emitEvent('issue.ready', r.id, {
@@ -130,11 +130,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       branch: null,
       parentBranch:
         input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
-      defaultAgent:
-        input.defaultAgent || resolveRole(this.deps.getSettings(), 'coding').harness,
+      defaultAgent: input.defaultAgent || resolveRole(this.deps.getSettings(), 'coding').harness,
       defaultModel: input.defaultModel || this.deps.getSettings().roles.coding.model || 'auto',
-      defaultEffort:
-        input.defaultEffort || this.deps.getSettings().roles.coding.effort || 'auto',
+      defaultEffort: input.defaultEffort || this.deps.getSettings().roles.coding.effort || 'auto',
       machineId: input.machineId ?? null,
       linearId: input.linear?.id ?? null,
       linearIdentifier: input.linear?.identifier ?? null,
@@ -307,7 +305,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   delete(id: string): void {
     id = this.resolveRef(id)
     this.rowOrThrow(id)
-    this.deps.funnel.run({
+    // The remove change commits in the SAME transaction as the row delete
+    // ([spec:SP-3fe2] #255) …
+    const { changes: removed } = this.deps.ledger.commit({
       write: () => {
         this.deps.store.issues.deleteIssue(id)
         // Re-hydrate from the store: deleteIssue also clears scalar back-refs
@@ -315,8 +315,16 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         // map delete would leave those stale pointers in the broadcast.
         this.reload()
       },
-      publish: () => this.deps.publishSpecs.issuesChanged(this.allWire()),
+      changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
+    // … then a full-list reconcile catches the derived ripples (reparented
+    // children, unblocked dependents — see broadcastList's rationale). The
+    // committed remove rides the same fan-out: reconcile dedups it (the
+    // baseline already dropped the id), so without concatenation delta clients
+    // would skip its seq and keep the deleted issue until their next snapshot.
+    const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
+    const ripples = this.deps.ledger.reconcile('issue', spec.rows)
+    this.deps.funnel.publishComputed(spec.snapshot, [...removed, ...ripples])
   }
 
   setLabels(id: string, labels: string[]): IssueWire {
@@ -384,7 +392,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
-    const wire = this.persistWith(row, () => this.deps.store.issues.removeIssueDep(fromId, toId, type))
+    const wire = this.persistWith(row, () =>
+      this.deps.store.issues.removeIssueDep(fromId, toId, type),
+    )
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
     return wire
   }

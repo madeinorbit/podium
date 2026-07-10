@@ -16,9 +16,9 @@ export class IssueService extends IssueServiceWorkflow {
   /**
    * Boot-time lifecycle hook (the composition root calls this once, replacing
    * the old inline relay-constructor sequence): eager hydration, the
-   * leaked-draft reap, and the oplog boot-reconciliation record — a
-   * cursor-holding client that reconnects heals via changesSince instead of
-   * silently missing the gap.
+   * leaked-draft reap, and the ledger boot reconcile — a cursor-holding
+   * client that reconnects heals via changesSince instead of silently missing
+   * the gap.
    */
   boot(): this {
     this.init()
@@ -35,8 +35,11 @@ export class IssueService extends IssueServiceWorkflow {
     } catch (err) {
       console.warn('[podium:issues] boot draft sweep failed:', err)
     }
+    // Ledger boot reconcile ([spec:SP-3fe2] #255): full LOCAL wire truth diffed
+    // against the persisted baseline (including removes), no fan-out — same
+    // local-only list the legacy funnel.record boot pass fed the oplog.
     try {
-      this.deps.funnel.record?.(
+      this.deps.ledger.reconcile(
         'issue',
         this.allWire().map((i) => ({ id: i.id, value: i })),
       )

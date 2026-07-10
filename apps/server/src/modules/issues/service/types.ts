@@ -1,14 +1,22 @@
+import type {
+  IssueWire,
+  MetadataChange,
+  RepoOp,
+  ServerMessage,
+  SessionMeta,
+} from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type { IssueWire, RepoOp, SessionMeta } from '@podium/protocol'
+import type { EntityChangeSpec } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
 import type { PublishSpec } from '../../funnel'
 
-/** The write-funnel face IssueService mutations run through (issue #190): every
- *  store write enters `run` (authorize → repository write → oplog append →
- *  broadcast) and every fan-out without its own write (cross-issue derived
- *  effects) enters the shared `publishSpec` tail. Structurally satisfied by
+/** The write-funnel face IssueService mutations run through (issue #190): the
+ *  write-only sites (mail, subscriptions — no publishable change) enter `run`
+ *  for its authorize → write ordering, and every issue fan-out enters
+ *  `publishComputed` AFTER the ledger durably appended the changes at the write
+ *  seam ([spec:SP-3fe2] #255). Structurally satisfied by
  *  {@link ../../funnel.WriteFunnel}; narrow so tests can fake it. Authorization
  *  happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
  *  `authorize` stage of their own. */
@@ -18,10 +26,23 @@ export interface IssueFunnel {
     write: () => T
     publish?: (result: T) => PublishSpec | null
   }): T
-  publishSpec(spec: PublishSpec): void
-  /** Durable oplog append with no fan-out — boot reconciliation. Optional so
-   *  narrow test fakes stay valid. */
-  record?(entity: 'issue', rows: { id: string; value: unknown }[]): unknown
+  /** Fan-out of ledger-committed changes: delta clients get `metadataDelta`,
+   *  legacy clients the snapshot. NO oplog append — that already happened
+   *  atomically with the write (Ledger.commit/reconcile). */
+  publishComputed(snapshot: ServerMessage, changes: MetadataChange[]): void
+}
+
+/** The write-seam change log face ([spec:SP-3fe2] #255): `commit` binds an
+ *  issue write and its declared change rows into one transaction; `reconcile`
+ *  diffs the full wire truth (including removes) for the derived-ripple and
+ *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
+ *  so tests can fake it. */
+export interface IssueLedger {
+  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
+    result: T
+    changes: MetadataChange[]
+  }
+  reconcile(entity: 'issue', rows: { id: string; value: unknown }[]): MetadataChange[]
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it
@@ -142,6 +163,9 @@ export interface IssueDeps {
   /** THE write funnel (modules/funnel): every mutation's store write + fan-out
    *  runs through it, so "durable before fan-out" holds by construction. */
   funnel: IssueFunnel
+  /** The write-seam change log ([spec:SP-3fe2] #255): issue writes commit their
+   *  change rows atomically with the row write; derived ripples reconcile. */
+  ledger: IssueLedger
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   publishSpecs: IssuePublishSpecs
   now?(): string

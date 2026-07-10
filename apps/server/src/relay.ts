@@ -1,10 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import type {
-  AgentKind,
-  ConversationSummaryWire,
-  IssueWire,
-  SessionMeta,
-} from '@podium/protocol'
+import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
+import { Ledger } from '@podium/sync'
 import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
@@ -26,8 +22,8 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
-import type { Session } from './modules/sessions/session'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
+import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { HeadlessService } from './modules/superagent/headless'
@@ -241,18 +237,36 @@ export class SessionRegistry {
       publish: () => publisher.publishIssues(publisher.safeIssuesList()),
       upstreamStale: () => sessionsSvc.isUpstreamStale(),
     })
+    // The write-seam change log ([spec:SP-3fe2] #255): issue writes append
+    // their change rows ATOMICALLY with the entity write (one transact span on
+    // the shared connection); the legacy broadcast-seam oplog inside the
+    // funnel keeps owning sessions/conversations. Same changes table + seq
+    // sequence — changesSince consumers see one unified feed.
+    const ledger = new Ledger({
+      repo: this.store.sync,
+      now: () => this.now(),
+      transact: (fn) => this.store.transact(fn),
+    })
     // THE write funnel (modules/funnel): authorize → repo write → oplog append →
     // broadcast. Owns the durable metadata oplog; every publish pipeline ends here.
     const funnel = new WriteFunnel({
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
+      ledger,
       fanOut: (snapshot, changes, opts) => sessionsSvc.fanOutMetadata(snapshot, changes, opts),
     })
     const publisher = new IssuePublisher({
       allWire: () => issues?.allWire(),
       withUpstreamIssues: (local) => upstreamIssues.withUpstreamIssues(local),
-      publishSpec: (spec) => funnel.publishSpec(spec),
+      // Write-less full-list rebroadcasts (session churn, staleness flips):
+      // reconcile against the ledger baseline (durable append, #255), then fan
+      // the committed changes out — never the legacy funnel.publishSpec path,
+      // which rejects issue specs.
+      publishIssueList: (spec) => {
+        const changes = ledger.reconcile('issue', spec.rows)
+        funnel.publishComputed(spec.snapshot, changes)
+      },
     })
     const issueCommands = new IssueCommandService({
       issues: () => issues,
@@ -366,12 +380,14 @@ export class SessionRegistry {
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
-      // Every issue mutation runs the write funnel (issue #190): the service's
-      // store writes enter funnel.run and its fan-outs are built as PublishSpecs
-      // by the publisher (which unions in hub-mirrored issues), so oplog-before-
-      // fan-out holds by construction — there is NO raw-WS path out of the
-      // issue tracker anymore.
+      // Every issue mutation commits through the write-seam ledger (#255) —
+      // change rows land in the same transaction as the row write — and fans
+      // out via the funnel's publishComputed tail; the PublishSpecs are built
+      // by the publisher (which unions in hub-mirrored issues), so durable-
+      // before-fan-out holds by construction — there is NO raw-WS path out of
+      // the issue tracker anymore.
       funnel,
+      ledger,
       publishSpecs: publisher,
       // Agent mail send-time nudge (issue #103): the sessions module subscribes
       // and picks the live member session to poke — see modules/sessions.
@@ -383,7 +399,7 @@ export class SessionRegistry {
     })
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
-    // crash-looping), the leaked-draft reap, and the issue oplog boot record.
+    // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
     issues.boot()
     this.steward = new StewardService({
       store: this.store.events,

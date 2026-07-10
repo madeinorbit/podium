@@ -82,8 +82,8 @@ export abstract class IssueServiceCore {
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
   protected computeBlocked(row: IssueRow): boolean {
-    const blocksTargets = this.deps.store
-      .issues.listIssueDeps(row.id)
+    const blocksTargets = this.deps.store.issues
+      .listIssueDeps(row.id)
       .filter((d) => d.type === 'blocks')
       .map((d) => this.rows.get(d.toId))
     return isIssueBlocked(row, blocksTargets)
@@ -294,25 +294,39 @@ export abstract class IssueServiceCore {
   }
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
-   *  must land inside the SAME funnel run as the row upsert, so the funnel's
-   *  write stage covers every byte the mutation touches (issue #190). */
+   *  must land inside the SAME transaction as the row upsert. The ledger's
+   *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
+   *  into one transact span — the durable change log can never say something
+   *  the issue table doesn't — then the funnel fans the committed changes out. */
   protected persistWith(row: IssueRow, extraWrite?: () => void): IssueWire {
     row.updatedAt = this.now()
     this.rows.set(row.id, row)
-    return this.deps.funnel.run({
+    const { result: wire, changes } = this.deps.ledger.commit({
       write: () => {
         extraWrite?.()
         this.deps.store.issues.upsertIssue(row)
         return this.toWire(row)
       },
-      publish: (wire) => this.deps.publishSpecs.issueUpdated(wire),
+      changes: (wire) => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
     })
+    this.deps.funnel.publishComputed(this.deps.publishSpecs.issueUpdated(wire).snapshot, changes)
+    return wire
   }
 
   /** Full-list broadcast for mutations with cross-issue effects (see persist).
-   *  No repository write of its own — enters the funnel at the publish tail. */
+   *  No repository write of its own. Runs a ledger RECONCILE over the full wire
+   *  list rather than per-write declarations because the full-list path exists
+   *  exactly to catch DERIVED ripples: closing issue X flips ready/blocked on
+   *  its dependents' wire rows (and childDoneCount on its parent) without any
+   *  write touching those rows — a per-write declaration alone would miss
+   *  them. Every site that mutates-then-broadcastLists keeps exactly this
+   *  shape ([spec:SP-3fe2] #255). The reconciled rows are the ones the
+   *  snapshot carries (local ∪ hub-mirrored, unioned by the publisher), so the
+   *  change log records exactly what legacy clients see. */
   protected broadcastList(): void {
-    this.deps.funnel.publishSpec(this.deps.publishSpecs.issuesChanged(this.allWire()))
+    const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
+    const changes = this.deps.ledger.reconcile('issue', spec.rows)
+    this.deps.funnel.publishComputed(spec.snapshot, changes)
   }
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {

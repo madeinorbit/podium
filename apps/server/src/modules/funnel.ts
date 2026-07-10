@@ -1,5 +1,5 @@
 import type { MetadataChange, MetadataEntityKind, ServerMessage } from '@podium/protocol'
-import { MetadataOplog } from '@podium/sync'
+import { type Ledger, MetadataOplog } from '@podium/sync'
 import type { SessionStore } from '../store'
 import type { EventBus } from './bus'
 
@@ -14,6 +14,11 @@ export interface WriteFunnelDeps {
     changes: MetadataChange[],
     opts?: { snapshotToCapClients?: boolean },
   ): void
+  /** The write-seam change log ([spec:SP-3fe2] #255). When present, the funnel
+   *  bridges its appends onto the bus so 'oplog.appended' keeps firing for
+   *  EVERY durable change regardless of which seam captured it (the ledger
+   *  owns issues; the legacy oplog still owns sessions/conversations). */
+  ledger?: Pick<Ledger, 'onAppended'>
 }
 
 /** One publishable state change: the oplog rows for an entity kind plus the
@@ -38,14 +43,24 @@ export interface PublishSpec {
  * holds by construction rather than by convention at each call site.
  *
  * Callers with all four stages in hand use {@link run}; pipelines whose repo
- * write happened upstream (IssueService internals, the coalesced session
- * broadcast) enter at the {@link publish} tail.
+ * write happened upstream (the coalesced session broadcast) enter at the
+ * {@link publish} tail.
+ *
+ * ISSUES are the exception ([spec:SP-3fe2] #255): their changes are captured
+ * at the WRITE seam by the injected {@link Ledger} (atomic with the entity
+ * write), so their fan-outs enter at {@link publishComputed} — the oplog half
+ * of {@link publish}/{@link record} REJECTS issue specs (see the guard in
+ * record) to keep the change log single-writer per entity kind.
  */
 export class WriteFunnel {
   private readonly oplog: MetadataOplog
 
   constructor(private readonly deps: WriteFunnelDeps) {
     this.oplog = new MetadataOplog(deps.store.sync, deps.now)
+    // Ledger-appended changes (issue commits/reconciles, #255) fire the same
+    // bus event the legacy record() path does, so bus consumers see one
+    // unified 'oplog.appended' stream across both seams.
+    deps.ledger?.onAppended((changes) => deps.bus.emit('oplog.appended', { changes }))
   }
 
   /**
@@ -92,6 +107,18 @@ export class WriteFunnel {
     )
   }
 
+  /**
+   * Fan out a snapshot whose changes were ALREADY durably appended at the
+   * write seam by the Ledger ([spec:SP-3fe2] #255) — commit/reconcile ran
+   * before this call, so recording here again would double-append. Emission
+   * shape is identical to {@link publish}'s tail: delta-cap clients get the
+   * `metadataDelta` batch (when non-empty), legacy clients get the snapshot
+   * exactly as before.
+   */
+  publishComputed(snapshot: ServerMessage, changes: MetadataChange[]): void {
+    this.deps.fanOut(snapshot, changes)
+  }
+
   /** Durable oplog append (no fan-out) — boot reconciliation and the publish
    *  tail both land here, so 'oplog.appended' fires for every recorded change. */
   record(
@@ -99,6 +126,21 @@ export class WriteFunnel {
     rows: { id: string; value: unknown }[],
     opts: { partial?: boolean } = {},
   ): MetadataChange[] {
+    // SEVERED ([spec:SP-3fe2] #255): 'issue' changes are captured at the WRITE
+    // seam by the Ledger (IssueService persist/broadcastList/delete/boot). The
+    // legacy broadcast-seam oplog keeps its own baseline, so appending an issue
+    // spec here would DOUBLE-APPEND everything the ledger already wrote — every
+    // issue publish path must route through Ledger.commit/reconcile +
+    // publishComputed. Loud so a regressed call site can't silently fork the
+    // change log: throw under tests, degrade to fan-out-only in production.
+    if (entity === 'issue') {
+      const msg =
+        '[funnel] issue spec reached the legacy oplog path — issue changes are ' +
+        'ledger-owned (#255); route through Ledger.commit/reconcile + publishComputed'
+      if (process.env.VITEST || process.env.NODE_ENV === 'test') throw new Error(msg)
+      console.error(msg)
+      return []
+    }
     const changes = this.oplog.record(entity, rows, opts)
     if (changes.length > 0) this.deps.bus.emit('oplog.appended', { changes })
     return changes

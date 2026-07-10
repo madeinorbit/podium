@@ -30,7 +30,7 @@
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { MIGRATIONS, runMigrations } from './migrations/index'
 import { AuthRepository } from './store/auth'
@@ -117,6 +117,14 @@ export class SessionStore {
     this.repos.backfillRepoIds()
     this.issues.backfillNullRepoIds()
     this.repos.healLocalOrigins()
+  }
+
+  /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
+   *  0, SAVEPOINT inside an open transaction). Narrow seam for cross-aggregate
+   *  atomic writes — the write-seam Ledger binds an entity write and its change
+   *  append into one span ([spec:SP-3fe2] #255) — without exposing the db handle. */
+  transact<T>(fn: () => T): T {
+    return transaction(this.db, fn)
   }
 
   close(): void {

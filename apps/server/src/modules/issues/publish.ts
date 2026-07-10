@@ -9,15 +9,18 @@ export interface IssuePublisherDeps {
   allWire(): IssueWire[] | undefined
   /** Local ∪ upstream union (modules/issues/upstream). */
   withUpstreamIssues(local: IssueWire[]): IssueWire[]
-  /** The write funnel's publish tail: oplog append → broadcast (bus + WS). */
-  publishSpec(spec: PublishSpec): void
+  /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
+   *  spec's rows (the durable change append, including removes) → funnel
+   *  fan-out of the committed changes + snapshot. Wired in relay.ts — the
+   *  legacy funnel.publishSpec path no longer accepts issue specs. */
+  publishIssueList(spec: PublishSpec): void
 }
 
 /** Issue wire publishing: builds the two issue {@link PublishSpec} shapes
- *  (IssueService's mutations run them through the funnel — issue #190) and
- *  serves the write-less rebroadcast paths (session churn, staleness flips),
- *  so every issuesChanged/issueUpdated fan-out enters the write funnel and the
- *  oplog records before clients see anything (oplog-read-path §2.5). */
+ *  (IssueService's mutations run them through the ledger + funnel — issue
+ *  #190, #255) and serves the write-less rebroadcast paths (session churn,
+ *  staleness flips), so every issuesChanged/issueUpdated fan-out records to
+ *  the durable change log before clients see anything (oplog-read-path §2.5). */
 export class IssuePublisher implements IssuePublishSpecs {
   constructor(private readonly deps: IssuePublisherDeps) {}
 
@@ -63,9 +66,9 @@ export class IssuePublisher implements IssuePublishSpecs {
     }
   }
 
-  /** Funnel-tail fan-out of a full issue list — for pipelines with no issue
+  /** Reconcile-and-fan-out of a full issue list — for pipelines with no issue
    *  write of their own (session churn re-derives member data, staleness flips). */
   publishIssues(localIssues: IssueWire[]): void {
-    this.deps.publishSpec(this.issuesChanged(localIssues))
+    this.deps.publishIssueList(this.issuesChanged(localIssues))
   }
 }
