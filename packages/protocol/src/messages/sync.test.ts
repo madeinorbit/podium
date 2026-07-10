@@ -72,8 +72,40 @@ describe('parseChangesSinceResult semantic validation', () => {
     expect(res).toBeNull()
   })
 
-  it('accepts an empty delta with any cursor (nothing to validate)', () => {
+  it('accepts an empty delta whose cursor equals fromCursor (a true no-change catch-up)', () => {
     expect(parseChangesSinceResult(delta([], 42), { fromCursor: 42 })?.kind).toBe('delta')
+  })
+
+  it('rejects an empty delta whose cursor moved past fromCursor (#247 round 3)', () => {
+    // {changes:[], cursor:42} for fromCursor 4 would advance both consumers'
+    // persisted cursor to 42 permanently — seqs 5..42 skipped forever.
+    expect(parseChangesSinceResult(delta([], 42), { fromCursor: 4 })).toBeNull()
+    expect(parseChangesSinceResult(delta([], 3), { fromCursor: 4 })).toBeNull()
+  })
+
+  it('accepts an empty delta when fromCursor is OMITTED (no basis to check)', () => {
+    expect(parseChangesSinceResult(delta([], 42))?.kind).toBe('delta')
+    expect(parseChangesSinceResult(delta([], 42), {})?.kind).toBe('delta')
+  })
+
+  it('rejects any delta for an EXPLICITLY null fromCursor (bootstrap wants a snapshot, #247 round 3)', () => {
+    // The contract: cursor null → full snapshot. A delta here is relative to
+    // state the client does not have; installing it corrupts the replica and
+    // stamps a cursor as if the base state existed.
+    expect(parseChangesSinceResult(delta([], 42), { fromCursor: null })).toBeNull()
+    expect(parseChangesSinceResult(delta([sessionUpsert(5, 'a')], 5), { fromCursor: null })).toBe(
+      null,
+    )
+    // Explicit null still accepts the snapshot it asked for.
+    const snap = {
+      kind: 'snapshot',
+      sessions: [],
+      issues: [],
+      conversations: [],
+      diagnostics: [],
+      cursor: 7,
+    }
+    expect(parseChangesSinceResult(snap, { fromCursor: null })?.kind).toBe('snapshot')
   })
 
   it('unknown entity kinds skip identity validation but still count for contiguity', () => {

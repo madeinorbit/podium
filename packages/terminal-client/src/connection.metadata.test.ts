@@ -157,7 +157,20 @@ describe('SocketHub metadata delta mode', () => {
   it('ignores stale batches and heals on a seq gap', async () => {
     const { sock, hub, calls } = setup([
       snapshot(5),
-      { kind: 'delta', changes: [], cursor: 9 }, // the heal response for the gap
+      // The heal response for the gap: contiguous 6..9 from the requested
+      // cursor (removes of unknown ids — no-ops). parseChangesSinceResult
+      // (#247) rejects the old empty-delta-with-advanced-cursor shorthand,
+      // which the real server never produces.
+      {
+        kind: 'delta',
+        changes: [
+          { seq: 6, entity: 'issue', id: 'q6', op: 'remove' },
+          { seq: 7, entity: 'issue', id: 'q7', op: 'remove' },
+          { seq: 8, entity: 'issue', id: 'q8', op: 'remove' },
+          { seq: 9, entity: 'issue', id: 'q9', op: 'remove' },
+        ],
+        cursor: 9,
+      },
     ])
     hub.connect()
     sock.open()
@@ -209,7 +222,20 @@ describe('SocketHub metadata delta mode', () => {
   })
 
   it('treats a quarantined delta element as a gap and heals', async () => {
-    const { sock, hub, calls } = setup([snapshot(5), { kind: 'delta', changes: [], cursor: 7 }])
+    const { sock, hub, calls } = setup([
+      snapshot(5),
+      // Heal response: contiguous 6..7 (removes — the poisoned upsert is
+      // server-side history the client refetched; empty-with-advanced-cursor
+      // is rejected by #247 validation).
+      {
+        kind: 'delta',
+        changes: [
+          { seq: 6, entity: 'issue', id: 'ok', op: 'remove' },
+          { seq: 7, entity: 'issue', id: 'bad', op: 'remove' },
+        ],
+        cursor: 7,
+      },
+    ])
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     hub.connect()
     sock.open()
@@ -374,7 +400,17 @@ describe('SocketHub metadata delta mode', () => {
           changes: [{ seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'one') }],
           cursor: 6,
         },
-        { kind: 'delta', changes: [], cursor: 9 }, // the gap heal below
+        // The gap heal below: contiguous 7..9 from the LIVE cursor (6). An
+        // empty delta with an advanced cursor is rejected by #247 validation.
+        {
+          kind: 'delta',
+          changes: [
+            { seq: 7, entity: 'issue', id: 'q7', op: 'remove' },
+            { seq: 8, entity: 'issue', id: 'q8', op: 'remove' },
+            { seq: 9, entity: 'issue', id: 'q9', op: 'remove' },
+          ],
+          cursor: 9,
+        },
       ],
       { initialCursor: 5 },
     )

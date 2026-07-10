@@ -162,10 +162,13 @@ export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', 
 export function parseChangesSinceResult(
   input: unknown,
   opts?: {
-    /** The cursor the caller requested changes SINCE. When provided and the
+    /** The cursor the caller requested changes SINCE. When a number and the
      *  delta is non-empty, the first change must be exactly fromCursor + 1 —
      *  the server's contiguity contract; anything else is a hole the caller
-     *  would silently skip by advancing to the result cursor. */
+     *  would silently skip by advancing to the result cursor. When EXPLICITLY
+     *  null (bootstrap — distinguished from omitted via `'fromCursor' in
+     *  opts`), only a snapshot is acceptable: the contract says a null cursor
+     *  yields the full state, and a delta here has nothing to be relative to. */
     fromCursor?: number | null
   },
 ): SyncChangesSinceResultLenient | null {
@@ -173,6 +176,17 @@ export function parseChangesSinceResult(
   if (!parsed.success) return null
   const result = parsed.data
   if (result.kind !== 'delta') return result
+  // Explicit-null cursor ([spec:SP-3fe2] #247 round 3): the caller asked for a
+  // BOOTSTRAP snapshot — accepting a delta would install changes relative to
+  // state the client doesn't have and stamp its cursor as if it did.
+  const hasFrom = opts !== undefined && 'fromCursor' in opts
+  if (hasFrom && opts.fromCursor === null) return null
+  // An EMPTY delta must not move the cursor (#247 round 3): its cursor must
+  // equal the requested fromCursor — anything later silently skips the changes
+  // between them forever (both consumers persist the advanced cursor).
+  if (hasFrom && typeof opts.fromCursor === 'number' && result.changes.length === 0) {
+    return result.cursor === opts.fromCursor ? result : null
+  }
   // Semantic validation beyond shapes ([spec:SP-3fe2] #247 round 2): a
   // shape-valid delta can still lie — an embedded wire id disagreeing with the
   // change id would install an entity under the wrong identity (a later remove

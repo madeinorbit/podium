@@ -258,6 +258,32 @@ describe('UpstreamSync kind tolerance', () => {
     expect(sync.lastCatchUpKind).toBe('snapshot')
   })
 
+  it('a cold-start (null cursor) heal answered with a DELTA is rejected — bootstrap requires a snapshot (#247 round 3)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { cursors, heals, frame, setHealResult, lastCursor, sync } = makeSync({ cursor: null })
+    // Contract violation: the server answers the bootstrap (cursor null) with
+    // a delta. Installing it would apply changes relative to state this node
+    // does not have — and stamp a cursor as if it did.
+    setHealResult({
+      kind: 'delta',
+      changes: [{ seq: 6, entity: 'issue', id: 'a', op: 'remove' }],
+      cursor: 6,
+    })
+    // A frame before any cursor exists triggers the bootstrap heal.
+    frame({
+      type: 'metadataDelta',
+      seq: 6,
+      changes: [{ seq: 6, entity: 'issue', id: 'a', op: 'remove' }],
+    })
+    await flush()
+    expect(heals).toEqual([null]) // asked once, with the null bootstrap cursor
+    expect(cursors).toEqual([]) // the rejected delta never advanced the cursor
+    expect(lastCursor()).toBe(null)
+    expect(sync.lastCatchUpKind).toBe(null) // nothing installed
+    sync.stop()
+    warn.mockRestore()
+  })
+
   it('a quarantined KNOWN-kind element still heals — and a heal result carrying an unknown kind applies cleanly', async () => {
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
     const { mirror, heals, frame, setHealResult, lastCursor } = makeSync({
