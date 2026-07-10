@@ -14,6 +14,11 @@
       "types": "./src/focus.ts",
       "import": "./src/focus.ts"
     },
+    "./id": {
+      "@podium/source": "./src/id.ts",
+      "types": "./src/id.ts",
+      "import": "./src/id.ts"
+    },
     "./transport": {
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",

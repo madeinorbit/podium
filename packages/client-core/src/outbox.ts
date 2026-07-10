@@ -5,6 +5,8 @@
  * or reconnect is a server-side no-op.
  */
 
+import { randomUUID } from './id'
+
 /** One queued mutation. `input` is the exact tRPC input, minus `mutationId`. */
 export interface OutboxEntry {
   mutationId: string
@@ -174,7 +176,7 @@ export class Outbox<M extends Record<string, object>> {
       this.saveAwaiting()
     }
     this.now = init.now ?? Date.now
-    this.randomId = init.randomId ?? (() => crypto.randomUUID())
+    this.randomId = init.randomId ?? randomUUID
     this.attach()
   }
 

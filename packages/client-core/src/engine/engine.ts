@@ -34,6 +34,7 @@ import type {
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
+import { randomUUID } from '../id'
 import type { Outbox, OutboxEntry } from '../outbox'
 import { createReplica, type Replica, type UiState } from '../replica/replica'
 import {
@@ -1153,8 +1154,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       }): { sessionId: string; issueId: string } => {
         // Client-minted ids (server reuses them verbatim) so the optimistic rows
         // reconcile by id when the broadcast lands — no temp-id swap, no flicker.
-        const sessionId = crypto.randomUUID()
-        const issueId = `iss_${crypto.randomUUID()}`
+        const sessionId = randomUUID()
+        const issueId = `iss_${randomUUID()}`
         const nowIso = new Date().toISOString()
         // Unified overlay bookkeeping (#263): the placeholders are pending
         // insert overlays — same fold, same retirement (server truth with the

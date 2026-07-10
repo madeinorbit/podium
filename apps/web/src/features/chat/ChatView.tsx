@@ -1,3 +1,4 @@
+import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { buildImagePrompt, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
 import type { HeadlessActivityEvent } from '@podium/protocol'
@@ -586,7 +587,7 @@ export function ChatView({
         await trpc.sessions.sendText.mutate({
           sessionId,
           text: fullText,
-          mutationId: crypto.randomUUID(),
+          mutationId: randomUUID(),
         })
       } else {
         await resumeAndSend(sessionId, fullText)
