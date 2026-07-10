@@ -1,6 +1,15 @@
-import type { IssueWire } from '@podium/protocol'
-import type { PublishSpec } from '../funnel'
+import type { IssueWire, ServerMessage } from '@podium/protocol'
 import type { IssuePublishSpecs } from './service/types'
+
+/** One publishable issue state change: the wire rows the ledger reconciles
+ *  (the durable change append) plus the legacy snapshot message that carries
+ *  the same truth. Lived in modules/funnel while the broadcast-seam oplog
+ *  consumed it; P2f (#258) moved it here — the issue publisher is its only
+ *  producer and the ledger-reconcile tail its only consumer. */
+export interface PublishSpec {
+  rows: { id: string; value: unknown }[]
+  snapshot: ServerMessage
+}
 
 export interface IssuePublisherDeps {
   /** The LOCAL issue list builder (IssueService.allWire) — may be undefined while
@@ -11,8 +20,7 @@ export interface IssuePublisherDeps {
   withUpstreamIssues(local: IssueWire[]): IssueWire[]
   /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
    *  spec's rows (the durable change append, including removes) → funnel
-   *  fan-out of the committed changes + snapshot. Wired in relay.ts — the
-   *  legacy funnel.publishSpec path no longer accepts issue specs. */
+   *  fan-out of the snapshot. Wired in relay.ts. */
   publishIssueList(spec: PublishSpec): void
 }
 
@@ -47,22 +55,19 @@ export class IssuePublisher implements IssuePublishSpecs {
   issuesChanged(localIssues: IssueWire[]): PublishSpec {
     const issues = this.deps.withUpstreamIssues(localIssues)
     return {
-      entity: 'issue',
       rows: issues.map((i) => ({ id: i.id, value: i })),
       snapshot: { type: 'issuesChanged', issues },
     }
   }
 
-  /** Spec for a single-issue delta (issue #22): one PARTIAL oplog record (an
-   *  upsert for this id only — absence of the other issues must not read as
-   *  deletion). Delta-cap clients get the one-change metadataDelta; legacy
-   *  clients get the issueUpdated message they already merge by id. */
+  /** Spec for a single-issue delta (issue #22): the ledger commit already
+   *  appended the change at the write seam; delta-cap clients get it via the
+   *  ordered onAppended pipe, legacy clients get the issueUpdated message
+   *  they already merge by id. */
   issueUpdated(issue: IssueWire): PublishSpec {
     return {
-      entity: 'issue',
       rows: [{ id: issue.id, value: issue }],
       snapshot: { type: 'issueUpdated', issue },
-      partial: true,
     }
   }
 

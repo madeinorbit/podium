@@ -1,6 +1,5 @@
 import type { ServerMessage } from '@podium/protocol'
 import { Ledger, type LedgerDeps } from '@podium/sync'
-import type { PublishSpec } from '../../funnel'
 import type { IssueDeps } from './types'
 
 /**
@@ -17,15 +16,11 @@ import type { IssueDeps } from './types'
 export function issueTestPlumbing(
   broadcast: (msg: ServerMessage) => void = () => {},
 ): Pick<IssueDeps, 'funnel' | 'ledger' | 'publishSpecs'> {
-  const publishSpec = (spec: PublishSpec): void => broadcast(spec.snapshot)
   return {
     funnel: {
       run: (op) => {
         op.authorize?.()
-        const result = op.write()
-        const spec = op.publish?.(result)
-        if (spec) publishSpec(spec)
-        return result
+        return op.write()
       },
       publishComputed: (snapshot) => broadcast(snapshot),
     },
@@ -36,13 +31,10 @@ export function issueTestPlumbing(
     }),
     publishSpecs: {
       issueUpdated: (issue) => ({
-        entity: 'issue',
         rows: [{ id: issue.id, value: issue }],
         snapshot: { type: 'issueUpdated', issue },
-        partial: true,
       }),
       issuesChanged: (issues) => ({
-        entity: 'issue',
         rows: issues.map((i) => ({ id: i.id, value: i })),
         snapshot: { type: 'issuesChanged', issues },
       }),

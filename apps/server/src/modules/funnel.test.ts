@@ -10,15 +10,30 @@ function makeFunnel() {
   const bus = new EventBus()
   const fanOutSnapshot = vi.fn()
   const sendDelta = vi.fn()
-  const funnel = new WriteFunnel({ store, now: () => 1_000, bus, fanOutSnapshot, sendDelta })
-  return { store, bus, fanOutSnapshot, sendDelta, funnel }
+  const ledger = new Ledger({
+    repo: store.sync,
+    now: () => 1_000,
+    transact: (fn) => store.transact(fn),
+  })
+  const funnel = new WriteFunnel({ bus, fanOutSnapshot, sendDelta, ledger })
+  return { store, bus, fanOutSnapshot, sendDelta, ledger, funnel }
 }
 
-const spec = (id: string) => ({
-  entity: 'conversation' as const,
-  rows: [{ id, value: { id } }],
-  snapshot: { type: 'conversationsChanged', conversations: [], diagnostics: [] } as never,
-})
+/** A fake ledger exposing only the onAppended bridge (pipe-focused tests). */
+function fakeLedger() {
+  const listeners = new Set<(changes: MetadataChange[]) => void>()
+  return {
+    onAppended: (fn: (changes: MetadataChange[]) => void) => {
+      listeners.add(fn)
+      return () => listeners.delete(fn)
+    },
+    changesSince: () => null,
+    cursor: () => 0,
+    emit: (changes: MetadataChange[]) => {
+      for (const fn of listeners) fn(changes)
+    },
+  }
+}
 
 describe('WriteFunnel.run ordering', () => {
   it('runs authorize → write and returns the write result', () => {
@@ -35,60 +50,24 @@ describe('WriteFunnel.run ordering', () => {
     expect(order).toEqual(['authorize', 'write'])
   })
 
-  it('authorize rejecting stops the write, the oplog append, and the broadcast', () => {
-    const { funnel, fanOutSnapshot, bus } = makeFunnel()
+  it('authorize rejecting stops the write', () => {
+    const { funnel } = makeFunnel()
     const write = vi.fn()
-    const appended = vi.fn()
-    bus.on('oplog.appended', appended)
     expect(() =>
       funnel.run({
         authorize: () => {
           throw new Error('forbidden')
         },
         write,
-        publish: () => spec('c1'),
       }),
     ).toThrow('forbidden')
     expect(write).not.toHaveBeenCalled()
-    expect(appended).not.toHaveBeenCalled()
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
-    expect(funnel.cursor()).toBe(0)
-  })
-
-  it('a write throw stops the oplog append and the broadcast', () => {
-    const { funnel, fanOutSnapshot, bus } = makeFunnel()
-    const appended = vi.fn()
-    bus.on('oplog.appended', appended)
-    expect(() =>
-      funnel.run({
-        write: () => {
-          throw new Error('db down')
-        },
-        publish: () => spec('c1'),
-      }),
-    ).toThrow('db down')
-    expect(appended).not.toHaveBeenCalled()
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
-    expect(funnel.cursor()).toBe(0)
-  })
-
-  it('publish returning null skips the oplog and the broadcast', () => {
-    const { funnel, fanOutSnapshot } = makeFunnel()
-    const result = funnel.run({ write: () => 'ok', publish: () => null })
-    expect(result).toBe('ok')
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
-    expect(funnel.cursor()).toBe(0)
   })
 })
 
-describe('WriteFunnel.changesSince', () => {
+describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
   it('serves ledger-appended changes from a cursor (one shared durable log)', () => {
-    const { store, funnel } = makeFunnel()
-    const ledger = new Ledger({
-      repo: store.sync,
-      now: () => 1_000,
-      transact: (fn) => store.transact(fn),
-    })
+    const { funnel, ledger } = makeFunnel()
     ledger.commit({
       write: () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
@@ -100,62 +79,12 @@ describe('WriteFunnel.changesSince', () => {
     })
     const changes = funnel.changesSince(cursor)
     expect(changes?.map((c) => c.id)).toEqual(['c1'])
-  })
-})
-
-describe('WriteFunnel ledger severance ([spec:SP-3fe2] #255/#256/#257 — ALL entity kinds)', () => {
-  it('an issue spec through the legacy publish path trips the assertion and appends nothing', () => {
-    const { funnel, fanOutSnapshot } = makeFunnel()
-    expect(() =>
-      funnel.publishSpec({
-        entity: 'issue',
-        rows: [{ id: 'iss_1', value: { id: 'iss_1' } }],
-        snapshot: { type: 'issuesChanged', issues: [] } as never,
-      }),
-    ).toThrow(/ledger-owned/)
-    expect(funnel.cursor()).toBe(0) // nothing double-appended
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
-  })
-
-  it('a session spec is equally severed', () => {
-    const { funnel, fanOutSnapshot } = makeFunnel()
-    expect(() =>
-      funnel.publishSpec({
-        entity: 'session',
-        rows: [{ id: 's1', value: { id: 's1' } }],
-        snapshot: { type: 'sessionsChanged', sessions: [] } as never,
-      }),
-    ).toThrow(/ledger-owned/)
-    expect(funnel.cursor()).toBe(0)
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
-  })
-
-  it('a conversation spec is equally severed (#257 — the legacy oplog records NOTHING)', () => {
-    const { funnel, fanOutSnapshot } = makeFunnel()
-    expect(() => funnel.publishSpec(spec('c1'))).toThrow(/ledger-owned/)
-    expect(funnel.cursor()).toBe(0)
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
-  })
-
-  it('record(…) is severed for every entity kind', () => {
-    const { funnel } = makeFunnel()
-    expect(() => funnel.record('issue', [{ id: 'iss_1', value: {} }])).toThrow(/ledger-owned/)
-    expect(() => funnel.record('session', [{ id: 's1', value: {} }])).toThrow(/ledger-owned/)
-    expect(() => funnel.record('conversation', [{ id: 'c1', value: {} }])).toThrow(/ledger-owned/)
-    expect(funnel.cursor()).toBe(0)
-  })
-
-  it('a publish spec from run() trips the severance guard AFTER the write (no fan-out)', () => {
-    const { funnel, fanOutSnapshot } = makeFunnel()
-    const write = vi.fn(() => 'written')
-    expect(() => funnel.run({ write, publish: () => spec('c1') })).toThrow(/ledger-owned/)
-    expect(write).toHaveBeenCalledTimes(1)
-    expect(fanOutSnapshot).not.toHaveBeenCalled()
+    expect(funnel.cursor()).toBe(2)
   })
 })
 
 describe('WriteFunnel.publishComputed ([spec:SP-3fe2] #255/#256)', () => {
-  it('fans out ONLY the legacy snapshot — no record, no metadataDelta', () => {
+  it('fans out ONLY the legacy snapshot — no change append, no metadataDelta', () => {
     const { funnel, fanOutSnapshot, sendDelta, bus } = makeFunnel()
     const appended = vi.fn()
     bus.on('oplog.appended', appended)
@@ -164,33 +93,19 @@ describe('WriteFunnel.publishComputed ([spec:SP-3fe2] #255/#256)', () => {
     funnel.flushDeltas()
     expect(fanOutSnapshot).toHaveBeenCalledWith(snapshot, {})
     expect(sendDelta).not.toHaveBeenCalled() // deltas come from the onAppended pipe only
-    expect(funnel.cursor()).toBe(0) // no oplog append
+    expect(funnel.cursor()).toBe(0) // no change-log append
     expect(appended).not.toHaveBeenCalled()
   })
 
   it('bridges ledger appends onto the bus AND into the delta pipe', () => {
-    const store = new SessionStore(':memory:')
     const bus = new EventBus()
-    const listeners = new Set<(changes: MetadataChange[]) => void>()
-    const ledger = {
-      onAppended: (fn: (changes: MetadataChange[]) => void) => {
-        listeners.add(fn)
-        return () => listeners.delete(fn)
-      },
-    }
+    const ledger = fakeLedger()
     const appended = vi.fn()
     const sendDelta = vi.fn()
     bus.on('oplog.appended', appended)
-    const funnel = new WriteFunnel({
-      store,
-      now: () => 1_000,
-      bus,
-      fanOutSnapshot: vi.fn(),
-      sendDelta,
-      ledger: ledger as never,
-    })
+    const funnel = new WriteFunnel({ bus, fanOutSnapshot: vi.fn(), sendDelta, ledger })
     const changes = [{ seq: 1, entity: 'issue', id: 'iss_1', op: 'remove' }] as MetadataChange[]
-    for (const fn of listeners) fn(changes)
+    ledger.emit(changes)
     expect(appended).toHaveBeenCalledWith({ changes })
     funnel.flushDeltas()
     expect(sendDelta).toHaveBeenCalledWith(changes)
@@ -199,26 +114,11 @@ describe('WriteFunnel.publishComputed ([spec:SP-3fe2] #255/#256)', () => {
 
 describe('the ordered metadataDelta pipe (#256)', () => {
   function pipedFunnel() {
-    const store = new SessionStore(':memory:')
     const bus = new EventBus()
     const sendDelta = vi.fn()
-    let emit: ((changes: MetadataChange[]) => void) | undefined
-    const ledger = {
-      onAppended: (fn: (changes: MetadataChange[]) => void) => {
-        emit = fn
-        return () => {}
-      },
-    }
-    const funnel = new WriteFunnel({
-      store,
-      now: () => 1_000,
-      bus,
-      fanOutSnapshot: vi.fn(),
-      sendDelta,
-      ledger: ledger as never,
-    })
-    const appended = (changes: MetadataChange[]) => emit?.(changes)
-    return { funnel, sendDelta, appended }
+    const ledger = fakeLedger()
+    const funnel = new WriteFunnel({ bus, fanOutSnapshot: vi.fn(), sendDelta, ledger })
+    return { funnel, sendDelta, appended: ledger.emit }
   }
 
   const up = (
@@ -237,7 +137,7 @@ describe('the ordered metadataDelta pipe (#256)', () => {
     funnel.flushDeltas()
     expect(sendDelta).toHaveBeenCalledTimes(1)
     const [batch] = sendDelta.mock.calls[0] as [MetadataChange[]]
-    // Strict append order, both writers interleaved — the pipe NEVER reorders.
+    // Strict append order, batches interleaved — the pipe NEVER reorders.
     expect(batch.map((c) => `${c.entity}:${c.id}`)).toEqual([
       'session:s1',
       'issue:i1',
@@ -260,22 +160,7 @@ describe('the ordered metadataDelta pipe (#256)', () => {
     // first, the inner commit's batch would enter the pipe before the outer
     // one — [N+1, N] — and a delta client's cursor would jump past N without
     // healing. Pipe-first makes arrival order equal append order.
-    const store = new SessionStore(':memory:')
-    const bus = new EventBus()
-    const sendDelta = vi.fn()
-    const ledger = new Ledger({
-      repo: store.sync,
-      now: () => 1_000,
-      transact: (fn) => store.transact(fn),
-    })
-    const funnel = new WriteFunnel({
-      store,
-      now: () => 1_000,
-      bus,
-      fanOutSnapshot: vi.fn(),
-      sendDelta,
-      ledger,
-    })
+    const { funnel, bus, sendDelta, ledger } = makeFunnel()
     let reentered = false
     bus.on('oplog.appended', () => {
       if (reentered) return

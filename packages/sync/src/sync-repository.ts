@@ -16,7 +16,7 @@ export class SyncRepository {
   /**
    * Append a batch of change rows in one transaction and return their assigned seqs
    * (contiguous — the whole batch commits inside BEGIN IMMEDIATE, so no interleaving).
-   * The caller (MetadataOplog) has already diffed; rows arrive only for real changes.
+   * The caller (Ledger) has already deduped; rows arrive only for real changes.
    */
   appendChanges(
     rows: { entity: string; entityId: string; op: 'upsert' | 'remove'; payload: string | null }[],
@@ -58,7 +58,7 @@ export class SyncRepository {
 
   /**
    * Change rows with seq > cursor, in seq order. The CALLER decides whether the
-   * cursor is still within the retained range (see MetadataOplog.changesSince) —
+   * cursor is still within the retained range (see Ledger.changesSince) —
    * this is a plain range read.
    */
   changesSince(
@@ -100,7 +100,7 @@ export class SyncRepository {
 
   /**
    * Fold the retained log to the latest state per (entity, id) — the boot seed for
-   * MetadataOplog's diff baseline, so a restart emits deltas for anything that
+   * the Ledger's dedup baseline, so a restart emits deltas for anything that
    * changed while the server was down instead of silently rebasing.
    */
   latestChangeStates(): { entity: string; entityId: string; op: string; payload: string | null }[] {

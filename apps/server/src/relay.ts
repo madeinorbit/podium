@@ -239,10 +239,8 @@ export class SessionRegistry {
     })
     // The write-seam change log ([spec:SP-3fe2] #255/#256/#257): issue, session
     // AND conversation writes append their change rows ATOMICALLY with the
-    // entity write (one transact span on the shared connection); the legacy
-    // broadcast-seam oplog inside the funnel records nothing anymore (P2f
-    // deletes it). Same changes table + seq sequence — changesSince consumers
-    // see one unified feed.
+    // entity write (one transact span on the shared connection). One changes
+    // table + one seq sequence — changesSince consumers see one unified feed.
     const ledger = new Ledger({
       repo: this.store.sync,
       now: () => this.now(),
@@ -251,10 +249,8 @@ export class SessionRegistry {
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
-    // clients through. Its legacy oplog is inert (#257; deleted in P2f).
+    // clients through.
     const funnel = new WriteFunnel({
-      store: this.store,
-      now: () => this.now(),
       bus: this.bus,
       ledger,
       fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),
@@ -265,8 +261,7 @@ export class SessionRegistry {
       withUpstreamIssues: (local) => upstreamIssues.withUpstreamIssues(local),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
-      // the committed changes out — never the legacy funnel.publishSpec path,
-      // which rejects issue specs.
+      // the committed changes out.
       publishIssueList: (spec) => {
         // The reconcile's appends reach delta clients via the funnel's ordered
         // onAppended pipe; publishComputed carries only the legacy snapshot.

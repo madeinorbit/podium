@@ -10,7 +10,7 @@ import type { EntityChangeSpec } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
-import type { PublishSpec } from '../../funnel'
+import type { PublishSpec } from '../publish'
 
 /** The write-funnel face IssueService mutations run through (issue #190): the
  *  write-only sites (mail, subscriptions — no publishable change) enter `run`
@@ -21,11 +21,7 @@ import type { PublishSpec } from '../../funnel'
  *  happens UPSTREAM (router / issue-commands authz) — service-level ops pass no
  *  `authorize` stage of their own. */
 export interface IssueFunnel {
-  run<T>(op: {
-    authorize?: () => void
-    write: () => T
-    publish?: (result: T) => PublishSpec | null
-  }): T
+  run<T>(op: { authorize?: () => void; write: () => T }): T
   /** Legacy-snapshot fan-out for a ledger-committed change. NO oplog append
    *  and NO metadataDelta — the append happened atomically with the write
    *  (Ledger.commit/reconcile) and delta clients receive it via the funnel's
@@ -50,7 +46,7 @@ export interface IssueLedger {
  *  with IssuePublisher, which unions hub-mirrored issues into the list snapshot
  *  (node-hub-issues §2.1) — the service never learns about the mirror. */
 export interface IssuePublishSpecs {
-  /** Single-issue delta (issue #22) — a PARTIAL oplog record + issueUpdated. */
+  /** Single-issue delta (issue #22) — the issueUpdated legacy snapshot. */
   issueUpdated(issue: IssueWire): PublishSpec
   /** Full-list snapshot (membership / cross-issue derived changes). */
   issuesChanged(localIssues: IssueWire[]): PublishSpec

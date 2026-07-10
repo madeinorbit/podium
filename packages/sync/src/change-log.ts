@@ -1,13 +1,11 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 
 /**
- * Shared internals of the durable metadata change log [spec:SP-3fe2] (#253):
- * the dedup baseline, the conversation significance projection, the retention
- * policy, and the cursor read path. Consumed by both writers — the legacy
- * broadcast-seam {@link MetadataOplog} and the write-seam {@link Ledger} —
- * which must agree byte-for-byte on what counts as "a change" while they
- * coexist during the seam migration. Internal module: not exported from the
- * package index.
+ * Internals of the durable metadata change log [spec:SP-3fe2] (#253): the
+ * dedup baseline, the conversation significance projection, the retention
+ * policy, and the cursor read path. Consumed by the write-seam {@link Ledger}
+ * — the log's single writer since P2f deleted the legacy broadcast-seam
+ * oplog (#258). Internal module: not exported from the package index.
  */
 
 /** Narrow structural view over SyncRepository — everything a change-log

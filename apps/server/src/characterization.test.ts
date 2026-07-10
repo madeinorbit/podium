@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
-import { MetadataOplog } from '@podium/sync'
+import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { type Capability, OPERATOR } from './issue-authz'
@@ -358,13 +358,13 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
 })
 
 // ---------------------------------------------------------------------------
-// Contract 3 — oplog cursor replay: the client-healing composition.
+// Contract 3 — change-log cursor replay: the client-healing composition.
 // (Monotonic seq, exact deltas, and the compaction signal are pinned in
-// oplog.test.ts / store.changes.test.ts; this composes them into the actual
+// ledger.test.ts / store.changes.test.ts; this composes them into the actual
 // consumer behavior: a lagging client healing to the exact live state.)
 // ---------------------------------------------------------------------------
 
-describe('characterization: oplog delta client heals to identical state (contract 3)', () => {
+describe('characterization: change-log delta client heals to identical state (contract 3)', () => {
   /** A minimal delta consumer: fold changes into an id→value map. */
   const apply = (state: Map<string, unknown>, changes: MetadataChange[]): number => {
     let cursor = 0
@@ -378,12 +378,17 @@ describe('characterization: oplog delta client heals to identical state (contrac
 
   it('a client that missed N deltas reconstructs the exact live state from changesSince(cursor)', () => {
     const store = new SessionStore(':memory:')
-    const oplog = new MetadataOplog(store.sync)
+    const ledger = new Ledger({
+      repo: store.sync,
+      now: Date.now,
+      transact: (fn) => store.transact(fn),
+    })
     const liveState = new Map<string, unknown>()
     const lagState = new Map<string, unknown>()
 
-    // Round 1 — both clients see it.
-    let changes = oplog.record('issue', [
+    // Round 1 — both clients see it. reconcile() is the full-truth diff path
+    // (the same semantics the deleted broadcast-seam oplog's record() had).
+    let changes = ledger.reconcile('issue', [
       { id: 'a', value: { id: 'a', title: 'a1' } },
       { id: 'b', value: { id: 'b', title: 'b1' } },
     ])
@@ -392,24 +397,24 @@ describe('characterization: oplog delta client heals to identical state (contrac
 
     // Rounds 2-3 happen while the lagging client is offline: an edit, a removal,
     // and a brand-new entity.
-    apply(liveState, oplog.record('issue', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
-    changes = oplog.record('issue', [
+    apply(liveState, ledger.reconcile('issue', [{ id: 'a', value: { id: 'a', title: 'a2' } }]))
+    changes = ledger.reconcile('issue', [
       { id: 'a', value: { id: 'a', title: 'a3' } },
       { id: 'c', value: { id: 'c', title: 'c1' } },
     ])
     apply(liveState, changes)
 
     // Heal: exactly the missed range, and folding it reproduces the live state.
-    const missed = oplog.changesSince(lagCursor)
+    const missed = ledger.changesSince(lagCursor)
     expect(missed).not.toBeNull()
     const healedCursor = apply(lagState, missed as MetadataChange[])
     expect(lagState).toEqual(liveState)
-    expect(healedCursor).toBe(oplog.cursor())
+    expect(healedCursor).toBe(ledger.cursor())
 
     // Compaction past the client's cursor forces the full-resync signal (null),
     // never a silent partial delta.
     store.sync.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
-    expect(oplog.changesSince(lagCursor)).toBeNull()
+    expect(ledger.changesSince(lagCursor)).toBeNull()
     store.close()
   })
 })
