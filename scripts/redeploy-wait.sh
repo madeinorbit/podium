@@ -61,7 +61,18 @@ prev=""
 if [ -r "$state_file" ]; then
   prev="$(head -n1 "$state_file" | tr -d '[:space:]')"
 fi
-if [ -z "$prev" ]; then
+# Deps-dirty marker (#251 review): written before bun install mutates the live
+# node_modules, cleared only after the WHOLE gate (install + typecheck)
+# succeeds. Without it, a typecheck failure after an install leaves
+# node_modules from the rejected commit while the state file still says A —
+# and a later revert whose manifests match A would diff clean, skip the
+# install, and restart services against the rejected commit's dependencies.
+deps_dirty_file="${state_file}.deps-dirty"
+if [ -e "$deps_dirty_file" ]; then
+  echo "[redeploy-wait] node_modules marked dirty by a previously aborted deploy — reinstalling" >&2
+  need_install=1
+fi
+if [ "$need_install" -eq 0 ] && [ -z "$prev" ]; then
   echo "[redeploy-wait] no previously deployed HEAD recorded — installing dependencies" >&2
   need_install=1
 elif [ "$prev" != "$head" ]; then
@@ -88,6 +99,7 @@ if [ "$need_install" -eq 1 ]; then
     exit 1
   fi
   echo "[redeploy-wait] running: $bun_bin install --frozen-lockfile --linker=hoisted (in $repo)" >&2
+  printf '%s\n' "$head" > "$deps_dirty_file"
   if ! (cd "$repo" && "$bun_bin" install --frozen-lockfile --linker=hoisted); then
     echo "[redeploy-wait] FATAL: bun install failed — aborting deploy, services NOT restarted" >&2
     echo "[redeploy-wait] last successfully deployed HEAD remains ${prev:-<none>}" >&2
@@ -128,6 +140,8 @@ if [ "$need_typecheck" -eq 1 ]; then
   fi
 fi
 
-# Record this HEAD as successfully deployed only once deps + types are known-good.
+# Record this HEAD as successfully deployed only once deps + types are known-good,
+# and clear the deps-dirty marker — node_modules now provably matches this HEAD.
+rm -f "$deps_dirty_file"
 printf '%s\n' "$head" > "$state_file"
 exit 0

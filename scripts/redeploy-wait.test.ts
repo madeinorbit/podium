@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const SCRIPT = join(__dirname, 'redeploy-wait.sh')
@@ -233,5 +233,40 @@ describe('redeploy-wait.sh', () => {
       expect(readFileSync(bun.log, 'utf8')).toContain('install --frozen-lockfile')
       rmSync(repo, { recursive: true, force: true })
     })
+  })
+})
+
+describe('deps-dirty marker (#251 review)', () => {
+  it('a typecheck failure after an install forces a reinstall even when manifests later diff clean', () => {
+    const repo = makeRepo()
+    const stateFile = join(repo, '.git', 'podium-redeploy-head')
+    const dirtyFile = `${stateFile}.deps-dirty`
+    // Deployed HEAD A recorded.
+    writeFileSync(join(repo, 'package.json'), '{"name":"x","version":"1"}')
+    gitIn(repo, 'add', '.')
+    gitIn(repo, 'commit', '-m', 'A')
+    const headA = gitIn(repo, 'rev-parse', 'HEAD')
+    writeFileSync(stateFile, `${headA}\n`)
+    // Commit B bumps a manifest; install succeeds but typecheck FAILS.
+    writeFileSync(join(repo, 'package.json'), '{"name":"x","version":"2"}')
+    gitIn(repo, 'add', '.')
+    gitIn(repo, 'commit', '-m', 'B')
+    const failing = makeFakeBun({ failTypecheck: true })
+    expect(() =>
+      runScript(repo, { PATH: `${dirname(failing.bin)}:${process.env.PATH}` }),
+    ).toThrow() // exit 1: deploy aborted after install mutated node_modules
+    expect(existsSync(dirtyFile)).toBe(true) // marker persisted
+    expect(readFileSync(stateFile, 'utf8').trim()).toBe(headA) // state not advanced
+    // Commit C reverts the manifest so A..C diffs CLEAN for manifests —
+    // without the marker the install would be skipped against B's deps.
+    writeFileSync(join(repo, 'package.json'), '{"name":"x","version":"1"}')
+    gitIn(repo, 'add', '.')
+    gitIn(repo, 'commit', '-m', 'C')
+    const ok = makeFakeBun()
+    runScript(repo, { PATH: `${dirname(ok.bin)}:${process.env.PATH}` })
+    const calls = readFileSync(ok.log, 'utf8')
+    expect(calls).toContain('install --frozen-lockfile') // marker forced the reinstall
+    expect(existsSync(dirtyFile)).toBe(false) // cleared after the successful gate
+    rmSync(repo, { recursive: true, force: true })
   })
 })

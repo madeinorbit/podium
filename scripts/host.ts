@@ -19,7 +19,6 @@
  * serving, invisible to Restart=always), systemd watchdog pet, and bounded close.
  */
 import { bootProcess } from '@podium/runtime/boot'
-import { resolvePort } from '@podium/runtime/config'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { LOCAL_MACHINE_ID } from '../apps/server/src/local-machine'
 import { startServer } from '../apps/server/src/server'
@@ -27,8 +26,14 @@ import { startServer } from '../apps/server/src/server'
 await bootProcess({
   name: 'host',
   start: async () => {
-    // Uncommon internal port; the Vite proxy in apps/web/vite.config.ts uses the same PODIUM_PORT.
-    const server = await startServer({ port: resolvePort() })
+    // ENV-ONLY port (NOT the layered config resolver): the Vite dev proxy in
+    // apps/web/vite.config.ts pairs with this process through PODIUM_PORT
+    // alone — honoring config.json here would bind the backend on a port the
+    // proxy never learns about (#251 review). Production never runs host.ts.
+    const envPort = Number(process.env.PODIUM_PORT)
+    const server = await startServer({
+      port: Number.isFinite(envPort) && envPort > 0 ? envPort : 18787,
+    })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${server.port}`,
       bootstrapToken: server.bootstrapToken,
