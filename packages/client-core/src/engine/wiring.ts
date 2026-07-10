@@ -97,8 +97,6 @@ export function createEngineOutbox(args: {
     // A poison entry (server-side validation reject) can never sync — it's
     // dropped, and the toast is the honesty about that.
     onPoison: (entry) =>
-      args.notices.error(
-        `A queued change (${entry.kind}) was rejected by the server and dropped`,
-      ),
+      args.notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`),
   })
 }

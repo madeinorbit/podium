@@ -35,7 +35,11 @@ class FakeHub {
   setVisible(v: boolean): void {
     this.visibleCalls.push(v)
   }
-  // Boot wiring touched by StoreProvider's mount effect — inert stubs.
+  // Boot wiring touched by the engine's start() — inert stubs.
+  /** The P5a `on()` subscription seam the engine wires events through. */
+  on() {
+    return () => {}
+  }
   onSessions() {
     return () => {}
   }

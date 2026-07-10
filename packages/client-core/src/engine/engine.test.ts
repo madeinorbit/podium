@@ -102,7 +102,9 @@ function makeApi(): any {
     },
     settings: {
       get: {
-        query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false } }),
+        query: async () => ({
+          sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+        }),
       },
       set: { mutate: async (s: unknown) => s },
     },

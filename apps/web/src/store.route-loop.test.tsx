@@ -17,6 +17,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 class FakeHub {
   setViewState(): void {}
   setVisible(): void {}
+  /** The P5a `on()` subscription seam the engine wires events through. */
+  on() {
+    return () => {}
+  }
   onHostMetrics() {
     return () => {}
   }
@@ -142,9 +146,7 @@ async function mountAt(url: string): Promise<void> {
 
 describe('workspace deep link with unknown wt/pane', () => {
   it('settles without an update loop and falls back to a known worktree', async () => {
-    await mountAt(
-      '/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=00000000-0000-0000-0000-000000000000',
-    )
+    await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=00000000-0000-0000-0000-000000000000')
     // Bounded render count — the URL↔state sync must converge, not ping-pong.
     expect(renderCount).toBeLessThan(60)
     expect(snapshot?.view).toBe('workspace')

@@ -7,13 +7,11 @@ const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL('../src/' + rel, import.meta.url)), 'utf8')
 
 // The store provider implementation moved to @podium/client-core (arch-v2 P3,
-// issue #192); apps/web/src/store.tsx is the web binding. Structure assertions
-// about the store's implementation read the shared provider source.
+// issue #192) and then dissolved into the non-React engine (P5b, issue #262).
+// Structure assertions about the store's implementation read the engine source.
 const readStore = () =>
   readFileSync(
-    fileURLToPath(
-      new URL('../../../packages/client-core/src/react/provider.tsx', import.meta.url),
-    ),
+    fileURLToPath(new URL('../../../packages/client-core/src/engine/engine.ts', import.meta.url)),
     'utf8',
   )
 

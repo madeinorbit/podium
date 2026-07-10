@@ -10,15 +10,18 @@ const read = (rel: string) =>
   readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8')
 
 // The store provider implementation moved to @podium/client-core (arch-v2 P3,
-// issue #192); apps/web/src/store.tsx is the web binding. Structure assertions
-// about the store's implementation read the shared provider source.
+// issue #192) and then dissolved into the non-React engine + a thin React
+// binding (P5b, issue #262). Structure assertions about the store's
+// implementation read the engine sources (plus the binding).
 const readStore = () =>
-  readFileSync(
-    fileURLToPath(
-      new URL('../../../packages/client-core/src/react/provider.tsx', import.meta.url),
-    ),
-    'utf8',
-  )
+  ['engine/engine.ts', 'engine/wiring.ts', 'react/provider.tsx']
+    .map((rel) =>
+      readFileSync(
+        fileURLToPath(new URL(`../../../packages/client-core/src/${rel}`, import.meta.url)),
+        'utf8',
+      ),
+    )
+    .join('\n')
 
 describe('web shell structure', () => {
   it('AppShell auto-resolves the relay (no manual connect screen) and renders sidebar + workspace', () => {
@@ -137,7 +140,11 @@ describe('web shell structure', () => {
     const src = readStore()
     // Conversations are read on demand from the durable server index, so the
     // boot fan-out is repos + pins + tab orders — never a conversation rescan.
-    expect(src).toContain('Promise.all([refreshRepos(), refreshPins(), refreshTabOrders()])')
+    const bootStart = src.indexOf('void Promise.all([')
+    const boot = src.slice(bootStart, src.indexOf('.catch', bootStart))
+    expect(boot).toContain('this.refreshRepos()')
+    expect(boot).toContain('this.refreshPins()')
+    expect(boot).toContain('this.refreshTabOrders()')
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
   })
@@ -170,7 +177,9 @@ describe('web shell structure', () => {
 describe('host health indicators', () => {
   it('store subscribes to the host metrics feed', () => {
     const src = readStore()
-    expect(src).toContain('onHostMetrics')
+    // Via the P5a typed subscription seam (the deprecated onHostMetrics wrapper
+    // is gone from the engine).
+    expect(src).toContain("on('hostMetrics'")
     expect(src).toContain('hostMetrics')
   })
   it('the strip is mounted in the desktop sidebar and the mobile header', () => {

@@ -316,7 +316,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       this.hub.on('machines', (m) => {
         this.apply({ machines: m })
         const online = m.reduce((n, x) => n + (x.online ? 1 : 0), 0)
-        if (online > onlineMachines) void this.statics.refreshRepos()
+        if (online > onlineMachines) void this.refreshRepos()
         onlineMachines = online
       }),
     )
@@ -386,13 +386,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         .query()
         .then((s) => this.apply({ sidebarSettings: s.sidebar }))
         .catch(() => {})
-      void Promise.all([
-        this.statics.refreshRepos(),
-        this.refreshPins(),
-        this.refreshTabOrders(),
-      ]).catch((e) => {
-        this.onFatalError(this.formatError(e, 'Could not load Podium data'))
-      })
+      void Promise.all([this.refreshRepos(), this.refreshPins(), this.refreshTabOrders()]).catch(
+        (e) => {
+          this.onFatalError(this.formatError(e, 'Could not load Podium data'))
+        },
+      )
     }
 
     // Initial persist + URL normalization (the old per-field effects and the
@@ -510,9 +508,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       const canShow =
         !st.reposLoaded ||
         worktrees.some((w) => w.path === route.worktree) ||
-        st.sessions.some(
-          (s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`),
-        )
+        st.sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
       if (canShow) patch.selectedWorktree = route.worktree
     }
     if (route.pane && route.pane !== prev?.pane && route.pane !== st.paneA) {
@@ -690,9 +686,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     let pendingSpawnIds: ReadonlySet<string> = EMPTY_STRING_SET
     if (overlay.length > 0) {
       const known = new Set(base.map((s) => s.sessionId))
-      pendingSpawnIds = new Set(
-        overlay.map((s) => s.sessionId).filter((id) => !known.has(id)),
-      )
+      pendingSpawnIds = new Set(overlay.map((s) => s.sessionId).filter((id) => !known.has(id)))
     }
     this.apply({ sessions, pendingSpawnIds })
   }
@@ -743,6 +737,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.ui.set(PANEL_MODE_KEY, JSON.stringify(st.panelMode))
   }
 
+  /** Enrich the registered repos with branch/worktree metadata (fast — no
+   *  filesystem walk). Discovery scanning happens explicitly via the scan flow. */
+  private async refreshRepos(): Promise<void> {
+    this.apply({ reposLoading: true })
+    try {
+      const r = await this.api.discovery.refreshRepos.mutate()
+      this.apply({ repos: r.repositories, repoDiagnostics: r.diagnostics })
+    } finally {
+      this.apply({ reposLoading: false, reposLoaded: true })
+    }
+  }
+
   private async refreshPins(): Promise<void> {
     this.apply({ pins: await this.api.pins.list.query() })
   }
@@ -774,15 +780,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  function identities. */
   private buildStatics(): Omit<Store<TApi>, keyof EngineState> {
     const api = this.api
-    const refreshRepos = async (): Promise<void> => {
-      this.apply({ reposLoading: true })
-      try {
-        const r = await api.discovery.refreshRepos.mutate()
-        this.apply({ repos: r.repositories, repoDiagnostics: r.diagnostics })
-      } finally {
-        this.apply({ reposLoading: false, reposLoaded: true })
-      }
-    }
     return {
       hub: this.hub,
       trpc: api,
@@ -790,7 +787,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       uiState: this.ui,
       httpOrigin: this.httpOrigin,
       getUserFocus: () => this.getUserFocus(),
-      refreshRepos,
+      refreshRepos: () => this.refreshRepos(),
       setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
         this.apply({ pins: await api.pins.set.mutate({ kind, id, pinned }) })
       },
@@ -861,7 +858,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // Selecting a pane also focuses it — clicking/opening a pane is a reasonable
       // proxy for input focus, and the terminal components don't expose a focus seam.
       setPane: (pane: 'A' | 'B', id: string | null) =>
-        this.apply(pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane }),
+        this.apply(
+          pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane },
+        ),
       setFocusedPane: (pane: 'A' | 'B') => this.apply({ focusedPane: pane }),
       setPanelMode: (sessionId: string, mode: 'chat' | 'native') => {
         const m = this.state.panelMode
@@ -972,9 +971,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           agentKind: args.agentKind,
           firstPrompt: args.firstPrompt,
         }).catch((err) => {
-          this.optimisticSessions = this.optimisticSessions.filter(
-            (s) => s.sessionId !== sessionId,
-          )
+          this.optimisticSessions = this.optimisticSessions.filter((s) => s.sessionId !== sessionId)
           this.optimisticIssues = this.optimisticIssues.filter((i) => i.id !== issueId)
           this.recomputeSessions()
           this.recomputeIssues()
@@ -1047,9 +1044,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           const pins = this.state.pins
           this.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
           // Pins stay direct (not outboxed) — low offline value, follow-on phase.
-          await api.pins.set
-            .mutate({ kind: 'panel', id: sessionId, pinned: false })
-            .catch(() => {})
+          await api.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
         }
         this.outbox.enqueue('setArchived', { sessionId, archived })
         if (archived) this.outbox.enqueue('setWorkState', { sessionId, workState: 'done' })
