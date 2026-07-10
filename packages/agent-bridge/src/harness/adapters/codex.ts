@@ -1,6 +1,10 @@
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { codexStateProvider, findCodexRolloutPath } from '../../agent-state/codex.js'
+import {
+  codexStateProvider,
+  findCodexRolloutPath,
+  observeCodexState,
+} from '../../agent-state/codex.js'
 import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
 import { type HarnessAdapter, isSet, type TranscriptSourceInput } from '../adapter.js'
 
@@ -123,6 +127,61 @@ export const codexAdapter: HarnessAdapter = {
   },
 
   state: codexStateProvider,
+
+  // Codex state arrives on TWO channels: native hooks (codex ≥0.142, fast +
+  // authoritative, the only source for PermissionRequest) via the daemon's
+  // shared ingest, and this rollout observer (binding, titles, and the fallback
+  // for codex builds/sessions without hooks). `bindHookThread` lets the hook
+  // path pin the observer to the thread the hook payload names without
+  // restarting a correctly-bound observer on every POST.
+  observer(input, host) {
+    // Codex creates its rollout lazily (often at the first prompt), so a
+    // reattached observer must still be able to discover by cwd — floored at
+    // the session's original spawn time so it can't latch onto an older
+    // sibling's rollout. Spawn passes its own start; reattach the persisted one.
+    const floor = input.startedAtMs ?? input.createdAtMs
+    let boundThread: string | undefined
+    const start = (
+      resumeValue: string | undefined,
+      startedAtMs: number | undefined,
+    ): { stop(): void } =>
+      observeCodexState({
+        cwd: input.cwd,
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        ...(startedAtMs !== undefined ? { startedAtMs } : {}),
+        onSession: (rolloutId, rolloutPath) => {
+          boundThread = rolloutId
+          host.onResumeValue(rolloutId)
+          // Codex's rollout file carries both the conversation and state — the
+          // same path the observer found feeds the chat tail.
+          host.tailFile(rolloutPath)
+        },
+        // Codex's OSC terminal title is just the cwd basename (suppressed by
+        // the daemon); the observer derives a real title from the thread instead.
+        onTitle: (title) => host.onTitle(title),
+        onEvents: (events) => host.onStateEvents(events),
+      })
+    // A resume/reattach passes the session's known codex-thread id so the
+    // observer pins its OWN rollout instead of re-discovering by cwd+mtime
+    // (which collapses sibling sessions in the same repo onto the newest
+    // rollout). A fresh spawn passes undefined → discovery scoped by the floor.
+    let inner = start(input.resumeValue, floor)
+    return {
+      stop: () => inner.stop(),
+      bindHookThread(threadId) {
+        // Deterministic binding: the hook names the thread this pane REALLY
+        // runs, ending any discovery ambiguity (lazy rollout creation, cwd
+        // siblings, a mid-session /new rolling to a fresh thread). Re-pin only
+        // when the binding disagrees — every later POST is a cheap comparison.
+        if (boundThread === threadId) return
+        inner.stop()
+        boundThread = threadId
+        inner = start(threadId, undefined)
+      },
+    }
+  },
+
   discovery: createCodexConversationProvider(),
 
   transcript: {

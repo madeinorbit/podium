@@ -1,7 +1,9 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import { claudeCodeStateProvider } from '../../agent-state/claude-code.js'
-import { locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
+import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
 import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
 import { type HarnessAdapter, isSet, type TranscriptSourceInput } from '../adapter.js'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '../issue-system-pointer.js'
@@ -75,6 +77,59 @@ export const claudeCodeAdapter: HarnessAdapter = {
   },
 
   state: claudeCodeStateProvider,
+
+  // Claude Code needs no polling state observer — state arrives on the hook
+  // channel. Observation here is the transcript-tail bootstrap: eagerly tail
+  // the session's resume transcript (the JSONL the harness is already writing)
+  // so the chat view has history before the first hook fires. Essential on
+  // reattach: a fresh daemon's tail registry is empty and an idle survivor
+  // fires no hook to register one, so chat would stay blank while the PTY
+  // scrollback (native view) still shows the whole conversation. Hooks remain
+  // a fast-path: when one lands, its transcript_path re-points the tail at the
+  // live file.
+  observer(input, host) {
+    // Honor a discovery homeDir override (tests / isolated HOME) so the live
+    // tail reads the SAME location the on-demand read source does — otherwise
+    // a daemon run against an isolated home would tail the real ~/.claude and
+    // find nothing.
+    const home = input.homeDir ?? homedir()
+    const resumeValue = input.resumeValue
+    if (resumeValue) {
+      void (async () => {
+        // Locate, don't derive: after a worktree move the file lives in the
+        // ORIGINAL cwd's bucket (docs/spec/conversation-registry.md §3.3). Fall
+        // back to the derived path when nothing exists yet — a fresh resume
+        // creates the file a moment later and the tailer waits on it. Reattach
+        // carries the server's recorded segment path (pathHint) — evidence
+        // beats cwd derivation.
+        const located = await locateClaudeSessionFile({
+          cwd: input.cwd,
+          resumeValue,
+          ...(input.pathHint ? { pathHint: input.pathHint } : {}),
+          homeDir: home,
+        })
+        host.tailFile(
+          located ??
+            join(home, '.claude', 'projects', claudeProjectSlug(input.cwd), `${resumeValue}.jsonl`),
+        )
+      })()
+    } else {
+      // No resume ref (a fresh spawn that hasn't yet reported a session id, or
+      // a reattach where the server never learned the resume value): fall back
+      // to the cwd bucket's chain. NOTE: chainPaths resolves the SPECIFIC
+      // conversation by resume value, so without one this resolves nothing
+      // today — the first hook's transcript_path binds the tail instead.
+      void (async () => {
+        const paths = await chainPaths({ cwd: input.cwd, homeDir: home })
+        const newest = paths.at(-1)
+        if (newest) host.tailFile(newest)
+      })()
+    }
+    // Nothing to stop — the host owns the tail registry, and hooks (not a
+    // poller) drive state.
+    return { stop() {} }
+  },
+
   discovery: createClaudeCodeConversationProvider(),
 
   transcript: {

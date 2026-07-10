@@ -1,6 +1,6 @@
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { cursorStateProvider } from '../../agent-state/cursor.js'
+import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
 import { resolveCursorBin } from '../../cursor/cli.js'
 import { cursorSessionPaths } from '../../cursor/paths.js'
 import { createCursorConversationProvider } from '../../discovery/providers/cursor.js'
@@ -68,6 +68,33 @@ export const cursorAdapter: HarnessAdapter = {
   },
 
   state: cursorStateProvider,
+
+  // No hook channel — a polling observer discovers/pins the chat and tails its
+  // per-chat transcript file.
+  observer(input, host) {
+    const transcriptPathFor = (chatId: string): string =>
+      cursorSessionPaths({
+        cwd: input.cwd,
+        chatId,
+        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      }).transcriptPath
+    // With a known chat id the transcript path is derivable — tail immediately
+    // so reattached chat has history before new activity.
+    if (input.resumeValue) host.tailFile(transcriptPathFor(input.resumeValue))
+    const obs = observeCursorState({
+      cwd: input.cwd,
+      ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
+      onSession: (chatId) => {
+        host.onResumeValue(chatId)
+        host.tailFile(transcriptPathFor(chatId))
+      },
+      onEvents: (events) => host.onStateEvents(events),
+    })
+    return { stop: () => obs.stop() }
+  },
+
   discovery: createCursorConversationProvider(),
 
   transcript: {

@@ -1,7 +1,7 @@
 import { stat } from 'node:fs/promises'
-import type { AgentCapabilities, HarnessAgent, ResumeRef } from '@podium/protocol'
+import type { AgentCapabilities, HarnessAgent, ResumeRef, TranscriptItem } from '@podium/protocol'
 import type { TranscriptSource } from '@podium/transcript'
-import type { AgentStateProvider } from '../agent-state/types.js'
+import type { AgentStateEvent, AgentStateProvider } from '../agent-state/types.js'
 import type { ConversationProvider } from '../discovery/types.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
@@ -99,6 +99,80 @@ export interface HarnessHeadless {
 }
 
 // ---------------------------------------------------------------------------
+// Per-session native-store observation — the session-observers axis (#249).
+// ---------------------------------------------------------------------------
+
+export interface HarnessObserveInput {
+  cwd: string
+  /** The known harness conversation id (resume / reattach / headless bind);
+   *  absent on a fresh spawn — the observer discovers the session the CLI
+   *  creates. */
+  resumeValue?: string
+  /** Discovery homeDir override (tests / isolated HOME). */
+  homeDir?: string
+  /** Freshness floor for spawn-time session discovery, so a new pane can't
+   *  latch onto an older sibling session in the same cwd. Omitted on reattach
+   *  so discovery has no floor. */
+  startedAtMs?: number
+  /** The session's ORIGINAL spawn time, persisted by the server (reattach
+   *  only). Codex uses it as the discovery floor: rollout files are created
+   *  lazily (often at the first prompt), so the file can first appear only
+   *  after a daemon restart — without a floor the reattached observer could
+   *  never bind it and the session would stay status-blind forever. */
+  createdAtMs?: number
+  /** Recorded segment evidence (reattach): absolute transcript path, checked
+   *  before any cwd-derived location (conversation registry §3.3). */
+  pathHint?: string
+}
+
+/**
+ * The daemon services an observation drives. The host owns the wire and the
+ * per-session tail registry; the adapter owns WHAT to watch and WHEN to call
+ * back. Every callback is per-session — the host closes over the session id.
+ */
+export interface HarnessObserverHost {
+  /** (Re)point the session's live transcript tail at this file. The host maps
+   *  records with THIS adapter's record→items mapper; re-pointing at the same
+   *  path is a no-op. */
+  tailFile(path: string): void
+  /** The harness conversation id is known — the host records the resume ref,
+   *  stamped with this adapter's `resumeKind`. Recording a resume ref marks
+   *  the session resumable (→ hibernate button); the first transcript frame
+   *  marks it chat-capable (→ chat switcher + BTW button). */
+  onResumeValue(value: string): void
+  /** A derived human-readable title (codex: its OSC terminal title is just the
+   *  cwd basename and is suppressed — the observer-derived title replaces it). */
+  onTitle(title: string): void
+  /** Normalized state events for the session's reducer. */
+  onStateEvents(events: AgentStateEvent[]): void
+  /** Live transcript items pushed by the observer itself (opencode: SQLite
+   *  store, no file to tail; items arrive already cursor-stamped). */
+  onTranscriptItems(items: TranscriptItem[], reset: boolean): void
+}
+
+export interface HarnessObservation {
+  /** Stop watching (session exit/kill, daemon dispose). Does NOT stop the
+   *  transcript tail — the host owns that registry. */
+  stop(): void
+  /** Hook-channel binding (codex native hooks): the hook payload names the
+   *  thread this pane REALLY runs, ending any discovery ambiguity (lazy rollout
+   *  creation, cwd siblings, a mid-session /new rolling to a fresh thread).
+   *  Re-pins the observation only when its current binding disagrees — every
+   *  later POST is a cheap comparison. Absent for harnesses without a hook
+   *  re-pin policy. */
+  bindHookThread?(threadId: string): void
+}
+
+/** Start this harness's per-session native-store observation: the state
+ *  observer polling its session store (grok/codex/opencode/cursor) and/or the
+ *  live transcript tail bootstrap (claude-code, whose state instead arrives on
+ *  the hook channel). */
+export type HarnessObserver = (
+  input: HarnessObserveInput,
+  host: HarnessObserverHost,
+) => HarnessObservation
+
+// ---------------------------------------------------------------------------
 // Transcript reads.
 // ---------------------------------------------------------------------------
 
@@ -127,12 +201,12 @@ export interface HarnessTranscript {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything Podium needs to drive one coding-agent CLI (#158). A new harness
- * is ONE adapter file + a registry entry (the exhaustive Record makes a missing
- * kind a type error) + its AGENT_CAPABILITIES row in @podium/protocol. The
- * daemon keeps two small per-kind tables of its own (observer wiring and the
- * headless driver bodies) — both keyed by the same HarnessKind and exhaustive,
- * so they fail the same way when a kind is missing.
+ * Everything Podium needs to drive one coding-agent CLI (#158/#249). A new
+ * harness is ONE adapter file + a registry entry (the exhaustive Record makes
+ * a missing kind a type error) + its AGENT_CAPABILITIES row in
+ * @podium/protocol. The daemon is a generic host over this interface: launch,
+ * exec, headless turns, per-session observation and transcript reads all
+ * dispatch through the registry — no per-agent tables outside it.
  */
 export interface HarnessAdapter {
   kind: HarnessKind
@@ -147,6 +221,8 @@ export interface HarnessAdapter {
   headless: HarnessHeadless
   /** Hook/observer state provider; undefined ⇒ phase stays 'unknown'. */
   state: AgentStateProvider | undefined
+  /** Per-session native-store observation (state observer + live tail setup). */
+  observer: HarnessObserver
   /** Native-conversation discovery provider. */
   discovery: ConversationProvider
   transcript: HarnessTranscript

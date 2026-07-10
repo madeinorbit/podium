@@ -1,6 +1,6 @@
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
-import { grokSessionPaths, grokStateProvider } from '../../agent-state/grok.js'
+import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
 import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
 import {
   type HarnessAdapter,
@@ -67,6 +67,36 @@ export const grokAdapter: HarnessAdapter = {
   },
 
   state: grokStateProvider,
+
+  // Grok has no hook channel — a polling observer discovers the session the
+  // CLI creates and tails its update stream. On a fresh spawn `startedAtMs` is
+  // the spawn time, so discovery skips older sibling sessions in the same cwd.
+  // On reattach it's absent → observeGrokState defaults watermarkMs to 0 (no
+  // floor), so the latest-by-activity session is found even if it predates
+  // this daemon process start.
+  observer(input, host) {
+    const obs = observeGrokState({
+      cwd: input.cwd,
+      ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
+      onSession: (grokSessionId) => {
+        host.onResumeValue(grokSessionId)
+        // The session's chat_history.jsonl is derivable once the id is known —
+        // tail it so chat has history before (and without) new activity.
+        host.tailFile(
+          grokSessionPaths({
+            cwd: input.cwd,
+            sessionId: grokSessionId,
+            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+          }).chatHistoryPath,
+        )
+      },
+      onEvents: (events) => host.onStateEvents(events),
+    })
+    return { stop: () => obs.stop() }
+  },
+
   discovery: createGrokConversationProvider(),
 
   transcript: {

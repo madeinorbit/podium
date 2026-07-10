@@ -5,7 +5,7 @@ import {
   stampOpencodeItems,
   type TranscriptSource,
 } from '@podium/transcript'
-import { opencodeStateProvider } from '../../agent-state/opencode.js'
+import { observeOpencodeState, opencodeStateProvider } from '../../agent-state/opencode.js'
 import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
 import { resolveOpencodeBin } from '../../opencode/cli.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../../opencode/db.js'
@@ -89,6 +89,24 @@ export const opencodeAdapter: HarnessAdapter = {
   },
 
   state: opencodeStateProvider,
+
+  // No hook channel and no file to tail (SQLite store): the observer polls the
+  // DB, discovers the session, and pushes live transcript items itself. Items
+  // are already cursor-stamped (stampOpencodeItems), so the live delta carries
+  // the same cursors the on-demand read produces.
+  observer(input, host) {
+    const obs = observeOpencodeState({
+      cwd: input.cwd,
+      ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
+      onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
+      onEvents: (events) => host.onStateEvents(events),
+      onTranscriptItems: (items, reset) => host.onTranscriptItems(items, reset),
+    })
+    return { stop: () => obs.stop() }
+  },
+
   discovery: createOpencodeConversationProvider(),
 
   transcript: {
