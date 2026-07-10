@@ -300,15 +300,23 @@ export abstract class IssueServiceCore {
    *  the issue table doesn't — then the funnel fans the committed changes out. */
   protected persistWith(row: IssueRow, extraWrite?: () => void): IssueWire {
     row.updatedAt = this.now()
-    this.rows.set(row.id, row)
     const { result: wire } = this.deps.ledger.commit({
       write: () => {
         extraWrite?.()
         this.deps.store.issues.upsertIssue(row)
+        // toWire never looks `row` itself up in the map (children/blocked scan
+        // OTHER rows), so it is safe to serialize before the map install below.
         return this.toWire(row)
       },
       changes: (wire) => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
     })
+    // Install into the map only AFTER the commit succeeded (#247): a throw in
+    // the transact span (write or change append) rolls the durable state back,
+    // and the map must not keep a row the store never accepted — a phantom row
+    // would make the next full-list reconcile fabricate an upsert for it.
+    // (Update paths mutate the map's own row object in place, so for them this
+    // set is a no-op either way; the guard matters for NEW rows, i.e. create.)
+    this.rows.set(row.id, row)
     // Delta clients got the committed change via the funnel's onAppended pipe;
     // this carries only the legacy single-issue snapshot (#256).
     this.deps.funnel.publishComputed(this.deps.publishSpecs.issueUpdated(wire).snapshot)

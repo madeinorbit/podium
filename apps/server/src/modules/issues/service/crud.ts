@@ -308,15 +308,16 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     // The remove change commits in the SAME transaction as the row delete
     // ([spec:SP-3fe2] #255) …
     this.deps.ledger.commit({
-      write: () => {
-        this.deps.store.issues.deleteIssue(id)
-        // Re-hydrate from the store: deleteIssue also clears scalar back-refs
-        // (parent_id / superseded_by / duplicate_of) on OTHER rows, so a plain
-        // map delete would leave those stale pointers in the broadcast.
-        this.reload()
-      },
+      write: () => this.deps.store.issues.deleteIssue(id),
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
+    // Re-hydrate from the store only AFTER the transaction committed (#247):
+    // deleteIssue also clears scalar back-refs (parent_id / superseded_by /
+    // duplicate_of) on OTHER rows, so a plain map delete would leave those
+    // stale pointers in the broadcast — but reloading INSIDE the transact span
+    // read the deleted state and then kept it in memory even when the append
+    // threw and the store rolled the delete back.
+    this.reload()
     // … then a full-list reconcile catches the derived ripples (reparented
     // children, unblocked dependents — see broadcastList's rationale). Both the
     // committed remove and the reconciled ripples reach delta clients through

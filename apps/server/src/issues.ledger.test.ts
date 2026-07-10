@@ -1,7 +1,7 @@
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -142,6 +142,54 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         .sort(),
     )
     expect(folded.has(parent.id)).toBe(false)
+  })
+
+  it('a failed change append on create leaves NO phantom row in memory (map installs post-commit, #247)', () => {
+    const { store, ledger, svc } = harness()
+    svc.create({ repoPath: '/r', title: 'pre-existing', startNow: false })
+    const cursorBefore = ledger.cursor()
+    const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('append failed')
+    })
+    expect(() => svc.create({ repoPath: '/r', title: 'phantom', startNow: false })).toThrow(
+      'append failed',
+    )
+    spy.mockRestore()
+    // Memory truth unchanged: the rows map never installed the rolled-back row…
+    expect(svc.allWire().map((w) => w.title)).toEqual(['pre-existing'])
+    // …the store rolled it back with the append, and nothing was logged.
+    expect(store.issues.listIssueRows().map((r) => r.title)).toEqual(['pre-existing'])
+    expect(ledger.cursor()).toBe(cursorBefore)
+    // A subsequent full-list reconcile appends NOTHING — no fabricated upsert
+    // for a row the store never accepted.
+    const reconciled = ledger.reconcile(
+      'issue',
+      svc.allWire().map((w) => ({ id: w.id, value: w })),
+    )
+    expect(reconciled).toEqual([])
+    expect(ledger.cursor()).toBe(cursorBefore)
+  })
+
+  it('a failed change append on delete keeps the row in memory and the store (#247)', () => {
+    const { store, ledger, svc } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'survivor', startNow: false })
+    const cursorBefore = ledger.cursor()
+    const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('append failed')
+    })
+    expect(() => svc.delete(wire.id)).toThrow('append failed')
+    spy.mockRestore()
+    // Memory truth intact (the re-hydrate runs only after a committed tx)…
+    expect(svc.get(wire.id)?.title).toBe('survivor')
+    // …and the store delete rolled back inside the same transact span.
+    expect(store.issues.listIssueRows().some((r) => r.id === wire.id)).toBe(true)
+    expect(ledger.cursor()).toBe(cursorBefore)
+    // A subsequent reconcile of the (unchanged) truth appends nothing.
+    const reconciled = ledger.reconcile(
+      'issue',
+      svc.allWire().map((w) => ({ id: w.id, value: w })),
+    )
+    expect(reconciled).toEqual([])
   })
 
   it('boot reconcile records rows changed while the server was down, without fan-out', () => {
