@@ -24,9 +24,20 @@ export interface OutboxEntry {
    *  engine stores the target row's replica fingerprint here so resolution can
    *  tell whether server truth already moved while the mutation was in flight. */
   baseline?: string
+  /** True when a same-row entry (queued or awaiting) already existed at ENQUEUE
+   *  time (#263 review round 2): the predecessor's echo will move the row past
+   *  this entry's baseline before this one resolves, and reading that movement
+   *  as "a competing writer won" would wrongly drop this entry's overlay. */
+  chained?: boolean
 }
 
-/** Storage seam — platform adapters own localStorage, AsyncStorage, SQLite, etc. */
+/** Storage seam — platform adapters own localStorage, AsyncStorage, SQLite, etc.
+ *  QUEUED entries live here. Awaiting-truth entries live in a SEPARATE
+ *  `awaitingStorage` (#263 review round 2): an OLD build (PWA cache rollback)
+ *  reads this collection and drains EVERY row it finds — it predates the
+ *  `state` field, so an awaiting-marked row left here would be replayed as a
+ *  queued mutation, resurrecting stale renames/archives past the server's
+ *  dedup retention. Old builds never read the awaiting home. */
 export interface OutboxStorage {
   load(): OutboxEntry[]
   save(entries: OutboxEntry[]): void
@@ -103,6 +114,14 @@ export interface OutboxInit<M extends Record<string, object>> {
    *  throw (guarded anyway — a throw deletes). */
   onApplied?: (entry: OutboxEntry) => unknown
   storage: OutboxStorage
+  /** Durable home for the awaiting-truth stage, SEPARATE from `storage` (#263
+   *  review round 2 — see the OutboxStorage note): a downgraded build reads
+   *  only the queued collection, so held entries can never be re-drained as
+   *  queued mutations. Any state:'awaiting-truth' rows still found in the
+   *  legacy `storage` are adopted here on load and deleted there. When absent
+   *  (older adapters/tests), awaiting entries are held in MEMORY only — the
+   *  reload-repaint durability is lost, but the legacy collection stays clean. */
+  awaitingStorage?: OutboxStorage
   /** Flat retry cadence while entries remain after a network failure. */
   retryMs?: number
   /** Injectable for tests/adapters; defaults to online when unknown. */
@@ -116,9 +135,11 @@ export class Outbox<M extends Record<string, object>> {
   /** The queued FIFO — entries still waiting for a successful send. */
   private entries: OutboxEntry[]
   /** Resolved entries held durably until covering server truth lands (#263
-   *  review finding 1). Not part of the drain queue; persisted alongside it. */
+   *  review finding 1). Not part of the drain queue; persisted in the separate
+   *  `awaitingStorage` home (never in `storage` — old builds re-drain it). */
   private awaitingEntries: OutboxEntry[]
   private readonly storage: OutboxStorage
+  private readonly awaitingStorage: OutboxStorage | undefined
   private readonly retryMs: number
   private readonly now: () => number
   private readonly randomId: () => string
@@ -136,10 +157,22 @@ export class Outbox<M extends Record<string, object>> {
 
   constructor(private readonly init: OutboxInit<M>) {
     this.storage = init.storage
+    this.awaitingStorage = init.awaitingStorage
     this.retryMs = init.retryMs ?? 5000
     const loaded = this.storage.load()
     this.entries = loaded.filter((e) => e.state !== 'awaiting-truth')
-    this.awaitingEntries = loaded.filter((e) => e.state === 'awaiting-truth')
+    // Migration (#263 review round 2): a PREVIOUS build persisted awaiting
+    // entries in the queued collection (state-marked). Adopt them into the
+    // separate awaiting home and delete them from the legacy collection — an
+    // old build reading it after a rollback must never re-drain them.
+    const legacyAwaiting = loaded.filter((e) => e.state === 'awaiting-truth')
+    const adopted = this.awaitingStorage?.load() ?? []
+    const have = new Set(adopted.map((e) => e.mutationId))
+    this.awaitingEntries = [...adopted, ...legacyAwaiting.filter((e) => !have.has(e.mutationId))]
+    if (legacyAwaiting.length > 0) {
+      this.storage.save(this.entries)
+      this.saveAwaiting()
+    }
     this.now = init.now ?? Date.now
     this.randomId = init.randomId ?? (() => crypto.randomUUID())
     this.attach()
@@ -157,7 +190,7 @@ export class Outbox<M extends Record<string, object>> {
   enqueue<K extends keyof M & string>(
     kind: K,
     input: M[K],
-    opts?: { baseline?: string },
+    opts?: { baseline?: string; chained?: boolean },
   ): OutboxEntry {
     const entry: OutboxEntry = {
       mutationId: this.randomId(),
@@ -165,6 +198,7 @@ export class Outbox<M extends Record<string, object>> {
       input,
       queuedAt: this.now(),
       ...(opts?.baseline !== undefined ? { baseline: opts.baseline } : {}),
+      ...(opts?.chained === true ? { chained: true } : {}),
     }
     this.entries.push(entry)
     this.persist()
@@ -199,7 +233,7 @@ export class Outbox<M extends Record<string, object>> {
     const idx = this.awaitingEntries.findIndex((e) => e.mutationId === mutationId)
     if (idx === -1) return
     this.awaitingEntries.splice(idx, 1)
-    this.save()
+    this.saveAwaiting()
   }
 
   /** Reactive size for pending-changes indicators. */
@@ -271,9 +305,12 @@ export class Outbox<M extends Record<string, object>> {
       }
       if (hold) {
         // Durable awaiting-truth transition (#263 review finding 1): keep the
-        // entry in storage — a reload before covering truth lands restores the
-        // overlay instead of flashing stale replica truth.
+        // entry in the awaiting home — a reload before covering truth lands
+        // restores the overlay instead of flashing stale replica truth. It
+        // moves OUT of the queued collection entirely (round 2): a downgraded
+        // build reading that collection must never re-drain a held entry.
         this.awaitingEntries.push({ ...entry, state: 'awaiting-truth', resolvedAt: this.now() })
+        this.saveAwaiting()
       }
       this.persist()
     }
@@ -291,9 +328,15 @@ export class Outbox<M extends Record<string, object>> {
 
   private save(): void {
     if (this.disposed) return
-    // Awaiting entries first — they resolved earliest, and blob-shaped storages
-    // preserve save order as FIFO. Subscribers see the QUEUED size only.
-    this.storage.save([...this.awaitingEntries, ...this.entries])
+    // QUEUED entries only — the awaiting stage persists via saveAwaiting()
+    // into its own storage. Subscribers see the QUEUED size only.
+    this.storage.save([...this.entries])
+  }
+
+  private saveAwaiting(): void {
+    if (this.disposed) return
+    // FIFO = resolution order; blob-shaped storages preserve save order.
+    this.awaitingStorage?.save([...this.awaitingEntries])
   }
 
   private scheduleRetry(): void {

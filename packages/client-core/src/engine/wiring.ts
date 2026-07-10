@@ -97,8 +97,11 @@ export function createEngineOutbox(args: {
     onlineEvents: platformOnlineEvents(),
     // One persistence layer: the queue persists into a replica collection
     // (cross-tab consistent via storage events; in-memory in private mode);
-    // the drain/retry/poison logic is unchanged.
+    // the drain/retry/poison logic is unchanged. The awaiting-truth stage
+    // lives in its OWN collection (#263 review round 2) so a downgraded build
+    // reading the queued collection never re-drains held entries.
     storage: args.replica.outboxStorage(),
+    awaitingStorage: args.replica.outboxAwaitingStorage(),
     executors: {
       resumeAndSend: (i) => api.sessions.resumeAndSend.mutate(i),
       rename: (i) => api.sessions.rename.mutate(i),

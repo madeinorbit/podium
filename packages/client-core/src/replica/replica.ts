@@ -118,6 +118,11 @@ export interface Replica {
    *  private mode the queue lives in the in-memory storage — it drains while
    *  the tab lives and is lost on reload (best-effort, like everything else). */
   outboxStorage(): OutboxStorage
+  /** Separate durable home for the outbox's awaiting-truth stage (#263 review
+   *  round 2): `<prefix>.outbox-awaiting.v1`, a collection OLD builds never
+   *  read — a downgraded client (PWA cache rollback) loading the queued
+   *  collection can't re-drain held entries as queued mutations. */
+  outboxAwaitingStorage(): OutboxStorage
   /** ONE UI persistence mechanism (issue #15 Phase 4): a versioned key→value
    *  collection (`<prefix>.uistate.v1`) replacing the ad-hoc localStorage keys.
    *  Known legacy keys are migrated in once and the old keys removed. */
@@ -217,6 +222,7 @@ function outboxEntryShape(e: OutboxEntry): string {
     e.state ?? null,
     e.resolvedAt ?? null,
     e.baseline ?? null,
+    e.chained ?? null,
   ])
 }
 
@@ -289,6 +295,7 @@ class TanstackReplica implements Replica {
   /** Lazily-built outbox backing (P6b) — separate from `cols` so a poisoned
    *  entity replica's clearAll never wipes queued writes. */
   private outboxBacking: OutboxStorage | undefined
+  private outboxAwaitingBacking: OutboxStorage | undefined
   /** Lazily-built ui-state backing — separate from `cols` for the same reason. */
   private uiBacking: UiState | undefined
   private readonly enumerateKeys: () => string[]
@@ -632,12 +639,11 @@ class TanstackReplica implements Replica {
     }
   }
 
-  outboxStorage(): OutboxStorage {
-    if (this.outboxBacking) return this.outboxBacking
-    // The queue must stay DURABLE (unlike the entity blobs, a lost outbox entry
-    // is a lost user write) — so no in-memory degrade here; a quota-dead outbox
-    // write is a data-loss risk and is logged loudly instead of swallowed.
-    const loud: StorageApi = {
+  /** Loud (never-degrade) storage for the outbox-family collections: unlike
+   *  the entity blobs, a lost outbox entry is a lost user write — a quota-dead
+   *  write is a data-loss risk and is logged loudly instead of swallowed. */
+  private outboxLoudStorage(): StorageApi {
+    return {
       getItem: (k) => this.storage.getItem(k),
       setItem: (k, v) => {
         try {
@@ -653,39 +659,39 @@ class TanstackReplica implements Replica {
       },
       removeItem: (k) => this.storage.removeItem(k),
     }
+  }
+
+  /** Build one outbox-family collection (queued or awaiting) and start its
+   *  synchronous storage sync. */
+  private makeOutboxCollection(name: 'outbox' | 'outbox-awaiting') {
+    const loud = this.outboxLoudStorage()
     const col = this.makeCollection<OutboxRow>(
-      'outbox',
+      name,
       (r) => r.mutationId,
       loud,
       this.wrapStorageEvents(loud, { dropWhenDegraded: false }),
     )
+    // Permanent no-op subscriber: starts the collection's (synchronous)
+    // localStorage sync and keeps it from being GC'd between accesses.
     try {
-      // Permanent no-op subscriber: starts the collection's (synchronous)
-      // localStorage sync and keeps it from being GC'd between accesses.
       col.subscribeChanges(() => {})
-      // One-time migration: fold any legacy podium.outbox.v1 JSON blob into the
-      // collection (append entries not already present, FIFO after what's here),
-      // then retire the legacy key — entries are never dropped silently.
-      const legacy = parseOutboxEntries(this.storage.getItem(OUTBOX_LS_KEY))
-      if (legacy.length > 0) {
-        const have = new Set((col.toArray as OutboxRow[]).map((r) => r.mutationId))
-        let seq = maxSeq(col.toArray as OutboxRow[])
-        const missing = legacy
-          .filter((e) => !have.has(e.mutationId))
-          .map((e) => ({ ...e, seq: ++seq }))
-        if (missing.length > 0) this.track(col.insert(missing))
-        this.storage.removeItem(OUTBOX_LS_KEY)
-      }
     } catch (err) {
-      console.warn('[podium] replica outbox migration failed', err)
+      console.warn(`[podium] replica ${name} collection start failed`, err)
     }
-    this.outboxBacking = {
-      // `seq` is assigned once at first sight and never rewritten, so ordering
-      // survives reloads and front-of-queue drops without churning rows.
+    return col
+  }
+
+  /** `OutboxStorage` over one outbox-family collection. `seq` is assigned once
+   *  at first sight and never rewritten, so ordering survives reloads and
+   *  front-of-queue drops without churning rows. */
+  private outboxCollectionBacking(
+    c: ReturnType<TanstackReplica['makeOutboxCollection']>,
+  ): OutboxStorage {
+    return {
       load: () => {
         try {
           return (
-            (col.toArray as OutboxRow[])
+            (c.toArray as OutboxRow[])
               .filter(
                 (r) =>
                   typeof r.mutationId === 'string' &&
@@ -703,6 +709,7 @@ class TanstackReplica implements Replica {
                 ...(r.state !== undefined ? { state: r.state } : {}),
                 ...(r.resolvedAt !== undefined ? { resolvedAt: r.resolvedAt } : {}),
                 ...(r.baseline !== undefined ? { baseline: r.baseline } : {}),
+                ...(r.chained !== undefined ? { chained: r.chained } : {}),
               }))
           )
         } catch {
@@ -711,17 +718,17 @@ class TanstackReplica implements Replica {
       },
       save: (entries) => {
         try {
-          const existing = new Map((col.toArray as OutboxRow[]).map((r) => [r.mutationId, r]))
+          const existing = new Map((c.toArray as OutboxRow[]).map((r) => [r.mutationId, r]))
           const keep = new Set(entries.map((e) => e.mutationId))
           const stale = [...existing.keys()].filter((id) => !keep.has(id))
-          if (stale.length > 0) this.track(col.delete(stale))
+          if (stale.length > 0) this.track(c.delete(stale))
           let seq = maxSeq([...existing.values()])
           // The queue only pushes at the back and shifts from the front, so the
           // new (unseen) entries arrive in FIFO order — ascending seq matches it.
           const inserts = entries
             .filter((e) => !existing.has(e.mutationId))
             .map((e) => ({ ...e, seq: ++seq }))
-          if (inserts.length > 0) this.track(col.insert(inserts))
+          if (inserts.length > 0) this.track(c.insert(inserts))
           // In-place transitions (#263 review finding 1): a surviving entry can
           // change (queued → state:'awaiting-truth' + resolvedAt) — rewrite it
           // under its existing seq. replaceContents assigns dropped keys
@@ -730,7 +737,7 @@ class TanstackReplica implements Replica {
             const prev = existing.get(e.mutationId)
             if (prev === undefined || outboxEntryShape(prev) === outboxEntryShape(e)) continue
             this.track(
-              col.update(e.mutationId, (draft: Record<string, unknown>) =>
+              c.update(e.mutationId, (draft: Record<string, unknown>) =>
                 replaceContents(draft, { ...e, seq: prev.seq } as unknown as Record<
                   string,
                   unknown
@@ -743,7 +750,42 @@ class TanstackReplica implements Replica {
         }
       },
     }
+  }
+
+  outboxStorage(): OutboxStorage {
+    if (this.outboxBacking) return this.outboxBacking
+    const col = this.makeOutboxCollection('outbox')
+    try {
+      // One-time migration: fold any legacy podium.outbox.v1 JSON blob into the
+      // collection (append entries not already present, FIFO after what's here),
+      // then retire the legacy key — entries are never dropped silently.
+      const legacy = parseOutboxEntries(this.storage.getItem(OUTBOX_LS_KEY))
+      if (legacy.length > 0) {
+        const have = new Set((col.toArray as OutboxRow[]).map((r) => r.mutationId))
+        let seq = maxSeq(col.toArray as OutboxRow[])
+        const missing = legacy
+          .filter((e) => !have.has(e.mutationId))
+          .map((e) => ({ ...e, seq: ++seq }))
+        if (missing.length > 0) this.track(col.insert(missing))
+        this.storage.removeItem(OUTBOX_LS_KEY)
+      }
+    } catch (err) {
+      console.warn('[podium] replica outbox migration failed', err)
+    }
+    this.outboxBacking = this.outboxCollectionBacking(col)
     return this.outboxBacking
+  }
+
+  outboxAwaitingStorage(): OutboxStorage {
+    if (this.outboxAwaitingBacking) return this.outboxAwaitingBacking
+    // Separate home for resolved-but-uncovered entries (#263 review round 2):
+    // `<prefix>.outbox-awaiting.v1` — a key OLD builds never read, so a PWA
+    // rollback can't re-drain held entries as queued mutations. The Outbox
+    // itself adopts any state-marked rows it finds in the legacy collection.
+    this.outboxAwaitingBacking = this.outboxCollectionBacking(
+      this.makeOutboxCollection('outbox-awaiting'),
+    )
+    return this.outboxAwaitingBacking
   }
 
   uiState(): UiState {

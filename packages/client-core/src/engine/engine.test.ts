@@ -657,6 +657,135 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     engine.dispose()
   })
 
+  it("a predecessor's echo landing BEFORE a younger same-row mutation resolves does not drop the younger overlay (round 2)", async () => {
+    const api = makeApi()
+    const resolvers: Array<() => void> = []
+    api.sessions.rename.mutate = vi.fn(
+      () =>
+        new Promise<Record<string, never>>((r) => {
+          resolvers.push(() => r({}))
+        }),
+    )
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void engine.getSnapshot().renameSession('s1', 'first') // A
+    void engine.getSnapshot().renameSession('s1', 'second') // B (chained behind A)
+    // Negative flicker check: from the moment B is pending, 'first' (or the
+    // pre-rename undefined) must never paint again until B retires.
+    const painted: Array<string | undefined> = []
+    engine.subscribe(() => painted.push(nameOf(engine, 's1')))
+    await settle()
+    resolvers[0]?.() // A resolves → awaiting truth
+    await settle()
+    // A's echo lands BEFORE B resolves: A retires (covered) and the row moves
+    // past B's shared enqueue baseline.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'first' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('second') // B still queued & painting
+    // B resolves: the movement is the PREDECESSOR'S echo, not a competing
+    // writer — B's overlay must survive until B's own echo.
+    resolvers[1]?.()
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('second')
+    expect(engine.outbox.awaiting()).toHaveLength(1)
+    // B's echo retires it; later server changes still show through (no mask).
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'second' }])
+    await settle()
+    expect(engine.outbox.awaiting()).toEqual([])
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'server-wins' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('server-wins')
+    // 'first' NEVER painted while B was pending — that flash is the bug.
+    expect(painted).not.toContain('first')
+    engine.dispose()
+  })
+
+  it('a held chained overlay survives a reload without the moved-past escape retiring it (round 2)', async () => {
+    const storage = memoryStorage()
+    const api = makeApi()
+    const resolvers: Array<() => void> = []
+    api.sessions.rename.mutate = vi.fn(
+      () =>
+        new Promise<Record<string, never>>((r) => {
+          resolvers.push(() => r({}))
+        }),
+    )
+    const first = makeEngine({ api, storage })
+    first.engine.start()
+    await settle(40)
+    first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void first.engine.getSnapshot().renameSession('s1', 'first')
+    void first.engine.getSnapshot().renameSession('s1', 'second')
+    await settle()
+    resolvers[0]?.()
+    await settle()
+    first.engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'first' }])
+    await settle()
+    resolvers[1]?.() // B held (predecessor's echo), durably awaiting
+    await settle()
+    expect(first.engine.outbox.awaiting()).toHaveLength(1)
+    first.engine.dispose()
+    // Reload inside B's resolution→echo window: replica truth says 'first'
+    // (≠ B's stale enqueue baseline). The restored entry must keep painting —
+    // an escape-armed restore would retire it on the first prune.
+    const second = makeEngine({ api, storage })
+    expect(nameOf(second.engine, 's1')).toBe('second')
+    second.engine.start()
+    await settle(40)
+    // An unrelated replica change triggers a prune pass — B must survive it.
+    second.engine.replica.applyChanges('sessions', [session('s2', '/w')], [])
+    await settle()
+    expect(nameOf(second.engine, 's1')).toBe('second')
+    // B's echo retires it.
+    second.engine.replica.applySnapshot('sessions', [
+      { ...session('s1', '/w'), name: 'second' },
+      session('s2', '/w'),
+    ])
+    await settle()
+    expect(second.engine.outbox.awaiting()).toEqual([])
+    second.engine.dispose()
+  })
+
+  it("an old build's awaiting-marked row in the queued collection is adopted, not re-drained (round 2 migration)", async () => {
+    const storage = memoryStorage()
+    // Simulate the PREVIOUS build: it persisted the session row plus a
+    // resolved rename in the queued outbox collection with
+    // state:'awaiting-truth'.
+    const oldReplica = createReplica({ storage })
+    oldReplica.applyChanges('sessions', [session('s1', '/w')], [])
+    oldReplica.outboxStorage().save([
+      {
+        mutationId: 'm-old',
+        kind: 'rename',
+        input: { sessionId: 's1', name: 'held' },
+        queuedAt: Date.now() - 2000,
+        state: 'awaiting-truth',
+        resolvedAt: Date.now() - 1000, // recent — inside the awaiting TTL
+      },
+    ])
+    const api = makeApi()
+    const { engine } = makeEngine({ api, storage })
+    // Adopted into the awaiting stage: painted, present in awaiting(), and the
+    // queued collection is empty — the rename executor must NEVER run again.
+    expect(engine.outbox.awaiting().map((e) => e.mutationId)).toEqual(['m-old'])
+    expect(engine.outbox.pending()).toEqual([])
+    expect(nameOf(engine, 's1')).toBe('held') // painted from the very first snapshot
+    engine.start()
+    await settle(40)
+    expect(nameOf(engine, 's1')).toBe('held')
+    expect(api.sessions.rename.mutate).not.toHaveBeenCalled()
+    // A fresh load (post-migration) reads the entry from the NEW home only.
+    engine.dispose()
+    const second = makeEngine({ api, storage })
+    expect(second.engine.outbox.awaiting().map((e) => e.mutationId)).toEqual(['m-old'])
+    expect(second.engine.outbox.pending()).toEqual([])
+    second.engine.dispose()
+  })
+
   it("archive's paired setArchived/setWorkState survive an echo covering only the first (finding 3)", async () => {
     const api = makeApi()
     const { engine } = makeEngine({ api })
@@ -737,6 +866,29 @@ describe('spawn transport failure (#263 review finding 4)', () => {
     expect(engine.getSnapshot().issues.some((i) => i.id === ids.issueId)).toBe(false)
     expect(errors.some((m) => m.includes("Couldn't start"))).toBe(true)
     engine.dispose()
+  })
+
+  it('dispose() before the grace elapses clears the confirm timer: no rollback, no toast (round 2)', async () => {
+    const api = spawnApi()
+    api.sessions.create = {
+      mutate: vi.fn(async () => {
+        throw new Error('daemon offline')
+      }),
+    }
+    const { engine, errors } = makeEngine({ api, spawnConfirmGraceMs: 30 })
+    engine.start()
+    await settle(40)
+    const ids = engine
+      .getSnapshot()
+      .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'claude-code' })
+    await settle(5) // the rejection landed and the grace timer is armed
+    engine.dispose() // replaced (e.g. provider recreation) before the grace
+    await settle(80) // well past the grace
+    // A replaced engine must not fire against state its successor owns: the
+    // overlay was NOT rolled back and no cry-wolf toast surfaced.
+    expect(errors).toEqual([])
+    expect(engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
+    expect(engine.getSnapshot().issues.some((i) => i.id === ids.issueId)).toBe(true)
   })
 })
 

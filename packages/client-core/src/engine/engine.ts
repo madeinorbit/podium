@@ -202,6 +202,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  never changes again would otherwise keep a stuck entry painted forever. */
   private awaitingSweepTimer: ReturnType<typeof setTimeout> | null = null
   private readonly spawnConfirmGraceMs: number
+  /** Live spawn-confirm grace timers (#263 review round 2). Cleared in
+   *  dispose(): a replaced engine's late timer must not roll back overlays or
+   *  toast after its successor took over the same storage/session state. */
+  private readonly spawnConfirmTimers = new Set<ReturnType<typeof setTimeout>>()
   /** Effective rendered mode per session (what AgentPanel actually shows),
    *  reported up the viewState channel. Not in the snapshot — only the setter
    *  is public — and not persisted (re-reported on mount from live state). */
@@ -257,7 +261,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       if (overlay?.op === 'patch') {
         restoredAwaiting.push({
           overlay,
-          baseline: e.baseline,
+          // A chained entry (enqueued behind a same-row sibling, #263 review
+          // round 2) never uses the moved-past escape: its sibling's echo may
+          // have landed while we were unloaded, and the stale enqueue baseline
+          // would retire it on the first prune — coveredBy/TTL bound it instead.
+          baseline: e.chained === true ? undefined : e.baseline,
           resolvedAt: e.resolvedAt ?? Date.now(),
         })
       } else {
@@ -494,6 +502,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       clearTimeout(this.awaitingSweepTimer)
       this.awaitingSweepTimer = null
     }
+    for (const t of this.spawnConfirmTimers) clearTimeout(t)
+    this.spawnConfirmTimers.clear()
     this.markReadKey = null
     for (const off of this.offs.splice(0)) {
       try {
@@ -835,15 +845,30 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // covering it (finding 2: covering-or-competing truth already landed — a
     // resolution-time fingerprint of that final row would never "move" again
     // and the overlay would mask server truth forever).
+    //
+    // EXCEPT (#263 review round 2): when an OLDER same-row entry exists — this
+    // entry was enqueued behind a sibling (`chained`), or a sibling is still
+    // awaiting truth — the movement is almost certainly the PREDECESSOR'S echo,
+    // not a competing writer. Dropping here would flash the predecessor's value
+    // until this entry's own echo lands. Hold instead, WITHOUT the moved-past
+    // escape (baseline undefined — the stale enqueue baseline would trip on the
+    // sibling's echo at the very next prune pass); coveredBy / row-gone / the
+    // TTL retire it, exactly the bounds the oldest-first rule already relies on.
     let hold = false
     if (row !== undefined && !overlay.coveredBy(row)) {
-      if (entry.baseline !== undefined && rowFingerprint(row) !== entry.baseline) {
+      const olderSameRow =
+        entry.chained === true ||
+        this.awaitingTruth.some(
+          (a) => a.overlay.entity === overlay.entity && a.overlay.id === overlay.id,
+        )
+      const moved = entry.baseline !== undefined && rowFingerprint(row) !== entry.baseline
+      if (moved && !olderSameRow) {
         // Competing truth won while the mutation was in flight — server wins.
       } else {
         hold = true
         this.awaitingTruth = [
           ...this.awaitingTruth,
-          { overlay, baseline: entry.baseline, resolvedAt: Date.now() },
+          { overlay, baseline: olderSameRow ? undefined : entry.baseline, resolvedAt: Date.now() },
         ]
         this.armAwaitingSweep()
       }
@@ -886,18 +911,27 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // resolution can tell whether truth already moved while in flight.
     const probe = overlayForOutboxEntry({ mutationId: '', kind, input, queuedAt: 0 })
     let baseline: string | undefined
+    let chained = false
     if (probe?.op === 'patch') {
       const row =
         probe.entity === 'sessions'
           ? this.baseSessions.find((s) => s.sessionId === probe.id)
           : this.baseIssues.find((i) => i.id === probe.id)
       if (row !== undefined) baseline = rowFingerprint(row)
+      // Chained stamp (#263 review round 2): a same-row entry already pending
+      // (queued or awaiting) means ITS echo will move the row past this
+      // baseline while this mutation is in flight — resolution must not read
+      // that movement as a competing writer (see onMutationApplied).
+      const sameRow = (o: PendingOverlay | null): boolean =>
+        o?.op === 'patch' && o.entity === probe.entity && o.id === probe.id
+      chained =
+        this.awaitingTruth.some((a) => sameRow(a.overlay)) ||
+        this.outbox.pending().some((e) => sameRow(overlayForOutboxEntry(e)))
     }
-    const entry = this.outbox.enqueue(
-      kind,
-      input,
-      baseline === undefined ? undefined : { baseline },
-    )
+    const entry = this.outbox.enqueue(kind, input, {
+      ...(baseline !== undefined ? { baseline } : {}),
+      ...(chained ? { chained } : {}),
+    })
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
@@ -1189,8 +1223,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
               `Couldn't start the agent — ${err instanceof Error ? err.message : 'unknown error'}`,
             )
           }
-          if (arrived()) settleFailure()
-          else setTimeout(settleFailure, this.spawnConfirmGraceMs)
+          if (arrived()) {
+            settleFailure()
+          } else {
+            // Retained + cleared in dispose() (#263 review round 2): a
+            // replaced engine firing this after its successor took over would
+            // roll back overlays / toast against state it no longer owns.
+            const timer = setTimeout(() => {
+              this.spawnConfirmTimers.delete(timer)
+              settleFailure()
+            }, this.spawnConfirmGraceMs)
+            this.spawnConfirmTimers.add(timer)
+          }
         })
         return { sessionId, issueId }
       },
