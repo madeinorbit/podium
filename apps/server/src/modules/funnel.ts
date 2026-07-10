@@ -65,10 +65,15 @@ export class WriteFunnel {
     // Ledger-appended changes (issue/session commits + reconciles, #255/#256)
     // fire the same bus event the legacy record() path does — bus consumers see
     // one unified 'oplog.appended' stream across both seams — and feed the
-    // ordered delta pipe.
+    // ordered delta pipe. Pipe FIRST, bus second (#247): a reentrant bus
+    // listener that commits again re-enters this bridge with LATER seqs before
+    // the outer batch would have queued — bus-first therefore delivered
+    // [N-1, N+1, N] and delta clients' cursors advanced past N without ever
+    // healing the gap. Enqueueing before the emit makes arrival order equal
+    // append order no matter what a listener does.
     deps.ledger?.onAppended((changes) => {
-      deps.bus.emit('oplog.appended', { changes })
       this.queueDelta(changes)
+      deps.bus.emit('oplog.appended', { changes })
     })
   }
 
@@ -159,8 +164,10 @@ export class WriteFunnel {
     }
     const changes = this.oplog.record(entity, rows, opts)
     if (changes.length > 0) {
-      this.deps.bus.emit('oplog.appended', { changes })
+      // Pipe before bus — same reentrancy ordering rule as the ledger bridge
+      // in the constructor (#247).
       this.queueDelta(changes)
+      this.deps.bus.emit('oplog.appended', { changes })
     }
     return changes
   }

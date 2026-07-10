@@ -254,6 +254,49 @@ describe('the ordered metadataDelta pipe (#256)', () => {
     expect(sendDelta).toHaveBeenCalledTimes(1)
   })
 
+  it('queues the batch into the pipe BEFORE the bus emit — a reentrant commit cannot reorder it (#247)', () => {
+    // Real Ledger + real bus: a bus listener that commits AGAIN during
+    // 'oplog.appended' gets a later seq. If the bridge emitted the bus event
+    // first, the inner commit's batch would enter the pipe before the outer
+    // one — [N+1, N] — and a delta client's cursor would jump past N without
+    // healing. Pipe-first makes arrival order equal append order.
+    const store = new SessionStore(':memory:')
+    const bus = new EventBus()
+    const sendDelta = vi.fn()
+    const ledger = new Ledger({
+      repo: store.sync,
+      now: () => 1_000,
+      transact: (fn) => store.transact(fn),
+    })
+    const funnel = new WriteFunnel({
+      store,
+      now: () => 1_000,
+      bus,
+      fanOutSnapshot: vi.fn(),
+      sendDelta,
+      ledger,
+    })
+    let reentered = false
+    bus.on('oplog.appended', () => {
+      if (reentered) return
+      reentered = true
+      ledger.commit({
+        write: () => {},
+        changes: () => [{ entity: 'issue', id: 'inner', op: 'upsert', value: { id: 'inner' } }],
+      })
+    })
+    ledger.commit({
+      write: () => {},
+      changes: () => [{ entity: 'issue', id: 'outer', op: 'upsert', value: { id: 'outer' } }],
+    })
+    funnel.flushDeltas()
+    const emitted = sendDelta.mock.calls.flatMap(([batch]) => batch as MetadataChange[])
+    expect(emitted.map((c) => c.id)).toEqual(['outer', 'inner'])
+    // Strict seq order with no gaps — exactly what the client gap rule requires.
+    const seqs = emitted.map((c) => c.seq)
+    for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
+  })
+
   it('a flushed pipe stays quiet until new appends arrive; empty batches never emit', () => {
     const { funnel, sendDelta, appended } = pipedFunnel()
     appended([])
