@@ -35,10 +35,13 @@ const NOTICES: StoreNotices = {
 export function StoreProvider({
   config,
   onFatalError,
+  engineOverrides,
   children,
 }: {
   config: ServerOrigin
   onFatalError: (message: string) => void
+  /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
+  engineOverrides?: { spawnConfirmGraceMs?: number }
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
@@ -49,6 +52,7 @@ export function StoreProvider({
       onFatalError={onFatalError}
       formatError={formatAppError}
       notices={NOTICES}
+      engineOverrides={engineOverrides}
     >
       {children}
     </CoreStoreProvider>

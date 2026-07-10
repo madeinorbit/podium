@@ -71,6 +71,9 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   createReplicaFn?: () => Replica
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
+  /** Test seam: engine timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
+   *  rollback test doesn't wait out the 2s broadcast-confirm grace). */
+  engineOverrides?: { spawnConfirmGraceMs?: number }
   children: ReactNode
 }
 
@@ -82,6 +85,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   notices = NOOP_NOTICES,
   createReplicaFn,
   routerWindow,
+  engineOverrides,
   children,
 }: StoreProviderProps<TApi>): JSX.Element {
   // The engine consults callbacks through this ref, so a parent re-rendering
@@ -120,6 +124,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         },
         createReplicaFn,
         routerWindow,
+        ...engineOverrides,
       }),
     }
   }

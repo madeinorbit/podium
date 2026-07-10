@@ -129,6 +129,9 @@ function render(): void {
       <StoreProvider
         config={{ httpOrigin: 'http://x', wsClientUrl: 'ws://x' }}
         onFatalError={() => {}}
+        // No broadcast-confirm grace in tests: the rollback pin below asserts
+        // the ABSENT-row outcome and must not wait out the real 2s window.
+        engineOverrides={{ spawnConfirmGraceMs: 0 }}
       >
         <Probe />
       </StoreProvider>,
