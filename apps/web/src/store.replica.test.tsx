@@ -179,33 +179,59 @@ describe('store ↔ replica', () => {
     expect(changesSinceCalls).toEqual([null])
   })
 
-  it('optimistic write in live-query mode: renameSession patches the replica and the list re-renders', async () => {
+  it('optimistic rename paints via the pending-outbox overlay and survives an offline reload', async () => {
     const previous = createReplica()
     previous.applySnapshot('sessions', [session('s1', 't1')])
     previous.setCursor(3)
     await settle()
 
-    render()
-    await settle()
-    expect(latest.sessions).toHaveLength(1)
-    expect(latest.sessions[0]?.name).toBeUndefined()
+    // Offline-shaped server: the rename round-trip keeps failing (non-poison),
+    // so the entry stays durably queued — and the queued entry IS the overlay.
+    const realRename = fakeTrpc.sessions.rename.mutate
+    fakeTrpc.sessions.rename.mutate = async () => {
+      throw new Error('network down')
+    }
+    try {
+      render()
+      await settle()
+      expect(latest.sessions).toHaveLength(1)
+      expect(latest.sessions[0]?.name).toBeUndefined()
 
-    // Optimistic curation write: no server involved (the round-trip rides the
-    // outbox) — the live query must re-render with the patched row, and the
-    // patch must persist (an offline reload keeps the optimistic value).
-    await act(async () => {
-      await latestStore?.renameSession('s1', ' renamed ')
-    })
-    await settle()
-    expect(latest.sessions[0]?.name).toBe('renamed')
-    const reread = createReplica()
-    const h = await reread.hydrate()
-    expect(h.sessions[0]?.name).toBe('renamed')
+      // Optimistic curation write: the pending mutation folds over server
+      // truth on the next paint — no replica patching involved.
+      await act(async () => {
+        await latestStore?.renameSession('s1', ' renamed ')
+      })
+      await settle()
+      expect(latest.sessions[0]?.name).toBe('renamed')
+
+      // "Reload" while still offline: a fresh provider over the same storage
+      // re-derives the overlay from the durable queue — the optimistic value
+      // keeps painting (the old mechanism persisted it via the replica; the
+      // unified one persists it via the outbox entry itself)…
+      act(() => root.unmount())
+      container.remove()
+      container = document.createElement('div')
+      document.body.appendChild(container)
+      root = createRoot(container)
+      render()
+      await settle()
+      expect(latest.sessions[0]?.name).toBe('renamed')
+
+      // …while the replica stays server truth only.
+      const reread = createReplica()
+      const h = await reread.hydrate()
+      expect(h.sessions[0]?.name).toBeUndefined()
+    } finally {
+      fakeTrpc.sessions.rename.mutate = realRename
+    }
   })
 
-  // Unread foundation (issue #124): markSessionRead / markIssueRead optimistically
-  // patch readAt + unread (the round-trip rides the outbox) and the patch persists.
-  it('markSessionRead optimistically clears unread and persists', async () => {
+  // Unread foundation (issue #124): markSessionRead / markIssueRead paint
+  // readAt + unread instantly via the pending-mutation overlay; when the server
+  // echo lands (its OWN readAt clock) the overlay retires with no flicker and
+  // the persisted replica carries the server truth.
+  it('markSessionRead optimistically clears unread and reconciles with the server echo', async () => {
     const previous = createReplica()
     previous.applySnapshot('sessions', [{ ...session('s1'), unread: true, readAt: null }])
     previous.setCursor(3)
@@ -221,12 +247,29 @@ describe('store ↔ replica', () => {
     await settle()
     expect(latest.sessions[0]?.unread).toBe(false)
     expect(latest.sessions[0]?.readAt).not.toBeNull()
+
+    // Server truth lands (echo carries the server's readAt stamp): the overlay
+    // retires — same painted value, one row, and NOW it persists.
+    act(() => sockets[0]?.onopen?.({}))
+    await settle()
+    changesSinceResolve?.({
+      kind: 'snapshot',
+      sessions: [{ ...session('s1'), unread: false, readAt: '2026-07-09T12:00:00.000Z' }],
+      issues: [],
+      conversations: [],
+      diagnostics: [],
+      cursor: 4,
+    })
+    await settle()
+    expect(latest.sessions).toHaveLength(1)
+    expect(latest.sessions[0]?.unread).toBe(false)
+    expect(latest.sessions[0]?.readAt).toBe('2026-07-09T12:00:00.000Z')
     const reread = createReplica()
     const h = await reread.hydrate()
     expect(h.sessions[0]?.unread).toBe(false)
   })
 
-  it('markIssueRead optimistically clears unread and persists', async () => {
+  it('markIssueRead optimistically clears unread and reconciles with the server echo', async () => {
     const previous = createReplica()
     previous.applySnapshot('issues', [makeIssue({ id: 'iss_1', unread: true, readAt: null })])
     previous.setCursor(3)
@@ -242,6 +285,21 @@ describe('store ↔ replica', () => {
     await settle()
     expect(latest.issues[0]?.unread).toBe(false)
     expect(latest.issues[0]?.readAt).not.toBeNull()
+
+    act(() => sockets[0]?.onopen?.({}))
+    await settle()
+    changesSinceResolve?.({
+      kind: 'snapshot',
+      sessions: [],
+      issues: [makeIssue({ id: 'iss_1', unread: false, readAt: '2026-07-09T12:00:00.000Z' })],
+      conversations: [],
+      diagnostics: [],
+      cursor: 4,
+    })
+    await settle()
+    expect(latest.issues).toHaveLength(1)
+    expect(latest.issues[0]?.unread).toBe(false)
+    expect(latest.issues[0]?.readAt).toBe('2026-07-09T12:00:00.000Z')
     const reread = createReplica()
     const h = await reread.hydrate()
     expect(h.issues[0]?.unread).toBe(false)
@@ -286,8 +344,6 @@ describe('store ↔ replica', () => {
     expect(latest.sessions[0]?.name).toBe('renamed')
 
     // …and none of it leaked into durable storage.
-    expect(
-      Object.keys(localStorage).filter((k) => k.startsWith('podium.replica')),
-    ).toEqual([])
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('podium.replica'))).toEqual([])
   })
 })
