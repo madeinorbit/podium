@@ -412,3 +412,93 @@ describe('Ledger commit atomicity (sqlite)', () => {
     expect(ledger.changesSince(1)?.map((c) => c.seq)).toEqual([2, 3, 4])
   })
 })
+
+function makeLedgerForReviewTests(opts: { pruneThrows?: boolean } = {}) {
+  const inner = createTestSyncRepository()
+  const repo = opts.pruneThrows
+    ? new Proxy(inner, {
+        get(target, prop, receiver) {
+          if (prop === 'pruneChanges') {
+            let first = true
+            return () => {
+              // Let the constructor's boot prune succeed; throw on cadence prunes.
+              if (first) {
+                first = false
+                return
+              }
+              throw new Error('prune boom')
+            }
+          }
+          const v = Reflect.get(target, prop, receiver)
+          return typeof v === 'function' ? v.bind(target) : v
+        },
+      })
+    : inner
+  const ledger = new Ledger({ repo, now: Date.now, transact: passthrough })
+  return { ledger, repo }
+}
+
+describe('Codex review-round hardening (#253)', () => {
+  it('rejects an async write(): nothing appended, baseline untouched', () => {
+    const { ledger, repo } = makeLedgerForReviewTests()
+    expect(() =>
+      ledger.commit({
+        write: () => Promise.resolve('late'),
+        changes: () => [{ entity: 'issue', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
+      }),
+    ).toThrow(/thenable/)
+    expect(repo.maxChangeSeq()).toBe(0)
+    const after = ledger.commit({
+      write: () => 'ok',
+      changes: () => [{ entity: 'issue', id: 'i1', op: 'upsert', value: { id: 'i1' } }],
+    })
+    expect(after.changes).toHaveLength(1) // baseline never saw the rejected batch
+  })
+
+  it('changesSince pages past the repository read limit instead of silently truncating', () => {
+    const { ledger, repo } = makeLedgerForReviewTests()
+    const batch = (start: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        entity: 'issue' as const,
+        entityId: `i${start + i}`,
+        op: 'upsert' as const,
+        payload: JSON.stringify({ id: `i${start + i}` }),
+      }))
+    // 10_050 rows > the 10_000-row repo read limit, appended in chunks.
+    for (let start = 0; start < 10_050; start += 2_010) {
+      repo.appendChanges(batch(start, 2_010), Date.now())
+    }
+    const changes = ledger.changesSince(0)
+    expect(changes).not.toBeNull()
+    expect(changes).toHaveLength(10_050)
+    expect(changes?.at(-1)?.seq).toBe(ledger.cursor())
+  })
+
+  it('returns null (snapshot fallback) on a malformed JSON payload', () => {
+    const { ledger, repo } = makeLedgerForReviewTests()
+    repo.appendChanges(
+      [{ entity: 'issue', entityId: 'ix', op: 'upsert', payload: '{not json' }],
+      Date.now(),
+    )
+    expect(ledger.changesSince(0)).toBeNull()
+  })
+
+  it('a prune failure degrades to a logged error: commit still returns changes and notifies', () => {
+    const { ledger } = makeLedgerForReviewTests({ pruneThrows: true })
+    const seen: number[] = []
+    ledger.onAppended((c) => seen.push(c.length))
+    // Cross the retention cadence (64 batches) with a throwing prune.
+    let lastLen = 0
+    for (let i = 0; i < 70; i++) {
+      const { changes } = ledger.commit({
+        write: () => i,
+        changes: () => [
+          { entity: 'issue', id: `p${i}`, op: 'upsert', value: { id: `p${i}`, v: i } },
+        ],
+      })
+      lastLen = changes.length
+    }
+    expect(lastLen).toBe(1)
+    expect(seen).toHaveLength(70)
+  })
+})

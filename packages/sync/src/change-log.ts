@@ -144,20 +144,36 @@ export function readChangesSince(
   // Continuity: everything in (cursor, max] must still be retained. The oldest
   // retained row must be no newer than cursor + 1, else rows were pruned away.
   if (min == null || min > cursor + 1) return null
-  const rows = store.changesSince(cursor)
   const changes: MetadataChange[] = []
-  for (const r of rows) {
-    const base = { seq: r.seq, id: r.entityId, op: r.op as 'upsert' | 'remove' }
-    if (r.op === 'upsert') {
-      if (r.payload == null) return null // corrupt row — snapshot instead of a hole
-      changes.push({
-        ...base,
-        entity: r.entity as MetadataEntityKind,
-        value: JSON.parse(r.payload),
-      } as MetadataChange)
-    } else {
-      changes.push({ ...base, entity: r.entity as MetadataEntityKind } as MetadataChange)
+  // Page until exhausted: the repository read is LIMITed (10k default), and a
+  // single truncated read would hand the caller rows 1..10000 while cursor()
+  // reports the true head — consumers would advance past the missing tail and
+  // permanently skip it. Synchronous single-writer process, so paging to `max`
+  // terminates.
+  let from = cursor
+  while (from < max) {
+    const rows = store.changesSince(from)
+    if (rows.length === 0) break
+    for (const r of rows) {
+      const base = { seq: r.seq, id: r.entityId, op: r.op as 'upsert' | 'remove' }
+      if (r.op === 'upsert') {
+        if (r.payload == null) return null // corrupt row — snapshot instead of a hole
+        let value: unknown
+        try {
+          value = JSON.parse(r.payload)
+        } catch {
+          return null // malformed payload — same corrupt-row contract as null
+        }
+        changes.push({
+          ...base,
+          entity: r.entity as MetadataEntityKind,
+          value,
+        } as MetadataChange)
+      } else {
+        changes.push({ ...base, entity: r.entity as MetadataEntityKind } as MetadataChange)
+      }
     }
+    from = rows[rows.length - 1]?.seq ?? max
   }
   return changes
 }

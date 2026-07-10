@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { watchdogPetIntervalMs } from './sd-notify'
 
 describe('watchdogPetIntervalMs', () => {
@@ -8,7 +8,16 @@ describe('watchdogPetIntervalMs', () => {
   })
 
   it('falls back to a default when WATCHDOG_USEC is unset (not under a Type=notify unit)', () => {
-    expect(watchdogPetIntervalMs(undefined, 12_000)).toBe(12_000)
+    // Passing `undefined` triggers the default parameter (process.env.WATCHDOG_USEC),
+    // so stub the env: shells launched under Podium's own systemd units inherit a
+    // real WATCHDOG_USEC=30000000 and this test would read the environment, not
+    // the "unset" case it's about.
+    vi.stubEnv('WATCHDOG_USEC', '')
+    try {
+      expect(watchdogPetIntervalMs(undefined, 12_000)).toBe(12_000)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('falls back when WATCHDOG_USEC is non-numeric or non-positive', () => {

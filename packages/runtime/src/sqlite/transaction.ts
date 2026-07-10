@@ -23,15 +23,25 @@ const depths = new WeakMap<SqlDatabase, number>()
  * COMMIT / RELEASE on success; ROLLBACK / ROLLBACK TO + RELEASE on throw,
  * rethrowing the original error.
  *
- * `fn` must be synchronous. An async `fn` would let other work interleave with
- * the open transaction (and commit before the work ran), so a returned thenable
- * is rejected: the transaction rolls back and a descriptive error is thrown.
+ * Contract for `fn`:
+ * - MUST be synchronous. An async `fn` would let other work interleave with
+ *   the open transaction (and commit before the work ran), so a returned
+ *   thenable is rejected: the transaction rolls back and a descriptive error
+ *   is thrown. Caveat: the guard fires when `fn` RETURNS — code after the
+ *   first `await` inside an async fn runs later in autocommit mode and is NOT
+ *   protected. Don't hand this helper async functions at all.
+ * - MUST NOT manage transactions itself (no COMMIT/ROLLBACK/BEGIN, and no
+ *   SAVEPOINT names starting with `podium_sp_`). If fn commits under us, our
+ *   COMMIT throws; the cleanup below is guarded so THAT original error is
+ *   reported instead of being masked by the follow-up rollback failure.
  */
 export function transaction<T>(db: SqlDatabase, fn: () => T): T {
   const depth = depths.get(db) ?? 0
-  // Unique savepoint name per depth (sp_1, sp_2, ...) so nested levels never
-  // collide — releasing sp_2 must not release sp_1's work.
-  const savepoint = depth > 0 ? `sp_${depth}` : null
+  // Namespaced savepoint per depth (podium_sp_1, podium_sp_2, ...): unique per
+  // nesting level AND unlikely to collide with any savepoint a callback might
+  // create itself — a collision would make ROLLBACK TO target the callback's
+  // newer savepoint instead of this helper's boundary.
+  const savepoint = depth > 0 ? `podium_sp_${depth}` : null
   db.exec(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE')
   depths.set(db, depth + 1)
   try {
@@ -46,11 +56,21 @@ export function transaction<T>(db: SqlDatabase, fn: () => T): T {
     db.exec(savepoint ? `RELEASE SAVEPOINT ${savepoint}` : 'COMMIT')
     return result
   } catch (err) {
-    if (savepoint) {
-      db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`)
-      db.exec(`RELEASE SAVEPOINT ${savepoint}`)
-    } else {
-      db.exec('ROLLBACK')
+    // Guarded cleanup: if fn violated the contract (committed/rolled back
+    // itself), these statements throw "no transaction is active" — that
+    // secondary failure must not mask the original error being rethrown.
+    try {
+      if (savepoint) {
+        db.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+        db.exec(`RELEASE SAVEPOINT ${savepoint}`)
+      } else {
+        db.exec('ROLLBACK')
+      }
+    } catch (rollbackErr) {
+      console.error(
+        'transaction(): cleanup failed after error (fn managed the transaction itself?)',
+        rollbackErr,
+      )
     }
     throw err
   } finally {

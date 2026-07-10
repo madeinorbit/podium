@@ -147,5 +147,55 @@ export function transactionSpec(t: SqlTestPrimitives): void {
         db.close()
       }
     })
+
+    it('reports the ORIGINAL error when fn commits the transaction itself (contract violation)', () => {
+      const db = freshDb()
+      try {
+        let thrown: unknown
+        try {
+          transaction(db, () => {
+            db.prepare('INSERT INTO t VALUES (?)').run(9)
+            db.exec('COMMIT') // violates the contract
+          })
+        } catch (err) {
+          thrown = err
+        }
+        // The helper's own COMMIT failure surfaces (not the masked follow-up
+        // "cannot rollback" from cleanup), and the row fn committed is durable.
+        expect(String(thrown)).toMatch(/transaction|commit/i)
+        expect(String(thrown)).not.toMatch(/cannot rollback/i)
+        expect(values(db)).toEqual([9])
+        // Depth bookkeeping recovered: the helper is usable again.
+        transaction(db, () => db.prepare('INSERT INTO t VALUES (?)').run(10))
+        expect(values(db)).toEqual([9, 10])
+      } finally {
+        db.close()
+      }
+    })
+
+    it('a callback-created savepoint cannot hijack the helper boundary (namespaced names)', () => {
+      const db = freshDb()
+      try {
+        transaction(db, () => {
+          db.prepare('INSERT INTO t VALUES (?)').run(1)
+          let innerThrew = false
+          try {
+            transaction(db, () => {
+              db.exec('SAVEPOINT sp_1') // a name the helper once used at depth 1
+              db.prepare('INSERT INTO t VALUES (?)').run(2)
+              db.exec('RELEASE SAVEPOINT sp_1')
+              throw new Error('inner fails')
+            })
+          } catch {
+            innerThrew = true
+          }
+          expect(innerThrew).toBe(true)
+        })
+        // Inner insert rolled back to the HELPER boundary despite the callback savepoint.
+        expect(values(db)).toEqual([1])
+      } finally {
+        db.close()
+      }
+    })
   })
 }
