@@ -50,9 +50,15 @@ const layerOf = (rel: string): string => {
   return 'root'
 }
 
-// import/export-from/dynamic-import/vi.mock specifiers
+// import/export-from/dynamic-import/vi.mock specifiers (#264 round 2). Module
+// source strings can't contain newlines, so matching the from-clause / call
+// argument ALONE is multiline-safe — the old variant anchored on the `import`
+// keyword with a no-newline gap and silently skipped multiline imports
+// (`import {\n X\n} from '@/features/...'`), i.e. exactly the ones a formatter
+// produces once a specifier list grows. The lookbehind keeps `from` inside
+// hyphenated string content ('discovered-from') from reading as a from-clause.
 const SPEC_RE =
-  /(?:import|export)[^'"\n]*?from\s*['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]|vi\.(?:mock|doMock|unmock)\(\s*['"]([^'"]+)['"]/g
+  /(?<![-'"])\bfrom\s*['"]([^'"\n]+)['"]|\bimport\s*\(\s*['"]([^'"\n]+)['"]|\bimport\s+['"]([^'"\n]+)['"]|vi\.(?:mock|doMock|unmock)\(\s*['"]([^'"\n]+)['"]/g
 
 type Edge = { file: string; spec: string; from: string; to: string }
 
@@ -79,6 +85,25 @@ const collectEdges = (): Edge[] => {
 
 describe('feature folder boundaries', () => {
   const edges = collectEdges()
+
+  it('the specifier matcher sees multiline imports (#264 round 2 regression guard)', () => {
+    const text = [
+      'import {',
+      '  A,',
+      '  B,',
+      "} from '@/features/chat/x'",
+      'export {',
+      '  C,',
+      "} from './re-export'",
+      'const lazy = import(',
+      "  './lazy'",
+      ')',
+      "import './side-effect'",
+      "if (kind === 'discovered-from') return 'Discovered from' // not an import",
+    ].join('\n')
+    const specs = [...text.matchAll(SPEC_RE)].map((m) => m[1] ?? m[2] ?? m[3] ?? m[4])
+    expect(specs).toEqual(['@/features/chat/x', './re-export', './lazy', './side-effect'])
+  })
 
   it('features do not import other features (beyond the grandfathered exceptions)', () => {
     const violations: string[] = []
