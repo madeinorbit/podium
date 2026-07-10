@@ -105,4 +105,33 @@ describe('DiscoveryWorkerClient', () => {
     expect(spawns).toBe(2)
     c.stop()
   })
+
+  it('throttles respawn while the worker is crash-looping (a second fast crash)', async () => {
+    // The compiled Windows daemon hit this for real: a worker whose module URL never
+    // resolves dies instantly, every runJob respawned it in the same tick, and the
+    // resulting hot loop starved the daemon during boot (health checks timed out).
+    // One crash → immediate respawn stays allowed; two crashes back-to-back → jobs
+    // reject fast WITHOUT constructing another Worker until the cooldown passes.
+    let spawns = 0
+    const workers: any[] = []
+    const c = new DiscoveryWorkerClient({
+      spawn: () => {
+        spawns++
+        const w = makeFakeWorker()
+        workers.push(w)
+        return w
+      },
+    })
+    const p1 = c.runJob('memoryBreakdown', { sessions: [], roots: [], selfPid: 1 })
+    workers[0].emit('exit', 1)
+    await expect(p1).rejects.toThrow()
+    const p2 = c.runJob('memoryBreakdown', { sessions: [], roots: [], selfPid: 1 })
+    expect(spawns).toBe(2) // first crash: respawn allowed
+    workers[1].emit('exit', 1)
+    await expect(p2).rejects.toThrow()
+    const p3 = c.runJob('memoryBreakdown', { sessions: [], roots: [], selfPid: 1 })
+    await expect(p3).rejects.toThrow(/throttled/)
+    expect(spawns).toBe(2) // second fast crash: NO third Worker constructed
+    c.stop()
+  })
 })

@@ -86,6 +86,47 @@ describe('server issue relay handler (P1b)', () => {
     expect(r.error).toMatch(/not permitted via relay/)
   })
 
+  it('scope-gates direct messages to a session on another issue', async () => {
+    const target = registry.modules.sessions.createSession({
+      cwd: '/r/other',
+      agentKind: 'shell',
+      issueId: B.id,
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-send-scoped',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'resumeAndSend',
+      input: { sessionId: target, text: 'continue' },
+    })
+    const r = await reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/outside your subtree/)
+  })
+
+  it('delivers an explicitly overridden direct session message', async () => {
+    const target = registry.modules.sessions.createSession({
+      cwd: '/r/other',
+      agentKind: 'shell',
+      issueId: B.id,
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-send-override',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'resumeAndSend',
+      input: { sessionId: target, text: 'continue' },
+      outsideScope: true,
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+    expect(r.result).toMatchObject({ ok: true })
+  })
+
   it('rejects a prototype-key router without throwing (constructor)', async () => {
     // RELAY_ALLOWED is a plain object, so a router like 'constructor'/'__proto__'
     // would index an INHERITED value and blow up on `.has(...)` — the guard must

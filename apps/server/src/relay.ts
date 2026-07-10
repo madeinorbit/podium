@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelProbe } from './model-catalog'
 import { EventBus } from './modules/bus'
@@ -285,11 +286,71 @@ export class SessionRegistry {
     const issueRelayGate = new IssueRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
-      // specs module — same schemas + repo-root gate as the tRPC slice
-      // (RELAY_ALLOWED lists all three routers).
+      // specs module — same schemas + repo-root gate as the tRPC slice; the
+      // sessions slice exposes ONLY real-turn delivery (sendText/resumeAndSend/
+      // continue — never spawn/kill/archive or raw PTY input), scope-gated
+      // against the TARGET session's issue exactly like an issue write
+      // (RELAY_ALLOWED lists all four routers).
       dispatch: (capability, overrideScope, router, proc, input) => {
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
+        }
+        if (router === 'sessions') {
+          if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
+            return undefined
+          }
+          return (async () => {
+            const raw = input
+            if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+              throw new Error('invalid session command input')
+            }
+            const args = raw as { sessionId?: unknown; text?: unknown; mutationId?: unknown }
+            if (typeof args.sessionId !== 'string' || !args.sessionId) {
+              throw new Error('sessionId is required')
+            }
+            if (proc !== 'continue') {
+              if (
+                typeof args.text !== 'string' ||
+                args.text.length === 0 ||
+                args.text.length > 32_768
+              ) {
+                throw new Error('text must contain 1..32768 characters')
+              }
+            }
+            if (
+              args.mutationId !== undefined &&
+              (typeof args.mutationId !== 'string' || args.mutationId.length > 128)
+            ) {
+              throw new Error('mutationId must be at most 128 characters')
+            }
+            const target = sessionsSvc
+              .listSessions()
+              .find((session) => session.sessionId === args.sessionId)
+            if (!target) throw new Error('session not found')
+            const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+            if (targetIssueId) {
+              checkIssueAccess(
+                { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                issues,
+                `sessions.${proc}`,
+                'write',
+                targetIssueId,
+              )
+            }
+            if (proc === 'continue') {
+              return sessionsSvc.continueSession({ sessionId: args.sessionId })
+            }
+            const commandInput = {
+              sessionId: args.sessionId,
+              text: args.text as string,
+              ...(typeof args.mutationId === 'string' ? { mutationId: args.mutationId } : {}),
+            }
+            return sessionsSvc.withMutation(commandInput.mutationId, `sessions.${proc}`, () =>
+              proc === 'sendText'
+                ? sessionsSvc.sendText(commandInput)
+                : sessionsSvc.resumeAndSend(commandInput),
+            )
+          })()
         }
         return issueCommands.dispatch(
           { capability, ...(overrideScope ? { overrideScope } : {}) },

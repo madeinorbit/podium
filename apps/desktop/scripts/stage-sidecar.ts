@@ -10,6 +10,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { bundleNames } from '../../../scripts/build-bun.js'
 
 const desktopDir = fileURLToPath(new URL('..', import.meta.url)) // apps/desktop/
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url)) // repo root
@@ -35,9 +36,10 @@ execFileSync('bun', ['run', 'package:headless'], { cwd: repoRoot, stdio: 'inheri
 // 2. Stage the podium binary as a plain resource (no triple suffix, never patchelf'd).
 const resourcesDir = `${desktopDir}src-tauri/resources`
 mkdirSync(resourcesDir, { recursive: true })
-const podiumSrc = `${repoRoot}/dist-bun/podium`
+// bundleNames: the compiled binary is podium.exe on Windows (see build-bun.ts).
+const podiumSrc = `${repoRoot}/dist-bun/${bundleNames().compiled}`
 if (!existsSync(podiumSrc)) throw new Error(`missing ${podiumSrc} — package:headless did not produce it`)
-const podiumDst = `${resourcesDir}/podium`
+const podiumDst = `${resourcesDir}/${bundleNames().compiled}`
 cpSync(podiumSrc, podiumDst)
 chmodSync(podiumDst, 0o755)
 

@@ -266,4 +266,26 @@ describe('agentLaunchCommand', () => {
       else process.env.SHELL = prev
     }
   })
+
+  it('on Windows falls back to COMSPEC, then cmd.exe (SHELL is normally unset there)', () => {
+    const realPlatform = process.platform
+    const prevShell = process.env.SHELL
+    const prevComspec = process.env.COMSPEC
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    delete process.env.SHELL
+    try {
+      process.env.COMSPEC = 'C:\\Windows\\System32\\cmd.exe'
+      expect(agentLaunchCommand('shell', { cwd: 'C:\\w' }).cmd).toBe(
+        'C:\\Windows\\System32\\cmd.exe',
+      )
+      delete process.env.COMSPEC
+      expect(agentLaunchCommand('shell', { cwd: 'C:\\w' }).cmd).toBe('cmd.exe')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+      if (prevShell === undefined) delete process.env.SHELL
+      else process.env.SHELL = prevShell
+      if (prevComspec === undefined) delete process.env.COMSPEC
+      else process.env.COMSPEC = prevComspec
+    }
+  })
 })

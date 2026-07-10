@@ -26,6 +26,7 @@ import {
   createLimiter,
   type DaemonHandle,
   normalizeAgentKind,
+  noDurableBackendWarning,
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
@@ -660,6 +661,15 @@ describe('durable backend resolution', () => {
   it('maps the legacy tmux boolean: true forces tmux, false forces none', () => {
     expect(resolveDurableBackend({ tmux: true }, both)).toBe('tmux')
     expect(resolveDurableBackend({ tmux: false }, both)).toBe('none')
+  })
+
+  it('explains a none-backend per platform: expected on Windows, missing tools elsewhere', () => {
+    expect(noDurableBackendWarning('win32')).toContain('ConPTY')
+    expect(noDurableBackendWarning('win32')).not.toContain('abduco')
+    expect(noDurableBackendWarning('linux')).toContain('neither abduco nor tmux')
+    // Both wordings must state the consequence the operator cares about.
+    expect(noDurableBackendWarning('win32')).toContain('survive')
+    expect(noDurableBackendWarning('linux')).toContain('survive')
   })
 })
 

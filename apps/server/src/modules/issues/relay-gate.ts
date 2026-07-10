@@ -2,9 +2,10 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import type { Capability } from '../../issue-authz'
 
 /** Routers/procs a relayed agent may invoke. `issues.*` is capability-gated by the shared
- *  command guard (guardIssueCommand over the registry defs); everything else must be
- *  explicitly listed so a relay can never reach an ungated router (sessions/spawn/kill/etc.).
- *  `null` = any proc on that router. */
+ *  command guard (guardIssueCommand over the registry defs); everything else is an explicit
+ *  least-privilege list — a relay can never reach an ungated router. The sessions slice
+ *  exposes only real-turn delivery (never spawn/kill/archive or raw PTY input). `null` =
+ *  any proc on that router. */
 const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // null = every issues.* command, which includes the agent-mail procs
   // (mailSend/mailInbox/mailClaim/mailPending, issue #103).
@@ -14,6 +15,7 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // touch with their own tools anyway — the specs router adds no privilege
   // beyond its repo-root allowlist.
   specs: null,
+  sessions: new Set(['sendText', 'resumeAndSend', 'continue']),
 }
 
 export interface IssueRelayGateDeps {
@@ -40,7 +42,9 @@ export interface IssueRelayGateDeps {
  * here, and the router is not involved. The capability itself is minted from the
  * requesting session's cwd (capabilityForSession), and the agent's `--outside-scope`
  * flag rides through as overrideScope. RELAY_ALLOWED restricts which router/proc a
- * relay may reach so it can never touch an ungated router (sessions/spawn/kill).
+ * relay may reach so it can never touch an ungated router or arbitrary session
+ * lifecycle operations; the allowlisted session send ops are additionally scope-gated
+ * against the TARGET session's issue by the dispatch arm in the composition root.
  */
 export class IssueRelayGate {
   constructor(private readonly deps: IssueRelayGateDeps) {}

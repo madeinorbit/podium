@@ -99,6 +99,7 @@ export type LaunchPlan =
   | { kind: 'repair-config' }
   | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
   | { kind: 'issue'; args: string[] }
+  | { kind: 'session'; args: string[] }
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'status' }
@@ -197,6 +198,7 @@ export function resolvePlan(
     return { kind: 'join-setup', token, persistence, port }
   }
   if (argv[0] === 'issue') return { kind: 'issue', args: argv.slice(1) }
+  if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
@@ -575,6 +577,13 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'issue': {
       const { issueCliMain } = await import('./issue-cli')
       await issueCliMain(plan.args)
+      return
+    }
+    // `podium session <command>`: submit real turns to exact sessions through the
+    // operator tRPC surface or the current agent's capability-scoped daemon relay.
+    case 'session': {
+      const { sessionCliMain } = await import('./session-cli')
+      await sessionCliMain(plan.args)
       return
     }
     // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).

@@ -1,0 +1,71 @@
+# Windows headless gate (#90): proves the ConPTY PTY backend works at runtime and
+# that the headless bundle builds AND boots on Windows [spec:SP-7f2c]. The release
+# matrix (#35) can hang its Windows row off this.
+name: windows-smoke
+on:
+  push:
+    branches: [main, 'worktree-issue-90-*']
+  workflow_dispatch:
+concurrency:
+  group: windows-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned: ConPTY support needs >= 1.3.14, and a '1.3' range has been seen
+          # resolving to 1.3.0 (release.yml pins for the same reason).
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~\.bun\install\cache
+          key: windows-bun-${{ hashFiles('bun.lock') }}
+      # --ignore-scripts mirrors release.yml: nothing under Bun ever loads node-pty's
+      # native addon, and node-gyp on the runner toolchain is the only thing that breaks.
+      - run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
+        run: bun --conditions=@podium/source scripts/conpty-smoke.ts
+
+      - name: Build headless bundle
+        run: |
+          bun run --filter @podium/web build
+          bun scripts/build-bun.ts
+
+
+      - name: Boot smoke (podium.cmd all-in-one → /health + /version)
+        shell: pwsh
+        run: |
+          $env:PODIUM_STATE_DIR = Join-Path $env:RUNNER_TEMP 'podium-state'
+          # A .cmd can't be exec'd directly with stream redirects (UseShellExecute=false
+          # requires a real executable) — run it through cmd.exe like a user would.
+          $proc = Start-Process -FilePath $env:ComSpec `
+            -ArgumentList '/d','/c','dist-bun\headless\podium.cmd' `
+            -RedirectStandardOutput podium-out.log -RedirectStandardError podium-err.log `
+            -PassThru -NoNewWindow
+          # 127.0.0.1 (the server's default bind) rather than localhost — one fewer
+          # resolution variable. Generous window: shared windows-latest runners have
+          # shown multi-minute cold boots (sqlite store + mirror bootstrap on D:).
+          $healthy = $false
+          foreach ($i in 1..90) {
+            try {
+              $r = Invoke-WebRequest -Uri 'http://127.0.0.1:18787/health' -UseBasicParsing -TimeoutSec 2
+              if ($r.StatusCode -eq 200) { $healthy = $true; Write-Host "healthy after poll #$i"; break }
+            } catch { Start-Sleep -Seconds 2 }
+            if ($proc.HasExited) { Write-Host "launcher exited early (poll #$i)"; break }
+          }
+          Write-Host '--- podium stdout ---'; Get-Content podium-out.log -ErrorAction SilentlyContinue
+          Write-Host '--- podium stderr ---'; Get-Content podium-err.log -ErrorAction SilentlyContinue
+          if (-not $healthy) {
+            Write-Host '--- netstat :18787 ---'; netstat -ano | Select-String 18787
+            Write-Error 'podium never became healthy on :18787'; exit 1
+          }
+          $v = Invoke-WebRequest -Uri 'http://localhost:18787/version' -UseBasicParsing
+          Write-Host "version probe: $($v.Content)"
+          # Kill the TREE: $proc is the cmd.exe launcher; podium-cli.exe is its child
+          # and would otherwise keep holding :18787.
+          taskkill /PID $proc.Id /T /F 2>$null; exit 0
