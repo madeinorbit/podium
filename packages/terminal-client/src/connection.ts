@@ -1,6 +1,7 @@
 import {
   CAP_METADATA_DELTA,
   type ConversationSummaryWire,
+  createDispatcher,
   encode,
   type HeadlessActivityEvent,
   type HostMetricsWire,
@@ -183,6 +184,40 @@ export interface ConnectionHealth {
   since: number
 }
 
+/**
+ * The hub's typed subscription seam [spec:SP-3fe2]: every event the hub fans
+ * out, keyed by a CLOSED kind union. Payloads are tuples so multi-argument
+ * legacy callbacks (`onSessionDraft`) ride the same seam without an adapter.
+ * `on(kind, handler)` is the one subscription primitive; the deprecated
+ * `on*`/`subscribe*` methods below are thin wrappers over it.
+ */
+export interface HubEvents {
+  /** Full session list after any change (snapshot, delta, title/state patch). */
+  sessions: [sessions: SessionMeta[]]
+  conversations: [conversations: ConversationSummaryWire[]]
+  hostMetrics: [hosts: HostMetricsWire[]]
+  machines: [machines: MachineWire[]]
+  /** Full issue list after any change. */
+  issues: [issues: IssueWire[]]
+  /** Single-issue broadcast (fires alongside the full-list `issues` event). */
+  issueUpdated: [issue: IssueWire]
+  connectionHealth: [health: ConnectionHealth]
+  attention: [event: AttentionEvent]
+  sessionDraft: [sessionId: string, text: string]
+  /** One live transcript frame: ONLY that frame's delta items — the caller owns
+   *  history (see subscribeTranscript, which also manages the server-side
+   *  subscription these frames depend on). */
+  transcriptDelta: [sessionId: string, items: TranscriptItem[], meta: { reset: boolean }]
+  headlessActivity: [sessionId: string, event: HeadlessActivityEvent]
+}
+
+export type HubEventKind = keyof HubEvents
+
+export type HubEventHandler<K extends HubEventKind> = (...payload: HubEvents[K]) => void
+
+/** Storage-side supertype: every HubEventHandler is assignable to it. */
+type AnyHubEventHandler = (...payload: never[]) => void
+
 /** One ws, multiplexed across N sessions. Owns the connection + server-assigned clientId. */
 export class SocketHub {
   private readonly opts: SocketHubOptions
@@ -234,21 +269,12 @@ export class SocketHub {
     {
       since: string | undefined
       observers: Set<(items: TranscriptItem[], meta: { reset: boolean }) => void>
+      /** The entry's seam registration — released when the last observer leaves. */
+      off: () => void
     }
   >()
-  private readonly sessionObservers = new Set<(s: SessionMeta[]) => void>()
-  private readonly conversationObservers = new Set<(c: ConversationSummaryWire[]) => void>()
-  private readonly hostMetricsObservers = new Set<(h: HostMetricsWire[]) => void>()
-  private readonly machinesObservers = new Set<(m: MachineWire[]) => void>()
-  private readonly issueObservers = new Set<(i: IssueWire[]) => void>()
-  private readonly issueUpdatedObservers = new Set<(i: IssueWire) => void>()
-  private readonly healthObservers = new Set<(h: ConnectionHealth) => void>()
-  private readonly attentionObservers = new Set<(e: AttentionEvent) => void>()
-  // Live turn activity for HEADLESS sessions (concierge unification): the server
-  // broadcasts `headlessActivity` frames to every client; this is a purely local
-  // observer registry — no server-side subscribe/unsubscribe round trip.
-  private readonly headlessObservers = new Map<string, Set<(e: HeadlessActivityEvent) => void>>()
-  private draftObservers = new Set<(sessionId: string, text: string) => void>()
+  /** THE subscription seam: one handler Set per event kind (see HubEvents). */
+  private readonly eventObservers = new Map<HubEventKind, Set<AnyHubEventHandler>>()
   private lastVisible = true
   private lastViewState: {
     visible: string[]
@@ -483,61 +509,100 @@ export class SocketHub {
     }
   }
 
+  /**
+   * Subscribe to a hub event (see {@link HubEvents} for the kinds + payloads).
+   * The one subscription primitive — every legacy `on*`/`subscribe*` method is
+   * a thin wrapper over it. Does NOT replay current state on subscribe: read
+   * that from the matching getter (`sessions()`, `issues()`, `connectionHealth()`, …).
+   * Returns an unsubscribe.
+   */
+  on<K extends HubEventKind>(kind: K, handler: HubEventHandler<K>): () => void {
+    let set = this.eventObservers.get(kind)
+    if (set === undefined) {
+      set = new Set()
+      this.eventObservers.set(kind, set)
+    }
+    // Erase the per-kind payload tuple for storage; emit() restores it. Safe
+    // because handlers only ever receive the payload emitted under their kind.
+    const stored = handler as unknown as AnyHubEventHandler
+    set.add(stored)
+    return () => {
+      set.delete(stored)
+    }
+  }
+
+  /** Fan one event out to its subscribers. Iterates the live Set — the same
+   *  mid-iteration add/remove semantics as the per-kind Sets this replaced. */
+  private emit<K extends HubEventKind>(kind: K, ...payload: HubEvents[K]): void {
+    const set = this.eventObservers.get(kind)
+    if (set === undefined) return
+    for (const handler of set) (handler as unknown as HubEventHandler<K>)(...payload)
+  }
+
   sessions(): SessionMeta[] {
     return this.sessionList
   }
 
+  /** @deprecated Use `on('sessions', cb)` (which does not replay — read `sessions()`). */
   onSessions(cb: (s: SessionMeta[]) => void): () => void {
-    this.sessionObservers.add(cb)
+    const off = this.on('sessions', cb)
     cb(this.sessionList)
-    return () => this.sessionObservers.delete(cb)
+    return off
   }
 
   conversations(): ConversationSummaryWire[] {
     return this.conversationList
   }
 
+  /** @deprecated Use `on('conversations', cb)` (no replay — read `conversations()`). */
   onConversations(cb: (c: ConversationSummaryWire[]) => void): () => void {
-    this.conversationObservers.add(cb)
+    const off = this.on('conversations', cb)
     cb(this.conversationList)
-    return () => this.conversationObservers.delete(cb)
+    return off
   }
 
   hostMetrics(): HostMetricsWire[] {
     return this.hostMetricsList
   }
 
+  /** @deprecated Use `on('hostMetrics', cb)` (no replay — read `hostMetrics()`). */
   onHostMetrics(cb: (h: HostMetricsWire[]) => void): () => void {
-    this.hostMetricsObservers.add(cb)
+    const off = this.on('hostMetrics', cb)
     cb(this.hostMetricsList)
-    return () => this.hostMetricsObservers.delete(cb)
+    return off
   }
 
   machines(): MachineWire[] {
     return this.machinesList
   }
 
+  /** @deprecated Use `on('machines', cb)` (no replay — read `machines()`). */
   onMachines(cb: (m: MachineWire[]) => void): () => void {
-    this.machinesObservers.add(cb)
+    const off = this.on('machines', cb)
     cb(this.machinesList)
-    return () => this.machinesObservers.delete(cb)
+    return off
   }
 
   issues(): IssueWire[] {
     return this.issueList
   }
 
-  /** Observe the full issue list. Replays the current list immediately, like `onSessions`. */
+  /**
+   * Observe the full issue list. Replays the current list immediately, like `onSessions`.
+   * @deprecated Use `on('issues', cb)` (no replay — read `issues()`).
+   */
   onIssues(cb: (i: IssueWire[]) => void): () => void {
-    this.issueObservers.add(cb)
+    const off = this.on('issues', cb)
     cb(this.issueList)
-    return () => this.issueObservers.delete(cb)
+    return off
   }
 
-  /** Observe single-issue updates (no immediate replay; mirrors `onAttention`). */
+  /**
+   * Observe single-issue updates (no immediate replay; mirrors `onAttention`).
+   * @deprecated Use `on('issueUpdated', cb)`.
+   */
   onIssueUpdated(cb: (i: IssueWire) => void): () => void {
-    this.issueUpdatedObservers.add(cb)
-    return () => this.issueUpdatedObservers.delete(cb)
+    return this.on('issueUpdated', cb)
   }
 
   /**
@@ -556,9 +621,9 @@ export class SocketHub {
     this.sessionList = seed.sessions
     this.issueList = seed.issues
     this.conversationList = seed.conversations
-    for (const o of this.sessionObservers) o(this.sessionList)
-    for (const o of this.issueObservers) o(this.issueList)
-    for (const o of this.conversationObservers) o(this.conversationList)
+    this.emit('sessions', this.sessionList)
+    this.emit('issues', this.issueList)
+    this.emit('conversations', this.conversationList)
   }
 
   /**
@@ -582,7 +647,15 @@ export class SocketHub {
   ): () => void {
     let entry = this.transcripts.get(sessionId)
     if (!entry) {
-      entry = { since, observers: new Set() }
+      // One seam registration per session entry, fanning out to the entry's
+      // observer Set — preserving the old per-session semantics exactly (dedup
+      // by callback identity, live-Set iteration) on top of `on()`.
+      const observers = new Set<(items: TranscriptItem[], meta: { reset: boolean }) => void>()
+      const off = this.on('transcriptDelta', (sid, items, meta) => {
+        if (sid !== sessionId) return
+        for (const o of observers) o(items, meta)
+      })
+      entry = { since, observers, off }
       this.transcripts.set(sessionId, entry)
       if (this.connectedFlag) {
         this.sendRaw({ type: 'transcriptSubscribe', sessionId, ...(since ? { since } : {}) })
@@ -594,6 +667,7 @@ export class SocketHub {
       if (!current) return
       current.observers.delete(cb)
       if (current.observers.size === 0) {
+        current.off()
         this.transcripts.delete(sessionId)
         if (this.connectedFlag) this.sendRaw({ type: 'transcriptUnsubscribe', sessionId })
       }
@@ -605,32 +679,28 @@ export class SocketHub {
    * status, turn boundaries). Frames are server-broadcast to all clients, so this
    * is a local fan-out only — mirrors subscribeTranscript's shape without the
    * server subscription. Returns an unsubscribe.
+   * @deprecated Use `on('headlessActivity', cb)` and filter by sessionId.
    */
   subscribeHeadless(sessionId: string, cb: (e: HeadlessActivityEvent) => void): () => void {
-    let set = this.headlessObservers.get(sessionId)
-    if (!set) {
-      set = new Set()
-      this.headlessObservers.set(sessionId, set)
-    }
-    set.add(cb)
-    return () => {
-      const current = this.headlessObservers.get(sessionId)
-      if (!current) return
-      current.delete(cb)
-      if (current.size === 0) this.headlessObservers.delete(sessionId)
-    }
+    return this.on('headlessActivity', (sid, event) => {
+      if (sid === sessionId) cb(event)
+    })
   }
 
-  /** Attention events (agent needs the human) — the app turns these into notifications. */
+  /**
+   * Attention events (agent needs the human) — the app turns these into notifications.
+   * @deprecated Use `on('attention', cb)`.
+   */
   onAttention(cb: (e: AttentionEvent) => void): () => void {
-    this.attentionObservers.add(cb)
-    return () => this.attentionObservers.delete(cb)
+    return this.on('attention', cb)
   }
 
-  /** Subscribe to draft changes broadcast by other clients/devices. Returns an unsubscribe. */
+  /**
+   * Subscribe to draft changes broadcast by other clients/devices. Returns an unsubscribe.
+   * @deprecated Use `on('sessionDraft', cb)`.
+   */
   onSessionDraft(cb: (sessionId: string, text: string) => void): () => void {
-    this.draftObservers.add(cb)
-    return () => this.draftObservers.delete(cb)
+    return this.on('sessionDraft', cb)
   }
 
   /** Publish this client's in-progress draft for a session to the server. */
@@ -674,10 +744,11 @@ export class SocketHub {
     return this.health
   }
 
+  /** @deprecated Use `on('connectionHealth', cb)` (no replay — read `connectionHealth()`). */
   onConnectionHealth(cb: (h: ConnectionHealth) => void): () => void {
-    this.healthObservers.add(cb)
+    const off = this.on('connectionHealth', cb)
     cb(this.health)
-    return () => this.healthObservers.delete(cb)
+    return off
   }
 
   private evaluateHealth(): void {
@@ -686,7 +757,7 @@ export class SocketHub {
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
-    for (const o of this.healthObservers) o(this.health)
+    this.emit('connectionHealth', this.health)
   }
 
   private computeHealth(): ConnectionHealth {
@@ -765,7 +836,17 @@ export class SocketHub {
       return
     }
     if (!msg) return
-    if (msg.type === 'pong') {
+    this.dispatchServerMessage(msg, undefined)
+  }
+
+  /**
+   * Total dispatch over the parsed ServerMessage union [spec:SP-3fe2]: the
+   * handler table is a mapped type over `ServerMessage['type']`, so adding a
+   * message type to the protocol breaks compilation HERE until it is handled —
+   * the hand-written if-ladder this replaces could silently ignore one.
+   */
+  private readonly dispatchServerMessage = createDispatcher<ServerMessage>({
+    pong: () => {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.
       const sentAt = this.pingQueue.shift()
@@ -774,98 +855,88 @@ export class SocketHub {
         if (this.pingQueue.length === 0) this.clearStaleTimer()
         this.evaluateHealth()
       }
-      return
-    }
-    if (msg.type === 'welcome') {
+    },
+    welcome: (msg) => {
       this.clientIdValue = msg.clientId
       this.notifyConnections()
-      return
-    }
-    if (msg.type === 'metadataDelta') {
+    },
+    metadataDelta: (msg) => {
       this.ingestDelta(msg)
-      return
-    }
-    if (msg.type === 'sessionsChanged') {
+    },
+    sessionsChanged: (msg) => {
       this.sessionList = msg.sessions
-      for (const o of this.sessionObservers) o(this.sessionList)
-      return
-    }
-    if (msg.type === 'conversationsChanged') {
+      this.emit('sessions', this.sessionList)
+    },
+    conversationsChanged: (msg) => {
       this.conversationList = msg.conversations
-      for (const o of this.conversationObservers) o(this.conversationList)
-      return
-    }
-    if (msg.type === 'hostMetricsChanged') {
+      this.emit('conversations', this.conversationList)
+    },
+    hostMetricsChanged: (msg) => {
       this.hostMetricsList = msg.hosts
-      for (const o of this.hostMetricsObservers) o(this.hostMetricsList)
-      return
-    }
-    if (msg.type === 'issuesChanged') {
+      this.emit('hostMetrics', this.hostMetricsList)
+    },
+    issuesChanged: (msg) => {
       this.issueList = msg.issues
-      for (const o of this.issueObservers) o(this.issueList)
-      return
-    }
-    if (msg.type === 'issueUpdated') {
+      this.emit('issues', this.issueList)
+    },
+    issueUpdated: (msg) => {
       // Upsert, not just replace: single-issue broadcasts are the server's primary
       // issue delta (#22), so an id we haven't seen yet must join the list rather
       // than be dropped on the floor.
       this.issueList = this.issueList.some((i) => i.id === msg.issue.id)
         ? this.issueList.map((i) => (i.id === msg.issue.id ? msg.issue : i))
         : [...this.issueList, msg.issue]
-      for (const o of this.issueObservers) o(this.issueList)
-      for (const o of this.issueUpdatedObservers) o(msg.issue)
-      return
-    }
-    if (msg.type === 'attentionEvent') {
-      for (const o of this.attentionObservers) {
-        o({ sessionId: msg.sessionId, title: msg.title, body: msg.body })
-      }
-      return
-    }
-    if (msg.type === 'headlessActivity') {
-      const observers = this.headlessObservers.get(msg.sessionId)
-      if (observers) for (const o of observers) o(msg.event)
-      return
-    }
-    if (msg.type === 'transcriptDelta') {
-      const entry = this.transcripts.get(msg.sessionId)
-      if (!entry) return
+      this.emit('issues', this.issueList)
+      this.emit('issueUpdated', msg.issue)
+    },
+    attentionEvent: (msg) => {
+      this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
+    },
+    headlessActivity: (msg) => {
+      this.emit('headlessActivity', msg.sessionId, msg.event)
+    },
+    transcriptDelta: (msg) => {
       // Track the newest cursor so a reconnect resumes from here. A reset frame
       // re-seeds: keep the new tail too (the caller re-reads its window).
-      if (msg.tail) entry.since = msg.tail
-      const reset = msg.reset ?? false
-      for (const o of entry.observers) o(msg.items, { reset })
-      return
-    }
-    if (msg.type === 'sessionTitleChanged') {
+      const entry = this.transcripts.get(msg.sessionId)
+      if (entry && msg.tail) entry.since = msg.tail
+      this.emit('transcriptDelta', msg.sessionId, msg.items, { reset: msg.reset ?? false })
+    },
+    sessionTitleChanged: (msg) => {
       let changed = false
       this.sessionList = this.sessionList.map((s) => {
         if (s.sessionId !== msg.sessionId || s.title === msg.title) return s
         changed = true
         return { ...s, title: msg.title }
       })
-      if (changed) for (const o of this.sessionObservers) o(this.sessionList)
-      return
-    }
-    if (msg.type === 'sessionDraftChanged') {
-      for (const o of this.draftObservers) o(msg.sessionId, msg.text)
-      return
-    }
-    if (msg.type === 'sessionAgentStateChanged') {
+      if (changed) this.emit('sessions', this.sessionList)
+    },
+    sessionDraftChanged: (msg) => {
+      this.emit('sessionDraft', msg.sessionId, msg.text)
+    },
+    sessionAgentStateChanged: (msg) => {
       let changed = false
       this.sessionList = this.sessionList.map((s) => {
         if (s.sessionId !== msg.sessionId) return s
         changed = true
         return { ...s, agentState: msg.state }
       })
-      if (changed) for (const o of this.sessionObservers) o(this.sessionList)
-      return
-    }
-    if (msg.type === 'machinesChanged') {
+      if (changed) this.emit('sessions', this.sessionList)
+    },
+    machinesChanged: (msg) => {
       this.machinesList = msg.machines
-      for (const o of this.machinesObservers) o(this.machinesList)
-      return
-    }
+      this.emit('machines', this.machinesList)
+    },
+    // Session-scoped terminal stream: forwarded to the matching SessionConnection
+    // (or dropped when no view is attached — same as the old fall-through arm).
+    attached: (msg) => this.forwardToSession(msg),
+    outputFrame: (msg) => this.forwardToSession(msg),
+    controllerChanged: (msg) => this.forwardToSession(msg),
+    geometry: (msg) => this.forwardToSession(msg),
+    agentExit: (msg) => this.forwardToSession(msg),
+  })
+
+  private forwardToSession(msg: SessionScopedServerMessage): void {
     this.connections.get(msg.sessionId)?._ingest(msg)
   }
 
@@ -932,10 +1003,9 @@ export class SocketHub {
         )
       }
     }
-    if (touched.has('session')) for (const o of this.sessionObservers) o(this.sessionList)
-    if (touched.has('issue')) for (const o of this.issueObservers) o(this.issueList)
-    if (touched.has('conversation'))
-      for (const o of this.conversationObservers) o(this.conversationList)
+    if (touched.has('session')) this.emit('sessions', this.sessionList)
+    if (touched.has('issue')) this.emit('issues', this.issueList)
+    if (touched.has('conversation')) this.emit('conversations', this.conversationList)
   }
 
   /**
@@ -967,9 +1037,9 @@ export class SocketHub {
           this.sessionList = result.sessions
           this.issueList = result.issues
           this.conversationList = result.conversations
-          for (const o of this.sessionObservers) o(this.sessionList)
-          for (const o of this.issueObservers) o(this.issueList)
-          for (const o of this.conversationObservers) o(this.conversationList)
+          this.emit('sessions', this.sessionList)
+          this.emit('issues', this.issueList)
+          this.emit('conversations', this.conversationList)
         } else if (result.changes.length > 0) {
           this.applyChanges(result.changes.filter((c) => c.seq > (this.metadataCursor ?? 0)))
         }
@@ -1018,6 +1088,13 @@ export class SocketHub {
     }
   }
 }
+
+/** The ServerMessage members addressed to a single session's terminal stream —
+ *  the subset the hub forwards into SessionConnection._ingest. */
+export type SessionScopedServerMessage = Extract<
+  ServerMessage,
+  { type: 'attached' | 'outputFrame' | 'controllerChanged' | 'geometry' | 'agentExit' }
+>
 
 /** A per-session view of the hub: tagged sends + the session's authoritative state. */
 export class SessionConnection {
@@ -1086,44 +1163,46 @@ export class SessionConnection {
   }
 
   /** @internal Hub-internal: apply a session-scoped server message. */
-  _ingest(msg: ServerMessage): void {
-    switch (msg.type) {
-      case 'attached':
-        this.controllerId = msg.controllerId
-        this.cols = msg.geometry.cols
-        this.rows = msg.geometry.rows
-        this.epoch = msg.epoch
-        // A full replay (not a `resumed` catch-up) is about to re-send the whole
-        // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
-        // screen and appends the missed frames.
-        if (msg.resumed !== true) this.cb.onReset?.()
-        this.emit()
-        this.cb.onAttached?.()
-        break
-      case 'outputFrame':
-        this.lastSeq = msg.seq
-        this.epoch = msg.epoch
-        this.emit()
-        this.cb.onFrame?.(fromBase64Utf8(msg.data))
-        break
-      case 'controllerChanged':
-        this.controllerId = msg.controllerId
-        this.cols = msg.geometry.cols
-        this.rows = msg.geometry.rows
-        this.emit()
-        break
-      case 'geometry':
-        this.cols = msg.cols
-        this.rows = msg.rows
-        this.emit()
-        break
-      case 'agentExit':
-        this.emit()
-        break
-      default:
-        break
-    }
+  _ingest(msg: SessionScopedServerMessage): void {
+    this.dispatchSessionMessage(msg, undefined)
   }
+
+  /** Total dispatch over the session-scoped subunion [spec:SP-3fe2] — the same
+   *  compile-checked exhaustiveness as the hub's table, replacing the switch. */
+  private readonly dispatchSessionMessage = createDispatcher<SessionScopedServerMessage>({
+    attached: (msg) => {
+      this.controllerId = msg.controllerId
+      this.cols = msg.geometry.cols
+      this.rows = msg.geometry.rows
+      this.epoch = msg.epoch
+      // A full replay (not a `resumed` catch-up) is about to re-send the whole
+      // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
+      // screen and appends the missed frames.
+      if (msg.resumed !== true) this.cb.onReset?.()
+      this.emit()
+      this.cb.onAttached?.()
+    },
+    outputFrame: (msg) => {
+      this.lastSeq = msg.seq
+      this.epoch = msg.epoch
+      this.emit()
+      this.cb.onFrame?.(fromBase64Utf8(msg.data))
+    },
+    controllerChanged: (msg) => {
+      this.controllerId = msg.controllerId
+      this.cols = msg.geometry.cols
+      this.rows = msg.geometry.rows
+      this.emit()
+    },
+    geometry: (msg) => {
+      this.cols = msg.cols
+      this.rows = msg.rows
+      this.emit()
+    },
+    agentExit: () => {
+      this.emit()
+    },
+  })
 
   /** @internal Hub-internal: connection/clientId changed → recompute role. */
   _notifyHubChange(): void {
