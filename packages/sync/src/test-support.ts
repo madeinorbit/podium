@@ -1,4 +1,4 @@
-import { openDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -12,6 +12,13 @@ import { SyncRepository } from './sync-repository'
  * sync tables' shape ever changes.
  */
 export function createTestSyncRepository(): SyncRepository {
+  return new SyncRepository(createTestSyncDatabase())
+}
+
+/** The bare in-memory DB behind {@link createTestSyncRepository}, for tests
+ *  that need the handle itself (e.g. the Ledger's transact-atomicity suite,
+ *  which wraps entity writes and the change append in one transaction). */
+export function createTestSyncDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec(
     `CREATE TABLE changes (
@@ -51,5 +58,5 @@ export function createTestSyncRepository(): SyncRepository {
        attempts    INTEGER NOT NULL DEFAULT 0
      )`,
   )
-  return new SyncRepository(db)
+  return db
 }

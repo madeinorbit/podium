@@ -6,6 +6,7 @@
  * @podium/runtime — never apps/*; apps/server injects its store repositories
  * through the narrow interfaces each class declares.
  */
+export * from './ledger'
 export * from './mirror'
 export * from './oplog'
 export * from './sync-repository'
