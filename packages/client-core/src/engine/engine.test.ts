@@ -9,11 +9,11 @@
  * no DOM, no network.
  */
 
-import type { GitRepositoryWire, HostMetricsWire } from '@podium/protocol'
+import type { GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import { createReplica, memoryStorage } from '../replica/replica'
+import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { RouterWindow } from '../router'
 import { createEngine } from './engine'
 
@@ -71,6 +71,26 @@ const KNOWN_REPO = {
   branch: 'main',
   worktrees: [],
 } as unknown as GitRepositoryWire
+
+function session(id: string, cwd: string): SessionMeta {
+  return {
+    sessionId: id,
+    agentKind: 'claude-code',
+    title: id,
+    cwd,
+    status: 'live',
+    controllerId: 'c0',
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 1,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    lastActiveAt: '2026-07-01T00:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+    readAt: null,
+    unread: false,
+  } as unknown as SessionMeta
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: test fixture — shaped per-test, cast once at the boundary
 function makeApi(): any {
@@ -169,7 +189,9 @@ function makeRouterWindow(initialUrl: string): {
   }
 }
 
-function makeEngine(opts: { url?: string; api?: unknown; hub?: FakeHub } = {}) {
+function makeEngine(
+  opts: { url?: string; api?: unknown; hub?: FakeHub; storage?: StorageApi } = {},
+) {
   const hub = opts.hub ?? new FakeHub()
   const rw = makeRouterWindow(opts.url ?? '/')
   const fatals: string[] = []
@@ -177,7 +199,7 @@ function makeEngine(opts: { url?: string; api?: unknown; hub?: FakeHub } = {}) {
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
-    createReplicaFn: () => createReplica({ storage: memoryStorage() }),
+    createReplicaFn: () => createReplica({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
   })
@@ -291,6 +313,51 @@ describe('snapshot stability (useSyncExternalStore contract)', () => {
     // Action identities are stable across snapshots.
     expect(b.setSessionDraft).toBe(a.setSessionDraft)
     expect(b.markSessionRead).toBe(a.markSessionRead)
+    engine.dispose()
+  })
+})
+
+describe('replica snapshot coalescing (#262 review)', () => {
+  it('a snapshot replacing the sole session anchoring an unregistered worktree keeps the selection with zero URL writes', async () => {
+    const { engine, rw, fatals } = makeEngine({ url: '/workspace' })
+    engine.start()
+    await settle(40) // repos loaded → fallback selected /tmp/known-repo
+    // A session anchors an UNREGISTERED worktree; the user selects it.
+    engine.replica.applyChanges('sessions', [session('s1', '/x/unregistered')], [])
+    engine.getSnapshot().setSelectedWorktree('/x/unregistered')
+    await settle()
+    expect(engine.getSnapshot().selectedWorktree).toBe('/x/unregistered')
+    expect(rw.url()).toContain('wt=%2Fx%2Funregistered')
+    const writesBefore = rw.writes.length
+    // ONE metadata snapshot replaces s1 with s2 in the same worktree. The
+    // replica applies this as separate delete + upsert transactions; the
+    // engine's reactions must only observe the FINAL state — the transient
+    // empty list used to trip the worktree fallback (selection yanked to
+    // /tmp/known-repo) plus a URL rewrite the upsert couldn't undo.
+    engine.replica.applySnapshot('sessions', [session('s2', '/x/unregistered')])
+    await settle()
+    const snap = engine.getSnapshot()
+    expect(snap.sessions.map((s) => s.sessionId)).toEqual(['s2'])
+    expect(snap.selectedWorktree).toBe('/x/unregistered')
+    expect(rw.writes.length).toBe(writesBefore) // zero URL writes
+    expect(fatals).toEqual([])
+    engine.dispose()
+  })
+})
+
+describe('constructor snapshot seeding (#262 review)', () => {
+  it('first getSnapshot() already carries the replica rows, before start()', async () => {
+    // A previous app session persisted rows into (shared, memory-backed) storage.
+    const storage = memoryStorage()
+    const previous = createReplica({ storage })
+    previous.applySnapshot('sessions', [session('s-seeded', '/w')])
+    await settle()
+    // Constructing the engine over a replica on that storage must expose the
+    // rows in the VERY FIRST snapshot — no start(), no microtask (the old
+    // useReplicaRows path had them at first render; mobile flashed "not found"
+    // when they only arrived via start()).
+    const { engine } = makeEngine({ storage })
+    expect(engine.getSnapshot().sessions.map((s) => s.sessionId)).toEqual(['s-seeded'])
     engine.dispose()
   })
 })

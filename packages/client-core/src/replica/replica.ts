@@ -99,8 +99,18 @@ export interface Replica {
   rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][]
   /** Non-React change seam (#262): fires on any change to `kind`'s collection
    *  (including cross-tab storage events) — the engine re-reads `rows()` then.
+   *  Notifications are COALESCED per application (#262 review): applySnapshot /
+   *  applyChanges each run their delete+upsert transactions as one unit, so a
+   *  listener never observes the transient half-applied list between them.
    *  Returns the unsubscribe function. Never throws. */
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void
+  /** Coalesce `subscribeRows` notifications across every write issued inside
+   *  `fn` (#262 review, nestable): listeners fire at most once per touched kind,
+   *  AFTER the outermost batch completed — i.e. against the FINAL state. Used by
+   *  the hub wiring to make a whole metadata application (bootstrap snapshot,
+   *  heal snapshot, live delta — three kinds) atomic from the engine reactions'
+   *  viewpoint. applySnapshot / applyChanges / hydrate already batch internally. */
+  batch<T>(fn: () => T): T
   /** P6b outbox consolidation: an `OutboxStorage` backed by a replica collection
    *  (`<prefix>.outbox.v1`), so the offline queue shares the ONE persistence
    *  layer and gets cross-tab consistency from the lib's `storage` events. The
@@ -270,6 +280,15 @@ class TanstackReplica implements Replica {
   /** Settles when every entity write issued so far has persisted — the fence
    *  `setCursor` waits behind (spec invariant 3). */
   private lastWrite: Promise<unknown> = Promise.resolve()
+  // ---- coalesced row notifications (#262 review) ----
+  /** subscribeRows listeners per kind; ONE underlying collection subscription
+   *  per kind relays through the batch gate (notifyRows). Entries are wrapper
+   *  objects so the same callback can be subscribed twice independently. */
+  private readonly rowListeners = new Map<ReplicaKind, Set<{ cb: () => void }>>()
+  private readonly rowRelaysArmed = new Set<ReplicaKind>()
+  /** > 0 while inside batch()/an internal batch — notifications defer + dedupe. */
+  private batchDepth = 0
+  private readonly pendingRowNotify = new Set<ReplicaKind>()
 
   constructor(init: ReplicaInit = {}) {
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
@@ -341,6 +360,11 @@ class TanstackReplica implements Replica {
       conversations: [],
       cursor: null,
     }
+    // Hold the notification batch across the preload (#262 review): a
+    // collection load emits per-collection change events; coalescing them means
+    // subscribers see hydrate as at most ONE notification per kind, against the
+    // fully loaded state.
+    this.batchDepth++
     try {
       await Promise.all(Object.values(this.cols).map((c) => c.preload()))
       return {
@@ -354,19 +378,28 @@ class TanstackReplica implements Replica {
       console.warn('[podium] replica hydrate failed — clearing and cold-starting', err)
       this.clearAll()
       return empty
+    } finally {
+      this.batchDepth--
+      if (this.batchDepth === 0) this.flushRowNotify()
     }
   }
 
   applySnapshot<K extends ReplicaKind>(kind: K, rows: ReplicaRows[K][]): void {
     try {
-      const col = this.cols[kind]
-      const keyOf = this.keyFor(kind)
-      const next = new Set(rows.map((r) => keyOf(r)))
-      const stale = (col.toArray as ReplicaRows[K][])
-        .map((r) => keyOf(r))
-        .filter((k) => !next.has(k))
-      if (stale.length > 0) this.track(col.delete(stale))
-      this.upsertRows(kind, rows)
+      // One notification for the whole snapshot (#262 review): the stale-delete
+      // and the upsert are SEPARATE storage transactions, and a listener that
+      // reacted between them would observe a transient empty/partial list (the
+      // engine's worktree-fallback + URL mirror fired on exactly that).
+      this.batch(() => {
+        const col = this.cols[kind]
+        const keyOf = this.keyFor(kind)
+        const next = new Set(rows.map((r) => keyOf(r)))
+        const stale = (col.toArray as ReplicaRows[K][])
+          .map((r) => keyOf(r))
+          .filter((k) => !next.has(k))
+        if (stale.length > 0) this.track(col.delete(stale))
+        this.upsertRows(kind, rows)
+      })
     } catch (err) {
       console.warn(`[podium] replica applySnapshot(${kind}) failed`, err)
     }
@@ -378,12 +411,25 @@ class TanstackReplica implements Replica {
     removeIds: string[],
   ): void {
     try {
-      const col = this.cols[kind]
-      const present = removeIds.filter((id) => col.has(id))
-      if (present.length > 0) this.track(col.delete(present))
-      this.upsertRows(kind, upserts)
+      // Same coalescing as applySnapshot: remove + upsert notify once.
+      this.batch(() => {
+        const col = this.cols[kind]
+        const present = removeIds.filter((id) => col.has(id))
+        if (present.length > 0) this.track(col.delete(present))
+        this.upsertRows(kind, upserts)
+      })
     } catch (err) {
       console.warn(`[podium] replica applyChanges(${kind}) failed`, err)
+    }
+  }
+
+  batch<T>(fn: () => T): T {
+    this.batchDepth++
+    try {
+      return fn()
+    } finally {
+      this.batchDepth--
+      if (this.batchDepth === 0) this.flushRowNotify()
     }
   }
 
@@ -479,11 +525,52 @@ class TanstackReplica implements Replica {
 
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void {
     try {
-      const sub = this.cols[kind].subscribeChanges(() => cb())
-      return () => sub.unsubscribe()
+      let set = this.rowListeners.get(kind)
+      if (!set) {
+        set = new Set()
+        this.rowListeners.set(kind, set)
+      }
+      if (!this.rowRelaysArmed.has(kind)) {
+        // ONE underlying subscription per kind, kept for the replica's lifetime
+        // (the constructor already pins each collection's sync the same way);
+        // every change funnels through the batch gate so notifications coalesce.
+        this.cols[kind].subscribeChanges(() => this.notifyRows(kind))
+        this.rowRelaysArmed.add(kind)
+      }
+      const entry = { cb }
+      set.add(entry)
+      return () => set.delete(entry)
     } catch {
       return () => {}
     }
+  }
+
+  /** Fire (or, inside a batch, defer + dedupe) `kind`'s row listeners. */
+  private notifyRows(kind: ReplicaKind): void {
+    if (this.batchDepth > 0) {
+      this.pendingRowNotify.add(kind)
+      return
+    }
+    const set = this.rowListeners.get(kind)
+    if (!set || set.size === 0) return
+    // Copy before iterating: a listener may unsubscribe (or subscribe) others.
+    for (const entry of [...set]) {
+      try {
+        entry.cb()
+      } catch {
+        // a listener must never break the write path
+      }
+    }
+  }
+
+  /** Deliver the notifications deferred during a batch — once per kind, against
+   *  the final state. A listener may write again (nested batch); that converges
+   *  because re-entrant notifications re-defer and re-flush. */
+  private flushRowNotify(): void {
+    if (this.pendingRowNotify.size === 0) return
+    const pending = [...this.pendingRowNotify]
+    this.pendingRowNotify.clear()
+    for (const kind of pending) this.notifyRows(kind)
   }
 
   outboxStorage(): OutboxStorage {

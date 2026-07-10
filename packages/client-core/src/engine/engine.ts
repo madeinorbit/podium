@@ -224,14 +224,30 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.router = createRouter({ fallbackView: readStoredView(this.ui), win: init.routerWindow })
     const route = this.router.current()
     this.prevRoute = route
+    // Hydrate-first FIRST snapshot (#262 review): the replica's collections
+    // load synchronous storage at construction, so seed the entity slices from
+    // them BEFORE any subscriber reads — the old useReplicaRows path exposed
+    // persisted rows at the very first render, and an empty initial snapshot
+    // regressed that into "not found" flashes until start() (a passive effect)
+    // ran. start() stays network/subscription arming only. (The async
+    // `hydrate()` in start() still covers storages that load asynchronously.)
+    const seedSessions = this.replica.rows('sessions')
+    this.rawSessionRows = seedSessions
+    this.baseSessions =
+      seedSessions.length === 0 ? seedSessions : dedupeSessionsByResume(seedSessions)
+    this.baseIssues = this.replica.rows('issues')
+    // Baseline for the worktree-follow diff: the seeded rows are "first sight",
+    // not moves (matches the old effect's first observed sessions snapshot).
+    this.prevCwds = Object.fromEntries(this.baseSessions.map((s) => [s.sessionId, s.cwd]))
     this.state = {
       repos: [],
       reposLoading: false,
       reposLoaded: false,
       repoDiagnostics: [],
-      sessions: [],
-      issues: [],
-      conversations: [],
+      // No optimistic overlay exists at construction — merged = base.
+      sessions: this.baseSessions,
+      issues: this.baseIssues,
+      conversations: this.replica.rows('conversations'),
       pendingSpawnIds: EMPTY_STRING_SET,
       hostMetrics: [],
       machines: [],

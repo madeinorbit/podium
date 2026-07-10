@@ -56,10 +56,18 @@ export function createEngineHub(args: {
     initialCursor: replica.getCursor(),
     // Persist-after-apply: mirror every applied metadata batch into the
     // replica, entities first, cursor after (replica upholds the ordering).
+    // The batch (#262 review) makes the whole application — bootstrap snapshot,
+    // heal snapshot, or live delta, across all three kinds — atomic from the
+    // engine reactions' viewpoint: row subscribers fire once per kind against
+    // the FINAL state, never against the transient list between applySnapshot's
+    // delete and upsert transactions (which used to trip the worktree fallback
+    // + a spurious URL rewrite).
     onMetadataApplied: (state) => {
-      replica.applySnapshot('sessions', state.sessions)
-      replica.applySnapshot('issues', state.issues)
-      replica.applySnapshot('conversations', state.conversations)
+      replica.batch(() => {
+        replica.applySnapshot('sessions', state.sessions)
+        replica.applySnapshot('issues', state.issues)
+        replica.applySnapshot('conversations', state.conversations)
+      })
       replica.setCursor(state.cursor)
     },
   })
