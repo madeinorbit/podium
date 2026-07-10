@@ -6,13 +6,16 @@ import {
   type HeadlessActivityEvent,
   type HostMetricsWire,
   type IssueWire,
+  isKnownMetadataChange,
   type MachineWire,
   type MetadataChange,
-  type MetadataDeltaMessage,
+  type MetadataChangeLenient,
+  type MetadataDeltaMessageLenient,
   parseServerMessageLenient,
   type ServerMessage,
+  type ServerMessageLenient,
   type SessionMeta,
-  type SyncChangesSinceResult,
+  type SyncChangesSinceResultLenient,
   type TranscriptItem,
 } from '@podium/protocol'
 
@@ -75,7 +78,7 @@ export interface SocketHubOptions {
    * healing every (re)connect and any detected seq gap through this callback.
    * Omitted (tests, embedders): legacy snapshot behavior, byte-for-byte unchanged.
    */
-  fetchChangesSince?: (cursor: number | null) => Promise<SyncChangesSinceResult>
+  fetchChangesSince?: (cursor: number | null) => Promise<SyncChangesSinceResultLenient>
   /**
    * Resume-across-reloads (docs/spec/thin-client-replica.md §2.2): the cursor a
    * persisted local replica left off at. When set, the FIRST metadata heal after
@@ -237,7 +240,7 @@ export class SocketHub {
    *  the live `metadataCursor` (or null → snapshot) is always the truth. */
   private initialCursorSpent = false
   /** Deltas that arrived while a heal/bootstrap was in flight — replayed after. */
-  private pendingDeltas: MetadataDeltaMessage[] = []
+  private pendingDeltas: MetadataDeltaMessageLenient[] = []
   private healInFlight = false
   private healRetryTimer: ReturnType<typeof setTimeout> | undefined
   private intentionalClose = false
@@ -846,7 +849,7 @@ export class SocketHub {
   }
 
   private route(raw: string): void {
-    let msg: ServerMessage | null
+    let msg: ServerMessageLenient | null
     try {
       // Lenient parse: for the collection-bearing messages, one poisoned element
       // (e.g. a session with an out-of-enum agentKind) is quarantined instead of
@@ -881,7 +884,7 @@ export class SocketHub {
    * message type to the protocol breaks compilation HERE until it is handled —
    * the hand-written if-ladder this replaces could silently ignore one.
    */
-  private readonly dispatchServerMessage = createDispatcher<ServerMessage>({
+  private readonly dispatchServerMessage = createDispatcher<ServerMessageLenient>({
     pong: () => {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.
@@ -980,7 +983,7 @@ export class SocketHub {
 
   /** Live `metadataDelta` intake. Queued while a heal is in flight (the heal's
    *  cursor decides what still applies); a seq gap aborts into a heal. */
-  private ingestDelta(msg: MetadataDeltaMessage): void {
+  private ingestDelta(msg: MetadataDeltaMessageLenient): void {
     if (this.healInFlight || this.metadataCursor == null) {
       this.pendingDeltas.push(msg)
       // No cursor yet and no heal running (changesSince rejected and is waiting on
@@ -1010,33 +1013,53 @@ export class SocketHub {
    * cursor + 1) — the caller must heal. Changes at or below the cursor are skipped
    * (a heal may have already covered them); upserts are idempotent by id.
    */
-  private applyDelta(msg: MetadataDeltaMessage): boolean {
+  private applyDelta(msg: MetadataDeltaMessageLenient): boolean {
     const cursor = this.metadataCursor as number
     if (msg.seq <= cursor) return true // entirely stale — already healed past it
     const fresh = msg.changes.filter((c) => c.seq > cursor)
     if (fresh.length === 0) return true
-    if ((fresh[0] as MetadataChange).seq !== cursor + 1) return false
+    if ((fresh[0] as MetadataChangeLenient).seq !== cursor + 1) return false
     this.applyChanges(fresh)
     this.metadataCursor = msg.seq
     return true
   }
 
-  /** Fold wire changes into the entity lists and notify only touched observers. */
-  private applyChanges(changes: MetadataChange[]): void {
+  /** Fold wire changes into the entity lists and notify only touched observers.
+   *  Exhaustive over the KNOWN entity kinds; an unknown kind (a NEWER server,
+   *  [spec:SP-3fe2] #258) is ignored with a debug log — the old else-branch
+   *  folded anything unrecognised into the conversation list, silently
+   *  corrupting it. The cursor still advances past ignored rows (the caller
+   *  advances by msg.seq/result.cursor), so this is NOT a gap and must not heal. */
+  private applyChanges(changes: MetadataChangeLenient[]): void {
     const touched = new Set<MetadataChange['entity']>()
     for (const c of changes) {
+      if (!isKnownMetadataChange(c)) {
+        console.debug(`[podium] ignoring metadata change with unknown entity kind '${c.entity}'`)
+        continue
+      }
       touched.add(c.entity)
-      if (c.entity === 'session') {
-        this.sessionList = applyChange(this.sessionList, c.op, c.value, (s) => s.sessionId === c.id)
-      } else if (c.entity === 'issue') {
-        this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
-      } else {
-        this.conversationList = applyChange(
-          this.conversationList,
-          c.op,
-          c.value,
-          (x) => x.id === c.id,
-        )
+      switch (c.entity) {
+        case 'session':
+          this.sessionList = applyChange(
+            this.sessionList,
+            c.op,
+            c.value,
+            (s) => s.sessionId === c.id,
+          )
+          break
+        case 'issue':
+          this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
+          break
+        case 'conversation':
+          this.conversationList = applyChange(
+            this.conversationList,
+            c.op,
+            c.value,
+            (x) => x.id === c.id,
+          )
+          break
+        default:
+          c satisfies never
       }
     }
     if (touched.has('session')) this.emit('sessions', this.sessionList)
@@ -1082,7 +1105,7 @@ export class SocketHub {
         this.metadataCursor = result.cursor
         const queued = this.pendingDeltas.splice(0)
         for (let i = 0; i < queued.length; i++) {
-          if (!this.applyDelta(queued[i] as MetadataDeltaMessage)) {
+          if (!this.applyDelta(queued[i] as MetadataDeltaMessageLenient)) {
             // Still gapped (changes raced past between the fetch and now): requeue
             // the rest and go around again. The re-entered heal emits the persist
             // hook once it settles — no intermediate emit for the torn state.

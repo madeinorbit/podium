@@ -8,6 +8,7 @@ import {
   type DaemonMessage,
   encode,
   GitRepositoryWire,
+  isKnownMetadataChange,
   MachineWire,
   parseClientMessage,
   parseControlMessage,
@@ -323,6 +324,45 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 
   it('throws on a structurally malformed frame (not a quarantine case)', () => {
     expect(() => parseServerMessageLenient('{not json')).toThrow()
+  })
+
+  // Kind-tolerance ([spec:SP-3fe2] #258): a NEWER server may stream metadata
+  // changes for entity kinds this build doesn't know. Those rows must PASS the
+  // lenient parse (consumers ignore them but advance the cursor past them — a
+  // strict parse would quarantine → heal → same rows → heal-loop forever),
+  // while a KNOWN kind with an invalid value keeps being quarantined.
+  it('passes an UNKNOWN entity kind through a metadataDelta (kind-tolerant)', () => {
+    const raw = JSON.stringify({
+      type: 'metadataDelta',
+      seq: 2,
+      changes: [
+        { seq: 1, entity: 'session', id: 's1', op: 'remove' },
+        { seq: 2, entity: 'machine', id: 'm1', op: 'upsert', value: { os: 'linux' } },
+      ],
+    })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(0)
+    expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.entity)).toEqual([
+      'session',
+      'machine',
+    ])
+    if (message?.type === 'metadataDelta') {
+      expect(message.changes.map((c) => isKnownMetadataChange(c))).toEqual([true, false])
+    }
+  })
+
+  it('still quarantines a KNOWN kind with an invalid value — never through the catch-all', () => {
+    const raw = JSON.stringify({
+      type: 'metadataDelta',
+      seq: 2,
+      changes: [
+        { seq: 1, entity: 'session', id: 's1', op: 'remove' },
+        { seq: 2, entity: 'session', id: 's2', op: 'upsert', value: { bogus: true } },
+      ],
+    })
+    const { message, dropped } = parseServerMessageLenient(raw)
+    expect(dropped).toBe(1)
+    expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.id)).toEqual(['s1'])
   })
 })
 
@@ -855,7 +895,11 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
   })
 
   it('round-trips headlessInterrupt and headlessBind', () => {
-    const interrupt: ControlMessage = { type: 'headlessInterrupt', requestId: 'hi1', sessionId: 's1' }
+    const interrupt: ControlMessage = {
+      type: 'headlessInterrupt',
+      requestId: 'hi1',
+      sessionId: 's1',
+    }
     expect(parseControlMessage(encode(interrupt))).toEqual(interrupt)
     const bind: ControlMessage = {
       type: 'headlessBind',

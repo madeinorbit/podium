@@ -1,4 +1,8 @@
-import type { IssueWire, SyncChangesSinceResult } from '@podium/protocol'
+import type {
+  IssueWire,
+  SyncChangesSinceResult,
+  SyncChangesSinceResultLenient,
+} from '@podium/protocol'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from './connection'
@@ -80,7 +84,7 @@ const snapshot = (cursor: number, issues: IssueWire[] = []): SyncChangesSinceRes
 })
 
 function setup(
-  results: Array<SyncChangesSinceResult | Error>,
+  results: Array<SyncChangesSinceResultLenient | Error>,
   extra: Partial<ConstructorParameters<typeof SocketHub>[0]> = {},
 ) {
   const sock = new FakeSocket()
@@ -88,7 +92,7 @@ function setup(
   const fetchChangesSince = vi.fn((cursor: number | null) => {
     calls.push(cursor)
     const next = results.shift()
-    if (next === undefined) return new Promise<SyncChangesSinceResult>(() => {}) // hang
+    if (next === undefined) return new Promise<SyncChangesSinceResultLenient>(() => {}) // hang
     return next instanceof Error ? Promise.reject(next) : Promise.resolve(next)
   })
   const hub = new SocketHub({
@@ -210,15 +214,16 @@ describe('SocketHub metadata delta mode', () => {
     hub.connect()
     sock.open()
     await flush()
-    // Raw frame with one poisoned change row (bad entity) — the lenient parser
-    // drops it, which for a delta stream is an invisible hole -> heal, not apply.
+    // Raw frame with one poisoned change row (a KNOWN kind whose value fails
+    // its schema) — the lenient parser drops it, which for a delta stream is
+    // an invisible hole -> heal, not apply.
     sock.onmessage?.({
       data: JSON.stringify({
         type: 'metadataDelta',
         seq: 7,
         changes: [
           { seq: 6, entity: 'issue', id: 'ok', op: 'upsert', value: issue('ok', 'fine') },
-          { seq: 7, entity: 'nope', id: 'bad', op: 'upsert', value: {} },
+          { seq: 7, entity: 'issue', id: 'bad', op: 'upsert', value: { not: 'an issue' } },
         ],
       }),
     })
@@ -226,6 +231,75 @@ describe('SocketHub metadata delta mode', () => {
     expect(calls).toEqual([null, 5])
     expect(hub.issues()).toEqual([]) // nothing applied from the poisoned batch
     warn.mockRestore()
+  })
+
+  it('applies known kinds, ignores an UNKNOWN entity kind, and advances the cursor without healing ([spec:SP-3fe2] #258)', async () => {
+    const { sock, hub, calls } = setup([snapshot(5)])
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(calls).toEqual([null])
+    // A NEWER server streams a batch with a kind this build doesn't know
+    // ('machine'). The known changes apply, the unknown row is ignored (never
+    // folded into the conversation list), and the cursor advances past it.
+    sock.onmessage?.({
+      data: JSON.stringify({
+        type: 'metadataDelta',
+        seq: 8,
+        changes: [
+          { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'known') },
+          { seq: 7, entity: 'machine', id: 'm1', op: 'upsert', value: { id: 'm1', os: 'linux' } },
+          { seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'also known') },
+        ],
+      }),
+    })
+    await flush()
+    expect(hub.issues().map((i) => i.title)).toEqual(['known', 'also known'])
+    expect(hub.conversations()).toEqual([]) // the unknown row corrupted nothing
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining("unknown entity kind 'machine'"))
+    // No heal loop: the cursor moved to 8, so the NEXT contiguous batch applies
+    // cleanly and changesSince was never re-fetched.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 9,
+      changes: [{ seq: 9, entity: 'issue', id: 'a', op: 'remove' }],
+    })
+    await flush()
+    expect(hub.issues().map((i) => i.title)).toEqual(['also known'])
+    expect(calls).toEqual([null]) // bootstrap only — never healed
+    debug.mockRestore()
+  })
+
+  it('a changesSince delta result carrying an unknown kind applies the known rows and lands on the result cursor', async () => {
+    const { sock, hub, calls } = setup(
+      [
+        {
+          kind: 'delta',
+          changes: [
+            { seq: 6, entity: 'issue', id: 'a', op: 'upsert', value: issue('a', 'known') },
+            { seq: 7, entity: 'settings', id: 's1', op: 'upsert', value: { theme: 'dark' } },
+          ],
+          cursor: 7,
+        },
+      ],
+      { initialCursor: 5 },
+    )
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(calls).toEqual([5])
+    expect(hub.issues().map((i) => i.title)).toEqual(['known'])
+    // Cursor landed on the result cursor (7): seq 8 is contiguous, no heal.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 8,
+      changes: [{ seq: 8, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'next') }],
+    })
+    expect(hub.issues().map((i) => i.title)).toEqual(['known', 'next'])
+    expect(calls).toEqual([5])
+    debug.mockRestore()
   })
 
   it('initialCursor drives the FIRST changesSince; later heals use the live cursor', async () => {

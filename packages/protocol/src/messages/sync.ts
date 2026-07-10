@@ -38,6 +38,41 @@ export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum(['session', 'issue', 'conversation'])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
+// ---- Kind-tolerant (lenient) consumer parsing ([spec:SP-3fe2] #258) ----
+// Forward-compat prep for future entity kinds ('machine', 'settings', …):
+// producers NEVER emit unknown kinds today — every SERVER-side schema stays
+// strict — but consumers parse the change stream LENIENTLY, so a NEWER server
+// can add a kind without quarantining OLDER clients. Under the strict
+// discriminatedUnion an unknown-kind row fails parse; a quarantined delta
+// element is an invisible cursor gap, so the client heals via changesSince —
+// which returns the same unknown rows and loops forever. The lenient union
+// lets those rows through with `value: unknown`; consumers apply the known
+// kinds, IGNORE the unknown ones (with a debug log), and advance the cursor.
+
+/** The catch-all arm: a change row whose entity kind this build doesn't know.
+ *  Known kinds are EXCLUDED — a known-kind row with an invalid value must
+ *  still fail parse (quarantine → heal), never sneak through the catch-all. */
+export const UnknownMetadataChange = z.object({
+  seq: z.number().int().positive(),
+  entity: z.string().refine((e) => !MetadataEntityKind.options.includes(e as MetadataEntityKind), {
+    message: 'known entity kinds must parse through the strict MetadataChange union',
+  }),
+  id: z.string(),
+  op: MetadataChangeOp,
+  value: z.unknown().optional(),
+})
+export type UnknownMetadataChange = z.infer<typeof UnknownMetadataChange>
+
+export const MetadataChangeLenient = z.union([MetadataChange, UnknownMetadataChange])
+export type MetadataChangeLenient = MetadataChange | UnknownMetadataChange
+
+/** Narrow a leniently parsed change to the known union. `false` means "a newer
+ *  server sent a kind this build doesn't know": ignore the row (NEVER fold it
+ *  into some other entity's list) but still advance the cursor past it. */
+export function isKnownMetadataChange(change: MetadataChangeLenient): change is MetadataChange {
+  return MetadataEntityKind.options.includes(change.entity as MetadataEntityKind)
+}
+
 // A batch of oplog changes, sent only to clients that sent `caps: ['metadataDelta']`
 // in their hello. Changes are in seq order; `seq` mirrors the LAST change's seq so a
 // client can advance its cursor without scanning. Gap rule: if the first change's
@@ -49,6 +84,16 @@ export const MetadataDeltaMessage = z.object({
   changes: z.array(MetadataChange),
 })
 export type MetadataDeltaMessage = z.infer<typeof MetadataDeltaMessage>
+
+/** {@link MetadataDeltaMessage} as CONSUMERS parse it (kind-tolerant — see the
+ *  lenient-parsing note above MetadataChangeLenient). Producers still emit and
+ *  validate the strict shape. */
+export const MetadataDeltaMessageLenient = z.object({
+  type: z.literal('metadataDelta'),
+  seq: z.number().int().positive(),
+  changes: z.array(MetadataChangeLenient),
+})
+export type MetadataDeltaMessageLenient = z.infer<typeof MetadataDeltaMessageLenient>
 
 // Result of the `sync.changesSince` catch-up query (defined here so the web app and
 // SocketHub share one type without importing server internals). `snapshot` is
@@ -71,3 +116,12 @@ export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
   }),
 ])
 export type SyncChangesSinceResult = z.infer<typeof SyncChangesSinceResult>
+
+/** {@link SyncChangesSinceResult} as CONSUMERS type it (kind-tolerant): the
+ *  delta arm's changes may contain unknown entity kinds from a newer server.
+ *  Type-only — the client transports (tRPC) don't zod-parse the result; this
+ *  keeps their application code honest about what can arrive. The strict
+ *  result is assignable to it, so producers/tests need no changes. */
+export type SyncChangesSinceResultLenient =
+  | { kind: 'delta'; changes: MetadataChangeLenient[]; cursor: number }
+  | Extract<SyncChangesSinceResult, { kind: 'snapshot' }>

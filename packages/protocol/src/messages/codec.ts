@@ -1,14 +1,18 @@
-import { z } from 'zod'
+import type { z } from 'zod'
 import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
-import { DaemonHandshake, DaemonHandshakeReply } from './daemon-handshake'
+import type { DaemonHandshake, DaemonHandshakeReply } from './daemon-handshake'
 import { ConversationSummaryWire } from './discovery'
 import { HostMetricsWire } from './host'
 import { IssueWire } from './issues'
-import { ServerMessage } from './server'
 import { SessionMeta } from './runtime-state'
-import { MetadataChange } from './sync'
+import { ServerMessage } from './server'
+import {
+  MetadataChangeLenient,
+  type MetadataDeltaMessage,
+  MetadataDeltaMessageLenient,
+} from './sync'
 
 // Codecs. parse* functions throw on malformed JSON (SyntaxError) or on a schema
 // mismatch (ZodError); callers handle both.
@@ -35,21 +39,28 @@ export function parseServerMessage(raw: string): ServerMessage {
   return ServerMessage.parse(JSON.parse(raw))
 }
 
-/** Server messages carrying a homogeneous array we can quarantine per-element. */
+/** Server messages carrying a homogeneous array we can quarantine per-element.
+ *  metadataDelta is special-cased in {@link parseServerMessageLenient}: its
+ *  elements parse through the kind-tolerant MetadataChangeLenient union AND
+ *  its envelope must not be re-validated by the strict ServerMessage schema. */
 const COLLECTION_MESSAGE_ELEMENTS: Record<string, { key: string; element: z.ZodTypeAny }> = {
   sessionsChanged: { key: 'sessions', element: SessionMeta },
   issuesChanged: { key: 'issues', element: IssueWire },
   conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
-  // One poisoned change row must not blank the stream — but unlike list messages,
-  // a DROPPED change is a cursor gap the client can't see, so the SocketHub treats
-  // any quarantined metadataDelta element as a gap and heals via changesSince.
-  metadataDelta: { key: 'changes', element: MetadataChange },
 }
+
+/** What {@link parseServerMessageLenient} yields: the strict union, except
+ *  metadataDelta, whose changes are kind-tolerant ([spec:SP-3fe2] #258 — a
+ *  NEWER server may stream entity kinds this build doesn't know; consumers
+ *  ignore those rows but must still see them to advance the cursor). */
+export type ServerMessageLenient =
+  | Exclude<ServerMessage, MetadataDeltaMessage>
+  | MetadataDeltaMessageLenient
 
 export interface LenientServerMessage {
   /** The parsed message, or null only if the structural envelope was invalid. */
-  message: ServerMessage | null
+  message: ServerMessageLenient | null
   /** How many array elements were quarantined (invalid) and dropped. */
   dropped: number
 }
@@ -67,6 +78,21 @@ export interface LenientServerMessage {
  */
 export function parseServerMessageLenient(raw: string): LenientServerMessage {
   const json = JSON.parse(raw) as Record<string, unknown>
+  if (json?.type === 'metadataDelta' && Array.isArray(json.changes)) {
+    // Kind-tolerant ([spec:SP-3fe2] #258): unknown entity kinds PASS (the
+    // consumer ignores the row but advances its cursor past it — a newer
+    // server must not heal-loop an older client), while a KNOWN kind with an
+    // invalid value is still quarantined. A quarantined change is a cursor gap
+    // the client can't see, so callers treat dropped>0 as a gap and heal.
+    const good: unknown[] = []
+    let dropped = 0
+    for (const el of json.changes) {
+      const r = MetadataChangeLenient.safeParse(el)
+      if (r.success) good.push(r.data)
+      else dropped++
+    }
+    return { message: MetadataDeltaMessageLenient.parse({ ...json, changes: good }), dropped }
+  }
   const spec = typeof json?.type === 'string' ? COLLECTION_MESSAGE_ELEMENTS[json.type] : undefined
   const arr = spec ? json[spec.key] : undefined
   if (spec && Array.isArray(arr)) {

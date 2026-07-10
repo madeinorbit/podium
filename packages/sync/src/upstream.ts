@@ -4,11 +4,13 @@ import {
   CAP_METADATA_DELTA,
   type ConversationSummaryWire,
   type IssueWire,
-  type MetadataDeltaMessage,
+  isKnownMetadataChange,
+  type MetadataChangeLenient,
+  type MetadataDeltaMessageLenient,
+  parseServerMessageLenient,
   SESSION_COOKIE,
-  ServerMessage,
   type SessionMeta,
-  type SyncChangesSinceResult,
+  type SyncChangesSinceResultLenient,
   WIRE_VERSION,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/local-machine'
@@ -159,7 +161,7 @@ export class UpstreamSync {
   private healing = false
   /** Live deltas that arrived while a changesSince heal was in flight — replayed
    *  in order after the heal lands (the cursor check drops what the heal covered). */
-  private pendingDeltas: MetadataDeltaMessage[] = []
+  private pendingDeltas: MetadataDeltaMessageLenient[] = []
   private reconnectDelay: number
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined
   private healRetryTimer: ReturnType<typeof setTimeout> | undefined
@@ -304,13 +306,26 @@ export class UpstreamSync {
   }
 
   private onFrame(raw: string): void {
-    let msg: ServerMessage
+    // Lenient parse ([spec:SP-3fe2] #258): a NEWER hub may stream entity kinds
+    // this node doesn't know — those rows pass through (applyChange ignores
+    // them, the cursor advances). A KNOWN kind with an invalid value is still
+    // quarantined; a quarantined delta element is an invisible cursor gap, so
+    // dropped>0 goes straight to a changesSince heal instead of applying a
+    // batch with a hole in it.
+    let msg: ReturnType<typeof parseServerMessageLenient>['message']
+    let dropped = 0
     try {
-      msg = ServerMessage.parse(JSON.parse(raw))
+      const result = parseServerMessageLenient(raw)
+      msg = result.message
+      dropped = result.dropped
     } catch {
       return // not for us / malformed — the hub also streams legacy snapshots pre-hello
     }
-    if (msg.type !== 'metadataDelta') return
+    if (msg?.type !== 'metadataDelta') return
+    if (dropped > 0) {
+      void this.heal()
+      return
+    }
     if (this.healing) {
       this.pendingDeltas.push(msg)
       return
@@ -319,7 +334,7 @@ export class UpstreamSync {
   }
 
   /** Apply a live delta batch; a gap (missed seq) falls back to a changesSince heal. */
-  private applyDelta(msg: MetadataDeltaMessage): void {
+  private applyDelta(msg: MetadataDeltaMessageLenient): void {
     for (const change of msg.changes) {
       if (this.cursor !== null && change.seq <= this.cursor) continue // already applied
       if (this.cursor !== null && change.seq !== this.cursor + 1) {
@@ -338,20 +353,35 @@ export class UpstreamSync {
     this.push()
   }
 
-  private applyChange(change: MetadataDeltaMessage['changes'][number]): void {
-    const map =
-      change.entity === 'session'
-        ? this.sessions
-        : change.entity === 'conversation'
-          ? this.conversations
-          : this.issues
-    if (change.op === 'remove') {
-      map.delete(change.id)
+  /** Fold one change into its entity mirror. Exhaustive over the KNOWN kinds;
+   *  an unknown kind (a NEWER hub, [spec:SP-3fe2] #258) is ignored with a debug
+   *  log — the old else-branch folded anything unrecognised into the ISSUES
+   *  map, silently corrupting the mirror. The caller still advances the cursor
+   *  past ignored rows, so an unknown kind never wedges or heal-loops the node.
+   *  An upsert without a value is a producer error — drop-this-change
+   *  (protocol note). */
+  private applyChange(change: MetadataChangeLenient): void {
+    if (!isKnownMetadataChange(change)) {
+      console.debug(
+        `[upstream] ignoring metadata change with unknown entity kind '${change.entity}'`,
+      )
       return
     }
-    // Upsert without a value is producer error — treat as drop-this-change (protocol note).
-    if (change.value !== undefined) {
-      ;(map as Map<string, typeof change.value>).set(change.id, change.value)
+    switch (change.entity) {
+      case 'session':
+        if (change.op === 'remove') this.sessions.delete(change.id)
+        else if (change.value !== undefined) this.sessions.set(change.id, change.value)
+        break
+      case 'conversation':
+        if (change.op === 'remove') this.conversations.delete(change.id)
+        else if (change.value !== undefined) this.conversations.set(change.id, change.value)
+        break
+      case 'issue':
+        if (change.op === 'remove') this.issues.delete(change.id)
+        else if (change.value !== undefined) this.issues.set(change.id, change.value)
+        break
+      default:
+        change satisfies never
     }
   }
 
@@ -363,11 +393,14 @@ export class UpstreamSync {
   private async heal(): Promise<void> {
     if (this.healing || this.stopped) return
     this.healing = true
-    let res: SyncChangesSinceResult
+    // Kind-tolerant result type ([spec:SP-3fe2] #258): a newer hub's delta may
+    // carry unknown entity kinds — applyChange ignores them, the cursor still
+    // lands on res.cursor.
+    let res: SyncChangesSinceResultLenient
     try {
       res = (await this.trpc.sync.changesSince.query({
         cursor: this.cursor,
-      })) as SyncChangesSinceResult
+      })) as SyncChangesSinceResultLenient
     } catch (err) {
       this.logFailure(`upstream changesSince failed: ${(err as Error).message}`)
       this.healing = false
