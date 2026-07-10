@@ -1,6 +1,7 @@
 import type { MetadataChange, ServerMessage, SessionMeta } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { LOCAL_MACHINE_ID } from './local-machine'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -214,6 +215,166 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
     expect(change?.value?.name).toBe('changed offline')
+  })
+
+  it('(g) a reentrant ledger commit during oplog.appended cannot reorder the delta stream (#247)', () => {
+    const registry = makeRegistry()
+    const a = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })
+    const b = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w2' })
+    registry.modules.sessions.flushBroadcasts()
+    const delta = deltaClient(registry)
+    const before = delta.inbox.length
+    // A bus consumer that commits AGAIN while handling 'oplog.appended' — its
+    // batch carries a LATER seq than the one being announced. Bus-before-pipe
+    // delivered [N+1, N] and the client's cursor jumped past N without healing.
+    let reentered = false
+    registry.bus.on('oplog.appended', () => {
+      if (reentered) return
+      reentered = true
+      registry.modules.sessions.renameSession({ sessionId: b.sessionId, name: 'inner-commit' })
+    })
+    registry.modules.sessions.renameSession({ sessionId: a.sessionId, name: 'outer-commit' })
+    registry.modules.sessions.flushBroadcasts()
+    const seqs = batches(delta.inbox.slice(before))
+      .flatMap((m) => m.changes)
+      .map((c) => c.seq)
+    expect(seqs.length).toBeGreaterThanOrEqual(2)
+    // Strict append (= seq) order, gap-free — the client gap rule's invariant.
+    for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
+  })
+
+  it('(h) upstream mirror sets and staleness flips reach the durable log (reconcile-at-broadcast, #247)', () => {
+    const upstreamMeta: SessionMeta = {
+      sessionId: 'hub-s1',
+      agentKind: 'shell',
+      title: 'hub session',
+      cwd: '/hub/w',
+      status: 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      lastActiveAt: '2026-07-01T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+      readAt: null,
+      unread: true,
+      machineId: 'hub-m1',
+      machineName: 'hub',
+    }
+    const registry = makeRegistry()
+    const cursor = cursorOf(registry)
+    // Mirror set: the hub-fed rows never persist() — only the broadcast sees them.
+    registry.modules.sessions.setUpstreamSessions([upstreamMeta])
+    registry.modules.sessions.flushBroadcasts()
+    const afterSet = registry.modules.sessions.syncChangesSince(cursor)
+    expect(afterSet.kind).toBe('delta')
+    if (afterSet.kind !== 'delta') return
+    const setChange = afterSet.changes.find(
+      (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'upsert',
+    ) as { value?: SessionMeta } | undefined
+    expect(setChange?.value?.viaHub).toBe(true)
+    // Staleness flip: applied at read time, captured at broadcast time.
+    registry.modules.sessions.setUpstreamStale(true)
+    registry.modules.sessions.flushBroadcasts()
+    const afterStale = registry.modules.sessions.syncChangesSince(afterSet.cursor)
+    expect(afterStale.kind).toBe('delta')
+    if (afterStale.kind !== 'delta') return
+    const staleChange = afterStale.changes.find(
+      (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'upsert',
+    ) as { value?: SessionMeta } | undefined
+    expect(staleChange?.value?.upstreamStale).toBe(true)
+    // Mirror cleared: the reconcile's full-list remove-diff evicts the row.
+    registry.modules.sessions.setUpstreamSessions([])
+    registry.modules.sessions.flushBroadcasts()
+    const afterClear = registry.modules.sessions.syncChangesSince(afterStale.cursor)
+    expect(afterClear.kind).toBe('delta')
+    if (afterClear.kind !== 'delta') return
+    expect(
+      afterClear.changes.some(
+        (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'remove',
+      ),
+    ).toBe(true)
+  })
+
+  it('(i) startup adoption and a machine rename re-capture machineId/machineName (#247)', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    // ensureLocalMachine → adoptPlaceholderRows rewrites machineId in memory and
+    // in the store WITHOUT a persist(); its broadcast reconciles the flip in.
+    registry.modules.machines.ensureLocalMachine('adopting-host')
+    registry.modules.sessions.flushBroadcasts()
+    const afterAdopt = registry.modules.sessions.syncChangesSince(cursor)
+    expect(afterAdopt.kind).toBe('delta')
+    if (afterAdopt.kind !== 'delta') return
+    const adopted = afterAdopt.changes.find(
+      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
+    ) as { value?: SessionMeta } | undefined
+    expect(adopted?.value?.machineId).toBe(LOCAL_MACHINE_ID)
+    expect(adopted?.value?.machineName).toBe('adopting-host')
+    // Rename: machineName is stamped at wire time, no session row changes.
+    registry.modules.machines.renameMachine(LOCAL_MACHINE_ID, 'renamed-host')
+    registry.modules.sessions.flushBroadcasts()
+    const afterRename = registry.modules.sessions.syncChangesSince(afterAdopt.cursor)
+    expect(afterRename.kind).toBe('delta')
+    if (afterRename.kind !== 'delta') return
+    const renamed = afterRename.changes.find(
+      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
+    ) as { value?: SessionMeta } | undefined
+    expect(renamed?.value?.machineName).toBe('renamed-host')
+  })
+
+  it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    // Attaching the local daemon adopts the placeholder session onto LOCAL_MACHINE_ID.
+    registry.modules.sessions.attachDaemon(LOCAL_MACHINE_ID, () => {})
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    // The disconnect sweep flips live/starting → 'reconnecting' with NO persist;
+    // only the broadcast reconcile captures it.
+    registry.modules.sessions.detachDaemon(LOCAL_MACHINE_ID)
+    registry.modules.sessions.flushBroadcasts()
+    const healed = registry.modules.sessions.syncChangesSince(cursor)
+    expect(healed.kind).toBe('delta')
+    if (healed.kind !== 'delta') return
+    const flipped = healed.changes.find(
+      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
+    ) as { value?: SessionMeta } | undefined
+    expect(flipped?.value?.status).toBe('reconnecting')
+  })
+
+  it('(k) a failed change append on kill leaves the session fully live (#247)', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    const spy = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('append failed')
+    })
+    expect(() => registry.modules.sessions.killSession({ sessionId })).toThrow('append failed')
+    spy.mockRestore()
+    // Memory truth survived: the session is still listed; the store rolled the
+    // row delete back inside the same transact span.
+    expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
+      true,
+    )
+    expect(registry.sessionStore.sessions.loadSessions().some((r) => r.id === sessionId)).toBe(true)
+    // A subsequent broadcast reconcile appends NOTHING for the untouched entity.
+    registry.modules.sessions.broadcastSessions()
+    registry.modules.sessions.flushBroadcasts()
+    const healed = registry.modules.sessions.syncChangesSince(cursor)
+    expect(healed.kind).toBe('delta')
+    if (healed.kind !== 'delta') return
+    expect(healed.changes.filter((c) => c.entity === 'session')).toEqual([])
+    // And the kill still works once the append path recovers.
+    registry.modules.sessions.killSession({ sessionId })
+    expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
+      false,
+    )
   })
 
   it('replaying the whole durable log folds to the live session list', () => {

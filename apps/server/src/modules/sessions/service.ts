@@ -400,6 +400,12 @@ export class SessionsService {
     // No fan-out: there are no clients at boot. Conversations are deliberately
     // NOT reconciled at boot: they are daemon-fed, and an empty list at boot
     // means "not scanned yet", not "all gone".
+    // Boot ordering (#247): this runs BEFORE server.ts calls ensureLocalMachine,
+    // so placeholder rows reconcile here with machineId '__local__'. That stale
+    // baseline is unobservable and self-healing: adoption
+    // (ensureLocalMachine → adoptPlaceholderRows) triggers broadcastSessions,
+    // and runSessionsBroadcast reconciles the adopted union before its
+    // byte-skip — all before the server starts accepting connections.
     this.deps.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
@@ -1380,6 +1386,21 @@ export class SessionsService {
     const session = this.sessions.get(input.sessionId)
     // Capture before the row is deleted — the reap after cleanup needs it.
     const issueId = session?.issueId
+    // The remove change commits in the SAME transaction as the row delete (and
+    // the queued-send cleanup — a killed session can never deliver, so its rows
+    // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
+    // durable change log can never say something the sessions table doesn't.
+    // Durable delete FIRST, live teardown after (#247): a commit throw leaves
+    // the session fully alive — still in the map, clients attached, PTY not
+    // signalled — and propagates to the caller, instead of tearing down live
+    // state for a row the rolled-back transaction still holds.
+    this.deps.ledger.commit({
+      write: () => {
+        this.store.sessions.deleteSession(input.sessionId)
+        this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
+      },
+      changes: () => [{ entity: 'session', id: input.sessionId, op: 'remove' }],
+    })
     this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
       type: 'kill',
       sessionId: input.sessionId,
@@ -1390,24 +1411,14 @@ export class SessionsService {
     this.draftBySession.delete(input.sessionId)
     this.titleDebouncers.get(input.sessionId)?.dispose()
     this.titleDebouncers.delete(input.sessionId)
-    // Cancel any pending debounced draft write before deleteSession removes the
-    // row, so a late timer can't resurrect a draft for a now-dead session.
+    // Cancel any pending debounced draft write (deleteSession already removed the
+    // row in the commit above; this runs in the same synchronous span, so the
+    // timer cannot fire in between and resurrect a draft for a now-dead session).
     const draftTimer = this.draftWriteTimers.get(input.sessionId)
     if (draftTimer) {
       clearTimeout(draftTimer)
       this.draftWriteTimers.delete(input.sessionId)
     }
-    // The remove change commits in the SAME transaction as the row delete (and
-    // the queued-send cleanup — a killed session can never deliver, so its rows
-    // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
-    // durable change log can never say something the sessions table doesn't.
-    this.deps.ledger.commit({
-      write: () => {
-        this.store.sessions.deleteSession(input.sessionId)
-        this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
-      },
-      changes: () => [{ entity: 'session', id: input.sessionId, op: 'remove' }],
-    })
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty
@@ -2086,24 +2097,44 @@ export class SessionsService {
 
   private runSessionsBroadcast(): void {
     const sessions = this.listSessions()
+    // Reconcile-at-broadcast ([spec:SP-3fe2] #247, on top of the #256 write-seam
+    // commits): the ledger re-captures the EXACT union the snapshot below
+    // carries — local rows AND the hub-mirrored upstream list, built by the same
+    // wire function — so every state change that reaches a broadcast without a
+    // persist() lands in the durable log too. That restores the old
+    // broadcast-seam capture sites the write-seam migration dropped: upstream
+    // mirror sets + staleness flips (setUpstreamSessions/setUpstreamStale), the
+    // daemon-disconnect status:'reconnecting' flip, machine-rename machineName,
+    // and startup-adoption machineId. It deliberately RETIRES the previous
+    // clientCount/controllerId/epoch exclusion — it was leaky anyway (those
+    // fields ride every persist()'s full wire payload) — so attach/detach churn
+    // volume equals the old broadcast-seam oplog's (known-acceptable). The
+    // reconcile runs BEFORE the byte-skip: the skip compares against the last
+    // BROADCAST payload, not the ledger baseline, so it could otherwise
+    // suppress a union that the baseline has not captured yet (e.g. a change
+    // that reverted between broadcasts). reconcile() itself dedups no-ops, so
+    // the common case appends nothing.
+    this.deps.ledger.reconcile(
+      'session',
+      sessions.map((s) => ({ id: s.sessionId, value: s })),
+    )
     // Skip a byte-identical re-broadcast (audit P1-8) — every existing client already
     // holds this exact list, and a new client gets it via attachClient, so re-sending
     // it changes nothing and just burns CPU + bandwidth across all clients.
     const key = JSON.stringify(sessions)
     if (key === this.lastSessionsBroadcast) return
     this.lastSessionsBroadcast = key
-    // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas are
-    // committed at the write seam (persist/kill) and ride the funnel's ordered
-    // onAppended pipe — recording here again would double-append. Known
-    // staleness tradeoff for delta clients: wire fields that change WITHOUT a
-    // persist (clientCount/controllerId on attach/detach, and the hub-mirrored
-    // upstream list) refresh only with the next commit or reconnect snapshot —
-    // presentation-only state, deliberately kept out of the durable log.
+    // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
+    // captured above (write-seam commit or the reconcile) and ride the funnel's
+    // ordered onAppended pipe — recording here again would double-append.
     this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
     // Session changes also change issues' DERIVED member data (sessions/summary),
     // so keep issue clients live. The publisher builds the payload ONCE (allWire()
     // is O(issues × sessions)); sessionsChanged was already sent above, so even if
     // the issues build fails it can't take the session list down with it.
+    // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
+    // reconcile (publisher.publishIssueList), so the embedded copies heal at
+    // the same cadence as before — no extra mechanism needed (#247).
     this.deps.publishIssues()
   }
 
