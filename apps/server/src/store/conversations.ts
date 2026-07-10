@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ConversationIndexRow } from './types'
 
 export class ConversationsRepository {
@@ -130,8 +130,7 @@ export class ConversationsRepository {
     // list (potentially thousands) every ~15s, and a commit-per-row turned that
     // into thousands of WAL syncs on the synchronous main thread. The FTS index
     // stays current via triggers (see ensureFts), so no rebuild here.
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    transaction(this.db, () => {
       for (const r of rows) {
         stmt.run(
           r.id,
@@ -148,11 +147,7 @@ export class ConversationsRepository {
           r.parentConversationId ?? null,
         )
       }
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
   }
 
   /**
@@ -167,14 +162,9 @@ export class ConversationsRepository {
   deleteConversations(ids: string[]): void {
     if (ids.length === 0) return
     const stmt = this.db.prepare('DELETE FROM conversations WHERE id = ?')
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    transaction(this.db, () => {
       for (const id of ids) stmt.run(id)
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
   }
 
   /** Persist command-center-generated curation: a good name and/or a state summary. */
@@ -544,8 +534,7 @@ export class ConversationsRepository {
     const insert = this.db.prepare(
       'INSERT INTO transcript_fts (content, machine_id, native_id, item_uuid, ts) VALUES (?, ?, ?, ?, ?)',
     )
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    transaction(this.db, () => {
       for (const r of rows) {
         insert.run(r.content, machineId, nativeId, r.itemUuid ?? null, r.ts ?? null)
       }
@@ -554,11 +543,7 @@ export class ConversationsRepository {
           'UPDATE conversation_segments SET indexed_bytes = ? WHERE machine_id = ? AND native_id = ?',
         )
         .run(indexedBytes, machineId, nativeId)
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
   }
 
   /** One segment's indexed rows in insertion (= transcript) order — a diagnostic /

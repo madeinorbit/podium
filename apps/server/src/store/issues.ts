@@ -7,8 +7,8 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { IssueStage } from '@podium/protocol'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray } from './helpers'
 import type { IssueCommentRow, IssueMessageRow, IssueRow } from './types'
 
@@ -313,14 +313,9 @@ export class IssuesRepository {
     }
     if (updates.length === 0) return 0
     const stmt = this.db.prepare('UPDATE issues SET seq = ? WHERE id = ?')
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    transaction(this.db, () => {
       for (const u of updates) stmt.run(u.seq, u.id)
-      this.db.exec('COMMIT')
-    } catch (e) {
-      this.db.exec('ROLLBACK')
-      throw e
-    }
+    })
     return updates.length
   }
 

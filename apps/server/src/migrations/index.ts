@@ -114,6 +114,13 @@ export function runMigrations(db: SqlDatabase, migrations: Migration[] = MIGRATI
   )
   for (const m of migrations) {
     if (m.version <= current) continue
+    // Deliberately hand-rolled, NOT @podium/runtime/sqlite `transaction()`
+    // [spec:SP-3fe2]: each migration must be its own top-level BEGIN IMMEDIATE
+    // with the version stamp committing atomically alongside the schema change.
+    // The nesting-safe helper would degrade this to a SAVEPOINT if a caller ever
+    // wrapped runMigrations in a transaction — then a later migration's failure
+    // could roll back earlier already-stamped migrations, breaking the
+    // one-transaction-per-migration ordering guarantee.
     db.exec('BEGIN IMMEDIATE')
     try {
       m.up(db)

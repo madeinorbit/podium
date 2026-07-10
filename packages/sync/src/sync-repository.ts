@@ -6,7 +6,7 @@
  * (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 
 export class SyncRepository {
   constructor(private readonly db: SqlDatabase) {}
@@ -27,17 +27,12 @@ export class SyncRepository {
       'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
     )
     const seqs: number[] = []
-    this.db.exec('BEGIN IMMEDIATE')
-    try {
+    transaction(this.db, () => {
       for (const r of rows) {
         insert.run(r.entity, r.entityId, r.op, r.payload, eventTime)
         seqs.push(this.lastInsertSeq())
       }
-      this.db.exec('COMMIT')
-    } catch (err) {
-      this.db.exec('ROLLBACK')
-      throw err
-    }
+    })
     return seqs
   }
 
