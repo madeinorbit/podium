@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const read = (rel: string) =>
-  readFileSync(fileURLToPath(new URL('../src/' + rel, import.meta.url)), 'utf8')
+  readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8')
 
 // The store provider implementation moved to @podium/client-core (arch-v2 P3,
 // issue #192) and then dissolved into the non-React engine (P5b, issue #262).
