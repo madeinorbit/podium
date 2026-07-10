@@ -5,9 +5,9 @@
  *
  *  - SocketHub lifecycle + subscription wiring (via the P5a `on()` seam),
  *  - replica hydration + hydrate-first paint (seedMetadata),
- *  - the outbox (durable offline writes) + drain-on-reconnect,
- *  - the optimistic overlays (spawn rows, replica patches) — three mechanisms
- *    kept AS-IS for #263 to collapse,
+ *  - the outbox (durable offline writes) + drain-on-reconnect — whose pending
+ *    entries double as THE optimistic overlay (#263, see overlay.ts: replica =
+ *    server truth only, snapshots fold rows + pending mutations' patches),
  *  - the router, as the SINGLE URL writer (see mirrorUrl),
  *  - view-state reporting + the worktree-follow policy,
  *  - every imperative store action (the old trpc.* closures, verbatim).
@@ -34,7 +34,7 @@ import type {
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
-import type { Outbox } from '../outbox'
+import type { Outbox, OutboxEntry } from '../outbox'
 import { createReplica, type Replica, type UiState } from '../replica/replica'
 import {
   createRouter,
@@ -52,7 +52,6 @@ import {
   EMPTY_PINS,
   type FileScope,
   type FileTab,
-  mergeOptimistic,
   optimisticDraftIssue,
   optimisticStartingSession,
   type PinKind,
@@ -62,6 +61,16 @@ import {
   reposToViews,
   tabIdFor,
 } from '../viewmodels'
+import {
+  type AwaitingTruth,
+  EMPTY_ID_SET,
+  foldOverlays,
+  insertOverlay,
+  type OverlayEntity,
+  overlayForOutboxEntry,
+  type PendingOverlay,
+  pruneAwaiting,
+} from './overlay'
 import {
   DOCK_TAB_KEY,
   ISSUE_SEL_KEY,
@@ -89,9 +98,6 @@ import { type CreateHub, createEngineHub, createEngineOutbox, type OutboxKinds }
  *  enough that a streaming session settles first (so we mark read once, not on
  *  every frame), short enough that a glance clears the nag promptly. */
 export const MARK_READ_ON_VIEW_MS = 1200
-
-/** Stable empty set so `pendingSpawnIds` keeps identity when nothing is pending. */
-const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 
 const tabIsVisible = (): boolean =>
   typeof document === 'undefined' || document.visibilityState === 'visible'
@@ -171,15 +177,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly statics: Omit<Store<TApi>, keyof EngineState>
 
   // ---- internal (non-snapshot) state ----
-  /** Raw replica rows (pre-dedupe) — the optimistic patch seam reads these. */
-  private rawSessionRows: SessionMeta[] = []
   private baseSessions: SessionMeta[] = []
   private baseIssues: IssueWire[] = []
-  /** Optimistic spawn overlay (#119) — ephemeral client-minted rows, pruned when
-   *  server truth (same ids) lands. One of the three optimistic mechanisms #263
-   *  will unify; kept structurally separate here so that collapse is local. */
-  private optimisticSessions: SessionMeta[] = []
-  private optimisticIssues: IssueWire[] = []
+  /** ONE optimistic mechanism (#263, overlay.ts): the QUEUED overlays are the
+   *  outbox itself (derived per recompute — no second copy of that state);
+   *  these two hold the rest of the lifecycle. `spawnOverlays` are the #119
+   *  placeholder inserts (transport = direct tRPC, bookkeeping = unified);
+   *  `awaitingTruth` are resolved patches whose covering server truth hasn't
+   *  landed in the replica yet (retirement rule (a)). */
+  private spawnOverlays: PendingOverlay[] = []
+  private awaitingTruth: AwaitingTruth[] = []
   /** Effective rendered mode per session (what AgentPanel actually shows),
    *  reported up the viewState channel. Not in the snapshot — only the setter
    *  is public — and not persisted (re-reported on mount from live state). */
@@ -218,6 +225,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       replica: this.replica,
       notices: { error: (m) => this.notices.error(m), info: (m, d) => this.notices.info(m, d) },
+      // Overlay lifecycle (#263): drain success hands the entry's overlay to
+      // the awaiting-truth stage; a poison drop repaints without it.
+      onApplied: (entry) => this.onMutationApplied(entry),
+      onDropped: (entry) => this.onMutationDropped(entry),
     })
     // URL router (issue #15 Phase 4): the main surface is the URL. A plain '/'
     // start restores the persisted view; unknown URLs fall back to home.
@@ -232,23 +243,30 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // ran. start() stays network/subscription arming only. (The async
     // `hydrate()` in start() still covers storages that load asynchronously.)
     const seedSessions = this.replica.rows('sessions')
-    this.rawSessionRows = seedSessions
     this.baseSessions =
       seedSessions.length === 0 ? seedSessions : dedupeSessionsByResume(seedSessions)
     this.baseIssues = this.replica.rows('issues')
     // Baseline for the worktree-follow diff: the seeded rows are "first sight",
     // not moves (matches the old effect's first observed sessions snapshot).
     this.prevCwds = Object.fromEntries(this.baseSessions.map((s) => [s.sessionId, s.cwd]))
+    // Fold queued outbox entries over the seed (#263): after an offline reload
+    // the durable queue still paints its optimism in the VERY FIRST snapshot
+    // (the old direct-replica patching survived reloads the same way).
+    const seededSessionFold = foldOverlays(
+      this.baseSessions,
+      this.overlaysFor('sessions'),
+      (s) => s.sessionId,
+    )
+    const seededIssueFold = foldOverlays(this.baseIssues, this.overlaysFor('issues'), (i) => i.id)
     this.state = {
       repos: [],
       reposLoading: false,
       reposLoaded: false,
       repoDiagnostics: [],
-      // No optimistic overlay exists at construction — merged = base.
-      sessions: this.baseSessions,
-      issues: this.baseIssues,
+      sessions: seededSessionFold.rows,
+      issues: seededIssueFold.rows,
       conversations: this.replica.rows('conversations'),
-      pendingSpawnIds: EMPTY_STRING_SET,
+      pendingSpawnIds: EMPTY_ID_SET,
       hostMetrics: [],
       machines: [],
       pins: EMPTY_PINS,
@@ -306,8 +324,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     const cur = this.router.current()
     if (cur !== this.prevRoute) this.onRouteChanged(cur)
 
-    // Outbox size → snapshot; attach re-arms drain triggers after a dispose.
-    offs.push(this.outbox.subscribe((size) => this.apply({ outboxSize: size })))
+    // Outbox → snapshot; attach re-arms drain triggers after a dispose. Queue
+    // membership IS overlay membership (#263), so any enqueue/drop repaints
+    // the entity lists too (a no-op publish when nothing visible changed).
+    offs.push(
+      this.outbox.subscribe((size) => {
+        this.apply({ outboxSize: size })
+        this.recomputeSessions()
+        this.recomputeIssues()
+      }),
+    )
     this.outbox.attach()
     this.apply({ outboxSize: this.outbox.size() })
 
@@ -668,7 +694,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private refreshSessionRows(): void {
     const rows = this.replica.rows('sessions')
-    this.rawSessionRows = rows
     // Collapse duplicate rows for the same underlying conversation (e.g. a
     // Codex thread surfaced twice on resume).
     this.baseSessions = rows.length === 0 ? rows : dedupeSessionsByResume(rows)
@@ -684,55 +709,98 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply({ conversations: this.replica.rows('conversations') })
   }
 
-  /** Merge the optimistic spawn overlay over server truth, pruning optimistic
-   *  rows the server has confirmed (same id), and derive pendingSpawnIds — the
-   *  ids AgentPanel must not attach to yet (#119). */
+  /** The pending overlays for one entity, in application order: resolved
+   *  patches awaiting truth first (they were sent earliest), then the queued
+   *  outbox entries FIFO — so two pending mutations on the same row compose in
+   *  queue order — plus the #119 spawn placeholder inserts (order-independent:
+   *  folding applies inserts before any patch). Derived fresh each recompute:
+   *  the outbox itself is the queued-overlay state, never a second copy. */
+  private overlaysFor(entity: OverlayEntity): PendingOverlay[] {
+    const out: PendingOverlay[] = []
+    for (const o of this.spawnOverlays) if (o.entity === entity) out.push(o)
+    for (const a of this.awaitingTruth) if (a.overlay.entity === entity) out.push(a.overlay)
+    for (const e of this.outbox.pending()) {
+      const o = overlayForOutboxEntry(e)
+      if (o && o.entity === entity) out.push(o)
+    }
+    return out
+  }
+
+  /** Retirement rule (a) (#263, overlay.ts): spawn inserts retire when server
+   *  truth (same id) landed in the replica; resolved patches retire when the
+   *  row covers the mutation (or moved past the resolution fingerprint). */
+  private retireCovered<T extends object>(
+    entity: OverlayEntity,
+    base: T[],
+    keyOf: (row: T) => string,
+  ): void {
+    if (this.spawnOverlays.some((o) => o.entity === entity)) {
+      const known = new Set(base.map(keyOf))
+      const keep = this.spawnOverlays.filter((o) => o.entity !== entity || !known.has(o.id))
+      if (keep.length !== this.spawnOverlays.length) this.spawnOverlays = keep
+    }
+    this.awaitingTruth = pruneAwaiting(this.awaitingTruth, entity, base, keyOf)
+  }
+
+  /** Fold `replica rows + pending mutations' overlays` into the snapshot's
+   *  session list, and derive pendingSpawnIds — the ids AgentPanel must not
+   *  attach to yet (#119). */
   private recomputeSessions(): void {
     const base = this.baseSessions
-    let overlay = this.optimisticSessions
-    if (overlay.length > 0) {
-      const known = new Set(base.map((s) => s.sessionId))
-      const keep = overlay.filter((s) => !known.has(s.sessionId))
-      if (keep.length !== overlay.length) {
-        this.optimisticSessions = keep
-        overlay = keep
-      }
-    }
-    const sessions = mergeOptimistic(base, overlay, (s) => s.sessionId)
-    let pendingSpawnIds: ReadonlySet<string> = EMPTY_STRING_SET
-    if (overlay.length > 0) {
-      const known = new Set(base.map((s) => s.sessionId))
-      pendingSpawnIds = new Set(overlay.map((s) => s.sessionId).filter((id) => !known.has(id)))
-    }
-    this.apply({ sessions, pendingSpawnIds })
+    const keyOf = (s: SessionMeta): string => s.sessionId
+    this.retireCovered('sessions', base, keyOf)
+    const { rows, pendingInsertIds } = foldOverlays(base, this.overlaysFor('sessions'), keyOf)
+    this.apply({ sessions: rows, pendingSpawnIds: pendingInsertIds })
   }
 
   private recomputeIssues(): void {
     const base = this.baseIssues
-    let overlay = this.optimisticIssues
-    if (overlay.length > 0) {
-      const known = new Set(base.map((i) => i.id))
-      const keep = overlay.filter((i) => !known.has(i.id))
-      if (keep.length !== overlay.length) {
-        this.optimisticIssues = keep
-        overlay = keep
-      }
+    const keyOf = (i: IssueWire): string => i.id
+    this.retireCovered('issues', base, keyOf)
+    const { rows } = foldOverlays(base, this.overlaysFor('issues'), keyOf)
+    this.apply({ issues: rows })
+  }
+
+  private recomputeFor(entity: OverlayEntity | undefined): void {
+    if (entity === 'sessions') this.recomputeSessions()
+    else if (entity === 'issues') this.recomputeIssues()
+  }
+
+  /** Drain success (#263): hand the entry's overlay to the awaiting-truth
+   *  stage. Called by the outbox BEFORE it notifies subscribers of the
+   *  shrunken queue, so no intermediate snapshot ever lacks the overlay. */
+  private onMutationApplied(entry: OutboxEntry): void {
+    const overlay = overlayForOutboxEntry(entry)
+    if (overlay?.op !== 'patch') return
+    const row =
+      overlay.entity === 'sessions'
+        ? this.baseSessions.find((s) => s.sessionId === overlay.id)
+        : this.baseIssues.find((i) => i.id === overlay.id)
+    // Hold the overlay until covering truth lands. If the row is gone there is
+    // nothing to overlay; if it already reflects the mutation (the broadcast
+    // echo raced ahead of the mutation response) there is nothing to hold.
+    if (row !== undefined && !overlay.coveredBy(row)) {
+      this.awaitingTruth = [...this.awaitingTruth, { overlay, fingerprint: JSON.stringify(row) }]
     }
-    this.apply({ issues: mergeOptimistic(base, overlay, (i) => i.id) })
+    this.recomputeFor(overlay.entity)
   }
 
-  /** Optimistic local apply for curation mutations: a replica-collection upsert
-   *  (the rows subscription re-derives, and with durable storage the optimism
-   *  even survives an offline reload alongside its queued outbox entry). Server
-   *  truth reconciles via the same collections. */
-  private patchSession(sessionId: string, patch: Partial<SessionMeta>): void {
-    const row = this.rawSessionRows.find((s) => s.sessionId === sessionId)
-    if (row) this.replica.applyChanges('sessions', [{ ...row, ...patch }], [])
+  /** Definitive failure — retirement rule (b): the wiring already surfaced the
+   *  poison toast; repaint without the dropped entry's overlay. */
+  private onMutationDropped(entry: OutboxEntry): void {
+    this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
-  private patchIssue(id: string, patch: Partial<IssueWire>): void {
-    const row = this.baseIssues.find((i) => i.id === id)
-    if (row) this.replica.applyChanges('issues', [{ ...row, ...patch }], [])
+  /** Enqueue + repaint: the queued entry IS the optimistic apply (#263). The
+   *  outbox subscription (armed in start()) already repaints on any queue
+   *  change; recomputing here as well keeps actions optimistic before start()
+   *  and after dispose() (the duplicate recompute is a no-op publish). */
+  private enqueueOverlayed<K extends keyof OutboxKinds & string>(
+    kind: K,
+    input: OutboxKinds[K],
+  ): void {
+    const entry = this.outbox.enqueue(kind, input)
+    this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 
   private adoptSessionDraft(sessionId: string, text: string): void {
@@ -956,29 +1024,40 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const sessionId = crypto.randomUUID()
         const issueId = `iss_${crypto.randomUUID()}`
         const nowIso = new Date().toISOString()
-        this.optimisticSessions = [
-          ...this.optimisticSessions,
-          optimisticStartingSession({
+        // Unified overlay bookkeeping (#263): the placeholders are pending
+        // insert overlays — same fold, same retirement (server truth with the
+        // same ids lands → retire). Only the TRANSPORT differs from outboxed
+        // mutations: a spawn rides direct tRPC (it must fail fast and loudly,
+        // not silently queue offline), so failure rolls the overlays back here
+        // rather than through the outbox's poison path.
+        this.spawnOverlays = [
+          ...this.spawnOverlays,
+          insertOverlay(
+            'sessions',
             sessionId,
+            optimisticStartingSession({
+              sessionId,
+              issueId,
+              agentKind: args.agentKind,
+              cwd: args.target.path,
+              nowIso,
+            }),
+          ),
+          insertOverlay(
+            'issues',
             issueId,
-            agentKind: args.agentKind,
-            cwd: args.target.path,
-            nowIso,
-          }),
-        ]
-        this.optimisticIssues = [
-          ...this.optimisticIssues,
-          optimisticDraftIssue({
-            issueId,
-            repoPath: args.target.repoPath,
-            agentKind: args.agentKind,
-            nowIso,
-          }),
+            optimisticDraftIssue({
+              issueId,
+              repoPath: args.target.repoPath,
+              agentKind: args.agentKind,
+              nowIso,
+            }),
+          ),
         ]
         this.recomputeSessions()
         this.recomputeIssues()
-        // Fire the create in the background; roll the optimistic rows back if it
-        // never reaches the server (the real broadcast otherwise supersedes them).
+        // Fire the create in the background; roll the overlays back if it never
+        // reaches the server (the real broadcast otherwise supersedes them).
         void createDraftAgent({
           trpc: api,
           sessionId,
@@ -987,8 +1066,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           agentKind: args.agentKind,
           firstPrompt: args.firstPrompt,
         }).catch((err) => {
-          this.optimisticSessions = this.optimisticSessions.filter((s) => s.sessionId !== sessionId)
-          this.optimisticIssues = this.optimisticIssues.filter((i) => i.id !== issueId)
+          this.spawnOverlays = this.spawnOverlays.filter(
+            (o) => o.id !== sessionId && o.id !== issueId,
+          )
           this.recomputeSessions()
           this.recomputeIssues()
           this.notices.error(
@@ -1040,17 +1120,19 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         // and the outbox carries it there across offline gaps/reloads.
         this.outbox.enqueue('resumeAndSend', { sessionId, text })
       },
-      // Curation mutations are optimistic: the server broadcast reconciles, but
-      // waiting on it makes renames/drags feel sticky. The round-trip itself goes
-      // through the outbox, so these survive being authored offline.
+      // Curation mutations are optimistic via ONE mechanism (#263): enqueueing
+      // IS the optimistic apply — the pending entry's patch paints over server
+      // truth on the very next snapshot (the outbox notifies synchronously),
+      // survives being authored offline (durable queue), and retires per the
+      // rule in overlay.ts. The replica itself stays server truth only.
       renameSession: async (sessionId: string, name: string) => {
-        this.patchSession(sessionId, { name: name.trim() })
-        this.outbox.enqueue('rename', { sessionId, name })
+        this.enqueueOverlayed('rename', { sessionId, name })
       },
       archiveSession: async (sessionId: string, archived: boolean) => {
         // Archiving "files the work away": it also lands the session in the board's
         // Done lane. Unarchiving only restores it — it doesn't reopen the work state.
-        this.patchSession(sessionId, archived ? { archived, workState: 'done' } : { archived })
+        this.enqueueOverlayed('setArchived', { sessionId, archived })
+        if (archived) this.enqueueOverlayed('setWorkState', { sessionId, workState: 'done' })
         // Filing the work away also drops it from pinned panels — a pinned tab for an
         // archived session is dead weight, exactly as closing/killing it removes the
         // pin (mirrors killSession's local pin filter). Unlike kill, archiving doesn't
@@ -1062,39 +1144,30 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           // Pins stay direct (not outboxed) — low offline value, follow-on phase.
           await api.pins.set.mutate({ kind: 'panel', id: sessionId, pinned: false }).catch(() => {})
         }
-        this.outbox.enqueue('setArchived', { sessionId, archived })
-        if (archived) this.outbox.enqueue('setWorkState', { sessionId, workState: 'done' })
       },
       setWorkState: async (sessionId: string, workState: WorkState | null) => {
-        this.patchSession(sessionId, { workState: workState ?? undefined })
-        this.outbox.enqueue('setWorkState', { sessionId, workState })
+        this.enqueueOverlayed('setWorkState', { sessionId, workState })
       },
       setSnooze: async (sessionId: string, until: string | null) => {
-        this.patchSession(sessionId, { snoozedUntil: until })
-        this.outbox.enqueue('snoozeSet', { sessionId, until })
+        this.enqueueOverlayed('snoozeSet', { sessionId, until })
       },
       clearSnooze: async (sessionId: string) => {
-        this.patchSession(sessionId, { snoozedUntil: undefined })
-        this.outbox.enqueue('snoozeClear', { sessionId })
+        this.enqueueOverlayed('snoozeClear', { sessionId })
       },
-      // Mark a session / issue read (issue #124): optimistically stamp readAt = now
-      // and clear unread, then durably round-trip via the outbox. Server truth
-      // reconciles. markSessionUnread (#138) is the email-style inverse.
+      // Mark a session / issue read (issue #124): the pending entry stamps
+      // readAt (from its queuedAt) + clears unread until server truth covers
+      // it. markSessionUnread (#138) is the email-style inverse.
       markSessionRead: async (sessionId: string) => {
-        this.patchSession(sessionId, { readAt: new Date().toISOString(), unread: false })
-        this.outbox.enqueue('sessionMarkRead', { sessionId })
+        this.enqueueOverlayed('sessionMarkRead', { sessionId })
       },
       markSessionUnread: async (sessionId: string) => {
-        this.patchSession(sessionId, { readAt: null, unread: true })
-        this.outbox.enqueue('sessionMarkUnread', { sessionId })
+        this.enqueueOverlayed('sessionMarkUnread', { sessionId })
       },
       markIssueRead: async (id: string) => {
-        this.patchIssue(id, { readAt: new Date().toISOString(), unread: false })
-        this.outbox.enqueue('issueMarkRead', { id })
+        this.enqueueOverlayed('issueMarkRead', { id })
       },
       markIssueUnread: async (id: string) => {
-        this.patchIssue(id, { readAt: null, unread: true })
-        this.outbox.enqueue('issueMarkUnread', { id })
+        this.enqueueOverlayed('issueMarkUnread', { id })
       },
       setSessionDraft: (sessionId: string, text: string) => {
         this.adoptSessionDraft(sessionId, text)

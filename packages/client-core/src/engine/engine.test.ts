@@ -9,7 +9,7 @@
  * no DOM, no network.
  */
 
-import type { GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
+import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/protocol'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -131,8 +131,12 @@ function makeApi(): any {
     sessions: {
       rename: { mutate: vi.fn(async () => ({})) },
       markRead: { mutate: async () => ({}) },
+      markUnread: { mutate: async () => ({}) },
     },
-    issues: { markRead: { mutate: async () => ({}) } },
+    issues: {
+      markRead: { mutate: vi.fn(async () => ({})) },
+      markUnread: { mutate: async () => ({}) },
+    },
   }
 }
 
@@ -195,15 +199,17 @@ function makeEngine(
   const hub = opts.hub ?? new FakeHub()
   const rw = makeRouterWindow(opts.url ?? '/')
   const fatals: string[] = []
+  const errors: string[] = []
   const engine = createEngine({
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
     api: (opts.api ?? makeApi()) as PodiumClientApi,
     onFatalError: (m) => fatals.push(m),
+    notices: { error: (m) => errors.push(m), info: () => {} },
     createReplicaFn: () => createReplica({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
   })
-  return { engine, hub, rw, fatals }
+  return { engine, hub, rw, fatals, errors }
 }
 
 // ---------------------------------------------------------------- tests
@@ -358,6 +364,178 @@ describe('constructor snapshot seeding (#262 review)', () => {
     // when they only arrived via start()).
     const { engine } = makeEngine({ storage })
     expect(engine.getSnapshot().sessions.map((s) => s.sessionId)).toEqual(['s-seeded'])
+    engine.dispose()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ONE optimistic mechanism (#263): the outbox IS the overlay. Retirement rule
+// under test (engine/overlay.ts): an overlay retires exactly once, when its
+// mutation resolved AND covering server truth landed in the replica — or drops
+// immediately on definitive failure (+ notice).
+// ---------------------------------------------------------------------------
+describe('unified optimistic overlay (#263)', () => {
+  const nameOf = (e: ReturnType<typeof makeEngine>['engine'], id: string): string | undefined =>
+    e.getSnapshot().sessions.find((s) => s.sessionId === id)?.name
+
+  it('a pending mutation survives replica snapshots lacking its effect, then retires exactly once when truth lands', async () => {
+    const api = makeApi()
+    let resolveRename: (() => void) | undefined
+    api.sessions.rename.mutate = vi.fn(
+      () =>
+        new Promise<Record<string, never>>((r) => {
+          resolveRename = () => r({})
+        }),
+    )
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+
+    // Enqueue paints instantly — the queued entry is the overlay.
+    void engine.getSnapshot().renameSession('s1', 'renamed')
+    expect(nameOf(engine, 's1')).toBe('renamed')
+
+    // A heal snapshot WITHOUT the rename must not flash the stale value: the
+    // replica stays server-truth (no name), the overlay keeps painting.
+    engine.replica.applySnapshot('sessions', [session('s1', '/w')])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('renamed')
+    expect(engine.replica.rows('sessions')[0]?.name).toBeUndefined()
+
+    // The mutation resolves; the entry leaves the queue but truth hasn't
+    // landed — the overlay moves to the awaiting-truth stage, still painting.
+    resolveRename?.()
+    await settle()
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(nameOf(engine, 's1')).toBe('renamed')
+
+    // Covering truth lands (the server echo) — retired, value unchanged.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'renamed' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('renamed')
+
+    // Exactly once: a LATER server change shows through (no lingering mask).
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'server-wins' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('server-wins')
+    engine.dispose()
+  })
+
+  it('after resolution, truth that DIVERGES from the prediction retires the overlay (server wins)', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void engine.getSnapshot().renameSession('s1', 'mine')
+    await settle() // resolves (default executor) → awaiting truth
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(nameOf(engine, 's1')).toBe('mine')
+    // A competing client's rename won — the row moved past the resolution
+    // fingerprint without covering our mutation. Server truth must win.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'theirs' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('theirs')
+    engine.dispose()
+  })
+
+  it('two pending mutations on the same entity compose in queue order', async () => {
+    const api = makeApi()
+    api.sessions.rename.mutate = vi.fn(async () => {
+      throw new Error('network down') // non-poison → both entries stay queued
+    })
+    api.sessions.markUnread.mutate = vi.fn(async () => {
+      throw new Error('network down')
+    })
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void engine.getSnapshot().renameSession('s1', 'first')
+    void engine.getSnapshot().markSessionUnread('s1')
+    void engine.getSnapshot().renameSession('s1', 'second')
+    await settle()
+    const row = engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
+    // Later rename wins over the earlier one; the mark-unread composes with it.
+    expect(row?.name).toBe('second')
+    expect(row?.unread).toBe(true)
+    expect(engine.getSnapshot().outboxSize).toBe(3)
+    engine.dispose()
+  })
+
+  it('a definitively rejected mutation drops its overlay and surfaces a notice', async () => {
+    const api = makeApi()
+    api.sessions.rename.mutate = vi.fn(async () => {
+      throw Object.assign(new Error('bad input'), {
+        data: { code: 'BAD_REQUEST', httpStatus: 400 },
+      })
+    })
+    const { engine, errors } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void engine.getSnapshot().renameSession('s1', 'doomed')
+    expect(nameOf(engine, 's1')).toBe('doomed') // painted while queued
+    await settle()
+    expect(nameOf(engine, 's1')).toBeUndefined() // poison drop → overlay gone
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(errors.some((m) => m.includes('rename'))).toBe(true)
+    engine.dispose()
+  })
+
+  it('a queued offline write keeps painting after a reload (fresh engine, same storage)', async () => {
+    const storage = memoryStorage()
+    const api = makeApi()
+    api.sessions.rename.mutate = vi.fn(async () => {
+      throw new Error('offline')
+    })
+    const first = makeEngine({ api, storage })
+    first.engine.start()
+    await settle(40)
+    first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void first.engine.getSnapshot().renameSession('s1', 'renamed')
+    await settle()
+    expect(nameOf(first.engine, 's1')).toBe('renamed')
+    first.engine.dispose()
+    // "Reload": the durable queue IS the overlay — the very FIRST snapshot of a
+    // fresh engine over the same storage paints it, before start().
+    const second = makeEngine({ api, storage })
+    expect(nameOf(second.engine, 's1')).toBe('renamed')
+    // …and the replica itself stayed server truth only.
+    expect(second.engine.replica.rows('sessions')[0]?.name).toBeUndefined()
+    second.engine.dispose()
+  })
+
+  it('markIssueRead paints unread=false instantly and reconciles with the server echo without flicker', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    const issue = { id: 'iss_1', unread: true, readAt: null } as unknown as IssueWire
+    engine.replica.applyChanges('issues', [issue], [])
+    await settle()
+    expect(engine.getSnapshot().issues[0]?.unread).toBe(true)
+    void engine.getSnapshot().markIssueRead('iss_1')
+    expect(engine.getSnapshot().issues[0]?.unread).toBe(false) // instant
+    await settle() // mutation resolves → awaiting truth, still painted
+    expect(engine.getSnapshot().issues[0]?.unread).toBe(false)
+    // Echo: the server's own readAt clock differs from the client stamp — the
+    // covering predicate is the unread flag, so the overlay retires cleanly.
+    engine.replica.applyChanges(
+      'issues',
+      [{ ...issue, unread: false, readAt: '2026-07-09T00:00:00.000Z' } as typeof issue],
+      [],
+    )
+    await settle()
+    expect(engine.getSnapshot().issues[0]?.unread).toBe(false)
+    expect(engine.getSnapshot().issues[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
+    expect(engine.getSnapshot().issues).toHaveLength(1)
     engine.dispose()
   })
 })

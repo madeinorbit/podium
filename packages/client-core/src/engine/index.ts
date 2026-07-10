@@ -1,4 +1,5 @@
 export * from './engine'
+export * from './overlay'
 export * from './persistence'
 export * from './types'
 export * from './wiring'

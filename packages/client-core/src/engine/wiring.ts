@@ -9,7 +9,7 @@
 import type { WorkState } from '@podium/protocol'
 import { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
-import { Outbox, platformIsOnline, platformOnlineEvents } from '../outbox'
+import { Outbox, type OutboxEntry, platformIsOnline, platformOnlineEvents } from '../outbox'
 import type { Replica } from '../replica/replica'
 import type { StoreNotices } from './types'
 
@@ -73,14 +73,21 @@ export function createEngineHub(args: {
   })
 }
 
-/** Durable write path for the covered mutations: optimistic local apply stays in
- *  each engine action; the server round-trip goes through the outbox so an
- *  offline write survives a reload and replays (deduped by mutationId) on
- *  reconnect. */
+/** Durable write path for the covered mutations. The queue doubles as the
+ *  optimistic overlay (#263: the outbox IS the overlay — see overlay.ts): a
+ *  pending entry paints its patch over the replica's server truth, so an
+ *  offline write both survives a reload AND keeps painting after it, then
+ *  replays (deduped by mutationId) on reconnect. */
 export function createEngineOutbox(args: {
   api: PodiumClientApi
   replica: Replica
   notices: StoreNotices
+  /** Drain success — the engine hands the entry's overlay to the
+   *  awaiting-truth stage (retirement rule (a), overlay.ts). */
+  onApplied?: (entry: OutboxEntry) => void
+  /** Poison drop — fired AFTER the toast; the engine repaints without the
+   *  entry's overlay (retirement rule (b)). */
+  onDropped?: (entry: OutboxEntry) => void
 }): Outbox<OutboxKinds> {
   const { api } = args
   return new Outbox<OutboxKinds>({
@@ -102,9 +109,12 @@ export function createEngineOutbox(args: {
       issueMarkRead: (i) => api.issues.markRead.mutate(i),
       issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
     },
+    onApplied: args.onApplied,
     // A poison entry (server-side validation reject) can never sync — it's
     // dropped, and the toast is the honesty about that.
-    onPoison: (entry) =>
-      args.notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`),
+    onPoison: (entry) => {
+      args.notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`)
+      args.onDropped?.(entry)
+    },
   })
 }

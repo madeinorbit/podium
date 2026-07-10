@@ -202,6 +202,77 @@ describe('storage-neutral outbox', () => {
     off()
   })
 
+  it('onApplied fires after the executor resolves, BEFORE subscribers observe the shrunken queue', async () => {
+    const events: string[] = []
+    const { executors } = makeExecutors()
+    const ob = createOutbox<Kinds>({
+      executors,
+      storage: memoryStorage().storage,
+      randomId: deterministicIds(),
+      onApplied: (entry) => events.push(`applied:${entry.mutationId}`),
+    })
+    outboxes.push(ob)
+    ob.subscribe((n) => events.push(`size:${n}`))
+    ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    await ob.drain()
+    // The overlay handoff (#263) depends on this order: at the moment
+    // subscribers see the entry gone, onApplied has already staged it.
+    expect(events).toEqual(['size:1', 'applied:m-1', 'size:0'])
+  })
+
+  it('pending() snapshots the FIFO queue without exposing the live array', () => {
+    const ob = make({ isOnline: () => false })
+    const a = ob.enqueue('rename', { sessionId: 's1', name: 'one' })
+    const b = ob.enqueue('snoozeClear', { sessionId: 's2' })
+    const snap = ob.pending()
+    expect(snap.map((e) => e.mutationId)).toEqual([a.mutationId, b.mutationId])
+    snap.pop()
+    expect(ob.size()).toBe(2)
+  })
+
+  it('a drain in flight at dispose() cannot persist over a successor outbox (provider recreation)', async () => {
+    const backing = memoryStorage()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const { executors } = makeExecutors(() => gate)
+    const ob1 = createOutbox<Kinds>({
+      executors,
+      storage: backing.storage,
+      randomId: deterministicIds(),
+    })
+    outboxes.push(ob1)
+    const a = ob1.enqueue('rename', { sessionId: 's1', name: 'one' })
+    const d1 = ob1.drain() // in flight, parked on the gate
+    await Promise.resolve()
+    // The replacement outbox loads the same storage and enqueues a NEW write.
+    const ob2 = createOutbox<Kinds>({
+      executors: makeExecutors().executors,
+      storage: backing.storage,
+      isOnline: () => false,
+      randomId: () => 'm-succ',
+    })
+    outboxes.push(ob2)
+    const b = ob2.enqueue('snoozeClear', { sessionId: 's2' })
+    expect(parseOutboxEntries(backing.raw()).map((e) => e.mutationId)).toEqual([
+      a.mutationId,
+      b.mutationId,
+    ])
+    // Old engine disposed; its drain completes afterwards — it must NOT write
+    // its stale queue (which lacks b) back over the successor's.
+    ob1.dispose()
+    release()
+    await d1
+    expect(parseOutboxEntries(backing.raw()).map((e) => e.mutationId)).toEqual([
+      a.mutationId,
+      b.mutationId,
+    ])
+    // a stays queued (its shift wasn't persisted) — the successor replays it,
+    // deduped server-side by the stable mutationId.
+    expect(ob2.size()).toBe(2)
+  })
+
   it('reads corrupt storage as an empty queue', () => {
     expect(
       make({ isOnline: () => false, storage: memoryStorage('{not json').storage }).size(),
