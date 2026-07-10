@@ -62,6 +62,7 @@ import {
   tabIdFor,
 } from '../viewmodels'
 import {
+  AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
   EMPTY_ID_SET,
   foldOverlays,
@@ -70,6 +71,7 @@ import {
   overlayForOutboxEntry,
   type PendingOverlay,
   pruneAwaiting,
+  rowFingerprint,
 } from './overlay'
 import {
   DOCK_TAB_KEY,
@@ -187,6 +189,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  landed in the replica yet (retirement rule (a)). */
   private spawnOverlays: PendingOverlay[] = []
   private awaitingTruth: AwaitingTruth[] = []
+  /** TTL sweep for the awaiting-truth stage (#263 review finding 3): prunes run
+   *  on recomputes, which only fire on replica/outbox changes — a row that
+   *  never changes again would otherwise keep a stuck entry painted forever. */
+  private awaitingSweepTimer: ReturnType<typeof setTimeout> | null = null
   /** Effective rendered mode per session (what AgentPanel actually shows),
    *  reported up the viewState channel. Not in the snapshot — only the setter
    *  is public — and not persisted (re-reported on mount from live state). */
@@ -230,6 +236,25 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       onApplied: (entry) => this.onMutationApplied(entry),
       onDropped: (entry) => this.onMutationDropped(entry),
     })
+    // Restore the DURABLE awaiting-truth stage (#263 review finding 1): a
+    // reload inside the resolution→covering-truth window must keep painting
+    // resolved overlays — the retirement check against hydrated replica rows
+    // (retireCovered, on the first recompute) drops the ones whose truth
+    // already landed. Unprojectable leftovers have nothing to await: retire.
+    const restoredAwaiting: AwaitingTruth[] = []
+    for (const e of this.outbox.awaiting()) {
+      const overlay = overlayForOutboxEntry(e)
+      if (overlay?.op === 'patch') {
+        restoredAwaiting.push({
+          overlay,
+          baseline: e.baseline,
+          resolvedAt: e.resolvedAt ?? Date.now(),
+        })
+      } else {
+        this.outbox.retireAwaiting(e.mutationId)
+      }
+    }
+    this.awaitingTruth = restoredAwaiting
     // URL router (issue #15 Phase 4): the main surface is the URL. A plain '/'
     // start restores the persisted view; unknown URLs fall back to home.
     this.router = createRouter({ fallbackView: readStoredView(this.ui), win: init.routerWindow })
@@ -336,6 +361,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     )
     this.outbox.attach()
     this.apply({ outboxSize: this.outbox.size() })
+    // Restored awaiting-truth entries (see constructor) need the TTL backstop
+    // armed even if no replica change ever recomputes them.
+    this.armAwaitingSweep()
 
     // Entity state, single-sourced: the hub writes ONLY into the replica
     // (onMetadataApplied) and the engine re-reads rows on collection changes.
@@ -451,6 +479,10 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     if (this.markReadTimer !== null) {
       clearTimeout(this.markReadTimer)
       this.markReadTimer = null
+    }
+    if (this.awaitingSweepTimer !== null) {
+      clearTimeout(this.awaitingSweepTimer)
+      this.awaitingSweepTimer = null
     }
     this.markReadKey = null
     for (const off of this.offs.splice(0)) {
@@ -728,7 +760,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Retirement rule (a) (#263, overlay.ts): spawn inserts retire when server
    *  truth (same id) landed in the replica; resolved patches retire when the
-   *  row covers the mutation (or moved past the resolution fingerprint). */
+   *  row covers the mutation, moved past the enqueue baseline (oldest per row),
+   *  or outlived the TTL. Retiring an awaiting patch also deletes its durable
+   *  storage entry (finding 1: deletion happens at retirement, not resolution). */
   private retireCovered<T extends object>(
     entity: OverlayEntity,
     base: T[],
@@ -739,7 +773,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       const keep = this.spawnOverlays.filter((o) => o.entity !== entity || !known.has(o.id))
       if (keep.length !== this.spawnOverlays.length) this.spawnOverlays = keep
     }
-    this.awaitingTruth = pruneAwaiting(this.awaitingTruth, entity, base, keyOf)
+    const pruned = pruneAwaiting(this.awaitingTruth, entity, base, keyOf)
+    if (pruned !== this.awaitingTruth) {
+      const dropped = this.awaitingTruth.filter((a) => !pruned.includes(a))
+      // Assign BEFORE the durable retire, so any re-entrant recompute already
+      // sees the pruned stage.
+      this.awaitingTruth = pruned
+      for (const a of dropped) this.outbox.retireAwaiting(a.overlay.key)
+    }
   }
 
   /** Fold `replica rows + pending mutations' overlays` into the snapshot's
@@ -768,21 +809,52 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Drain success (#263): hand the entry's overlay to the awaiting-truth
    *  stage. Called by the outbox BEFORE it notifies subscribers of the
-   *  shrunken queue, so no intermediate snapshot ever lacks the overlay. */
-  private onMutationApplied(entry: OutboxEntry): void {
+   *  shrunken queue, so no intermediate snapshot ever lacks the overlay.
+   *  Returns true to keep the entry DURABLY in storage (finding 1) until
+   *  covering truth retires it. */
+  private onMutationApplied(entry: OutboxEntry): boolean {
     const overlay = overlayForOutboxEntry(entry)
-    if (overlay?.op !== 'patch') return
+    if (overlay?.op !== 'patch') return false
     const row =
       overlay.entity === 'sessions'
         ? this.baseSessions.find((s) => s.sessionId === overlay.id)
         : this.baseIssues.find((i) => i.id === overlay.id)
-    // Hold the overlay until covering truth lands. If the row is gone there is
-    // nothing to overlay; if it already reflects the mutation (the broadcast
-    // echo raced ahead of the mutation response) there is nothing to hold.
+    // Hold the overlay until covering truth lands. Nothing to hold when the
+    // row is gone, already reflects the mutation (the broadcast echo raced
+    // ahead of the response), or moved past the ENQUEUE-time baseline without
+    // covering it (finding 2: covering-or-competing truth already landed — a
+    // resolution-time fingerprint of that final row would never "move" again
+    // and the overlay would mask server truth forever).
+    let hold = false
     if (row !== undefined && !overlay.coveredBy(row)) {
-      this.awaitingTruth = [...this.awaitingTruth, { overlay, fingerprint: JSON.stringify(row) }]
+      if (entry.baseline !== undefined && rowFingerprint(row) !== entry.baseline) {
+        // Competing truth won while the mutation was in flight — server wins.
+      } else {
+        hold = true
+        this.awaitingTruth = [
+          ...this.awaitingTruth,
+          { overlay, baseline: entry.baseline, resolvedAt: Date.now() },
+        ]
+        this.armAwaitingSweep()
+      }
     }
     this.recomputeFor(overlay.entity)
+    return hold
+  }
+
+  /** Arm (once) a timer that forces a recompute shortly after the earliest
+   *  awaiting entry's TTL expires, so pruneAwaiting's backstop actually fires
+   *  even when the replica goes quiet. Re-arms itself while entries remain. */
+  private armAwaitingSweep(): void {
+    if (this.awaitingSweepTimer !== null || this.awaitingTruth.length === 0) return
+    const earliest = Math.min(...this.awaitingTruth.map((a) => a.resolvedAt))
+    const delay = Math.max(0, earliest + AWAITING_TRUTH_TTL_MS - Date.now()) + 25
+    this.awaitingSweepTimer = setTimeout(() => {
+      this.awaitingSweepTimer = null
+      this.recomputeSessions()
+      this.recomputeIssues()
+      this.armAwaitingSweep()
+    }, delay)
   }
 
   /** Definitive failure — retirement rule (b): the wiring already surfaced the
@@ -799,7 +871,23 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     kind: K,
     input: OutboxKinds[K],
   ): void {
-    const entry = this.outbox.enqueue(kind, input)
+    // Enqueue-time baseline (#263 review finding 2): fingerprint the target
+    // row's REPLICA truth (unpainted — the replica is server truth only) so
+    // resolution can tell whether truth already moved while in flight.
+    const probe = overlayForOutboxEntry({ mutationId: '', kind, input, queuedAt: 0 })
+    let baseline: string | undefined
+    if (probe?.op === 'patch') {
+      const row =
+        probe.entity === 'sessions'
+          ? this.baseSessions.find((s) => s.sessionId === probe.id)
+          : this.baseIssues.find((i) => i.id === probe.id)
+      if (row !== undefined) baseline = rowFingerprint(row)
+    }
+    const entry = this.outbox.enqueue(
+      kind,
+      input,
+      baseline === undefined ? undefined : { baseline },
+    )
     this.recomputeFor(overlayForOutboxEntry(entry)?.entity)
   }
 

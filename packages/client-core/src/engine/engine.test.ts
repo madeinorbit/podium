@@ -130,6 +130,8 @@ function makeApi(): any {
     },
     sessions: {
       rename: { mutate: vi.fn(async () => ({})) },
+      setArchived: { mutate: vi.fn(async () => ({})) },
+      setWorkState: { mutate: vi.fn(async () => ({})) },
       markRead: { mutate: async () => ({}) },
       markUnread: { mutate: async () => ({}) },
     },
@@ -536,6 +538,143 @@ describe('unified optimistic overlay (#263)', () => {
     expect(engine.getSnapshot().issues[0]?.unread).toBe(false)
     expect(engine.getSnapshot().issues[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
     expect(engine.getSnapshot().issues).toHaveLength(1)
+    engine.dispose()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #263 Codex-review fixes: durable awaiting-truth (finding 1), enqueue-time
+// baselines (finding 2), per-entry baselines + oldest-first escape (finding 3),
+// and spawn transport-failure grace (finding 4).
+// ---------------------------------------------------------------------------
+describe('unified optimistic overlay (#263 review fixes)', () => {
+  const nameOf = (e: ReturnType<typeof makeEngine>['engine'], id: string): string | undefined =>
+    e.getSnapshot().sessions.find((s) => s.sessionId === id)?.name
+
+  it('a resolved-but-uncovered overlay survives a reload (durable awaiting-truth), then retires when the echo lands', async () => {
+    const storage = memoryStorage()
+    const api = makeApi() // rename resolves immediately → awaiting truth
+    const first = makeEngine({ api, storage })
+    first.engine.start()
+    await settle(40)
+    first.engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void first.engine.getSnapshot().renameSession('s1', 'renamed')
+    await settle()
+    expect(first.engine.getSnapshot().outboxSize).toBe(0) // resolved
+    expect(nameOf(first.engine, 's1')).toBe('renamed') // awaiting truth, painted
+    first.engine.dispose()
+
+    // "Reload" in the resolution→truth window: replica truth still lacks the
+    // echo — the DURABLE awaiting entry must repaint from the very first
+    // snapshot (memory-only staging showed stale truth here).
+    const second = makeEngine({ api, storage })
+    expect(nameOf(second.engine, 's1')).toBe('renamed')
+    expect(second.engine.replica.rows('sessions')[0]?.name).toBeUndefined() // replica = server truth
+    second.engine.start()
+    await settle(40)
+    expect(nameOf(second.engine, 's1')).toBe('renamed')
+    // The echo lands → retired AND deleted from storage.
+    second.engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'renamed' }])
+    await settle()
+    expect(nameOf(second.engine, 's1')).toBe('renamed')
+    expect(second.engine.outbox.awaiting()).toEqual([])
+    second.engine.dispose()
+    const third = makeEngine({ api, storage })
+    expect(third.engine.outbox.awaiting()).toEqual([]) // durably gone
+    third.engine.dispose()
+  })
+
+  it('truth landing BEFORE the mutation resolves retires the overlay at resolution — no wedge (finding 2)', async () => {
+    const api = makeApi()
+    let resolveRename: (() => void) | undefined
+    api.sessions.rename.mutate = vi.fn(
+      () =>
+        new Promise<Record<string, never>>((r) => {
+          resolveRename = () => r({})
+        }),
+    )
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void engine.getSnapshot().renameSession('s1', 'mine')
+    expect(nameOf(engine, 's1')).toBe('mine')
+    // A competing client's write lands while our mutation is still in flight —
+    // the row is already "final" before our response arrives.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'theirs' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('mine') // still painted while queued
+    resolveRename?.()
+    await settle()
+    // The row moved past the ENQUEUE baseline without covering the mutation:
+    // competing truth won — retire at resolution instead of fingerprinting the
+    // already-final row (which would never "move" again → painted forever).
+    expect(nameOf(engine, 's1')).toBe('theirs')
+    expect(engine.outbox.awaiting()).toEqual([])
+    engine.dispose()
+  })
+
+  it('the echo for an EARLIER mutation does not retire a later one on the same field (finding 3)', async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    // Two rapid edits of the same field, both resolved before any echo.
+    void engine.getSnapshot().renameSession('s1', 'first')
+    void engine.getSnapshot().renameSession('s1', 'second')
+    await settle()
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.outbox.awaiting()).toHaveLength(2)
+    expect(nameOf(engine, 's1')).toBe('second')
+    // Echo for the FIRST edit only: it moves the row past both (shared)
+    // baselines, but only the first entry is covered — the second must keep
+    // painting instead of flashing 'first'.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'first' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('second')
+    expect(engine.outbox.awaiting()).toHaveLength(1)
+    // The second echo retires the rest; later server changes show through.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'second' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('second')
+    expect(engine.outbox.awaiting()).toEqual([])
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), name: 'server-wins' }])
+    await settle()
+    expect(nameOf(engine, 's1')).toBe('server-wins')
+    engine.dispose()
+  })
+
+  it("archive's paired setArchived/setWorkState survive an echo covering only the first (finding 3)", async () => {
+    const api = makeApi()
+    const { engine } = makeEngine({ api })
+    engine.start()
+    await settle(40)
+    engine.replica.applyChanges('sessions', [session('s1', '/w')], [])
+    await settle()
+    void engine.getSnapshot().archiveSession('s1', true)
+    await settle()
+    const row = (): SessionMeta | undefined =>
+      engine.getSnapshot().sessions.find((s) => s.sessionId === 's1')
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(row()?.archived).toBe(true)
+    expect(row()?.workState).toBe('done')
+    // Echo for setArchived only — the workState write hasn't echoed yet. The
+    // later mutation's overlay must keep painting 'done'.
+    engine.replica.applySnapshot('sessions', [{ ...session('s1', '/w'), archived: true }])
+    await settle()
+    expect(row()?.archived).toBe(true)
+    expect(row()?.workState).toBe('done')
+    // The second echo retires everything.
+    engine.replica.applySnapshot('sessions', [
+      { ...session('s1', '/w'), archived: true, workState: 'done' } as unknown as SessionMeta,
+    ])
+    await settle()
+    expect(row()?.workState).toBe('done')
+    expect(engine.outbox.awaiting()).toEqual([])
     engine.dispose()
   })
 })

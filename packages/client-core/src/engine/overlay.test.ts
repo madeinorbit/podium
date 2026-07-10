@@ -6,9 +6,10 @@
  */
 
 import type { IssueWire, SessionMeta } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { OutboxEntry } from '../outbox'
 import {
+  AWAITING_TRUTH_TTL_MS,
   type AwaitingTruth,
   EMPTY_ID_SET,
   foldOverlays,
@@ -16,6 +17,7 @@ import {
   overlayForOutboxEntry,
   type PendingOverlay,
   pruneAwaiting,
+  rowFingerprint,
 } from './overlay'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
@@ -144,33 +146,146 @@ describe('foldOverlays', () => {
   })
 })
 
+describe('rowFingerprint', () => {
+  it('ignores TanStack $-metadata and key order — only DATA changes read as movement', () => {
+    const stored = {
+      sessionId: 's1',
+      name: 'x',
+      $synced: false,
+      $origin: 'local',
+      $collectionId: 'podium.replica.sessions#1',
+    }
+    const reloaded = {
+      name: 'x',
+      sessionId: 's1',
+      $synced: true,
+      $origin: 'remote',
+      $collectionId: 'podium.replica.sessions#2',
+    }
+    expect(rowFingerprint(stored)).toBe(rowFingerprint(reloaded))
+    expect(rowFingerprint(stored)).not.toBe(rowFingerprint({ sessionId: 's1', name: 'y' }))
+    // A field assigned undefined equals one that is absent (the replica writes
+    // cleared optionals as undefined — #170).
+    expect(rowFingerprint({ sessionId: 's1', workState: undefined })).toBe(
+      rowFingerprint({ sessionId: 's1' }),
+    )
+  })
+})
+
 describe('pruneAwaiting (retirement rule (a))', () => {
   const keyOf = (s: SessionMeta): string => s.sessionId
-  const await1 = (row: SessionMeta): AwaitingTruth => {
-    const o = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: 'mine' }))
+  const NOW = 1751500900000
+  /** An awaiting rename with its ENQUEUE-time baseline taken from `row`. */
+  const awaitRename = (
+    row: SessionMeta | undefined,
+    name = 'mine',
+    mutationId = `m-${name}`,
+    resolvedAt = NOW,
+  ): AwaitingTruth => {
+    const o = overlayForOutboxEntry({
+      ...entry('rename', { sessionId: 's1', name }),
+      mutationId,
+    })
     if (o?.op !== 'patch') throw new Error('expected patch')
-    return { overlay: o, fingerprint: JSON.stringify(row) }
+    return { overlay: o, baseline: row === undefined ? undefined : rowFingerprint(row), resolvedAt }
   }
 
-  it('keeps the entry while the row is byte-identical to the resolution fingerprint', () => {
+  it('keeps the entry while the row is byte-identical to the enqueue baseline', () => {
     const row = sess()
-    const awaiting = [await1(row)]
-    expect(pruneAwaiting(awaiting, 'sessions', [row], keyOf)).toBe(awaiting) // same ref: nothing retired
+    const awaiting = [awaitRename(row)]
+    expect(pruneAwaiting(awaiting, 'sessions', [row], keyOf, NOW)).toBe(awaiting) // same ref: nothing retired
   })
 
   it('retires when truth covers the mutation', () => {
-    const awaiting = [await1(sess())]
-    expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'mine' })], keyOf)).toEqual([])
+    const awaiting = [awaitRename(sess())]
+    expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'mine' })], keyOf, NOW)).toEqual([])
   })
 
-  it('retires when the row moved past the fingerprint WITHOUT covering (competing write wins)', () => {
-    const awaiting = [await1(sess())]
-    expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'theirs' })], keyOf)).toEqual([])
+  it('retires when the row moved past the baseline WITHOUT covering (competing write wins)', () => {
+    const awaiting = [awaitRename(sess())]
+    expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'theirs' })], keyOf, NOW)).toEqual([])
   })
 
   it('retires when the row is gone, and ignores other entities', () => {
-    const awaiting = [await1(sess())]
-    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf)).toEqual([])
-    expect(pruneAwaiting(awaiting, 'issues', [], (i: IssueWire) => i.id)).toBe(awaiting)
+    const awaiting = [awaitRename(sess())]
+    expect(pruneAwaiting(awaiting, 'sessions', [], keyOf, NOW)).toEqual([])
+    expect(pruneAwaiting(awaiting, 'issues', [], (i: IssueWire) => i.id, NOW)).toBe(awaiting)
+  })
+
+  it('only the OLDEST awaiting entry per row may use the moved-past escape (#263 finding 3)', () => {
+    // Two rapid renames enqueued back-to-back share the same baseline (the
+    // replica stayed unpainted between them).
+    const base = sess()
+    const first = awaitRename(base, 'first', 'm-1')
+    const second = awaitRename(base, 'second', 'm-2')
+    // The FIRST echo lands: it covers only the first mutation, yet it moves the
+    // row past BOTH baselines. The younger entry must survive — retiring it
+    // would flash 'first' until its own echo arrives.
+    const afterFirstEcho = pruneAwaiting(
+      [first, second],
+      'sessions',
+      [sess({ name: 'first' })],
+      keyOf,
+      NOW,
+    )
+    expect(afterFirstEcho).toEqual([second])
+    // The second echo covers it — retired normally.
+    expect(
+      pruneAwaiting(afterFirstEcho, 'sessions', [sess({ name: 'second' })], keyOf, NOW),
+    ).toEqual([])
+    // Had a COMPETING write landed instead, the survivor is now the oldest and
+    // becomes escape-eligible on this later pass — server truth wins.
+    expect(
+      pruneAwaiting(afterFirstEcho, 'sessions', [sess({ name: 'theirs' })], keyOf, NOW),
+    ).toEqual([])
+  })
+
+  it("archive's paired setArchived/setWorkState: the first echo retires only the first entry", () => {
+    const base = sess()
+    const arch = overlayForOutboxEntry(entry('setArchived', { sessionId: 's1', archived: true }))
+    const ws = overlayForOutboxEntry({
+      ...entry('setWorkState', { sessionId: 's1', workState: 'done' }),
+      mutationId: 'm-ws',
+    })
+    if (arch?.op !== 'patch' || ws?.op !== 'patch') throw new Error('expected patches')
+    const awaiting: AwaitingTruth[] = [
+      { overlay: arch, baseline: rowFingerprint(base), resolvedAt: NOW },
+      { overlay: ws, baseline: rowFingerprint(base), resolvedAt: NOW },
+    ]
+    // Echo for setArchived only — workState not yet applied server-side.
+    const echo1 = sess({ archived: true })
+    const kept = pruneAwaiting(awaiting, 'sessions', [echo1], keyOf, NOW)
+    expect(kept.map((a) => a.overlay.key)).toEqual(['m-ws']) // 'done' keeps painting
+    // Echo carrying the work state retires the rest.
+    const echo2 = sess({ archived: true, workState: 'done' } as Partial<SessionMeta>)
+    expect(pruneAwaiting(kept, 'sessions', [echo2], keyOf, NOW)).toEqual([])
+  })
+
+  it('an entry with no baseline (row absent at enqueue) never uses the escape', () => {
+    const awaiting = [awaitRename(undefined)]
+    // The row appeared and even changed — without a baseline the escape cannot
+    // judge movement; the entry holds until coveredBy / row-gone / TTL.
+    expect(pruneAwaiting(awaiting, 'sessions', [sess({ name: 'theirs' })], keyOf, NOW)).toBe(
+      awaiting,
+    )
+  })
+
+  it('the TTL backstop retires a stuck entry (with a debug note), bounding the mask', () => {
+    const dbg = vi.spyOn(console, 'debug').mockImplementation(() => {})
+    try {
+      const row = sess()
+      const awaiting = [awaitRename(row, 'mine', 'm-stuck', NOW)]
+      // Within the TTL: held (row still byte-identical to the baseline).
+      expect(
+        pruneAwaiting(awaiting, 'sessions', [row], keyOf, NOW + AWAITING_TRUTH_TTL_MS - 1),
+      ).toBe(awaiting)
+      // Past the TTL: retired even though truth never covered it.
+      expect(
+        pruneAwaiting(awaiting, 'sessions', [row], keyOf, NOW + AWAITING_TRUTH_TTL_MS + 1),
+      ).toEqual([])
+      expect(dbg.mock.calls.some((c) => String(c[0]).includes('outlived its TTL'))).toBe(true)
+    } finally {
+      dbg.mockRestore()
+    }
   })
 })
