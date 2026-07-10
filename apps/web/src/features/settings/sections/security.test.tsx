@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { LoginPasswordSection } from './SettingsView'
+import { LoginPasswordSection } from './security'
 
 function fakeTrpc(enabled: boolean) {
   return {
