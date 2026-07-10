@@ -7,7 +7,11 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
-import { type HeadlessExecOptions, harnessAdapterFor } from '@podium/agent-bridge'
+import {
+  type HarnessHeadless,
+  type HeadlessExecOptions,
+  harnessAdapterFor,
+} from '@podium/agent-bridge'
 import type { HarnessAgent, HeadlessTurnEvent } from '@podium/protocol'
 import type { HarnessBins } from './harness-exec.js'
 
@@ -434,22 +438,24 @@ const resumeExecDriver: HeadlessDriver = (spec, emit, bins) =>
     bins,
   )
 
-/** Driver per harness (adapter.headless.driver names which one applies). The
- *  exhaustive Record is the daemon-side half of the #158 registry contract:
- *  a new harness kind fails typecheck here until it declares its driver. */
-const HEADLESS_DRIVERS: Record<HarnessAgent, HeadlessDriver> = {
-  'claude-code': (spec, emit) => runClaudeTurn(spec, emit),
-  codex: (spec, emit) => runCodexTurn(spec, emit),
-  grok: resumeExecDriver,
-  opencode: resumeExecDriver,
-  cursor: resumeExecDriver,
+/** Driver body per adapter-declared driver KIND (`adapter.headless.driver`) —
+ *  the closed set of runtime strategies this daemon can host. Which agent uses
+ *  which is no longer enumerated here: it derives from the harness adapter
+ *  registry, so a new agent picks its driver in its adapter file (and the
+ *  registry's exhaustive Record still fails typecheck until it exists). */
+const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
+  'claude-sdk': (spec, emit) => runClaudeTurn(spec, emit),
+  'codex-json': (spec, emit) => runCodexTurn(spec, emit),
+  'resume-exec': resumeExecDriver,
 }
 
-/** Driver selection by agent — a registry lookup. */
+/** Driver selection by agent — an adapter registry lookup (#249). */
 export function runHeadlessTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   bins: HarnessBins,
 ): HeadlessTurnHandle {
-  return HEADLESS_DRIVERS[spec.agent](spec, emit, bins)
+  const adapter = harnessAdapterFor(spec.agent)
+  if (!adapter) throw new Error(`agent kind ${String(spec.agent)} has no harness adapter`)
+  return DRIVER_IMPLS[adapter.headless.driver](spec, emit, bins)
 }
