@@ -15,11 +15,11 @@ export interface WriteFunnelDeps {
    *  pipe (see {@link WriteFunnel.flushDeltas}). Called with a non-empty,
    *  seq-ordered batch. */
   sendDelta(changes: MetadataChange[]): void
-  /** The write-seam change log ([spec:SP-3fe2] #255/#256). When present, the
-   *  funnel bridges its appends onto the bus ('oplog.appended' keeps firing for
-   *  EVERY durable change regardless of which seam captured it) and into the
-   *  ordered delta pipe (the ledger owns issues + sessions; the legacy oplog
-   *  still owns conversations). */
+  /** The write-seam change log ([spec:SP-3fe2] #255/#256/#257). When present,
+   *  the funnel bridges its appends onto the bus ('oplog.appended' keeps firing
+   *  for EVERY durable change regardless of which seam captured it) and into
+   *  the ordered delta pipe (the ledger owns ALL entity kinds now; the legacy
+   *  oplog records nothing — P2f deletes it). */
   ledger?: Pick<Ledger, 'onAppended'>
 }
 
@@ -42,13 +42,13 @@ export interface PublishSpec {
  * order and nowhere else. "Durable before fan-out" (oplog-read-path §2.5)
  * holds by construction rather than by convention at each call site.
  *
- * ISSUES and SESSIONS are ledger-owned ([spec:SP-3fe2] #255/#256): their
- * changes are captured at the WRITE seam by the injected {@link Ledger}
- * (atomic with the entity write), so their fan-outs enter at
- * {@link publishComputed} — the oplog half of {@link publish}/{@link record}
- * REJECTS their specs (see the guard in record) to keep the change log
- * single-writer per entity kind. The legacy broadcast-seam oplog here records
- * ONLY 'conversation' until P2e moves it too.
+ * EVERY entity kind is ledger-owned now ([spec:SP-3fe2] #255 issues, #256
+ * sessions, #257 conversations): changes are captured at the WRITE seam by the
+ * injected {@link Ledger} (atomic with the entity write), so all fan-outs
+ * enter at {@link publishComputed} — the oplog half of {@link publish}/
+ * {@link record} REJECTS every spec (see the guard in record) to keep the
+ * change log single-writer per entity kind. The legacy broadcast-seam oplog
+ * records NOTHING anymore; it and this facade's legacy tail are deleted in P2f.
  *
  * metadataDelta emission is ONE seq-ordered pipe (#256): every appended batch —
  * ledger commits/reconciles AND legacy record() — enters {@link queueDelta} in
@@ -102,7 +102,8 @@ export class WriteFunnel {
   }
 
   /** Oplog append + broadcast — the legacy (broadcast-seam) publish tail.
-   *  Conversations only; ledger-owned entities enter at publishComputed. */
+   *  DEAD since #257 (every entity kind is ledger-owned; record() rejects all
+   *  specs); kept only so call-site shapes survive until P2f deletes it. */
   publish(
     entity: MetadataEntityKind,
     rows: { id: string; value: unknown }[],
@@ -138,18 +139,20 @@ export class WriteFunnel {
     rows: { id: string; value: unknown }[],
     opts: { partial?: boolean } = {},
   ): MetadataChange[] {
-    // SEVERED ([spec:SP-3fe2] #255 issues, #256 sessions): these entities are
-    // captured at the WRITE seam by the Ledger (IssueService persist/delete/boot;
-    // SessionsService persist/kill/boot). The legacy broadcast-seam oplog keeps
-    // its own baseline, so appending such a spec here would DOUBLE-APPEND
-    // everything the ledger already wrote — every publish path for them must
-    // route through Ledger.commit/reconcile + publishComputed. Loud so a
-    // regressed call site can't silently fork the change log: throw under
-    // tests, degrade to no-op in production.
-    if (entity === 'issue' || entity === 'session') {
+    // SEVERED ([spec:SP-3fe2] #255 issues, #256 sessions, #257 conversations):
+    // EVERY entity kind is captured at the WRITE seam by the Ledger
+    // (IssueService persist/delete/boot; SessionsService persist/kill/boot;
+    // ConversationsService discovery-commit/meta-commit/upstream-reconcile).
+    // The legacy broadcast-seam oplog keeps its own baseline, so appending a
+    // spec here would DOUBLE-APPEND everything the ledger already wrote —
+    // every publish path must route through Ledger.commit/reconcile +
+    // publishComputed. Loud so a regressed call site can't silently fork the
+    // change log: throw under tests, degrade to no-op in production. The
+    // record() body below is dead code until P2f removes it with the oplog.
+    if (entity === 'issue' || entity === 'session' || entity === 'conversation') {
       const msg =
         `[funnel] ${entity} spec reached the legacy oplog path — ${entity} changes are ` +
-        'ledger-owned (#255/#256); route through Ledger.commit/reconcile + publishComputed'
+        'ledger-owned (#255/#256/#257); route through Ledger.commit/reconcile + publishComputed'
       if (process.env.VITEST || process.env.NODE_ENV === 'test') throw new Error(msg)
       console.error(msg)
       return []

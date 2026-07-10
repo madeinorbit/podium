@@ -1,4 +1,5 @@
 import type { MetadataChange } from '@podium/protocol'
+import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../store'
 import { EventBus } from './bus'
@@ -20,21 +21,18 @@ const spec = (id: string) => ({
 })
 
 describe('WriteFunnel.run ordering', () => {
-  it('runs authorize → write → publish and returns the write result', () => {
-    const { funnel, fanOutSnapshot, bus } = makeFunnel()
+  it('runs authorize → write and returns the write result', () => {
+    const { funnel } = makeFunnel()
     const order: string[] = []
-    bus.on('oplog.appended', () => order.push('oplog'))
-    fanOutSnapshot.mockImplementation(() => order.push('broadcast'))
     const result = funnel.run({
       authorize: () => order.push('authorize'),
       write: () => {
         order.push('write')
         return 42
       },
-      publish: () => spec('c1'),
     })
     expect(result).toBe(42)
-    expect(order).toEqual(['authorize', 'write', 'oplog', 'broadcast'])
+    expect(order).toEqual(['authorize', 'write'])
   })
 
   it('authorize rejecting stops the write, the oplog append, and the broadcast', () => {
@@ -83,49 +81,29 @@ describe('WriteFunnel.run ordering', () => {
   })
 })
 
-describe('WriteFunnel.publish / record', () => {
-  it('records durably BEFORE fanning out, and advances the cursor', () => {
-    const { funnel, fanOutSnapshot, bus } = makeFunnel()
-    let cursorAtBroadcast = -1
-    let cursorAtAppend = -1
-    bus.on('oplog.appended', () => {
-      cursorAtAppend = funnel.cursor()
+describe('WriteFunnel.changesSince', () => {
+  it('serves ledger-appended changes from a cursor (one shared durable log)', () => {
+    const { store, funnel } = makeFunnel()
+    const ledger = new Ledger({
+      repo: store.sync,
+      now: () => 1_000,
+      transact: (fn) => store.transact(fn),
     })
-    fanOutSnapshot.mockImplementation(() => {
-      cursorAtBroadcast = funnel.cursor()
+    ledger.commit({
+      write: () => {},
+      changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
     })
-    funnel.publish('conversation', [{ id: 'c1', value: { id: 'c1' } }], {
-      type: 'conversationsChanged',
-      conversations: [],
-      diagnostics: [],
-    } as never)
-    expect(cursorAtAppend).toBeGreaterThan(0)
-    expect(cursorAtBroadcast).toBe(cursorAtAppend)
-    expect(fanOutSnapshot).toHaveBeenCalledTimes(1)
-  })
-
-  it('an unchanged re-publish appends nothing and emits no oplog event', () => {
-    const { funnel, bus } = makeFunnel()
-    const appended = vi.fn()
-    bus.on('oplog.appended', appended)
-    const rows = [{ id: 'c1', value: { id: 'c1' } }]
-    const snapshot = { type: 'conversationsChanged', conversations: [], diagnostics: [] } as never
-    funnel.publish('conversation', rows, snapshot)
-    funnel.publish('conversation', rows, snapshot)
-    expect(appended).toHaveBeenCalledTimes(1)
-  })
-
-  it('changesSince serves recorded changes from a cursor', () => {
-    const { funnel } = makeFunnel()
-    funnel.record('conversation', [{ id: 'c1', value: { a: 1 } }])
     const cursor = funnel.cursor()
-    funnel.record('conversation', [{ id: 'c1', value: { a: 2 } }])
+    ledger.commit({
+      write: () => {},
+      changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
+    })
     const changes = funnel.changesSince(cursor)
     expect(changes?.map((c) => c.id)).toEqual(['c1'])
   })
 })
 
-describe('WriteFunnel ledger severance ([spec:SP-3fe2] #255 issues, #256 sessions)', () => {
+describe('WriteFunnel ledger severance ([spec:SP-3fe2] #255/#256/#257 — ALL entity kinds)', () => {
   it('an issue spec through the legacy publish path trips the assertion and appends nothing', () => {
     const { funnel, fanOutSnapshot } = makeFunnel()
     expect(() =>
@@ -152,11 +130,27 @@ describe('WriteFunnel ledger severance ([spec:SP-3fe2] #255 issues, #256 session
     expect(fanOutSnapshot).not.toHaveBeenCalled()
   })
 
-  it('record("issue"/"session", …) is equally severed', () => {
+  it('a conversation spec is equally severed (#257 — the legacy oplog records NOTHING)', () => {
+    const { funnel, fanOutSnapshot } = makeFunnel()
+    expect(() => funnel.publishSpec(spec('c1'))).toThrow(/ledger-owned/)
+    expect(funnel.cursor()).toBe(0)
+    expect(fanOutSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('record(…) is severed for every entity kind', () => {
     const { funnel } = makeFunnel()
     expect(() => funnel.record('issue', [{ id: 'iss_1', value: {} }])).toThrow(/ledger-owned/)
     expect(() => funnel.record('session', [{ id: 's1', value: {} }])).toThrow(/ledger-owned/)
+    expect(() => funnel.record('conversation', [{ id: 'c1', value: {} }])).toThrow(/ledger-owned/)
     expect(funnel.cursor()).toBe(0)
+  })
+
+  it('a publish spec from run() trips the severance guard AFTER the write (no fan-out)', () => {
+    const { funnel, fanOutSnapshot } = makeFunnel()
+    const write = vi.fn(() => 'written')
+    expect(() => funnel.run({ write, publish: () => spec('c1') })).toThrow(/ledger-owned/)
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(fanOutSnapshot).not.toHaveBeenCalled()
   })
 })
 
@@ -227,14 +221,17 @@ describe('the ordered metadataDelta pipe (#256)', () => {
     return { funnel, sendDelta, appended }
   }
 
-  const up = (seq: number, entity: 'issue' | 'session', id: string): MetadataChange =>
-    ({ seq, entity, id, op: 'upsert', value: { id } }) as MetadataChange
+  const up = (
+    seq: number,
+    entity: 'issue' | 'session' | 'conversation',
+    id: string,
+  ): MetadataChange => ({ seq, entity, id, op: 'upsert', value: { id } }) as MetadataChange
 
-  it('a synchronous burst — ledger batches interleaved with a legacy record — emits as ONE batch in append (= seq) order', () => {
+  it('a synchronous burst of ledger batches — all three entity kinds — emits as ONE batch in append (= seq) order', () => {
     const { funnel, sendDelta, appended } = pipedFunnel()
     appended([up(1, 'session', 's1')])
     appended([up(2, 'issue', 'i1'), up(3, 'issue', 'i2')])
-    funnel.record('conversation', [{ id: 'c1', value: { id: 'c1' } }]) // seq 4, same pipe
+    appended([up(4, 'conversation', 'c1')]) // conversations ride the same pipe (#257)
     appended([up(5, 'session', 's1')])
     expect(sendDelta).not.toHaveBeenCalled() // coalescing: nothing mid-burst
     funnel.flushDeltas()

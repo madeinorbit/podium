@@ -21,6 +21,12 @@ export const ConversationSummaryWire = z.object({
   podiumId: z.string().optional(),
   agentKind: AgentKind,
   title: z.string().optional(),
+  /** Curated display name (user rename via conversations.setMeta). Server-
+   *  enriched from the conversations index — never daemon-originated. Display
+   *  surfaces let it win over the harness `title`, matching search results. */
+  name: z.string().optional(),
+  /** Curated work summary (command center / work-LLM). Server-enriched. */
+  summary: z.string().optional(),
   projectPath: z.string().optional(),
   parentConversationId: z.string().optional(),
   statusHint: z.string().optional(),

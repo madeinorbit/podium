@@ -167,6 +167,25 @@ export class ConversationsRepository {
     })
   }
 
+  /** All curated meta (rows touched by {@link setConversationMeta}) — the wire
+   *  overlay source for broadcasts. Small by construction: only curated rows
+   *  (user renames / work-LLM summaries), never the whole scan index. */
+  curatedConversationMeta(): Map<string, { name?: string; summary?: string }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, name, summary FROM conversations WHERE name IS NOT NULL OR summary IS NOT NULL',
+      )
+      .all() as { id: string; name: string | null; summary: string | null }[]
+    const out = new Map<string, { name?: string; summary?: string }>()
+    for (const r of rows) {
+      out.set(r.id, {
+        ...(r.name != null ? { name: r.name } : {}),
+        ...(r.summary != null ? { summary: r.summary } : {}),
+      })
+    }
+    return out
+  }
+
   /** Persist command-center-generated curation: a good name and/or a state summary. */
   setConversationMeta(id: string, meta: { name?: string; summary?: string }): void {
     const exists = this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)

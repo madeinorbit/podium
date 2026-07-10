@@ -7,6 +7,7 @@ import type {
   ServerMessage,
   TranscriptItem,
 } from '@podium/protocol'
+import type { EntityChangeSpec } from '@podium/sync'
 import { MirrorService } from '@podium/sync'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import type { SessionStore } from '../../store'
@@ -14,15 +15,28 @@ import { TranscriptIndexer } from '../../transcript-indexer'
 
 const MIRROR_READ_TIMEOUT_MS = 10_000
 
+/** The slice of the write-seam Ledger conversation writes go through
+ *  ([spec:SP-3fe2] #257) — structural (like SessionLedger) so tests can fake it. */
+export interface ConversationLedger {
+  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
+    result: T
+    changes: MetadataChange[]
+  }
+  reconcile(entity: 'conversation', rows: { id: string; value: unknown }[]): MetadataChange[]
+}
+
 export interface ConversationsDeps {
   store: SessionStore
   now(): number
-  /** The write funnel's conversation face: oplog append → broadcast (bus + WS). */
-  publish(
-    rows: { id: string; value: ConversationSummaryWire }[],
-    snapshot: ServerMessage,
-    opts?: { snapshotToCapClients?: boolean },
-  ): void
+  /** The write-seam change log ([spec:SP-3fe2] #257): discovery upserts/removes
+   *  and meta curation commit atomically with their store writes; the upstream
+   *  mirror paths reconcile the broadcast union (the write-less full-truth diff,
+   *  removes included — exactly what the legacy broadcast-seam oplog recorded). */
+  ledger: ConversationLedger
+  /** Legacy snapshot fan-out (funnel.publishComputed): the changes were already
+   *  durably appended at the write seam, so this carries NO metadataDelta —
+   *  delta clients get theirs via the funnel's ordered onAppended pipe. */
+  publishSnapshot(snapshot: ServerMessage, opts?: { snapshotToCapClients?: boolean }): void
   /** The registry's shared daemon request/response plumbing. */
   daemonRequest<T>(
     pending: Map<string, (r: T) => void>,
@@ -117,12 +131,27 @@ export class ConversationsService {
       if (localIds.has(c.id)) continue
       this.upstreamConversations.set(c.id, c)
     }
-    this.broadcastConversations()
+    this.publishConversationList()
   }
 
   /** Hub-staleness flip rebroadcast: only meaningful while upstream entries exist. */
   rebroadcastUpstream(): void {
-    if (this.upstreamConversations.size > 0) this.broadcastConversations()
+    if (this.upstreamConversations.size > 0) this.publishConversationList()
+  }
+
+  /** Write-less full-list publish tail for the upstream-mirror paths (mirrors
+   *  issues' publishIssueList, [spec:SP-3fe2] #255/#257): reconcile the local ∪
+   *  upstream UNION against the ledger baseline — the full-truth diff, removes
+   *  included, which is byte-for-byte what the legacy broadcast-seam oplog
+   *  recorded for conversations on every broadcast — then fan the snapshot out.
+   *  The reconcile's appends reach delta clients via the funnel's ordered
+   *  onAppended pipe; broadcastConversations carries only the legacy snapshot. */
+  private publishConversationList(): void {
+    this.deps.ledger.reconcile(
+      'conversation',
+      this.allConversations().map((c) => ({ id: c.id, value: c })),
+    )
+    this.broadcastConversations()
   }
 
   /** A daemon discovery push (scanResult / conversationsChanged): index FIRST so
@@ -147,6 +176,10 @@ export class ConversationsService {
    * reporting machineId so a conversation is attributable to (and resumable on)
    * the machine that owns its on-disk transcript. `removed` drops conversations
    * the daemon reports as deleted (incremental delta indexing).
+   *
+   * Write seam ([spec:SP-3fe2] #257): the store upserts/deletes and their
+   * declared change rows commit in ONE transaction via ledger.commit — the
+   * store methods' own transaction() spans degrade to savepoints inside it.
    */
   private indexConversations(
     conversations: ConversationSummaryWire[],
@@ -191,36 +224,63 @@ export class ConversationsService {
         }),
       )
     }
-    this.deps.store.conversations.upsertConversations(
-      conversations.map((c) => ({
-        id: c.id,
-        agentKind: c.agentKind,
-        providerId: c.providerId,
-        machineId,
-        ...(c.title !== undefined ? { title: c.title } : {}),
-        ...(c.projectPath !== undefined ? { projectPath: c.projectPath } : {}),
-        ...(c.resume ? { resumeKind: c.resume.kind, resumeValue: c.resume.value } : {}),
-        ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
-        ...(c.updatedAt !== undefined ? { updatedAt: c.updatedAt } : {}),
-        ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
-        ...(c.parentConversationId !== undefined
-          ? { parentConversationId: c.parentConversationId }
-          : {}),
-      })),
-    )
-    if (removed.length) this.deps.store.conversations.deleteConversations(removed)
+    // The wire rows this batch broadcasts AND declares to the change log —
+    // identity-stamped and overlaid with curated meta (name/summary already
+    // survive re-discovery in the STORE; the overlay makes them survive on the
+    // WIRE too, so a scan push can never flap the change log against a curated
+    // row by re-committing it meta-less).
+    const curated = this.deps.store.conversations.curatedConversationMeta()
+    const enriched = conversations.map((c) => {
+      const podiumId = podiumIds.get(c.id)
+      const meta = curated.get(c.id)
+      return { ...c, ...(podiumId ? { podiumId } : {}), ...(meta ?? {}) }
+    })
+    this.deps.ledger.commit({
+      write: () => {
+        this.deps.store.conversations.upsertConversations(
+          conversations.map((c) => ({
+            id: c.id,
+            agentKind: c.agentKind,
+            providerId: c.providerId,
+            machineId,
+            ...(c.title !== undefined ? { title: c.title } : {}),
+            ...(c.projectPath !== undefined ? { projectPath: c.projectPath } : {}),
+            ...(c.resume ? { resumeKind: c.resume.kind, resumeValue: c.resume.value } : {}),
+            ...(c.createdAt !== undefined ? { createdAt: c.createdAt } : {}),
+            ...(c.updatedAt !== undefined ? { updatedAt: c.updatedAt } : {}),
+            ...(c.messageCount !== undefined ? { messageCount: c.messageCount } : {}),
+            ...(c.parentConversationId !== undefined
+              ? { parentConversationId: c.parentConversationId }
+              : {}),
+          })),
+        )
+        if (removed.length) this.deps.store.conversations.deleteConversations(removed)
+      },
+      // Declared, never diffed: upserts are the exact rows the broadcast serves;
+      // removes are the daemon-reported deletions. Volatile-only churn
+      // (updatedAt/messageCount/statusHint) dedups via the ledger's built-in
+      // conversation projection — no second projection here.
+      changes: () => [
+        ...enriched.map(
+          (c): EntityChangeSpec => ({ entity: 'conversation', id: c.id, op: 'upsert', value: c }),
+        ),
+        ...removed.map((id): EntityChangeSpec => ({ entity: 'conversation', id, op: 'remove' })),
+      ],
+    })
     // Scan trigger (transcript-mirror spec §2.3): the segments just upserted may have
     // grown/appeared — pull their new bytes into the lake. No-op without a lake dir.
     this.triggerLakeSweep(machineId)
-    return conversations.map((c) => {
-      const podiumId = podiumIds.get(c.id)
-      return podiumId ? { ...c, podiumId } : c
-    })
+    return enriched
   }
 
+  /** Legacy snapshot fan-out ONLY ([spec:SP-3fe2] #257): the changes were
+   *  already durably appended at the write seam (indexConversations commit /
+   *  setConversationMeta commit / publishConversationList reconcile) and reach
+   *  delta clients via the funnel's ordered onAppended pipe — feeding the
+   *  legacy oplog here again would double-append every conversation change. */
   private broadcastConversations(): void {
-    // Local ∪ upstream: hub-mirrored conversations ride the same snapshot + oplog
-    // pipeline as local ones (node-hub-sync §2.3), so node clients see them live.
+    // Local ∪ upstream: hub-mirrored conversations ride the same snapshot + change
+    // log pipeline as local ones (node-hub-sync §2.3), so node clients see them live.
     const conversations = this.allConversations()
     const msg: ServerMessage = {
       type: 'conversationsChanged',
@@ -234,19 +294,41 @@ export class ConversationsService {
     const diagKey = JSON.stringify(this.latestConversationDiagnostics)
     const diagnosticsChanged = diagKey !== this.lastDiagnosticsBroadcast
     this.lastDiagnosticsBroadcast = diagKey
-    this.deps.publish(
-      conversations.map((c) => ({ id: c.id, value: c })),
-      msg,
-      { snapshotToCapClients: diagnosticsChanged },
-    )
+    this.deps.publishSnapshot(msg, { snapshotToCapClients: diagnosticsChanged })
   }
 
   searchConversations(opts: { query?: string; projectPath?: string; limit?: number }) {
     return this.deps.store.conversations.searchConversations(opts)
   }
 
+  /** Curation write (user rename / work-LLM summary). Historically a SILENT
+   *  store write — no change append, no broadcast, so clients only learned via
+   *  their next search query. Now ([spec:SP-3fe2] #257) it commits through the
+   *  write seam (the meta write and its declared change land atomically) and
+   *  fans the snapshot out, mirroring the issue/session commit + snapshot
+   *  pairing. A conversation the broadcast list doesn't carry (not yet
+   *  discovered, or hub-mirrored) commits the write with no declared change —
+   *  there is no wire row for clients to update. */
   setConversationMeta(input: { id: string; name?: string; summary?: string }): void {
-    this.deps.store.conversations.setConversationMeta(input.id, input)
+    const current = this.latestConversations.find((c) => c.id === input.id)
+    const next = current
+      ? {
+          ...current,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.summary !== undefined ? { summary: input.summary } : {}),
+        }
+      : undefined
+    this.deps.ledger.commit({
+      write: () => this.deps.store.conversations.setConversationMeta(input.id, input),
+      changes: () =>
+        next ? [{ entity: 'conversation', id: input.id, op: 'upsert', value: next }] : [],
+    })
+    // Only after the commit landed: future broadcasts/reconciles must carry the
+    // curated wire row (a throw above leaves the in-memory list untouched).
+    if (next) {
+      this.latestConversations = this.latestConversations.map((c) => (c.id === input.id ? next : c))
+    }
+    this.broadcastConversations()
   }
 
   /** The lake maintenance pass behind every scan/attach trigger: mirror-pull the

@@ -237,20 +237,21 @@ export class SessionRegistry {
       publish: () => publisher.publishIssues(publisher.safeIssuesList()),
       upstreamStale: () => sessionsSvc.isUpstreamStale(),
     })
-    // The write-seam change log ([spec:SP-3fe2] #255/#256): issue AND session
-    // writes append their change rows ATOMICALLY with the entity write (one
-    // transact span on the shared connection); the legacy broadcast-seam oplog
-    // inside the funnel keeps owning conversations (P2e takes those). Same
-    // changes table + seq sequence — changesSince consumers see one unified feed.
+    // The write-seam change log ([spec:SP-3fe2] #255/#256/#257): issue, session
+    // AND conversation writes append their change rows ATOMICALLY with the
+    // entity write (one transact span on the shared connection); the legacy
+    // broadcast-seam oplog inside the funnel records nothing anymore (P2f
+    // deletes it). Same changes table + seq sequence — changesSince consumers
+    // see one unified feed.
     const ledger = new Ledger({
       repo: this.store.sync,
       now: () => this.now(),
       transact: (fn) => this.store.transact(fn),
     })
     // THE write funnel (modules/funnel): authorize → repo write → change append →
-    // broadcast. Owns the legacy conversation oplog, bridges ledger appends onto
-    // the bus, and runs THE ordered metadataDelta pipe (#256) — sendDelta is the
-    // one seam deltas reach clients through.
+    // broadcast. Bridges ledger appends onto the bus and runs THE ordered
+    // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
+    // clients through. Its legacy oplog is inert (#257; deleted in P2f).
     const funnel = new WriteFunnel({
       store: this.store,
       now: () => this.now(),
@@ -361,7 +362,12 @@ export class SessionRegistry {
       {
         store: this.store,
         now: () => this.now(),
-        publish: (rows, snapshot, opts) => funnel.publish('conversation', rows, snapshot, opts),
+        // Conversation writes commit through the write-seam ledger (#257):
+        // discovery/meta commits + upstream-union reconciles append durably at
+        // the write, then the funnel fans out ONLY the legacy snapshot (delta
+        // clients ride the ordered onAppended pipe).
+        ledger,
+        publishSnapshot: (snapshot, opts) => funnel.publishComputed(snapshot, opts),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
           rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },
