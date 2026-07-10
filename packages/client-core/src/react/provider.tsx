@@ -24,7 +24,14 @@ import {
   useSyncExternalStore,
 } from 'react'
 import type { PodiumClientApi } from '../api'
-import { Outbox, platformIsOnline, platformOnlineEvents } from '../outbox'
+import {
+  defaultFormatError,
+  NOOP_NOTICES,
+  type StoreNotices,
+  type StoreServerConfig,
+  type UserFocus,
+} from '../engine/types'
+import { createEngineHub, createEngineOutbox } from '../engine/wiring'
 import { useReplicaRows } from '../replica/react'
 import { createReplica, type Replica, type UiState } from '../replica/replica'
 import {
@@ -54,36 +61,9 @@ import {
 } from '../viewmodels'
 import { useMarkReadOnView } from './use-mark-read-on-view'
 
-/** The two endpoints the shared store needs to reach a Podium server. */
-export interface StoreServerConfig {
-  httpOrigin: string
-  wsClientUrl: string
-}
-
-/** UI-notice seam: web wires this to sonner toasts; mobile to its own surface. */
-export interface StoreNotices {
-  error(message: string): void
-  info(message: string, description?: string): void
-}
-
-const NOOP_NOTICES: StoreNotices = { error: () => {}, info: () => {} }
-
-function defaultFormatError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) return error.message
-  if (typeof error === 'string' && error.trim()) return error
-  return fallback
-}
-
-/** What this client has on screen, sent with every superagent turn (#225). Mirrors
- *  the server's `UserFocus` zod schema (apps/server/src/modules/superagent/global.ts). */
-export interface UserFocus {
-  view?: MainView
-  worktreePath?: string
-  issueId?: string
-  focusedSessionId?: string
-  visibleSessionIds?: string[]
-  filePath?: string
-}
+// Shared engine seams (#262): types live with the engine; re-exported here so
+// the react entrypoint's public surface is unchanged.
+export type { StoreNotices, StoreServerConfig, UserFocus } from '../engine/types'
 
 export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   hub: SocketHub
@@ -325,24 +305,6 @@ function readStoredPanelModes(ui: UiState): Record<string, 'chat' | 'native'> {
   }
 }
 
-/** Outboxed mutation kinds → their tRPC inputs (docs/spec/outbox-write-path.md
- *  §2.3). Each executor replays with the entry's stable mutationId, so the
- *  server dedupes across reload/reconnect. Pins/tab-orders/sidebar-settings
- *  stay direct (low offline value); sendText stays direct too — live chat must
- *  fail fast, not silently queue. */
-type OutboxKinds = {
-  resumeAndSend: { sessionId: string; text: string }
-  rename: { sessionId: string; name: string }
-  setArchived: { sessionId: string; archived: boolean }
-  setWorkState: { sessionId: string; workState: WorkState | null }
-  snoozeSet: { sessionId: string; until: string | null }
-  snoozeClear: { sessionId: string }
-  sessionMarkRead: { sessionId: string }
-  sessionMarkUnread: { sessionId: string }
-  issueMarkRead: { id: string }
-  issueMarkUnread: { id: string }
-}
-
 /** Stable empty set so `pendingSpawnIds` keeps identity when nothing is pending. */
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set()
 
@@ -383,58 +345,14 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // replica (in-memory in private mode — same seam, best-effort durability).
   const ui = useMemo(() => replica.uiState(), [replica])
   const hub = useMemo(
-    () =>
-      new SocketHub({
-        url: config.wsClientUrl,
-        viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
-        onError: (message) => onFatalError(message),
-        // Opts the hub into metadata delta mode (docs/spec/oplog-read-path.md):
-        // session/issue/conversation updates arrive as per-entity oplog changes,
-        // with (re)connect catch-up healed through this query.
-        fetchChangesSince: (cursor) => trpc.sync.changesSince.query({ cursor }),
-        // Resume across reloads: the replica's persisted cursor makes the first
-        // catch-up a delta instead of a full snapshot (null on a cold client).
-        initialCursor: replica.getCursor(),
-        // Persist-after-apply: mirror every applied metadata batch into the
-        // replica, entities first, cursor after (replica upholds the ordering).
-        onMetadataApplied: (state) => {
-          replica.applySnapshot('sessions', state.sessions)
-          replica.applySnapshot('issues', state.issues)
-          replica.applySnapshot('conversations', state.conversations)
-          replica.setCursor(state.cursor)
-        },
-      }),
+    () => createEngineHub({ wsClientUrl: config.wsClientUrl, api: trpc, replica, onFatalError }),
     [config.wsClientUrl, onFatalError, trpc, replica],
   )
   // Durable write path for the covered mutations: optimistic local apply stays in
   // each store method; the server round-trip goes through the outbox so an offline
   // write survives a reload and replays (deduped by mutationId) on reconnect.
   const outbox = useMemo(
-    () =>
-      new Outbox<OutboxKinds>({
-        isOnline: platformIsOnline,
-        onlineEvents: platformOnlineEvents(),
-        // One persistence layer: the queue persists into a replica collection
-        // (cross-tab consistent via storage events; in-memory in private mode);
-        // the drain/retry/poison logic is unchanged.
-        storage: replica.outboxStorage(),
-        executors: {
-          resumeAndSend: (i) => trpc.sessions.resumeAndSend.mutate(i),
-          rename: (i) => trpc.sessions.rename.mutate(i),
-          setArchived: (i) => trpc.sessions.setArchived.mutate(i),
-          setWorkState: (i) => trpc.sessions.setWorkState.mutate(i),
-          snoozeSet: (i) => trpc.snoozes.set.mutate(i),
-          snoozeClear: (i) => trpc.snoozes.clear.mutate(i),
-          sessionMarkRead: (i) => trpc.sessions.markRead.mutate(i),
-          sessionMarkUnread: (i) => trpc.sessions.markUnread.mutate(i),
-          issueMarkRead: (i) => trpc.issues.markRead.mutate(i),
-          issueMarkUnread: (i) => trpc.issues.markUnread.mutate(i),
-        },
-        // A poison entry (server-side validation reject) can never sync — it's
-        // dropped, and the toast is the honesty about that.
-        onPoison: (entry) =>
-          notices.error(`A queued change (${entry.kind}) was rejected by the server and dropped`),
-      }),
+    () => createEngineOutbox({ api: trpc, replica, notices }),
     [trpc, replica, notices],
   )
   const [outboxSize, setOutboxSize] = useState(0)

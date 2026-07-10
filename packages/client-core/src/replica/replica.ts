@@ -93,6 +93,14 @@ export interface Replica {
    *  ONLY by `useReplicaRows` below (typed `unknown` so no TanStack type leaks
    *  through the interface). */
   collection(kind: ReplicaKind): unknown
+  /** Non-React read seam (#262 [spec:SP-3fe2]): the current rows for `kind`.
+   *  Returns a stable shared empty array while the collection is empty so
+   *  engine snapshots don't churn pre-hydrate. Never throws. */
+  rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][]
+  /** Non-React change seam (#262): fires on any change to `kind`'s collection
+   *  (including cross-tab storage events) — the engine re-reads `rows()` then.
+   *  Returns the unsubscribe function. Never throws. */
+  subscribeRows(kind: ReplicaKind, cb: () => void): () => void
   /** P6b outbox consolidation: an `OutboxStorage` backed by a replica collection
    *  (`<prefix>.outbox.v1`), so the offline queue shares the ONE persistence
    *  layer and gets cross-tab consistency from the lib's `storage` events. The
@@ -232,6 +240,9 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 
 /** Entity collection kinds + transcripts — everything the quota guard covers. */
 const ENTITY_STORE_KINDS = ['sessions', 'issues', 'conversations', 'transcripts'] as const
+
+/** Shared empty-rows identity for `rows()` (see the interface note). */
+const EMPTY_ROWS: never[] = []
 
 class TanstackReplica implements Replica {
   readonly persistent: boolean
@@ -453,6 +464,26 @@ class TanstackReplica implements Replica {
 
   collection(kind: ReplicaKind): unknown {
     return this.cols[kind]
+  }
+
+  rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
+    try {
+      const rows = this.cols[kind].toArray as ReplicaRows[K][]
+      // Stable empty identity so downstream identity checks don't churn pre-hydrate
+      // (mirrors useReplicaRows' EMPTY_ROWS).
+      return rows.length === 0 ? (EMPTY_ROWS as ReplicaRows[K][]) : rows
+    } catch {
+      return EMPTY_ROWS as ReplicaRows[K][]
+    }
+  }
+
+  subscribeRows(kind: ReplicaKind, cb: () => void): () => void {
+    try {
+      const sub = this.cols[kind].subscribeChanges(() => cb())
+      return () => sub.unsubscribe()
+    } catch {
+      return () => {}
+    }
   }
 
   outboxStorage(): OutboxStorage {
