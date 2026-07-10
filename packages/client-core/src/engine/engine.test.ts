@@ -196,7 +196,13 @@ function makeRouterWindow(initialUrl: string): {
 }
 
 function makeEngine(
-  opts: { url?: string; api?: unknown; hub?: FakeHub; storage?: StorageApi } = {},
+  opts: {
+    url?: string
+    api?: unknown
+    hub?: FakeHub
+    storage?: StorageApi
+    spawnConfirmGraceMs?: number
+  } = {},
 ) {
   const hub = opts.hub ?? new FakeHub()
   const rw = makeRouterWindow(opts.url ?? '/')
@@ -210,6 +216,9 @@ function makeEngine(
     createReplicaFn: () => createReplica({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
+    ...(opts.spawnConfirmGraceMs !== undefined
+      ? { spawnConfirmGraceMs: opts.spawnConfirmGraceMs }
+      : {}),
   })
   return { engine, hub, rw, fatals, errors }
 }
@@ -675,6 +684,58 @@ describe('unified optimistic overlay (#263 review fixes)', () => {
     await settle()
     expect(row()?.workState).toBe('done')
     expect(engine.outbox.awaiting()).toEqual([])
+    engine.dispose()
+  })
+})
+
+describe('spawn transport failure (#263 review finding 4)', () => {
+  const spawnApi = () => {
+    const api = makeApi()
+    api.sessions.resumeAndSend = { mutate: vi.fn(async () => ({})) }
+    return api
+  }
+
+  it('a failure AFTER the session row landed is success: no toast, no rollback', async () => {
+    const api = spawnApi()
+    const holder: { engine?: ReturnType<typeof makeEngine>['engine'] } = {}
+    api.sessions.create = {
+      mutate: vi.fn(async (input: { sessionId: string }) => {
+        // The broadcast minted the row server-side; only the response is lost.
+        holder.engine?.replica.applyChanges('sessions', [session(input.sessionId, '/w')], [])
+        throw new Error('transport lost')
+      }),
+    }
+    const made = makeEngine({ api, spawnConfirmGraceMs: 30 })
+    holder.engine = made.engine
+    made.engine.start()
+    await settle(40)
+    const ids = made.engine
+      .getSnapshot()
+      .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'claude-code' })
+    await settle(80) // past the grace too — the outcome must be stable
+    expect(made.errors).toEqual([]) // no "Couldn't start" cry-wolf
+    expect(made.engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
+    made.engine.dispose()
+  })
+
+  it('a create that never produced the row rolls back + toasts after the grace', async () => {
+    const api = spawnApi()
+    api.sessions.create = {
+      mutate: vi.fn(async () => {
+        throw new Error('daemon offline')
+      }),
+    }
+    const { engine, errors } = makeEngine({ api, spawnConfirmGraceMs: 30 })
+    engine.start()
+    await settle(40)
+    const ids = engine
+      .getSnapshot()
+      .spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'claude-code' })
+    expect(engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(true)
+    await settle(80) // rejection + grace elapsed, still no row
+    expect(engine.getSnapshot().sessions.some((s) => s.sessionId === ids.sessionId)).toBe(false)
+    expect(engine.getSnapshot().issues.some((i) => i.id === ids.issueId)).toBe(false)
+    expect(errors.some((m) => m.includes("Couldn't start"))).toBe(true)
     engine.dispose()
   })
 })

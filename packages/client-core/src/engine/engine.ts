@@ -101,6 +101,12 @@ import { type CreateHub, createEngineHub, createEngineOutbox, type OutboxKinds }
  *  every frame), short enough that a glance clears the nag promptly. */
 export const MARK_READ_ON_VIEW_MS = 1200
 
+/** How long a FAILED spawn create waits for the session broadcast before it is
+ *  treated as definitive (#263 review finding 4): the create can reach the
+ *  server and mint the row while the HTTP response is lost — rolling back /
+ *  toasting on such a rejection cries wolf over a session that exists. */
+export const SPAWN_CONFIRM_GRACE_MS = 2000
+
 const tabIsVisible = (): boolean =>
   typeof document === 'undefined' || document.visibilityState === 'visible'
 
@@ -119,6 +125,8 @@ export interface EngineInit<TApi extends PodiumClientApi> {
   routerWindow?: RouterWindow
   /** Test seam: replaces SocketHub construction (engine unit tests inject a fake). */
   createHub?: CreateHub
+  /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
+  spawnConfirmGraceMs?: number
 }
 
 /** The engine's mutable data slices — exactly the non-function fields of Store
@@ -193,6 +201,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
    *  on recomputes, which only fire on replica/outbox changes — a row that
    *  never changes again would otherwise keep a stuck entry painted forever. */
   private awaitingSweepTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly spawnConfirmGraceMs: number
   /** Effective rendered mode per session (what AgentPanel actually shows),
    *  reported up the viewState channel. Not in the snapshot — only the setter
    *  is public — and not persisted (re-reported on mount from live state). */
@@ -215,6 +224,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.onFatalError = init.onFatalError
     this.formatError = init.formatError ?? defaultFormatError
     this.httpOrigin = init.config.httpOrigin
+    this.spawnConfirmGraceMs = init.spawnConfirmGraceMs ?? SPAWN_CONFIRM_GRACE_MS
     // Persistent local replica (docs/spec/thin-client-replica.md). Constructed
     // synchronously so its persisted cursor can seed the hub's first
     // changesSince; entity hydration happens async in start().
@@ -1154,14 +1164,33 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           agentKind: args.agentKind,
           firstPrompt: args.firstPrompt,
         }).catch((err) => {
-          this.spawnOverlays = this.spawnOverlays.filter(
-            (o) => o.id !== sessionId && o.id !== issueId,
-          )
-          this.recomputeSessions()
-          this.recomputeIssues()
-          this.notices.error(
-            `Couldn't start the agent — ${err instanceof Error ? err.message : 'unknown error'}`,
-          )
+          // A rejection is NOT definitive once the create may have reached the
+          // server (#263 review finding 4): the broadcast can mint the real
+          // row while the HTTP response is lost. If the session row (client-
+          // minted id) is already in the replica — or arrives within a short
+          // grace — the spawn SUCCEEDED: no toast, no rollback (the insert
+          // overlay already retired against the real row).
+          const arrived = (): boolean => this.baseSessions.some((s) => s.sessionId === sessionId)
+          const settleFailure = (): void => {
+            if (arrived()) {
+              console.debug(
+                '[podium] spawn transport failed after the session was created — treating as success',
+                sessionId,
+                err,
+              )
+              return
+            }
+            this.spawnOverlays = this.spawnOverlays.filter(
+              (o) => o.id !== sessionId && o.id !== issueId,
+            )
+            this.recomputeSessions()
+            this.recomputeIssues()
+            this.notices.error(
+              `Couldn't start the agent — ${err instanceof Error ? err.message : 'unknown error'}`,
+            )
+          }
+          if (arrived()) settleFailure()
+          else setTimeout(settleFailure, this.spawnConfirmGraceMs)
         })
         return { sessionId, issueId }
       },
