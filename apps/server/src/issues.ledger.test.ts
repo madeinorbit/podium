@@ -14,6 +14,9 @@ import { SessionStore } from './store'
  */
 
 function harness() {
+  // Mutable wall clock: the in-place-rollback tests advance it so a missing
+  // updatedAt restore is a REAL wire difference the reconcile would append.
+  let wallClock = '2026-07-01T00:00:00.000Z'
   const store = new SessionStore(':memory:')
   const ledger = new Ledger({
     repo: store.sync,
@@ -47,9 +50,18 @@ function harness() {
     },
     ledger,
     publishSpecs: plumbing.publishSpecs,
-    now: () => '2026-07-01T00:00:00.000Z',
+    now: () => wallClock,
   }
-  return { store, ledger, published, appended, svc: new IssueService(deps) }
+  return {
+    store,
+    ledger,
+    published,
+    appended,
+    svc: new IssueService(deps),
+    setNow: (iso: string) => {
+      wallClock = iso
+    },
+  }
 }
 
 /** Replica-style fold: apply a change stream to an id → value map. */
@@ -162,6 +174,70 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(ledger.cursor()).toBe(cursorBefore)
     // A subsequent full-list reconcile appends NOTHING — no fabricated upsert
     // for a row the store never accepted.
+    const reconciled = ledger.reconcile(
+      'issue',
+      svc.allWire().map((w) => ({ id: w.id, value: w })),
+    )
+    expect(reconciled).toEqual([])
+    expect(ledger.cursor()).toBe(cursorBefore)
+  })
+
+  it('a failed change append on UPDATE rolls the in-place row mutation back (#247)', () => {
+    const { store, ledger, svc, setNow } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'old title', startNow: false })
+    const cursorBefore = ledger.cursor()
+    setNow('2026-07-01T00:01:00.000Z') // a later stamp must roll back too
+    const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('append failed')
+    })
+    // update() mutates the MAP-OWNED row object in place BEFORE the commit;
+    // persistWith's backup seam must roll those fields back on the throw.
+    expect(() => svc.update(wire.id, { title: 'phantom' })).toThrow('append failed')
+    spy.mockRestore()
+    // Memory shows the OLD title (in-place rollback — same object reference)…
+    expect(svc.get(wire.id)?.title).toBe('old title')
+    // …matching the store, whose write rolled back inside the transact span.
+    expect(store.issues.getIssue(wire.id)?.title).toBe('old title')
+    expect(ledger.cursor()).toBe(cursorBefore)
+    // A follow-up full-list reconcile appends NOTHING — the phantom title is
+    // gone from memory, so nothing fabricates a durable upsert for it.
+    const reconciled = ledger.reconcile(
+      'issue',
+      svc.allWire().map((w) => ({ id: w.id, value: w })),
+    )
+    expect(reconciled).toEqual([])
+    expect(ledger.cursor()).toBe(cursorBefore)
+    // A successful retry then works end to end.
+    const retried = svc.update(wire.id, { title: 'new title' })
+    expect(retried.title).toBe('new title')
+    expect(svc.get(wire.id)?.title).toBe('new title')
+    expect(store.issues.getIssue(wire.id)?.title).toBe('new title')
+    const healed = ledger.changesSince(cursorBefore) ?? []
+    expect(
+      healed.some(
+        (c) =>
+          c.id === wire.id &&
+          c.op === 'upsert' &&
+          (c.value as { title?: string }).title === 'new title',
+      ),
+    ).toBe(true)
+  })
+
+  it('a failed extra-write commit (setLabels) restores updatedAt and leaves no phantom label (#247)', () => {
+    const { store, ledger, svc, setNow } = harness()
+    const wire = svc.create({ repoPath: '/r', title: 'labelled', startNow: false })
+    const updatedAtBefore = svc.get(wire.id)?.updatedAt
+    const cursorBefore = ledger.cursor()
+    setNow('2026-07-01T00:01:00.000Z')
+    const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('append failed')
+    })
+    expect(() => svc.setLabels(wire.id, ['urgent'])).toThrow('append failed')
+    spy.mockRestore()
+    // The label write rolled back with the row, and the in-place updatedAt
+    // stamp was restored — a reconcile sees byte-identical wire truth.
+    expect(store.issues.getIssueLabels(wire.id)).toEqual([])
+    expect(svc.get(wire.id)?.updatedAt).toBe(updatedAtBefore)
     const reconciled = ledger.reconcile(
       'issue',
       svc.allWire().map((w) => ({ id: w.id, value: w })),

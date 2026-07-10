@@ -299,17 +299,36 @@ export abstract class IssueServiceCore {
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
   protected persistWith(row: IssueRow, extraWrite?: () => void): IssueWire {
+    // In-place rollback seam (#247): for an EXISTING issue, `row` is the
+    // MAP-OWNED object and every mutation path (update()'s Object.assign,
+    // setState/panelApply/markIssueRead/undefer/workflow's field writes, plus
+    // the updatedAt stamp below) mutates it in place BEFORE the commit. A
+    // commit throw rolls the durable write back, but the object would keep the
+    // new fields — and the next full-list reconcile would durably publish the
+    // phantom. Snapshot the last-COMMITTED field state (the store's current
+    // row — exactly what sqlite rolls back to; it also covers mutations the
+    // caller made before entering this seam) and, on a throw, restore it INTO
+    // THE SAME object reference so every holder of the row sees the rollback.
+    // A brand-new row has no committed state (backup null): the post-commit
+    // rows.set() below is what keeps a failed create out of the map.
+    const backup = this.deps.store.issues.getIssue(row.id)
     row.updatedAt = this.now()
-    const { result: wire } = this.deps.ledger.commit({
-      write: () => {
-        extraWrite?.()
-        this.deps.store.issues.upsertIssue(row)
-        // toWire never looks `row` itself up in the map (children/blocked scan
-        // OTHER rows), so it is safe to serialize before the map install below.
-        return this.toWire(row)
-      },
-      changes: (wire) => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
-    })
+    let wire: IssueWire
+    try {
+      wire = this.deps.ledger.commit({
+        write: () => {
+          extraWrite?.()
+          this.deps.store.issues.upsertIssue(row)
+          // toWire never looks `row` itself up in the map (children/blocked scan
+          // OTHER rows), so it is safe to serialize before the map install below.
+          return this.toWire(row)
+        },
+        changes: (w) => [{ entity: 'issue', id: row.id, op: 'upsert', value: w }],
+      }).result
+    } catch (err) {
+      if (backup) Object.assign(row, backup)
+      throw err
+    }
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
