@@ -62,7 +62,7 @@ export async function browseDirectories(
 /** The longest repo root among `roots` that contains `path` (cwd → repo inference).
  *  A root `r` contains `path` iff `path === r` or `path` starts with `r + '/'`,
  *  so `/a` does not match `/ab`. Pure — shared by RepoRegistry and the in-process
- *  issue command service (modules/issues/commands). */
+ *  issue command dispatcher (modules/issues/registry). */
 export function inferRepoFromRoots(roots: string[], path: string): string | undefined {
   const normalizedPath = normalizeRepoPath(path)
   return roots

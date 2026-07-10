@@ -1,8 +1,10 @@
 /**
  * Issue-tracker authorization — server enforcement over the PURE policy in
- * @podium/domain (roles/scopes/`authorize`, PROC_ACTION, SCOPED_TARGET all live
- * there; re-exported here for the server's existing import sites). This module
- * keeps only the transport-shaped gate: `checkIssueAccess` throws TRPCError.
+ * @podium/domain (roles/scopes/`authorize` live there; re-exported here for the
+ * server's existing import sites). Per-command action/target declarations live
+ * ON the command registry definitions (modules/issues/registry.ts, #248). This
+ * module keeps only the transport-shaped gate: `checkIssueAccess` throws
+ * TRPCError.
  */
 
 import { authorize, type Capability, type IssueAccessIndex, type IssueAction } from '@podium/domain'
@@ -17,8 +19,6 @@ export {
   type IssueRole,
   type IssueScope,
   OPERATOR,
-  PROC_ACTION,
-  SCOPED_TARGET,
 } from '@podium/domain'
 
 /**

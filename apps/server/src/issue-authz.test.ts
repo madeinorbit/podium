@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { authorize, type Capability, OPERATOR, PROC_ACTION } from './issue-authz'
+import { authorize, type Capability, OPERATOR } from './issue-authz'
+import { issueRegistry } from './modules/issues/registry'
 
 describe('OPERATOR', () => {
   it('is an unconstrained admin over all issues', () => {
@@ -8,20 +9,24 @@ describe('OPERATOR', () => {
   })
 })
 
-describe('PROC_ACTION mapping', () => {
-  it('maps the structural/destructive procs to manage', () => {
-    for (const p of ['delete', 'archive', 'setLabels', 'reparent', 'supersede']) {
-      expect(PROC_ACTION[p]).toBe('manage')
+// The old PROC_ACTION string map is gone (#248): the action lives ON each
+// registry definition. These pins keep the classification itself stable.
+describe('registry action classification', () => {
+  it('classifies the structural/destructive commands as manage', () => {
+    for (const p of ['delete', 'archive', 'setLabels', 'reparent', 'supersede'] as const) {
+      expect(issueRegistry.defs[p].action).toBe('manage')
     }
   })
-  it('maps the work procs to write (create is additive ⇒ write)', () => {
-    for (const p of ['create', 'update', 'claim', 'addComment', 'close', 'depAdd']) {
-      expect(PROC_ACTION[p]).toBe('write')
+  it('classifies the work commands as write (create is additive ⇒ write)', () => {
+    for (const p of ['create', 'update', 'claim', 'addComment', 'close', 'depAdd'] as const) {
+      expect(issueRegistry.defs[p].action).toBe('write')
     }
   })
-  it('leaves queries unlisted (⇒ read by default)', () => {
-    expect(PROC_ACTION.list).toBeUndefined()
-    expect(PROC_ACTION.show).toBeUndefined()
+  it('classifies queries as read (explicit now — no unlisted-defaults-to-read)', () => {
+    expect(issueRegistry.defs.list.action).toBe('read')
+    expect(issueRegistry.defs.get.action).toBe('read')
+    // 'show' is a CLI presentation verb, not a registry command.
+    expect(issueRegistry.defs).not.toHaveProperty('show')
   })
 })
 
@@ -62,7 +67,7 @@ describe('authorize', () => {
     expect(authorize(admin, 'manage', { id: 'B' })).toBe('allow')
   })
   it('create is a write action (workers may create)', () => {
-    expect(PROC_ACTION.create).toBe('write')
+    expect(issueRegistry.defs.create.action).toBe('write')
   })
   it('override never bypasses a role denial', () => {
     expect(authorize(viewer, 'write', { id: 'X' }, { override: true })).toBe('forbidden')

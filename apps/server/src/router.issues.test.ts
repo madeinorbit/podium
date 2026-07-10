@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type Capability, OPERATOR, PROC_ACTION } from './issue-authz'
+import { type Capability, OPERATOR } from './issue-authz'
+import { issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
-import { appRouter, SCOPED_TARGET } from './router'
+import { appRouter } from './router'
 
 function inputSchema(path: string) {
   // tRPC stores the parsed input parser on the procedure's _def.
@@ -138,7 +139,10 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
     const wt = registry.issues.get(i.id)!.worktreePath as string
 
-    const { sessionId: sid } = registry.modules.sessions.createSession({ cwd: wt, agentKind: 'shell' })
+    const { sessionId: sid } = registry.modules.sessions.createSession({
+      cwd: wt,
+      agentKind: 'shell',
+    })
     const cap = registry.modules.sessions.capabilityForSession(sid)
     // actorSessionId is stamped so close/unblock events can name their causer (#116).
     expect(cap).toEqual({
@@ -147,7 +151,10 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
       actorSessionId: sid,
     })
 
-    const { sessionId: sid2 } = registry.modules.sessions.createSession({ cwd: '/unowned', agentKind: 'shell' })
+    const { sessionId: sid2 } = registry.modules.sessions.createSession({
+      cwd: '/unowned',
+      agentKind: 'shell',
+    })
     expect(registry.modules.sessions.capabilityForSession(sid2)).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
@@ -162,53 +169,60 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
   })
 })
 
-// Structural guarantee: the scope gate only runs for procs listed in SCOPED_TARGET, so a
-// new write/manage proc that mutates an EXISTING issue must have an extractor or it silently
-// escapes the subtree check. Tie coverage to PROC_ACTION so the omission fails CI, not review.
+// Structural guarantee: the scope gate only runs for defs that carry a `target`
+// extractor, so a new write/manage command that mutates an EXISTING issue must
+// declare one or it silently escapes the subtree check. The registry replaced
+// the PROC_ACTION/SCOPED_TARGET string maps — coverage now reads the defs.
 describe('scope-gate coverage (P1b)', () => {
-  // Procs that mutate but have NO single existing-issue target (additive / not-an-issue):
+  // Commands that mutate but have NO single existing-issue target (additive / not-an-issue):
   // attachSession is a deliberate exemption: the session re-homes itself onto an
   // issue OUTSIDE its subtree by design (issue-as-workspace), so no scope gate.
   const NO_TARGET = new Set([
     'create',
     'linearSearch',
     'attachSession',
-    // mailSend is deliberately cross-scope (append-only mailbox; see issue-authz.ts) —
+    // mailSend is deliberately cross-scope (append-only mailbox; see the registry) —
     // like create, a write with no EXISTING-target extractor.
     'mailSend',
     // subscription add/remove act on the CALLER's own subscriptions (subscriber =
-    // the caller); the source-within-subtree check runs in the proc itself (the
+    // the caller); the source-within-subtree check runs in the handler itself (the
     // input has no single existing-issue target the guard could extract).
     'subscriptionAdd',
     'subscriptionRemove',
     // subscriptionSetEnabled targets a subscription id, not an issue; the
-    // own-or-operator check runs in the proc itself.
+    // own-or-operator check runs in the handler itself.
     'subscriptionSetEnabled',
   ])
 
-  it('every write/manage proc that targets an existing issue is scope-gated', () => {
-    const need = Object.entries(PROC_ACTION)
-      .filter(([, a]) => a === 'write' || a === 'manage')
+  it('every write/manage command that targets an existing issue is scope-gated', () => {
+    const need = Object.entries(issueRegistry.defs)
+      .filter(([, d]) => d.action === 'write' || d.action === 'manage')
       .map(([p]) => p)
       .filter((p) => !NO_TARGET.has(p))
-    const missing = need.filter((p) => !Object.hasOwn(SCOPED_TARGET, p))
+    const missing = need.filter(
+      (p) => issueRegistry.defs[p as keyof typeof issueRegistry.defs].target === undefined,
+    )
     expect(missing).toEqual([])
   })
 
   // The other half of the completeness pair (#25): every issues.* MUTATION the
-  // router actually exposes must be declared in PROC_ACTION (unlisted ⇒ 'read',
-  // which would silently open a write to viewers). A new proc fails HERE, not in
-  // review. Enumerated from the router itself so the two can't drift.
+  // router actually exposes must carry write/manage authority — a 'read'-tier
+  // mutation would silently open a write to viewers. The only exemptions are the
+  // documented read-authority bookkeeping mutations. Enumerated from the router
+  // itself so the registry and the mounted surface can't drift.
   const READ_AUTHORITY_MUTATIONS = new Set([
     // markRead is a mutation in transport only — reading an issue marks it read,
-    // so it deliberately carries 'read' authority (see the router proc comment).
+    // so it deliberately carries 'read' authority (see the registry def comment).
     'markRead',
     // markUnread (#138) is the same read-tracking bookkeeping in reverse — also
     // node-local, never hub-forwarded, 'read' authority only.
     'markUnread',
+    // mailInbox mutates (listing consumes unread status) but is authz-wise a read:
+    // mailbox bookkeeping on behalf of the reader — viewers may check mail.
+    'mailInbox',
   ])
 
-  it('every issues.* mutation exposed by the router is declared in PROC_ACTION', () => {
+  it('every issues.* mutation exposed by the router carries write/manage authority', () => {
     const procedures = (
       appRouter as unknown as {
         _def: { procedures: Record<string, { _def: { type: string } }> }
@@ -218,12 +232,13 @@ describe('scope-gate coverage (P1b)', () => {
       .filter(([name, p]) => name.startsWith('issues.') && p._def.type === 'mutation')
       .map(([name]) => name.slice('issues.'.length))
     expect(mutations.length).toBeGreaterThan(20) // the enumeration actually works
+    const defs = issueRegistry.defs as Record<string, { action: string }>
     const missing = mutations.filter(
-      (p) => !Object.hasOwn(PROC_ACTION, p) && !READ_AUTHORITY_MUTATIONS.has(p),
+      (p) => defs[p]?.action !== 'write' && defs[p]?.action !== 'manage',
     )
-    expect(missing).toEqual([])
-    // And nothing hides behind the exemption list while ALSO being declared.
-    for (const p of READ_AUTHORITY_MUTATIONS) expect(PROC_ACTION[p]).toBeUndefined()
+    expect(missing.sort()).toEqual([...READ_AUTHORITY_MUTATIONS].sort())
+    // And every exempted command really is declared 'read', not merely missing.
+    for (const p of READ_AUTHORITY_MUTATIONS) expect(defs[p]?.action).toBe('read')
   })
 })
 

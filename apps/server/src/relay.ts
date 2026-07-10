@@ -9,8 +9,8 @@ import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
-import { IssueCommandService } from './modules/issues/commands'
 import { IssuePublisher } from './modules/issues/publish'
+import { IssueCommandDispatcher } from './modules/issues/registry'
 import { IssueRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { UpstreamIssuesService } from './modules/issues/upstream'
@@ -90,7 +90,7 @@ export interface RegistryModules {
   issues: IssueService
   upstreamIssues: UpstreamIssuesService
   issuePublisher: IssuePublisher
-  issueCommands: IssueCommandService
+  issueCommands: IssueCommandDispatcher
   specs: SpecsService
 }
 
@@ -140,9 +140,9 @@ export class SessionRegistry {
   readonly modules: RegistryModules
   /** The issue tracker, aliased for ergonomics (≡ modules.issues). */
   readonly issues: IssueService
-  /** In-process issue command surface (≡ modules.issueCommands) — serves the
-   *  daemon relay + MCP with router-equal authz. */
-  readonly issueCommands: IssueCommandService
+  /** In-process issue command surface (≡ modules.issueCommands) — the registry
+   *  dispatcher serving the daemon relay + MCP with router-equal authz. */
+  readonly issueCommands: IssueCommandDispatcher
 
   /** Steward trigger queue over the event log; polls only while settings-enabled. */
   private readonly steward: StewardService
@@ -269,7 +269,7 @@ export class SessionRegistry {
         funnel.publishComputed(spec.snapshot)
       },
     })
-    const issueCommands = new IssueCommandService({
+    const issueCommands = new IssueCommandDispatcher({
       issues: () => issues,
       isUpstreamIssue: (id) => upstreamIssues.isUpstreamIssue(id),
       forwardIssueMutation: (proc, input) => upstreamIssues.forwardIssueMutation(proc, input),
@@ -283,30 +283,20 @@ export class SessionRegistry {
       repoRoots: () => this.store.repos.listRepoPaths(),
     })
     const issueRelayGate = new IssueRelayGate({
-      // issues/repos procs come from the capability-scoped command service; the
-      // specs router (pspec, #135) is served by the specs module — same schemas +
-      // repo-root gate as the tRPC slice (RELAY_ALLOWED lists all three routers).
-      caller: (capability, overrideScope) => {
-        const base = issueCommands.callerFor(capability, overrideScope)
-        return new Proxy(
-          {},
-          {
-            get: (_t, router) => {
-              if (router === 'specs') {
-                return new Proxy(
-                  {},
-                  {
-                    get: (_t2, proc) => {
-                      if (typeof proc !== 'string' || !specs.has(proc)) return undefined
-                      return (input: unknown) => specs.invoke(proc, input) as Promise<unknown>
-                    },
-                  },
-                )
-              }
-              return typeof router === 'string' ? base[router] : undefined
-            },
-          },
-        ) as never
+      // issues/repos ops run through the registry dispatcher (guard + schema +
+      // handler, router-equal); the specs router (pspec, #135) is served by the
+      // specs module — same schemas + repo-root gate as the tRPC slice
+      // (RELAY_ALLOWED lists all three routers).
+      dispatch: (capability, overrideScope, router, proc, input) => {
+        if (router === 'specs') {
+          return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
+        }
+        return issueCommands.dispatch(
+          { capability, ...(overrideScope ? { overrideScope } : {}) },
+          router,
+          proc,
+          input,
+        )
       },
       capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),

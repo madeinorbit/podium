@@ -1,3 +1,4 @@
+import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig } from '@podium/runtime/config'
 import {
@@ -10,8 +11,7 @@ import {
   setUpdateChannel,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
-import { initTRPC, TRPCError } from '@trpc/server'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { accountViews } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
@@ -23,53 +23,23 @@ import {
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
 import { buildJoinCommand } from './hub/machines-join'
-import { type Capability, checkIssueAccess, PROC_ACTION, SCOPED_TARGET } from './issue-authz'
-import { type IssueCaller, issueInputs } from './modules/issues/commands'
+import { issueRegistry } from './modules/issues/registry'
+import { routerFromCommands } from './modules/issues/trpc'
 import { specsInputs } from './modules/specs/service'
-import type { RegistryModules, SessionRegistry } from './relay'
+import { UserFocus } from './modules/superagent'
+import type { RegistryModules } from './relay'
 import { normalizeOriginUrl } from './repo-id'
-import { browseDirectories, type RepoRegistry } from './repo-registry'
-import type { ServerRoleConfig } from './roles'
+import { browseDirectories } from './repo-registry'
 import { isAllowedRoot } from './root-allowlist'
 import { searchAll } from './search'
-import { type SuperagentService, UserFocus } from './modules/superagent'
 
-export interface Context {
-  registry: SessionRegistry
-  repos: RepoRegistry
-  superagent: SuperagentService
-  cloud?: CloudRuntimeProvider
-  /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
-   *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
-  capability: Capability
-  /** Set by the daemon relay when an agent passed --outside-scope, allowing a knowing
-   *  write outside its subtree. Undefined for the operator (/trpc) and the superagent. */
-  overrideScope?: boolean
-  /** Typed accessor to the composed services (issue #13 Phase 2). Optional so
-   *  existing context builders keep working — mods() falls back to the
-   *  registry's own composition. */
-  modules?: RegistryModules
-  /** Runtime role composition (roles.ts): hub-only procs 404 when the hub role
-   *  is off. Optional so existing context builders keep the historical shape
-   *  (absent = core + hub, exactly as before roles existed). */
-  role?: ServerRoleConfig
-}
+// The request Context, the shared `t` instance, and the ctx accessors live in
+// ./trpc so the derived issues router (modules/issues/trpc.ts) shares them
+// without a runtime cycle. Re-exported for existing import sites.
+export { type Context, mods } from './trpc'
 
-/** The typed module seam router procs reach services through (ctx.modules when
- *  the context provides it, else the registry's composed set). */
-function mods(ctx: Context): RegistryModules {
-  return ctx.modules ?? ctx.registry.modules
-}
+import { type Context, mods, t } from './trpc'
 
-/** The caller identity the in-process issue command service authorizes against. */
-function issueCaller(ctx: Context): IssueCaller {
-  return {
-    capability: ctx.capability,
-    ...(ctx.overrideScope !== undefined ? { overrideScope: ctx.overrideScope } : {}),
-  }
-}
-
-const t = initTRPC.context<Context>().create()
 const PinKind = z.enum(['panel', 'worktree', 'repo'])
 const cloudRepoInput = z.object({
   provider: z.literal('github'),
@@ -109,45 +79,6 @@ const cloudMoveSessionInput = z.object({
   hibernateLocal: z.boolean().optional(),
 })
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
-
-// Moved to issue-authz.ts (a leaf module) so relay.ts can share it without importing
-// the router; re-exported here for existing importers/tests.
-export { SCOPED_TARGET } from './issue-authz'
-
-/** Authorize every issues.* call against the caller's capability. The middleware `path`
- *  is e.g. "issues.create"; its last segment is the proc name, mapped to the action it needs
- *  (PROC_ACTION, unlisted ⇒ 'read'). Two gates: (1) a role gate — `authorize` with no issue
- *  denies if the role can't perform the action (⇒ FORBIDDEN); (2) a scope gate — for a
- *  constrained (non-'all') capability writing an EXISTING target issue, resolve the target +
- *  its ancestors and `authorize` against the subtree. Out-of-subtree ⇒ PRECONDITION_FAILED
- *  (the caller may knowingly override via --outside-scope → ctx.overrideScope). Reads and
- *  create (additive, no existing target) are never scope-restricted. */
-const issueCapabilityGuard = t.middleware(async ({ ctx, path, next, getRawInput }) => {
-  const proc = path.split('.').pop() ?? ''
-  const action = PROC_ACTION[proc] ?? 'read'
-  // Target extraction: only for constrained caps writing an existing target issue.
-  const extract = ctx.capability.scope.kind !== 'all' ? SCOPED_TARGET[proc] : undefined
-  let targetId: string | undefined
-  if (extract) {
-    const rawTarget = extract((await getRawInput()) as Record<string, unknown>)
-    // Resolve display refs (#seq) to the internal id BEFORE the subtree check —
-    // scope.rootId is an internal id, so comparing the raw ref would false-negative
-    // on the agent's own bound issue. Scope the resolution to the bound issue's repo
-    // (by repo_id) so a bare `#N` disambiguates to the agent's own repo (#140).
-    const scopeRepoPath =
-      ctx.capability.scope.kind === 'subtree'
-        ? (mods(ctx).issues.get(ctx.capability.scope.rootId)?.repoPath ?? undefined)
-        : undefined
-    targetId =
-      typeof rawTarget === 'string'
-        ? mods(ctx).issues.resolveRef(rawTarget, scopeRepoPath)
-        : rawTarget
-  }
-  // The shared decision + throw shape (#25) — also used by the in-proc mailClaim gate.
-  checkIssueAccess(ctx, mods(ctx).issues, proc, action, targetId)
-  return next()
-})
-const issueProc = t.procedure.use(issueCapabilityGuard)
 
 /** Hub-role gate (roles.ts): fleet admin + pairing procs exist on the wire only
  *  when this process runs the hub role. NOT_FOUND (→ HTTP 404), not FORBIDDEN —
@@ -200,7 +131,9 @@ function inferCloudRepoForSession(
   }
 
   const repoRow =
-    ctx.registry.sessionStore.repos.listRepos(session.machineId).find((row) => row.path === repoPath) ??
+    ctx.registry.sessionStore.repos
+      .listRepos(session.machineId)
+      .find((row) => row.path === repoPath) ??
     ctx.registry.sessionStore.repos.listRepos().find((row) => row.path === repoPath)
   const repo = githubRepoFromOrigin(repoRow?.originUrl)
   if (!repo) {
@@ -1007,218 +940,12 @@ export const appRouter = t.router({
         return { enabled: false }
       }),
   }),
-  // Every issues proc body lives in the in-process command service
-  // (modules/issues/commands) so the daemon relay and the MCP run the SAME
-  // code + authz as this router; the procs here are thin mounts. The
-  // issueCapabilityGuard middleware still gates the HTTP path exactly as before.
-  issues: t.router({
-    list: issueProc
-      .input(issueInputs.list)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.list(issueCaller(ctx), input)),
-    prime: issueProc
-      .input(issueInputs.prime)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.prime(issueCaller(ctx), input)),
-    ready: issueProc
-      .input(issueInputs.ready)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.ready(issueCaller(ctx), input)),
-    blocked: issueProc
-      .input(issueInputs.blocked)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.blocked(issueCaller(ctx), input)),
-    graph: issueProc
-      .input(issueInputs.graph)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.graph(issueCaller(ctx), input)),
-    epicStatus: issueProc
-      .input(issueInputs.epicStatus)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.epicStatus(issueCaller(ctx), input)),
-    children: issueProc
-      .input(issueInputs.children)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.children(issueCaller(ctx), input)),
-    tree: issueProc
-      .input(issueInputs.tree)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.tree(issueCaller(ctx), input)),
-    setState: issueProc
-      .input(issueInputs.setState)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.setState(issueCaller(ctx), input)),
-    panelApply: issueProc
-      .input(issueInputs.panelApply)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.panelApply(issueCaller(ctx), input)),
-    depReport: issueProc
-      .input(issueInputs.depReport)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.depReport(issueCaller(ctx), input)),
-    closeEligibleEpics: issueProc
-      .input(issueInputs.closeEligibleEpics)
-      .query(({ ctx, input }) =>
-        mods(ctx).issueCommands.closeEligibleEpics(issueCaller(ctx), input),
-      ),
-    findDuplicates: issueProc
-      .input(issueInputs.findDuplicates)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.findDuplicates(issueCaller(ctx), input)),
-    stale: issueProc
-      .input(issueInputs.stale)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.stale(issueCaller(ctx), input)),
-    lint: issueProc
-      .input(issueInputs.lint)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.lint(issueCaller(ctx), input)),
-    doctor: issueProc
-      .input(issueInputs.doctor)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.doctor(issueCaller(ctx), input)),
-    preflight: issueProc
-      .input(issueInputs.preflight)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.preflight(issueCaller(ctx), input)),
-    search: issueProc
-      .input(issueInputs.search)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.search(issueCaller(ctx), input)),
-    count: issueProc
-      .input(issueInputs.count)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.count(issueCaller(ctx), input)),
-    stats: issueProc
-      .input(issueInputs.stats)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.stats(issueCaller(ctx), input)),
-    orphans: issueProc
-      .input(issueInputs.orphans)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.orphans(issueCaller(ctx), input)),
-    get: issueProc
-      .input(issueInputs.get)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.get(issueCaller(ctx), input)),
-    // Lazy comment fetch (#175): comment bodies no longer ride IssueWire.
-    comments: issueProc
-      .input(issueInputs.comments)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.comments(issueCaller(ctx), input)),
-    events: issueProc
-      .input(issueInputs.events)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.events(issueCaller(ctx), input)),
-    create: issueProc
-      .input(issueInputs.create)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.create(issueCaller(ctx), input)),
-    start: issueProc
-      .input(issueInputs.start)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.start(issueCaller(ctx), input)),
-    update: issueProc
-      .input(issueInputs.update)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.update(issueCaller(ctx), input)),
-    attachSession: issueProc
-      .input(issueInputs.attachSession)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.attachSession(issueCaller(ctx), input)),
-    archive: issueProc
-      .input(issueInputs.archive)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.archive(issueCaller(ctx), input)),
-    delete: issueProc
-      .input(issueInputs.delete)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.delete(issueCaller(ctx), input)),
-    action: issueProc
-      .input(issueInputs.action)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.action(issueCaller(ctx), input)),
-    cleanup: issueProc
-      .input(issueInputs.cleanup)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.cleanup(issueCaller(ctx), input)),
-    integrate: issueProc
-      .input(issueInputs.integrate)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.integrate(issueCaller(ctx), input)),
-    addSession: issueProc
-      .input(issueInputs.addSession)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.addSession(issueCaller(ctx), input)),
-    addShell: issueProc
-      .input(issueInputs.addShell)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.addShell(issueCaller(ctx), input)),
-    applySuggestion: issueProc
-      .input(issueInputs.applySuggestion)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.applySuggestion(issueCaller(ctx), input),
-      ),
-    dismissSuggestion: issueProc
-      .input(issueInputs.dismissSuggestion)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.dismissSuggestion(issueCaller(ctx), input),
-      ),
-    refreshAssistant: issueProc
-      .input(issueInputs.refreshAssistant)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.refreshAssistant(issueCaller(ctx), input),
-      ),
-    setLabels: issueProc
-      .input(issueInputs.setLabels)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.setLabels(issueCaller(ctx), input)),
-    addComment: issueProc
-      .input(issueInputs.addComment)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.addComment(issueCaller(ctx), input)),
-    mailSend: issueProc
-      .input(issueInputs.mailSend)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.mailSend(issueCaller(ctx), input)),
-    mailInbox: issueProc
-      .input(issueInputs.mailInbox)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.mailInbox(issueCaller(ctx), input)),
-    mailClaim: issueProc
-      .input(issueInputs.mailClaim)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.mailClaim(issueCaller(ctx), input)),
-    mailPending: issueProc
-      .input(issueInputs.mailPending)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.mailPending(issueCaller(ctx), input)),
-    depAdd: issueProc
-      .input(issueInputs.depAdd)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.depAdd(issueCaller(ctx), input)),
-    depRemove: issueProc
-      .input(issueInputs.depRemove)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.depRemove(issueCaller(ctx), input)),
-    defer: issueProc
-      .input(issueInputs.defer)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.defer(issueCaller(ctx), input)),
-    undefer: issueProc
-      .input(issueInputs.undefer)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.undefer(issueCaller(ctx), input)),
-    markRead: issueProc
-      .input(issueInputs.markRead)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.markRead(issueCaller(ctx), input)),
-    // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
-    // `unread` back to true. Node-local like markRead (NOT issueWrite / never
-    // hub-forwarded; unlisted in PROC_ACTION) — read-tracking needs only 'read'.
-    markUnread: issueProc
-      .input(issueInputs.markUnread)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.markUnread(issueCaller(ctx), input)),
-    setNeedsHuman: issueProc
-      .input(issueInputs.setNeedsHuman)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.setNeedsHuman(issueCaller(ctx), input)),
-    clearNeedsHuman: issueProc
-      .input(issueInputs.clearNeedsHuman)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.clearNeedsHuman(issueCaller(ctx), input),
-      ),
-    reparent: issueProc
-      .input(issueInputs.reparent)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.reparent(issueCaller(ctx), input)),
-    claim: issueProc
-      .input(issueInputs.claim)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.claim(issueCaller(ctx), input)),
-    close: issueProc
-      .input(issueInputs.close)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.close(issueCaller(ctx), input)),
-    supersede: issueProc
-      .input(issueInputs.supersede)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.supersede(issueCaller(ctx), input)),
-    duplicate: issueProc
-      .input(issueInputs.duplicate)
-      .mutation(({ ctx, input }) => mods(ctx).issueCommands.duplicate(issueCaller(ctx), input)),
-    linearSearch: issueProc
-      .input(issueInputs.linearSearch)
-      .query(({ ctx, input }) => mods(ctx).issueCommands.linearSearch(issueCaller(ctx), input)),
-    subscriptionAdd: issueProc
-      .input(issueInputs.subscriptionAdd)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.subscriptionAdd(issueCaller(ctx), input),
-      ),
-    subscriptionRemove: issueProc
-      .input(issueInputs.subscriptionRemove)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.subscriptionRemove(issueCaller(ctx), input),
-      ),
-    subscriptionList: issueProc.query(({ ctx }) =>
-      mods(ctx).issueCommands.subscriptionList(issueCaller(ctx)),
-    ),
-    subscriptionSetEnabled: issueProc
-      .input(issueInputs.subscriptionSetEnabled)
-      .mutation(({ ctx, input }) =>
-        mods(ctx).issueCommands.subscriptionSetEnabled(issueCaller(ctx), input),
-      ),
-  }),
+  // The issues surface is DERIVED from the command registry (#248
+  // [spec:SP-3fe2]): one definition per command (modules/issues/registry.ts)
+  // carries input schema, action/scope/target authz, and the handler; the
+  // capability guard reads authz from the DEFINITION (no path-string parsing),
+  // and the daemon relay + MCP dispatch run the SAME pipeline.
+  issues: routerFromCommands(issueRegistry),
   files: t.router({
     read: t.procedure
       .input(

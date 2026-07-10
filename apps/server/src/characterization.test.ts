@@ -1,15 +1,14 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/runtime/sqlite'
 import type { ControlMessage, MetadataChange, ServerMessage } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
-import { callerAsIssueTrpc } from './server'
 import { SessionStore } from './store'
 
 /**
@@ -51,7 +50,10 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     const reg = new SessionRegistry()
     const daemon1: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon1.push(m))
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
     // Spawn control message shape — the daemon-facing half of the contract.
     expect(daemon1).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/proj' }),
@@ -66,24 +68,42 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     // Three frames before the disconnect. The daemon bridge seq (0,1,2) is
     // IGNORED: the server assigns its own monotonic seq starting at 0.
     for (const [i, data] of (['QQ==', 'Qg==', 'Qw=='] as const).entries()) {
-      reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: i, data })
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentFrame',
+        sessionId,
+        seq: i,
+        data,
+      })
     }
 
     // Daemon connection drops: the session degrades to reconnecting (not exited).
     reg.modules.sessions.detachDaemon('local')
-    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('reconnecting')
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+      'reconnecting',
+    )
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon2.push(m))
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
-    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('live')
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+      'live',
+    )
 
     // Post-reconnect frames arrive with the bridge seq RESET to 0 (that is what a
     // fresh PTY bridge does). One frame arrives batched — agentFrameBatch unpacks
     // into per-frame server seqs exactly like single agentFrame messages.
-    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: 0, data: 'RA==' })
-    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrameBatch', sessionId, frames: ['RQ=='] })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentFrame',
+      sessionId,
+      seq: 0,
+      data: 'RA==',
+    })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentFrameBatch',
+      sessionId,
+      frames: ['RQ=='],
+    })
 
     // The already-attached client saw ONE unbroken monotonic stream: server seqs
     // 0..4 across the reconnect (no reset to the bridge's 0), same epoch 0
@@ -157,16 +177,19 @@ function observe(reg: SessionRegistry, issueId: string): LifecycleObservation {
   return {
     wire: normalize(reg.issues.get(issueId)),
     events: normalize(
-      store
-        .events.listEventsSince(0)
-        .map((e) => ({ kind: e.kind, subject: e.subject, repoPath: e.repoPath, payload: e.payload })),
+      store.events.listEventsSince(0).map((e) => ({
+        kind: e.kind,
+        subject: e.subject,
+        repoPath: e.repoPath,
+        payload: e.payload,
+      })),
     ),
     comments: normalize(store.issues.listIssueComments(issueId)),
     // Compare the FOLDED oplog state, not row counts: sync writes coalesce
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
-      store
-        .sync.latestChangeStates()
+      store.sync
+        .latestChangeStates()
         .filter((r) => r.entity === 'issue')
         .map((r) => ({ op: r.op, payload: r.payload == null ? null : JSON.parse(r.payload) })),
     ),
@@ -212,12 +235,20 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       regA.issues.addComment(a.id, 'agent:test', 'progress note')
       regA.issues.close(a.id, 'done')
 
-      // (b) the ISSUE_COMMANDS registry — the CLI/MCP path — over an in-process
-      // caller adapted to the IssueTrpc client shape.
+      // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
+      // registry's in-process IssueTrpc-shaped client.
       const regB = freshRegistry()
-      const cli = callerAsIssueTrpc(operatorCaller(regB))
+      const cli = regB.issueCommands.asIssueTrpc(OPERATOR)
       const created = await runIssueCli(
-        ['create', '--repoPath', '/repo', '--title', 'Lifecycle', '--description', 'characterize me'],
+        [
+          'create',
+          '--repoPath',
+          '/repo',
+          '--title',
+          'Lifecycle',
+          '--description',
+          'characterize me',
+        ],
         cli,
       )
       const seq = /created #(\d+)/.exec(created)?.[1]
@@ -295,7 +326,9 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
       expect(reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
       // The close EVENT fires off the derived flip, with the patched reason.
-      const closed = reg.sessionStore.events.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
+      const closed = reg.sessionStore.events
+        .listEventsSince(0)
+        .filter((e) => e.kind === 'issue.closed')
       expect(closed).toHaveLength(1)
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
@@ -321,8 +354,8 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reg.issues.search({ repoPath: '/r', status: 'open' }).map((i) => i.id)).toEqual([w.id])
       expect(reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
       // The reopen is observable: issue.reopened fires on the true→false flip.
-      const reopenedEvents = reg.sessionStore
-        .events.listEventsSince(0)
+      const reopenedEvents = reg.sessionStore.events
+        .listEventsSince(0)
         .filter((e) => e.kind === 'issue.reopened')
       expect(reopenedEvents).toHaveLength(1)
       expect(reopenedEvents[0]?.payload).toMatchObject({ seq: w.seq })
@@ -340,14 +373,16 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       reg.issues.update(w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
-      const closed = reg.sessionStore.events.listEventsSince(0).filter((e) => e.kind === 'issue.closed')
+      const closed = reg.sessionStore.events
+        .listEventsSince(0)
+        .filter((e) => e.kind === 'issue.closed')
       expect(closed).toHaveLength(2)
       // The second close came from a bare stage patch — reason defaults to 'done'.
       expect(closed[1]?.payload).toMatchObject({ seq: w.seq, reason: 'done' })
       // The stage churn IS visible as stage_changed (done→in_progress only;
       // transitions INTO done never emit stage_changed).
-      const stages = reg.sessionStore
-        .events.listEventsSince(0)
+      const stages = reg.sessionStore.events
+        .listEventsSince(0)
         .filter((e) => e.kind === 'issue.stage_changed')
         .map((e) => e.payload)
       expect(stages).toEqual([{ seq: w.seq, from: 'done', to: 'in_progress' }])
@@ -445,7 +480,10 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
     reg1.modules.sessions.attachDaemon('local', () => {})
-    const { sessionId } = reg1.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
     const issue = reg1.issues.create({ repoPath: '/repo', title: 'survive', startNow: false })
     reg1.issues.addComment(issue.id, 'agent:test', 'durable note')
     reg1.issues.close(issue.id, 'done')
@@ -567,9 +605,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       )
       expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('OK')
       const overriddenViewer = caller({ role: 'viewer', scope: { kind: 'all' } }, true)
-      expect(await outcome(overriddenViewer.issues.update({ id: A.id, patch: { notes: 'x' } }))).toBe(
-        'FORBIDDEN',
-      )
+      expect(
+        await outcome(overriddenViewer.issues.update({ id: A.id, patch: { notes: 'x' } })),
+      ).toBe('FORBIDDEN')
     } finally {
       reg.dispose()
     }

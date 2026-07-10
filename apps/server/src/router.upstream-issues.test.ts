@@ -1,6 +1,7 @@
 import type { IssueWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { OPERATOR, SCOPED_TARGET } from './issue-authz'
+import { OPERATOR } from './issue-authz'
+import { issueRegistry } from './modules/issues/registry'
 import type { IssueUpstreamForwarder } from './relay'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
@@ -85,9 +86,10 @@ function makeNode(repoPaths: string[] = []) {
   return { registry, forwarded, caller }
 }
 
-/** Minimal valid input per write proc, targeting the hub issue. Keyed to
- *  SCOPED_TARGET so a NEW write proc fails the completeness assertion below
- *  until it gets a forwarding test input. */
+/** Minimal valid input per write proc, targeting the hub issue. Keyed to the
+ *  registry defs that carry a `target` extractor (the old SCOPED_TARGET set) so
+ *  a NEW targeted write fails the completeness assertion below until it gets a
+ *  forwarding test input. */
 const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   claim: { id: HUB_ID, assignee: 'me' },
   update: { id: HUB_ID, patch: { title: 'T' } },
@@ -129,9 +131,13 @@ const NOT_FORWARDED = new Set([
 ])
 
 describe('viaHub forwarding detection (per proc)', () => {
-  it('covers every SCOPED_TARGET write proc (forwarded or explicitly excluded)', () => {
+  it('covers every targeted write command (forwarded or explicitly excluded)', () => {
     const covered = [...Object.keys(FORWARD_INPUTS), ...NOT_FORWARDED].sort()
-    expect(covered).toEqual(Object.keys(SCOPED_TARGET).sort())
+    const targeted = Object.entries(issueRegistry.defs)
+      .filter(([, d]) => d.target !== undefined)
+      .map(([name]) => name)
+      .sort()
+    expect(covered).toEqual(targeted)
   })
 
   it('issues.cleanup on a viaHub id REFUSES (local-only; never forwards)', async () => {

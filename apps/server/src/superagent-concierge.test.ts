@@ -15,8 +15,6 @@ import {
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
-import { appRouter } from './router'
-import { callerAsIssueTrpc } from './server'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -58,10 +56,10 @@ async function harness(opts?: { eventReadLimit?: number }) {
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r') // conciergeTurn rejects unregistered repos
   const sa = new SuperagentService(registry.modules, repos, registry.sessionStore, opts)
-  // Same wiring as server.ts: issue tools over an in-process OPERATOR caller.
+  // Same wiring as server.ts: issue tools over the registry's in-process
+  // OPERATOR client (router-equal guard, no router caller involved).
   const issueTools = new IssueToolProvider()
-  const caller = appRouter.createCaller({ registry, repos, superagent: sa, capability: OPERATOR })
-  issueTools.setClient(callerAsIssueTrpc(caller))
+  issueTools.setClient(registry.issueCommands.asIssueTrpc(OPERATOR))
   sa.setIssueTools(issueTools)
   const settle = () => new Promise((r) => setTimeout(r))
   return { registry, repos, sa, turnReqs, settle }
@@ -176,7 +174,11 @@ describe('concierge threads (issue #64)', () => {
     const ready = registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const asking = registry.issues.create({ repoPath: '/r', title: 'Deploy', startNow: false })
     registry.issues.setNeedsHuman(asking.id, 'Which region?')
-    registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/r', spawnedBy: 'user' })
+    registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+      spawnedBy: 'user',
+    })
     await sa.conciergeTurn({ repoPath: '/r', text: 'status?' })
     const prompt = turnReqs[0]?.prompt ?? ''
     expect(prompt).toContain('[CONCIERGE CONTEXT]')
@@ -213,7 +215,9 @@ describe('concierge threads (issue #64)', () => {
     const out = JSON.parse(
       await sa.callMcpTool('start_agent', { agentKind: 'shell', cwd: '/w' }, 'btw_s1'),
     ) as { sessionId: string }
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)).toBeDefined()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId),
+    ).toBeDefined()
   })
 
   it('rejects an unregistered repoPath without minting a thread', async () => {
@@ -310,9 +314,11 @@ describe('concierge threads (issue #64)', () => {
       const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
       const props = (name: string, tools: Awaited<ReturnType<typeof list>>) =>
         Object.keys(
-          ((tools.find((t) => t.name === name)?.inputSchema ?? {}) as {
-            properties?: Record<string, unknown>
-          }).properties ?? {},
+          (
+            (tools.find((t) => t.name === name)?.inputSchema ?? {}) as {
+              properties?: Record<string, unknown>
+            }
+          ).properties ?? {},
         )
       const concierge = await list(tok)
       expect(props('issue_start', concierge)).toContain('confirmed')
@@ -346,9 +352,10 @@ describe('concierge threads (issue #64)', () => {
       const out = JSON.parse(
         await call('start_agent', { agentKind: 'shell', cwd: '/r', confirmed: true }, tok),
       ) as { sessionId: string }
-      expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)?.spawnedBy).toBe(
-        `superagent:${tid}`,
-      )
+      expect(
+        registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
+          ?.spawnedBy,
+      ).toBe(`superagent:${tid}`)
     })
 
     it('fails closed on start-capable tools for identity-less callers only', async () => {
@@ -400,7 +407,10 @@ describe('search_all tool', () => {
       description: 'it drifts',
       startNow: false,
     })
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
     registry.sessionStore.conversations.upsertConversations([
       {
@@ -427,7 +437,10 @@ describe('search_all tool', () => {
   it('filters by kinds and caps the limit', async () => {
     const { registry, sa } = await harness()
     registry.issues.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
     const out = await sa.callMcpTool('search_all', { query: 'capacitor', kinds: ['issue'] })
     expect(out).toContain('[issue]')
@@ -449,7 +462,10 @@ describe('list_sessions boundIssue', () => {
     const issue = registry.issues.list('/r').find((i) => i.title === 'Worktree work')
     expect(issue?.worktreePath).toBeTruthy()
     // A second session inside the issue worktree, one outside.
-    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: issue?.worktreePath ?? '/x' })
+    registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: issue?.worktreePath ?? '/x',
+    })
     registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
     const rows = JSON.parse(await sa.callMcpTool('list_sessions', {})) as {
       cwd: string

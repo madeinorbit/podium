@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueWire } from '@podium/protocol'
 import { optimisticIssuePatch } from '@podium/sync'
-import { SCOPED_TARGET } from '../../issue-authz'
 import type { SessionStore } from '../../store'
+import { commandTarget } from './registry'
 
 /** The narrow forwarder seam the upstream-issue mirror needs (UpstreamForwarder
  *  implements it; kept minimal so relay tests can stub the write path without a hub). */
@@ -97,7 +97,7 @@ export class UpstreamIssuesService {
     if (!this.upstreamForwarder) return out
     for (const e of this.upstreamForwarder.entries()) {
       try {
-        const target = SCOPED_TARGET[e.proc]?.(JSON.parse(e.input) as Record<string, unknown>)
+        const target = commandTarget(e.proc, JSON.parse(e.input) as Record<string, unknown>)
         if (typeof target === 'string') out.add(target)
       } catch {
         // corrupt input JSON — the forwarder drops it on its next drain pass
@@ -147,7 +147,7 @@ export class UpstreamIssuesService {
     const payload = { ...input, mutationId }
     const result = await forwarder.forward(proc, payload)
     if ((result as { queued?: boolean } | null)?.queued === true) {
-      const target = SCOPED_TARGET[proc]?.(payload)
+      const target = commandTarget(proc, payload)
       if (typeof target === 'string') this.applyUpstreamOptimisticPatch(target, proc, payload)
     }
     return result
@@ -185,7 +185,7 @@ export class UpstreamIssuesService {
    * forwarder's onPoisoned.
    */
   mutationRejected(proc: string, input: Record<string, unknown>, message: string): void {
-    const target = SCOPED_TARGET[proc]?.(input)
+    const target = commandTarget(proc, input)
     const mutationId = typeof input.mutationId === 'string' ? input.mutationId : null
     if (typeof target === 'string') {
       this.upstreamIssuePatches.delete(target)

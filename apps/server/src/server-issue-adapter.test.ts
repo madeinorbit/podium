@@ -1,34 +1,27 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
-import { appRouter } from './router'
-import { callerAsIssueTrpc } from './server'
 
-// The in-process MCP reaches the tracker through callerAsIssueTrpc: a createCaller caller
-// adapted to the IssueTrpc HTTP-client shape (.<router>.<proc>.mutate/query) the shared
-// command registry calls. This proves the adapter forwards both mutate and query — i.e. the
-// superagent's issue tools work without the cookie-gated HTTP loopback (which would 401).
+// The in-process MCP reaches the tracker through the command registry's derived
+// IssueTrpc client (IssueCommandDispatcher.asIssueTrpc — the typed replacement for
+// the old callerAsIssueTrpc Proxy over appRouter.createCaller). This proves the
+// derived client forwards both mutate and query — i.e. the superagent's issue
+// tools work without the cookie-gated HTTP loopback (which would 401).
 const registries: SessionRegistry[] = []
 afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function adapter() {
+function client() {
   const registry = new SessionRegistry()
   registries.push(registry)
-  const caller = appRouter.createCaller({
-    registry,
-    repos: {} as never,
-    superagent: {} as never,
-    capability: OPERATOR,
-  })
-  return callerAsIssueTrpc(caller)
+  return registry.issueCommands.asIssueTrpc(OPERATOR)
 }
 
-describe('callerAsIssueTrpc (in-process MCP adapter)', () => {
-  it('forwards a mutation (.mutate) to the caller', async () => {
-    const client = adapter()
-    const created = (await client.issues.create.mutate({
+describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
+  it('forwards a mutation (.mutate) through the registry pipeline', async () => {
+    const c = client()
+    const created = (await c.issues.create.mutate({
       repoPath: '/r',
       title: 'via adapter',
       startNow: false,
@@ -37,10 +30,15 @@ describe('callerAsIssueTrpc (in-process MCP adapter)', () => {
     expect(created.title).toBe('via adapter')
   })
 
-  it('forwards a query (.query) to the caller', async () => {
-    const client = adapter()
-    await client.issues.create.mutate({ repoPath: '/r', title: 'q', startNow: false })
-    const list = await client.issues.list.query({ repoPath: '/r' })
+  it('forwards a query (.query) through the registry pipeline', async () => {
+    const c = client()
+    await c.issues.create.mutate({ repoPath: '/r', title: 'q', startNow: false })
+    const list = await c.issues.list.query({ repoPath: '/r' })
     expect(list).toHaveLength(1)
+  })
+
+  it('an unknown router/proc throws the historical "no such issue procedure"', async () => {
+    const c = client()
+    expect(() => c.specs.list.query({})).toThrow(/no such issue procedure: specs\.list/)
   })
 })

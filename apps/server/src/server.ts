@@ -5,9 +5,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
+import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { loadConfig } from '@podium/runtime/config'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { readOwnDaemonMachineId, UpstreamForwarder, UpstreamSync } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -17,11 +17,11 @@ import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { registerAssetRoute } from './file-asset-route'
 import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
-import type { IssueTrpc } from './issue-client'
 import { IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
+import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -30,38 +30,7 @@ import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
 import { registerMobileRedirect, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
-import { SuperagentService } from './modules/superagent'
 import { attachWebSockets } from './wsServer'
-
-/** Adapt an in-process tRPC `createCaller` caller to the `IssueTrpc` HTTP-client shape the
- *  shared issue command registry calls (`.<router>.<proc>.mutate|query(input)`). Both `.mutate`
- *  and `.query` map to a direct caller invocation — no HTTP round-trip, no login-cookie gate. */
-export function callerAsIssueTrpc(caller: ReturnType<typeof appRouter.createCaller>): IssueTrpc {
-  const rec = caller as unknown as Record<
-    string,
-    Record<string, (i: unknown) => Promise<unknown>> | undefined
-  >
-  const invoke = (router: string, proc: string, input: unknown): Promise<unknown> => {
-    const fn = rec[router]?.[proc]
-    if (!fn) throw new Error(`no such issue procedure: ${router}.${proc}`)
-    return fn(input)
-  }
-  const procProxy = (router: string) =>
-    new Proxy(
-      {},
-      {
-        get: (_t, proc) => {
-          if (typeof proc !== 'string') return undefined
-          const call = (input: unknown) => invoke(router, proc, input)
-          return { mutate: call, query: call }
-        },
-      },
-    )
-  return new Proxy(
-    {},
-    { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
-  ) as unknown as IssueTrpc
-}
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already
@@ -167,7 +136,9 @@ export async function startServer(
       probeAllModels({
         claude: {
           apiKey:
-            process.env.ANTHROPIC_API_KEY || store.settings.getSettings().apiKeys.anthropic || undefined,
+            process.env.ANTHROPIC_API_KEY ||
+            store.settings.getSettings().apiKeys.anthropic ||
+            undefined,
         },
       }),
   })
@@ -204,7 +175,8 @@ export async function startServer(
       onQueueChanged: () => registry.modules.upstreamIssues.outboxChanged(),
       // A queued mutation the hub definitively rejects must be SURFACED, not just
       // logged (#25): durable issue.upstream_rejected event + overlay retirement.
-      onPoisoned: (proc, input, message) => registry.modules.upstreamIssues.mutationRejected(proc, input, message),
+      onPoisoned: (proc, input, message) =>
+        registry.modules.upstreamIssues.mutationRejected(proc, input, message),
     })
     registry.modules.upstreamIssues.setForwarder(upstreamForwarder)
     const forwarder = upstreamForwarder
@@ -274,7 +246,9 @@ export async function startServer(
       // code + message — no payloads). Without this, 500s (INTERNAL_SERVER_ERROR)
       // were completely invisible in the server log.
       onError: ({ error, path, type }) => {
-        console.warn(`[trpc] ${type} ${path ?? '<unknown>'} failed: ${error.code} — ${error.message}`)
+        console.warn(
+          `[trpc] ${type} ${path ?? '<unknown>'} failed: ${error.code} — ${error.message}`,
+        )
       },
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
       // above) already authenticated the human, so the tracker grants full authority — no
@@ -371,7 +345,7 @@ export async function startServer(
         if (settled) return
         settled = true
         // The in-process MCP issue surface is the trusted superagent orchestrator. It calls
-        // the issue command service DIRECTLY (not the cookie-gated HTTP /trpc, which would
+        // the issue command registry DIRECTLY (not the cookie-gated HTTP /trpc, which would
         // 401 it) as the OPERATOR — router-equal authz, no router caller involved. This is
         // also the seam for per-agent capabilities later: pass a constrained capability
         // instead of OPERATOR.
@@ -392,7 +366,8 @@ export async function startServer(
         const ws = attachWebSockets(server as unknown as Server, registry, {
           // Same gate as the HTTP guard: open unless a password is set, then require a valid
           // session cookie on the upgrade request.
-          authorizeClient: (req) => !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
+          authorizeClient: (req) =>
+            !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
         })
         if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
         resolve({
