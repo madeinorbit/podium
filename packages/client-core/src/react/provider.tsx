@@ -89,26 +89,45 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   // object) is picked up without reconstructing anything.
   const latest = useRef({ onFatalError, formatError, notices })
   latest.current = { onFatalError, formatError, notices }
-  // One engine per provider lifetime (matches the old useMemo([]) replica —
-  // config/api identity churn after mount is intentionally not observed).
-  const engineRef = useRef<Engine<TApi> | null>(null)
-  if (engineRef.current === null) {
-    engineRef.current = createEngine<TApi>({
+  // One engine per (config, api) IDENTITY (#262 review): the old provider
+  // rebuilt hub/outbox/actions when those props changed, so the engine follows
+  // suit — a new config or api object replaces the engine (the effect below
+  // disposes the old one before starting the new). Both current consumers pass
+  // stable identities (web: useState config + useMemo trpc; mobile: useMemo
+  // both), so for them this never fires after mount — pass MEMOIZED props: an
+  // inline object literal here would tear the whole engine down every render.
+  // Callback props (onFatalError/formatError/notices) stay ref-routed above;
+  // their identity churn must NOT rebuild anything.
+  const engineRef = useRef<{ config: StoreServerConfig; api: TApi; engine: Engine<TApi> } | null>(
+    null,
+  )
+  if (
+    engineRef.current === null ||
+    engineRef.current.config !== config ||
+    engineRef.current.api !== api
+  ) {
+    engineRef.current = {
       config,
       api,
-      onFatalError: (m) => latest.current.onFatalError(m),
-      formatError: (e, f) => latest.current.formatError(e, f),
-      notices: {
-        error: (m) => latest.current.notices.error(m),
-        info: (m, d) => latest.current.notices.info(m, d),
-      },
-      createReplicaFn,
-      routerWindow,
-    })
+      engine: createEngine<TApi>({
+        config,
+        api,
+        onFatalError: (m) => latest.current.onFatalError(m),
+        formatError: (e, f) => latest.current.formatError(e, f),
+        notices: {
+          error: (m) => latest.current.notices.error(m),
+          info: (m, d) => latest.current.notices.info(m, d),
+        },
+        createReplicaFn,
+        routerWindow,
+      }),
+    }
   }
-  const engine = engineRef.current
-  // start/dispose pair: StrictMode's dev double-mount disposes the memoized
-  // engine once, and the second mount re-arms it (both are idempotent).
+  const engine = engineRef.current.engine
+  // start/dispose pair, keyed on the engine: StrictMode's dev double-mount
+  // disposes and re-arms the SAME engine (both are idempotent); an engine
+  // REPLACED above (config/api identity change) is disposed by this cleanup
+  // before the new one starts.
   useEffect(() => {
     engine.start()
     return () => engine.dispose()
