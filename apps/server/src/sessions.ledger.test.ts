@@ -377,6 +377,53 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     )
   })
 
+  it('(l) a transient issue-append failure during an attach-driven broadcast is retried by the NEXT broadcast (#247)', () => {
+    const registry = makeRegistry()
+    // An issue whose wire embeds the session (SessionMeta[] member data) — so a
+    // clientCount flip changes the ISSUE wire too, via the broadcast-tail
+    // publishIssues() reconcile, with no issue write of its own.
+    const issue = registry.issues.create({ repoPath: '/r', title: 'watched', startNow: false })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+      issueId: issue.id,
+    })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    // Fail ONLY issue-entity appends: the attach-driven broadcast's session
+    // reconcile (clientCount 0→1) must land, then publishIssues()' issue
+    // reconcile throws — Codex's scenario. Before the fix the byte-skip cache
+    // was already stamped, so every later same-bytes broadcast early-returned
+    // and the embedded issue snapshot stayed stale FOREVER.
+    const sync = registry.sessionStore.sync
+    const realAppend = sync.appendChanges.bind(sync)
+    const spy = vi.spyOn(sync, 'appendChanges').mockImplementation((rows, eventTime) => {
+      if (rows.some((r) => r.entity === 'issue')) throw new Error('transient issue append failure')
+      return realAppend(rows, eventTime)
+    })
+    const clientId = registry.modules.sessions.attachClient(() => {})
+    expect(() =>
+      registry.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId }),
+    ).toThrow('transient issue append failure')
+    spy.mockRestore()
+    // The failed broadcast recorded the SESSION flip but no issue change yet.
+    const partial = registry.modules.sessions.syncChangesSince(cursor)
+    expect(partial.kind).toBe('delta')
+    if (partial.kind !== 'delta') return
+    expect(partial.changes.some((c) => c.entity === 'issue')).toBe(false)
+    // Next broadcast carries the SAME session bytes — before the fix the stamped
+    // byte-skip cache early-returned here and the issue snapshot never converged.
+    registry.modules.sessions.broadcastSessions()
+    registry.modules.sessions.flushBroadcasts()
+    const healed = registry.modules.sessions.syncChangesSince(cursor)
+    expect(healed.kind).toBe('delta')
+    if (healed.kind !== 'delta') return
+    const issueChange = healed.changes.find(
+      (c) => c.entity === 'issue' && c.id === issue.id && c.op === 'upsert',
+    ) as { value?: { sessions?: Array<{ clientCount?: number }> } } | undefined
+    expect(issueChange?.value?.sessions?.[0]?.clientCount).toBe(1)
+  })
+
   it('replaying the whole durable log folds to the live session list', () => {
     const registry = makeRegistry()
     const a = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w1' })

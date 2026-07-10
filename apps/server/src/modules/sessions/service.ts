@@ -2124,18 +2124,31 @@ export class SessionsService {
     const key = JSON.stringify(sessions)
     if (key === this.lastSessionsBroadcast) return
     this.lastSessionsBroadcast = key
-    // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
-    // captured above (write-seam commit or the reconcile) and ride the funnel's
-    // ordered onAppended pipe — recording here again would double-append.
-    this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
-    // Session changes also change issues' DERIVED member data (sessions/summary),
-    // so keep issue clients live. The publisher builds the payload ONCE (allWire()
-    // is O(issues × sessions)); sessionsChanged was already sent above, so even if
-    // the issues build fails it can't take the session list down with it.
-    // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
-    // reconcile (publisher.publishIssueList), so the embedded copies heal at
-    // the same cadence as before — no extra mechanism needed (#247).
-    this.deps.publishIssues()
+    try {
+      // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
+      // captured above (write-seam commit or the reconcile) and ride the funnel's
+      // ordered onAppended pipe — recording here again would double-append.
+      this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
+      // Session changes also change issues' DERIVED member data (sessions/summary),
+      // so keep issue clients live. The publisher builds the payload ONCE (allWire()
+      // is O(issues × sessions)); sessionsChanged was already sent above, so even if
+      // the issues build fails it can't take the session list down with it.
+      // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
+      // reconcile (publisher.publishIssueList), so the embedded copies heal at
+      // the same cadence as before — no extra mechanism needed (#247).
+      this.deps.publishIssues()
+    } catch (err) {
+      // Un-stamp the byte-skip cache on ANY broadcast-body failure (#247): the
+      // cache is stamped up front so a reentrant same-bytes broadcast during the
+      // fan-out still early-returns, but if e.g. publishIssues()'s issue-ledger
+      // reconcile throws transiently with the stamp left in place, every later
+      // broadcast of the SAME session bytes would early-return and the embedded
+      // IssueWire SessionMeta[] would stay stale forever. Cleared, the next
+      // broadcast retries the whole body (reconcile dedups; clients tolerate a
+      // repeated snapshot). Coalescing semantics are otherwise unchanged.
+      if (this.lastSessionsBroadcast === key) this.lastSessionsBroadcast = ''
+      throw err
+    }
   }
 
   /**
