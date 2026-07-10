@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process'
 import { verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
 import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
 
 export function isNewer(candidate: string, current: string): boolean {
@@ -72,7 +73,7 @@ export function verifyTarball(
 
 function installDir(): string {
   // The headless launcher (dist-bun/headless/podium) exports PODIUM_HOME=<its own dir>.
-  return process.env.PODIUM_HOME ?? dirname(process.execPath)
+  return resolveInstallDir()
 }
 
 function currentVersion(dir: string): string {
@@ -108,7 +109,7 @@ export async function runUpdate(
     typeof arg === 'string' ? { channel: 'stable' as const, feedOverride: arg } : arg
   const dir = installDir()
   const cur = currentVersion(dir)
-  const target = process.env.PODIUM_UPDATE_TARGET ?? 'linux-x86_64'
+  const target = resolveUpdateTarget()
   const manifestUrl = manifestUrlFor(channel, { target, cur, feedOverride })
   const res = await fetch(manifestUrl)
   if (!res.ok) {

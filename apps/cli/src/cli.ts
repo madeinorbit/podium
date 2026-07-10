@@ -11,7 +11,16 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
-import { loadConfig, needsSetup, type PodiumConfig, type PodiumMode } from '@podium/runtime/config'
+import {
+  loadConfig,
+  needsSetup,
+  type PodiumConfig,
+  type PodiumMode,
+  resolvePort,
+  resolveRunRecordMode,
+  resolveUpdateChannel,
+  resolveUpdateFeed,
+} from '@podium/runtime/config'
 import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
@@ -135,15 +144,16 @@ export function resolvePlan(
   env: EnvSnapshot,
   tty: boolean,
 ): LaunchPlan {
-  const port = Number(env.PODIUM_PORT) || config.port || 18787
+  const port = resolvePort(config, env)
 
   // ---- utility subcommands (historical dispatch order preserved) ----
   // `podium update`: self-update the headless bundle from the configured feed.
   if (argv[0] === 'update') {
-    const channel = (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as
-      | 'stable'
-      | 'edge'
-    return { kind: 'update', channel, feedOverride: env.PODIUM_UPDATE_FEED ?? config.updateFeed }
+    return {
+      kind: 'update',
+      channel: resolveUpdateChannel(config, env),
+      feedOverride: resolveUpdateFeed(config, env),
+    }
   }
   // `podium channel [stable|edge]`: show or switch the self-update channel.
   if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
@@ -278,13 +288,7 @@ export function resolvePlan(
         : modePlan.mode === 'all-in-one'
           ? ('all-in-one' as const)
           : undefined
-  // NOTIFY_SOCKET ⇒ started under a systemd Type=notify unit; PODIUM_RUN_MODE=detached is
-  // set by the setup detached-spawn; otherwise a plain foreground run (desktop sidecar, dev).
-  const runRecordMode = env.NOTIFY_SOCKET
-    ? ('systemd' as const)
-    : env.PODIUM_RUN_MODE === 'detached'
-      ? ('detached' as const)
-      : ('foreground' as const)
+  const runRecordMode = resolveRunRecordMode(env)
   const daemonAuth = !runDaemon
     ? undefined
     : modePlan.mode === 'daemon'

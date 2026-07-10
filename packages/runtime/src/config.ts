@@ -1,3 +1,48 @@
+/**
+ * Install config + THE layered config resolver (#251).
+ *
+ * Precedence — ONE order, everywhere: env (PODIUM_*) → file (config.json) → built-in
+ * default. A third, server-side-only layer exists for a few keys: a settings ROW in
+ * podium.db can override/extend at request time (e.g. `apiKeys.anthropic`); that layer
+ * is applied by apps/server where the settings store lives — never here. Each resolved
+ * key gets a typed accessor below (`resolvePort`, `resolveUpdateChannel`, …) so callers
+ * stop hand-rolling `process.env.X ?? config.y ?? default` with drifting precedence.
+ *
+ * PODIUM_* environment-variable inventory (the full set, including keys whose
+ * accessors deliberately live elsewhere):
+ *
+ * | Variable                      | Layered over            | Read by / accessor                                     |
+ * |-------------------------------|-------------------------|--------------------------------------------------------|
+ * | PODIUM_STATE_DIR              | — (env-only)            | `stateDir()` (config/run-registry/logs home)           |
+ * | PODIUM_PORT                   | config.port → 18787     | `resolvePort()` (cli, scripts entrypoints)             |
+ * | PODIUM_HOST                   | — → 127.0.0.1           | apps/server bindHost (injectable env param)            |
+ * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
+ * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
+ * | PODIUM_UPDATE_FEED            | config.updateFeed       | `resolveUpdateFeed()`                                  |
+ * | PODIUM_UPDATE_TARGET          | — → 'linux-x86_64'      | `resolveUpdateTarget()`                                |
+ * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
+ * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
+ * | NOTIFY_SOCKET (systemd's)     | — (env-only)            | `resolveRunRecordMode()`, sd-notify                    |
+ * | PODIUM_ISSUE_RELAY            | — (env-only)            | `resolveIssueRelay()` (daemon-injected per agent)      |
+ * | PODIUM_SESSION_ID             | — (env-only)            | daemon-injected agent identity (control/session.ts)    |
+ * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
+ * | PODIUM_LOOP_PROFILE           | — (env-only flag)       | server + daemon event-loop profiling                   |
+ * | PODIUM_APP_VERSION            | — (BUILD-time --define) | server /version; must stay a literal `process.env.…`   |
+ * | PODIUM_WEB_DIR                | — → bundled dist path   | apps/server static web (packaged bundle sets it)       |
+ * | PODIUM_MOBILE_WEB_DIR         | — → bundled dist path   | apps/server static mobile web                          |
+ * | PODIUM_PTY_BACKEND            | — → auto by runtime     | agent-bridge PTY backend selection                     |
+ * | PODIUM_ABDUCO                 | — → embedded/PATH       | agent-bridge/embedded-abduco binary override           |
+ * | PODIUM_NO_SCOPE               | — (env-only flag)       | agent-bridge: skip per-master systemd-run scopes       |
+ * | PODIUM_CODEX_HOOK_*           | — (env-only)            | daemon codex hook plumbing (codex-hooks.ts)            |
+ * | PODIUM_CLOUD_*                | — (env-only)            | apps/server cloud-runtime seam (hosted provider)       |
+ * | PODIUM_UPDATE_SIGNING_KEY     | — (env-only)            | scripts/build-bun.ts + release tooling                 |
+ * | PODIUM_INSTALL_PUBKEY         | — (env-only)            | install.sh signed-install override                     |
+ * | PODIUM_UPDATE_AUTOCONFIRM     | — (env-only flag)       | desktop updater verification script                    |
+ * | PODIUM_ALLOWED_HOSTS          | — (env-only)            | apps/web vite dev-server host check                    |
+ * | PODIUM_WEB_PORT               | — → 55556               | apps/web vite dev-server port                          |
+ * | test-only: PODIUM_STUB_*, PODIUM_SKIP_*, PODIUM_GROK_CHAT_OK, PODIUM_CURL_LOG,      |
+ * |   PODIUM_DISCOVERY_BENCH_DB, PODIUM_FEED_PORT, PODIUM_HEADLESS_FEED_PORT — fixtures |
+ */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -119,4 +164,75 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
 /** True until a deployment mode has been chosen. */
 export function needsSetup(config: PodiumConfig): boolean {
   return !config.mode
+}
+
+// ---------------------------------------------------------------------------
+// Layered resolvers (#251) — env (PODIUM_*) → config.json → default, one typed
+// accessor per key. See the inventory table at the top of this file. All take
+// their sources as parameters (defaulting to the real ones) so they stay pure
+// and snapshot-testable.
+// ---------------------------------------------------------------------------
+
+/** An env source for the resolvers — pass `process.env` (the default) or a snapshot. */
+export type EnvSource = Readonly<Record<string, string | undefined>>
+
+/** The port the local server binds / local CLIs dial: PODIUM_PORT → config.port → 18787.
+ *  A non-numeric or zero PODIUM_PORT falls through (never NaN into a listen call). */
+export function resolvePort(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): number {
+  return Number(env.PODIUM_PORT) || config.port || 18787
+}
+
+/** Self-update channel: PODIUM_UPDATE_CHANNEL → config.updateChannel → 'stable'. */
+export function resolveUpdateChannel(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): 'stable' | 'edge' {
+  return (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as 'stable' | 'edge'
+}
+
+/** Self-update feed override: PODIUM_UPDATE_FEED → config.updateFeed → undefined
+ *  (undefined = the default GitHub Releases feed). */
+export function resolveUpdateFeed(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string | undefined {
+  return env.PODIUM_UPDATE_FEED ?? config.updateFeed
+}
+
+/** Self-update platform target: PODIUM_UPDATE_TARGET → 'linux-x86_64'. */
+export function resolveUpdateTarget(env: EnvSource = process.env): string {
+  return env.PODIUM_UPDATE_TARGET ?? 'linux-x86_64'
+}
+
+/** The headless install dir: PODIUM_HOME (exported by the headless launcher) →
+ *  the running binary's own directory. */
+export function resolveInstallDir(
+  env: EnvSource = process.env,
+  execPath: string = process.execPath,
+): string {
+  return env.PODIUM_HOME ?? dirname(execPath)
+}
+
+/** Daemon-injected issue-relay endpoint for a constrained agent process (env-only —
+ *  set by apps/daemon per session; never configured by the operator). */
+export function resolveIssueRelay(env: EnvSource = process.env): string | undefined {
+  return env.PODIUM_ISSUE_RELAY
+}
+
+/**
+ * How this process is being supervised, for the run-registry record: NOTIFY_SOCKET ⇒
+ * a systemd Type=notify unit; PODIUM_RUN_MODE=detached ⇒ the setup detached-spawn;
+ * otherwise a plain foreground run (desktop sidecar, dev).
+ */
+export function resolveRunRecordMode(
+  env: EnvSource = process.env,
+): 'systemd' | 'detached' | 'foreground' {
+  return env.NOTIFY_SOCKET
+    ? 'systemd'
+    : env.PODIUM_RUN_MODE === 'detached'
+      ? 'detached'
+      : 'foreground'
 }

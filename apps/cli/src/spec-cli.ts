@@ -4,6 +4,7 @@ import {
   makeRelayIssueClient,
   SPEC_COMMANDS,
 } from '@podium/issue-client'
+import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
 import { IssueCliError, parseIssueArgs } from './issue-cli'
 
 /**
@@ -66,10 +67,10 @@ export async function runSpecCli(argv: string[], client: IssueTrpc): Promise<str
 
 /** Entry used by apps/cli/src/cli.ts — same transport selection as issueCliMain. */
 export async function specCliMain(argv: string[]): Promise<void> {
-  const relay = process.env.PODIUM_ISSUE_RELAY
+  const relay = resolveIssueRelay()
   const client = relay
     ? makeRelayIssueClient(relay)
-    : makeIssueClient(`http://localhost:${Number(process.env.PODIUM_PORT) || 18787}`)
+    : makeIssueClient(`http://localhost:${resolvePort()}`)
   try {
     console.log(await runSpecCli(argv, client))
   } catch (err) {

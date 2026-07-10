@@ -23,10 +23,11 @@
  */
 
 import { bootProcess } from '@podium/runtime/boot'
+import { resolvePort } from '@podium/runtime/config'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret } from '../apps/server/src/local-machine'
 
-const port = Number(process.env.PODIUM_PORT ?? 18787)
+const port = resolvePort()
 
 await bootProcess({
   name: 'daemon',

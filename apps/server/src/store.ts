@@ -28,8 +28,8 @@
  */
 
 import { mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { MIGRATIONS, runMigrations } from './migrations/index'
@@ -48,8 +48,7 @@ export { normalizeRepoPath }
 
 /** Default DB file: $PODIUM_STATE_DIR/podium.db, else ~/.podium/podium.db. */
 export function defaultDbPath(): string {
-  const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
-  return join(base, 'podium.db')
+  return join(stateDir(), 'podium.db')
 }
 
 export class SessionStore {

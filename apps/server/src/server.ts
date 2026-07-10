@@ -132,6 +132,10 @@ export async function startServer(
     // matches the agent's auth: an Anthropic API key (env or the existing
     // `apiKeys.anthropic` setting) for API-based Claude, else the OAuth login — no new
     // setting. Read fresh each refresh so a settings change takes effect.
+    // TODO(#251-followup): fold this env+settings-row dual-source (and the other
+    // settings-coupled env reads: PODIUM_WEB_DIR/PODIUM_MOBILE_WEB_DIR bundle-path
+    // fallbacks below, PODIUM_HOST/PODIUM_PASSWORD, PODIUM_LOOP_PROFILE, PODIUM_CLOUD_*)
+    // into the server-side layer of the @podium/runtime/config resolver.
     modelProbe: () =>
       probeAllModels({
         claude: {

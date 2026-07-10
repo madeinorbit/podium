@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { stat } from 'node:fs/promises'
-import { homedir, hostname } from 'node:os'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import {
@@ -11,9 +11,6 @@ import {
   killAbducoSession,
   killTmuxServer,
 } from '@podium/agent-bridge'
-import { writeConnectivity } from '@podium/runtime/connectivity'
-import { startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { consumePairCode } from '@podium/runtime/setup'
 import {
   type ControlMessage,
   type DaemonHandshake,
@@ -23,6 +20,10 @@ import {
   parseDaemonHandshakeReply,
   WIRE_VERSION,
 } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
+import { writeConnectivity } from '@podium/runtime/connectivity'
+import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import type { DaemonContext, DurableBackend } from './control/context'
@@ -231,9 +232,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       '[podium] neither abduco nor tmux found — sessions will not survive a daemon restart',
     )
   }
-  const settingsDir =
-    opts.hooks?.settingsDir ??
-    join(process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'), 'hooks')
+  const settingsDir = opts.hooks?.settingsDir ?? join(stateDir(), 'hooks')
   const homeDir = opts.discovery?.homeDir
 
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
@@ -498,9 +497,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // connectivity instead of inferring "up" from the PID alone. The bundled LOCAL daemon
   // (bootstrapToken) skips this — its link is localhost/in-process, and tests boot it
   // without an isolated state dir. Best-effort: a write failure never affects the link.
-  const connectivityDir = opts.bootstrapToken
-    ? undefined
-    : (opts.identityDir ?? process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium'))
+  const connectivityDir = opts.bootstrapToken ? undefined : (opts.identityDir ?? stateDir())
   const recordConnectivity = (
     patch: Omit<Parameters<typeof writeConnectivity>[0], 'serverUrl'>,
   ): void => {

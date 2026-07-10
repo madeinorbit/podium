@@ -18,12 +18,13 @@
  */
 
 import { bootProcess } from '@podium/runtime/boot'
+import { resolvePort } from '@podium/runtime/config'
 import { startServer } from '../apps/server/src/server'
 
 await bootProcess({
   name: 'server',
   bootTimeoutMs: null,
-  start: () => startServer({ port: Number(process.env.PODIUM_PORT ?? 18787) }),
+  start: () => startServer({ port: resolvePort() }),
   readyMessage: (server) =>
     `podium server up: relay on http://localhost:${server.port} (daemon connects separately)`,
 })

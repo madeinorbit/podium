@@ -4,6 +4,7 @@ import {
   makeIssueClient,
   makeRelayIssueClient,
 } from '@podium/issue-client'
+import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
 
 /** Kebab-case flag → camelCase key, so `--outside-scope` becomes `outsideScope`. */
 const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
@@ -144,11 +145,11 @@ export async function runIssueCli(
  *  session id is bound in the relay URL, so there is deliberately no `--session` flag.
  *  Any failure exits 1; with `--json` the error is a JSON object on stdout. */
 export async function issueCliMain(argv: string[]): Promise<void> {
-  const relay = process.env.PODIUM_ISSUE_RELAY
+  const relay = resolveIssueRelay()
   const outsideScope = argv.includes('--outside-scope')
   const client = relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(`http://localhost:${Number(process.env.PODIUM_PORT) || 18787}`)
+    : makeIssueClient(`http://localhost:${resolvePort()}`)
   try {
     console.log(await runIssueCli(argv, client, { defaultAuthor: relay ? 'agent' : 'operator' }))
   } catch (err) {

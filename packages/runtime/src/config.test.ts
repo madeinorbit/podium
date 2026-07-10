@@ -2,7 +2,20 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { configPath, inspectConfig, loadConfig, needsSetup, saveConfig } from './config'
+import {
+  configPath,
+  inspectConfig,
+  loadConfig,
+  needsSetup,
+  resolveInstallDir,
+  resolveIssueRelay,
+  resolvePort,
+  resolveRunRecordMode,
+  resolveUpdateChannel,
+  resolveUpdateFeed,
+  resolveUpdateTarget,
+  saveConfig,
+} from './config'
 
 describe('podium config', () => {
   let dir: string
@@ -95,5 +108,51 @@ describe('podium config', () => {
   })
   it('rejects a partial upstream block (url and token are both required)', () => {
     expect(() => saveConfig({ upstream: { url: 'https://hub' } } as never)).toThrow()
+  })
+})
+
+describe('layered resolvers (#251): env → config.json → default', () => {
+  it('resolvePort: PODIUM_PORT > config.port > 18787; junk env falls through', () => {
+    expect(resolvePort({ port: 2000 }, { PODIUM_PORT: '3000' })).toBe(3000)
+    expect(resolvePort({ port: 2000 }, {})).toBe(2000)
+    expect(resolvePort({}, {})).toBe(18787)
+    expect(resolvePort({ port: 2000 }, { PODIUM_PORT: 'nope' })).toBe(2000)
+    expect(resolvePort({}, { PODIUM_PORT: '0' })).toBe(18787)
+  })
+  it('resolveUpdateChannel: env > config > stable', () => {
+    expect(resolveUpdateChannel({ updateChannel: 'edge' }, {})).toBe('edge')
+    expect(
+      resolveUpdateChannel({ updateChannel: 'edge' }, { PODIUM_UPDATE_CHANNEL: 'stable' }),
+    ).toBe('stable')
+    expect(resolveUpdateChannel({}, {})).toBe('stable')
+  })
+  it('resolveUpdateFeed: env > config > undefined', () => {
+    expect(
+      resolveUpdateFeed({ updateFeed: 'http://cfg' }, { PODIUM_UPDATE_FEED: 'http://env' }),
+    ).toBe('http://env')
+    expect(resolveUpdateFeed({ updateFeed: 'http://cfg' }, {})).toBe('http://cfg')
+    expect(resolveUpdateFeed({}, {})).toBeUndefined()
+  })
+  it('resolveUpdateTarget: env > linux-x86_64', () => {
+    expect(resolveUpdateTarget({ PODIUM_UPDATE_TARGET: 'darwin-arm64' })).toBe('darwin-arm64')
+    expect(resolveUpdateTarget({})).toBe('linux-x86_64')
+  })
+  it('resolveInstallDir: PODIUM_HOME > dirname(execPath)', () => {
+    expect(resolveInstallDir({ PODIUM_HOME: '/opt/podium' }, '/usr/bin/podium')).toBe('/opt/podium')
+    expect(resolveInstallDir({}, '/usr/bin/podium')).toBe('/usr/bin')
+  })
+  it('resolveIssueRelay is env-only', () => {
+    expect(resolveIssueRelay({ PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/x' })).toBe(
+      'http://127.0.0.1:1/x',
+    )
+    expect(resolveIssueRelay({})).toBeUndefined()
+  })
+  it('resolveRunRecordMode: NOTIFY_SOCKET > PODIUM_RUN_MODE=detached > foreground', () => {
+    expect(resolveRunRecordMode({ NOTIFY_SOCKET: '/run/x' })).toBe('systemd')
+    expect(resolveRunRecordMode({ PODIUM_RUN_MODE: 'detached' })).toBe('detached')
+    expect(resolveRunRecordMode({ NOTIFY_SOCKET: '/run/x', PODIUM_RUN_MODE: 'detached' })).toBe(
+      'systemd',
+    )
+    expect(resolveRunRecordMode({})).toBe('foreground')
   })
 })

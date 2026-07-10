@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { resolveIssueRelay } from '@podium/runtime/config'
 
 /**
  * `podium worktree [path]` — tell Podium which worktree this agent session is
@@ -45,7 +46,7 @@ export async function runWorktreeCli(
 /** Entry used by scripts/cli.ts. */
 export async function worktreeCliMain(argv: string[]): Promise<void> {
   const out = await runWorktreeCli(argv, {
-    relayEndpoint: process.env.PODIUM_ISSUE_RELAY,
+    relayEndpoint: resolveIssueRelay(),
     cwd: process.cwd(),
   })
   ;(out.exitCode === 0 ? console.log : console.error)(out.text)

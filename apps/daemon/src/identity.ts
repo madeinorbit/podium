@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { stateDir } from '@podium/runtime/config'
 
 /** Where the daemon's identity file lives. Overridable for tests/isolated state. */
 function dirFor(dir?: string): string {
-  return dir ?? process.env.PODIUM_STATE_DIR ?? join(homedir(), '.podium')
+  return dir ?? stateDir()
 }
 
 export interface DaemonIdentity {
