@@ -217,6 +217,7 @@
       "name": "@podium/issue-client",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/protocol": "workspace:*",
         "@trpc/client": "^11.0.0",
         "zod": "^3.24.0",
       },
