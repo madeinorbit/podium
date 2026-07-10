@@ -64,6 +64,89 @@ export function defineCommands<NS extends string, T extends Record<string, Comma
 export type CommandName<R extends { namespace: string; defs: Record<string, CommandDef> }> =
   `${R['namespace']}.${Extract<keyof R['defs'], string>}`
 
+/**
+ * THE canonical issue-command name list [spec:SP-3fe2 #248] — the def keys of the
+ * server's `issues` registry, declared HERE (the leaf contract package) so both
+ * sides of the wire compile against ONE source:
+ *
+ *  - apps/server's registry is checked `satisfies Record<IssueCommandName, …>`,
+ *    so adding/renaming/removing a command without touching this list is a
+ *    compile error, not a silent authz/wire drift;
+ *  - @podium/issue-client keys its `IssueTrpc.issues` client shape off the same
+ *    union, so a CLI/MCP command body calling an unknown or renamed proc breaks
+ *    compilation instead of failing at runtime.
+ *
+ * Names are the BARE def keys ('close', not 'issues.close'); the dotted wire
+ * form is derived via {@link CommandName} where needed.
+ */
+export const ISSUE_COMMAND_NAMES = [
+  'action',
+  'addComment',
+  'addSession',
+  'addShell',
+  'applySuggestion',
+  'archive',
+  'attachSession',
+  'blocked',
+  'children',
+  'claim',
+  'cleanup',
+  'clearNeedsHuman',
+  'close',
+  'closeEligibleEpics',
+  'comments',
+  'count',
+  'create',
+  'defer',
+  'delete',
+  'depAdd',
+  'depRemove',
+  'depReport',
+  'dismissSuggestion',
+  'doctor',
+  'duplicate',
+  'epicStatus',
+  'events',
+  'findDuplicates',
+  'get',
+  'graph',
+  'integrate',
+  'linearSearch',
+  'lint',
+  'list',
+  'mailClaim',
+  'mailInbox',
+  'mailPending',
+  'mailSend',
+  'markRead',
+  'markUnread',
+  'orphans',
+  'panelApply',
+  'preflight',
+  'prime',
+  'ready',
+  'refreshAssistant',
+  'reparent',
+  'search',
+  'setLabels',
+  'setNeedsHuman',
+  'setState',
+  'stale',
+  'start',
+  'stats',
+  'subscriptionAdd',
+  'subscriptionList',
+  'subscriptionRemove',
+  'subscriptionSetEnabled',
+  'supersede',
+  'tree',
+  'undefer',
+  'update',
+] as const
+
+/** One issue-command def key — see {@link ISSUE_COMMAND_NAMES}. */
+export type IssueCommandName = (typeof ISSUE_COMMAND_NAMES)[number]
+
 /** The parsed input type of one command definition. */
 export type CommandInput<D extends CommandDef> = z.infer<D['input']>
 

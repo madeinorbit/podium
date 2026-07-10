@@ -7,7 +7,7 @@ import type {
   CommandOutput,
   CommandScope,
 } from './commands'
-import { type CommandDef, defineCommands } from './commands'
+import { type CommandDef, defineCommands, ISSUE_COMMAND_NAMES } from './commands'
 
 const issues = defineCommands('issues', {
   close: {
@@ -40,6 +40,15 @@ describe('defineCommands (runtime)', () => {
   it('input schemas are live zod schemas (one validation source)', () => {
     expect(issues.defs.close.input.safeParse({ id: 'podium-7' }).success).toBe(true)
     expect(issues.defs.close.input.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('ISSUE_COMMAND_NAMES (the canonical issue-command name list)', () => {
+  it('is a non-empty, duplicate-free, sorted list of bare def keys', () => {
+    expect(ISSUE_COMMAND_NAMES.length).toBeGreaterThan(50)
+    expect(new Set(ISSUE_COMMAND_NAMES).size).toBe(ISSUE_COMMAND_NAMES.length)
+    expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
+    for (const n of ISSUE_COMMAND_NAMES) expect(n).not.toContain('.')
   })
 })
 
