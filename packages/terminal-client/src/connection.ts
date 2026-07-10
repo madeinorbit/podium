@@ -1098,11 +1098,14 @@ export class SocketHub {
     // fallback); a malformed snapshot rejects into the normal retry path.
     // Never install, never advance past a row we could not validate.
     const fetchValidated = async (): Promise<SyncChangesSinceResultLenient> => {
-      const first = parseChangesSinceResult(await fetch(since))
+      const first = parseChangesSinceResult(await fetch(since), { fromCursor: since })
       if (first !== null) return first
       if (since !== null) {
         const snap = parseChangesSinceResult(await fetch(null))
-        if (snap !== null) return snap
+        // Only a full snapshot may satisfy the escalation — a shape-valid
+        // delta (e.g. empty with a later cursor) would skip the malformed
+        // rows permanently instead of replacing the untrusted state.
+        if (snap !== null && snap.kind === 'snapshot') return snap
       }
       throw new Error('malformed changesSince result')
     }

@@ -456,6 +456,7 @@ export class UpstreamSync {
   private async fetchChangesSinceValidated(): Promise<SyncChangesSinceResultLenient> {
     const first = parseChangesSinceResult(
       await this.trpc.sync.changesSince.query({ cursor: this.cursor }),
+      { fromCursor: this.cursor },
     )
     if (first !== null) return first
     if (this.cursor !== null) {
@@ -463,7 +464,10 @@ export class UpstreamSync {
       const snap = parseChangesSinceResult(
         await this.trpc.sync.changesSince.query({ cursor: null }),
       )
-      if (snap !== null) return snap
+      // The escalation exists to REPLACE state we could not trust — only a
+      // full snapshot does that. A shape-valid delta here (e.g. empty, with a
+      // later cursor) would skip the malformed rows permanently.
+      if (snap !== null && snap.kind === 'snapshot') return snap
     }
     throw new Error('malformed changesSince result')
   }

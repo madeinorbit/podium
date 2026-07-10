@@ -159,7 +159,42 @@ export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', 
  * snapshot heal (null-cursor refetch — the same fallback the server uses for
  * a corrupt log row), never install, never advance the cursor past it.
  */
-export function parseChangesSinceResult(input: unknown): SyncChangesSinceResultLenient | null {
+export function parseChangesSinceResult(
+  input: unknown,
+  opts?: {
+    /** The cursor the caller requested changes SINCE. When provided and the
+     *  delta is non-empty, the first change must be exactly fromCursor + 1 —
+     *  the server's contiguity contract; anything else is a hole the caller
+     *  would silently skip by advancing to the result cursor. */
+    fromCursor?: number | null
+  },
+): SyncChangesSinceResultLenient | null {
   const parsed = SyncChangesSinceResultLenientSchema.safeParse(input)
-  return parsed.success ? parsed.data : null
+  if (!parsed.success) return null
+  const result = parsed.data
+  if (result.kind !== 'delta') return result
+  // Semantic validation beyond shapes ([spec:SP-3fe2] #247 round 2): a
+  // shape-valid delta can still lie — an embedded wire id disagreeing with the
+  // change id would install an entity under the wrong identity (a later remove
+  // of the change id could never remove it), and a seq sequence that skips or
+  // stops short of the result cursor is a permanent gap once the caller
+  // advances. Reject → the caller escalates to a snapshot heal.
+  let prevSeq = opts?.fromCursor ?? null
+  for (const change of result.changes) {
+    if (prevSeq !== null && change.seq !== prevSeq + 1) return null
+    prevSeq = change.seq
+    if (!isKnownMetadataChange(change) || change.op !== 'upsert' || change.value === undefined) {
+      continue
+    }
+    const embeddedId =
+      change.entity === 'session'
+        ? (change.value as { sessionId: string }).sessionId
+        : (change.value as { id: string }).id
+    if (embeddedId !== change.id) return null
+  }
+  if (result.changes.length > 0) {
+    const last = result.changes[result.changes.length - 1]
+    if (last !== undefined && last.seq !== result.cursor) return null
+  }
+  return result
 }
