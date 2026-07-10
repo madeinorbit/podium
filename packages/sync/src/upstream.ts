@@ -7,6 +7,7 @@ import {
   isKnownMetadataChange,
   type MetadataChangeLenient,
   type MetadataDeltaMessageLenient,
+  parseChangesSinceResult,
   parseServerMessageLenient,
   SESSION_COOKIE,
   type SessionMeta,
@@ -398,9 +399,7 @@ export class UpstreamSync {
     // lands on res.cursor.
     let res: SyncChangesSinceResultLenient
     try {
-      res = (await this.trpc.sync.changesSince.query({
-        cursor: this.cursor,
-      })) as SyncChangesSinceResultLenient
+      res = await this.fetchChangesSinceValidated()
     } catch (err) {
       this.logFailure(`upstream changesSince failed: ${(err as Error).message}`)
       this.healing = false
@@ -443,6 +442,30 @@ export class UpstreamSync {
     this.push()
     this.mirror.setUpstreamStale(false)
     this.onConnected?.()
+  }
+
+  /**
+   * `sync.changesSince` + runtime validation ([spec:SP-3fe2] #247). The WS
+   * frames parse leniently already; the HTTP heal result was consumed on
+   * trust, so a known-kind row with a malformed value installed into the
+   * mirror and the cursor skipped it permanently. A malformed result with a
+   * live cursor escalates to a SNAPSHOT heal (null-cursor refetch — matching
+   * the server's own corrupt-row fallback); a malformed snapshot throws into
+   * heal()'s normal retry path. Never installs, never advances past silently.
+   */
+  private async fetchChangesSinceValidated(): Promise<SyncChangesSinceResultLenient> {
+    const first = parseChangesSinceResult(
+      await this.trpc.sync.changesSince.query({ cursor: this.cursor }),
+    )
+    if (first !== null) return first
+    if (this.cursor !== null) {
+      this.logFailure('upstream changesSince result malformed — escalating to a snapshot heal')
+      const snap = parseChangesSinceResult(
+        await this.trpc.sync.changesSince.query({ cursor: null }),
+      )
+      if (snap !== null) return snap
+    }
+    throw new Error('malformed changesSince result')
   }
 
   /** Push the replica into the registry mirror + persist it (the durable base a

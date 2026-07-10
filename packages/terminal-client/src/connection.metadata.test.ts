@@ -233,6 +233,69 @@ describe('SocketHub metadata delta mode', () => {
     warn.mockRestore()
   })
 
+  it('a malformed KNOWN-kind element in a heal delta escalates to a snapshot heal — never installed, never skipped (#247)', async () => {
+    const { sock, hub, calls } = setup([
+      snapshot(5, [issue('a', 'base')]),
+      // Heal for the gap below: a delta whose KNOWN-kind element carries a
+      // malformed value. isKnownMetadataChange alone (an entity-string check)
+      // would install {bogus:true} into the issue list and advance the cursor
+      // past it permanently — the runtime parser rejects the whole result.
+      {
+        kind: 'delta',
+        changes: [{ seq: 6, entity: 'issue', id: 'bad', op: 'upsert', value: { bogus: true } }],
+        cursor: 6,
+      } as unknown as SyncChangesSinceResultLenient,
+      // Escalation: the null-cursor refetch answers with the full snapshot.
+      snapshot(9, [issue('healed', 'from snapshot')]),
+    ])
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(calls).toEqual([null])
+    // A live seq gap forces the heal.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 8,
+      changes: [{ seq: 8, entity: 'issue', id: 'x', op: 'upsert', value: issue('x', 'late') }],
+    })
+    await flush()
+    // Heal from the live cursor → malformed → escalate to a null-cursor snapshot.
+    expect(calls).toEqual([null, 5, null])
+    // The snapshot replaced the lists wholesale; the bogus row never installed.
+    expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot'])
+    // Cursor landed on the snapshot's cursor: seq 10 is contiguous, no re-heal.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 10,
+      changes: [{ seq: 10, entity: 'issue', id: 'y', op: 'upsert', value: issue('y', 'next') }],
+    })
+    await flush()
+    expect(hub.issues().map((i) => i.title)).toEqual(['from snapshot', 'next'])
+    expect(calls).toEqual([null, 5, null])
+  })
+
+  it('a malformed SNAPSHOT heal result is a failed heal: retried on the timer, nothing installed (#247)', async () => {
+    vi.useFakeTimers()
+    try {
+      const { sock, hub, calls } = setup([
+        // Bootstrap answers with a snapshot missing its arrays — malformed, and
+        // with a null cursor there is nowhere to escalate: fail → retry timer.
+        { kind: 'snapshot', cursor: 5 } as unknown as SyncChangesSinceResultLenient,
+        snapshot(7, [issue('ok', 'valid')]),
+      ])
+      hub.connect()
+      sock.open()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(calls).toEqual([null])
+      expect(hub.issues()).toEqual([]) // the malformed snapshot never installed
+      await vi.advanceTimersByTimeAsync(3_000) // HEAL_RETRY_MS
+      expect(calls).toEqual([null, null])
+      expect(hub.issues().map((i) => i.title)).toEqual(['valid'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('applies known kinds, ignores an UNKNOWN entity kind, and advances the cursor without healing ([spec:SP-3fe2] #258)', async () => {
     const { sock, hub, calls } = setup([snapshot(5)])
     const debug = vi.spyOn(console, 'debug').mockImplementation(() => {})

@@ -119,9 +119,47 @@ export type SyncChangesSinceResult = z.infer<typeof SyncChangesSinceResult>
 
 /** {@link SyncChangesSinceResult} as CONSUMERS type it (kind-tolerant): the
  *  delta arm's changes may contain unknown entity kinds from a newer server.
- *  Type-only — the client transports (tRPC) don't zod-parse the result; this
- *  keeps their application code honest about what can arrive. The strict
- *  result is assignable to it, so producers/tests need no changes. */
+ *  The strict result is assignable to it, so producers/tests need no changes.
+ *  Consumers must not trust the transport's compile-time type alone — validate
+ *  the fetched value through {@link parseChangesSinceResult}. */
 export type SyncChangesSinceResultLenient =
   | { kind: 'delta'; changes: MetadataChangeLenient[]; cursor: number }
   | Extract<SyncChangesSinceResult, { kind: 'snapshot' }>
+
+/** Runtime schema for {@link SyncChangesSinceResultLenient} ([spec:SP-3fe2]
+ *  #247). The delta arm validates element-wise through MetadataChangeLenient:
+ *  the strict known-kind arms validate VALUES, and the catch-all admits only
+ *  UNKNOWN kinds — so a known-kind row with a malformed value fails the whole
+ *  parse (it must never install, and the cursor must never advance past it
+ *  silently). The snapshot arm is strict. */
+export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('delta'),
+    changes: z.array(MetadataChangeLenient),
+    cursor: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('snapshot'),
+    sessions: z.array(SessionMeta),
+    issues: z.array(IssueWire),
+    conversations: z.array(ConversationSummaryWire),
+    diagnostics: z.array(ConversationDiagnosticWire),
+    cursor: z.number().int().nonnegative(),
+  }),
+])
+
+/**
+ * Validate a fetched `sync.changesSince` result ([spec:SP-3fe2] #247). The WS
+ * delta frames already parse leniently (codec.ts), but the HTTP heal result
+ * used to be consumed on trust: a known-kind row with a malformed value slid
+ * past `isKnownMetadataChange` (an entity-string check) into mirrors/UI, and
+ * the cursor skipped it permanently. Returns null when the result is
+ * malformed — a delta carrying an invalid KNOWN-kind element, or an invalid
+ * snapshot. Callers must treat null as a failed heal and escalate to a
+ * snapshot heal (null-cursor refetch — the same fallback the server uses for
+ * a corrupt log row), never install, never advance the cursor past it.
+ */
+export function parseChangesSinceResult(input: unknown): SyncChangesSinceResultLenient | null {
+  const parsed = SyncChangesSinceResultLenientSchema.safeParse(input)
+  return parsed.success ? parsed.data : null
+}

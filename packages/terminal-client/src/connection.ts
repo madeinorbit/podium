@@ -11,6 +11,7 @@ import {
   type MetadataChange,
   type MetadataChangeLenient,
   type MetadataDeltaMessageLenient,
+  parseChangesSinceResult,
   parseServerMessageLenient,
   type ServerMessage,
   type ServerMessageLenient,
@@ -1089,7 +1090,23 @@ export class SocketHub {
     const since =
       this.metadataCursor ?? (this.initialCursorSpent ? null : (this.opts.initialCursor ?? null))
     this.initialCursorSpent = true
-    fetch(since).then(
+    // Runtime validation of the heal result ([spec:SP-3fe2] #247): the WS
+    // frames parse leniently, but this HTTP result used to be consumed on
+    // trust — a known-kind row with a malformed value installed into the UI
+    // lists and the cursor skipped it permanently. A malformed delta escalates
+    // to a SNAPSHOT heal (null-cursor refetch, the server's own corrupt-row
+    // fallback); a malformed snapshot rejects into the normal retry path.
+    // Never install, never advance past a row we could not validate.
+    const fetchValidated = async (): Promise<SyncChangesSinceResultLenient> => {
+      const first = parseChangesSinceResult(await fetch(since))
+      if (first !== null) return first
+      if (since !== null) {
+        const snap = parseChangesSinceResult(await fetch(null))
+        if (snap !== null) return snap
+      }
+      throw new Error('malformed changesSince result')
+    }
+    fetchValidated().then(
       (result) => {
         this.healInFlight = false
         if (result.kind === 'snapshot') {

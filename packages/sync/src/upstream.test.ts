@@ -103,14 +103,25 @@ describe('UpstreamSync kind tolerance', () => {
       },
     })
     // Replace the real tRPC client with a scripted changesSince (the heal seam).
+    // Results queue in FIFO order (setHealResult pushes); an exhausted queue
+    // answers an empty delta. Typed unknown so tests can script MALFORMED
+    // results — the runtime-validation seam under test (#247).
     const heals: Array<number | null> = []
-    let healResult: SyncChangesSinceResultLenient = { kind: 'delta', changes: [], cursor: 0 }
+    const healQueue: unknown[] = []
     const trpc: UpstreamTrpcClient = {
       sync: {
         changesSince: {
           query: ({ cursor: c }) => {
             heals.push(c)
-            return Promise.resolve(healResult)
+            const next =
+              healQueue.length > 0
+                ? healQueue.shift()
+                : ({
+                    kind: 'delta',
+                    changes: [],
+                    cursor: 0,
+                  } satisfies SyncChangesSinceResultLenient)
+            return Promise.resolve(next)
           },
         },
       },
@@ -127,8 +138,8 @@ describe('UpstreamSync kind tolerance', () => {
       mirror,
       cursors,
       heals,
-      setHealResult: (r: SyncChangesSinceResultLenient) => {
-        healResult = r
+      setHealResult: (r: unknown) => {
+        healQueue.push(r)
       },
       frame: (msg: unknown) => priv.onFrame(JSON.stringify(msg)),
       lastCursor: () => cursor,
@@ -162,6 +173,89 @@ describe('UpstreamSync kind tolerance', () => {
     expect(heals).toEqual([]) // no heal loop
     expect(debug).toHaveBeenCalledWith(expect.stringContaining("unknown entity kind 'machine'"))
     debug.mockRestore()
+  })
+
+  // Must satisfy the real IssueWire zod schema — the snapshot arm of the heal
+  // result parses STRICTLY now (#247); a sloppy fixture would fail the parse
+  // and silently test the wrong path.
+  const validIssue = (id: string, title: string): IssueWire => ({
+    id,
+    repoPath: '/r',
+    seq: 1,
+    title,
+    description: '',
+    stage: 'backlog',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    blockedBy: [],
+    priority: 2,
+    type: 'task',
+    pinned: false,
+    needsHuman: false,
+    labels: [],
+    deps: [],
+    dependents: [],
+    ready: true,
+    blocked: false,
+    deferred: false,
+    childCount: 0,
+    childDoneCount: 0,
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-01T00:00:00.000Z',
+    archived: false,
+    readAt: null,
+    unread: false,
+    origin: 'human',
+    audience: 'human',
+    draft: false,
+    sessions: [],
+    sessionSummary: { total: 0, byPhase: {} },
+  })
+
+  it('a malformed KNOWN-kind element in a heal delta escalates to a snapshot heal — never installed, never skipped (#247)', async () => {
+    const { mirror, heals, frame, setHealResult, lastCursor, sync } = makeSync({
+      issuesJson: JSON.stringify([{ id: 'a' }, { id: 'b' }]),
+    })
+    // First heal (cursor 5): a delta whose KNOWN-kind element carries a
+    // malformed value. isKnownMetadataChange alone would wave it into the
+    // mirror; the runtime parser rejects the whole result instead.
+    setHealResult({
+      kind: 'delta',
+      changes: [
+        { seq: 6, entity: 'issue', id: 'a', op: 'remove' },
+        { seq: 7, entity: 'issue', id: 'bogus', op: 'upsert', value: { bogus: true } },
+      ],
+      cursor: 7,
+    })
+    // Escalation (cursor null): the full snapshot, which installs wholesale.
+    setHealResult({
+      kind: 'snapshot',
+      sessions: [],
+      issues: [validIssue('healed', 'from snapshot')],
+      conversations: [],
+      diagnostics: [],
+      cursor: 9,
+    })
+    // A quarantined frame element forces the heal (same trigger as the sibling test).
+    frame({
+      type: 'metadataDelta',
+      seq: 7,
+      changes: [{ seq: 6, entity: 'session', id: 's1', op: 'upsert', value: { bogus: true } }],
+    })
+    await flush()
+    // Escalated: the malformed delta was refetched as a null-cursor snapshot.
+    expect(heals).toEqual([5, null])
+    // The mirror was replaced by the snapshot — the {bogus:true} row never
+    // installed, and the pre-heal replica rows are gone with the full replace.
+    expect(mirror.issues.at(-1)?.map((i) => i.id)).toEqual(['healed'])
+    // The cursor landed on the SNAPSHOT's cursor — never advanced past the
+    // malformed row on the strength of the rejected delta.
+    expect(lastCursor()).toBe(9)
+    expect(sync.lastCatchUpKind).toBe('snapshot')
   })
 
   it('a quarantined KNOWN-kind element still heals — and a heal result carrying an unknown kind applies cleanly', async () => {
