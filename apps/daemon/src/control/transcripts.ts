@@ -1,6 +1,11 @@
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { discoveryRoots, resolveWithinRoots, transcriptSourceFor } from '@podium/agent-bridge'
+import {
+  discoveryRoots,
+  harnessKindForResumeKind,
+  resolveWithinRoots,
+  transcriptSourceFor,
+} from '@podium/agent-bridge'
 import type { AgentKind, ControlMessage } from '@podium/protocol'
 import type { SliceResult, TranscriptSource } from '@podium/transcript'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -12,21 +17,12 @@ import type { ControlHandlers, DaemonContext } from './context'
  * stamp precisely — so prefer the resume kind when it names a known harness; this
  * closes the mis-route gap where an opencode/grok/codex/cursor session arrived
  * with a generic `agentKind` and got read as the wrong source (empty chat). Falls
- * back to `agentKind` when the resume kind is absent or unrecognized.
+ * back to `agentKind` when the resume kind is absent or unrecognized. The
+ * mapping is the adapter registry's (each adapter declares its resumeKind) —
+ * not a hand-kept switch that a new harness could silently miss.
  */
 export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): AgentKind {
-  switch (resumeKind) {
-    case 'opencode-session':
-      return 'opencode'
-    case 'grok-session':
-      return 'grok'
-    case 'codex-thread':
-      return 'codex'
-    case 'cursor-chat':
-      return 'cursor'
-    default:
-      return agentKind
-  }
+  return (resumeKind !== undefined ? harnessKindForResumeKind(resumeKind) : undefined) ?? agentKind
 }
 
 // Build a TranscriptSource for the session named by a transcript-read request.

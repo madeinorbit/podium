@@ -1776,6 +1776,9 @@ describe('normalizeAgentKind', () => {
     expect(normalizeAgentKind('shell', 'grok-session')).toBe('grok')
     expect(normalizeAgentKind('shell', 'codex-thread')).toBe('codex')
     expect(normalizeAgentKind('shell', 'cursor-chat')).toBe('cursor')
+    // Registry-backed (#249): claude-session maps too — a mis-stamped
+    // agentKind can no longer hide a claude conversation from reads.
+    expect(normalizeAgentKind('shell', 'claude-session')).toBe('claude-code')
   })
 
   it('falls back to agentKind when the resume kind is absent or unknown', () => {
