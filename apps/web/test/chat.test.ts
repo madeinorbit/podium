@@ -4,13 +4,13 @@ import { describe, expect, it } from 'vitest'
 import {
   blockMatches,
   buildChatRows,
-  pairToolResults,
   type PendingItem,
+  pairToolResults,
   reconcilePending,
   searchBlocks,
   ticksFromOffsets,
   toolBatchTitle,
-} from '../src/chat'
+} from '../src/features/chat/chat'
 
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({
   id: Math.random().toString(36).slice(2),
@@ -120,8 +120,9 @@ describe('buildChatRows', () => {
 })
 
 describe('toolBatchTitle', () => {
-  const tool = (toolName: string, over: Partial<TranscriptItem> = {}) =>
-    ({ item: item({ role: 'tool', toolName, ...over }) })
+  const tool = (toolName: string, over: Partial<TranscriptItem> = {}) => ({
+    item: item({ role: 'tool', toolName, ...over }),
+  })
   const title = (...names: string[]) => toolBatchTitle(names.map((n) => tool(n)))
 
   it('counts a single tool kind', () => {
@@ -137,9 +138,9 @@ describe('toolBatchTitle', () => {
   })
 
   it('quotes a lone command using the agent description, then the shell, else generic', () => {
-    expect(toolBatchTitle([tool('Bash', { toolTitle: 'Render the three chat-view mockups to PNG' })])).toBe(
-      'Ran "Render the three chat-view mockups to PNG"',
-    )
+    expect(
+      toolBatchTitle([tool('Bash', { toolTitle: 'Render the three chat-view mockups to PNG' })]),
+    ).toBe('Ran "Render the three chat-view mockups to PNG"')
     expect(toolBatchTitle([tool('Bash', { toolInput: 'bun test' })])).toBe('Ran "bun test"')
     expect(toolBatchTitle([tool('Bash')])).toBe('Ran a command')
   })

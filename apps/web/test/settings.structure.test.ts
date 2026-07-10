@@ -8,7 +8,7 @@ const read = (rel: string) =>
 
 describe('settings structure', () => {
   it('explains how to configure Telegram notifications', () => {
-    const src = read('SettingsView.tsx')
+    const src = read('features/settings/SettingsView.tsx')
     // The manual chat-ID hunt (@userinfobot / @RawDataBot / getUpdates) was
     // replaced by the guided connect flow: create a bot, click Connect
     // Telegram, send the prefilled start message — Podium fills the chat ID.
@@ -24,7 +24,7 @@ describe('settings structure', () => {
 
 describe('auto-continue setting', () => {
   it('exposes an auto-continue toggle with a token-cost warning', () => {
-    const src = read('SettingsView.tsx')
+    const src = read('features/settings/SettingsView.tsx')
     expect(src).toContain('Auto-continue on errors')
     expect(src).toContain('autoContinue')
     expect(src).toContain('enabled: checked')
@@ -36,14 +36,14 @@ describe('auto-continue setting', () => {
 
 describe('background LLM backend wording', () => {
   it('does not imply every API backend needs a separate key', () => {
-    const src = read('SettingsView.tsx')
+    const src = read('features/settings/SettingsView.tsx')
     expect(src).toContain('Provider backend (API key or local login)')
     expect(src).toContain('Agent CLI harness')
     expect(src).not.toContain('API provider (key required)')
   })
 
   it('describes Claude Code harness usage without saying subscriptions are always API-billed', () => {
-    const src = read('SettingsView.tsx')
+    const src = read('features/settings/SettingsView.tsx')
     expect(src).toContain('counts against that account')
     expect(src).toContain('subscribers consume plan usage')
     expect(src).not.toContain('bills pay-per-use API rates even with a subscription')

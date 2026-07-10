@@ -24,7 +24,7 @@ describe('auto-continue popup', () => {
   })
 
   it('dialog warns about runaway token cost and offers enable / not now', () => {
-    const src = read('AutoContinueDialog.tsx')
+    const src = read('app/AutoContinueDialog.tsx')
     expect(src).toContain('Enable auto-continue')
     expect(src).toContain('Not now')
     expect(src).toContain('indefinitely')
@@ -33,7 +33,7 @@ describe('auto-continue popup', () => {
   })
 
   it('AppShell mounts the dialog', () => {
-    const src = read('AppShell.tsx')
+    const src = read('app/AppShell.tsx')
     expect(src).toContain('<AutoContinueDialog')
   })
 })

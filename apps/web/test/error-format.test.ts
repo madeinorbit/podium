@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatAppError } from '../src/AppErrorPage'
+import { formatAppError } from '../src/app/AppErrorPage'
 
 describe('formatAppError', () => {
   it('explains old relay servers that do not expose repo discovery', () => {

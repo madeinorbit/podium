@@ -1,6 +1,6 @@
 import type { UsageBucketWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { bucketCostUsd, formatTokens, localDay, usageSummary } from '../src/usage'
+import { bucketCostUsd, formatTokens, localDay, usageSummary } from '../src/features/usage/usage'
 
 const NOW = Date.parse('2026-06-12T12:30:00.000Z')
 const bucket = (hour: string, over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({

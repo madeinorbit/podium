@@ -4,7 +4,7 @@
     <script>
       // Apply the stored theme before React mounts so the first paint matches
       // (no flash). Keys/values mirror src/theme.tsx exactly.
-      (function () {
+      (() => {
         try {
           var BG = {
             'podium-dark': '#0e0e12',
@@ -46,6 +46,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/app/main.tsx"></script>
   </body>
 </html>

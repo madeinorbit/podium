@@ -1,6 +1,11 @@
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { lastUsedMachine, machinesForRepo, reposToViews, resolveTargetMachine } from '../src/derive'
+import {
+  lastUsedMachine,
+  machinesForRepo,
+  reposToViews,
+  resolveTargetMachine,
+} from '../src/lib/derive'
 
 // --- helpers ---
 

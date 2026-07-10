@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { makeTrpc } from '../../../apps/web/src/trpc'
+import { makeTrpc } from '../../../apps/web/src/app/trpc'
 import { RELAY } from './_harness'
 
 test.skip(

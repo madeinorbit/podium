@@ -25,7 +25,7 @@ const readStore = () =>
 
 describe('web shell structure', () => {
   it('AppShell auto-resolves the relay (no manual connect screen) and renders sidebar + workspace', () => {
-    const src = read('AppShell.tsx')
+    const src = read('app/AppShell.tsx')
     // The relay address is derived automatically via serverConfig — never typed by the user.
     expect(src).toContain('serverConfig')
     expect(src).not.toContain('ConnectScreen')
@@ -57,14 +57,14 @@ describe('web shell structure', () => {
     expect(src).toContain('pins.set')
   })
   it('sidebar renders pin-aware sections and pin controls', () => {
-    const src = read('SidebarUnified.tsx')
+    const src = read('features/worklist/SidebarUnified.tsx')
     expect(src).toContain('sidebarSections')
     expect(src).toContain('"PINNED"')
     expect(src).toContain('setPinned')
   })
   it('workspace and mobile tabs use the persisted manual order (pins as fallback)', () => {
-    expect(read('Workspace.tsx')).toContain('orderTabs')
-    expect(read('MobileApp.tsx')).toContain('orderTabs')
+    expect(read('app/Workspace.tsx')).toContain('orderTabs')
+    expect(read('app/MobileApp.tsx')).toContain('orderTabs')
   })
   it('store loads and persists the manual tab order', () => {
     const src = readStore()
@@ -73,7 +73,7 @@ describe('web shell structure', () => {
     expect(src).toContain('tabs.setOrder')
   })
   it('workspace tabs are sortable with fixed actions outside the scrolling strip', () => {
-    const src = read('Workspace.tsx')
+    const src = read('app/Workspace.tsx')
     expect(src).toContain('DndContext')
     expect(src).toContain('SortableContext')
     expect(src).toContain('horizontalListSortingStrategy')
@@ -92,19 +92,19 @@ describe('web shell structure', () => {
   it('repo add flow uses the scan flow on desktop and mobile', () => {
     // AppToolsRow owns the scan flow; mobile reaches it by composing that row
     // into its home view (#227), desktop by composing it into the sidebar.
-    expect(read('SidebarUnified.tsx')).toContain('RepoScanFlow')
-    expect(read('MobileApp.tsx')).toContain('AppToolsRow')
+    expect(read('features/worklist/SidebarUnified.tsx')).toContain('RepoScanFlow')
+    expect(read('app/MobileApp.tsx')).toContain('AppToolsRow')
   })
   it('sidebar work panels navigate directly to the panel when clicked', () => {
     // Each panel row is an interactive button (not an inert div) that focuses the
     // session: select its worktree and point pane A at it.
-    expect(read('sidebar-common.tsx')).toContain('onClick={onSelect}')
-    const src = read('SidebarUnified.tsx')
+    expect(read('features/worklist/sidebar-common.tsx')).toContain('onClick={onSelect}')
+    const src = read('features/worklist/SidebarUnified.tsx')
     expect(src).toContain('setSelectedWorktree(worktreePath)')
     expect(src).toContain("setPane('A', sessionId)")
   })
   it('repo picker browses folders, hides hidden by default, and offers a scan action', () => {
-    const src = read('RepoPickerModal.tsx')
+    const src = read('features/setup/RepoPickerModal.tsx')
     expect(src).toContain('showHidden')
     expect(src).toContain('includeHidden')
     expect(src).toContain('Show hidden')
@@ -112,17 +112,17 @@ describe('web shell structure', () => {
     expect(src).toContain('Scan for repos here')
   })
   it('first run shows the onboarding wizard only once repos are known empty', () => {
-    const src = read('AppShell.tsx')
+    const src = read('app/AppShell.tsx')
     expect(src).toContain('OnboardingWizard')
     expect(src).toContain('reposLoaded')
     expect(src).toContain('repos.length === 0')
   })
   it('scan flow ranks results and persists the selection', () => {
-    const flow = read('RepoScanFlow.tsx')
+    const flow = read('features/setup/RepoScanFlow.tsx')
     expect(flow).toContain('scanFolder')
     expect(flow).toContain('rankRepoCandidates')
     expect(flow).toContain('addMany')
-    const results = read('RepoScanResults.tsx')
+    const results = read('features/setup/RepoScanResults.tsx')
     expect(results).toContain('PROJECTS')
     expect(results).toContain('HIDDEN / SYSTEM')
   })
@@ -130,9 +130,9 @@ describe('web shell structure', () => {
     // NewPanelMenu owns its own trigger and a portalled, auto-positioned
     // dropdown (the old fixed 'workspace-menu-layer' the parent positioned is
     // gone) — so the menu never scrolls with, or is clipped by, the tab strip.
-    const src = read('Workspace.tsx')
+    const src = read('app/Workspace.tsx')
     expect(src).toContain('NewPanelMenu')
-    const menu = read('NewPanelMenu.tsx')
+    const menu = read('app/NewPanelMenu.tsx')
     expect(menu).toContain('DropdownMenuTrigger')
     expect(menu).toContain('DropdownMenuContent')
   })
@@ -149,14 +149,14 @@ describe('web shell structure', () => {
     expect(src).not.toContain('onConversations')
   })
   it('new-panel menu offers claude, codex, grok, and shell', () => {
-    const src = read('NewPanelMenu.tsx')
+    const src = read('app/NewPanelMenu.tsx')
     expect(src).toContain('New Claude')
     expect(src).toContain('New Codex')
     expect(src).toContain('New Grok')
     expect(src).toContain('New Shell')
   })
   it('agent panel offers chat mode for structured-transcript harnesses before first append', () => {
-    const src = read('AgentPanel.tsx')
+    const src = read('features/terminal/AgentPanel.tsx')
     // The harness fallback lives in defaultChatCapable (which harnesses, incl.
     // codex, is asserted in derive.test.ts); the server's transcriptAvailable
     // still wins when present.
@@ -164,13 +164,13 @@ describe('web shell structure', () => {
     expect(src).toContain('transcriptAvailable')
   })
   it('new-panel menu is the mini search: indexed, capped, with last-active dates', () => {
-    const src = read('NewPanelMenu.tsx')
+    const src = read('app/NewPanelMenu.tsx')
     // Server-indexed search via the shared hook (capped, recency-first, dated).
     expect(src).toContain('useConversationSearch')
     expect(src).toContain('MINI_LIMIT')
     expect(src).toContain('relativeTime')
     // The hook is the thing that hits the durable server index.
-    expect(read('useConversationSearch.ts')).toContain('trpc.conversations.search')
+    expect(read('lib/useConversationSearch.ts')).toContain('trpc.conversations.search')
   })
 })
 
@@ -183,18 +183,18 @@ describe('host health indicators', () => {
     expect(src).toContain('hostMetrics')
   })
   it('the strip is mounted in the desktop sidebar and the mobile header', () => {
-    expect(read('SidebarUnified.tsx')).toContain('<HostIndicators')
-    expect(read('MobileApp.tsx')).toContain('<HostIndicators')
+    expect(read('features/worklist/SidebarUnified.tsx')).toContain('<HostIndicators')
+    expect(read('app/MobileApp.tsx')).toContain('<HostIndicators')
   })
   it('the connection indicator shows on the hysteresis signal; memory chips per host', () => {
-    const src = read('HostIndicators.tsx')
+    const src = read('features/machines/HostIndicators.tsx')
     expect(src).toContain('connVisible')
     expect(src).toContain('<ConnectionIndicator')
     expect(src).toContain('hostMetrics.length > 1')
     expect(src).toContain('hostMemoryView')
   })
   it('the connection indicator is icon-based with an explanatory tooltip', () => {
-    const src = read('ConnectionIndicator.tsx')
+    const src = read('features/machines/ConnectionIndicator.tsx')
     expect(src).toContain('describeHealth')
     expect(src).toContain('onConnectionHealth')
     // The custom conn-tooltip div became the shared Tooltip primitives.
@@ -206,12 +206,12 @@ describe('host health indicators', () => {
 
 describe('memory breakdown view', () => {
   it('the memory chip is a button that opens the host info panel', () => {
-    const src = read('HostIndicators.tsx')
+    const src = read('features/machines/HostIndicators.tsx')
     expect(src).toContain('<button')
     expect(src).toContain('<HostInfoView')
   })
   it('fetches the clicked machine breakdown via the hosts endpoint and refreshes while open', () => {
-    const src = read('HostMemoryView.tsx')
+    const src = read('features/machines/HostMemoryView.tsx')
     // Machine-aware: the breakdown is requested for the clicked machine (#136),
     // not always the first online daemon.
     expect(src).toContain(
@@ -221,7 +221,7 @@ describe('memory breakdown view', () => {
     expect(src).toContain('clearInterval')
   })
   it('separates agents, project processes, and the rest', () => {
-    const src = read('HostMemoryView.tsx')
+    const src = read('features/machines/HostMemoryView.tsx')
     expect(src).toContain('AGENTS & SHELLS')
     expect(src).toContain('PROJECT PROCESSES')
     expect(src).toContain('otherBytes')

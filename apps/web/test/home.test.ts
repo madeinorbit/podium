@@ -7,7 +7,7 @@ import {
   groupSessions,
   kanbanColumns,
   relativeTime,
-} from '../src/home'
+} from '../src/lib/home'
 
 const base = (over: Partial<SessionMeta> = {}): SessionMeta => ({
   sessionId: 's1',

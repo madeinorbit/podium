@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { makeTrpc } from '../../../apps/web/src/trpc'
+import { makeTrpc } from '../../../apps/web/src/app/trpc'
 import { RELAY } from './_harness'
 
 test.skip(({ isMobile }) => isMobile, 'desktop test (Settings nav button lives in the <aside> Sidebar)')

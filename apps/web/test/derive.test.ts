@@ -23,7 +23,7 @@ import {
   snoozeUntilTomorrow5am,
   sortSessionsForPins,
   sortSessionsForSidebar,
-} from '../src/derive'
+} from '../src/lib/derive'
 
 describe('defaultChatCapable', () => {
   it('offers chat for structured-transcript harnesses incl. codex, not shell', () => {

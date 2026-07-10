@@ -76,7 +76,7 @@ describe('PWA shell height + safe-area inset', () => {
   })
 
   it('ChatView composer applies safe-area-inset-bottom exactly once', () => {
-    const src = readWeb('src/ChatView.tsx')
+    const src = readWeb('src/features/chat/ChatView.tsx')
     const matches = [...src.matchAll(/safe-area-inset-bottom/g)]
     expect(matches.length).toBe(1)
   })
@@ -84,7 +84,7 @@ describe('PWA shell height + safe-area inset', () => {
 
 describe('update prompt', () => {
   it('UpdatePrompt uses the SW registration to detect and apply new builds', () => {
-    const src = readWeb('src/UpdatePrompt.tsx')
+    const src = readWeb('src/app/UpdatePrompt.tsx')
     expect(src).toContain("from 'virtual:pwa-register/react'")
     expect(src).toContain('useRegisterSW')
     expect(src).toContain('onRegisteredSW')
@@ -97,13 +97,13 @@ describe('update prompt', () => {
   })
 
   it('AppShell always mounts the update prompt', () => {
-    const src = readWeb('src/AppShell.tsx')
+    const src = readWeb('src/app/AppShell.tsx')
     expect(src).toContain('UpdatePrompt')
     expect(src).toContain('<UpdatePrompt')
   })
 
   it('the top-center Toaster offsets toasts below the iOS safe area so the prompt is tappable in standalone PWA mode', () => {
-    const src = readWeb('src/AppShell.tsx')
+    const src = readWeb('src/app/AppShell.tsx')
     // Both desktop and mobile (<=600px) offsets must add the top inset; the
     // mobileOffset is the one that matters on the iPhone Dynamic Island.
     expect(src).toContain("offset={{ top: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}")

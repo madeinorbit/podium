@@ -1,6 +1,6 @@
 import type { GitRepositoryWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { isHiddenRepoPath, rankRepoCandidates } from '../src/ranking'
+import { isHiddenRepoPath, rankRepoCandidates } from '../src/features/setup/ranking'
 
 function repo(path: string, extra: Partial<GitRepositoryWire> = {}): GitRepositoryWire {
   return { path, kind: 'repository', worktrees: [], ...extra }
@@ -31,7 +31,10 @@ describe('rankRepoCandidates', () => {
       repo('/home/u/.claude/skills/hidden-tool'),
       repo('/home/u/src/app'),
     ])
-    expect(ranked.map((c) => c.path)).toEqual(['/home/u/src/app', '/home/u/.claude/skills/hidden-tool'])
+    expect(ranked.map((c) => c.path)).toEqual([
+      '/home/u/src/app',
+      '/home/u/.claude/skills/hidden-tool',
+    ])
     expect(ranked.map((c) => c.defaultSelected)).toEqual([true, false])
     expect(ranked.map((c) => c.hidden)).toEqual([false, true])
   })
