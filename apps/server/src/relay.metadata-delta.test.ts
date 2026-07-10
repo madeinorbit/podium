@@ -33,6 +33,10 @@ describe('SessionRegistry metadata deltas', () => {
   const deltas = (inbox: ServerMessage[]): MetadataChange[] =>
     inbox.flatMap((m) => (m.type === 'metadataDelta' ? m.changes : []))
 
+  /** Emission is coalesced at microtask level since #256 (one ordered pipe);
+   *  flush deterministically before reading a delta client's inbox. */
+  const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
+
   it('sends per-entity deltas to cap clients and full lists to legacy clients', () => {
     const registry = makeRegistry()
     const legacy = client(registry)
@@ -41,6 +45,7 @@ describe('SessionRegistry metadata deltas', () => {
     const deltaBefore = delta.inbox.length
 
     registry.issues.create({ repoPath: '/r', title: 'first', startNow: false })
+    flush(registry)
 
     // Legacy: a full issuesChanged list, and NEVER a metadataDelta.
     const legacyNew = legacy.inbox.slice(legacyBefore)
@@ -60,12 +65,14 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = makeRegistry()
     const w = registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'bystander', startNow: false })
+    flush(registry) // drain the setup writes' pending batch before the clients attach
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
 
     registry.issues.update(w.id, { notes: 'self-contained edit' })
+    flush(registry)
 
     // Legacy client: exactly one single-issue message, no full issuesChanged.
     const legacyNew = legacy.inbox.slice(legacyBefore)
@@ -82,6 +89,7 @@ describe('SessionRegistry metadata deltas', () => {
     const delta = client(registry, ['metadataDelta'])
     const before = delta.inbox.length
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    flush(registry)
     const changes = deltas(delta.inbox.slice(before)).filter((c) => c.entity === 'session')
     expect(changes.length).toBeGreaterThanOrEqual(1)
     expect(changes[0]).toMatchObject({ entity: 'session', id: sessionId, op: 'upsert' })
@@ -93,6 +101,7 @@ describe('SessionRegistry metadata deltas', () => {
     const delta = client(registry, ['metadataDelta'])
     registry.issues.create({ repoPath: '/r', title: 'a', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'b', startNow: false })
+    flush(registry)
     const batches = delta.inbox.filter((m) => m.type === 'metadataDelta')
     let prev = 0
     for (const b of batches) {
@@ -156,6 +165,7 @@ describe('SessionRegistry metadata deltas', () => {
     registry.modules.sessions.attachClient((msg) => inbox.push(msg)) // no hello at all
     expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(true)
     registry.issues.create({ repoPath: '/r', title: 'x', startNow: false })
+    flush(registry)
     expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
     expect(inbox.filter((m) => m.type === 'issuesChanged').length).toBeGreaterThanOrEqual(2)
   })

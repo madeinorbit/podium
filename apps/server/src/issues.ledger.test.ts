@@ -20,7 +20,12 @@ function harness() {
     now: () => 1_000,
     transact: (fn) => store.transact(fn),
   })
-  const published: { snapshot: ServerMessage; changes: MetadataChange[] }[] = []
+  // What reaches clients: legacy snapshots via publishComputed; delta batches
+  // via the ledger's onAppended pipe (#256 — publishComputed carries no changes
+  // any more, the funnel's ordered pipe is THE metadataDelta emitter).
+  const published: { snapshot: ServerMessage }[] = []
+  const appended: MetadataChange[][] = []
+  ledger.onAppended((changes) => appended.push(changes))
   const plumbing = issueTestPlumbing()
   const deps: IssueDeps = {
     store,
@@ -38,13 +43,13 @@ function harness() {
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: {
       run: plumbing.funnel.run,
-      publishComputed: (snapshot, changes) => published.push({ snapshot, changes }),
+      publishComputed: (snapshot) => published.push({ snapshot }),
     },
     ledger,
     publishSpecs: plumbing.publishSpecs,
     now: () => '2026-07-01T00:00:00.000Z',
   }
-  return { store, ledger, published, svc: new IssueService(deps) }
+  return { store, ledger, published, appended, svc: new IssueService(deps) }
 }
 
 /** Replica-style fold: apply a change stream to an id → value map. */
@@ -59,12 +64,14 @@ function fold(changes: MetadataChange[]): Map<string, unknown> {
 
 describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   it('commits the upsert change row atomically with the issue row write', () => {
-    const { ledger, svc, published } = harness()
+    const { ledger, svc, published, appended } = harness()
     const wire = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const recorded = ledger.changesSince(0) ?? []
     expect(recorded.some((c) => c.id === wire.id && c.op === 'upsert')).toBe(true)
-    // The committed changes are what fanned out (durable before fan-out).
-    expect(published.some((p) => p.changes.some((c) => c.id === wire.id))).toBe(true)
+    // The committed change entered the delta pipe (durable before fan-out) and
+    // the legacy snapshot fanned out alongside it.
+    expect(appended.flat().some((c) => c.id === wire.id && c.op === 'upsert')).toBe(true)
+    expect(published.length).toBeGreaterThan(0)
   })
 
   it('a throw between the row write and the change append rolls BOTH back', () => {
@@ -93,15 +100,16 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   })
 
   it('closing an issue reconciles derived ripples: the dependent flips to ready', () => {
-    const { svc, published } = harness()
+    const { svc, appended } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
     svc.addDep(b.id, a.id, 'blocks') // B waits on A
     expect(svc.get(b.id)?.blocked).toBe(true)
-    published.length = 0
+    appended.length = 0
     svc.close(a.id)
-    // The full-list reconcile caught B's DERIVED flip — no write touched B's row.
-    const rippled = published.flatMap((p) => p.changes)
+    // The full-list reconcile caught B's DERIVED flip — no write touched B's
+    // row — and it reached the delta pipe via onAppended.
+    const rippled = appended.flat()
     const bChange = rippled.find((c) => c.id === b.id && c.op === 'upsert') as
       | { value?: { ready?: boolean; blocked?: boolean } }
       | undefined
@@ -110,17 +118,18 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   })
 
   it('delete emits the remove to delta clients and the log replays to the live state', () => {
-    const { ledger, svc, published } = harness()
+    const { ledger, svc, appended } = harness()
     const parent = svc.create({ repoPath: '/r', title: 'epic', startNow: false })
     const child = svc.create({ repoPath: '/r', title: 'kid', startNow: false, parentId: parent.id })
-    published.length = 0
+    appended.length = 0
     svc.delete(parent.id)
-    // The committed remove rides the fan-out (reconcile alone would dedup it away
-    // and delta clients would keep the deleted issue until their next snapshot).
-    const last = published[published.length - 1]
-    expect(last?.changes.some((c) => c.id === parent.id && c.op === 'remove')).toBe(true)
-    // Reparented child rippled in the same batch (its parentId cleared).
-    const childChange = last?.changes.find((c) => c.id === child.id && c.op === 'upsert') as
+    // The committed remove entered the delta pipe (the reconcile alone would
+    // dedup it away — the baseline already dropped the id — and delta clients
+    // would keep the deleted issue until their next snapshot).
+    const emitted = appended.flat()
+    expect(emitted.some((c) => c.id === parent.id && c.op === 'remove')).toBe(true)
+    // Reparented child rippled in the same burst (its parentId cleared).
+    const childChange = emitted.find((c) => c.id === child.id && c.op === 'upsert') as
       | { value?: { parentId?: string } }
       | undefined
     expect(childChange?.value?.parentId).toBeUndefined()
@@ -147,7 +156,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       now: () => 2_000,
       transact: (fn) => store.transact(fn),
     })
-    const published2: { snapshot: ServerMessage; changes: MetadataChange[] }[] = []
+    const published2: { snapshot: ServerMessage }[] = []
     const plumbing2 = issueTestPlumbing()
     const svc2 = new IssueService({
       store,
@@ -157,7 +166,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       repoOp: async () => ({ ok: true, output: '' }),
       funnel: {
         run: plumbing2.funnel.run,
-        publishComputed: (snapshot, changes) => published2.push({ snapshot, changes }),
+        publishComputed: (snapshot) => published2.push({ snapshot }),
       },
       ledger: ledger2,
       publishSpecs: plumbing2.publishSpecs,
