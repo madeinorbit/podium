@@ -237,24 +237,27 @@ export class SessionRegistry {
       publish: () => publisher.publishIssues(publisher.safeIssuesList()),
       upstreamStale: () => sessionsSvc.isUpstreamStale(),
     })
-    // The write-seam change log ([spec:SP-3fe2] #255): issue writes append
-    // their change rows ATOMICALLY with the entity write (one transact span on
-    // the shared connection); the legacy broadcast-seam oplog inside the
-    // funnel keeps owning sessions/conversations. Same changes table + seq
-    // sequence — changesSince consumers see one unified feed.
+    // The write-seam change log ([spec:SP-3fe2] #255/#256): issue AND session
+    // writes append their change rows ATOMICALLY with the entity write (one
+    // transact span on the shared connection); the legacy broadcast-seam oplog
+    // inside the funnel keeps owning conversations (P2e takes those). Same
+    // changes table + seq sequence — changesSince consumers see one unified feed.
     const ledger = new Ledger({
       repo: this.store.sync,
       now: () => this.now(),
       transact: (fn) => this.store.transact(fn),
     })
-    // THE write funnel (modules/funnel): authorize → repo write → oplog append →
-    // broadcast. Owns the durable metadata oplog; every publish pipeline ends here.
+    // THE write funnel (modules/funnel): authorize → repo write → change append →
+    // broadcast. Owns the legacy conversation oplog, bridges ledger appends onto
+    // the bus, and runs THE ordered metadataDelta pipe (#256) — sendDelta is the
+    // one seam deltas reach clients through.
     const funnel = new WriteFunnel({
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
       ledger,
-      fanOut: (snapshot, changes, opts) => sessionsSvc.fanOutMetadata(snapshot, changes, opts),
+      fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),
+      sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
     })
     const publisher = new IssuePublisher({
       allWire: () => issues?.allWire(),
@@ -264,8 +267,10 @@ export class SessionRegistry {
       // the committed changes out — never the legacy funnel.publishSpec path,
       // which rejects issue specs.
       publishIssueList: (spec) => {
-        const changes = ledger.reconcile('issue', spec.rows)
-        funnel.publishComputed(spec.snapshot, changes)
+        // The reconcile's appends reach delta clients via the funnel's ordered
+        // onAppended pipe; publishComputed carries only the legacy snapshot.
+        ledger.reconcile('issue', spec.rows)
+        funnel.publishComputed(spec.snapshot)
       },
     })
     const issueCommands = new IssueCommandService({
@@ -330,6 +335,8 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       funnel,
+      // Session writes commit through the write-seam ledger at persist() (#256).
+      ledger,
       machines,
       rpc,
       hosts,
@@ -346,8 +353,8 @@ export class SessionRegistry {
       conversations.rebroadcastUpstream()
       upstreamIssues.rebroadcastUpstream()
     })
-    // Boot: hydrate sessions (and record the restored state to the oplog —
-    // boot reconciliation lives in the sessions module now).
+    // Boot: hydrate sessions (and reconcile the restored state against the
+    // write-seam ledger — boot reconciliation lives in the sessions module now).
     sessionsSvc.loadFromStore()
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
     conversations = new ConversationsService(
@@ -455,8 +462,8 @@ export class SessionRegistry {
   dispose(): void {
     this.eventRetention.dispose()
     this.issueAutoArchive.dispose()
-    // Also runs any coalesced session broadcast so the oplog records the final
-    // state (clients are going away, but the durable log must not drop the tail).
+    // Also drains any coalesced session broadcast + pending delta batch (the
+    // durable change log is already complete — commits happen at persist time).
     this.modules.sessions.dispose()
     this.steward.dispose()
   }

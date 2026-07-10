@@ -307,7 +307,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     this.rowOrThrow(id)
     // The remove change commits in the SAME transaction as the row delete
     // ([spec:SP-3fe2] #255) …
-    const { changes: removed } = this.deps.ledger.commit({
+    this.deps.ledger.commit({
       write: () => {
         this.deps.store.issues.deleteIssue(id)
         // Re-hydrate from the store: deleteIssue also clears scalar back-refs
@@ -318,13 +318,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
     // … then a full-list reconcile catches the derived ripples (reparented
-    // children, unblocked dependents — see broadcastList's rationale). The
-    // committed remove rides the same fan-out: reconcile dedups it (the
-    // baseline already dropped the id), so without concatenation delta clients
-    // would skip its seq and keep the deleted issue until their next snapshot.
+    // children, unblocked dependents — see broadcastList's rationale). Both the
+    // committed remove and the reconciled ripples reach delta clients through
+    // the funnel's ordered onAppended pipe in append order (#256); this fans
+    // out only the legacy full-list snapshot.
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
-    const ripples = this.deps.ledger.reconcile('issue', spec.rows)
-    this.deps.funnel.publishComputed(spec.snapshot, [...removed, ...ripples])
+    this.deps.ledger.reconcile('issue', spec.rows)
+    this.deps.funnel.publishComputed(spec.snapshot)
   }
 
   setLabels(id: string, labels: string[]): IssueWire {

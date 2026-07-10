@@ -26,10 +26,11 @@ export interface IssueFunnel {
     write: () => T
     publish?: (result: T) => PublishSpec | null
   }): T
-  /** Fan-out of ledger-committed changes: delta clients get `metadataDelta`,
-   *  legacy clients the snapshot. NO oplog append — that already happened
-   *  atomically with the write (Ledger.commit/reconcile). */
-  publishComputed(snapshot: ServerMessage, changes: MetadataChange[]): void
+  /** Legacy-snapshot fan-out for a ledger-committed change. NO oplog append
+   *  and NO metadataDelta — the append happened atomically with the write
+   *  (Ledger.commit/reconcile) and delta clients receive it via the funnel's
+   *  ordered onAppended pipe ([spec:SP-3fe2] #256). */
+  publishComputed(snapshot: ServerMessage): void
 }
 
 /** The write-seam change log face ([spec:SP-3fe2] #255): `commit` binds an

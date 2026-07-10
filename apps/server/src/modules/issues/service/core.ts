@@ -301,7 +301,7 @@ export abstract class IssueServiceCore {
   protected persistWith(row: IssueRow, extraWrite?: () => void): IssueWire {
     row.updatedAt = this.now()
     this.rows.set(row.id, row)
-    const { result: wire, changes } = this.deps.ledger.commit({
+    const { result: wire } = this.deps.ledger.commit({
       write: () => {
         extraWrite?.()
         this.deps.store.issues.upsertIssue(row)
@@ -309,7 +309,9 @@ export abstract class IssueServiceCore {
       },
       changes: (wire) => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
     })
-    this.deps.funnel.publishComputed(this.deps.publishSpecs.issueUpdated(wire).snapshot, changes)
+    // Delta clients got the committed change via the funnel's onAppended pipe;
+    // this carries only the legacy single-issue snapshot (#256).
+    this.deps.funnel.publishComputed(this.deps.publishSpecs.issueUpdated(wire).snapshot)
     return wire
   }
 
@@ -325,8 +327,8 @@ export abstract class IssueServiceCore {
    *  change log records exactly what legacy clients see. */
   protected broadcastList(): void {
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
-    const changes = this.deps.ledger.reconcile('issue', spec.rows)
-    this.deps.funnel.publishComputed(spec.snapshot, changes)
+    this.deps.ledger.reconcile('issue', spec.rows)
+    this.deps.funnel.publishComputed(spec.snapshot)
   }
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {

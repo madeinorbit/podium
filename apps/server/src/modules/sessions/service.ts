@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
-import { resolveRole } from '@podium/runtime'
 import {
   AGENT_CAPABILITIES,
   AgentKind,
@@ -16,7 +15,6 @@ import {
   type IssueWire,
   type LiveServerMessage,
   type MetadataChange,
-  type MetadataEntityKind,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -24,11 +22,12 @@ import {
   type TranscriptItem,
   type WorkState,
 } from '@podium/protocol'
+import { resolveRole } from '@podium/runtime'
+import type { EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import { type ClientConn, type Send, Session } from './session'
 import type { SessionStore } from '../../store'
 import {
   isGenericClaudeTitle,
@@ -44,6 +43,7 @@ import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { HeadlessService } from '../superagent/headless'
+import { type ClientConn, type Send, Session } from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
@@ -73,13 +73,29 @@ const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 /** Rejection every command path returns for a hub-mirrored session (spec §2.3). */
 export const UPSTREAM_COMMAND_REJECTION = 'remote session — managed via the hub'
 
+/** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
+ *  `commit` binds a session row write and its declared change into one
+ *  transaction; `reconcile` diffs the full restored truth at boot (including
+ *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
+ *  tests can fake it. */
+export interface SessionLedger {
+  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
+    result: T
+    changes: MetadataChange[]
+  }
+  reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
+}
+
 interface SessionsServiceDeps {
   store: SessionStore
   now(): number
   bus: EventBus
   /** THE write funnel (modules/funnel): every broadcast pipeline ends in its
-   *  oplog-append → fan-out tail. */
+   *  fan-out tail; session deltas ride its ordered pipe via the ledger bridge. */
   funnel: WriteFunnel
+  /** The write-seam change log ([spec:SP-3fe2] #256): persist() commits the row
+   *  write + declared session change atomically; loadFromStore reconciles. */
+  ledger: SessionLedger
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
@@ -88,9 +104,9 @@ interface SessionsServiceDeps {
   conversations(): ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
-  /** Full issue-list fan-out through the publisher (oplog record + split fan-out).
-   *  Mutually recursive with the broadcast pipeline by design — the publisher's
-   *  own deps point back at fanOutMetadata/oplogRecord here. */
+  /** Full issue-list fan-out through the publisher (ledger reconcile + legacy
+   *  snapshot). Mutually recursive with the broadcast pipeline by design — the
+   *  publisher's own deps point back at fanOutSnapshot/sendMetadataDelta here. */
   publishIssues(): void
   /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
@@ -221,13 +237,50 @@ export class SessionsService {
 
   dispose(): void {
     clearInterval(this.activityFlushTimer)
-    // Run any coalesced session broadcast so the oplog records the final state
-    // (clients are going away, but the durable log must not drop the tail).
+    // Run any coalesced session broadcast + pending delta batch. The durable
+    // change log is already complete (commits happen at persist time, #256);
+    // this just drains the in-flight fan-out tail deterministically.
     this.flushBroadcasts()
   }
 
+  /**
+   * THE session write seam ([spec:SP-3fe2] #256): every persist commits the
+   * row write and its declared session change through the write-seam Ledger —
+   * one transact span, so "the row changed" and "the change log says so"
+   * commit or roll back together. All ~15 persisting handlers inherit this,
+   * including the ones that persist WITHOUT a session broadcast (agentState,
+   * title, derived-title, flushActivity): their persisted truth reaches the
+   * change log at write time instead of leaking until the next full broadcast.
+   *
+   * Change volume: the per-frame path never lands here (frames only mark
+   * activityDirty; flushActivity persists on a 12s tick), and the ledger's
+   * byte-dedup drops persists whose WIRE meta didn't change — notably the
+   * frequent counter-only flushes, whose lastOutputAt/lastInputAt live in the
+   * row but not in SessionMeta. lastActiveAt IS wire-visible and deliberately
+   * NOT projected away (unlike the conversation projection): it advances only
+   * on semantic activity (agentState transitions, shell busy flips) and is the
+   * authoritative recency delta clients order the sidebar by.
+   */
   persist(session: Session): void {
-    this.store.sessions.upsertSession(session.toRow())
+    this.deps.ledger.commit({
+      write: () => this.store.sessions.upsertSession(session.toRow()),
+      changes: () => [
+        {
+          entity: 'session',
+          id: session.sessionId,
+          op: 'upsert',
+          value: this.sessionWire(session),
+        },
+      ],
+    })
+  }
+
+  /** The exact wire shape broadcasts carry for this session — toMeta() plus the
+   *  machineName stamp listSessions() applies. The committed payload and the
+   *  legacy snapshot rows must agree byte-for-byte or the ledger's dedup and
+   *  the clients' replicas would diverge. */
+  private sessionWire(session: Session): SessionMeta {
+    return { ...session.toMeta(), machineName: this.machines.machineName(session.machineId) }
   }
 
   /** Persist every session whose activity counters advanced since the last flush.
@@ -336,13 +389,18 @@ export class SessionsService {
       if (session) session.queuedMessageCount = n
       else this.store.sync.deleteQueuedMessagesForSession(sessionId) // orphaned queue
     }
-    this.store.sync.pruneAppliedMutations({ maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS, now: this.now() })
-    // Boot reconciliation: record what changed across the restart (the sessions
-    // just restored) so a cursor-holding client that reconnects heals via
-    // changesSince instead of silently missing the gap. Conversations are
-    // deliberately NOT reconciled at boot: they are daemon-fed, and an empty
-    // list at boot means "not scanned yet", not "all gone".
-    this.funnel.record(
+    this.store.sync.pruneAppliedMutations({
+      maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+      now: this.now(),
+    })
+    // Boot reconciliation ([spec:SP-3fe2] #256): diff the restored full truth
+    // against the ledger baseline — INCLUDING removes (rows deleted or
+    // quarantined while the server was down) — so a cursor-holding client that
+    // reconnects heals via changesSince instead of silently missing the gap.
+    // No fan-out: there are no clients at boot. Conversations are deliberately
+    // NOT reconciled at boot: they are daemon-fed, and an empty list at boot
+    // means "not scanned yet", not "all gone".
+    this.deps.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
     )
@@ -579,14 +637,23 @@ export class SessionsService {
   setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
     this.store.sessions.setSnooze(sessionId, until)
     const session = this.sessions.get(sessionId)
-    if (session) session.snoozedUntil = until
+    if (session) {
+      session.snoozedUntil = until
+      // snoozedUntil lives in its own table, not the session row, so the plain
+      // store write above bypasses the write seam — persist so the flip reaches
+      // the change log (delta clients order the sidebar by it) [#256].
+      this.persist(session)
+    }
     this.broadcastSessions()
   }
 
   clearSnooze(sessionId: string): void {
     this.store.sessions.clearSnooze(sessionId)
     const session = this.sessions.get(sessionId)
-    if (session) session.clearSnooze()
+    if (session) {
+      session.clearSnooze()
+      this.persist(session) // see setSnooze — off-row field, commit the flip
+    }
     this.broadcastSessions()
   }
 
@@ -878,6 +945,10 @@ export class SessionsService {
     const session = this.sessions.get(input.sessionId)
     const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!input.text
     if (session) session.draftUpdatedAt = input.text ? new Date().toISOString() : undefined
+    // The DRAFT tag flip is wire-visible meta backed by an off-row table —
+    // commit it at the same presence granularity the broadcast below uses
+    // (never per keystroke) so delta clients see the lift too [#256].
+    if (presenceChanged && session) this.persist(session)
     // Keep the existing live cross-client sync: push to every OTHER client (the
     // directional guard skips the originator so its own keystrokes don't echo back).
     this.broadcastToClients(
@@ -970,6 +1041,9 @@ export class SessionsService {
     })
     if (inserted) {
       session.queuedMessageCount += 1
+      // queuedMessageCount is wire-visible meta derived from the queue table —
+      // commit the new count so delta clients see the badge [#256].
+      this.persist(session)
       // A queued message is fresh user intent on the session — clear any snooze,
       // mirroring sendText, so it returns to the normal attention flow.
       if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
@@ -1019,6 +1093,7 @@ export class SessionsService {
       // Delete only AFTER the bytes went toward the daemon (spec invariant 3).
       this.store.sync.deleteQueuedMessage(head.id)
       s.queuedMessageCount = Math.max(0, s.queuedMessageCount - 1)
+      this.persist(s) // commit the drained count (see queueText) [#256]
       this.broadcastSessions()
       if (s.queuedMessageCount > 0) {
         const t = setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS)
@@ -1099,7 +1174,12 @@ export class SessionsService {
       this.inFlightMutations.set(mutationId, tracked)
       return tracked as T
     }
-    this.store.sync.recordAppliedMutation(mutationId, proc, JSON.stringify(result ?? null), this.now())
+    this.store.sync.recordAppliedMutation(
+      mutationId,
+      proc,
+      JSON.stringify(result ?? null),
+      this.now(),
+    )
     return result
   }
 
@@ -1317,10 +1397,17 @@ export class SessionsService {
       clearTimeout(draftTimer)
       this.draftWriteTimers.delete(input.sessionId)
     }
-    this.store.sessions.deleteSession(input.sessionId)
-    // A killed session can never deliver: drop its queued sends now rather than
-    // leaving orphan rows for the next boot's sweep.
-    this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
+    // The remove change commits in the SAME transaction as the row delete (and
+    // the queued-send cleanup — a killed session can never deliver, so its rows
+    // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
+    // durable change log can never say something the sessions table doesn't.
+    this.deps.ledger.commit({
+      write: () => {
+        this.store.sessions.deleteSession(input.sessionId)
+        this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
+      },
+      changes: () => [{ entity: 'session', id: input.sessionId, op: 'remove' }],
+    })
     for (const c of this.clients.values()) c.attached.delete(input.sessionId)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty
@@ -1695,7 +1782,11 @@ export class SessionsService {
         if (!session) break
         // Identity colour changes rarely (only on /color), so a full session
         // rebroadcast is fine — no need for a dedicated per-session message.
-        if (session.setAgentColor(msg.color)) this.broadcastSessions()
+        // Persist so the wire-visible colour reaches the change log too [#256].
+        if (session.setAgentColor(msg.color)) {
+          this.persist(session)
+          this.broadcastSessions()
+        }
         break
       }
       case 'title': {
@@ -1835,7 +1926,10 @@ export class SessionsService {
           })
         ) {
           // First transcript for this session → its chat capability flipped on;
-          // push the updated meta so clients can offer the chat toggle.
+          // persist (the flip is wire-visible, one-shot — commit it to the
+          // change log, #256) and push the updated meta so clients can offer
+          // the chat toggle.
+          this.persist(session)
           this.broadcastSessions()
         }
         // Fast title for Claude: until a real title is locked in (its own summary,
@@ -1975,7 +2069,9 @@ export class SessionsService {
     this.broadcastCooldown.unref?.()
   }
 
-  /** Run any coalesced (pending) session broadcast NOW. Test seam + dispose. */
+  /** Run any coalesced (pending) session broadcast NOW — and flush the funnel's
+   *  pending metadataDelta batch with it, so this stays the one deterministic
+   *  "run the whole pending pipeline" seam for tests + dispose. */
   flushBroadcasts(): void {
     if (this.broadcastCooldown) {
       clearTimeout(this.broadcastCooldown)
@@ -1985,6 +2081,7 @@ export class SessionsService {
       this.broadcastPending = false
       this.runSessionsBroadcast()
     }
+    this.funnel.flushDeltas()
   }
 
   private runSessionsBroadcast(): void {
@@ -1995,14 +2092,14 @@ export class SessionsService {
     const key = JSON.stringify(sessions)
     if (key === this.lastSessionsBroadcast) return
     this.lastSessionsBroadcast = key
-    // Enter the write funnel's tail: oplog append FIRST (durable before fan-out,
-    // spec §2.5), then the split fan-out — delta-cap clients get only the rows
-    // that changed, legacy clients get the full list exactly as before.
-    this.funnel.publish(
-      'session',
-      sessions.map((s) => ({ id: s.sessionId, value: s })),
-      { type: 'sessionsChanged', sessions },
-    )
+    // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas are
+    // committed at the write seam (persist/kill) and ride the funnel's ordered
+    // onAppended pipe — recording here again would double-append. Known
+    // staleness tradeoff for delta clients: wire fields that change WITHOUT a
+    // persist (clientCount/controllerId on attach/detach, and the hub-mirrored
+    // upstream list) refresh only with the next commit or reconnect snapshot —
+    // presentation-only state, deliberately kept out of the durable log.
+    this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
     // Session changes also change issues' DERIVED member data (sessions/summary),
     // so keep issue clients live. The publisher builds the payload ONCE (allWire()
     // is O(issues × sessions)); sessionsChanged was already sent above, so even if
@@ -2011,26 +2108,32 @@ export class SessionsService {
   }
 
   /**
-   * The split fan-out (spec §2.3): legacy clients always get the full-list snapshot
-   * (exactly the pre-oplog behavior); delta-cap clients get a `metadataDelta` batch,
-   * and only when something actually changed.
+   * The legacy half of the split fan-out (spec §2.3): every non-cap client gets
+   * the full-list snapshot (exactly the pre-oplog behavior); delta-cap clients
+   * get it only when `snapshotToCapClients` forces it (diagnostics changes) —
+   * their normal feed is the ordered metadataDelta pipe (sendMetadataDelta).
    */
-  fanOutMetadata(
-    snapshot: ServerMessage,
-    changes: MetadataChange[],
-    opts: { snapshotToCapClients?: boolean } = {},
-  ): void {
-    const last = changes[changes.length - 1]
-    const delta: ServerMessage | null = last
-      ? { type: 'metadataDelta', seq: last.seq, changes }
-      : null
+  fanOutSnapshot(snapshot: ServerMessage, opts: { snapshotToCapClients?: boolean } = {}): void {
     for (const c of this.clients.values()) {
       if (c.caps.has(CAP_METADATA_DELTA)) {
-        if (delta) c.send(delta)
         if (opts.snapshotToCapClients) c.send(snapshot)
       } else {
         c.send(snapshot)
       }
+    }
+  }
+
+  /** The delta half of the split fan-out: one `metadataDelta` batch (stamped
+   *  with its last change's seq) to every delta-cap client. Called ONLY by the
+   *  funnel's ordered pipe ([spec:SP-3fe2] #256) so batches reach every client
+   *  in strict append order — the client gap rule (seq !== cursor+1 → heal)
+   *  turns any second emitter or reorder into a heal storm. */
+  sendMetadataDelta(changes: MetadataChange[]): void {
+    const last = changes[changes.length - 1]
+    if (!last) return
+    const delta: ServerMessage = { type: 'metadataDelta', seq: last.seq, changes }
+    for (const c of this.clients.values()) {
+      if (c.caps.has(CAP_METADATA_DELTA)) c.send(delta)
     }
   }
 

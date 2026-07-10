@@ -7,17 +7,19 @@ export interface WriteFunnelDeps {
   store: SessionStore
   now(): number
   bus: EventBus
-  /** WS fan-out (modules/sessions owns the client set): full-list snapshot to
-   *  legacy clients, `metadataDelta` to delta-cap clients. */
-  fanOut(
-    snapshot: ServerMessage,
-    changes: MetadataChange[],
-    opts?: { snapshotToCapClients?: boolean },
-  ): void
-  /** The write-seam change log ([spec:SP-3fe2] #255). When present, the funnel
-   *  bridges its appends onto the bus so 'oplog.appended' keeps firing for
-   *  EVERY durable change regardless of which seam captured it (the ledger
-   *  owns issues; the legacy oplog still owns sessions/conversations). */
+  /** Snapshot fan-out (modules/sessions owns the client set): the full-list
+   *  snapshot goes to legacy clients; delta-cap clients get it only when
+   *  `snapshotToCapClients` is set (rare — diagnostics changes). */
+  fanOutSnapshot(snapshot: ServerMessage, opts?: { snapshotToCapClients?: boolean }): void
+  /** `metadataDelta` send to delta-cap clients — the tail of THE ordered delta
+   *  pipe (see {@link WriteFunnel.flushDeltas}). Called with a non-empty,
+   *  seq-ordered batch. */
+  sendDelta(changes: MetadataChange[]): void
+  /** The write-seam change log ([spec:SP-3fe2] #255/#256). When present, the
+   *  funnel bridges its appends onto the bus ('oplog.appended' keeps firing for
+   *  EVERY durable change regardless of which seam captured it) and into the
+   *  ordered delta pipe (the ledger owns issues + sessions; the legacy oplog
+   *  still owns conversations). */
   ledger?: Pick<Ledger, 'onAppended'>
 }
 
@@ -36,31 +38,38 @@ export interface PublishSpec {
 
 /**
  * THE single write funnel (issue #13 Phase 2 step 3): every mutation flows
- * authorize → repository write → oplog append → broadcast (bus + WS), in that
- * order and nowhere else. The funnel owns the durable metadata oplog; the
- * broadcast pipelines of every entity kind (sessions, issues, conversations)
- * end in {@link publish}, so "durable before fan-out" (oplog-read-path §2.5)
+ * authorize → repository write → change append → broadcast (bus + WS), in that
+ * order and nowhere else. "Durable before fan-out" (oplog-read-path §2.5)
  * holds by construction rather than by convention at each call site.
  *
- * Callers with all four stages in hand use {@link run}; pipelines whose repo
- * write happened upstream (the coalesced session broadcast) enter at the
- * {@link publish} tail.
+ * ISSUES and SESSIONS are ledger-owned ([spec:SP-3fe2] #255/#256): their
+ * changes are captured at the WRITE seam by the injected {@link Ledger}
+ * (atomic with the entity write), so their fan-outs enter at
+ * {@link publishComputed} — the oplog half of {@link publish}/{@link record}
+ * REJECTS their specs (see the guard in record) to keep the change log
+ * single-writer per entity kind. The legacy broadcast-seam oplog here records
+ * ONLY 'conversation' until P2e moves it too.
  *
- * ISSUES are the exception ([spec:SP-3fe2] #255): their changes are captured
- * at the WRITE seam by the injected {@link Ledger} (atomic with the entity
- * write), so their fan-outs enter at {@link publishComputed} — the oplog half
- * of {@link publish}/{@link record} REJECTS issue specs (see the guard in
- * record) to keep the change log single-writer per entity kind.
+ * metadataDelta emission is ONE seq-ordered pipe (#256): every appended batch —
+ * ledger commits/reconciles AND legacy record() — enters {@link queueDelta} in
+ * append order (both writers share one seq sequence over one synchronous
+ * connection), coalesces at microtask level (a synchronous burst emits as one
+ * batch), and NEVER reorders: the client gap rule (seq !== cursor+1 → heal)
+ * turns any reorder into a heal storm.
  */
 export class WriteFunnel {
   private readonly oplog: MetadataOplog
 
   constructor(private readonly deps: WriteFunnelDeps) {
     this.oplog = new MetadataOplog(deps.store.sync, deps.now)
-    // Ledger-appended changes (issue commits/reconciles, #255) fire the same
-    // bus event the legacy record() path does, so bus consumers see one
-    // unified 'oplog.appended' stream across both seams.
-    deps.ledger?.onAppended((changes) => deps.bus.emit('oplog.appended', { changes }))
+    // Ledger-appended changes (issue/session commits + reconciles, #255/#256)
+    // fire the same bus event the legacy record() path does — bus consumers see
+    // one unified 'oplog.appended' stream across both seams — and feed the
+    // ordered delta pipe.
+    deps.ledger?.onAppended((changes) => {
+      deps.bus.emit('oplog.appended', { changes })
+      this.queueDelta(changes)
+    })
   }
 
   /**
@@ -92,57 +101,64 @@ export class WriteFunnel {
     })
   }
 
-  /** Oplog append + broadcast — the shared tail of every publish pipeline. */
+  /** Oplog append + broadcast — the legacy (broadcast-seam) publish tail.
+   *  Conversations only; ledger-owned entities enter at publishComputed. */
   publish(
     entity: MetadataEntityKind,
     rows: { id: string; value: unknown }[],
     snapshot: ServerMessage,
     opts: { partial?: boolean; snapshotToCapClients?: boolean } = {},
   ): void {
-    const changes = this.record(entity, rows, opts.partial ? { partial: true } : {})
-    this.deps.fanOut(
+    this.record(entity, rows, opts.partial ? { partial: true } : {})
+    this.deps.fanOutSnapshot(
       snapshot,
-      changes,
       opts.snapshotToCapClients ? { snapshotToCapClients: true } : {},
     )
   }
 
   /**
-   * Fan out a snapshot whose changes were ALREADY durably appended at the
-   * write seam by the Ledger ([spec:SP-3fe2] #255) — commit/reconcile ran
-   * before this call, so recording here again would double-append. Emission
-   * shape is identical to {@link publish}'s tail: delta-cap clients get the
-   * `metadataDelta` batch (when non-empty), legacy clients get the snapshot
-   * exactly as before.
+   * Fan out a SNAPSHOT whose changes were ALREADY durably appended at the
+   * write seam by the Ledger ([spec:SP-3fe2] #255/#256) — commit/reconcile ran
+   * before this call, and their appends entered the ordered delta pipe via the
+   * onAppended bridge, so this sends NO metadataDelta (emitting one here too
+   * would double-deliver every ledger-owned change). Legacy clients get the
+   * snapshot exactly as before.
    */
-  publishComputed(snapshot: ServerMessage, changes: MetadataChange[]): void {
-    this.deps.fanOut(snapshot, changes)
+  publishComputed(snapshot: ServerMessage, opts: { snapshotToCapClients?: boolean } = {}): void {
+    this.deps.fanOutSnapshot(
+      snapshot,
+      opts.snapshotToCapClients ? { snapshotToCapClients: true } : {},
+    )
   }
 
-  /** Durable oplog append (no fan-out) — boot reconciliation and the publish
-   *  tail both land here, so 'oplog.appended' fires for every recorded change. */
+  /** Durable oplog append (no snapshot fan-out) — the legacy publish tail lands
+   *  here, so 'oplog.appended' + the delta pipe fire for every recorded change. */
   record(
     entity: MetadataEntityKind,
     rows: { id: string; value: unknown }[],
     opts: { partial?: boolean } = {},
   ): MetadataChange[] {
-    // SEVERED ([spec:SP-3fe2] #255): 'issue' changes are captured at the WRITE
-    // seam by the Ledger (IssueService persist/broadcastList/delete/boot). The
-    // legacy broadcast-seam oplog keeps its own baseline, so appending an issue
-    // spec here would DOUBLE-APPEND everything the ledger already wrote — every
-    // issue publish path must route through Ledger.commit/reconcile +
-    // publishComputed. Loud so a regressed call site can't silently fork the
-    // change log: throw under tests, degrade to fan-out-only in production.
-    if (entity === 'issue') {
+    // SEVERED ([spec:SP-3fe2] #255 issues, #256 sessions): these entities are
+    // captured at the WRITE seam by the Ledger (IssueService persist/delete/boot;
+    // SessionsService persist/kill/boot). The legacy broadcast-seam oplog keeps
+    // its own baseline, so appending such a spec here would DOUBLE-APPEND
+    // everything the ledger already wrote — every publish path for them must
+    // route through Ledger.commit/reconcile + publishComputed. Loud so a
+    // regressed call site can't silently fork the change log: throw under
+    // tests, degrade to no-op in production.
+    if (entity === 'issue' || entity === 'session') {
       const msg =
-        '[funnel] issue spec reached the legacy oplog path — issue changes are ' +
-        'ledger-owned (#255); route through Ledger.commit/reconcile + publishComputed'
+        `[funnel] ${entity} spec reached the legacy oplog path — ${entity} changes are ` +
+        'ledger-owned (#255/#256); route through Ledger.commit/reconcile + publishComputed'
       if (process.env.VITEST || process.env.NODE_ENV === 'test') throw new Error(msg)
       console.error(msg)
       return []
     }
     const changes = this.oplog.record(entity, rows, opts)
-    if (changes.length > 0) this.deps.bus.emit('oplog.appended', { changes })
+    if (changes.length > 0) {
+      this.deps.bus.emit('oplog.appended', { changes })
+      this.queueDelta(changes)
+    }
     return changes
   }
 
@@ -153,5 +169,41 @@ export class WriteFunnel {
 
   cursor(): number {
     return this.oplog.cursor()
+  }
+
+  // ---- THE ordered metadataDelta pipe (#256) ----
+  // Appends arrive synchronously and in seq order (single-threaded process, one
+  // shared seq sequence across both writers); pendingDelta preserves arrival
+  // order, so the flushed batch is seq-ordered by construction. Coalescing is
+  // microtask-level: a synchronous burst (boot reconcile, a bind-storm's
+  // per-session commits) emits as ONE metadataDelta instead of one per commit.
+  private pendingDelta: MetadataChange[] = []
+  private deltaFlushScheduled = false
+
+  private queueDelta(changes: MetadataChange[]): void {
+    if (changes.length === 0) return
+    this.pendingDelta.push(...changes)
+    if (this.deltaFlushScheduled) return
+    this.deltaFlushScheduled = true
+    queueMicrotask(() => {
+      // A client-send throw in a microtask would be an uncaught exception; the
+      // changes are already durable, so degrade to a logged error (reconnecting
+      // clients heal via changesSince).
+      try {
+        this.flushDeltas()
+      } catch (err) {
+        console.warn('[funnel] coalesced metadataDelta emission failed', err)
+      }
+    })
+  }
+
+  /** Emit any coalesced (pending) delta batch NOW. Deterministic seam for tests
+   *  and dispose; the scheduled microtask then finds nothing and no-ops. */
+  flushDeltas(): void {
+    this.deltaFlushScheduled = false
+    if (this.pendingDelta.length === 0) return
+    const batch = this.pendingDelta
+    this.pendingDelta = []
+    this.deps.sendDelta(batch)
   }
 }
