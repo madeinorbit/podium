@@ -19,6 +19,11 @@ Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/s
 # .git/podium-redeploy-head; first run always installs). If the install fails, it
 # exits non-zero and this ExecStartPre failure aborts the unit — services are NOT
 # restarted against a broken node_modules (#173/#176).
+# It THEN runs `bun run typecheck` when any *.ts/*.tsx/*.json changed since the last
+# deployed HEAD (or deps were just installed) — a type/syntax error on main aborts the
+# deploy here, BEFORE any service is taken down, instead of crash-looping it (#251).
+# Skipped entirely on deploys that touch no such file. Type=oneshot has no start
+# timeout by default, so the monorepo-wide tsc pass can take its time.
 ExecStartPre=/usr/bin/env bash /home/user/src/other/podium/scripts/redeploy-wait.sh /home/user/src/other/podium
 # server first (the daemon reconnects to it with backoff); durable abduco/tmux masters
 # survive the daemon restart in their own scopes, so live agents are not dropped.

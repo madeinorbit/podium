@@ -14,6 +14,13 @@
 #    `bun install --frozen-lockfile --linker=hoisted`. If the install FAILS we exit
 #    non-zero so systemd aborts the unit BEFORE ExecStart restarts any service —
 #    failing the deploy loudly instead of booting services against a broken node_modules.
+#
+# 3. Typecheck the deploy before restarting anything (#251). A type/syntax error merged
+#    to main used to deploy anyway and crash-loop the services. When any *.ts/*.tsx/*.json
+#    file changed since the last deployed HEAD (json covers tsconfig + workspace
+#    manifests), run `bun run typecheck`; a failure exits non-zero so systemd aborts the
+#    unit while the OLD deploy keeps serving. Cache-aware via the same state file: a
+#    deploy that provably touched no such file skips the typecheck entirely.
 set -u
 repo="${1:?usage: redeploy-wait.sh <repo-root>}"
 lock="$repo/.git/index.lock"
@@ -29,6 +36,15 @@ while [ -e "$lock" ]; do
   sleep 0.1
 done
 sleep "$settle"
+
+# Resolve the bun binary once, for both the install and typecheck gates.
+resolve_bun() {
+  bun_bin="${REDEPLOY_BUN:-}"
+  if [ -z "$bun_bin" ]; then
+    bun_bin="$(command -v bun || true)"
+    [ -z "$bun_bin" ] && [ -x "$HOME/.bun/bin/bun" ] && bun_bin="$HOME/.bun/bin/bun"
+  fi
+}
 
 # ---- dependency install gate ----------------------------------------------
 
@@ -66,11 +82,7 @@ elif [ "$prev" != "$head" ]; then
 fi
 
 if [ "$need_install" -eq 1 ]; then
-  bun_bin="${REDEPLOY_BUN:-}"
-  if [ -z "$bun_bin" ]; then
-    bun_bin="$(command -v bun || true)"
-    [ -z "$bun_bin" ] && [ -x "$HOME/.bun/bin/bun" ] && bun_bin="$HOME/.bun/bin/bun"
-  fi
+  resolve_bun
   if [ -z "$bun_bin" ]; then
     echo "[redeploy-wait] FATAL: dependencies changed but bun not found — refusing to restart services" >&2
     exit 1
@@ -83,6 +95,39 @@ if [ "$need_install" -eq 1 ]; then
   fi
 fi
 
-# Record this HEAD as successfully deployed only once deps are known-good.
+# ---- typecheck gate (#251) --------------------------------------------------
+# Runs AFTER the install gate (typecheck needs node_modules to resolve imports).
+
+# A fired install gate implies a typecheck too: first deploy / unknown-prev cases can't
+# prove the tree typechecks, and a dependency bump can break types without touching *.ts.
+need_typecheck="$need_install"
+if [ "$need_typecheck" -eq 0 ] && [ "$prev" != "$head" ]; then
+  if ts_changed="$(git -C "$repo" diff --name-only "$prev" "$head" -- '*.ts' '*.tsx' '*.json' 2>/dev/null)"; then
+    if [ -n "$ts_changed" ]; then
+      echo "[redeploy-wait] type-relevant files changed ${prev}..${head} — running typecheck" >&2
+      need_typecheck=1
+    fi
+  else
+    # Same unknown-prev fallback as the install gate: verify to be safe.
+    echo "[redeploy-wait] cannot diff ${prev}..${head} — running typecheck to be safe" >&2
+    need_typecheck=1
+  fi
+fi
+
+if [ "$need_typecheck" -eq 1 ]; then
+  resolve_bun
+  if [ -z "$bun_bin" ]; then
+    echo "[redeploy-wait] FATAL: typecheck needed but bun not found — refusing to restart services" >&2
+    exit 1
+  fi
+  echo "[redeploy-wait] running: $bun_bin run typecheck (in $repo)" >&2
+  if ! (cd "$repo" && "$bun_bin" run typecheck); then
+    echo "[redeploy-wait] FATAL: typecheck failed — aborting deploy, services NOT restarted" >&2
+    echo "[redeploy-wait] last successfully deployed HEAD remains ${prev:-<none>}" >&2
+    exit 1
+  fi
+fi
+
+# Record this HEAD as successfully deployed only once deps + types are known-good.
 printf '%s\n' "$head" > "$state_file"
 exit 0

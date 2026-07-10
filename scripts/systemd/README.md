@@ -54,4 +54,14 @@ produces a new build (and the new build hash the in-app update prompt detects).
 Note: the running app's service worker is the source of truth for installed
 clients — they pick up the new build via the "New version — Reload" prompt.
 
+Redeploy gates (`scripts/redeploy-wait.sh`, the `ExecStartPre` of
+`podium-redeploy.service`): wait for `.git/index.lock` to clear (bounded), then
+`bun install --frozen-lockfile` when dependency manifests changed since the last
+deployed HEAD (#173/#176), then `bun run typecheck` when any `*.ts`/`*.tsx`/`*.json`
+changed (or deps were installed) (#251). Any gate failing exits non-zero, which
+aborts the unit **before** `ExecStart` restarts a single service — a broken merge
+leaves the old deploy running instead of crash-looping the new one. The
+last-good HEAD lives in `.git/podium-redeploy-head`; deploys that touch no
+type-relevant file skip the typecheck entirely.
+
 The unit files hard-code `/home/user` paths — adjust when installing elsewhere.

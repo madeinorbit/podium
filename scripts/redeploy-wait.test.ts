@@ -1,17 +1,18 @@
 // scripts/redeploy-wait.test.ts
-import { describe, it, expect } from 'vitest'
+
+import { execFileSync, spawn } from 'node:child_process'
 import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-  readFileSync,
   chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { execFileSync, spawn } from 'node:child_process'
+import { describe, expect, it } from 'vitest'
 
 const SCRIPT = join(__dirname, 'redeploy-wait.sh')
 
@@ -53,14 +54,20 @@ function gitIn(repo: string, ...args: string[]): string {
     .trim()
 }
 
-/** A fake `bun` on PATH that records its argv (and optionally fails). */
-function makeFakeBun(opts: { fail?: boolean } = {}): { bin: string; log: string } {
+/** A fake `bun` on PATH that records its argv (and optionally fails — everything,
+ *  or just `bun run typecheck`). */
+function makeFakeBun(opts: { fail?: boolean; failTypecheck?: boolean } = {}): {
+  bin: string
+  log: string
+} {
   const dir = mkdtempSync(join(tmpdir(), 'rw-bun-'))
   const log = join(dir, 'calls.log')
   const bin = join(dir, 'bun')
   writeFileSync(
     bin,
-    `#!/usr/bin/env bash\necho "$PWD :: $@" >> "${log}"\nexit ${opts.fail ? 1 : 0}\n`,
+    `#!/usr/bin/env bash\necho "$PWD :: $@" >> "${log}"\n` +
+      `if [ "$1 $2" = "run typecheck" ]; then exit ${opts.fail || opts.failTypecheck ? 1 : 0}; fi\n` +
+      `exit ${opts.fail ? 1 : 0}\n`,
   )
   chmodSync(bin, 0o755)
   return { bin, log }
@@ -87,7 +94,7 @@ describe('redeploy-wait.sh', () => {
     clearer.kill()
     rmSync(repo, { recursive: true, force: true })
     expect(waited).toBeGreaterThan(500) // it waited for the lock
-    expect(waited).toBeLessThan(8000)   // and returned promptly after
+    expect(waited).toBeLessThan(8000) // and returned promptly after
   })
 
   it('times out cleanly if the lock never clears (exit 0, bounded)', () => {
@@ -116,18 +123,19 @@ describe('redeploy-wait.sh', () => {
   })
 
   describe('dependency install gate (#173/#176)', () => {
-    it('first run (no state file) always installs and records HEAD', () => {
+    it('first run (no state file) always installs + typechecks and records HEAD', () => {
       const repo = makeRepo()
       const bun = makeFakeBun()
       runScript(repo, { REDEPLOY_BUN: bun.bin })
       const calls = readFileSync(bun.log, 'utf8')
       expect(calls).toContain(`${repo} :: install --frozen-lockfile --linker=hoisted`)
+      expect(calls).toContain(`${repo} :: run typecheck`)
       const state = readFileSync(join(repo, '.git', 'podium-redeploy-head'), 'utf8').trim()
       expect(state).toBe(gitIn(repo, 'rev-parse', 'HEAD'))
       rmSync(repo, { recursive: true, force: true })
     })
 
-    it('no dependency change between deploys -> no install, state advances', () => {
+    it('source-only .ts change between deploys -> typecheck but NO install, state advances', () => {
       const repo = makeRepo()
       const bun = makeFakeBun()
       runScript(repo, { REDEPLOY_BUN: bun.bin }) // first run installs + records
@@ -135,9 +143,41 @@ describe('redeploy-wait.sh', () => {
       writeFileSync(join(repo, 'src.ts'), '// v2\n')
       gitIn(repo, 'commit', '-qam', 'source-only change')
       runScript(repo, { REDEPLOY_BUN: bun.bin })
-      expect(existsSync(bun.log)).toBe(false) // bun never invoked
+      const calls = readFileSync(bun.log, 'utf8')
+      expect(calls).not.toContain('install --frozen-lockfile')
+      expect(calls).toContain(`${repo} :: run typecheck`)
       const state = readFileSync(join(repo, '.git', 'podium-redeploy-head'), 'utf8').trim()
       expect(state).toBe(gitIn(repo, 'rev-parse', 'HEAD'))
+      rmSync(repo, { recursive: true, force: true })
+    })
+
+    it('non-type-relevant change (docs only) -> bun never invoked at all (#251 cache)', () => {
+      const repo = makeRepo()
+      const bun = makeFakeBun()
+      runScript(repo, { REDEPLOY_BUN: bun.bin }) // first run installs + records
+      rmSync(bun.log, { force: true })
+      writeFileSync(join(repo, 'README.md'), 'docs change\n')
+      gitIn(repo, 'add', '-A')
+      gitIn(repo, 'commit', '-qm', 'docs-only change')
+      runScript(repo, { REDEPLOY_BUN: bun.bin })
+      expect(existsSync(bun.log)).toBe(false) // neither install nor typecheck
+      const state = readFileSync(join(repo, '.git', 'podium-redeploy-head'), 'utf8').trim()
+      expect(state).toBe(gitIn(repo, 'rev-parse', 'HEAD'))
+      rmSync(repo, { recursive: true, force: true })
+    })
+
+    it('typecheck failure -> exits non-zero and does NOT advance the deployed HEAD (#251)', () => {
+      const repo = makeRepo()
+      const good = makeFakeBun()
+      runScript(repo, { REDEPLOY_BUN: good.bin })
+      const prevHead = readFileSync(join(repo, '.git', 'podium-redeploy-head'), 'utf8').trim()
+      writeFileSync(join(repo, 'src.ts'), '// v2 with a type error\n')
+      gitIn(repo, 'commit', '-qam', 'broken source change')
+      const bad = makeFakeBun({ failTypecheck: true })
+      expect(() => runScript(repo, { REDEPLOY_BUN: bad.bin })).toThrow()
+      // state untouched -> a retry after the failure typechecks again
+      const state = readFileSync(join(repo, '.git', 'podium-redeploy-head'), 'utf8').trim()
+      expect(state).toBe(prevHead)
       rmSync(repo, { recursive: true, force: true })
     })
 
