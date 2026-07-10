@@ -83,8 +83,10 @@ export function createEngineOutbox(args: {
   replica: Replica
   notices: StoreNotices
   /** Drain success — the engine hands the entry's overlay to the
-   *  awaiting-truth stage (retirement rule (a), overlay.ts). */
-  onApplied?: (entry: OutboxEntry) => void
+   *  awaiting-truth stage (retirement rule (a), overlay.ts). Returning true
+   *  keeps the entry durably in storage as state:'awaiting-truth' (#263
+   *  review finding 1) until the engine retires it. */
+  onApplied?: (entry: OutboxEntry) => unknown
   /** Poison drop — fired AFTER the toast; the engine repaints without the
    *  entry's overlay (retirement rule (b)). */
   onDropped?: (entry: OutboxEntry) => void

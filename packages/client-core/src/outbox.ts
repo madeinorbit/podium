@@ -11,6 +11,19 @@ export interface OutboxEntry {
   kind: string
   input: unknown
   queuedAt: number
+  /** Durable overlay stage (#263 review finding 1): absent/undefined = queued;
+   *  'awaiting-truth' = the executor resolved but the caller asked (via
+   *  onApplied returning true) to keep the entry until covering server truth
+   *  lands — it is excluded from the drain queue and deleted only by
+   *  `retireAwaiting`. Surviving in storage is the point: a reload inside the
+   *  resolution→truth window restores the optimistic overlay. */
+  state?: 'awaiting-truth'
+  /** Epoch ms when the executor resolved (stamped on the awaiting transition). */
+  resolvedAt?: number
+  /** Opaque caller annotation captured at enqueue (#263 review finding 2): the
+   *  engine stores the target row's replica fingerprint here so resolution can
+   *  tell whether server truth already moved while the mutation was in flight. */
+  baseline?: string
 }
 
 /** Storage seam — platform adapters own localStorage, AsyncStorage, SQLite, etc. */
@@ -83,8 +96,12 @@ export interface OutboxInit<M extends Record<string, object>> {
   /** Fires after an entry's executor resolved and the entry left the queue,
    *  BEFORE subscribers observe the new size — so an overlay handoff (#263:
    *  queued → awaiting server truth) can happen with no intermediate state in
-   *  which the entry is in neither stage. Must not throw (guarded anyway). */
-  onApplied?: (entry: OutboxEntry) => void
+   *  which the entry is in neither stage. Return `true` to HOLD the entry in
+   *  the durable awaiting-truth stage (kept in storage with
+   *  state:'awaiting-truth' + resolvedAt; released via `retireAwaiting`);
+   *  any other return value deletes it, the pre-#263-review behavior. Must not
+   *  throw (guarded anyway — a throw deletes). */
+  onApplied?: (entry: OutboxEntry) => unknown
   storage: OutboxStorage
   /** Flat retry cadence while entries remain after a network failure. */
   retryMs?: number
@@ -96,7 +113,11 @@ export interface OutboxInit<M extends Record<string, object>> {
 }
 
 export class Outbox<M extends Record<string, object>> {
+  /** The queued FIFO — entries still waiting for a successful send. */
   private entries: OutboxEntry[]
+  /** Resolved entries held durably until covering server truth lands (#263
+   *  review finding 1). Not part of the drain queue; persisted alongside it. */
+  private awaitingEntries: OutboxEntry[]
   private readonly storage: OutboxStorage
   private readonly retryMs: number
   private readonly now: () => number
@@ -116,7 +137,9 @@ export class Outbox<M extends Record<string, object>> {
   constructor(private readonly init: OutboxInit<M>) {
     this.storage = init.storage
     this.retryMs = init.retryMs ?? 5000
-    this.entries = this.storage.load()
+    const loaded = this.storage.load()
+    this.entries = loaded.filter((e) => e.state !== 'awaiting-truth')
+    this.awaitingEntries = loaded.filter((e) => e.state === 'awaiting-truth')
     this.now = init.now ?? Date.now
     this.randomId = init.randomId ?? (() => crypto.randomUUID())
     this.attach()
@@ -131,12 +154,17 @@ export class Outbox<M extends Record<string, object>> {
     if (this.entries.length > 0 && this.online()) queueMicrotask(() => void this.drain())
   }
 
-  enqueue<K extends keyof M & string>(kind: K, input: M[K]): OutboxEntry {
+  enqueue<K extends keyof M & string>(
+    kind: K,
+    input: M[K],
+    opts?: { baseline?: string },
+  ): OutboxEntry {
     const entry: OutboxEntry = {
       mutationId: this.randomId(),
       kind,
       input,
       queuedAt: this.now(),
+      ...(opts?.baseline !== undefined ? { baseline: opts.baseline } : {}),
     }
     this.entries.push(entry)
     this.persist()
@@ -152,6 +180,26 @@ export class Outbox<M extends Record<string, object>> {
    *  overlay (#263): the engine projects these into per-entity patches. */
   pending(): OutboxEntry[] {
     return [...this.entries]
+  }
+
+  /** Snapshot of the durable awaiting-truth stage (#263 review finding 1), in
+   *  resolution order. The engine restores these into its overlay on boot. */
+  awaiting(): OutboxEntry[] {
+    return [...this.awaitingEntries]
+  }
+
+  /** Retire (delete durably) one awaiting-truth entry — covering server truth
+   *  landed, or the caller gave up on it (TTL). No-op for unknown ids, so a
+   *  re-entrant retirement during a repaint cascade converges. Saves WITHOUT
+   *  notifying subscribers: the queued size didn't change, and a notification
+   *  here would recompute the caller's overlays mid-retirement — promoting a
+   *  younger same-row awaiting entry to "oldest" (escape-eligible) within the
+   *  SAME pass, exactly what the oldest-first rule exists to prevent. */
+  retireAwaiting(mutationId: string): void {
+    const idx = this.awaitingEntries.findIndex((e) => e.mutationId === mutationId)
+    if (idx === -1) return
+    this.awaitingEntries.splice(idx, 1)
+    this.save()
   }
 
   /** Reactive size for pending-changes indicators. */
@@ -215,10 +263,17 @@ export class Outbox<M extends Record<string, object>> {
       // the entry for an idempotent (mutationId-deduped) replay instead.
       if (this.disposed) return
       this.entries.shift()
+      let hold = false
       try {
-        this.init.onApplied?.(entry)
+        hold = this.init.onApplied?.(entry) === true
       } catch {
         // an overlay listener must never wedge the drain
+      }
+      if (hold) {
+        // Durable awaiting-truth transition (#263 review finding 1): keep the
+        // entry in storage — a reload before covering truth lands restores the
+        // overlay instead of flashing stale replica truth.
+        this.awaitingEntries.push({ ...entry, state: 'awaiting-truth', resolvedAt: this.now() })
       }
       this.persist()
     }
@@ -230,8 +285,15 @@ export class Outbox<M extends Record<string, object>> {
 
   private persist(): void {
     if (this.disposed) return
-    this.storage.save(this.entries)
+    this.save()
     for (const cb of this.subs) cb(this.entries.length)
+  }
+
+  private save(): void {
+    if (this.disposed) return
+    // Awaiting entries first — they resolved earliest, and blob-shaped storages
+    // preserve save order as FIFO. Subscribers see the QUEUED size only.
+    this.storage.save([...this.awaitingEntries, ...this.entries])
   }
 
   private scheduleRetry(): void {

@@ -104,7 +104,46 @@ describe('replica row-notification coalescing (#262 review)', () => {
     ).toEqual(['a', 'b'])
   })
 
-  it('a listener that writes on EVERY notification is cut off instead of looping forever', () => {
+  it('a write landing around the flush cap still reaches subscribers via the deferred microtask flush (#263 finding 5)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const replica = createReplica({ storage: memoryStorage() })
+      let calls = 0
+      replica.subscribeRows('sessions', () => {
+        calls++
+        // Writes past the synchronous 100-round cap, then stops: a converging
+        // burst. The old cap CLEARED the remainder at round 101, leaving
+        // subscribers stuck behind replica truth until the next write.
+        if (calls <= 150) {
+          replica.applyChanges('sessions', [{ ...session('x'), title: `t${calls}` }], [])
+        }
+      })
+      replica.applyChanges('sessions', [session('a')], [])
+      // The synchronous flush stops at the cap (the stack stays bounded) …
+      expect(calls).toBeLessThanOrEqual(101)
+      expect(err.mock.calls.some((c) => String(c[0]).includes('did not converge'))).toBe(true)
+      await new Promise((r) => setTimeout(r, 0))
+      // … and the microtask continuation delivered EVERY remaining
+      // notification: the final write is observed, nothing dropped. (>= — the
+      // collection's async persistence can add a trailing delivery.)
+      expect(calls).toBeGreaterThanOrEqual(151)
+      expect(replica.rows('sessions').some((s) => (s as { title?: string }).title === 't150')).toBe(
+        true,
+      )
+      // A CONVERGING burst is never cut off: the drop branch (which strands
+      // subscribers behind replica truth until the next unrelated write —
+      // finding 5's bug) must not have fired. In this harness the collection's
+      // trailing async events can mask a drop by restarting delivery, so the
+      // no-drop pin is the discriminator.
+      expect(err.mock.calls.some((c) => String(c[0]).includes('dropping the remainder'))).toBe(
+        false,
+      )
+    } finally {
+      err.mockRestore()
+    }
+  })
+
+  it('a listener that writes on EVERY notification is cut off after bounded deferrals instead of spinning forever', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const replica = createReplica({ storage: memoryStorage() })
@@ -117,7 +156,18 @@ describe('replica row-notification coalescing (#262 review)', () => {
       replica.applyChanges('sessions', [session('a')], [])
       expect(calls).toBeGreaterThan(0)
       expect(calls).toBeLessThanOrEqual(101)
-      expect(err.mock.calls.some((c) => String(c[0]).includes('did not converge'))).toBe(true)
+      // The deferred continuations are BOUNDED: the pathological writer is
+      // dropped loudly after a fixed number of microtask rounds, so the
+      // microtask queue cannot spin forever. (The collection's async
+      // persistence events can restart a bounded burst or two — the ceiling
+      // is loose on purpose; the property under test is TERMINATION.)
+      await new Promise((r) => setTimeout(r, 0))
+      expect(calls).toBeLessThanOrEqual(5000)
+      expect(err.mock.calls.some((c) => String(c[0]).includes('dropping the remainder'))).toBe(true)
+      // …and it stays terminated (no self-rescheduling ghost flushes).
+      const settled = calls
+      await new Promise((r) => setTimeout(r, 0))
+      expect(calls).toBe(settled)
     } finally {
       err.mockRestore()
     }
@@ -135,5 +185,30 @@ describe('replica row-notification coalescing (#262 review)', () => {
     offSessions()
     replica.applySnapshot('sessions', [session('b')])
     expect(sessionCalls).toBe(1)
+  })
+})
+
+describe('replica outbox storage: in-place entry transitions (#263 review finding 1)', () => {
+  it('persists a queued → awaiting-truth transition on an existing mutationId across reloads', () => {
+    const storage = memoryStorage()
+    const prefix = 'ob.transition'
+    const entry = {
+      mutationId: 'm-1',
+      kind: 'rename',
+      input: { sessionId: 's1', name: 'one' },
+      queuedAt: 1000,
+      baseline: '{"n":0}',
+    }
+    const a = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    a.save([entry])
+    // The transition rewrites the SAME mutationId with new fields — the old
+    // insert/delete-only diff silently dropped it (the row stayed 'queued').
+    a.save([{ ...entry, state: 'awaiting-truth' as const, resolvedAt: 2000 }])
+    const b = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    expect(b.load()).toEqual([{ ...entry, state: 'awaiting-truth', resolvedAt: 2000 }])
+    // Deleting at retirement round-trips too.
+    b.save([])
+    const c = createReplica({ storage, keyPrefix: prefix }).outboxStorage()
+    expect(c.load()).toEqual([])
   })
 })

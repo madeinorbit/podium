@@ -205,6 +205,21 @@ interface UiRow {
 /** Persisted outbox entry (P6b): the OutboxEntry plus a stable FIFO ordinal. */
 type OutboxRow = OutboxEntry & { seq: number }
 
+/** Canonical value shape of an entry — the change detector for in-place
+ *  transitions (#263 review finding 1: queued → awaiting-truth stamps
+ *  state/resolvedAt on an EXISTING mutationId, which the old insert/delete
+ *  diff would silently drop). */
+function outboxEntryShape(e: OutboxEntry): string {
+  return JSON.stringify([
+    e.kind,
+    e.input,
+    e.queuedAt,
+    e.state ?? null,
+    e.resolvedAt ?? null,
+    e.baseline ?? null,
+  ])
+}
+
 function maxSeq(rows: OutboxRow[]): number {
   let max = -1
   for (const r of rows) if (typeof r.seq === 'number' && r.seq > max) max = r.seq
@@ -293,6 +308,9 @@ class TanstackReplica implements Replica {
    *  replica defers + coalesces into the SAME flush loop instead of recursing
    *  (recursion duplicated notifications and could grow the stack unboundedly). */
   private flushing = false
+  /** Consecutive microtask continuations of one non-converging flush (#263
+   *  review finding 5) — bounds the pathological forever-writer. */
+  private flushDeferrals = 0
 
   constructor(init: ReplicaInit = {}) {
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
@@ -574,9 +592,13 @@ class TanstackReplica implements Replica {
   /** Deliver the notifications deferred during a batch — once per kind, against
    *  the final state. A listener may write again; those writes defer into this
    *  SAME loop (iterative, guarded by `flushing` — never recursive) and get one
-   *  follow-up delivery per settled state. A listener that writes on EVERY
-   *  notification cannot converge; it's cut off after a bounded number of
-   *  rounds rather than looping forever. */
+   *  follow-up delivery per settled state. The per-flush round cap bounds the
+   *  SYNCHRONOUS stack only (#263 review finding 5): on hitting it the
+   *  remainder continues in a microtask instead of being dropped — clearing
+   *  would leave subscribers stuck behind replica truth until the NEXT write.
+   *  A listener that writes on EVERY notification still cannot converge; after
+   *  a bounded number of deferred continuations it is cut off loudly rather
+   *  than spinning the microtask queue forever. */
   private flushRowNotify(): void {
     if (this.flushing || this.pendingRowNotify.size === 0) return
     this.flushing = true
@@ -584,17 +606,27 @@ class TanstackReplica implements Replica {
       let rounds = 0
       while (this.pendingRowNotify.size > 0) {
         if (++rounds > 100) {
+          if (++this.flushDeferrals > 10) {
+            console.error(
+              '[podium] replica row notifications did not converge (a listener writes on every ' +
+                'notification?) — dropping the remainder',
+            )
+            this.pendingRowNotify.clear()
+            this.flushDeferrals = 0
+            return
+          }
           console.error(
-            '[podium] replica row notifications did not converge (a listener writes on every ' +
-              'notification?) — dropping the remainder',
+            '[podium] replica row notifications did not converge synchronously — deferring ' +
+              'the remainder to a microtask',
           )
-          this.pendingRowNotify.clear()
+          queueMicrotask(() => this.flushRowNotify())
           return
         }
         const pending = [...this.pendingRowNotify]
         this.pendingRowNotify.clear()
         for (const kind of pending) this.deliverRows(kind)
       }
+      this.flushDeferrals = 0
     } finally {
       this.flushing = false
     }
@@ -668,6 +700,9 @@ class TanstackReplica implements Replica {
                 kind: r.kind,
                 input: r.input,
                 queuedAt: r.queuedAt,
+                ...(r.state !== undefined ? { state: r.state } : {}),
+                ...(r.resolvedAt !== undefined ? { resolvedAt: r.resolvedAt } : {}),
+                ...(r.baseline !== undefined ? { baseline: r.baseline } : {}),
               }))
           )
         } catch {
@@ -687,6 +722,22 @@ class TanstackReplica implements Replica {
             .filter((e) => !existing.has(e.mutationId))
             .map((e) => ({ ...e, seq: ++seq }))
           if (inserts.length > 0) this.track(col.insert(inserts))
+          // In-place transitions (#263 review finding 1): a surviving entry can
+          // change (queued → state:'awaiting-truth' + resolvedAt) — rewrite it
+          // under its existing seq. replaceContents assigns dropped keys
+          // undefined rather than deleting (#170).
+          for (const e of entries) {
+            const prev = existing.get(e.mutationId)
+            if (prev === undefined || outboxEntryShape(prev) === outboxEntryShape(e)) continue
+            this.track(
+              col.update(e.mutationId, (draft: Record<string, unknown>) =>
+                replaceContents(draft, { ...e, seq: prev.seq } as unknown as Record<
+                  string,
+                  unknown
+                >),
+              ),
+            )
+          }
         } catch (err) {
           console.warn('[podium] replica outbox save failed', err)
         }

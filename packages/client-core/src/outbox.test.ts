@@ -209,7 +209,9 @@ describe('storage-neutral outbox', () => {
       executors,
       storage: memoryStorage().storage,
       randomId: deterministicIds(),
-      onApplied: (entry) => events.push(`applied:${entry.mutationId}`),
+      onApplied: (entry) => {
+        events.push(`applied:${entry.mutationId}`)
+      },
     })
     outboxes.push(ob)
     ob.subscribe((n) => events.push(`size:${n}`))
@@ -271,6 +273,71 @@ describe('storage-neutral outbox', () => {
     // a stays queued (its shift wasn't persisted) — the successor replays it,
     // deduped server-side by the stable mutationId.
     expect(ob2.size()).toBe(2)
+  })
+
+  it('onApplied returning true holds the entry DURABLY as awaiting-truth; retireAwaiting deletes it (#263 finding 1)', async () => {
+    const backing = memoryStorage()
+    const { executors } = makeExecutors()
+    const ob = createOutbox<Kinds>({
+      executors,
+      storage: backing.storage,
+      randomId: deterministicIds(),
+      now: () => 4242,
+      onApplied: () => true,
+    })
+    outboxes.push(ob)
+    const a = ob.enqueue('rename', { sessionId: 's1', name: 'one' }, { baseline: '{"n":0}' })
+    await ob.drain()
+    // Out of the QUEUE (subscriber-visible size), but not out of storage.
+    expect(ob.size()).toBe(0)
+    expect(ob.pending()).toEqual([])
+    expect(ob.awaiting()).toEqual([
+      {
+        mutationId: a.mutationId,
+        kind: 'rename',
+        input: { sessionId: 's1', name: 'one' },
+        queuedAt: 4242,
+        baseline: '{"n":0}',
+        state: 'awaiting-truth',
+        resolvedAt: 4242,
+      },
+    ])
+    expect(
+      parseOutboxEntries(backing.raw()).map((e) => [e.mutationId, e.state, e.baseline]),
+    ).toEqual([[a.mutationId, 'awaiting-truth', '{"n":0}']])
+    // Retirement is the durable delete.
+    ob.retireAwaiting(a.mutationId)
+    expect(ob.awaiting()).toEqual([])
+    expect(backing.raw()).toBe('[]')
+    ob.retireAwaiting(a.mutationId) // unknown id — converging no-op
+  })
+
+  it('a reloaded awaiting-truth entry restores into awaiting() and is NOT re-executed', async () => {
+    const backing = memoryStorage()
+    const first = createOutbox<Kinds>({
+      executors: makeExecutors().executors,
+      storage: backing.storage,
+      randomId: deterministicIds(),
+      onApplied: () => true,
+    })
+    outboxes.push(first)
+    const a = first.enqueue('rename', { sessionId: 's1', name: 'one' })
+    await first.drain()
+    first.dispose()
+    const { calls, executors } = makeExecutors()
+    const second = createOutbox<Kinds>({
+      executors,
+      storage: backing.storage,
+      randomId: () => 'm-succ',
+    })
+    outboxes.push(second)
+    expect(second.size()).toBe(0)
+    expect(second.awaiting().map((e) => e.mutationId)).toEqual([a.mutationId])
+    // Queued writes drain normally alongside the held entry.
+    second.enqueue('snoozeClear', { sessionId: 's2' })
+    await second.drain()
+    expect(calls.map((c) => c.kind)).toEqual(['snoozeClear']) // no rename replay
+    expect(second.awaiting()).toHaveLength(1)
   })
 
   it('reads corrupt storage as an empty queue', () => {
