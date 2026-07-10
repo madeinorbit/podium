@@ -1,10 +1,10 @@
 import type { SessionMeta } from '@podium/protocol'
 import { useEffect, useRef } from 'react'
+import { MARK_READ_ON_VIEW_MS } from '../engine/engine'
 
-/** Default trailing debounce (ms) before a viewed session is marked read. Long
- *  enough that a streaming session settles first (so we mark read once, not on
- *  every frame), short enough that a glance clears the nag promptly. */
-export const MARK_READ_ON_VIEW_MS = 1200
+// The debounce constant lives with the engine (whose mark-read reaction is the
+// store's live path, #262); re-exported here for existing hook consumers.
+export { MARK_READ_ON_VIEW_MS }
 
 const tabIsVisible = (): boolean =>
   typeof document === 'undefined' || document.visibilityState === 'visible'

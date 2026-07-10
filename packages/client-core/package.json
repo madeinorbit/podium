@@ -49,6 +49,11 @@
       "types": "./src/api.ts",
       "import": "./src/api.ts"
     },
+    "./engine": {
+      "@podium/source": "./src/engine/index.ts",
+      "types": "./src/engine/index.ts",
+      "import": "./src/engine/index.ts"
+    },
     "./react": {
       "@podium/source": "./src/react/index.ts",
       "types": "./src/react/index.ts",
