@@ -99,7 +99,14 @@ if [ "$need_install" -eq 1 ]; then
     exit 1
   fi
   echo "[redeploy-wait] running: $bun_bin install --frozen-lockfile --linker=hoisted (in $repo)" >&2
-  printf '%s\n' "$head" > "$deps_dirty_file"
+  # The marker write MUST land before the install mutates node_modules (#251
+  # review): under `set -u` (no -e) a failed redirect (disk full, perms) would
+  # otherwise let the install run unmarked — a later aborted deploy could then
+  # diff clean and restart services against the wrong dependencies.
+  if ! printf '%s\n' "$head" > "$deps_dirty_file"; then
+    echo "[redeploy-wait] FATAL: cannot write deps-dirty marker $deps_dirty_file — aborting deploy BEFORE mutating node_modules" >&2
+    exit 1
+  fi
   if ! (cd "$repo" && "$bun_bin" install --frozen-lockfile --linker=hoisted); then
     echo "[redeploy-wait] FATAL: bun install failed — aborting deploy, services NOT restarted" >&2
     echo "[redeploy-wait] last successfully deployed HEAD remains ${prev:-<none>}" >&2

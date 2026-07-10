@@ -237,6 +237,27 @@ describe('redeploy-wait.sh', () => {
 })
 
 describe('deps-dirty marker (#251 review)', () => {
+  it('an unwritable deps-dirty marker aborts the deploy BEFORE bun install runs (#251 round 2)', () => {
+    const repo = makeRepo()
+    const bun = makeFakeBun()
+    // State path in a read-only dir: no state file (→ install fires), and the
+    // marker write must fail. Without the write check, install would mutate
+    // node_modules unmarked — a later aborted deploy could diff clean against
+    // the recorded HEAD and skip the reinstall.
+    const roDir = join(repo, 'ro-state')
+    mkdirSync(roDir)
+    chmodSync(roDir, 0o555)
+    try {
+      expect(() =>
+        runScript(repo, { REDEPLOY_BUN: bun.bin, REDEPLOY_STATE_FILE: join(roDir, 'head') }),
+      ).toThrow()
+      expect(existsSync(bun.log)).toBe(false) // bun install never ran
+    } finally {
+      chmodSync(roDir, 0o755)
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+
   it('a typecheck failure after an install forces a reinstall even when manifests later diff clean', () => {
     const repo = makeRepo()
     const stateFile = join(repo, '.git', 'podium-redeploy-head')
@@ -252,9 +273,7 @@ describe('deps-dirty marker (#251 review)', () => {
     gitIn(repo, 'add', '.')
     gitIn(repo, 'commit', '-m', 'B')
     const failing = makeFakeBun({ failTypecheck: true })
-    expect(() =>
-      runScript(repo, { PATH: `${dirname(failing.bin)}:${process.env.PATH}` }),
-    ).toThrow() // exit 1: deploy aborted after install mutated node_modules
+    expect(() => runScript(repo, { PATH: `${dirname(failing.bin)}:${process.env.PATH}` })).toThrow() // exit 1: deploy aborted after install mutated node_modules
     expect(existsSync(dirtyFile)).toBe(true) // marker persisted
     expect(readFileSync(stateFile, 'utf8').trim()).toBe(headA) // state not advanced
     // Commit C reverts the manifest so A..C diffs CLEAN for manifests —
