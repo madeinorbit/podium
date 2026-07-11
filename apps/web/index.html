@@ -11,16 +11,18 @@
             'podium-light': '#f7f7f9',
             'shadcn-dark': '#09090b',
             'shadcn-light': '#ffffff',
+            'superade-dark': '#0a0f1c',
+            'superade-light': '#f4f6fb',
           }
           var p = localStorage.getItem('podium.theme.preset')
           var m = localStorage.getItem('podium.theme.mode')
-          var preset = p === 'shadcn' || p === 'podium' ? p : 'podium'
+          var preset = p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'podium'
           var mode = m === 'light' || m === 'dark' || m === 'system' ? m : 'dark'
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
           var isDark = mode === 'system' ? prefersDark : mode === 'dark'
           var el = document.documentElement
-          if (preset === 'podium') el.setAttribute('data-theme', 'podium')
-          else el.removeAttribute('data-theme')
+          if (preset === 'shadcn') el.removeAttribute('data-theme')
+          else el.setAttribute('data-theme', preset)
           el.classList.toggle('dark', isDark)
           var meta = document.querySelector('meta[name="theme-color"]')
           var bg = BG[preset + '-' + (isDark ? 'dark' : 'light')]

@@ -2,7 +2,7 @@ import type { JSX, ReactNode } from 'react'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { useStoreSelector } from './store'
 
-export type ThemePreset = 'shadcn' | 'podium'
+export type ThemePreset = 'shadcn' | 'podium' | 'superade'
 export type ThemeMode = 'light' | 'dark' | 'system'
 export interface ThemeState {
   preset: ThemePreset
@@ -30,6 +30,8 @@ export const THEME_BG: Record<string, string> = {
   'podium-light': '#f7f7f9',
   'shadcn-dark': '#09090b',
   'shadcn-light': '#ffffff',
+  'superade-dark': '#0a0f1c',
+  'superade-light': '#f4f6fb',
 }
 
 function lsGet(key: string): string | null {
@@ -51,14 +53,15 @@ export function readStoredTheme(): ThemeState {
   const p = lsGet(THEME_PRESET_KEY)
   const m = lsGet(THEME_MODE_KEY)
   return {
-    preset: p === 'shadcn' || p === 'podium' ? p : 'podium',
+    preset: p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'podium',
     mode: m === 'light' || m === 'dark' || m === 'system' ? m : 'dark',
   }
 }
 
 export function applyTheme(state: ThemeState, root: HTMLElement, prefersDark = false): void {
-  if (state.preset === 'podium') root.setAttribute('data-theme', 'podium')
-  else root.removeAttribute('data-theme')
+  // shadcn is the bare default (no data-theme); every other preset is keyed by name.
+  if (state.preset === 'shadcn') root.removeAttribute('data-theme')
+  else root.setAttribute('data-theme', state.preset)
   root.classList.toggle('dark', resolveDark(state.mode, prefersDark))
 }
 

@@ -9,6 +9,7 @@ export function AppearanceSection(): JSX.Element {
   const { preset, mode, setPreset, setMode } = useTheme()
   const presets: { value: ThemePreset; label: string }[] = [
     { value: 'podium', label: 'Podium' },
+    { value: 'superade', label: 'Superade' },
     { value: 'shadcn', label: 'shadcn' },
   ]
   const modes: { value: ThemeMode; label: string }[] = [

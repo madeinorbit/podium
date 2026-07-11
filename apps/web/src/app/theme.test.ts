@@ -12,6 +12,10 @@ describe('readStoredTheme', () => {
     localStorage.setItem(THEME_MODE_KEY, 'light')
     expect(readStoredTheme()).toEqual({ preset: 'shadcn', mode: 'light' })
   })
+  it('reads the superade preset', () => {
+    localStorage.setItem(THEME_PRESET_KEY, 'superade')
+    expect(readStoredTheme().preset).toBe('superade')
+  })
   it('falls back on garbage', () => {
     localStorage.setItem(THEME_PRESET_KEY, 'bogus')
     expect(readStoredTheme().preset).toBe('podium')
@@ -38,5 +42,11 @@ describe('applyTheme', () => {
     applyTheme({ preset: 'shadcn', mode: 'light' }, el)
     expect(el.getAttribute('data-theme')).toBe(null)
     expect(el.classList.contains('dark')).toBe(false)
+  })
+  it('sets data-theme for superade', () => {
+    const el = document.createElement('html')
+    applyTheme({ preset: 'superade', mode: 'dark' }, el)
+    expect(el.getAttribute('data-theme')).toBe('superade')
+    expect(el.classList.contains('dark')).toBe(true)
   })
 })

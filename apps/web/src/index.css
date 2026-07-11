@@ -195,6 +195,73 @@
   --sidebar-ring: #f59e0b;
 }
 
+/* ── Superade preset — light (derived companion; the mock is dark-only) ──────────── */
+[data-theme="superade"] {
+  --radius: 0.375rem;
+  --background: #f4f6fb;
+  --foreground: #17203a;
+  --card: #ffffff;
+  --card-foreground: #17203a;
+  --popover: #ffffff;
+  --popover-foreground: #17203a;
+  --primary: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --secondary: #e7ebf6;
+  --secondary-foreground: #17203a;
+  --muted: #e7ebf6;
+  --muted-foreground: #56607a;
+  --accent: #dde4f4;
+  --accent-foreground: #17203a;
+  --destructive: #dc2626;
+  --border: #d9e0ef;
+  --input: #d9e0ef;
+  --ring: #1d4ed8;
+  --success: #059669;
+  --warning: #b45309;
+  --sidebar: #edf0f8;
+  --sidebar-foreground: #17203a;
+  --sidebar-primary: #1d4ed8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #dde4f4;
+  --sidebar-accent-foreground: #17203a;
+  --sidebar-border: #d9e0ef;
+  --sidebar-ring: #1d4ed8;
+}
+
+/* ── Superade preset — dark (from the "Podium Superman" design mock: deep navy,
+      Superman yellow #f5c518 primary, red #e5303f alerts) ─────────────────────────── */
+[data-theme="superade"].dark {
+  --radius: 0.375rem;
+  --background: #0a0f1c;
+  --foreground: #d7d7e0;
+  --card: #121b30;
+  --card-foreground: #d7d7e0;
+  --popover: #121b30;
+  --popover-foreground: #d7d7e0;
+  --primary: #f5c518;
+  --primary-foreground: #0a0f1c;
+  --secondary: #223564;
+  --secondary-foreground: #f3f3f8;
+  --muted: #17223c;
+  --muted-foreground: #9a9aa8;
+  --accent: #1c2a4e;
+  --accent-foreground: #f3f3f8;
+  --destructive: #e5303f;
+  --border: #243356;
+  --input: #364a78;
+  --ring: #f5c518;
+  --success: #34d399;
+  --warning: #f5c518;
+  --sidebar: #0f1626;
+  --sidebar-foreground: #d7d7e0;
+  --sidebar-primary: #f5c518;
+  --sidebar-primary-foreground: #0a0f1c;
+  --sidebar-accent: #223564;
+  --sidebar-accent-foreground: #f3f3f8;
+  --sidebar-border: #1e2a4c;
+  --sidebar-ring: #f5c518;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
