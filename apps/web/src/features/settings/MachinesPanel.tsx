@@ -290,7 +290,7 @@ function MachineRow({
         role="img"
         className={cn(
           'flex-none size-1.5 rounded-full',
-          machine.online ? 'bg-green-500' : 'bg-muted-foreground/40',
+          machine.online ? 'bg-success' : 'bg-muted-foreground/40',
         )}
         title={machine.online ? 'Online' : 'Offline'}
         aria-label={machine.online ? 'Online' : 'Offline'}

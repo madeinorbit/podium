@@ -362,7 +362,7 @@ export function NewWorkRow(): JSX.Element {
                                 size={6}
                                 className={
                                   machine.online
-                                    ? 'fill-emerald-500 text-emerald-500'
+                                    ? 'fill-success text-success'
                                     : 'text-muted-foreground/40'
                                 }
                                 aria-hidden="true"

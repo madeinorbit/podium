@@ -22,7 +22,7 @@ export function percentTone(p: number): QuotaTone {
   return 'ok'
 }
 export function toneBarClass(t: QuotaTone): string {
-  return t === 'crit' ? 'bg-red-500' : t === 'warn' ? 'bg-amber-500' : 'bg-emerald-500'
+  return t === 'crit' ? 'bg-red-500' : t === 'warn' ? 'bg-warning' : 'bg-success'
 }
 
 const AGENT_LABELS: Record<string, string> = {

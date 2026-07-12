@@ -25,7 +25,7 @@ const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
   planning: { dot: 'bg-sky-400', chip: 'bg-sky-400/15 text-sky-300' },
   in_progress: { dot: 'bg-amber-400', chip: 'bg-amber-400/15 text-amber-300' },
   review: { dot: 'bg-violet-400', chip: 'bg-violet-400/15 text-violet-300' },
-  done: { dot: 'bg-emerald-400', chip: 'bg-emerald-400/15 text-emerald-300' },
+  done: { dot: 'bg-success', chip: 'bg-success/15 text-success' },
 }
 
 function StageChip({ stage }: { stage: IssueStage }): JSX.Element {
@@ -138,7 +138,7 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
             <CircleAlert size={11} aria-hidden="true" /> blocked
           </span>
         ) : issue.ready ? (
-          <span className="inline-flex items-center gap-1 text-emerald-400">
+          <span className="inline-flex items-center gap-1 text-success">
             <CircleCheck size={11} aria-hidden="true" /> ready
           </span>
         ) : null}
@@ -239,7 +239,7 @@ function PanelSections({
             <div className="mb-2 flex items-center gap-2">
               <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-emerald-400/80 transition-[width] duration-300"
+                  className="h-full rounded-full bg-success/80 transition-[width] duration-300"
                   style={{ width: `${todos.length ? (doneCount / todos.length) * 100 : 0}%` }}
                 />
               </div>

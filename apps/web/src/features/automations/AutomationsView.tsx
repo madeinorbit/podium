@@ -400,7 +400,7 @@ function TriggersSection({ trpc }: { trpc: Trpc }): JSX.Element {
         <ul className="flex flex-col gap-1">
           {BUILTIN_DEFAULTS.map((d) => (
             <li key={d} className="flex items-center gap-2 text-[12px] text-foreground">
-              <CircleCheck size={13} aria-hidden="true" className="flex-none text-emerald-500" />
+              <CircleCheck size={13} aria-hidden="true" className="flex-none text-success" />
               <span className="min-w-0">{d}</span>
             </li>
           ))}
@@ -758,7 +758,7 @@ function AutomationCard({
 
 function RunStatusIcon({ status }: { status: RunStatus }): JSX.Element {
   if (status === 'success')
-    return <CircleCheck size={14} aria-label="Succeeded" className="flex-none text-emerald-500" />
+    return <CircleCheck size={14} aria-label="Succeeded" className="flex-none text-success" />
   if (status === 'failure')
     return <CircleX size={14} aria-label="Failed" className="flex-none text-red-500" />
   return (

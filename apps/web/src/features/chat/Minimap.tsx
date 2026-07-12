@@ -110,9 +110,9 @@ export function Minimap({
             'pointer-events-none absolute inset-x-0 min-h-[2px]',
             // Priority of attention: user prompts > final answer > agent prose > tool/system.
             tick.role === 'user'
-              ? 'bg-blue-500'
+              ? 'bg-info'
               : tick.answer
-                ? 'bg-emerald-500'
+                ? 'bg-live'
                 : tick.role === 'assistant'
                   ? 'bg-foreground/20'
                   : 'bg-foreground/[0.08]',

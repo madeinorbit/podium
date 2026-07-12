@@ -30,12 +30,12 @@ body {
   display: inline-block;
 }
 
-/* Working (green) status dot only: a soft breathing halo so a live, running agent
+/* Working status dot only: a soft breathing halo so a live, running agent
    reads as alive at a glance. The pulse rides on a `::after` ring (its own box) so
    the dot's own colour/size never moves — only the ring's transform+opacity
    animate, keeping it GPU-friendly and layout-free even with many dots on screen.
    `currentColor` would be the row's text colour, so the ring is painted with the
-   emerald the dot itself uses (matches `bg-emerald-500`). */
+   same per-theme live hue the dot itself uses (matches `bg-live`). */
 .dot-working {
   position: relative;
 }
@@ -44,7 +44,7 @@ body {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: rgb(16 185 129); /* emerald-500 — same hue as the dot */
+  background: var(--live); /* same per-theme hue as the dot (`bg-live`) */
   /* Animate transform/opacity only — never layout. */
   transform: scale(1);
   opacity: 0.55;
@@ -313,8 +313,8 @@ body:has(.mobile-shell) {
 
 /* ── Transcript / document layout ───────────────────────────────────────────
    Each message row is a flex container: a narrow left-rail column (3px wide +
-   12px gap) and a body column. Rails are only shown for user messages (blue)
-   and the final answer (emerald, matching the minimap). Intermediate assistant narration and
+   12px gap) and a body column. Rails are only shown for user messages (--info)
+   and the final answer (--live, matching the minimap). Intermediate assistant narration and
    tool rows get a transparent/none rail so they all share the same column
    alignment without visual noise.
    ─────────────────────────────────────────────────────────────────────────── */
@@ -335,14 +335,13 @@ body:has(.mobile-shell) {
   min-height: 1.2em;
 }
 .transcript-rail--user {
-  background-color: #3b82f6; /* blue-500 */
+  background-color: var(--info); /* matches the minimap's user tick (bg-info) */
 }
 .transcript-rail--answer {
-  /* Emerald to match the minimap's final-answer tick (bg-emerald-500). An explicit
-     hue, not var(--primary): primary is near-black in the light theme, so the
-     agent's answer rail read as grey and clashed with the minimap. Mirrors how
-     --user uses an explicit blue-500 to match the minimap's user tick. */
-  background-color: #10b981; /* emerald-500 */
+  /* The per-theme live hue, matching the minimap's final-answer tick (bg-live).
+     The activity tokens keep dot-appropriate hues in every preset, unlike
+     var(--primary), which is near-black in the light theme. */
+  background-color: var(--live);
 }
 /* No rail — transparent spacer so body column stays aligned */
 .transcript-rail--none {

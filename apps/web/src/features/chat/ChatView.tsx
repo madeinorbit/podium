@@ -870,13 +870,13 @@ export function ChatView({
               role="status"
               aria-live="polite"
               className={cn(
-                // Match the shared status palette: working → green, needs-you →
-                // yellow, everything else muted.
+                // Match the shared status palette: working → the theme's live
+                // hue, needs-you → warning, everything else muted.
                 'mx-auto flex w-full max-w-[960px] items-center gap-2 py-3 pl-[calc(3px+12px)] text-xs',
                 activity.tone === 'attention'
-                  ? 'text-amber-500'
+                  ? 'text-warning'
                   : activity.tone === 'working'
-                    ? 'text-emerald-500'
+                    ? 'text-live'
                     : 'text-muted-foreground',
               )}
             >

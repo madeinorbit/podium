@@ -372,7 +372,7 @@ function MachineSubmenu({
       <DropdownMenuSubTrigger className="flex items-center gap-1.5">
         <Circle
           size={6}
-          className={`flex-none ${machine.online ? 'fill-emerald-500 text-emerald-500' : 'text-muted-foreground/40'}`}
+          className={`flex-none ${machine.online ? 'fill-success text-success' : 'text-muted-foreground/40'}`}
         />
         <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
           {machine.name}

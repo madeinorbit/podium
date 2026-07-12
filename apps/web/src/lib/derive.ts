@@ -11,14 +11,17 @@ import { type DotTone, sessionDotTone } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/protocol'
 import { cn } from './utils'
 
-// Tone → theme-independent hue. NOT the `bg-primary`/`bg-success` design tokens:
-// `bg-primary` is near-black in the light theme, so an explicit blue keeps the
-// status colours identical across themes and modes (matching the minimap palette).
+// Tone → hue via the activity tokens (--live/--info) plus semantic --warning,
+// so each theme preset recolors agent activity (the Superade mock's live dots
+// are red, not emerald). The tokens keep stable, dot-appropriate hues in every
+// preset — the old reason to avoid tokens (near-black light-mode --primary)
+// doesn't apply to them. Error stays an explicit red so a broken session never
+// blends in with a preset's live/destructive hue (matching the minimap palette).
 const DOT_TONE_CLASS: Record<DotTone, string> = {
-  working: 'bg-emerald-500',
-  attention: 'bg-amber-500',
+  working: 'bg-live',
+  attention: 'bg-warning',
   error: 'bg-red-500',
-  ready: 'bg-blue-500',
+  ready: 'bg-info',
   neutral: 'bg-muted-foreground',
 }
 

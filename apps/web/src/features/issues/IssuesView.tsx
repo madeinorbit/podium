@@ -1124,11 +1124,11 @@ function IssueCard({
               lane rollups don't reach), titled with the subtree done/total. */}
           {progress && progress.liveAgents > 0 && (
             <span
-              className="inline-flex items-center gap-1 text-[11px] text-emerald-600 tabular-nums dark:text-emerald-400"
+              className="inline-flex items-center gap-1 text-[11px] text-live tabular-nums"
               title={`${progress.liveAgents} subtask${progress.liveAgents === 1 ? '' : 's'} being worked · ${progress.done}/${progress.total} done in subtree`}
               data-testid="epic-live-agents"
             >
-              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" aria-hidden />
+              <span className="size-1.5 animate-pulse rounded-full bg-live" aria-hidden />
               {progress.liveAgents}
             </span>
           )}

@@ -30,6 +30,12 @@
   /* Podium semantic extras (agent/host state) — not in the stock shadcn set. */
   --color-success: var(--success);
   --color-warning: var(--warning);
+  /* Activity accents: --live = "an agent is actively working" (dots, rails,
+     working indicators); --info = the calm user/ready blue (You rail, ready
+     dots, minimap user ticks). Dedicated tokens (not --primary/--success) so
+     presets can recolor activity without touching semantic success/warning. */
+  --color-live: var(--live);
+  --color-info: var(--info);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -77,6 +83,8 @@
   --ring: oklch(0.708 0 0);
   --success: oklch(0.6 0.13 163);
   --warning: oklch(0.78 0.16 70);
+  --live: #10b981;
+  --info: #3b82f6;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -114,6 +122,8 @@
   --ring: oklch(0.556 0 0);
   --success: oklch(0.7 0.15 162);
   --warning: oklch(0.83 0.16 82);
+  --live: #10b981;
+  --info: #3b82f6;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -152,6 +162,8 @@
   --ring: #d97706;
   --success: #059669;
   --warning: #d97706;
+  --live: #10b981;
+  --info: #3b82f6;
   --sidebar: #f0f0f3;
   --sidebar-foreground: #1a1a22;
   --sidebar-primary: #d97706;
@@ -185,6 +197,9 @@
   --ring: #f59e0b;
   --success: #34d399;
   --warning: #fbbf24;
+  /* Mock activity hues: live/working dots are emerald-500, user/ready is blue-500. */
+  --live: #10b981;
+  --info: #3b82f6;
   --sidebar: #16161c;
   --sidebar-foreground: #d7d7e0;
   --sidebar-primary: #f59e0b;
@@ -218,6 +233,8 @@
   --ring: #1d4ed8;
   --success: #059669;
   --warning: #b45309;
+  --live: #dc2626;
+  --info: #1d4ed8;
   --sidebar: #edf0f8;
   --sidebar-foreground: #17203a;
   --sidebar-primary: #1d4ed8;
@@ -250,8 +267,12 @@
   --border: #243356;
   --input: #364a78;
   --ring: #f5c518;
-  --success: #34d399;
+  /* The Superman mock has no green at all: host-health dots and quota meters
+     render in its blue (#2f6bff), live agent activity in its red (#e5303f). */
+  --success: #2f6bff;
   --warning: #f5c518;
+  --live: #e5303f;
+  --info: #2f6bff;
   --sidebar: #0f1626;
   --sidebar-foreground: #d7d7e0;
   --sidebar-primary: #f5c518;
