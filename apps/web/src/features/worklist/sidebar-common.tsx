@@ -28,7 +28,7 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 
 /** The one aside shell the sidebar renders into. */
 export const SIDEBAR_ASIDE_CLASS =
-  'flex w-full flex-col overflow-y-auto border-r border-border bg-card text-card-foreground'
+  'flex w-full flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
 
 const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 const SIDEBAR_WIDTH_MIN = 200
