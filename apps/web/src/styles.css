@@ -124,11 +124,13 @@ body {
   display: none;
 }
 /* Work-list child agent rows: per-row horizontal stub joining the parent's
-   vertical tree-guide line (the line itself is a span in the wrapper). */
-.tree-children > * {
+   vertical tree-guide line (the line itself is the .tree-guide span in the
+   wrapper — excluded here, or this rule's position:relative would override
+   its Tailwind `absolute` and give it a stub of its own). */
+.tree-children > :not(.tree-guide) {
   position: relative;
 }
-.tree-children > *::before {
+.tree-children > :not(.tree-guide)::before {
   content: '';
   position: absolute;
   left: 16px;

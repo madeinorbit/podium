@@ -843,7 +843,7 @@ function UnifiedRowShell({
           .tree-children CSS) ties the group to its parent. */}
       {!collapsed && children && (
         <div className="tree-children relative pt-0.5 pb-1">
-          <span className="absolute top-0 bottom-3 left-4 w-px bg-border" aria-hidden="true" />
+          <span className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border" aria-hidden="true" />
           {children}
         </div>
       )}
