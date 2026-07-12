@@ -104,6 +104,12 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
     includePartialMessages: true,
     permissionMode: mode,
     ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+    // The CLI refuses --dangerously-skip-permissions as root unless IS_SANDBOX=1;
+    // without it every headless turn on a root-run daemon dies with exit code 1.
+    // Options.env REPLACES the subprocess env, so process.env must be spread in.
+    ...(mode === 'bypassPermissions' && process.getuid?.() === 0
+      ? { env: { ...process.env, IS_SANDBOX: '1' } as Record<string, string> }
+      : {}),
     ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
     ...(spec.effort && EFFORT_LEVELS.has(spec.effort)
       ? { effort: spec.effort as Options['effort'] }
