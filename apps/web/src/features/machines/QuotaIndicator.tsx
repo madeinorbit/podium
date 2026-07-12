@@ -47,6 +47,20 @@ function worstPercent(groups: AccountQuotaGroup[]): number {
   return worst
 }
 
+/** The most-consumed window with its account — drives the inline status-bar label. */
+function worstWindow(
+  groups: AccountQuotaGroup[],
+): { g: AccountQuotaGroup; w: AccountQuotaGroup['windows'][number] } | null {
+  let hit: { g: AccountQuotaGroup; w: AccountQuotaGroup['windows'][number] } | null = null
+  for (const g of groups) {
+    if (g.status !== 'ok') continue
+    for (const w of g.windows) {
+      if (!hit || w.usedPercent > hit.w.usedPercent) hit = { g, w }
+    }
+  }
+  return hit
+}
+
 /**
  * Agent-quota status item. Lives in the host status strip (HostIndicators),
  * beside the memory and connection glyphs — a gauge icon + a severity-tinted
@@ -57,7 +71,14 @@ function worstPercent(groups: AccountQuotaGroup[]): number {
  * from Usage & analytics (transcript-harvested token cost) — this is plan
  * rate-limit usage read live from each agent's own quota endpoint.
  */
-export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.Element | null {
+export function QuotaIndicator({
+  compact = false,
+  detail = false,
+}: {
+  compact?: boolean
+  /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
+  detail?: boolean
+}): JSX.Element | null {
   const trpc = useStoreSelector((s) => s.trpc)
   const [machines, setMachines] = useState<MachineQuotaWire[] | null>(null)
   const [open, setOpen] = useState(false)
@@ -89,6 +110,7 @@ export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.
 
   const worst = worstPercent(groups)
   const tone = TONE[percentTone(worst)]
+  const worstW = worstWindow(groups)
 
   return (
     <>
@@ -111,6 +133,12 @@ export function QuotaIndicator({ compact = false }: { compact?: boolean }): JSX.
                   role="presentation"
                 >
                   <span className={cn('block h-full', tone.fill)} style={{ width: `${worst}%` }} />
+                </span>
+              )}
+              {!compact && detail && worstW && (
+                <span className="whitespace-nowrap text-[#6c6c78]">
+                  {agentLabel(worstW.g.agent)} {Math.round(worstW.w.usedPercent)}% ·{' '}
+                  {formatReset(worstW.w.resetsAt, Date.now())}
                 </span>
               )}
             </button>

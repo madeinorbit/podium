@@ -1,0 +1,4 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-cc7d] -->
+<section data-spec="SP-cc7d" data-title="Deployment: non-root service user" data-parent="SP-root" data-order="1" data-status="draft" data-updated="1783857402205">
+<p>Podium must NOT run as root. On the dev/prod box it runs as a dedicated <code>podium</code> user (decided 2026-07-12): superagent turns execute headlessly with <code>bypassPermissions</code>, so the OS user is the only blast-radius boundary — root would hand every autonomous turn the whole machine.</p><p>Running as root in containers remains supported: the daemon sets <code>IS_SANDBOX=1</code> for headless claude turns when uid is 0 (see <code>apps/daemon/src/headless-drivers.ts</code>).</p>
+</section>

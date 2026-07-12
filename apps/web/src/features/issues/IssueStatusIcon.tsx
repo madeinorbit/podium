@@ -13,21 +13,26 @@ import { StageGlyph } from './issue-glyphs'
 export function IssueStatusIcon({
   stage,
   size = 16,
+  badge = true,
 }: {
   stage: IssueStage
   size?: number
+  /** Corner stage badge — off in the sidebar work list, where rows stay plain. */
+  badge?: boolean
 }): JSX.Element {
   return (
     <span
       className="relative flex flex-none items-center justify-center"
       style={{ width: size, height: size }}
     >
-      <ListTodo size={size} className="text-muted-foreground" aria-hidden="true" />
+      <ListTodo size={size} className="text-[#8a8a97]" aria-hidden="true" />
       {/* Corner badge: a small stage glyph on a background chip so it reads as a
           badge over the base glyph rather than blending into it. */}
-      <span className="absolute -right-1 -bottom-1 flex items-center justify-center rounded-full bg-background">
-        <StageGlyph stage={stage} size={8} />
-      </span>
+      {badge && (
+        <span className="absolute -right-1 -bottom-1 flex items-center justify-center rounded-full bg-background">
+          <StageGlyph stage={stage} size={8} />
+        </span>
+      )}
     </span>
   )
 }

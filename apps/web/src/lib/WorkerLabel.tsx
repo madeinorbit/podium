@@ -81,20 +81,36 @@ const KIND_ICON: Record<AgentKind, IconComponent> = {
 }
 
 /** The agent-kind icon — shown right after the status dot, with the kind's name
- *  ("Claude", "Shell", …) on the hover title in place of the old text badge. */
+ *  ("Claude", "Shell", …) on the hover title in place of the old text badge.
+ *  `chip` renders it inside a 20px rounded chip (agent rows in the work list). */
 export function KindIcon({
   kind,
   dimmed = false,
+  chip = false,
 }: {
   kind: AgentKind
   dimmed?: boolean
+  chip?: boolean
 }): JSX.Element {
   const Icon = KIND_ICON[kind]
+  // Claude's brand clay for its glyph; other kinds stay text-toned like the mock.
+  const tone = dimmed
+    ? 'text-muted-foreground/70'
+    : kind === 'claude-code'
+      ? 'text-[#D97757]'
+      : 'text-foreground'
+  if (chip) {
+    return (
+      <span
+        className={`flex size-5 flex-none items-center justify-center rounded-[5px] bg-[#22222c] transition-colors group-hover:bg-[#2c2c38] ${tone}`}
+        title={panelLabel(kind)}
+      >
+        <Icon size={12} aria-label={panelLabel(kind)} />
+      </span>
+    )
+  }
   return (
-    <span
-      className={dimmed ? 'flex-none text-muted-foreground/70' : 'flex-none text-foreground'}
-      title={panelLabel(kind)}
-    >
+    <span className={`flex-none ${tone}`} title={panelLabel(kind)}>
       <Icon size={13} aria-label={panelLabel(kind)} />
     </span>
   )
@@ -107,12 +123,20 @@ export function KindIcon({
  * the terminal title). The full name rides on the hover title so a truncated row
  * is still readable.
  */
-export function WorkerLabel({ session }: { session: SessionMeta }): JSX.Element {
+export function WorkerLabel({
+  session,
+  chip = false,
+}: {
+  session: SessionMeta
+  /** Wrap the kind icon in the 20px agent chip (work-list agent rows). */
+  chip?: boolean
+}): JSX.Element {
   const name = sessionDisplayName(session)
   return (
-    <span className="worker-label inline-flex min-w-0 items-center gap-1.5">
+    <span className="worker-label inline-flex min-w-0 items-center gap-2">
       <KindIcon
         kind={session.agentKind}
+        chip={chip}
         dimmed={session.status === 'hibernated' || session.status === 'exited'}
       />
       <span className="worker-name overflow-hidden text-ellipsis whitespace-nowrap" title={name}>

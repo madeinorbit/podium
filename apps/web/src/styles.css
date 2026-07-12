@@ -21,11 +21,11 @@ body {
   overscroll-behavior: none;
 }
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   /* Never let a flex parent squeeze the dot into an oval when the row is tight. */
   flex: 0 0 auto;
-  min-width: 8px;
+  min-width: 7px;
   border-radius: 50%;
   display: inline-block;
 }
@@ -101,11 +101,53 @@ body {
 /* ---- shells ---- */
 .desktop-shell {
   display: flex;
+  /* Column: the 3-pane row on top, the full-width host status bar pinned below. */
+  flex-direction: column;
   /* Use dvh so the desktop shell fills the dynamic viewport height in standalone
      PWA mode. 100% of the html/body/#root chain can leave dead space at the
      bottom in installed-PWA standalone on iOS/Android because the layout viewport
      doesn't shrink to exclude the home-indicator area the way dvh does. */
   height: 100dvh;
+}
+/* The 3-column pane row: sidebar | superagent | workspace. */
+.desktop-shell-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+/* Scrollable region with no visible scrollbar (sidebar work list, transcripts). */
+.scroll-none {
+  scrollbar-width: none;
+}
+.scroll-none::-webkit-scrollbar {
+  display: none;
+}
+/* Work-list child agent rows: per-row horizontal stub joining the parent's
+   vertical tree-guide line (the line itself is a span in the wrapper). */
+.tree-children > * {
+  position: relative;
+}
+.tree-children > *::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 9px;
+  height: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+/* Composer caret block (CLI-style prompt decoration). */
+@keyframes cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
 }
 .mobile-shell {
   display: flex;
@@ -445,8 +487,8 @@ body:has(.mobile-shell) {
     26px 0 0 var(--border);
 }
 .chat-md code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.89em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.88em;
   background: var(--muted);
   border: 1px solid var(--border);
   border-radius: 3px;

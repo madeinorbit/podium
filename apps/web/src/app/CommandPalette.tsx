@@ -312,8 +312,8 @@ function PaletteDialog({
     out.push({
       id: 'global:toggle-right-panel',
       group: 'global',
-      label: superOpen ? 'Close right panel' : 'Open right panel',
-      keywords: ['superagent', 'dock', 'btw'],
+      label: superOpen ? 'Close superagent panel' : 'Open superagent panel',
+      keywords: ['superagent', 'dock', 'btw', 'panel'],
       run: () => setSuperOpen(!superOpen),
     })
 

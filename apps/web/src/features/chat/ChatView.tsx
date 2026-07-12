@@ -22,6 +22,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { BlockCaret } from '@/lib/BlockCaret'
 import { chatActivity } from '@/lib/derive'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { renderMarkdown } from '@/lib/markdown'
@@ -642,6 +643,93 @@ export function ChatView({
     taRef.current?.focus()
   }, [sessionId, composerEnabled, loadingTranscript, isMobile])
 
+  // The composer's action cluster (stop / attach / voice / send). Compact
+  // (superagent dock) renders it INLINE on the input row with small plain
+  // icons — the mock's composer is a single ~36px-high row — while the regular
+  // chat composer keeps its own bottom row with the round primary send button.
+  const composerActions = (
+    <div
+      className={cn(
+        'flex items-center',
+        compact ? 'flex-none gap-0.5 self-end' : 'justify-end gap-1',
+      )}
+    >
+      {headless && turnRunning && superThread && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'rounded-full text-destructive hover:bg-transparent hover:text-destructive',
+            compact
+              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
+              : "[&_svg:not([class*='size-'])]:size-4",
+          )}
+          title="Stop this turn"
+          onClick={() => {
+            trpc.superagent.interruptTurn
+              .mutate({ threadId: superThread.threadId })
+              .catch((e: unknown) => setTurnError(e instanceof Error ? e.message : String(e)))
+          }}
+        >
+          <Square size={16} aria-hidden="true" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className={cn(
+          'rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground',
+          compact
+            ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
+            : "[&_svg:not([class*='size-'])]:size-4",
+        )}
+        title="Attach image"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <Paperclip size={16} aria-hidden="true" />
+      </Button>
+      {voice.supported && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            'rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground',
+            compact
+              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
+              : "[&_svg:not([class*='size-'])]:size-4",
+            voice.listening && 'animate-pulse text-destructive hover:text-destructive',
+          )}
+          title={voice.listening ? 'Stop voice input' : 'Voice input'}
+          onClick={voice.toggle}
+        >
+          <Mic size={16} aria-hidden="true" />
+        </Button>
+      )}
+      <Button
+        type="button"
+        size="icon"
+        variant={compact ? 'ghost' : 'default'}
+        className={cn(
+          compact
+            ? "size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:bg-transparent disabled:opacity-40 [&_svg:not([class*='size-'])]:size-3.5"
+            : "rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4",
+        )}
+        disabled={
+          !composerEnabled ||
+          (!draft.trim() && attachments.length === 0) ||
+          attachments.some((a) => a.state === 'uploading')
+        }
+        title="Send (⌘/Ctrl+Enter)"
+        onClick={() => void send()}
+      >
+        <ArrowUp size={16} aria-hidden="true" />
+      </Button>
+    </div>
+  )
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
@@ -917,7 +1005,12 @@ export function ChatView({
         // indicator safe area sits behind the keyboard, so keeping that padding just
         // leaves a dead gap above the keyboard under the composer. --kb-open (0/1) is
         // set from visualViewport in MobileApp; mirrors the native toolbar's handling.
-        className="border-t border-border bg-card px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]"
+        className={cn(
+          'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
+          // The superagent dock composer mirrors the native Claude Code prompt
+          // box: mono, CLI `>` prefix, flat background.
+          compact ? 'bg-background px-3.5 font-mono' : 'bg-card',
+        )}
         onDragOver={(e) => {
           e.preventDefault()
           if (e.dataTransfer.items && hasImageItems(e.dataTransfer.items)) setDragOver(true)
@@ -949,7 +1042,14 @@ export function ChatView({
             offline copy — as of {new Date(offlineAsOf).toLocaleString()}
           </div>
         )}
-        <div className="relative flex flex-col gap-0.5 rounded-2xl border border-input bg-background px-2.5 pt-2 pb-1.5 focus-within:border-primary">
+        <div
+          className={cn(
+            'relative flex flex-col gap-0.5 border bg-background focus-within:border-primary',
+            compact
+              ? 'rounded-lg border-[#3a3a46] px-3 py-1.5'
+              : 'rounded-2xl border-input px-2.5 pt-2 pb-1.5',
+          )}
+        >
           {dragOver && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary bg-primary/5">
               <span className="text-sm font-medium text-primary">Drop image to attach</span>
@@ -966,48 +1066,65 @@ export function ChatView({
               e.target.value = ''
             }}
           />
-          <Textarea
-            ref={taRef}
-            rows={1}
-            placeholder={
-              headless
-                ? turnRunning
-                  ? 'Working — stop the turn to interject…'
-                  : 'Message the agent…'
-                : sendable
-                  ? 'Message the agent…'
-                  : canResume
-                    ? 'Message — resumes the agent…'
-                    : 'Session is not running.'
-            }
-            className="max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent"
-            value={draft}
-            disabled={!composerEnabled}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              // Desktop power-shortcut: ⌘/Ctrl+Enter submits. Plain Enter is a
-              // newline (the send button submits), matching the mobile keyboard.
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault()
-                void send()
+          {compact && <BlockCaret taRef={taRef} value={draft} />}
+          <div className="flex items-start gap-2">
+            {compact && (
+              <span
+                className="flex-none pt-[5px] text-[13px] leading-[1.45] text-[#6c6c78]"
+                aria-hidden="true"
+              >
+                &gt;
+              </span>
+            )}
+            <Textarea
+              ref={taRef}
+              rows={1}
+              placeholder={
+                headless
+                  ? turnRunning
+                    ? 'Working — stop the turn to interject…'
+                    : compact
+                      ? 'Ask Superagent to plan, delegate, or review — @ for context'
+                      : 'Message the agent…'
+                  : sendable
+                    ? 'Message the agent…'
+                    : canResume
+                      ? 'Message — resumes the agent…'
+                      : 'Session is not running.'
               }
-            }}
-            onPaste={(e) => {
-              const { items } = e.clipboardData
-              if (hasImageItems(items)) {
-                e.preventDefault()
-                const files: File[] = []
-                for (let i = 0; i < items.length; i++) {
-                  const item = items[i]
-                  if (item?.type.startsWith('image/')) {
-                    const f = item.getAsFile()
-                    if (f) files.push(f)
-                  }
+              className={cn(
+                'max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                compact && 'min-h-0 text-[13px] caret-transparent placeholder:text-[#4d4d59]',
+              )}
+              value={draft}
+              disabled={!composerEnabled}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // Desktop power-shortcut: ⌘/Ctrl+Enter submits. Plain Enter is a
+                // newline (the send button submits), matching the mobile keyboard.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void send()
                 }
-                void processFiles(files)
-              }
-            }}
-          />
+              }}
+              onPaste={(e) => {
+                const { items } = e.clipboardData
+                if (hasImageItems(items)) {
+                  e.preventDefault()
+                  const files: File[] = []
+                  for (let i = 0; i < items.length; i++) {
+                    const item = items[i]
+                    if (item?.type.startsWith('image/')) {
+                      const f = item.getAsFile()
+                      if (f) files.push(f)
+                    }
+                  }
+                  void processFiles(files)
+                }
+              }}
+            />
+            {compact && composerActions}
+          </div>
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-0.5 pt-1">
               {attachments.map((att) => (
@@ -1042,64 +1159,15 @@ export function ChatView({
               ))}
             </div>
           )}
-          <div className="flex items-center justify-end gap-1">
-            {headless && turnRunning && superThread && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="rounded-full text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-4"
-                title="Stop this turn"
-                onClick={() => {
-                  trpc.superagent.interruptTurn
-                    .mutate({ threadId: superThread.threadId })
-                    .catch((e: unknown) => setTurnError(e instanceof Error ? e.message : String(e)))
-                }}
-              >
-                <Square size={16} aria-hidden="true" />
-              </Button>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg:not([class*='size-'])]:size-4"
-              title="Attach image"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Paperclip size={16} aria-hidden="true" />
-            </Button>
-            {voice.supported && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground [&_svg:not([class*='size-'])]:size-4",
-                  voice.listening && 'animate-pulse text-destructive hover:text-destructive',
-                )}
-                title={voice.listening ? 'Stop voice input' : 'Voice input'}
-                onClick={voice.toggle}
-              >
-                <Mic size={16} aria-hidden="true" />
-              </Button>
-            )}
-            <Button
-              type="button"
-              size="icon"
-              className="rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4"
-              disabled={
-                !composerEnabled ||
-                (!draft.trim() && attachments.length === 0) ||
-                attachments.some((a) => a.state === 'uploading')
-              }
-              title="Send (⌘/Ctrl+Enter)"
-              onClick={() => void send()}
-            >
-              <ArrowUp size={16} aria-hidden="true" />
-            </Button>
-          </div>
+          {!compact && composerActions}
         </div>
+        {compact && (
+          <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-[#4d4d59]">
+            <span className="text-[#6c6c78]">⏵⏵ auto-delegate on</span>
+            <span>(shift+tab to cycle)</span>
+            <span className="ml-auto">? for shortcuts</span>
+          </div>
+        )}
       </div>
       {lightbox && (
         <button

@@ -26,13 +26,14 @@ import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 
-/** The one aside shell the sidebar renders into. */
+/** The one aside shell the sidebar renders into. The aside itself never scrolls —
+ *  only the work list inside it — so the footer stays pinned. */
 export const SIDEBAR_ASIDE_CLASS =
-  'flex w-full flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
+  'flex w-full min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
 
 const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
-const SIDEBAR_WIDTH_MIN = 200
-const SIDEBAR_WIDTH_MAX = 560
+const SIDEBAR_WIDTH_MIN = 238
+const SIDEBAR_WIDTH_MAX = 340
 const SIDEBAR_WIDTH_DEFAULT = 280
 
 /**
@@ -123,18 +124,18 @@ export function CollapsibleSection({
   const [collapsed, toggle] = useCollapsed(storageKey, defaultCollapsed)
   return (
     <div className="min-w-0 py-1">
-      <div className="flex items-center justify-between px-3 pt-2 pb-[3px]">
+      <div className="flex items-center justify-between px-2 pt-2.5 pb-[5px]">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-1 text-left text-[10px] font-bold tracking-[0.08em] uppercase text-primary hover:text-primary/80"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[10.5px] font-semibold tracking-[0.09em] uppercase text-[#7a7a86] hover:text-[#9a9aa8]"
           onClick={toggle}
           aria-expanded={!collapsed}
           aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
         >
           {collapsed ? (
-            <ChevronRight size={11} aria-hidden="true" className="flex-none" />
+            <ChevronRight size={11} aria-hidden="true" className="flex-none text-[#6c6c78]" />
           ) : (
-            <ChevronDown size={11} aria-hidden="true" className="flex-none" />
+            <ChevronDown size={11} aria-hidden="true" className="flex-none text-[#6c6c78]" />
           )}
           <span className="truncate">
             {label}
@@ -184,12 +185,6 @@ export function StaleSection({
   )
 }
 
-function StatusDot({ session }: { session: SessionMeta }): JSX.Element {
-  // Shared single source of truth — colour semantics match tabs/home/chat, and
-  // the `dot`/`parked` markers drive the hibernated grayed-italic row in CSS.
-  return <span className={sessionDotClass(session)} />
-}
-
 export function PanelRow({
   session,
   pinned,
@@ -231,13 +226,27 @@ export function PanelRow({
   // A timed snooze that has lapsed but isn't cleared yet → the session just came
   // back into the queue; mark it (compareRecency already lifts it by its deadline).
   const backFromSnooze = returnedFromSnooze(session, now)
+  const hibernated = session.status === 'hibernated'
+  // Amber status word right of the name (mock's "needs review"/"paused" meta):
+  // attention states show their badge label; a parked session reads "paused".
+  const meta = hibernated ? 'paused' : badge?.tone === 'attention' ? badge.label : null
   return (
-    // Constant row height (matches the icon-sm controls) so revealing pin/close on
-    // hover never grows the row — otherwise every row below jumps down.
-    <div className={cn('group flex min-w-0 items-center gap-1', dotRight ? 'min-h-6' : 'min-h-7')}>
+    // One rounded row: [agent chip][name][meta][dot]. Pin/close reveal as an
+    // overlay cluster on hover so the row's layout never shifts.
+    <div
+      className={cn(
+        'group relative flex min-w-0 items-center rounded-md transition-colors',
+        dotRight ? 'min-h-7' : 'min-h-8',
+        active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
+      )}
+    >
       {editing ? (
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 py-[3px] pr-3 pl-7">
-          <StatusDot session={session} />
+        <div
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-2 py-[3px] pr-2',
+            dotRight ? 'pl-[30px]' : 'pl-2',
+          )}
+        >
           <SessionNameEditor
             value={sessionDisplayName(session)}
             onCommit={(name) => {
@@ -251,23 +260,19 @@ export function PanelRow({
         <button
           type="button"
           className={cn(
-            'flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-[3px] pr-3 text-left text-xs',
-            dotRight ? 'pl-10' : 'pl-7',
+            'flex min-w-0 flex-1 cursor-pointer items-center text-left',
+            dotRight
+              ? 'gap-2 py-[5px] pr-2 pl-[30px] text-[12.5px]'
+              : 'gap-2 py-1.5 pr-2 pl-2 text-[13.5px]',
             // Selection is the accent background ALONE — never a heavier font
             // (#170), so it can't be confused with UNREAD's weight signal.
-            active
-              ? 'bg-accent text-accent-foreground'
-              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            active ? 'text-[#f3f3f8]' : 'text-muted-foreground hover:text-foreground',
+            !dotRight && !active && 'text-[#dcdce4]',
             // Email-style unread emphasis (#126): an unread session reads at
             // medium weight, lifting it out of the muted baseline — INDEPENDENT of
-            // selection, so a selected+unread row is still bold (on accent). Marking
-            // it read on open clears this optimistically. Suppressed (#138) for
-            // WORKING-section rows AND for any currently-working session anywhere —
-            // active work isn't "unseen", and a working session re-flips unread on
-            // every output, so emphasis would flicker back constantly. Also suppressed
-            // for a snoozed session — deliberately set aside, not "unseen work". On a
-            // selected row the accent-foreground colour already wins; only add
-            // text-foreground when unselected.
+            // selection, so a selected+unread row is still bold (on accent).
+            // Suppressed (#138) for WORKING-section rows AND for any currently-
+            // working session anywhere; also for a snoozed session.
             session.unread &&
               !suppressUnread &&
               !isSessionWorking(session) &&
@@ -283,7 +288,9 @@ export function PanelRow({
             setMenuAnchor({ x: e.clientX, y: e.clientY })
           }}
         >
-          {!dotRight && <StatusDot session={session} />} <WorkerLabel session={session} />
+          <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
+            <WorkerLabel session={session} chip />
+          </span>
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its
               draft-edit time via compareRecency. */}
@@ -303,6 +310,11 @@ export function PanelRow({
               Unsnoozed
             </span>
           )}
+          {meta && (
+            <span className="rowmeta flex-none text-[10px] text-[#d4a017] opacity-80 transition-opacity group-hover:opacity-100">
+              {meta}
+            </span>
+          )}
           {/* The agent's /color identity accent — a short vertical line right of
               the name (distinct from the status dot, which is its state). */}
           {agentColorHex(session.agentColor) && (
@@ -315,57 +327,64 @@ export function PanelRow({
           {/* Pinned panels span repos/worktrees, so show which one — compact two
               lines (repo bold, branch below) where the kind label used to sit. */}
           {pinned && <RepoBranchTag cwd={session.cwd} />}
-          {dotRight && (
-            <span className="ml-auto flex w-2 flex-none justify-center">
-              <span className={cn(sessionDotClass(session), 'size-1.5 min-w-1.5')} />
-            </span>
-          )}
+          <span className="flex w-2 flex-none justify-center">
+            <span className={cn(sessionDotClass(session), 'size-[7px] min-w-[7px]')} />
+          </span>
         </button>
       )}
       {badge?.showContinue && (
         <Button
           variant="destructive"
           size="sm"
-          className="h-auto border border-destructive/50 bg-transparent px-2 py-px text-[11px] font-normal hover:bg-destructive/10"
+          className="mr-1 h-auto flex-none border border-destructive/50 bg-transparent px-1.5 py-px text-[10px] font-normal hover:bg-destructive/10"
           title="Send 'continue' to the errored agent"
           onClick={() => void continueSession(session.sessionId)}
         >
           Continue
         </Button>
       )}
-      {/* Pin: lit when pinned, otherwise hidden until row hover (so on attention
-          rows it never competes with the always-on, rightmost snooze control). */}
-      <Button
-        variant="ghost"
-        size="icon-sm"
+      {/* Hover overlay: pin + close, floated over the row's right edge (before the
+          dot) so revealing them never reflows the row. Pinned stays lit inline. */}
+      <div
         className={cn(
-          'w-7 min-w-7 flex-none rounded-none',
-          // Unpinned: hidden (label keeps full width) until row hover; pinned: lit.
-          pinned
-            ? 'text-primary'
-            : 'hidden text-muted-foreground/70 hover:text-foreground group-hover:inline-flex',
+          'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
+          active ? 'bg-[#232330]' : 'bg-[#20202a]',
         )}
-        aria-pressed={pinned}
-        title={pinned ? 'Unpin panel' : 'Pin panel'}
-        onClick={() => onPinned(!pinned)}
       >
-        <Pin size={13} aria-hidden="true" />
-      </Button>
-      {/* Close (kill) — revealed on row hover, matching the tab strip's X. */}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="hidden w-7 min-w-7 flex-none rounded-none text-muted-foreground/70 hover:text-destructive group-hover:inline-flex"
-        title="Close session"
-        onClick={() => void guardedKill(session.sessionId)}
-      >
-        <X size={13} aria-hidden="true" />
-      </Button>
-      {/* Rightmost + always visible (never shifts when pin/close reveal on hover).
-          On attention rows: the snooze control. Elsewhere (worktree/pinned/working):
-          only when snoozed, so it reads as an un-snooze affordance — never a plain
-          "snooze" icon outside NEEDS YOUR ATTENTION. */}
-      {(attention || snoozed) && <SnoozeControl session={session} />}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={cn(
+            'size-6 flex-none',
+            pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-foreground',
+          )}
+          aria-pressed={pinned}
+          title={pinned ? 'Unpin panel' : 'Pin panel'}
+          onClick={() => onPinned(!pinned)}
+        >
+          <Pin size={12} aria-hidden="true" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-6 flex-none text-muted-foreground/70 hover:text-destructive"
+          title="Close session"
+          onClick={() => void guardedKill(session.sessionId)}
+        >
+          <X size={12} aria-hidden="true" />
+        </Button>
+      </div>
+      {/* Pinned indicator stays visible without hover. */}
+      {pinned && (
+        <Pin
+          size={11}
+          aria-hidden="true"
+          className="absolute top-1/2 right-5 -translate-y-1/2 text-primary group-hover:hidden"
+        />
+      )}
+      {/* Rightmost + always visible. On attention rows: the snooze control.
+          Elsewhere only when snoozed (an un-snooze affordance). */}
+      {(attention || snoozed) && <SnoozeControl session={session} className="flex-none" />}
       {menuAnchor && (
         <SessionContextMenu
           session={session}

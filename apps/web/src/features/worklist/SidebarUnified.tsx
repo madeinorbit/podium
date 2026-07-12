@@ -12,6 +12,7 @@ import {
   GitBranch,
   Home,
   KanbanSquare,
+  type LucideIcon,
   Pin,
   Plus,
   RotateCw,
@@ -36,12 +37,13 @@ import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusIcon } from '@/features/issues/IssueStatusIcon'
 import { isEpic } from '@/features/issues/issue-hierarchy'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
-import { HostIndicators } from '@/features/machines/HostIndicators'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import {
+  agentBadge,
   draftIssueLabel,
   groupUnifiedWorkRows,
   isIssueSnoozed,
+  isSessionWorking,
   issueReturnedFromDefer,
   lastUsedMaps,
   machinesWithRepo,
@@ -66,7 +68,7 @@ import {
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
-import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { KindIcon, SessionNameEditor } from '@/lib/WorkerLabel'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
@@ -87,68 +89,52 @@ export function SidebarUnified(): JSX.Element {
     (s) => ({ view: s.view, setView: s.setView }),
     shallowEqual,
   )
+  const nav: { id: Parameters<typeof setView>[0]; label: string; Icon: LucideIcon }[] = [
+    { id: 'home', label: 'Command center', Icon: Home },
+    { id: 'issues', label: 'Issues', Icon: KanbanSquare },
+    { id: 'specs', label: 'Specs', Icon: BookOpenText },
+    { id: 'automations', label: 'Automations', Icon: RotateCw },
+  ]
   return (
     <>
       <NewWorkRow />
 
       {/* App-surface nav: full-width links to the big non-workspace views.
           (The classic sidebar is gone — this is THE navigation now.) */}
-      <div className="mx-3 mt-2 flex flex-col gap-0.5">
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'home' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'home'}
-          onClick={() => setView('home')}
-        >
-          <Home size={15} aria-hidden="true" />
-          Command center
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'issues' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'issues'}
-          onClick={() => setView('issues')}
-        >
-          <KanbanSquare size={15} aria-hidden="true" />
-          Issues
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'specs' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'specs'}
-          onClick={() => setView('specs')}
-        >
-          <BookOpenText size={15} aria-hidden="true" />
-          Specs
-        </button>
-        <button
-          type="button"
-          className={cn(
-            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-            view === 'automations' && 'bg-secondary text-foreground',
-          )}
-          aria-pressed={view === 'automations'}
-          onClick={() => setView('automations')}
-        >
-          <RotateCw size={15} aria-hidden="true" />
-          Automations
-        </button>
-        <AppToolsRow className="mt-0.5" />
+      <div className="mx-2 flex flex-col gap-px">
+        {nav.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={cn(
+              'relative flex w-full items-center gap-[9px] rounded-md px-2 py-1.5 text-[13px] transition-colors',
+              view === id
+                ? 'bg-[#232330] font-medium text-[#f3f3f8]'
+                : 'text-[#9a9aa8] hover:bg-[#20202a] hover:text-[#f3f3f8]',
+            )}
+            aria-pressed={view === id}
+            onClick={() => setView(id)}
+          >
+            {view === id && (
+              <span
+                className="absolute inset-y-1.5 left-0 w-[2.5px] rounded-[2px] bg-primary"
+                aria-hidden="true"
+              />
+            )}
+            <Icon
+              size={15}
+              aria-hidden="true"
+              className={cn('flex-none', view === id && 'text-primary')}
+            />
+            {label}
+          </button>
+        ))}
       </div>
 
-      <div className="mt-1 flex-1 overflow-y-auto pb-3">
+      <div className="scroll-none mt-2.5 min-h-0 flex-1 overflow-y-auto px-2 pb-2.5">
         <WorkSections />
       </div>
-      <HostIndicators />
+      <AppToolsRow className="flex-none border-t border-[#1f1f27] px-2.5 py-[7px]" />
     </>
   )
 }
@@ -267,18 +253,17 @@ export function NewWorkRow(): JSX.Element {
   }
 
   return (
-    <div className="mx-3 mt-2.5 flex items-center gap-2">
+    <div className="mx-3 mt-3 mb-4 flex items-center gap-2">
       <div
         ref={newAgentAnchorRef}
         data-testid="new-agent-button"
         className="relative min-w-0 flex-1"
       >
-        {/* EXACT classic Superagent-button clothes: one bordered rounded-md
-            surface, bg-secondary, leading icon, no inner segments. The chevron
-            is a borderless hitbox floating inside the same outline. */}
+        {/* One bordered rounded-lg surface with a leading Claude-clay agent icon;
+            the chevron is a borderless hitbox floating inside the same outline. */}
         <button
           type="button"
-          className="flex w-full min-w-0 items-center gap-2 rounded-md border border-input bg-secondary px-2.5 py-[7px] pr-8 text-[13px] text-foreground hover:border-primary hover:text-foreground disabled:opacity-50"
+          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[#2f2f3a] bg-[#1e1e26] px-[11px] py-[9px] pr-[34px] text-[13px] font-medium text-[#eaeaf0] transition-colors hover:border-[#3a3a46] hover:bg-[#26262f] disabled:opacity-50"
           disabled={!defaultRepo}
           title={
             defaultTarget
@@ -289,7 +274,13 @@ export function NewWorkRow(): JSX.Element {
         >
           {(() => {
             const AgentIcon = agentIconFor(defaultAgent)
-            return AgentIcon ? <AgentIcon size={14} aria-hidden="true" /> : null
+            return AgentIcon ? (
+              <AgentIcon
+                size={14}
+                aria-hidden="true"
+                className={cn('flex-none', defaultAgent === 'claude-code' && 'text-[#D97757]')}
+              />
+            ) : null
           })()}
           <span className="min-w-0 truncate">
             New {panelLabel(defaultAgent)} in {defaultTarget?.repoName ?? '…'}
@@ -300,10 +291,10 @@ export function NewWorkRow(): JSX.Element {
             render={
               <button
                 type="button"
-                className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                className="absolute top-1/2 right-[9px] flex size-6 -translate-y-1/2 items-center justify-center rounded text-[#7a7a86] hover:text-foreground"
                 aria-label="Choose agent and repo"
               >
-                <ChevronDown size={14} aria-hidden="true" />
+                <ChevronDown size={13} aria-hidden="true" />
               </button>
             }
           />
@@ -379,19 +370,14 @@ export function NewWorkRow(): JSX.Element {
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             ))}
+            {/* New issue lives in this menu now — the top row is a single control. */}
+            <DropdownMenuItem onClick={() => setNewIssueOpen(true)}>
+              <Plus size={14} aria-hidden="true" className="text-muted-foreground" />
+              New issue…
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {/* EXACT classic Concierge-button clothes: round, primary-filled. */}
-      <button
-        type="button"
-        className="flex size-8 flex-none items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-        title="New issue"
-        aria-label="New issue"
-        onClick={() => setNewIssueOpen(true)}
-      >
-        <Plus size={17} aria-hidden="true" />
-      </button>
       {newIssueOpen && <NewIssueDialog onClose={() => setNewIssueOpen(false)} />}
     </div>
   )
@@ -404,14 +390,16 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
     shallowEqual,
   )
   const [repoScanOpen, setRepoScanOpen] = useState(false)
+  const btn = (active = false) =>
+    cn(
+      'flex h-[30px] flex-1 items-center justify-center rounded-[7px] text-[#7a7a86] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]',
+      active && 'bg-[#20202a] text-[#f3f3f8]',
+    )
   return (
-    <div className={cn('flex items-center gap-1', className)}>
+    <div className={cn('flex items-center gap-[3px]', className)}>
       <button
         type="button"
-        className={cn(
-          'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
-          view === 'usage' && 'border-primary bg-secondary text-foreground',
-        )}
+        className={btn(view === 'usage')}
         aria-pressed={view === 'usage'}
         title="Usage & analytics"
         aria-label="Usage & analytics"
@@ -421,10 +409,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       </button>
       <button
         type="button"
-        className={cn(
-          'flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground',
-          view === 'settings' && 'border-primary bg-secondary text-foreground',
-        )}
+        className={btn(view === 'settings')}
         aria-pressed={view === 'settings'}
         title="Settings"
         aria-label="Settings"
@@ -434,7 +419,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       </button>
       <button
         type="button"
-        className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
+        className={btn()}
         title="Search conversations"
         aria-label="Search conversations"
         onClick={() => setSearchOpen(true)}
@@ -443,7 +428,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       </button>
       <button
         type="button"
-        className="flex flex-1 items-center justify-center rounded-md border border-input px-2 py-1 text-muted-foreground hover:border-primary hover:text-foreground"
+        className={btn()}
         title="Add repo"
         aria-label="Add repo"
         onClick={() => setRepoScanOpen(true)}
@@ -646,6 +631,12 @@ export function WorkSections(): JSX.Element {
             label="WORKING"
             storageKey="podium:sidebar:collapsed:working"
             count={working.length}
+            right={
+              <span className="ml-auto inline-flex flex-none items-center gap-1 text-[10.5px] text-[#6c6c78]">
+                <span className="size-1.5 rounded-full bg-live" aria-hidden="true" />
+                {sessions.filter(isSessionWorking).length} active
+              </span>
+            }
           >
             {working.map(renderWorkingEntry)}
           </CollapsibleSection>
@@ -676,8 +667,8 @@ export function WorkSections(): JSX.Element {
 
       {/* ── WORK LIST: drafts + active human issues + with-session worktrees,
           one row design, ordered by aggregated child-session urgency. ── */}
-      <div className="flex items-center justify-between px-3 pt-3 pb-1">
-        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
+      <div className="flex items-center justify-between px-2 pt-3.5 pb-[5px]">
+        <span className="text-[10.5px] font-semibold tracking-[0.09em] uppercase text-[#7a7a86]">
           WORK
         </span>
         <Select
@@ -686,7 +677,7 @@ export function WorkSections(): JSX.Element {
         >
           <SelectTrigger
             aria-label="Group work list"
-            className="h-5 w-auto gap-1 border-0 px-1 text-[10px] text-muted-foreground/70 shadow-none hover:text-foreground focus:ring-0"
+            className="h-5 w-auto gap-1 border-0 px-1 text-[10.5px] text-[#6c6c78] shadow-none hover:text-foreground focus:ring-0"
           >
             {/* Render the human label, not the raw enum value — Base UI's
                 SelectValue shows the bare `value` otherwise. */}
@@ -744,6 +735,7 @@ function UnifiedRowShell({
   onDoubleClick,
   editor,
   dotSession,
+  count,
   extras,
   children,
   testId,
@@ -764,55 +756,66 @@ function UnifiedRowShell({
   /** When present, replaces the label with an inline-rename input (#170). */
   editor?: ReactNode
   dotSession: SessionMeta | undefined
+  /** Child-session count shown before the dot (only when children exist). */
+  count?: number
   extras?: ReactNode
   children?: ReactNode
   testId: string
 }): JSX.Element {
   return (
     <div className="min-w-0" data-testid={testId}>
-      <div className="flex min-w-0 items-stretch">
+      {/* One flush rounded row: [icon][title][extras][count][dot]. The icon slot
+          doubles as the expand/collapse toggle (chevron revealed on row hover)
+          so there is no reserved gutter — rows start flush like the design. */}
+      <div
+        className={cn(
+          'group/row flex min-w-0 items-center rounded-md transition-colors',
+          active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
+        )}
+      >
         {expandable ? (
           <button
             type="button"
-            className="flex-none px-1 text-muted-foreground/60 hover:text-foreground"
+            className="flex w-[33px] flex-none cursor-pointer items-center justify-end py-1.5 pr-0 pl-2 text-muted-foreground/60 hover:text-foreground"
             onClick={onToggle}
             aria-expanded={!collapsed}
             aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
           >
-            {collapsed ? (
-              <ChevronRight size={12} aria-hidden="true" />
-            ) : (
-              <ChevronDown size={12} aria-hidden="true" />
-            )}
+            <span className="group-hover/row:hidden">{icon}</span>
+            <span className="hidden group-hover/row:block">
+              {collapsed ? (
+                <ChevronRight size={15} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={15} aria-hidden="true" />
+              )}
+            </span>
           </button>
         ) : (
-          <span className="flex-none px-1">
-            <ChevronRight size={12} className="invisible" aria-hidden="true" />
+          <span className="flex w-[33px] flex-none items-center justify-end py-1.5 pl-2">
+            {icon}
           </span>
         )}
         {editor ? (
           // Inline rename (#170): the input replaces the label in place. Rendered
           // outside the button (an input-in-button is invalid) — same shape the
           // classic PanelRow uses for session rename.
-          <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pr-3">
-            {icon}
+          <div className="flex min-w-0 flex-1 items-center gap-[9px] py-1.5 pr-2 pl-[9px]">
             {editor}
           </div>
         ) : (
           <button
             type="button"
             className={cn(
-              'flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-2 pr-3 text-left text-sm',
+              'flex min-w-0 flex-1 cursor-pointer items-center gap-[9px] py-1.5 pr-2 pl-[9px] text-left text-[13.5px]',
               // Selection is conveyed by the accent background ALONE — never a
               // heavier font (#170). That keeps UNREAD's bold as the sole weight
               // signal, so a selected-but-read row can't be mistaken for unread.
-              active ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent',
+              active ? 'text-[#f3f3f8]' : 'text-[#dcdce4]',
             )}
             onClick={onSelect}
             onDoubleClick={onDoubleClick}
             onContextMenu={onContextMenu}
           >
-            {icon}
             <span
               className={cn(
                 'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
@@ -826,16 +829,24 @@ function UnifiedRowShell({
               {label}
             </span>
             {extras}
+            {count !== undefined && (
+              <span className="flex-none text-[10.5px] tabular-nums text-[#6c6c78]">{count}</span>
+            )}
             {/* Right-side status summary: the most urgent child's dot, so the user
                 can see WHY the row floats where it does. Expanded child rows show
-                their own (smaller) dots vertically aligned under this one. */}
+                their own dots vertically aligned under this one. */}
             {dotSession && <span className={sessionDotClass(dotSession)} />}
           </button>
         )}
       </div>
-      {/* Child agent rows: pulled up against the parent (tight margin) so the
-          group visually reads as one unit. */}
-      {!collapsed && <div className="-mt-1.5 pb-1">{children}</div>}
+      {/* Child agent rows: a tree guide (vertical line + per-row stubs, via
+          .tree-children CSS) ties the group to its parent. */}
+      {!collapsed && children && (
+        <div className="tree-children relative pt-0.5 pb-1">
+          <span className="absolute top-0 bottom-3 left-4 w-px bg-border" aria-hidden="true" />
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -944,15 +955,23 @@ function UnifiedIssueRow({
   )
   if (draftAgentOnly) {
     const first = mine[0]
+    // Mock's amber status word ("paused" / "needs answer") right of the title.
+    const firstBadge = first ? agentBadge(first) : null
+    const draftMeta =
+      first?.status === 'hibernated'
+        ? 'paused'
+        : firstBadge?.tone === 'attention'
+          ? firstBadge.label
+          : null
     return (
       <>
         <UnifiedRowShell
           testId="unified-issue-row"
           icon={
             AgentIcon ? (
-              <AgentIcon size={13} aria-hidden="true" className="flex-none text-muted-foreground" />
+              <KindIcon kind={mine[0]?.agentKind ?? 'claude-code'} chip />
             ) : (
-              <IssueStatusIcon stage={issue.stage} size={16} />
+              <IssueStatusIcon stage={issue.stage} size={15} badge={false} />
             )
           }
           label={label}
@@ -965,6 +984,11 @@ function UnifiedIssueRow({
           onSelect={() => (first ? onSelectPanel(first.sessionId) : onSelect())}
           onContextMenu={onContextMenu}
           dotSession={urgent}
+          extras={
+            draftMeta ? (
+              <span className="flex-none text-[10px] text-[#d4a017]">{draftMeta}</span>
+            ) : undefined
+          }
         />
         {menu}
       </>
@@ -976,7 +1000,7 @@ function UnifiedIssueRow({
         testId="unified-issue-row"
         // Neutral leading glyph: a task icon with the stage demoted to a corner
         // badge, so a real issue row doesn't read as a distracting stage colour.
-        icon={<IssueStatusIcon stage={issue.stage} size={16} />}
+        icon={<IssueStatusIcon stage={issue.stage} size={15} badge={false} />}
         label={label}
         active={active}
         unread={unread}
@@ -988,6 +1012,7 @@ function UnifiedIssueRow({
         onDoubleClick={() => setEditing(true)}
         editor={renameEditor}
         dotSession={urgent}
+        count={showChildren ? mine.length : undefined}
         extras={
           <>
             {issue.pinned && (
@@ -1068,7 +1093,7 @@ function UnifiedWorktreeRow({
   return (
     <UnifiedRowShell
       testId="unified-worktree-row"
-      icon={<GitBranch size={13} aria-hidden="true" className="flex-none text-muted-foreground" />}
+      icon={<GitBranch size={14} aria-hidden="true" className="flex-none text-[#8a8a97]" />}
       label={worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path}
       active={active}
       unread={unread}
@@ -1077,9 +1102,10 @@ function UnifiedWorktreeRow({
       onToggle={toggle}
       onSelect={onSelect}
       dotSession={mostUrgentSession(worktree.sessions, now)}
+      count={showChildren ? worktree.sessions.length : undefined}
       extras={
         worktree.isMain ? (
-          <span className="rounded border border-input px-1 text-[10px] uppercase text-muted-foreground">
+          <span className="rounded border border-border px-[5px] py-px text-[9.5px] uppercase tracking-[0.03em] text-[#8a8a97]">
             main
           </span>
         ) : undefined

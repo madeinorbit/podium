@@ -12,7 +12,7 @@ import {
   ArrowDownToLine,
   Copy,
   Folder,
-  MessageSquareText,
+  Keyboard,
   Mic,
   Moon,
   RotateCcw,
@@ -48,7 +48,7 @@ import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
-import { WorkerLabel } from '@/lib/WorkerLabel'
+import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -132,7 +132,6 @@ export function AgentPanel({
     hibernateSession,
     openFile,
     panelMode,
-    setPanelMode,
     setPanelRenderMode,
     uiState,
   } = useStoreSelector(
@@ -149,7 +148,6 @@ export function AgentPanel({
       hibernateSession: s.hibernateSession,
       openFile: s.openFile,
       panelMode: s.panelMode,
-      setPanelMode: s.setPanelMode,
       setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
     }),
@@ -204,13 +202,6 @@ export function AgentPanel({
   useEffect(() => {
     setPanelRenderMode(sessionId, effectiveMode)
   }, [sessionId, effectiveMode, setPanelRenderMode])
-
-  const pickMode = (m: PanelMode) => {
-    // Persist the per-session override in the store (#35)…
-    setPanelMode(sessionId, m)
-    // …and remember the latest pick as the per-device default for not-yet-seen sessions.
-    uiState.set(PANEL_MODE_DEFAULT_KEY, m)
-  }
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
@@ -482,8 +473,31 @@ export function AgentPanel({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-2.5 border-b border-border bg-card px-2.5 py-[5px]">
-        {session && <WorkerLabel session={session} />}
+      <div className="flex h-[49px] flex-none items-center gap-[9px] border-b border-border bg-card px-2.5">
+        {/* Agent-kind chip (Claude Code / Codex / …) + surface label + session name,
+            mirroring the native pane header in the design. */}
+        {session && (
+          <>
+            <span className="inline-flex flex-none items-center gap-[5px] rounded-md border border-border bg-secondary px-[7px] py-[3px]">
+              <KindIcon kind={session.agentKind} />
+              <span className="whitespace-nowrap text-xs font-semibold text-secondary-foreground">
+                {panelLabel(session.agentKind)}
+              </span>
+            </span>
+            <span className="flex-none text-[10px] font-semibold tracking-[0.06em] text-[#6c6c78]">
+              {effectiveMode === 'chat' ? 'CHAT' : 'NATIVE'}
+            </span>
+            <span className="inline-flex min-w-0 items-center gap-[5px]">
+              <span className="h-4 w-px flex-none bg-border" aria-hidden="true" />
+              <span
+                className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-foreground"
+                title={sessionDisplayName(session)}
+              >
+                {sessionDisplayName(session)}
+              </span>
+            </span>
+          </>
+        )}
         {/* Machine badge: only when > 1 machine is connected, so single-machine
             users see no change. Shows which daemon host this session runs on. */}
         {machines.length > 1 && session?.machineName && (
@@ -499,56 +513,24 @@ export function AgentPanel({
             session runs in. Truncates; full path on hover. */}
         {session?.cwd && (
           <span
-            className="hidden min-w-0 max-w-[40%] items-center gap-1 truncate text-[11px] text-muted-foreground/70 sm:inline-flex"
+            className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate text-[11px] text-muted-foreground sm:inline-flex"
             title={session.cwd}
           >
             <Folder size={11} aria-hidden="true" className="flex-none" />
             <span className="truncate">{prettyCwd(session.cwd)}</span>
           </span>
         )}
-        {/* The chat/native toggle only makes sense with a live PTY behind it — a
-            hibernated/exited session has no terminal to switch to, so hide it
-            rather than render a control that visibly does nothing. */}
-        {chatCapable && !hibernated && !exited && (
-          <div className="inline-flex flex-none items-center rounded-md border border-input p-0.5">
-            <button
-              type="button"
-              aria-pressed={effectiveMode === 'chat'}
-              aria-label="Chat view"
-              title="Chat view"
-              onClick={() => pickMode('chat')}
-              className={cn(
-                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
-                effectiveMode === 'chat'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <MessageSquareText size={13} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              aria-pressed={effectiveMode === 'native'}
-              aria-label="Native terminal"
-              title="Native terminal"
-              onClick={() => pickMode('native')}
-              className={cn(
-                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
-                effectiveMode === 'native'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <TerminalIcon size={13} aria-hidden="true" />
-            </button>
-          </div>
-        )}
+        {/* chat/native toggle removed [spec:SP-9e10] — the pane renders per the
+            mode-resolution rules (native on desktop, chat on mobile/hibernated/
+            exited); the desktop agent pane is native-only. */}
         {/* Native resume command (#119): the literal `claude --resume <id>` etc.
             so you can pick the conversation back up in your own terminal. Shown
             whenever the harness has handed us a resume ref. As the first
             right-aligned control it carries `ml-auto`; the snooze/BTW controls
             only take it when the controls before them are absent. */}
-        {resumeCmd && <ResumeCommandMenu command={resumeCmd} className="ml-auto" />}
+        {resumeCmd && (
+          <ResumeCommandMenu command={resumeCmd} className="ml-auto size-7 text-muted-foreground" />
+        )}
         {showSnooze && session && (
           <SnoozeControl
             session={session}
@@ -562,7 +544,7 @@ export function AgentPanel({
             type="button"
             variant="ghost"
             size="icon"
-            className={cn(!resumeCmd && !showSnooze && 'ml-auto')}
+            className={cn('size-7 text-muted-foreground', !resumeCmd && !showSnooze && 'ml-auto')}
             title="Ask the superagent about this session (BTW)"
             onClick={() => void startBtw(sessionId)}
           >
@@ -574,6 +556,7 @@ export function AgentPanel({
             type="button"
             variant="ghost"
             size="icon"
+            className="size-7 text-muted-foreground"
             disabled={agentWorking}
             title={
               agentWorking
@@ -594,7 +577,7 @@ export function AgentPanel({
             type="button"
             variant="ghost"
             size="icon"
-            className={cn(!chatCapable && !resumeCmd && 'ml-auto')}
+            className={cn('size-7 text-muted-foreground', !chatCapable && !resumeCmd && 'ml-auto')}
             title="Archive session — files it under Done"
             onClick={() => void guardedArchive(sessionId, true)}
           >
@@ -604,15 +587,50 @@ export function AgentPanel({
         {effectiveMode === 'native' && !hibernated && !exited && (
           <Button
             type="button"
-            variant="secondary"
-            size="sm"
-            className={cn(!chatCapable && !resumeCmd && 'ml-auto')}
+            variant="ghost"
+            size="icon"
+            className={cn('size-7 text-muted-foreground', !chatCapable && !resumeCmd && 'ml-auto')}
+            title="Take control of the terminal"
             onClick={() => mountedRef.current?.connection.requestControl()}
           >
-            Take control
+            <Keyboard size={13} aria-hidden="true" />
           </Button>
         )}
       </div>
+      {/* Native session status line: agent dot + kind, the literal resume command
+          as a copy pill, and the CLI hint — mono, like the design's sub-bar. */}
+      {session && !hibernated && !exited && effectiveMode === 'native' && (
+        <div className="flex h-[37px] flex-none items-center gap-2.5 overflow-hidden border-b border-border px-3 font-mono text-[11px] text-[#6c6c78]">
+          <span className="inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-muted-foreground">
+            <span className="size-[6px] flex-none rounded-full bg-[#D97757]" aria-hidden="true" />
+            {panelLabel(session.agentKind).toLowerCase()}
+          </span>
+          {resumeCmd && (
+            <>
+              <span className="flex-none text-[#3a3a46]" aria-hidden="true">
+                │
+              </span>
+              <button
+                type="button"
+                title="Copy resume command"
+                className="inline-flex min-w-0 flex-none items-center gap-1.5 overflow-hidden rounded-[5px] border border-border bg-background px-[7px] py-0.5 whitespace-nowrap text-muted-foreground transition-colors hover:border-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  void navigator.clipboard
+                    ?.writeText(resumeCmd)
+                    .then(() => toast('Resume command copied'))
+                    .catch(() => toast.error('Could not copy to clipboard'))
+                }}
+              >
+                <span className="truncate">{resumeCmd}</span>
+                <Copy size={11} aria-hidden="true" className="flex-none" />
+              </button>
+            </>
+          )}
+          <span className="ml-auto flex-none truncate text-[#6c6c78]">
+            esc to interrupt · / for commands
+          </span>
+        </div>
+      )}
       {hibernated ? (
         chatCapable ? (
           // The transcript outlives the process — a hibernated agent's history is
@@ -668,7 +686,7 @@ export function AgentPanel({
               effectiveMode === 'chat' && 'hidden',
             )}
           >
-            <div ref={termRef} className="term min-h-0 flex-1 px-1.5 py-1" />
+            <div ref={termRef} className="term min-h-0 flex-1 px-3 py-2" />
             {!ready && (
               <div
                 className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0e0e12] text-[13px] text-zinc-400"

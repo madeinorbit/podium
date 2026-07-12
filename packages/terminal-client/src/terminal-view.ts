@@ -21,13 +21,13 @@ export interface TerminalViewOptions {
 // A terminal in a proportional font is unreadable and misaligns box-drawing. Pin a
 // monospace stack that resolves to a real mono font on every platform.
 const MONO_STACK =
-  "ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, 'Cascadia Code', 'DejaVu Sans Mono', Consolas, monospace"
+  "'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, 'Cascadia Code', 'DejaVu Sans Mono', Consolas, monospace"
 
 // Palette aligned with the app's design tokens (see apps/web styles.css).
 const DEFAULT_THEME: ITheme = {
   background: '#0e0e12',
   foreground: '#d7d7e0',
-  cursor: '#f59e0b',
+  cursor: '#D97757',
   cursorAccent: '#0e0e12',
   selectionBackground: 'rgba(245, 158, 11, 0.30)',
   selectionForeground: '#f3f3f8',

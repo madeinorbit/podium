@@ -17,7 +17,10 @@ export const DOCK_TAB_KEY = 'podium.dockTab'
 export const PANE_A_KEY = 'podium.paneA'
 export const PANE_B_KEY = 'podium.paneB'
 export const SPLIT_KEY = 'podium.split'
-export const SUPER_OPEN_KEY = 'podium.superOpen'
+// v2: the superagent became the desktop shell's CENTER column (default open).
+// A fresh key so a pre-redesign "closed dock" ('0' under podium.superOpen)
+// doesn't hide the new column for returning users.
+export const SUPER_OPEN_KEY = 'podium.superOpen.v2'
 export const PANEL_MODE_KEY = 'podium.panelMode'
 
 export function readStoredView(ui: UiState): MainView {

@@ -9,8 +9,8 @@ describe('IssueStatusIcon', () => {
     expect(html).toContain('In Progress')
     // Two glyphs: the neutral base task icon + the small corner stage badge.
     expect(html.match(/<svg/g)?.length).toBe(2)
-    // The base glyph reads neutral (muted-foreground), not stage-coloured.
-    expect(html).toContain('text-muted-foreground')
+    // The base glyph reads neutral (the sidebar's muted icon gray), not stage-coloured.
+    expect(html).toContain('text-[#8a8a97]')
   })
 
   it('reflects the given stage in the corner badge', () => {

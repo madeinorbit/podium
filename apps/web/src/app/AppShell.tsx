@@ -1,21 +1,24 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { HostStatusBar } from '@/features/machines/HostIndicators'
 import { SearchView } from '@/features/search/SearchView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
+import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { cn } from '@/lib/utils'
 import { AppErrorPage } from './AppErrorPage'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { MobileApp } from './MobileApp'
-import { RightDock } from './RightDock'
+import { RIGHT_PANELS, RightDock, type RightPanelTab } from './RightDock'
 import { MainViewOutlet } from './routes'
 import { StoreProvider, useStoreSelector } from './store'
 import { ThemeUiStateMirror } from './theme'
@@ -79,6 +82,12 @@ export function AppShell(): JSX.Element {
   )
 }
 
+const RIGHT_PANEL_KEY = 'podium.rightPanel'
+
+function readStoredRightPanel(v: string | null): RightPanelTab | null {
+  return v === 'files' || v === 'git' || v === 'issue' ? v : null
+}
+
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const {
     repos,
@@ -89,6 +98,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     setPaletteOpen,
     searchOpen,
     setSearchOpen,
+    uiState,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -99,10 +109,20 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       setPaletteOpen: s.setPaletteOpen,
       searchOpen: s.searchOpen,
       setSearchOpen: s.setSearchOpen,
+      uiState: s.uiState,
     }),
     shallowEqual,
   )
   const [dismissed, setDismissed] = useState(false)
+  // The right dock panel (Files/Git/Issue), opened from the thin icon rail on the
+  // shell's right edge. One panel at a time; persisted like the other shell state.
+  const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
+    readStoredRightPanel(uiState.get(RIGHT_PANEL_KEY)),
+  )
+  const setRightPanel = (tab: RightPanelTab | null): void => {
+    setRightPanelState(tab)
+    uiState.set(RIGHT_PANEL_KEY, tab ?? '')
+  }
 
   // Global Cmd/Ctrl+K toggles the command palette. Registered at shell level so
   // it works from every view; IssuesView's global handler already ignores
@@ -136,35 +156,61 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         <MobileApp />
       ) : (
         <div className="desktop-shell">
-          <ResizableAside>
-            <SidebarUnified />
-          </ResizableAside>
-          <MainViewOutlet workspace={<Workspace />} />
-          {/* The superagent / BTW thread is a collapsible right dock, so you can watch
-              an agent and orchestrate it side by side instead of a full-screen swap. */}
-          {superOpen && (
-            <aside className="flex w-[400px] max-w-[40vw] min-w-[320px] flex-none flex-col border-l border-border bg-card">
-              <RightDock />
-            </aside>
-          )}
-          {/* Always-visible dock toggle rail (IDE-style): open/close the right
-              panel from anywhere, independent of the sidebar Superagent button. */}
-          <div className="flex flex-none flex-col items-center border-l border-border bg-card px-0.5 pt-1.5">
-            <button
-              type="button"
-              aria-label={superOpen ? 'Close right panel' : 'Open right panel'}
-              title={superOpen ? 'Close right panel' : 'Open right panel'}
-              aria-pressed={superOpen}
-              onClick={() => setSuperOpen(!superOpen)}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          <div className="desktop-shell-row">
+            <ResizableAside>
+              <SidebarUnified />
+            </ResizableAside>
+            {/* The superagent is the CENTER column (sidebar | superagent |
+                workspace), collapsible via superOpen so the workspace can go wide. */}
+            {superOpen && (
+              <aside className="flex min-w-0 flex-1 flex-col border-r border-border bg-background">
+                <SuperagentView onClose={() => setSuperOpen(false)} />
+              </aside>
+            )}
+            <MainViewOutlet workspace={<Workspace />} />
+            {rightPanel && (
+              <aside className="flex w-[340px] max-w-[30vw] flex-none flex-col border-l border-border bg-background">
+                <RightDock tab={rightPanel} onClose={() => setRightPanel(null)} />
+              </aside>
+            )}
+            {/* Thin right rail: always visible, vertical icons — reopen the
+                superagent column, and toggle the Files/Git/Issue panel. */}
+            <nav
+              aria-label="Panels"
+              className="flex flex-none flex-col items-center gap-1 border-l border-border bg-card px-[3px] pt-1.5"
             >
-              {superOpen ? (
-                <PanelRightClose size={16} aria-hidden="true" />
-              ) : (
-                <PanelRightOpen size={16} aria-hidden="true" />
+              {!superOpen && (
+                <button
+                  type="button"
+                  aria-label="Open superagent"
+                  title="Open superagent"
+                  onClick={() => setSuperOpen(true)}
+                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Sparkles size={15} aria-hidden="true" />
+                </button>
               )}
-            </button>
+              {RIGHT_PANELS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  aria-label={p.label}
+                  aria-pressed={rightPanel === p.id}
+                  title={p.label}
+                  onClick={() => setRightPanel(rightPanel === p.id ? null : p.id)}
+                  className={cn(
+                    'flex size-7 items-center justify-center rounded-md transition-colors',
+                    rightPanel === p.id
+                      ? 'bg-secondary text-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  <p.icon size={15} aria-hidden="true" />
+                </button>
+              ))}
+            </nav>
           </div>
+          <HostStatusBar />
         </div>
       )}
       {/* Route-backed conversation search (/search or ?search=1) — rendered at

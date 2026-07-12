@@ -182,8 +182,8 @@ describe('host health indicators', () => {
     expect(src).toContain("on('hostMetrics'")
     expect(src).toContain('hostMetrics')
   })
-  it('the strip is mounted in the desktop sidebar and the mobile header', () => {
-    expect(read('features/worklist/SidebarUnified.tsx')).toContain('<HostIndicators')
+  it('the status bar spans the desktop shell; the mobile header keeps the strip', () => {
+    expect(read('app/AppShell.tsx')).toContain('<HostStatusBar')
     expect(read('app/MobileApp.tsx')).toContain('<HostIndicators')
   })
   it('the connection indicator shows on the hysteresis signal; memory chips per host', () => {

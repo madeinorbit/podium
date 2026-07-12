@@ -320,7 +320,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       searchOpen: route.searchOpen,
       openIssueId: route.issueId,
       superThreadId: 'global',
-      superOpen: this.ui.get(SUPER_OPEN_KEY) === '1',
+      // Default OPEN: the superagent is the desktop shell's center column now, not
+      // an optional dock — only an explicit close ('0') keeps it collapsed.
+      superOpen: this.ui.get(SUPER_OPEN_KEY) !== '0',
       dockTab: readStoredDockTab(this.ui.get(DOCK_TAB_KEY)),
       superRefreshKey: 0,
       paletteOpen: false,

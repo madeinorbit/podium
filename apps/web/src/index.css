@@ -2,12 +2,14 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -200,13 +202,16 @@
   /* Mock activity hues: live/working dots are emerald-500, user/ready is blue-500. */
   --live: #10b981;
   --info: #3b82f6;
-  --sidebar: #16161c;
+  /* Mock sidebar surface: #141419 panel with a #22222b right border (the
+     'Podium copy copy copy' design mock) — themed here rather than hardcoded
+     in SIDEBAR_ASIDE_CLASS so other presets keep their own sidebar. */
+  --sidebar: #141419;
   --sidebar-foreground: #d7d7e0;
   --sidebar-primary: #f59e0b;
   --sidebar-primary-foreground: #0e0e12;
   --sidebar-accent: #25252f;
   --sidebar-accent-foreground: #f3f3f8;
-  --sidebar-border: #2a2a34;
+  --sidebar-border: #22222b;
   --sidebar-ring: #f59e0b;
 }
 

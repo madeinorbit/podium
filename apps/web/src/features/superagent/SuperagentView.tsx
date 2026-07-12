@@ -1,15 +1,38 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, TranscriptItem } from '@podium/protocol'
-import { ArrowUpRight, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
+import {
+  ArrowUpRight,
+  ChevronDown,
+  Eraser,
+  Folder,
+  Mic,
+  PanelRightClose,
+  Send,
+  Sparkles,
+  SquareTerminal,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CardBoundary } from '@/app/CardBoundary'
 import { type Store, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
 import { mergeByCursor } from '@/features/chat/chat'
-import { agentBadge, panelLabel, reposToViews, sessionDotClass } from '@/lib/derive'
+import { BlockCaret } from '@/lib/BlockCaret'
+import {
+  agentBadge,
+  isSessionWorking,
+  panelLabel,
+  reposToViews,
+  sessionDotClass,
+} from '@/lib/derive'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { renderMarkdown } from '@/lib/markdown'
 import { useConversationSearch } from '@/lib/useConversationSearch'
@@ -98,7 +121,6 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
   const [legacy, setLegacy] = useState<SuperMessage[]>([])
   const [legacyOpen, setLegacyOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const isMobile = useIsMobile()
   // Concierge binding: the active thread's repo, decoded from the deterministic
   // thread id — valid even BEFORE the thread exists server-side (first send
   // creates + seeds it via superagent.concierge).
@@ -204,65 +226,27 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
         : {}),
   }
 
+  const workingCount = sessions.filter(isSessionWorking).length
+  const scopeName = conciergeRepo
+    ? conciergeLabel(conciergeRepo)
+    : thread && thread.id !== 'global'
+      ? superThreadLabel(thread)
+      : 'All projects'
+
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex min-w-0 items-center gap-2.5 border-b border-border px-[18px] py-3">
-        {conciergeRepo && (
-          <h1 className="m-0 flex-none truncate text-[15px] font-medium text-foreground">
-            {conciergeLabel(conciergeRepo)}
-          </h1>
-        )}
-        {threads.length > 1 &&
-          (isMobile ? (
-            <select
-              aria-label="Superagent conversation"
-              className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-[12px] text-foreground outline-none focus:border-primary"
-              value={superThreadId}
-              onChange={(e) => setSuperThreadId(e.currentTarget.value)}
-            >
-              {threads.map((th) => (
-                <option key={th.id} value={th.id}>
-                  {superThreadLabel(th)}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div
-              className="flex min-w-0 flex-1 flex-nowrap gap-1.5 overflow-x-auto whitespace-nowrap [scrollbar-width:none]"
-              role="tablist"
-              aria-label="Superagent threads"
-            >
-              {threads.map((th) => (
-                <button
-                  key={th.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={th.id === superThreadId}
-                  className={cn(
-                    'max-w-[220px] flex-none cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] transition-colors',
-                    th.id === superThreadId
-                      ? 'border-muted-foreground text-foreground'
-                      : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground',
-                  )}
-                  title={
-                    th.kind === 'btw'
-                      ? 'BTW thread for a chat session'
-                      : th.kind === 'concierge'
-                        ? `Concierge intake for ${th.repoPath ?? conciergeRepoPath(th.id) ?? 'a repo'}`
-                        : 'Global orchestrator'
-                  }
-                  onClick={() => setSuperThreadId(th.id)}
-                >
-                  {superThreadLabel(th)}
-                </button>
-              ))}
-            </div>
-          ))}
+      <div className="flex h-[49px] min-w-0 flex-none items-center gap-2.5 border-b border-border px-3.5">
+        <span className="flex min-w-0 flex-1 items-center gap-[7px]">
+          <Sparkles size={16} className="flex-none text-primary" aria-hidden="true" />
+          <span className="truncate text-[15px] font-semibold text-secondary-foreground">
+            Superagent
+          </span>
+        </span>
         {thread?.harnessSessionId && (
           <Button
             variant="ghost"
             size="icon-sm"
-            className="ml-auto"
+            className="size-7 flex-none text-muted-foreground"
             title="Open this conversation in a terminal session"
             onClick={() => void openInTerminal()}
           >
@@ -272,7 +256,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
         <Button
           variant="ghost"
           size="icon-sm"
-          className={thread?.harnessSessionId ? undefined : 'ml-auto'}
+          className="size-7 flex-none text-muted-foreground"
           title={superThreadId === 'global' ? 'Clear thread' : 'Close this thread'}
           onClick={() => void clear()}
         >
@@ -282,12 +266,60 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           <Button
             variant="ghost"
             size="icon-sm"
+            className="size-7 flex-none text-muted-foreground"
             title="Collapse the superagent panel"
             onClick={onClose}
           >
             <PanelRightClose size={15} aria-hidden="true" />
           </Button>
         )}
+      </div>
+      {/* Project-scope sub-bar. The scope name doubles as the THREAD switcher —
+          a quiet dropdown instead of header pills, keeping the header clean. */}
+      <div className="flex h-[37px] flex-none items-center gap-2 border-b border-border px-3.5 text-[12px] text-muted-foreground">
+        <Folder size={13} className="flex-none text-primary" aria-hidden="true" />
+        {threads.length > 1 ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  className="flex min-w-0 cursor-pointer items-center gap-1 rounded-sm font-semibold text-secondary-foreground hover:text-foreground"
+                  title="Switch superagent conversation"
+                >
+                  <span className="truncate">{scopeName}</span>
+                  <ChevronDown size={12} aria-hidden="true" className="flex-none text-[#6c6c78]" />
+                </button>
+              }
+            />
+            <DropdownMenuContent align="start" sideOffset={4}>
+              {threads.map((th) => (
+                <DropdownMenuItem
+                  key={th.id}
+                  className={cn(th.id === superThreadId && 'text-primary')}
+                  onClick={() => setSuperThreadId(th.id)}
+                >
+                  {superThreadLabel(th)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span className="truncate font-semibold text-secondary-foreground">{scopeName}</span>
+        )}
+        <span className="truncate text-[#6c6c78]">
+          {conciergeRepo ? '— orchestrating this project' : '— orchestrating your projects'}
+        </span>
+        <span className="ml-auto inline-flex flex-none items-center gap-[5px]">
+          <span
+            className={cn(
+              'dot size-[7px] rounded-full',
+              workingCount > 0 ? 'bg-live dot-working' : 'bg-muted-foreground/50',
+            )}
+            aria-hidden="true"
+          />
+          {workingCount} agent{workingCount === 1 ? '' : 's'} active
+        </span>
       </div>
       {error && (
         <div className="border-b border-border px-[18px] py-2 text-[12px] text-destructive">
@@ -469,23 +501,23 @@ function FreshThreadComposer({
           ))}
         {sentText !== null && (
           <>
-            <div className="mx-auto w-full max-w-[760px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5">
+            <div className="mx-auto w-full max-w-[960px] rounded-[10px] border border-border bg-secondary px-3.5 py-2.5">
               <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
                 You
               </div>
               <div className="chat-md whitespace-pre-wrap">{sentText}</div>
             </div>
-            <div className="mx-auto w-full max-w-[760px] animate-pulse text-xs text-muted-foreground/70">
+            <div className="mx-auto w-full max-w-[960px] animate-pulse text-xs text-muted-foreground/70">
               Starting the conversation…
             </div>
           </>
         )}
       </div>
-      <div className="flex items-end gap-2 border-t border-border bg-card px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))]">
-        <div className="relative flex min-w-0 flex-1">
+      <div className="flex-none border-t border-border bg-background px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))] font-mono">
+        <div className="relative flex items-end gap-2 rounded-lg border border-[#3a3a46] bg-background px-3 py-1.5 transition-colors focus-within:border-primary">
           {atQuery !== null && atHits.length > 0 && (
             <div
-              className="absolute right-0 bottom-[calc(100%+6px)] left-0 z-30 flex max-w-[460px] flex-col overflow-hidden rounded-md border border-input bg-muted shadow-[0_-8px_24px_rgb(0_0_0_/_0.4)]"
+              className="absolute right-0 bottom-[calc(100%+10px)] left-0 z-30 flex max-w-[460px] flex-col overflow-hidden rounded-md border border-input bg-muted font-sans shadow-[0_-8px_24px_rgb(0_0_0_/_0.4)]"
               role="listbox"
             >
               {atHits.map((option, i) => (
@@ -517,11 +549,18 @@ function FreshThreadComposer({
               </div>
             </div>
           )}
+          <span
+            className="flex-none pt-[3px] text-[13px] leading-[1.45] text-[#6c6c78]"
+            aria-hidden="true"
+          >
+            &gt;
+          </span>
+          <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="min-h-0 flex-1 resize-none rounded-[10px] border-input bg-background px-3 py-[9px] text-[13px] leading-[1.45] text-foreground field-sizing-fixed focus-visible:border-primary focus-visible:ring-0"
+            className="min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={Math.min(6, Math.max(1, draft.split('\n').length))}
-            placeholder="Orchestrate… (@ for context, Enter to send)"
+            placeholder="Ask Superagent to plan, delegate, or review — @ for context"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value)
@@ -556,29 +595,34 @@ function FreshThreadComposer({
               }
             }}
           />
-        </div>
-        {voice.supported && (
+          {voice.supported && (
+            <button
+              type="button"
+              className={cn(
+                'flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground',
+                voice.listening && 'animate-pulse text-destructive',
+              )}
+              title={voice.listening ? 'Stop voice input' : 'Voice input'}
+              onClick={voice.toggle}
+            >
+              <Mic size={14} aria-hidden="true" />
+            </button>
+          )}
           <button
             type="button"
-            className={cn(
-              'flex size-9 flex-none items-center justify-center rounded-full border border-input bg-secondary text-foreground transition-colors hover:border-primary hover:text-foreground',
-              voice.listening && 'animate-pulse border-destructive text-destructive',
-            )}
-            title={voice.listening ? 'Stop voice input' : 'Voice input'}
-            onClick={voice.toggle}
+            className="flex size-6 flex-none items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default disabled:opacity-40"
+            disabled={busy || !draft.trim()}
+            title="Send"
+            onClick={() => void send()}
           >
-            <Mic size={15} aria-hidden="true" />
+            <Send size={14} aria-hidden="true" />
           </button>
-        )}
-        <button
-          type="button"
-          className="flex size-9 flex-none items-center justify-center rounded-full border border-input bg-secondary text-foreground transition-colors hover:border-primary hover:text-foreground disabled:cursor-default disabled:opacity-40"
-          disabled={busy || !draft.trim()}
-          title="Send"
-          onClick={() => void send()}
-        >
-          <Send size={15} aria-hidden="true" />
-        </button>
+        </div>
+        <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-[#4d4d59]">
+          <span className="text-[#6c6c78]">⏵⏵ auto-delegate on</span>
+          <span>(shift+tab to cycle)</span>
+          <span className="ml-auto">? for shortcuts</span>
+        </div>
       </div>
     </>
   )
@@ -617,7 +661,7 @@ function SpawnedAgentCard({
     setView('workspace')
   }
   return (
-    <div className="mx-auto w-full max-w-[760px] overflow-hidden rounded-[10px] border border-border bg-background">
+    <div className="mx-auto w-full max-w-[960px] overflow-hidden rounded-[10px] border border-border bg-background">
       <div className="flex items-center gap-2 px-3 py-2">
         {session ? (
           <span className={sessionDotClass(session)} />
@@ -636,7 +680,7 @@ function SpawnedAgentCard({
         >
           {session ? sessionDisplayName(session) : `${panelLabel(agentKind)} agent`}
         </button>
-        <span className="flex-none text-[11px] text-muted-foreground/70">{status}</span>
+        <span className="flex-none text-[11px] text-muted-foreground">{status}</span>
         <Button
           type="button"
           variant="ghost"
@@ -729,7 +773,7 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
   }
   if (message.role === 'tool') {
     return (
-      <div className="mx-auto w-full max-w-[760px]">
+      <div className="mx-auto w-full max-w-[960px]">
         <button
           type="button"
           className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
@@ -764,7 +808,7 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
         ? 'repo context'
         : 'session context'
     return (
-      <div className="mx-auto w-full max-w-[760px]">
+      <div className="mx-auto w-full max-w-[960px]">
         <button
           type="button"
           className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
@@ -784,7 +828,7 @@ function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element |
   return (
     <div
       className={cn(
-        'mx-auto w-full max-w-[760px]',
+        'mx-auto w-full max-w-[960px]',
         message.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
       )}
     >

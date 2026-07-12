@@ -122,46 +122,33 @@ async function flush(): Promise<void> {
 }
 
 describe('Superagent thread switcher', () => {
-  it('renders desktop conversations as one non-wrapping horizontal tab strip', async () => {
+  it('renders the thread switcher as a scope-bar dropdown trigger (no header pills)', async () => {
     act(() => {
       root.render(<SuperagentView />)
     })
     await flush()
 
-    const tablist = container.querySelector('[role="tablist"][aria-label="Superagent threads"]')
-    expect(tablist).not.toBeNull()
-    expect(tablist?.className).toContain('overflow-x-auto')
-    expect(tablist?.className).toContain('flex-nowrap')
-    expect(tablist?.querySelectorAll('[role="tab"]')).toHaveLength(3)
-    expect(container.querySelector('select[aria-label="Superagent conversation"]')).toBeNull()
+    // The old header tab strip is gone — the switcher is a quiet dropdown on the
+    // project-scope sub-bar.
+    expect(container.querySelector('[role="tablist"][aria-label="Superagent threads"]')).toBeNull()
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[title="Switch superagent conversation"]',
+    )
+    expect(trigger).not.toBeNull()
+    expect(trigger?.textContent).toContain('All projects')
   })
 
-  it('renders mobile conversations as a single selected dropdown', async () => {
-    isMobile = true
+  it('shows the active thread title as the scope name', async () => {
     storeSuperThreadId = 'btw_alpha'
     act(() => {
       root.render(<SuperagentView />)
     })
     await flush()
 
-    const select = container.querySelector(
-      'select[aria-label="Superagent conversation"]',
-    ) as HTMLSelectElement | null
-    expect(container.querySelector('[role="tablist"][aria-label="Superagent threads"]')).toBeNull()
-    expect(select).not.toBeNull()
-    expect(select?.value).toBe('btw_alpha')
-    expect(select?.selectedOptions[0]?.textContent).toBe(
-      'Fix a long terminal link wrapping regression',
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[title="Switch superagent conversation"]',
     )
-
-    act(() => {
-      if (select) {
-        select.value = 'btw_beta'
-        select.dispatchEvent(new Event('change', { bubbles: true }))
-      }
-    })
-
-    expect(setSuperThreadId).toHaveBeenCalledWith('btw_beta')
+    expect(trigger?.textContent).toContain('Fix a long terminal link wrapping regression')
   })
 })
 
