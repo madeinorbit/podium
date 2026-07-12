@@ -50,6 +50,8 @@ import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
+import { TERMINAL_DEFAULTS } from './appearance'
+import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
@@ -257,6 +259,12 @@ export function AgentPanel({
   // reassigned this ref, since both happen synchronously in the same effect).
   const scheduleSampleRef = useRef<() => void>(() => {})
 
+  // Device-level terminal appearance (font size/family, line height, background).
+  // `appearance` is memoized on the stored blob, so a settings change applies to
+  // the LIVE terminal via useTerminalSession's setAppearance effect — no remount.
+  const { settings: termSettings, appearance: termAppearance } = useTerminalAppearance()
+  const termBg = termSettings.background ?? TERMINAL_DEFAULTS.background
+
   const {
     containerRef: termRef,
     toolbarRef,
@@ -278,6 +286,7 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
+    appearance: termAppearance,
     onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
       // Seed the file-link provider immediately after mount with whatever paths
@@ -676,20 +685,22 @@ export function AgentPanel({
         // rendered as a sibling overlay on top when in chat mode.
         <>
           {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
-          {/* The xterm surface is hard-pinned to its own dark background (#0e0e12,
-              matching the terminal theme in terminal-client) regardless of the app
-              theme — otherwise a light theme shows a white container edge around the
-              still-dark terminal. Revisit when the terminal itself becomes theme-aware. */}
+          {/* The container is pinned to the TERMINAL's background (the default dark,
+              or the user's custom color from the appearance settings) regardless of
+              the app theme — otherwise a light theme shows a white container edge
+              around the terminal, and a custom background a dark one. */}
           <div
             className={cn(
-              'relative flex min-h-0 flex-1 flex-col bg-[#0e0e12]',
+              'relative flex min-h-0 flex-1 flex-col',
               effectiveMode === 'chat' && 'hidden',
             )}
+            style={{ backgroundColor: termBg }}
           >
             <div ref={termRef} className="term min-h-0 flex-1 px-3 py-2" />
             {!ready && (
               <div
-                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0e0e12] text-[13px] text-zinc-400"
+                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-zinc-400"
+                style={{ backgroundColor: termBg }}
                 role="status"
                 aria-live="polite"
               >

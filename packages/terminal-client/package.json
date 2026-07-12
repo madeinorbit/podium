@@ -22,6 +22,11 @@
       "@podium/source": "./src/session-mount.ts",
       "types": "./src/session-mount.ts",
       "import": "./src/session-mount.ts"
+    },
+    "./terminal-view": {
+      "@podium/source": "./src/terminal-view.ts",
+      "types": "./src/terminal-view.ts",
+      "import": "./src/terminal-view.ts"
     }
   },
   "files": [

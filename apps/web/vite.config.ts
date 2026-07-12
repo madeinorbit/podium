@@ -87,6 +87,12 @@ export default defineConfig({
       '@podium/protocol': fileURLToPath(
         new URL('../../packages/protocol/src/index.ts', import.meta.url),
       ),
+      // Subpath alias must precede the bare-package one — the bare alias also
+      // prefix-matches subpath imports and would resolve them to a path INSIDE
+      // index.ts (`.../index.ts/terminal-view`), which fails at build time.
+      '@podium/terminal-client/terminal-view': fileURLToPath(
+        new URL('../../packages/terminal-client/src/terminal-view.ts', import.meta.url),
+      ),
       '@podium/terminal-client': fileURLToPath(
         new URL('../../packages/terminal-client/src/index.ts', import.meta.url),
       ),

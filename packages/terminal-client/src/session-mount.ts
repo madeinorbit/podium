@@ -1,7 +1,7 @@
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
 import { decideResizeAction, type Grid } from './session-viewport'
-import { TerminalView } from './terminal-view'
+import { type TerminalAppearance, TerminalView } from './terminal-view'
 import { mountKeyToolbar } from './toolbar'
 
 export interface MountSessionOptions {
@@ -52,12 +52,19 @@ export interface MountSessionOptions {
    * MountedSession.setActive — the panel is NOT remounted on tab switches.
    */
   active?: boolean
+  /** Initial rendering appearance (font, line height, theme). Change at runtime
+   *  via {@link MountedSession.setAppearance} — never a remount. */
+  appearance?: TerminalAppearance
 }
 
 export interface MountedSession {
   connection: SessionConnection
   view: TerminalView
   setActive(active: boolean): void
+  /** Apply a new appearance to the live terminal and re-fit: a font-metric
+   *  change alters the cell size, so the grid (and the PTY, via resize) must
+   *  reconcile to the same container. Theme-only changes end up a no-op fit. */
+  setAppearance(appearance: TerminalAppearance): void
   dispose(): void
 }
 
@@ -67,7 +74,7 @@ export const READY_TIMEOUT_MS = 2000
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
-  const view = new TerminalView()
+  const view = new TerminalView(opts.appearance ?? {})
   view.mount(el)
 
   let active = opts.active ?? true
@@ -315,6 +322,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // so recreate the renderer after layout, not just refresh.
       if (active) reveal()
       // going inactive: do nothing — never resize a hidden panel
+    },
+    setAppearance(appearance: TerminalAppearance): void {
+      view.setAppearance(appearance)
+      // A font-metric change altered the cell size — reconcile the grid to the
+      // container and inform the server (eligibility-gated inside applyFit, so
+      // a hidden panel never drives the shared PTY). A theme-only change leaves
+      // the grid identical and applyFit decides 'same' → nothing further.
+      applyFit(false)
     },
     dispose() {
       if (readyTimer !== undefined) clearTimeout(readyTimer)

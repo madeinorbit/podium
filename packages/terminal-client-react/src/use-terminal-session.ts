@@ -3,6 +3,7 @@ import {
   type MountedSession,
   mountSession,
   type SocketHub,
+  type TerminalAppearance,
 } from '@podium/terminal-client'
 import type { RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -37,6 +38,12 @@ export interface UseTerminalSessionOptions {
   focusWhenReady?: boolean
   /** Expose the browser-test hook (`globalThis.__podium`) — see mountSession. */
   test?: boolean
+  /**
+   * Rendering appearance (font size/family, line height, theme). Applied at
+   * mount, and re-applied to the LIVE terminal when the object identity changes
+   * — never a remount, so memoize it in the caller. Omit for the defaults.
+   */
+  appearance?: TerminalAppearance
   readyTimeoutMs?: number
   /** Per-frame callback (mountSession's onFrame) — e.g. sampling the rendered
    *  prompt. Latest identity is used; changing it never remounts. */
@@ -110,6 +117,10 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   // the setActive effect below without remounting.
   const activeRef = useRef(active)
   activeRef.current = active
+  // Appearance at mount time; runtime changes flow through the setAppearance
+  // effect below on the live instance (a font change must not remount the PTY).
+  const appearanceRef = useRef(opts.appearance)
+  appearanceRef.current = opts.appearance
 
   useEffect(() => {
     if (!hub || !enabled) return
@@ -121,6 +132,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
       hub,
       sessionId,
       active: activeRef.current,
+      ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
       ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
       ...(testRef.current ? { test: true } : {}),
       ...(focusOnMountRef.current !== undefined ? { focusOnMount: focusOnMountRef.current } : {}),
@@ -146,6 +158,14 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   useEffect(() => {
     mountedRef.current?.setActive(active && enabled)
   }, [active, enabled])
+
+  // Appearance changes apply to the live instance — never a remount. The mount
+  // effect already passed the current value, so the redundant first run is a
+  // cheap idempotent re-apply (option writes + a no-op fit).
+  const { appearance } = opts
+  useEffect(() => {
+    if (appearance) mountedRef.current?.setAppearance(appearance)
+  }, [appearance])
 
   // Deferred focus: once ready and this is the active surface, hand it the
   // keyboard. Opt-in — see focusWhenReady.

@@ -10,13 +10,24 @@ import { makeUrlLinkProvider } from './url-link-provider'
 // FitAddon cannot measure a cell. Importing it here keeps the component self-contained.
 import '@xterm/xterm/css/xterm.css'
 
-export interface TerminalViewOptions {
-  cols?: number
-  rows?: number
+/** The user-tunable rendering options — settable at construction and at runtime
+ *  via {@link TerminalView.setAppearance} (no remount, no PTY restart). */
+export interface TerminalAppearance {
   fontSize?: number
   fontFamily?: string
+  /** Multiplier on the cell height (xterm semantics, >= 1). Values much above
+   *  ~1.2 open visible gaps in box-drawing borders (agent TUI frames). */
+  lineHeight?: number
   theme?: ITheme
 }
+
+export interface TerminalViewOptions extends TerminalAppearance {
+  cols?: number
+  rows?: number
+}
+
+export const DEFAULT_FONT_SIZE = 13
+export const DEFAULT_LINE_HEIGHT = 1.15
 
 // A terminal in a proportional font is unreadable and misaligns box-drawing. Pin a
 // monospace stack that resolves to a real mono font on every platform.
@@ -24,7 +35,9 @@ const MONO_STACK =
   "'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, 'Cascadia Code', 'DejaVu Sans Mono', Consolas, monospace"
 
 // Palette aligned with the app's design tokens (see apps/web styles.css).
-const DEFAULT_THEME: ITheme = {
+// Exported so callers overriding a single slot (e.g. the background) can merge
+// over the full default palette instead of re-declaring it.
+export const DEFAULT_THEME: ITheme = {
   background: '#0e0e12',
   foreground: '#d7d7e0',
   cursor: '#D97757',
@@ -98,11 +111,11 @@ export class TerminalView {
       convertEol: false,
       cursorBlink: true,
       cursorStyle: 'bar',
-      fontSize: opts.fontSize ?? 13,
+      fontSize: opts.fontSize ?? DEFAULT_FONT_SIZE,
       fontFamily: opts.fontFamily ?? MONO_STACK,
       fontWeight: 400,
       fontWeightBold: 600,
-      lineHeight: 1.15,
+      lineHeight: opts.lineHeight ?? DEFAULT_LINE_HEIGHT,
       letterSpacing: 0,
       drawBoldTextInBrightColors: true,
       // Option must stay a "third-level shift" (compose), NOT Meta. On non-US Mac
@@ -144,6 +157,23 @@ export class TerminalView {
    *  that resolve to a known path or a path under cwd become clickable. */
   setFileLinks(cfg: FileLinkConfig | null): void {
     this.fileLinkConfig = cfg
+  }
+
+  /**
+   * Apply appearance changes to the live terminal. xterm applies option writes
+   * immediately; a font-metric change (size/family/lineHeight) alters the cell
+   * size, so the CALLER must re-fit afterwards (mountSession's setAppearance
+   * does) — otherwise the grid no longer matches the container. Undefined
+   * fields reset to the defaults, so passing a partial object is a full
+   * "set the appearance to exactly this" operation, not a merge.
+   */
+  setAppearance(a: TerminalAppearance): void {
+    if (this.disposed) return
+    this.term.options.fontSize = a.fontSize ?? DEFAULT_FONT_SIZE
+    this.term.options.fontFamily = a.fontFamily ?? MONO_STACK
+    this.term.options.lineHeight = a.lineHeight ?? DEFAULT_LINE_HEIGHT
+    this.term.options.theme = a.theme ?? DEFAULT_THEME
+    this.forceRepaint()
   }
 
   mount(el: HTMLElement): void {
