@@ -15,7 +15,13 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // touch with their own tools anyway — the specs router adds no privilege
   // beyond its repo-root allowlist.
   specs: null,
-  sessions: new Set(['sendText', 'resumeAndSend', 'continue']),
+  // status/read = read-toolkit tiers 1–2 (#237) [spec:SP-34d7] — structured
+  // status + bounded transcript window, scope-gated like the send ops and
+  // event-logged per read.
+  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read']),
+  // Unified messaging (#237) [spec:SP-34d7]: podium mail + the stop-hook's
+  // single-reminder query. Sender identity is stamped from the capability.
+  messages: new Set(['send', 'inbox', 'show', 'reply', 'pendingReminders']),
   // Approval broker [spec:SP-edbb]: agents may REQUEST any management op (and
   // poll its status); approve/deny/execution stay operator+daemon-side.
   approvals: new Set(['request', 'get']),

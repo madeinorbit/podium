@@ -1,5 +1,26 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parseSessionArgs, runSessionCli, type SessionControlClient } from './session-cli'
+
+const STATUS = {
+  sessionId: 's1',
+  agentKind: 'claude-code',
+  status: 'live',
+  phase: 'working',
+  issue: { seq: 7, stage: 'in_progress', title: 'T', todos: ['[ ] a'] },
+  commits: ['abc123 feat: x'],
+  files: ['## branch', ' M a.ts'],
+  unackedMessages: 2,
+}
+
+const READ = {
+  items: [{ role: 'assistant', text: 'hello' }],
+  cursor: 'c9',
+  hasMore: true,
+  truncated: false,
+}
 
 function client(result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true }) {
   return {
@@ -7,6 +28,8 @@ function client(result: { ok: boolean; queued?: boolean; reason?: string } = { o
       sendText: { mutate: vi.fn(async () => result) },
       resumeAndSend: { mutate: vi.fn(async () => result) },
       continue: { mutate: vi.fn(async () => result) },
+      status: { query: vi.fn(async (): Promise<unknown> => STATUS) },
+      read: { query: vi.fn(async (): Promise<unknown> => READ) },
     },
   } satisfies SessionControlClient
 }
@@ -58,5 +81,64 @@ describe('podium session CLI', () => {
     expect(out).toContain('send <session-id>')
     expect(out).toContain('resume-and-send')
     expect(out).toContain('continue <session-id>')
+  })
+})
+
+describe('podium session status/read (#237 read toolkit)', () => {
+  it('status renders phase, issue, commits, files, and the unacked count', async () => {
+    const c = client()
+    const out = await runSessionCli(['status', 's1'], c)
+    expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 's1' })
+    expect(out).toContain('live/working')
+    expect(out).toContain('issue #7 [in_progress] T')
+    expect(out).toContain('abc123 feat: x')
+    expect(out).toContain('unacked messages: 2')
+    expect(out).not.toContain('transcript')
+  })
+
+  it('status accepts an issue ref and needs exactly one positional', async () => {
+    const c = client()
+    await runSessionCli(['status', '#7'], c)
+    expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: '#7' })
+    await expect(runSessionCli(['status'], c)).rejects.toThrow(/needs a session id or #issue/)
+  })
+
+  it('read forwards turns/cursor, validates --turns, and renders the paging hint', async () => {
+    const c = client()
+    const out = await runSessionCli(['read', 's1', '--turns', '5', '--cursor', 'c3'], c)
+    expect(c.sessions.read.query).toHaveBeenCalledWith({ sessionId: 's1', turns: 5, cursor: 'c3' })
+    expect(out).toContain('hello')
+    expect(out).toContain('--cursor c9')
+    await expect(runSessionCli(['read', 's1', '--turns', 'lots'], c)).rejects.toThrow(
+      /positive integer/,
+    )
+  })
+})
+
+// Real-binary smoke (repo norm: skip-if-absent, same pattern as mail-cli):
+// drive the actual runnable CLI entry with bun. Help must render without a
+// server; unknown commands must exit non-zero.
+const cliEntry = join(__dirname, '../../../scripts/cli.ts')
+const hasBun = (() => {
+  try {
+    execFileSync('bun', ['--version'], { stdio: 'ignore' })
+    return existsSync(cliEntry)
+  } catch {
+    return false
+  }
+})()
+
+describe.skipIf(!hasBun)('podium session real-binary smoke', () => {
+  it('renders help (status/read verbs included) without a server', () => {
+    const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
+    expect(out).toContain('podium session <command>')
+    expect(out).toContain('status <session-id|#issue>')
+    expect(out).toContain('read <session-id>')
+  })
+
+  it('fails fast on an unknown session command', () => {
+    expect(() =>
+      execFileSync('bun', [cliEntry, 'session', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
+    ).toThrow()
   })
 })

@@ -36,7 +36,7 @@ import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
 import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
 import { countControl, reportLongTick, startLoopAttribution } from './loop-attribution'
-import { composeResponders, createMailInjector } from './mail-injector'
+import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
@@ -319,9 +319,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const mailInjector = createMailInjector((sessionId) =>
     issueRelayHub.relay({ sessionId, router: 'issues', proc: 'mailPending', input: {} }),
   )
+  // Ack single-reminder (#237) [spec:SP-34d7 acks]: one block per delivered-but-
+  // unacked message; the server persists reminded state so it never repeats.
+  const ackReminder = createAckReminderInjector((sessionId) =>
+    issueRelayHub.relay({ sessionId, router: 'messages', proc: 'pendingReminders', input: {} }),
+  )
   const respondTo = composeResponders(
     (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
     (sessionId, payload) => mailInjector.respondTo(sessionId, payload),
+    (sessionId, payload) => ackReminder.respondTo(sessionId, payload),
   )
   const ingest = await startHookIngest({
     ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),

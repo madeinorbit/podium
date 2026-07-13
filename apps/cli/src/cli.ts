@@ -132,6 +132,7 @@ export type LaunchPlan =
   | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
   | { kind: 'issue'; args: string[] }
   | { kind: 'session'; args: string[] }
+  | { kind: 'mail'; args: string[] }
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'lock'; args: string[] }
@@ -192,7 +193,7 @@ export function resolvePlan(
   }
   // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
   // sub-CLIs that render their own richer help (issue/session/spec/worktree).
-  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree'])
+  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree', 'mail'])
   if (
     argv[0] === 'help' ||
     ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
@@ -285,6 +286,7 @@ export function resolvePlan(
   }
   if (argv[0] === 'issue') return { kind: 'issue', args: argv.slice(1) }
   if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
+  if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
@@ -452,7 +454,8 @@ export function helpText(): string {
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
     '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
-    '  session <command>     Send turns to agent sessions',
+    '  session <command>     Send turns to agent sessions; status/read for a peek',
+    '  mail <command>        Send/read/reply to agent messages (unified substrate)',
     '  worktree [path]       Declare the worktree this agent session works in',
     '',
     "Agent sessions: update/stop/channel/set-server need the operator's approval —",
@@ -803,6 +806,12 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'session': {
       const { sessionCliMain } = await import('./session-cli')
       await sessionCliMain(plan.args)
+      return
+    }
+    // `podium mail <command>`: the unified messaging surface (#237) [spec:SP-34d7].
+    case 'mail': {
+      const { mailCliMain } = await import('./mail-cli')
+      await mailCliMain(plan.args)
       return
     }
     // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).

@@ -11,6 +11,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { authorize, type Capability, checkIssueAccess } from '../../issue-authz'
 import type { IssueProc, IssueTrpc } from '../../issue-client'
+import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import type { IssueService } from './service'
 
 /**
@@ -63,6 +64,9 @@ export interface IssueCommandDeps {
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
    *  relay-allowlisted `repos.inferFromPath` without touching the router. */
   inferRepoFromPath(path: string): string | undefined
+  /** Unified messaging send path (#237) [spec:SP-34d7] — optional so bare test
+   *  dispatchers keep working; when absent mailSend falls back to legacy sendMail. */
+  sendMessage?(from: MessageSender, input: MessageSendInput): MessageSendResult
 }
 
 export type IssueCommandKind = 'query' | 'mutation'
@@ -187,6 +191,32 @@ export class IssueCommandCtx {
       if (me) return `issue:#${me.seq}`
     }
     return 'operator'
+  }
+
+  /** Structured sender principal for the unified substrate (#237)
+   *  [spec:SP-34d7] — server-stamped from the caller, mirroring mailIdentity():
+   *  a subtree-scoped caller is an agent on its root issue; ONLY the
+   *  unconstrained scope ('all') is the operator — an issueless agent session
+   *  (scope 'none' + actorSessionId) stamps as an agent, or it would send
+   *  unwrapped/unclamped as the human ("unwrapped = operator" invariant).
+   *  Client input NEVER contributes sender fields. */
+  messageSender(): MessageSender {
+    if (this.caller.capability.scope.kind === 'subtree') {
+      return {
+        kind: 'agent',
+        issueId: this.caller.capability.scope.rootId,
+        ...(this.caller.capability.actorSessionId
+          ? { sessionId: this.caller.capability.actorSessionId }
+          : {}),
+      }
+    }
+    if (this.caller.capability.scope.kind === 'all') return { kind: 'operator' }
+    return {
+      kind: 'agent',
+      ...(this.caller.capability.actorSessionId
+        ? { sessionId: this.caller.capability.actorSessionId }
+        : {}),
+    }
   }
 
   /** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */
@@ -648,9 +678,7 @@ const defs = {
         ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
       const { newSubissue, ...rest } = input
       return ctx.issues.attachSession(
-        newSubissue
-          ? { ...rest, newSubissue: { title: newSubissue.title, origin } }
-          : { ...rest },
+        newSubissue ? { ...rest, newSubissue: { title: newSubissue.title, origin } } : { ...rest },
       )
     },
   }),
@@ -952,7 +980,16 @@ const defs = {
     kind: 'mutation',
     input: z.object({ id: z.string(), body: z.string().min(1) }),
     action: 'write',
-    handler: (ctx, input) => ctx.issues.sendMail(input.id, ctx.mailIdentity(), input.body),
+    // Unified substrate (#237) [spec:SP-34d7]: the send persists a `messages`
+    // row + delivery ledger and mirrors the legacy issue_messages row (same
+    // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
+    handler: (ctx, input) => {
+      const send = ctx.deps.sendMessage
+      if (!send) return ctx.issues.sendMail(input.id, ctx.mailIdentity(), input.body)
+      const r = send(ctx.messageSender(), { to: { kind: 'issue', id: input.id }, body: input.body })
+      if (!r.legacy) throw new Error('issue-addressed send produced no mail row')
+      return r.legacy
+    },
   }),
   // A mutation (listing marks the returned unread messages read), but authz-wise
   // a 'read' — mailbox bookkeeping, not issue mutation. Viewers may check mail.

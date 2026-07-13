@@ -2,13 +2,69 @@ import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string }
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
+type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
 
 export interface SessionControlClient {
   sessions: {
     sendText: SessionProc
     resumeAndSend: SessionProc
     continue: SessionProc
+    /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]. */
+    status: SessionQuery
+    read: SessionQuery
   }
+}
+
+/** Tier-1 status wire shape (modules/sessions/read-toolkit). */
+interface StatusWire {
+  sessionId: string
+  agentKind: string
+  status: string
+  phase: string
+  issue: { seq: number; stage: string; title: string; todos: string[] } | null
+  commits: string[]
+  files: string[]
+  unackedMessages: number
+}
+
+interface ReadWire {
+  items: { role: string; text: string; toolName?: string; toolInput?: string }[]
+  cursor: string | null
+  hasMore: boolean
+  truncated: boolean
+}
+
+function renderStatus(s: StatusWire): string {
+  return [
+    `${s.sessionId} (${s.agentKind}) ${s.status}/${s.phase}`,
+    s.issue
+      ? `issue #${s.issue.seq} [${s.issue.stage}] ${s.issue.title}` +
+        (s.issue.todos.length
+          ? `\n  todos:\n${s.issue.todos.map((t) => `    ${t}`).join('\n')}`
+          : '')
+      : 'no issue bound',
+    s.commits.length ? `commits:\n${s.commits.map((c) => `  ${c}`).join('\n')}` : 'commits: (none)',
+    s.files.length
+      ? `working tree:\n${s.files.map((f) => `  ${f}`).join('\n')}`
+      : 'working tree: clean',
+    `unacked messages: ${s.unackedMessages}`,
+  ].join('\n')
+}
+
+function renderRead(r: ReadWire): string {
+  const body = r.items
+    .map((i) => {
+      const head = i.toolName ? `${i.role} [${i.toolName}] ${i.toolInput ?? ''}`.trim() : i.role
+      return `--- ${head} ---\n${i.text}`.trim()
+    })
+    .join('\n')
+  const tail = [
+    r.cursor && r.hasMore ? `(more: --cursor ${r.cursor})` : null,
+    r.truncated ? '(truncated to the per-call cap)' : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return [body || '(no transcript items)', tail].filter(Boolean).join('\n')
 }
 
 export class SessionCliError extends Error {}
@@ -54,6 +110,12 @@ function helpText(): string {
     '      Explicit spelling of send --wake.',
     '  continue <session-id> [--outside-scope]',
     '      Type continue only when the running session is in an errored phase.',
+    '  status <session-id|#issue> [--outside-scope]',
+    '      Structured peek: phase, issue stage/todos, last commits, files touched,',
+    '      unacked message count. No transcript text (~200 tokens).',
+    '  read <session-id> [--turns N] [--cursor C] [--outside-scope]',
+    '      Bounded raw-transcript window (newest first page; --cursor pages back).',
+    '      Hard-capped per call; every read is event-logged.',
   ].join('\n')
 }
 
@@ -62,7 +124,7 @@ export async function runSessionCli(argv: string[], client: SessionControlClient
   const { command, args, positionals } = parseSessionArgs(argv)
   if (!command || command === 'help') return helpText()
   // Unknown flags are an error, never silently dropped (#345).
-  const known = new Set(['text', 'wake', 'json', 'outside-scope'])
+  const known = new Set(['text', 'wake', 'json', 'outside-scope', 'turns', 'cursor'])
   const unknown = Object.keys(args).filter((k) => !known.has(k))
   if (unknown.length) {
     throw new SessionCliError(
@@ -70,8 +132,29 @@ export async function runSessionCli(argv: string[], client: SessionControlClient
     )
   }
   const sessionId = positionals[0]
-  if (!sessionId) throw new SessionCliError(`${command} needs a session id`)
+  if (!sessionId) {
+    throw new SessionCliError(
+      `${command} needs a ${command === 'status' ? 'session id or #issue ref' : 'session id'}`,
+    )
+  }
   if (positionals.length > 1) throw new SessionCliError(`unexpected argument: ${positionals[1]}`)
+
+  // Read toolkit tiers 1–2 (#237) [spec:SP-34d7].
+  if (command === 'status') {
+    const s = (await client.sessions.status.query({ ref: sessionId })) as StatusWire
+    return args.json === true ? JSON.stringify({ command, ok: true, data: s }) : renderStatus(s)
+  }
+  if (command === 'read') {
+    if (args.turns !== undefined && !/^\d+$/.test(String(args.turns))) {
+      throw new SessionCliError('--turns must be a positive integer')
+    }
+    const r = (await client.sessions.read.query({
+      sessionId,
+      ...(args.turns !== undefined ? { turns: Number(args.turns) } : {}),
+      ...(typeof args.cursor === 'string' ? { cursor: args.cursor } : {}),
+    })) as ReadWire
+    return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRead(r)
+  }
 
   let result: SessionResult
   let action: string

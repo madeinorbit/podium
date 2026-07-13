@@ -1,5 +1,5 @@
-import type { PodiumSettings } from '@podium/runtime'
 import type { IssueComment, IssueWire, SessionMeta } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
 import type { SessionStore, Subscription } from './store'
@@ -43,6 +43,14 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
     // Only a transition INTO review, and only when the mover has a parent to tell.
     const p = e.payload as { to?: string; parentId?: string } | null
     return p?.to === 'review' && p.parentId ? `parentnudge:review:${p.parentId}` : undefined
+  },
+  // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: a session that
+  // settles (finished/errored) with delivered-but-unacked messages triggers one
+  // system notification per sender, so the sender ALWAYS learns the outcome.
+  'session.phase': (e) => {
+    const p = e.payload as { phase?: string; verdict?: string } | null
+    const settled = (p?.phase === 'idle' && p.verdict === 'done') || p?.phase === 'errored'
+    return settled ? `ackfallback:${e.subject}` : undefined
   },
   'issue.needs_human': (e) => {
     // Always leave the breadcrumb; ALSO notify the parent when the child has one.
@@ -145,6 +153,13 @@ export interface StewardDeps {
   listSessions: () => SessionMeta[]
   /** Durable-queue a nudge into a live session (relay.queueText). */
   sendTextWhenReady: (sessionId: string, text: string) => void
+  /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
+   *  settled session's delivered-but-unacked messages, with issue stage + last
+   *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
+   *  the composition root; suppression = the acked_by null-check at query time. */
+  messaging?: {
+    ackFallback(sessionId: string, outcome: 'finished' | 'errored'): void
+  }
   getSettings: () => PodiumSettings
   intervalMs?: number
   now?: () => string
@@ -244,6 +259,9 @@ export class StewardService {
           const sep = rest.indexOf(':')
           await this.handleParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
         } else if (key.startsWith('needshuman:')) this.handleNeedsHuman(batch)
+        else if (key.startsWith('ackfallback:')) {
+          this.handleAckFallback(key.slice('ackfallback:'.length), batch)
+        }
       } catch (err) {
         // Drop, don't wedge: the trigger is lost but the queue keeps moving.
         console.warn(`[podium:steward] handler for ${key} failed:`, err)
@@ -488,6 +506,19 @@ export class StewardService {
     for (const s of targets) {
       this.deps.sendTextWhenReady(s.sessionId, sub.nudge(lastChildSeq, { remaining, total }))
     }
+  }
+
+  /** Deterministic ack fallback (#237) [spec:SP-34d7 acks]: a settled session's
+   *  unacked senders get one system notice each. The batch coalesces repeated
+   *  phase flips in a poll; the LAST event's shape names the outcome. The seam
+   *  itself queries delivered+unacked at call time, so an agent ack that landed
+   *  first suppresses the notice (acked_by null-check), and a crash-replayed
+   *  batch re-queries an empty set. */
+  private handleAckFallback(sessionId: string, batch: StewardEvent[]): void {
+    if (!this.deps.messaging) return
+    const last = batch[batch.length - 1]!
+    const p = last.payload as { phase?: string } | null
+    this.deps.messaging.ackFallback(sessionId, p?.phase === 'errored' ? 'errored' : 'finished')
   }
 
   /** P1: needs-human only leaves a breadcrumb in the log (briefs are P3). */

@@ -898,6 +898,32 @@ export class SessionsService {
     return this.typeText({ sessionId, text })
   }
 
+  /**
+   * Hard-interrupt delivery (#237) [spec:SP-34d7]: ESC cancels the target's
+   * in-flight turn, then the message rides the durable queue so the drain's
+   * settle heuristics land it as the immediate next turn (never mid-cancel).
+   * Callers are already authority-gated (superagent/parent/operator only —
+   * the clamp matrix downgrades everyone else before reaching here).
+   */
+  interruptText({ sessionId, text }: { sessionId: string; text: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  } {
+    const rejected = this.upstreamRejection(sessionId)
+    if (rejected) return rejected
+    const session = this.sessions.get(sessionId)
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false, reason: 'session not running' }
+    }
+    this.toMachine(session.machineId, {
+      type: 'input',
+      sessionId,
+      data: Buffer.from('\x1b').toString('base64'),
+    })
+    return this.queueText({ sessionId, text })
+  }
+
   /** The raw typing primitive (bracketed paste + separated CR). Only sendText and
    *  the queue drain call this — everything else must go through them so queued
    *  messages keep their FIFO order. */

@@ -332,10 +332,25 @@ export const appRouter = t.router({
           mutationId: z.string().max(128).optional(),
         }),
       )
+      // Unified substrate (#237) [spec:SP-34d7 migration]: human chat sends
+      // ride the substrate as OPERATOR — unwrapped, unclamped, ledgered.
       .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.sendText', () =>
-          mods(ctx).sessions.sendText(input),
-        ),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.sendText', () => {
+          const { ok, queued, reason } = mods(ctx).messages.send(
+            { kind: 'operator' },
+            {
+              to: { kind: 'session', id: input.sessionId },
+              body: input.text,
+              urgency: 'next-turn',
+              lifecycle: 'wait',
+            },
+          )
+          return {
+            ok,
+            ...(queued !== undefined ? { queued } : {}),
+            ...(reason !== undefined ? { reason } : {}),
+          }
+        }),
       ),
     // Chat-view answer to a live AskUserQuestion prompt: type the chosen option
     // number(s) into the agent's native menu (the native terminal is unmounted in
@@ -360,10 +375,25 @@ export const appRouter = t.router({
           mutationId: z.string().max(128).optional(),
         }),
       )
+      // Substrate-routed like sendText; lifecycle wake resurrects the parked
+      // target (operator wakes are never cooldown-braked).
       .mutation(({ ctx, input }) =>
-        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.resumeAndSend', () =>
-          mods(ctx).sessions.resumeAndSend(input),
-        ),
+        mods(ctx).sessions.withMutation(input.mutationId, 'sessions.resumeAndSend', () => {
+          const { ok, queued, reason } = mods(ctx).messages.send(
+            { kind: 'operator' },
+            {
+              to: { kind: 'session', id: input.sessionId },
+              body: input.text,
+              urgency: 'next-turn',
+              lifecycle: 'wake',
+            },
+          )
+          return {
+            ok,
+            ...(queued !== undefined ? { queued } : {}),
+            ...(reason !== undefined ? { reason } : {}),
+          }
+        }),
       ),
     // On-demand transcript window for the chat view — a pure disk read via the
     // daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
@@ -380,6 +410,27 @@ export const appRouter = t.router({
         }),
       )
       .query(({ ctx, input }) => mods(ctx).rpc.readTranscript(input)),
+    // Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
+    // issue stage/todos, last commits, files touched, unacked count — NO
+    // transcript text) and a bounded transcript window. The /trpc surface is
+    // operator-authority; agents reach the same procs via the daemon relay's
+    // scope-gated sessions arm. Every read is event-logged by the toolkit.
+    status: t.procedure
+      .input(z.object({ ref: z.string() }))
+      .query(({ ctx, input }) =>
+        mods(ctx).readToolkit.status(input.ref, ctx.capability.actorSessionId ?? 'operator'),
+      ),
+    read: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          turns: z.coerce.number().int().positive().optional(),
+          cursor: z.string().optional(),
+        }),
+      )
+      .query(({ ctx, input }) =>
+        mods(ctx).readToolkit.read(input, ctx.capability.actorSessionId ?? 'operator'),
+      ),
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),
@@ -951,6 +1002,36 @@ export const appRouter = t.router({
   // Advisory named lease locks [spec:SP-85d1] — same derivation pattern, over
   // the lock registry (role-gated only; no issue-scope targets).
   lock: lockRouterFromCommands(lockRegistry),
+  // Unified agent messaging (#237) [spec:SP-34d7]: the `podium mail` surface.
+  // Input validation + authz live in the MessageGate (shared verbatim with the
+  // daemon relay arm); the gate stamps the sender from ctx.capability.
+  messages: t.router({
+    send: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'send', input)!,
+      ),
+    // A mutation on the wire: the recipient's own inbox read consumes queued status.
+    inbox: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'inbox', input)!,
+      ),
+    show: t.procedure
+      .input(z.unknown())
+      .query(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'show', input)!,
+      ),
+    reply: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'reply', input)!,
+      ),
+  }),
   files: t.router({
     read: t.procedure
       .input(

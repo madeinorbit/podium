@@ -178,6 +178,50 @@ export interface IssueMessageRow {
   claimedAt: string | null
 }
 
+// ---- unified agent messaging (#237) [spec:SP-34d7] ----
+
+export type MessageFromKind = 'operator' | 'superagent' | 'agent' | 'system'
+export type MessageToKind = 'issue' | 'session' | 'operator'
+export type MessageKind = 'message' | 'ack' | 'notification' | 'question'
+export type MessageUrgency = 'fyi' | 'next-turn' | 'interrupt'
+export type MessageLifecycle = 'wait' | 'wake'
+export type MessageStatus = 'queued' | 'delivered' | 'expired' | 'cancelled'
+
+/** One row in the unified `messages` table: the message AND its delivery
+ *  ledger (status, delivered_at/to, acked_by are the ledger columns). */
+export interface MessageRow {
+  id: string
+  /** = id for a new thread; replies inherit the original's threadId. */
+  threadId: string
+  inReplyTo: string | null
+  fromKind: MessageFromKind
+  fromSession: string | null
+  /** Sender's issue at send time (agent senders). */
+  fromIssue: string | null
+  toKind: MessageToKind
+  toId: string | null
+  kind: MessageKind
+  urgency: MessageUrgency
+  lifecycle: MessageLifecycle
+  body: string
+  expiresAt: string | null
+  createdAt: string
+  status: MessageStatus
+  deliveredAt: string | null
+  /** The session that actually received it. */
+  deliveredTo: string | null
+  /** Ack message id (denormalized for the steward's suppression check). */
+  ackedBy: string | null
+  /** Chain-depth counter [spec:SP-34d7 brakes]: messages sent from a
+   *  message-triggered turn carry trigger.hop + 1; past 5 lifecycle clamps to wait. */
+  hop: number
+  /** JSON record of the sender's REQUESTED axes when a clamp/brake downgraded
+   *  them (`{"urgency":…,"lifecycle":…,"reason":…}`); null = delivered as asked. */
+  clampedFrom: string | null
+  /** When the stop-hook's ONE unacked-message reminder was issued (never repeats). */
+  remindedAt: string | null
+}
+
 /** A durable event subscription (event-subscriptions design, Phase B). The steward
  *  matches enabled rows against every polled event; a match resolves `source` to the
  *  event's subject and delivers per `deliverNudge`/`deliverNotify`. */

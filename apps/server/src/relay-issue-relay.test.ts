@@ -127,6 +127,47 @@ describe('server issue relay handler (P1b)', () => {
     expect(r.result).toMatchObject({ ok: true })
   })
 
+  it('rejects a message to an ISSUELESS target session from a non-parent (#237)', async () => {
+    // No issue to gate on must not mean no gate: only the operator or the
+    // target's own parent (spawnedBy) may message an issueless session.
+    const target = registry.modules.sessions.createSession({
+      cwd: '/nowhere/unrelated',
+      agentKind: 'shell',
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-issueless',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'sendText',
+      input: { sessionId: target, text: 'hi' },
+      outsideScope: true, // scope-crossing confirmation never substitutes for the gate
+    })
+    const r = await reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/only its parent or the operator/)
+  })
+
+  it('lets the PARENT message its issueless child session (#237)', async () => {
+    const target = registry.modules.sessions.createSession({
+      cwd: '/nowhere/unrelated',
+      agentKind: 'shell',
+      spawnedBy: `session:${sA}`,
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-issueless-parent',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'sendText',
+      input: { sessionId: target, text: 'hi child' },
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+  })
+
   it('rejects a prototype-key router without throwing (constructor)', async () => {
     // RELAY_ALLOWED is a plain object, so a router like 'constructor'/'__proto__'
     // would index an INHERITED value and blow up on `.has(...)` — the guard must

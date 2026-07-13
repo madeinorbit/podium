@@ -33,18 +33,20 @@ import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { MIGRATIONS, runMigrations } from './migrations/index'
+import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
 import { ConversationsRepository } from './store/conversations'
-import { ApprovalsRepository } from './store/approvals'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
+import { MessagesRepository } from './store/messages'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SuperagentRepository } from './store/superagent'
 
+export type { MessagePrincipalRef } from './store/messages'
 export * from './store/types'
 export { normalizeRepoPath }
 
@@ -65,6 +67,8 @@ export class SessionStore {
   readonly settings: SettingsRepository
   readonly machines: MachinesRepository
   readonly events: EventsRepository
+  /** Unified agent messaging (#237) [spec:SP-34d7]. */
+  readonly messages: MessagesRepository
   readonly approvals: ApprovalsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
@@ -104,6 +108,7 @@ export class SessionStore {
     this.settings = new SettingsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.events = new EventsRepository(this.db)
+    this.messages = new MessagesRepository(this.db)
     this.locks = new LocksRepository(this.db)
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects

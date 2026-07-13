@@ -3,8 +3,9 @@
  * implementations shared by the MCP surface (mcpToolSpecs/callMcpTool) and the
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
-import { isAgentKind, WorkState } from '@podium/protocol'
+
 import type { TranscriptItem } from '@podium/protocol'
+import { isAgentKind, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
 import type { McpToolProvider } from '../../mcp-route'
@@ -238,10 +239,17 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const r = sessions.sendText({
-          sessionId: str(args.sessionId) ?? '',
-          text: str(args.text) ?? '',
-        })
+        // Unified substrate (#237) [spec:SP-34d7]: the superagent is its OWN
+        // principal (never the operator) — the message is ledgered and lands
+        // enveloped, so the receiver sees who is speaking.
+        const r = modules.messages.send(
+          { kind: 'superagent' },
+          {
+            to: { kind: 'session', id: str(args.sessionId) ?? '' },
+            body: str(args.text) ?? '',
+            urgency: 'next-turn',
+          },
+        )
         return r.ok ? 'sent' : 'failed: session not running'
       },
     },
@@ -533,8 +541,8 @@ export function buildSuperagentTools(
         const since = store.events.maxEventId()
         const deadline = Date.now() + timeoutS * 1000
         while (Date.now() < deadline) {
-          const evs = store
-            .events.listEventsSince(since, { kinds: ['session.phase'] })
+          const evs = store.events
+            .listEventsSince(since, { kinds: ['session.phase'] })
             .filter((e) => e.subject === sessionId)
           const last = evs[evs.length - 1]
           if (last) {
@@ -693,8 +701,7 @@ export function buildSuperagentTools(
     {
       spec: {
         name: 'create_worktree',
-        description:
-          'Create a new git worktree (new branch) next to the repo, ready for an agent.',
+        description: 'Create a new git worktree (new branch) next to the repo, ready for an agent.',
         parameters: {
           type: 'object',
           properties: {

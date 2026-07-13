@@ -1,5 +1,5 @@
-import { normalizeSettings } from '@podium/runtime'
 import type { SessionMeta } from '@podium/protocol'
+import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
@@ -747,5 +747,58 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       subject: p.id,
       payload: { subscriptionId: 'sub_n', event: 'issue.closed' },
     })
+  })
+})
+
+describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
+  it('maps settled session.phase events to an ackfallback key (finished + errored only)', () => {
+    const e = { id: 1, ts: 't', kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
+    expect(
+      TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'done' } }),
+    ).toBe('ackfallback:s9')
+    expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'errored' } })).toBe(
+      'ackfallback:s9',
+    )
+    expect(
+      TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'needs_user' } }),
+    ).toBeUndefined()
+    expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'working' } })).toBeUndefined()
+  })
+
+  it('invokes the messaging seam once per settled session with the outcome', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's8',
+      payload: { phase: 'errored' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(2)
+    expect(ackFallback).toHaveBeenCalledWith('s9', 'finished')
+    expect(ackFallback).toHaveBeenCalledWith('s8', 'errored')
+    // Replays past the advanced cursor never re-fire.
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(2)
+  })
+
+  it('is inert without the seam (unwired deployments)', async () => {
+    const h = harness()
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'errored' },
+    })
+    await expect(h.steward.tick()).resolves.toBeUndefined()
   })
 })

@@ -42,6 +42,9 @@ import { up as approvalRequests } from './012-approval-requests'
 import { up as locks } from './013-locks'
 import { up as machinesInventory } from './014-machines-inventory'
 import { up as superagentPendingTurns } from './015-superagent-pending-turns'
+import { up as messages } from './016-messages'
+import { up as messagesAxes } from './017-messages-axes'
+import { up as messagesReminded } from './018-messages-reminded'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -76,6 +79,10 @@ export const MIGRATIONS: Migration[] = [
   { version: 13, name: 'locks', up: locks },
   { version: 14, name: 'machines-inventory', up: machinesInventory },
   { version: 15, name: 'superagent-pending-turns', up: superagentPendingTurns },
+  // Unified agent messaging (#237) [spec:SP-34d7].
+  { version: 16, name: 'messages', up: messages },
+  { version: 17, name: 'messages-axes', up: messagesAxes },
+  { version: 18, name: 'messages-reminded', up: messagesReminded },
 ]
 
 /** Highest schema version the running code knows about. */

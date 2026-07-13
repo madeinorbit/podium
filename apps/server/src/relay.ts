@@ -21,12 +21,15 @@ import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
+import { MessageGate } from './modules/messages/gate'
+import { MessageDeliveryService, senderFromCapability } from './modules/messages/service'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
+import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
@@ -102,6 +105,12 @@ export interface RegistryModules {
   /** Advisory named lease locks [spec:SP-85d1]. */
   locks: LockService
   lockCommands: LockCommandDispatcher
+  /** Unified agent messaging (#237) [spec:SP-34d7]. */
+  messages: MessageDeliveryService
+  /** `podium mail` command surface over the substrate (#237) [spec:SP-34d7]. */
+  messageGate: MessageGate
+  /** Read toolkit tiers 1–2 — session status/read (#237) [spec:SP-34d7]. */
+  readToolkit: SessionReadToolkit
 }
 
 /**
@@ -158,6 +167,8 @@ export class SessionRegistry {
   private readonly steward: StewardService
   /** Event-log retention timers (issue #61) — modules/events. */
   private readonly eventRetention: EventLogRetention
+  /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
+  private readonly messageSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
   private readonly now: () => number
@@ -172,6 +183,11 @@ export class SessionRegistry {
     // reach them through these lazy closures (sessionsSvc is assigned below, and
     // none of the closures can run before the constructor finishes wiring).
     let sessionsSvc!: SessionsService
+    // Unified messaging (#237) [spec:SP-34d7] — assigned after the store-backed
+    // graph exists; consumed only via lazy closures/per-dispatch calls below.
+    let messagesSvc!: MessageDeliveryService
+    let messageGate!: MessageGate
+    let readToolkit!: SessionReadToolkit
     let conversations!: ConversationsService
     let issues!: IssueService
     let issueSessionLifecycle!: IssueSessionLifecycle
@@ -291,6 +307,8 @@ export class SessionRegistry {
       listSessions: () => sessionsSvc.listSessions(),
       repoPaths: () => this.store.repos.listRepoPaths(),
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
+      // mailSend rides the unified substrate (#237) [spec:SP-34d7].
+      sendMessage: (from, input) => messagesSvc.send(from, input),
     })
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
@@ -368,7 +386,59 @@ export class SessionRegistry {
             input,
           )
         }
+        // Unified messaging command surface (#237) [spec:SP-34d7]: podium mail
+        // send/inbox/show/reply + the stop-hook's pendingReminders. Authz lives
+        // in the gate (session targets: same containment as the sessions arm).
+        if (router === 'messages') {
+          return messageGate.dispatch(capability, overrideScope, proc, input)
+        }
         if (router === 'sessions') {
+          // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
+          // a structured snapshot (no transcript text); read is a bounded
+          // uuid-cursor transcript window. Both are scope-gated like the send
+          // ops against the RESOLVED target's issue and event-logged per read.
+          if (proc === 'status' || proc === 'read') {
+            return (async () => {
+              const raw = (input ?? {}) as Record<string, unknown>
+              const ref = proc === 'status' ? raw.ref : raw.sessionId
+              if (typeof ref !== 'string' || !ref) {
+                throw new Error(`${proc === 'status' ? 'ref' : 'sessionId'} is required`)
+              }
+              const target = readToolkit.resolveTarget(ref)
+              if (!target) throw new Error(`no session found for ${ref}`)
+              const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+              if (targetIssueId) {
+                checkIssueAccess(
+                  { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                  issues,
+                  `sessions.${proc}`,
+                  'write',
+                  targetIssueId,
+                )
+              } else {
+                const isOperator = capability.scope.kind === 'all'
+                const isParent =
+                  capability.actorSessionId !== undefined &&
+                  target.spawnedBy === `session:${capability.actorSessionId}`
+                if (!isOperator && !isParent) {
+                  throw new Error(
+                    'target session has no issue; only its parent or the operator may read it',
+                  )
+                }
+              }
+              const reader = capability.actorSessionId ?? 'operator'
+              if (proc === 'status') return readToolkit.status(ref, reader)
+              const turns = raw.turns != null ? Number(raw.turns) : undefined
+              return readToolkit.read(
+                {
+                  sessionId: target.sessionId,
+                  ...(turns != null && Number.isFinite(turns) ? { turns } : {}),
+                  ...(typeof raw.cursor === 'string' ? { cursor: raw.cursor } : {}),
+                },
+                reader,
+              )
+            })()
+          }
           if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
             return undefined
           }
@@ -409,6 +479,21 @@ export class SessionRegistry {
                 'write',
                 targetIssueId,
               )
+            } else {
+              // Issueless target (#237) [spec:SP-34d7 authz]: no issue to gate
+              // on used to mean NO gate at all. Only the operator (unscoped
+              // capability) or the target's own parent (spawnedBy provenance)
+              // may message an issueless session — --outside-scope confirms
+              // scope-crossing on ISSUE targets and never substitutes here.
+              const isOperator = capability.scope.kind === 'all'
+              const isParent =
+                capability.actorSessionId !== undefined &&
+                target.spawnedBy === `session:${capability.actorSessionId}`
+              if (!isOperator && !isParent) {
+                throw new Error(
+                  'target session has no issue; only its parent or the operator may message it',
+                )
+              }
             }
             if (proc === 'continue') {
               return sessionsSvc.continueSession({ sessionId: args.sessionId })
@@ -418,11 +503,23 @@ export class SessionRegistry {
               text: args.text as string,
               ...(typeof args.mutationId === 'string' ? { mutationId: args.mutationId } : {}),
             }
-            return sessionsSvc.withMutation(commandInput.mutationId, `sessions.${proc}`, () =>
-              proc === 'sendText'
-                ? sessionsSvc.sendText(commandInput)
-                : sessionsSvc.resumeAndSend(commandInput),
-            )
+            // Unified substrate (#237) [spec:SP-34d7]: relay session sends are
+            // messages — sender stamped from the capability, envelope rendered
+            // at delivery (operator stays unwrapped), row + ledger durable.
+            // sendText → next-turn/wait, resumeAndSend → next-turn/wake.
+            return sessionsSvc.withMutation(commandInput.mutationId, `sessions.${proc}`, () => {
+              const { ok, queued, reason } = messagesSvc.send(senderFromCapability(capability), {
+                to: { kind: 'session', id: commandInput.sessionId },
+                body: commandInput.text,
+                urgency: 'next-turn',
+                lifecycle: proc === 'resumeAndSend' ? 'wake' : 'wait',
+              })
+              return {
+                ok,
+                ...(queued !== undefined ? { queued } : {}),
+                ...(reason !== undefined ? { reason } : {}),
+              }
+            })
           })()
         }
         if (router === 'approvals') {
@@ -541,6 +638,39 @@ export class SessionRegistry {
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
     })
+    // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
+    // stamped by each surface from its authenticated caller; issue-addressed
+    // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
+    // keep working until those readers migrate.
+    messagesSvc = new MessageDeliveryService({
+      messages: this.store.messages,
+      events: this.store.events,
+      issues: () => issues,
+      sessions: () => sessionsSvc,
+      mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
+      mirrorMarkIssueMailRead: (issueId, ids) =>
+        funnel.run({
+          write: () =>
+            this.store.issues.markIssueMessagesRead(issueId, ids, new Date().toISOString()),
+        }),
+      transact: (fn) => this.store.transact(fn),
+      now: () => new Date(this.now()).toISOString(),
+    })
+    messageGate = new MessageGate({
+      messages: () => messagesSvc,
+      issues: () => issues,
+      listSessions: () => sessionsSvc.listSessions(),
+    })
+    readToolkit = new SessionReadToolkit({
+      listSessions: () => sessionsSvc.listSessions(),
+      issues: () => issues,
+      messages: () => messagesSvc,
+      events: this.store.events,
+      repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
+      readTranscript: (input) => rpc.readTranscript(input),
+      now: () => new Date(this.now()).toISOString(),
+    })
+
     issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
@@ -558,8 +688,41 @@ export class SessionRegistry {
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
       sendTextWhenReady: (sessionId, text) => void sessionsSvc.queueText({ sessionId, text }),
       getSettings: () => this.store.settings.getSettings(),
+      // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: stitch issue
+      // stage + last commit (best-effort daemon git) into the system notice.
+      messaging: {
+        ackFallback: (sessionId, outcome) =>
+          void (async () => {
+            if (messagesSvc.deliveredUnacked(sessionId).length === 0) return
+            const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
+            const issueId = meta ? (meta.issueId ?? issues.issueForCwd(meta.cwd)) : null
+            const issue = issueId ? issues.get(issueId) : null
+            let lastCommit: string | undefined
+            if (meta) {
+              try {
+                const r = await rpc.repoOp('log', meta.cwd, undefined, meta.machineId)
+                if (r.ok) lastCommit = r.output.split('\n')[0]
+              } catch {}
+            }
+            messagesSvc.systemAckFallback(sessionId, {
+              outcome,
+              ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
+              ...(lastCommit ? { lastCommit } : {}),
+            })
+          })().catch(() => {}),
+      },
     })
     this.steward.start()
+    // Message delivery retriggers (#237) [spec:SP-34d7]: a turn ending (phase →
+    // idle) drains that session's queued messages (and clears its hop context);
+    // the slow sweep expires + retries whatever the event triggers missed.
+    this.bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
+      if (next.phase !== 'idle' || prev?.phase === 'idle') return
+      const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
+      if (meta) messagesSvc.onSessionIdle(meta)
+    })
+    this.messageSweep = setInterval(() => messagesSvc.sweep(), 60_000)
+    this.messageSweep.unref?.()
     this.eventRetention = new EventLogRetention(this.store.events)
     this.eventRetention.start()
     this.issueAutoArchive = new IssueAutoArchive(issues)
@@ -587,6 +750,9 @@ export class SessionRegistry {
       approvals,
       locks,
       lockCommands,
+      messages: messagesSvc,
+      messageGate,
+      readToolkit,
     }
   }
 
@@ -608,6 +774,7 @@ export class SessionRegistry {
 
   dispose(): void {
     this.eventRetention.dispose()
+    clearInterval(this.messageSweep)
     this.issueAutoArchive.dispose()
     // Also drains any coalesced session broadcast + pending delta batch (the
     // durable change log is already complete — commits happen at persist time).

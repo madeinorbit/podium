@@ -50,7 +50,13 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
     const unreadIds = markRead ? messages.filter((m) => m.status === 'unread').map((m) => m.id) : []
     if (unreadIds.length) {
       this.deps.funnel.run({
-        write: () => this.deps.store.issues.markIssueMessagesRead(id, unreadIds, this.now()),
+        write: () => {
+          this.deps.store.issues.markIssueMessagesRead(id, unreadIds, this.now())
+          // Unified substrate mirror (#237) [spec:SP-34d7]: the rows share ids —
+          // a recipient read consumes the queued status on BOTH tables, so the
+          // stop-hook/prime pending count (new source) stops nagging too.
+          for (const mid of unreadIds) this.deps.store.messages.markDelivered(mid, null, this.now())
+        },
       })
     }
     return messages.map((m) => ({
@@ -63,18 +69,41 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
   /** Atomic claim (single guarded UPDATE): `claimed` is false when someone else won. */
   mailClaim(messageId: string, claimedBy: string): { claimed: boolean; message: IssueMessageRow } {
     const claimed = this.deps.funnel.run({
-      write: () => this.deps.store.issues.claimIssueMessage(messageId, claimedBy, this.now()),
+      write: () => {
+        const won = this.deps.store.issues.claimIssueMessage(messageId, claimedBy, this.now())
+        // Keep the unified-substrate mirror row in step (#237) [spec:SP-34d7].
+        if (won) this.deps.store.messages.markDelivered(messageId, null, this.now())
+        return won
+      },
     })
     const message = this.deps.store.issues.getIssueMessage(messageId)
     if (!message) throw new Error(`unknown mail message ${messageId}`)
     return { claimed, message }
   }
 
-  /** Cheap unread check (for stop-hooks / polling). */
-  mailPending(issueId: string): { unread: number } {
+  /** Cheap pending check (for stop-hooks / polling). Reads the unified
+   *  `messages` substrate (#237) [spec:SP-34d7] — queued rows awaiting this
+   *  issue — with the legacy unread count as the transition fallback (rows
+   *  that predate the substrate, or writers that bypass it). `senders` lets
+   *  the stop-hook render the coalesced pointer ("N messages from X, Y"). */
+  mailPending(issueId: string): { unread: number; senders: string[] } {
     const id = this.resolveRef(issueId)
     this.rowOrThrow(id)
-    return { unread: this.deps.store.issues.countUnreadIssueMessages(id) }
+    const queued = this.deps.store.messages.pendingFor({ kind: 'issue', id })
+    const legacy = this.deps.store.issues.countUnreadIssueMessages(id)
+    const senders = [
+      ...new Set(
+        queued.map((m) => {
+          if (m.fromKind !== 'agent') return m.fromKind
+          if (m.fromIssue) {
+            const issue = this.get(m.fromIssue)
+            return issue ? `issue:#${issue.seq}` : m.fromIssue
+          }
+          return m.fromSession ? `session:${m.fromSession}` : 'agent'
+        }),
+      ),
+    ]
+    return { unread: Math.max(queued.length, legacy), senders }
   }
 
   /** The issue a mail message belongs to (router scope enforcement for mailClaim). */

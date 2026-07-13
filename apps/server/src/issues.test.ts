@@ -2268,7 +2268,7 @@ describe('IssueService agent mail (#103)', () => {
     })
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const m = svc.sendMail(a.id, 'operator', 'hi')
-    expect(svc.mailPending(a.id)).toEqual({ unread: 1 })
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
     expect(m.status).toBe('unread')
   })
 
@@ -2279,7 +2279,7 @@ describe('IssueService agent mail (#103)', () => {
     const first = svc.mailInbox(a.id)
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ wasUnread: true, status: 'read', body: 'one' })
-    expect(svc.mailPending(a.id)).toEqual({ unread: 0 })
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
     const second = svc.mailInbox(a.id)
     expect(second[0]).toMatchObject({ wasUnread: false, status: 'read' })
   })
