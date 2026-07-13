@@ -134,6 +134,13 @@ export const SessionMeta = z.object({
    *  'user' | 'superagent:<threadId>' | 'steward' | 'issue:<issueId>' |
    *  'session:<sessionId>'. Absent = created before this field existed (unknown). */
   spawnedBy: z.string().optional(),
+  /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
+   *  [spec:SP-34d7 cross-harness]). Stamped at spawn/assignment by an external
+   *  coordinator; the substrate never interprets them. Parent linkage rides
+   *  spawnedBy ('session:<id>'), deliberately not duplicated. */
+  workflowRunId: z.string().optional(),
+  workflowStepId: z.string().optional(),
+  executionProfileId: z.string().optional(),
   /** Explicit issue attachment (issue-as-workspace): the issue this session is
    *  working on. Wins over cwd-derived worktree grouping. Structured successor
    *  of the freeform `spawnedBy: 'issue:<id>'`. Absent = unattached (legacy /

@@ -1031,6 +1031,21 @@ export const appRouter = t.router({
         ({ ctx, input }) =>
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'reply', input)!,
       ),
+    // Cross-harness subagents (#237) [spec:SP-34d7 cross-harness]: `podium
+    // agent spawn/await`. The gate owns validation + authz; the child is a
+    // full Podium session; await is BOUNDED (returns a snapshot, never hangs).
+    spawnAgent: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'spawnAgent', input)!,
+      ),
+    awaitAgent: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'awaitAgent', input)!,
+      ),
   }),
   files: t.router({
     read: t.procedure

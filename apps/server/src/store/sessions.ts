@@ -45,7 +45,7 @@ export class SessionsRepository {
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
-                deleted_by_issue_id
+                deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id
          FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
       )
       .all(...params) as Record<string, unknown>[]
@@ -78,6 +78,9 @@ export class SessionsRepository {
       headless: r.headless === 1,
       issueId: (r.issue_id as string | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
+      workflowRunId: (r.workflow_run_id as string | null) ?? null,
+      workflowStepId: (r.workflow_step_id as string | null) ?? null,
+      executionProfileId: (r.execution_profile_id as string | null) ?? null,
       deletedAt: (r.deleted_at as string | null) ?? null,
       deletionSource: (r.deletion_source as SessionDeletionSource | null) ?? null,
       deletedByIssueId: (r.deleted_by_issue_id as string | null) ?? null,
@@ -100,8 +103,8 @@ export class SessionsRepository {
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
-            deleted_by_issue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -124,7 +127,10 @@ export class SessionsRepository {
            read_at = excluded.read_at,
            deleted_at = excluded.deleted_at,
            deletion_source = excluded.deletion_source,
-           deleted_by_issue_id = excluded.deleted_by_issue_id`,
+           deleted_by_issue_id = excluded.deleted_by_issue_id,
+           workflow_run_id = excluded.workflow_run_id,
+           workflow_step_id = excluded.workflow_step_id,
+           execution_profile_id = excluded.execution_profile_id`,
       )
       .run(
         row.id,
@@ -154,6 +160,9 @@ export class SessionsRepository {
         row.deletedAt ?? null,
         row.deletionSource ?? null,
         row.deletedByIssueId ?? null,
+        row.workflowRunId ?? null,
+        row.workflowStepId ?? null,
+        row.executionProfileId ?? null,
       )
   }
 

@@ -102,6 +102,11 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     issueId: null,
     // And email-style read state (issue #124): always present, null = never opened.
     readAt: null,
+    // #285 workflow pass-through metadata (#237 [spec:SP-34d7 cross-harness]):
+    // always projected, null = none stamped at spawn.
+    workflowRunId: null,
+    workflowStepId: null,
+    executionProfileId: null,
     // Issue-lifecycle tombstones are always projected by the repository.
     deletedAt: null,
     // Tombstones record whether an issue cascade or a standalone remove created them.
@@ -138,6 +143,18 @@ describe('SessionStore sessions', () => {
     b.sessions.purgeSession('id-1')
     expect(b.sessions.loadSessions()).toEqual([])
     b.close()
+  })
+
+  it('round-trips #285 workflow pass-through metadata verbatim (never interpreted)', () => {
+    const s = new SessionStore(':memory:')
+    const r = row({
+      workflowRunId: 'run_9',
+      workflowStepId: 'step_3',
+      executionProfileId: 'prof_x',
+    })
+    s.sessions.upsertSession(r)
+    expect(s.sessions.loadSessions()).toEqual([r])
+    s.close()
   })
 
   it('hides issue-deleted session tombstones and restores them as exited records', () => {

@@ -649,7 +649,15 @@ export class MessageDeliveryService {
    */
   systemAckFallback(
     sessionId: string,
-    context: { outcome: string; issueSeq?: number; issueStage?: string; lastCommit?: string },
+    context: {
+      outcome: string
+      issueSeq?: number
+      issueStage?: string
+      lastCommit?: string
+      /** #285 pass-through: the settled session's assigned workflow step, when
+       *  one was stamped at spawn — the notice flags it as unresolved. */
+      workflowStepId?: string
+    },
   ): void {
     const rows = this.deliveredUnacked(sessionId)
     if (rows.length === 0) return
@@ -663,6 +671,9 @@ export class MessageDeliveryService {
         ? `issue #${context.issueSeq}${context.issueStage ? ` stage=${context.issueStage}` : ''}`
         : null,
       context.lastCommit ? `last commit: ${context.lastCommit}` : null,
+      context.workflowStepId
+        ? `workflow step ${context.workflowStepId} unresolved (no report from the worker)`
+        : null,
     ].filter(Boolean)
     for (const group of bySender.values()) {
       const latest = group[group.length - 1]!

@@ -71,6 +71,11 @@ export interface SessionInit {
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: string
+  /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
+   *  cross-harness]): stamped at spawn, never interpreted here. */
+  workflowRunId?: string
+  workflowStepId?: string
+  executionProfileId?: string
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session. Absent/null = never opened (unread). */
   readAt?: string | null
@@ -124,6 +129,10 @@ export class Session {
   readonly durableLabel: string
   /** Creation provenance (issue #60) — immutable for the life of the row. */
   readonly spawnedBy: string | undefined
+  /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
+  readonly workflowRunId: string | undefined
+  readonly workflowStepId: string | undefined
+  readonly executionProfileId: string | undefined
   /** True for a headless harness session (no PTY) — immutable for the row's life. */
   readonly headless: boolean
   /** Explicit issue attachment (issue-as-workspace) — mutable: the agent can
@@ -223,6 +232,9 @@ export class Session {
     this.origin = init.origin
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
+    this.workflowRunId = init.workflowRunId
+    this.workflowStepId = init.workflowStepId
+    this.executionProfileId = init.executionProfileId
     this.headless = init.headless ?? false
     this.issueId = init.issueId
     this.geometry = { ...init.geometry }
@@ -713,6 +725,9 @@ export class Session {
       headless: this.headless,
       issueId: this.issueId ?? null,
       readAt: this.readAt,
+      workflowRunId: this.workflowRunId ?? null,
+      workflowStepId: this.workflowStepId ?? null,
+      executionProfileId: this.executionProfileId ?? null,
     }
   }
 
@@ -760,6 +775,9 @@ export class Session {
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       ...(this.headless ? { headless: true } : {}),
       ...(this.issueId ? { issueId: this.issueId } : {}),
+      ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),
+      ...(this.workflowStepId ? { workflowStepId: this.workflowStepId } : {}),
+      ...(this.executionProfileId ? { executionProfileId: this.executionProfileId } : {}),
     }
   }
 

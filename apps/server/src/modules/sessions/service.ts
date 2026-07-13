@@ -369,6 +369,9 @@ export class SessionsService {
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
       ...(r.headless ? { headless: true } : {}),
       ...(r.issueId ? { issueId: r.issueId } : {}),
+      ...(r.workflowRunId ? { workflowRunId: r.workflowRunId } : {}),
+      ...(r.workflowStepId ? { workflowStepId: r.workflowStepId } : {}),
+      ...(r.executionProfileId ? { executionProfileId: r.executionProfileId } : {}),
       archived: r.archived,
       readAt: r.readAt ?? null,
       ...(Session.parseWorkState(r.workState)
@@ -726,6 +729,11 @@ export class SessionsService {
      *  router stamps 'user' (its callers are the human seams); programmatic callers
      *  (issues, superagent) pass their own value. Absent = unknown. */
     spawnedBy?: string
+    /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
+     *  cross-harness]) — persisted verbatim, never interpreted here. */
+    workflowRunId?: string
+    workflowStepId?: string
+    executionProfileId?: string
     /** Explicit issue attachment (issue-as-workspace). Absent = derive: a session
      *  spawned inside a worktree owned by exactly one non-archived issue is
      *  "continuing that issue" and gets its id stamped. */
@@ -764,6 +772,9 @@ export class SessionsService {
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
+      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
+      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(issueId ? { issueId } : {}),
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     })
@@ -1563,6 +1574,9 @@ export class SessionsService {
     model?: string
     effort?: string
     spawnedBy?: string
+    workflowRunId?: string
+    workflowStepId?: string
+    executionProfileId?: string
     issueId?: string
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
     sessionId?: string
@@ -1596,6 +1610,9 @@ export class SessionsService {
       durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+      ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
+      ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
+      ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
     })
     this.sessions.set(sessionId, session)

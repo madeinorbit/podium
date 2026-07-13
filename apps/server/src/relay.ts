@@ -670,6 +670,26 @@ export class SessionRegistry {
       messages: () => messagesSvc,
       issues: () => issues,
       listSessions: () => sessionsSvc.listSessions(),
+      // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
+      // child is a FULL Podium session through the one spawn path; --new is the
+      // deliberate issue-create path (never automatic).
+      spawnSession: (o) =>
+        sessionsSvc.createSession({
+          cwd: o.cwd,
+          agentKind: o.agentKind as AgentKind,
+          ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
+          ...(o.model !== undefined ? { model: o.model } : {}),
+          ...(o.effort !== undefined ? { effort: o.effort } : {}),
+          ...(o.issueId ? { issueId: o.issueId } : {}),
+          ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
+          ...(o.machineId ? { machineId: o.machineId } : {}),
+          ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
+          ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
+          ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
+        }),
+      createIssue: (o) => issues.create({ ...o, startNow: false }),
+      appendEvent: (e) => this.store.events.appendEvent(e),
+      now: () => new Date(this.now()).toISOString(),
     })
     readToolkit = new SessionReadToolkit({
       listSessions: () => sessionsSvc.listSessions(),
@@ -718,6 +738,9 @@ export class SessionRegistry {
               outcome,
               ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
               ...(lastCommit ? { lastCommit } : {}),
+              // #285 pass-through: a worker that settles without reporting its
+              // assigned workflow step gets that flagged in the settle notice.
+              ...(meta?.workflowStepId ? { workflowStepId: meta.workflowStepId } : {}),
             })
           })().catch(() => {}),
       },

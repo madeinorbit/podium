@@ -30,7 +30,8 @@ export interface MailClient {
 
 export class MailCliError extends Error {}
 
-const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help'])
+// 'worktree' is `podium agent spawn`'s boolean flag (agent-cli reuses this parser).
+const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help', 'worktree'])
 
 export function parseMailArgs(argv: string[]): {
   command?: string

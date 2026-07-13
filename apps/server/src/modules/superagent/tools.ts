@@ -175,6 +175,11 @@ export function buildSuperagentTools(
               type: 'string',
               description: 'optional prompt typed into the agent once it starts',
             },
+            model: { type: 'string', description: 'optional model override for the harness' },
+            effort: {
+              type: 'string',
+              description: 'optional reasoning-effort override for the harness',
+            },
           },
           required: ['agentKind'],
         },
@@ -216,6 +221,10 @@ export function buildSuperagentTools(
           agentKind,
           cwd,
           ...(title ? { title } : {}),
+          // Cross-harness spawn parity (#237) [spec:SP-34d7 cross-harness]:
+          // per-spawn model/effort overrides ride the same spawn path.
+          ...(str(args.model) ? { model: str(args.model)! } : {}),
+          ...(str(args.effort) ? { effort: str(args.effort)! } : {}),
           spawnedBy,
         })
         if (str(args.name)) sessions.renameSession({ sessionId, name: str(args.name) ?? '' })

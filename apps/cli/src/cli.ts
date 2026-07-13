@@ -133,6 +133,7 @@ export type LaunchPlan =
   | { kind: 'issue'; args: string[] }
   | { kind: 'session'; args: string[] }
   | { kind: 'mail'; args: string[] }
+  | { kind: 'agent'; args: string[] }
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'lock'; args: string[] }
@@ -193,7 +194,7 @@ export function resolvePlan(
   }
   // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
   // sub-CLIs that render their own richer help (issue/session/spec/worktree).
-  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree', 'mail'])
+  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree', 'mail', 'agent'])
   if (
     argv[0] === 'help' ||
     ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
@@ -287,6 +288,7 @@ export function resolvePlan(
   if (argv[0] === 'issue') return { kind: 'issue', args: argv.slice(1) }
   if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
   if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
+  if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
@@ -456,6 +458,7 @@ export function helpText(): string {
     '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
     '  session <command>     Send turns to agent sessions; status/read for a peek',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
+    '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
     '  worktree [path]       Declare the worktree this agent session works in',
     '',
     "Agent sessions: update/stop/channel/set-server need the operator's approval —",
@@ -812,6 +815,13 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'mail': {
       const { mailCliMain } = await import('./mail-cli')
       await mailCliMain(plan.args)
+      return
+    }
+    // `podium agent <command>`: cross-harness subagent spawn + bounded await
+    // (#237) [spec:SP-34d7 cross-harness].
+    case 'agent': {
+      const { agentCliMain } = await import('./agent-cli')
+      await agentCliMain(plan.args)
       return
     }
     // `podium spec <command>`: read/maintain the living project spec (<repo>/pspec/).
