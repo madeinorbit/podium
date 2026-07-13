@@ -1004,10 +1004,26 @@ describe('substrate body sanitizer (PTY bracketed-paste escape)', () => {
     expect(sent[0]!.text).toContain('hi[201~injectedcommand')
   })
 
-  it('operator-principal substrate sends are sanitized too (stay unwrapped)', () => {
+  it('operator-principal bodies are BYTE-FAITHFUL: unwrapped AND unsanitized', () => {
+    // The human's bytes are their own — they can already type anything into
+    // their own terminal directly, so there is nothing to neutralize.
+    const body = `a${PASTE_END}b${BEL}c\rd${C1_ST}e`
     const { svc, sent } = harness([session({ sessionId: 's1' })])
-    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: `a${PASTE_END}b` })
-    expect(sent[0]!.text).toBe('a[201~b')
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body })
+    expect(sent[0]!.text).toBe(body)
+  })
+
+  it('the SAME control-laden body from an agent is still neutralized + enveloped', () => {
+    const body = `a${PASTE_END}b${BEL}c\rd${C1_ST}e`
+    const { svc, sent } = harness([session({ sessionId: 's1' })])
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 's1' }, body },
+    )
+    expect(sent[0]!.text).not.toContain(ESC)
+    expect(sent[0]!.text).not.toContain('\r')
+    expect(sent[0]!.text).toContain('[podium message')
+    expect(sent[0]!.text).toContain('a[201~bcde')
   })
 })
 

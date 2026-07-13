@@ -876,11 +876,13 @@ export class MessageDeliveryService {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
       return this.pointerText([message])
     }
-    // Substrate boundary: EVERY delivered body is control-stripped so it can
-    // never break out of the bracketed paste (ESC[201~) in typeText — which
-    // itself stays byte-faithful for operator/UI direct typing.
+    // Operator bodies are BYTE-FAITHFUL: the human's bytes are their own —
+    // they can already type anything directly into their own terminal, so
+    // there is no escalation to prevent. Unwrapped AND unsanitized.
+    if (message.fromKind === 'operator') return message.body
+    // Substrate boundary: every NON-operator delivered body is control-stripped
+    // so it can never break out of the bracketed paste (ESC[201~) in typeText.
     const body = sanitizeBody(message.body)
-    if (message.fromKind === 'operator') return body
     return renderEnvelope({ ...message, body }, this.fromLabel(message), this.toLabel(message))
   }
 
