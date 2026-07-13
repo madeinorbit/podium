@@ -64,6 +64,28 @@ describe('runIssueCli', () => {
     await expect(runIssueCli(['claim', '--id', '1'], client)).rejects.toThrow(/assignee/)
   })
 
+  it('unknown flags are rejected, never silently dropped (#345)', async () => {
+    await expect(runIssueCli(['update', '1', '--totally-bogus', 'x'], client)).rejects.toThrow(
+      /unknown flag --totally-bogus/,
+    )
+    // read path too — this used to execute the full list
+    await expect(runIssueCli(['list', '--repoPath', '/r', '--stage', 'x'], client)).rejects.toThrow(
+      /unknown flag --stage/,
+    )
+  })
+
+  it('global flags (--json) do not trip the strict schemas', async () => {
+    const out = await runIssueCli(['ready', '--repoPath', '/r', '--json'], client)
+    expect(JSON.parse(out).ok).toBe(true)
+  })
+
+  it('update with no field flags errors instead of reporting success (#345)', async () => {
+    const update = vi.fn(async () => ({ seq: 1 }))
+    const c = { issues: { update: { mutate: update } } } as any
+    await expect(runIssueCli(['update', '1'], c)).rejects.toThrow(/no fields given/)
+    expect(update).not.toHaveBeenCalled()
+  })
+
   it('maps positionals onto the declared keys (show 10 ≡ show --id 10)', async () => {
     const get = vi.fn(async () => ({
       id: 'iss_a',

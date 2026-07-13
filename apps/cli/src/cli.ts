@@ -37,9 +37,13 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 
 /** Pure mode resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
 export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan {
-  const sub = argv.find((a) => (SUBCOMMANDS as string[]).includes(a)) as PodiumMode | undefined
+  // Subcommands are positional: only argv[0] can name the mode — a flag VALUE that
+  // happens to equal a mode name (`--name daemon`) must not switch modes.
+  const sub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '')
+    ? (argv[0] as PodiumMode)
+    : undefined
   // `all` is a friendly alias for all-in-one.
-  const aliased = argv.includes('all') ? 'all-in-one' : undefined
+  const aliased = argv[0] === 'all' ? 'all-in-one' : undefined
   const flagIdx = argv.indexOf('--server')
   const serverFlag = flagIdx >= 0 ? argv[flagIdx + 1] : undefined
   const pairIdx = argv.indexOf('--pair')
@@ -227,8 +231,8 @@ export function resolvePlan(
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
   // serving the web setup UI in-process.
-  const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
-  const explicitSub = SUBCOMMANDS.some((s) => argv.includes(s)) || argv.includes('all')
+  const forceSetup = argv[0] === 'setup' || argv.includes('--reconfigure')
+  const explicitSub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '') || argv[0] === 'all'
   const bareInvocation = !explicitSub
   // MIGRATION DEBT: a box configured before the persistence step existed (mode set, no
   // `persistence`) — or one written by the web setup — would otherwise fall through to the

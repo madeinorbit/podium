@@ -25,6 +25,12 @@ export async function runWorktreeCli(
       exitCode: 0,
     }
   }
+  // Unknown flags are an error, never silently dropped (#345) — a stray flag must
+  // not fall through to "set worktree to cwd".
+  const unknown = argv.filter((a) => a.startsWith('--'))
+  if (unknown.length) {
+    return { text: `podium worktree: unknown flag ${unknown[0]} (see --help)`, exitCode: 1 }
+  }
   if (!opts.relayEndpoint) {
     return {
       text: 'podium worktree: PODIUM_ISSUE_RELAY is not set — this command only works inside a Podium-managed agent session.',

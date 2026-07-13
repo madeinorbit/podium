@@ -109,7 +109,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'prime',
     summary: 'how to work with the spec + the current component tree',
-    args: z.object({ ...repoArg }),
+    args: z.strictObject({ ...repoArg }),
     run: async (client, a) => {
       const tree = renderTree(await fetchList(client, a.repoPath as string))
       const text = `${SPEC_AGENT_GUIDE}\n\nCURRENT SPEC TREE\n${tree}`
@@ -119,7 +119,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'tree',
     summary: 'the component tree (ids, titles, status)',
-    args: z.object({ ...repoArg }),
+    args: z.strictObject({ ...repoArg }),
     run: async (client, a) => {
       const list = await fetchList(client, a.repoPath as string)
       return { text: renderTree(list), data: list }
@@ -128,7 +128,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'show',
     summary: 'one component: breadcrumb, children, and body HTML',
-    args: z.object({ ...repoArg, id: z.string() }),
+    args: z.strictObject({ ...repoArg, id: z.string() }),
     positionals: ['id'],
     run: async (client, a) => {
       const repoPath = a.repoPath as string
@@ -159,7 +159,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'search',
     summary: 'find components by title/body text',
-    args: z.object({ ...repoArg, query: z.string() }),
+    args: z.strictObject({ ...repoArg, query: z.string() }),
     restKey: 'query',
     run: async (client, a) => {
       const hits = (await client.specs.search.query({
@@ -177,7 +177,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'create',
     summary: 'add a component: create <parent-id> "<title>" [--body <html>]',
-    args: z.object({
+    args: z.strictObject({
       ...repoArg,
       parent: z.string(),
       title: z.string(),
@@ -204,7 +204,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
     name: 'update',
     summary:
       'edit a component: update <id> [--title …] [--status active|draft|superseded] [--parent <id>] [--body <html> | --body-file <path>]',
-    args: z.object({
+    args: z.strictObject({
       ...repoArg,
       id: z.string(),
       title: z.string().optional(),
@@ -242,7 +242,7 @@ export const SPEC_COMMANDS: SpecCommand[] = [
   {
     name: 'remove',
     summary: 'delete a leaf component (children must be moved or deleted first)',
-    args: z.object({ ...repoArg, id: z.string() }),
+    args: z.strictObject({ ...repoArg, id: z.string() }),
     positionals: ['id'],
     run: async (client, a) => {
       await client.specs.remove.mutate({

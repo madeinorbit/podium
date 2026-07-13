@@ -638,12 +638,21 @@ const defs = {
     input: z.object({
       sessionId: z.string(),
       targetId: z.string().optional(),
-      newSubissue: z
-        .object({ title: z.string().min(1), origin: z.enum(['human', 'agent']).optional() })
-        .optional(),
+      // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
+      // from the caller below, exactly like issues.create, so it cannot be forged.
+      newSubissue: z.object({ title: z.string().min(1) }).optional(),
     }),
     action: 'write',
-    handler: (ctx, input) => ctx.issues.attachSession(input),
+    handler: (ctx, input) => {
+      const origin: 'human' | 'agent' =
+        ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
+      const { newSubissue, ...rest } = input
+      return ctx.issues.attachSession(
+        newSubissue
+          ? { ...rest, newSubissue: { title: newSubissue.title, origin } }
+          : { ...rest },
+      )
+    },
   }),
   archive: def({
     kind: 'mutation',

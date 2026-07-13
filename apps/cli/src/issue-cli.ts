@@ -5,6 +5,7 @@ import {
   makeRelayIssueClient,
 } from '@podium/issue-client'
 import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
+import type { z } from 'zod'
 
 /** Kebab-case flag → camelCase key, so `--outside-scope` becomes `outsideScope`. */
 const camelFlag = (s: string): string => s.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
@@ -127,6 +128,29 @@ export function registryHelp(
   return undefined
 }
 
+/** Flags valid on EVERY command, handled by the dispatcher itself — stripped before
+ *  the (strict) per-command schema sees the args, so they never trip
+ *  unrecognized-key rejection (#345). */
+export function stripGlobalFlags(args: Record<string, unknown>): Record<string, unknown> {
+  const { json: _json, help: _help, outsideScope: _outsideScope, ...rest } = args
+  return rest
+}
+
+const kebab = (k: string): string => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+
+/** Render zod issues for the CLI: unrecognized keys become `unknown flag --x` with a
+ *  --help pointer (the strict schemas reject them since #345); everything else keeps
+ *  the field: message form. */
+export function renderArgIssues(command: string, error: z.ZodError): string {
+  return error.issues
+    .map((i) =>
+      i.code === 'unrecognized_keys'
+        ? `unknown flag${i.keys.length > 1 ? 's' : ''} ${i.keys.map((k) => `--${kebab(k)}`).join(', ')} (see \`${command} --help\`)`
+        : `${i.path.join('.') || 'args'}: ${i.message}`,
+    )
+    .join('; ')
+}
+
 /** Inject the inferred repo when the command takes a `--repoPath` and none was given.
  *  A command "needs a repo" iff its zod `args` shape has a `repoPath` key; `infer`
  *  (cwd → repo) is only consulted in that case and only when `repoPath` is absent. */
@@ -193,12 +217,9 @@ export async function runIssueCli(
       return undefined
     }
   })
-  const parsed = cmd.args.safeParse(resolved)
+  const parsed = cmd.args.safeParse(stripGlobalFlags(resolved))
   if (!parsed.success) {
-    const details = parsed.error.issues
-      .map((i) => `${i.path.join('.') || 'args'}: ${i.message}`)
-      .join('; ')
-    throw new IssueCliError(`invalid args for ${command}: ${details}`)
+    throw new IssueCliError(`invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`)
   }
   const res = await cmd.run(client, parsed.data as Record<string, unknown>)
   return args.json === true

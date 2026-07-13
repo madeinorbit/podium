@@ -20,7 +20,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
   attachSession(opts: {
     sessionId: string
     targetId?: string
-    newSubissue?: { title: string; origin?: 'human' | 'agent' }
+    newSubissue?: { title: string; origin: 'human' | 'agent' }
   }): IssueWire {
     const { getSessionIssueId, setSessionIssueId } = this.deps
     if (!getSessionIssueId || !setSessionIssueId) {
@@ -41,7 +41,8 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
         title,
         startNow: false,
         parentId,
-        origin: opts.newSubissue.origin ?? 'human',
+        // Derived by the registry from the caller (#348) — never client-supplied.
+        origin: opts.newSubissue.origin,
         // A session re-homes here and works out of it — it is a real, trackable
         // piece of work, so it is human-audience (visible on the board) even when
         // an agent created it (#198). The "agent cuts a human-facing issue" case.
