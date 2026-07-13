@@ -1,0 +1,37 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-34d7] -->
+<section data-spec="SP-34d7" data-title="Agent messaging: one substrate" data-parent="SP-root" data-order="9" data-status="draft" data-updated="1783958444180">
+<p>All communication between agents, the superagent, the steward, and the chat UI is <strong>one durable message substrate</strong> — a single <code>messages</code> table with a per-message delivery ledger. No separate mail/nudge/notification mechanisms. Full design: <code>docs/superpowers/specs/2026-07-13-agent-messaging-design.md</code> (issue #237). Decisions below were made explicitly by Michael in the 2026-07-13 design review.</p>
+
+<h3>Delivery semantics</h3>
+<ul>
+  <li>Two orthogonal axes: <strong>urgency</strong> (<code>fyi</code> / <code>next-turn</code> / <code>interrupt</code>) × <strong>lifecycle</strong> (<code>wait</code> / <code>wake</code>). Sender declares both; a relationship-based policy clamps (downgrade, never reject).</li>
+  <li>Senders never check target state; the <strong>server resolves session state at delivery time</strong> (TOCTOU-safe fire-and-forget).</li>
+  <li><strong>Peers may wake.</strong> Hard interrupt (ESC) is superagent/parent-only; peers cap at <code>next-turn</code>.</li>
+  <li><strong>Wake auto-spawns</strong> a fresh agent on the issue when nothing is resumable. This deliberately reverses the earlier "no auto-dispatch product-wide" stance; containment = wake cooldown per sender→issue pair, per-issue spawn budget, hop-depth clamp on message-triggered chains.</li>
+</ul>
+
+<h3>Attribution &amp; authority</h3>
+<ul>
+  <li>Sender identity is <strong>server-stamped</strong>; the envelope is server-rendered at delivery. <strong>Unwrapped turn = operator</strong> is an invariant: only the human's own words land without an envelope.</li>
+  <li><strong>Superagent ≠ operator</strong>: distinct principal, parent-grade rights, always enveloped — a transcript always shows whether the human or the superagent said it.</li>
+  <li>Enveloped content carries the sender's authority, not zero authority: superagent/parent messages are instructions (within the receiver's issue scope); peer messages are requests/information that never redefine the receiver's task.</li>
+  <li>Human paths: direct terminal typing stays raw PTY (not a message); chat-UI sends ride the substrate as <code>operator</code> — unwrapped, unclamped, ledgered.</li>
+</ul>
+
+<h3>Acks &amp; notifications</h3>
+<ul>
+  <li>Receivers are asked to <strong>ack with context</strong> (what they did). The deterministic steward fallback on session settle fires <strong>only if no agent ack preceded it</strong>.</li>
+  <li>Steward/subscription notifications are ordinary messages of a distinct kind: coalesced, short-TTL, never expect acks, never wake (an explicit parent settle-subscription is the one exception).</li>
+</ul>
+
+<h3>Reading other sessions &amp; cross-harness subagents</h3>
+<ul>
+  <li>Read ladder, cheapest first: structured status → bounded cursor transcript read → server-side recap (watermark delta) → <em>seance</em> (<code>ask</code>: wake/resume the session, it answers from its own context, only the answer crosses over).</li>
+  <li>Cross-harness subagent children are <strong>full Podium sessions</strong> — visible, human-attachable, grouped under the parent and auto-tidied. No hidden broker daemons. All child driving uses the harness's <em>interactive</em> surface (PTY/hooks/native resume), never headless <code>-p</code>, preserving subscription auth.</li>
+</ul>
+
+<h3>Topology</h3>
+<ul>
+  <li><strong>No hub</strong> (deferred): the server owns the messages table and drives delivery; daemons are dumb executors told exactly what to do when the target session lives on them.</li>
+</ul>
+</section>
