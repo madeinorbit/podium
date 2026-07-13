@@ -10,7 +10,7 @@
     "@podium/protocol": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@podium/terminal-client-react": "workspace:*",
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "3.1.1",
     "@trpc/client": "^11.18.0",
     "expo": "~57.0.2",
     "expo-blur": "~57.0.0",
