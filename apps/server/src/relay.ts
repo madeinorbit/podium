@@ -36,6 +36,7 @@ import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
 import { HeadlessService } from './modules/superagent/headless'
+import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { StewardService } from './steward'
 import { SessionStore } from './store'
@@ -103,6 +104,7 @@ export interface RegistryModules {
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
   approvals: ApprovalService
+  workflows: WorkflowService
   /** Advisory named lease locks [spec:SP-85d1]. */
   locks: LockService
   lockCommands: LockCommandDispatcher
@@ -192,6 +194,7 @@ export class SessionRegistry {
     let conversations!: ConversationsService
     let issues!: IssueService
     let issueSessionLifecycle!: IssueSessionLifecycle
+    let workflows!: WorkflowService
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
 
@@ -330,6 +333,28 @@ export class SessionRegistry {
       },
       machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
       notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
+      executeServerOp: (op, sessionId) => {
+        const caller = {
+          actor: { kind: 'session' as const, id: sessionId },
+          protectedWrite: true,
+        }
+        if (op.kind === 'workflow-publish') {
+          const revision = workflows.publish({ revisionId: op.revisionId }, caller)
+          return `published workflow revision ${revision.id}`
+        }
+        if (op.kind === 'workflow-set-default') {
+          const binding = workflows.assign(
+            {
+              targetKind: op.targetKind,
+              targetId: op.targetId,
+              revisionId: op.revisionId,
+            },
+            caller,
+          )
+          return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
+        }
+        return null
+      },
       logEvent: (kind, issueId, payload) => {
         try {
           this.store.events.appendEvent({
@@ -366,6 +391,37 @@ export class SessionRegistry {
       locks: () => locks,
       issues: () => issues,
     })
+    workflows = new WorkflowService({
+      store: this.store.workflows,
+      now: () => new Date(this.now()).toISOString(),
+      session: (sessionId) => {
+        const s = liveSessions().get(sessionId)
+        return s
+          ? {
+              sessionId: s.sessionId,
+              cwd: s.cwd,
+              ...(s.issueId ? { issueId: s.issueId } : {}),
+              agentKind: s.agentKind,
+              machineId: s.machineId,
+            }
+          : undefined
+      },
+      issue: (issueId) => {
+        const issue = issues?.get(issueId)
+        return issue
+          ? {
+              id: issue.id,
+              repoId: issue.repoId,
+              repoPath: issue.repoPath,
+              worktreePath: issue.worktreePath,
+            }
+          : undefined
+      },
+      repoIdForPath: (path) => this.store.repos.resolveRepoIdForPath(path),
+      notifyCoordinator: (sessionId, text) => {
+        void sessionsSvc.queueText({ sessionId, text })
+      },
+    })
     const issueRelayGate = new IssueRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -392,6 +448,17 @@ export class SessionRegistry {
         // in the gate (session targets: same containment as the sessions arm).
         if (router === 'messages') {
           return messageGate.dispatch(capability, overrideScope, proc, input)
+        }
+        if (router === 'workflows') {
+          return workflows.dispatch(
+            {
+              actor: { kind: 'session', id: capability.actorSessionId ?? null },
+              capability,
+              ...(overrideScope ? { overrideScope: true } : {}),
+            },
+            proc,
+            input,
+          )
         }
         if (router === 'sessions') {
           // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
@@ -545,12 +612,23 @@ export class SessionRegistry {
           if (proc === 'get') return Promise.resolve(approvals.getFromAgent(input))
           return undefined
         }
-        return issueCommands.dispatch(
+        const result = issueCommands.dispatch(
           { capability, ...(overrideScope ? { overrideScope } : {}) },
           router,
           proc,
           input,
         )
+        const actorSessionId = capability.actorSessionId
+        if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
+          return Promise.resolve(result).then((issuePrime) => {
+            const workflowPrime = workflows.prime(
+              {},
+              { actor: { kind: 'session', id: actorSessionId }, capability },
+            )
+            return `${String(issuePrime)}\n\n${workflowPrime}`
+          })
+        }
+        return result
       },
       capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
@@ -588,6 +666,13 @@ export class SessionRegistry {
       runIssueRelay: (machineId, msg) => void issueRelayGate.run(machineId, msg),
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
+      workflowForStart: (input) => {
+        const prepared = workflows.prepareStart(input)
+        return prepared ? { revisionId: prepared.revision.id, prompt: prepared.prompt } : null
+      },
+      startWorkflowRun: (input) => {
+        workflows.startRun(input)
+      },
     })
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     // releases its held locks and leaves every wait queue (the queue advances
@@ -800,6 +885,7 @@ export class SessionRegistry {
       issueCommands,
       specs,
       approvals,
+      workflows,
       locks,
       lockCommands,
       messages: messagesSvc,

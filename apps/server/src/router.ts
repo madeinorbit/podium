@@ -29,6 +29,7 @@ import { lockRegistry } from './modules/lock/registry'
 import { lockRouterFromCommands } from './modules/lock/trpc'
 import { specsInputs } from './modules/specs/service'
 import { UserFocus } from './modules/superagent'
+import { type WorkflowCaller, workflowInputs } from './modules/workflows/service'
 import type { RegistryModules } from './relay'
 import { normalizeOriginUrl } from './repo-id'
 import { browseDirectories } from './repo-registry'
@@ -153,6 +154,16 @@ function cloudError(error: unknown): never {
   }
   throw error
 }
+function workflowCaller(ctx: Context): WorkflowCaller {
+  const sessionId = ctx.capability.actorSessionId
+  return sessionId
+    ? {
+        actor: { kind: 'session', id: sessionId },
+        capability: ctx.capability,
+        ...(ctx.overrideScope ? { overrideScope: true } : {}),
+      }
+    : { actor: { kind: 'operator', id: null }, protectedWrite: true }
+}
 
 export const appRouter = t.router({
   cloud: t.router({
@@ -263,6 +274,8 @@ export const appRouter = t.router({
           // Explicit issue attachment (issue-as-workspace). Omitted = derived from
           // cwd (sole non-archived owning issue) inside createSession.
           issueId: z.string().optional(),
+          // Explicit workflow override; omitted = issue → repository → global default.
+          workflowRevisionId: z.string().optional(),
           // Client-supplied id (optimistic UI): the web client can render an
           // optimistic row before the round-trip completes, then reconcile it
           // seamlessly when the server's broadcast lands using this same id.
@@ -1129,6 +1142,62 @@ export const appRouter = t.router({
   // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
   // (reads/writes on the server host). The repo-root allowlist gate lives in
   // the SpecsService so the daemon-relay path enforces the identical check.
+  workflows: t.router({
+    list: t.procedure
+      .input(workflowInputs.list)
+      .query(({ ctx, input }) => mods(ctx).workflows.list(input, workflowCaller(ctx))),
+    get: t.procedure
+      .input(workflowInputs.get)
+      .query(({ ctx, input }) => mods(ctx).workflows.get(input, workflowCaller(ctx))),
+    create: t.procedure
+      .input(workflowInputs.create)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.create(input, workflowCaller(ctx))),
+    revise: t.procedure
+      .input(workflowInputs.revise)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.revise(input, workflowCaller(ctx))),
+    fork: t.procedure
+      .input(workflowInputs.fork)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.fork(input, workflowCaller(ctx))),
+    publish: t.procedure
+      .input(workflowInputs.publish)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.publish(input, workflowCaller(ctx))),
+    bindings: t.procedure
+      .input(workflowInputs.bindings)
+      .query(({ ctx, input }) => mods(ctx).workflows.bindings(input, workflowCaller(ctx))),
+    assign: t.procedure
+      .input(workflowInputs.assign)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.assign(input, workflowCaller(ctx))),
+    profiles: t.procedure
+      .input(workflowInputs.profiles)
+      .query(({ ctx, input }) => mods(ctx).workflows.profiles(input, workflowCaller(ctx))),
+    profileSave: t.procedure
+      .input(workflowInputs.profileSave)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.profileSave(input, workflowCaller(ctx))),
+    runs: t.procedure
+      .input(workflowInputs.runs)
+      .query(({ ctx, input }) => mods(ctx).workflows.runs(input, workflowCaller(ctx))),
+    prime: t.procedure
+      .input(workflowInputs.prime)
+      .query(({ ctx, input }) => mods(ctx).workflows.prime(input, workflowCaller(ctx))),
+    status: t.procedure
+      .input(workflowInputs.status)
+      .query(({ ctx, input }) => mods(ctx).workflows.status(input, workflowCaller(ctx))),
+    checkpoint: t.procedure
+      .input(workflowInputs.checkpoint)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.checkpoint(input, workflowCaller(ctx))),
+    assignStep: t.procedure
+      .input(workflowInputs.assignStep)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.assignStep(input, workflowCaller(ctx))),
+    skip: t.procedure
+      .input(workflowInputs.skip)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.skip(input, workflowCaller(ctx))),
+    retry: t.procedure
+      .input(workflowInputs.retry)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.retry(input, workflowCaller(ctx))),
+    adopt: t.procedure
+      .input(workflowInputs.adopt)
+      .mutation(({ ctx, input }) => mods(ctx).workflows.adopt(input, workflowCaller(ctx))),
+  }),
   // Approval broker [spec:SP-edbb] (#410): the operator decision surface. The
   // agent side (request/get) rides the issue relay, never this router.
   approvals: t.router({

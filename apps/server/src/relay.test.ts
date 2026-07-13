@@ -164,6 +164,51 @@ describe('SessionRegistry', () => {
     )
   })
 
+  it('pins one exact workflow revision, prepends it to the spawn prompt, and starts a run', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
+    const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
+    const created = reg.modules.workflows.create(
+      {
+        name: 'Research, plan, implement',
+        description: '',
+        scope: 'global',
+        instructions: 'Research before changing code.',
+        steps: [
+          {
+            id: 'research',
+            title: 'Research',
+            instructions: 'Inspect the system.',
+            completionGuidance: 'Unknowns resolved.',
+          },
+        ],
+      },
+      operator,
+    )
+    reg.modules.workflows.publish({ revisionId: created.revision.id }, operator)
+    reg.modules.workflows.assign(
+      { targetKind: 'global', targetId: '', revisionId: created.revision.id },
+      operator,
+    )
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+      initialPrompt: 'fix the bug',
+    })
+    const spawn = daemon.find(
+      (message) => message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(spawn).toMatchObject({ type: 'spawn' })
+    expect(spawn?.type === 'spawn' ? spawn.initialPrompt : '').toContain(
+      '# Podium workflow: Research, plan, implement (revision 1)',
+    )
+    expect(spawn?.type === 'spawn' ? spawn.initialPrompt : '').toContain('# Task\n\nfix the bug')
+    expect(reg.modules.workflows.runs({}, operator)).toMatchObject([
+      { coordinatorSessionId: sessionId, revision: { id: created.revision.id } },
+    ])
+  })
+
   it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

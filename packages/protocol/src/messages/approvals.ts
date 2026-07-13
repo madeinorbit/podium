@@ -5,9 +5,9 @@ import { z } from 'zod'
  *
  * An agent session may INITIATE any podium management op, but never executes it:
  * the CLI call becomes an approval request (over the issue relay), the user
- * approves/denies in the web UI, and on approval the OWNING DAEMON executes the
- * op by spawning the podium binary. The op catalog below is closed and typed —
- * the server only ever forwards one of these shapes, so an agent cannot smuggle
+ * approves/denies in the web UI, and on approval either the owning daemon or a
+ * closed server-side handler executes it. The op catalog below is closed and
+ * typed — an agent cannot smuggle
  * arbitrary argv through the broker.
  */
 
@@ -22,6 +22,15 @@ export const ApprovalOp = z.discriminatedUnion('kind', [
   // Repoint the daemon at another server (trust-topology change — the UI must
   // render the target URL, not just the op name).
   z.object({ kind: z.literal('set-server'), target: z.string().min(1) }),
+  // Workflow publication/default changes affect agents beyond the requesting
+  // session, so the server applies them only after an operator decision.
+  z.object({ kind: z.literal('workflow-publish'), revisionId: z.string().min(1) }),
+  z.object({
+    kind: z.literal('workflow-set-default'),
+    targetKind: z.enum(['global', 'repository']),
+    targetId: z.string(),
+    revisionId: z.string().min(1),
+  }),
 ])
 export type ApprovalOp = z.infer<typeof ApprovalOp>
 
@@ -84,5 +93,9 @@ export function describeApprovalOp(op: ApprovalOp): string {
       return 'stop the podium processes on this machine'
     case 'set-server':
       return `repoint the daemon at server ${op.target}`
+    case 'workflow-publish':
+      return `publish global workflow revision ${op.revisionId}`
+    case 'workflow-set-default':
+      return `set the ${op.targetKind} workflow default${op.targetId ? ` for ${op.targetId}` : ''} to revision ${op.revisionId}`
   }
 }

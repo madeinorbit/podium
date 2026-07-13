@@ -46,6 +46,7 @@ import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
 import { SettingsRepository } from './store/settings'
 import { SuperagentRepository } from './store/superagent'
+import { WorkflowsRepository } from './store/workflows'
 
 export type { MessagePrincipalRef } from './store/messages'
 export * from './store/types'
@@ -73,6 +74,7 @@ export class SessionStore {
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
   readonly readWatermarks: ReadWatermarksRepository
   readonly approvals: ApprovalsRepository
+  readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
 
@@ -113,6 +115,7 @@ export class SessionStore {
     this.events = new EventsRepository(this.db)
     this.messages = new MessagesRepository(this.db)
     this.readWatermarks = new ReadWatermarksRepository(this.db)
+    this.workflows = new WorkflowsRepository(this.db)
     this.locks = new LocksRepository(this.db)
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects

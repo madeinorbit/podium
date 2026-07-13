@@ -3,9 +3,9 @@ import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
-  type ApprovalWire,
   AgentKind,
   type AgentRuntimeState,
+  type ApprovalWire,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
@@ -133,6 +133,22 @@ interface SessionsServiceDeps {
   /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
   onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
   approvalsPending(): ApprovalWire[]
+  /** Resolve one exact workflow revision before spawn so its instructions ride
+   * the race-free initial prompt. No run is persisted until spawn succeeds. */
+  workflowForStart(input: {
+    sessionId: string
+    cwd: string
+    issueId?: string
+    explicitRevisionId?: string
+  }): { revisionId: string; prompt: string } | null
+  /** Commit the pinned run immediately after the session row + spawn command
+   * exist. This keeps failed spawns from leaving phantom workflow runs. */
+  startWorkflowRun(input: {
+    sessionId: string
+    cwd: string
+    issueId?: string
+    revisionId: string
+  }): void
 }
 
 /**
@@ -742,6 +758,8 @@ export class SessionsService {
      *  fresh uuid, so an optimistic client row reconciles onto the real session
      *  without a swap. Absent = mint one (unchanged default behavior). */
     sessionId?: string
+    /** Explicit workflow override; absent = issue → repository → global default. */
+    workflowRevisionId?: string
   }): {
     sessionId: string
   } {
@@ -755,13 +773,22 @@ export class SessionsService {
     const agentKind = requested.success
       ? requested.data
       : resolveRole(this.store.settings.getSettings(), 'coding').harness
-    const prompt = input.initialPrompt?.trim() ? input.initialPrompt : undefined
-    // argv delivery is race-free (the CLI reads the prompt at startup); only
-    // argv-capable agents get it that way. Others fall through to a draft seed.
-    const useArgv = prompt !== undefined && agentSupportsInitialPrompt(agentKind)
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
+    const sessionId = input.sessionId ?? randomUUID()
+    const workflow = this.deps.workflowForStart({
+      sessionId,
+      cwd: input.cwd,
+      ...(issueId ? { issueId } : {}),
+      ...(input.workflowRevisionId ? { explicitRevisionId: input.workflowRevisionId } : {}),
+    })
+    const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
+    const prompt = workflow
+      ? `${workflow.prompt}${taskPrompt ? `\n\n---\n\n# Task\n\n${taskPrompt}` : ''}`
+      : taskPrompt
+    // argv delivery is race-free; other agents receive the same text as a draft seed.
+    const useArgv = prompt !== undefined && agentSupportsInitialPrompt(agentKind)
     const spawned = this.spawn({
       agentKind,
       cwd: input.cwd,
@@ -776,8 +803,15 @@ export class SessionsService {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(issueId ? { issueId } : {}),
-      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      sessionId,
     })
+    if (workflow)
+      this.deps.startWorkflowRun({
+        sessionId,
+        cwd: input.cwd,
+        ...(issueId ? { issueId } : {}),
+        revisionId: workflow.revisionId,
+      })
     if (prompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
     }
@@ -1951,7 +1985,10 @@ export class SessionsService {
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
-        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(msg.state)) {
+        if (
+          !SessionsService.isAttentionPhase(prev) &&
+          SessionsService.isAttentionPhase(msg.state)
+        ) {
           this.issues().onSessionAttention(msg.sessionId)
         }
         break

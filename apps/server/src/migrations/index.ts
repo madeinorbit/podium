@@ -48,6 +48,7 @@ import { up as messagesReminded } from './018-messages-reminded'
 import { up as sessionsWorkflowMetadata } from './019-sessions-workflow-metadata'
 import { up as recapWatermarks } from './020-recap-watermarks'
 import { up as messagesRepairFromIssue } from './021-messages-repair-from-issue'
+import { up as agentWorkflows } from './022-agent-workflows'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -91,6 +92,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 20, name: 'recap-watermarks', up: recapWatermarks },
   // Repair legacy ref-string senders 016 copied verbatim (#463) [spec:SP-34d7].
   { version: 21, name: 'messages-repair-from-issue', up: messagesRepairFromIssue },
+  { version: 22, name: 'agent-workflows', up: agentWorkflows },
 ]
 
 /** Highest schema version the running code knows about. */

@@ -1,11 +1,11 @@
-import type { ControlMessage, LiveServerMessage } from '@podium/protocol'
+import type { ApprovalOp, ControlMessage, LiveServerMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { up as approvalRequests } from '../../migrations/012-approval-requests'
 import { ApprovalsRepository } from '../../store/approvals'
 import { ApprovalService } from './service'
 
-function harness() {
+function harness(executeServerOp?: (op: ApprovalOp, sessionId: string) => string | null) {
   const db = openDatabase(':memory:')
   approvalRequests(db)
   const sent: Array<{ machineId: string; msg: ControlMessage }> = []
@@ -22,6 +22,7 @@ function harness() {
     machineName: () => 'ludovico',
     logEvent: (kind, issueId) => events.push({ kind, issueId }),
     notifyIssue: (_issueId, body) => mails.push(body),
+    ...(executeServerOp ? { executeServerOp } : {}),
   })
   return { svc, sent, broadcasts, events, mails }
 }
@@ -92,6 +93,24 @@ describe('ApprovalService', () => {
     expect(mails).toEqual([expect.stringContaining('denied by the operator')])
     expect(() => svc.approve(id)).toThrow(/not pending/)
     expect(sent).toHaveLength(0)
+  })
+  it('executes server-owned workflow approvals without forwarding them to a daemon', () => {
+    const executed: Array<{ op: ApprovalOp; sessionId: string }> = []
+    const { svc, sent, events } = harness((op, sessionId) => {
+      executed.push({ op, sessionId })
+      return 'published workflow revision wfr_1'
+    })
+    const { id } = req(svc, { kind: 'workflow-publish', revisionId: 'wfr_1' })
+    const result = svc.approve(id)
+    expect(result).toMatchObject({
+      status: 'succeeded',
+      resultText: 'published workflow revision wfr_1',
+    })
+    expect(executed).toEqual([
+      { op: { kind: 'workflow-publish', revisionId: 'wfr_1' }, sessionId: 's1' },
+    ])
+    expect(sent).toEqual([])
+    expect(events.at(-1)?.kind).toBe('issue.approval_succeeded')
   })
 
   it('no mail when the requesting CLI is still blocked on the decision (it reports itself)', () => {

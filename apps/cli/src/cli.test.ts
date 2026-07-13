@@ -256,6 +256,7 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
     expect(plan({}, ['session', '--help'])).toEqual({ kind: 'session', args: ['--help'] })
     expect(plan({}, ['worktree', '--help'])).toEqual({ kind: 'worktree', args: ['--help'] })
+    expect(plan({}, ['workflow', '--help'])).toEqual({ kind: 'workflow', args: ['--help'] })
   })
   it('approval broker: agent sessions turn management ops into requests (#410)', () => {
     const agent = { PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1' }
@@ -284,6 +285,10 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['stop'])).toEqual({ kind: 'stop' })
     // work tools stay direct inside agent sessions
     expect(plan({}, ['issue', 'ready'], agent)).toEqual({ kind: 'issue', args: ['ready'] })
+    expect(plan({}, ['workflow', 'checkpoint', 'complete'], agent)).toEqual({
+      kind: 'workflow',
+      args: ['checkpoint', 'complete'],
+    })
     expect(plan({}, ['status'], agent)).toEqual({ kind: 'status' })
   })
 

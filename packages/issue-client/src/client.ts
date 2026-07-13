@@ -32,11 +32,34 @@ type SpecProcName = 'list' | 'get' | 'create' | 'save' | 'remove' | 'search'
  *  list the server registry is satisfies-checked against. */
 type LockProcName = LockCommandName
 
+/** Instruction-first workflow API used by `podium workflow`. Kept structural
+ * for the same reason as issues: this leaf package never imports AppRouter. */
+type WorkflowProcName =
+  | 'list'
+  | 'get'
+  | 'create'
+  | 'revise'
+  | 'fork'
+  | 'publish'
+  | 'bindings'
+  | 'assign'
+  | 'profiles'
+  | 'profileSave'
+  | 'runs'
+  | 'prime'
+  | 'status'
+  | 'checkpoint'
+  | 'assignStep'
+  | 'skip'
+  | 'retry'
+  | 'adopt'
+
 export interface IssueTrpc {
   issues: Record<IssueProcName, IssueProc>
   repos: { inferFromPath: IssueProc }
   specs: Record<SpecProcName, IssueProc>
   lock: Record<LockProcName, IssueProc>
+  workflows: Record<WorkflowProcName, IssueProc>
 }
 
 /** Typed-transport tRPC client for the issue tracker. baseUrl e.g. http://localhost:18787

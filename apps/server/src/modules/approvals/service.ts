@@ -35,6 +35,9 @@ export interface ApprovalServiceDeps {
   /** Push the outcome to the requesting agent via issue mail (stop-hook/nudge
    *  delivery) — the agent must not have to poll to learn the decision. */
   notifyIssue(issueId: string, body: string): void
+  /** Server-owned operations return a result string. null means this operation
+   * belongs to the daemon executor. */
+  executeServerOp?(op: ApprovalOp, sessionId: string): string | null
 }
 
 export class ApprovalService {
@@ -65,6 +68,11 @@ export class ApprovalService {
       decidedAt: row.decidedAt,
       resultText: row.resultText,
     }
+  }
+  private row(id: string): ApprovalRow {
+    const row = this.deps.store.get(id)
+    if (!row) throw new Error(`unknown approval request: ${id}`)
+    return row
   }
 
   listPending(): ApprovalWire[] {
@@ -162,21 +170,38 @@ export class ApprovalService {
     return w
   }
 
-  /** Operator: approve → mark executing and hand the op to the owning daemon.
-   *  toMachine queues if the daemon is briefly offline. */
+  /** Operator: approve → execute through the closed server catalog or hand the
+   * op to the owning daemon. toMachine queues if the daemon is briefly offline. */
   approve(id: string): ApprovalWire {
     const row = this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
     if (!this.deps.store.transition(id, 'pending', 'executing')) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
-    this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
     this.log(row, 'issue.approval_approved')
+    try {
+      const serverResult = this.deps.executeServerOp?.(row.op, row.sessionId) ?? null
+      if (serverResult !== null) {
+        this.deps.store.transition(id, 'executing', 'succeeded', serverResult)
+        this.log(row, 'issue.approval_succeeded')
+        this.notify(row, `succeeded — ${serverResult}`)
+        this.broadcast()
+        return this.toWire(this.row(id))
+      }
+    } catch (error) {
+      const result = error instanceof Error ? error.message : String(error)
+      this.deps.store.transition(id, 'executing', 'failed', result)
+      this.log(row, 'issue.approval_failed')
+      this.notify(row, `FAILED — ${result}`)
+      this.broadcast()
+      return this.toWire(this.row(id))
+    }
+    this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
     // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
     // decision itself is the last thing we can reliably deliver.
     if (row.op.kind === 'stop') this.notify(row, 'approved — executing')
     this.broadcast()
-    return this.toWire(this.deps.store.get(id)!)
+    return this.toWire(this.row(id))
   }
 
   /** Operator: deny. Terminal. */
@@ -189,7 +214,7 @@ export class ApprovalService {
     this.log(row, 'issue.approval_denied')
     this.notify(row, 'denied by the operator')
     this.broadcast()
-    return this.toWire(this.deps.store.get(id)!)
+    return this.toWire(this.row(id))
   }
 
   /** Daemon reply: execution finished. A `stop` op may never report (the daemon

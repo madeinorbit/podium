@@ -137,6 +137,7 @@ export type LaunchPlan =
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
   | { kind: 'lock'; args: string[] }
+  | { kind: 'workflow'; args: string[] }
   | { kind: 'merge-lock'; args: string[] }
   | { kind: 'status' }
   | { kind: 'stop' }
@@ -194,7 +195,15 @@ export function resolvePlan(
   }
   // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
   // sub-CLIs that render their own richer help (issue/session/spec/worktree).
-  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree', 'mail', 'agent'])
+  const helpDelegated = new Set([
+    'issue',
+    'session',
+    'spec',
+    'worktree',
+    'mail',
+    'agent',
+    'workflow',
+  ])
   if (
     argv[0] === 'help' ||
     ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
@@ -292,6 +301,7 @@ export function resolvePlan(
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
+  if (argv[0] === 'workflow') return { kind: 'workflow', args: argv.slice(1) }
   if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
   if (argv[0] === 'stop') return { kind: 'stop' }
@@ -461,6 +471,7 @@ export function helpText(): string {
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
     '  worktree [path]       Declare the worktree this agent session works in',
     '',
+    '  workflow <command>    Follow and manage versioned agent workflows',
     "Agent sessions: update/stop/channel/set-server need the operator's approval —",
     'the command BLOCKS until they approve (runs it) or deny (exits non-zero).',
     '',
@@ -834,6 +845,13 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'worktree': {
       const { worktreeCliMain } = await import('./worktree-cli')
       await worktreeCliMain(plan.args)
+      return
+    }
+    // `podium workflow <command>`: manage definitions and report/advance the
+    // exact workflow revision pinned to this agent session.
+    case 'workflow': {
+      const { workflowCliMain } = await import('./workflow-cli')
+      await workflowCliMain(plan.args)
       return
     }
     // `podium lock <command>`: advisory named lease locks [spec:SP-85d1].

@@ -25,6 +25,9 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // Approval broker [spec:SP-edbb]: agents may REQUEST any management op (and
   // poll its status); approve/deny/execution stay operator+daemon-side.
   approvals: new Set(['request', 'get']),
+  // Instruction-first workflows: every procedure is schema-validated and
+  // capability-scoped by WorkflowService; protected writes still need approval.
+  workflows: null,
   // Advisory named lease locks [spec:SP-85d1] — coordination tokens agents
   // acquire/release via `podium lock`/`podium merge-lock`; role-gated by the
   // lock registry's guard, caller identity stamped from the relay capability.
