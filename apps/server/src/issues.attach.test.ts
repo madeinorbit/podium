@@ -154,7 +154,7 @@ describe('attachSession', () => {
     const { svc, issueBySession } = harness([sess('s1')])
     const parent = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issueBySession.set('s1', parent.id)
-    const w = svc.attachSession({ sessionId: 's1', newSubissue: { title: 'Side quest' } })
+    const w = svc.attachSession({ sessionId: 's1', newSubissue: { title: 'Side quest', origin: 'human' } })
     expect(w.title).toBe('Side quest')
     expect(w.parentId).toBe(parent.id)
     expect(w.origin).toBe('human')
@@ -165,14 +165,14 @@ describe('attachSession', () => {
 
   it('newSubissue with no current issue requires targetId as parent', () => {
     const { svc, issueBySession } = harness([sess('s1')])
-    expect(() => svc.attachSession({ sessionId: 's1', newSubissue: { title: 'x' } })).toThrow(
+    expect(() => svc.attachSession({ sessionId: 's1', newSubissue: { title: 'x', origin: 'human' } })).toThrow(
       /no parent/,
     )
     const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
     const w = svc.attachSession({
       sessionId: 's1',
       targetId: parent.id,
-      newSubissue: { title: 'child' },
+      newSubissue: { title: 'child', origin: 'human' },
     })
     expect(w.parentId).toBe(parent.id)
     expect(issueBySession.get('s1')).toBe(w.id)

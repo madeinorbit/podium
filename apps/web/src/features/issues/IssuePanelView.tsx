@@ -1,11 +1,13 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueComment, IssueStage, IssueWire } from '@podium/protocol'
-import { CircleAlert, CircleCheck, FileText, User } from 'lucide-react'
+import { CircleAlert, CircleCheck, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { copyToClipboard } from '@/lib/clipboard'
 import { subIssuesOf } from '@/lib/derive'
 import {
   artifactKind,
@@ -17,7 +19,7 @@ import {
 import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
-import { STAGE_LABELS } from './issue-card'
+import { issueIdTitle, STAGE_LABELS } from './issue-card'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
@@ -121,7 +123,24 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
     <header className="border-b border-border/60 px-3 pt-3 pb-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-mono text-[11px] text-muted-foreground/70">#{issue.seq}</div>
+          <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+            <button
+              type="button"
+              className="cursor-pointer hover:text-foreground"
+              title={`${issue.id} — click to copy "#${issue.seq}"`}
+              onClick={() => copyToClipboard(`#${issue.seq}`, `Copied #${issue.seq}`)}
+            >
+              #{issue.seq}
+            </button>
+            <button
+              type="button"
+              className="min-w-0 max-w-36 cursor-pointer truncate hover:text-foreground"
+              title={`${issue.id} — click to copy`}
+              onClick={() => copyToClipboard(issue.id, 'Copied internal issue id')}
+            >
+              {issue.id}
+            </button>
+          </div>
           <h2 className="text-[14px] leading-snug font-semibold text-foreground">{issue.title}</h2>
         </div>
         <StageChip stage={issue.stage} />
@@ -182,7 +201,9 @@ function SubissueRow({ sub }: { sub: IssueWire }): JSX.Element {
       )}
     >
       <span className={cn('size-2 flex-none rounded-full', a.dot)} aria-hidden="true" />
-      <span className="font-mono text-[11px] text-muted-foreground/70">#{sub.seq}</span>
+      <span className="font-mono text-[11px] text-muted-foreground/70" title={issueIdTitle(sub)}>
+        #{sub.seq}
+      </span>
       <span
         className={cn(
           'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
@@ -221,7 +242,16 @@ function PanelSections({
   const artifacts = panel?.artifacts ?? []
   const deferred = panel?.deferred ?? []
   const doneCount = todos.filter((t) => t.done).length
-  const root = issue.worktreePath
+  // An issue with no dedicated worktree is worked in the repo's primary
+  // checkout — serve its artifacts from there instead of rendering every
+  // artifact as a dead disabled button.
+  const root = issue.worktreePath ?? issue.repoPath
+  // Media artifact opened full-size (click a preview; Esc / click-out closes).
+  const [lightbox, setLightbox] = useState<{
+    kind: 'image' | 'video'
+    src: string
+    label: string
+  } | null>(null)
 
   const toggleTodo = (index1: number, done: boolean) => {
     void trpc.issues.panelApply
@@ -285,13 +315,21 @@ function PanelSections({
               const kind = artifactKind(a.path)
               const label = a.title ?? basename(a.path)
               if (root && kind === 'image') {
+                const src = worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })
                 return (
                   <figure key={a.path}>
-                    <img
-                      src={worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })}
-                      alt={label}
-                      className="max-w-full rounded-md border border-border shadow-sm"
-                    />
+                    <button
+                      type="button"
+                      className="block w-full cursor-zoom-in"
+                      title={`View ${label} full size`}
+                      onClick={() => setLightbox({ kind: 'image', src, label })}
+                    >
+                      <img
+                        src={src}
+                        alt={label}
+                        className="max-w-full rounded-md border border-border shadow-sm"
+                      />
+                    </button>
                     <figcaption className="mt-1 text-[11px] text-muted-foreground">
                       {label}
                     </figcaption>
@@ -299,14 +337,29 @@ function PanelSections({
                 )
               }
               if (root && kind === 'video') {
+                const src = worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })
                 return (
                   <figure key={a.path}>
-                    {/* biome-ignore lint/a11y/useMediaCaption: agent-published artifact videos have no captions */}
-                    <video
-                      src={worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })}
-                      controls
-                      className="max-w-full rounded-md border border-border shadow-sm"
-                    />
+                    {/* Inline preview only (first frame + play glyph); clicking
+                        opens the lightbox, where the video plays with controls. */}
+                    <button
+                      type="button"
+                      className="group relative block w-full cursor-zoom-in"
+                      title={`Play ${label}`}
+                      onClick={() => setLightbox({ kind: 'video', src, label })}
+                    >
+                      <video
+                        src={src}
+                        preload="metadata"
+                        muted
+                        className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
+                          <Play size={16} aria-hidden="true" className="translate-x-px" />
+                        </span>
+                      </span>
+                    </button>
                     <figcaption className="mt-1 text-[11px] text-muted-foreground">
                       {label}
                     </figcaption>
@@ -364,6 +417,8 @@ function PanelSections({
           </div>
         )}
       </DockSection>
+
+      {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </>
   )
 }

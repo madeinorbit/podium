@@ -11,6 +11,8 @@ export interface BoardFilter {
   stage?: IssueStage
   /** Reveal archived issues. Off/unset → archived stay hidden (board default). */
   archived?: boolean
+  /** Reveal recoverable soft-deleted issues. */
+  deleted?: boolean
 }
 
 /**
@@ -22,8 +24,9 @@ export interface BoardFilter {
 export function filterBoardIssues(issues: IssueWire[], f: BoardFilter): IssueWire[] {
   const text = f.text?.toLowerCase()
   return issues.filter((i) => {
-    // Archived issues stay reachable but hidden until the Archived filter is on.
-    if (i.archived && !f.archived) return false
+    // Deleted issues have their own recovery view; their prior archived bit must
+    // not make them disappear from that view.
+    if (i.deletedAt ? !f.deleted : i.archived && !f.archived) return false
     if (f.priority != null && i.priority !== f.priority) return false
     if (f.type && i.type !== f.type) return false
     if (f.assignee && i.assignee !== f.assignee) return false
@@ -50,6 +53,7 @@ export function filterChips(f: BoardFilter): { key: keyof BoardFilter; label: st
   if (f.status) chips.push({ key: 'status', label: `Status: ${f.status}` })
   if (f.stage) chips.push({ key: 'stage', label: `Stage: ${STAGE_LABELS[f.stage]}` })
   if (f.archived) chips.push({ key: 'archived', label: 'Archived' })
+  if (f.deleted) chips.push({ key: 'deleted', label: 'Deleted' })
   return chips
 }
 

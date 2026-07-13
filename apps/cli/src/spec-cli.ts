@@ -5,7 +5,13 @@ import {
   SPEC_COMMANDS,
 } from '@podium/issue-client'
 import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
-import { IssueCliError, parseIssueArgs } from './issue-cli'
+import {
+  IssueCliError,
+  parseIssueArgs,
+  registryHelp,
+  renderArgIssues,
+  stripGlobalFlags,
+} from './issue-cli'
 
 /**
  * `podium spec` — agent/operator CLI over the living project spec (pspec v1).
@@ -21,14 +27,21 @@ function helpText(): string {
     '',
     ...SPEC_COMMANDS.map((c) => `  ${c.name.padEnd(w)}  ${c.summary}`),
     '',
+    'Run `podium spec <command> --help` for that command’s flags.',
     'Run `podium spec prime` for the rules of engagement + current tree.',
   ].join('\n')
 }
 
 /** Resolve + run one spec command; returns the text to print. Failures THROW. */
 export async function runSpecCli(argv: string[], client: IssueTrpc): Promise<string> {
-  const { command, args, positionals } = parseIssueArgs(argv)
-  if (!command || command === 'help') return helpText()
+  // `-h` ≡ `--help`; a leading `--help` reads as the `help` command (no command to attach to).
+  const mapped = argv.map((a) => (a === '-h' ? '--help' : a))
+  if (mapped[0] === '--help') mapped[0] = 'help'
+  const parsedArgs = parseIssueArgs(mapped)
+  const { command, args, positionals } = parsedArgs
+  const help = registryHelp('spec', SPEC_COMMANDS, helpText, parsedArgs)
+  if (help != null) return help
+  if (!command) return helpText() // unreachable (registryHelp covers it) — narrows the type
   const cmd = SPEC_COMMANDS.find((c) => c.name === command)
   if (!cmd) throw new IssueCliError(`unknown command: ${command}\n\n${helpText()}`)
   for (let i = 0; i < (cmd.positionals?.length ?? 0); i++) {
@@ -52,12 +65,9 @@ export async function runSpecCli(argv: string[], client: IssueTrpc): Promise<str
       // best-effort — zod reports the missing repoPath below
     }
   }
-  const parsed = cmd.args.safeParse(args)
+  const parsed = cmd.args.safeParse(stripGlobalFlags(args))
   if (!parsed.success) {
-    const details = parsed.error.issues
-      .map((i) => `${i.path.join('.') || 'args'}: ${i.message}`)
-      .join('; ')
-    throw new IssueCliError(`invalid args for ${command}: ${details}`)
+    throw new IssueCliError(`invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`)
   }
   const res = await cmd.run(client, parsed.data as Record<string, unknown>)
   return args.json === true

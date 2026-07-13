@@ -16,7 +16,6 @@ const setView = vi.fn()
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
-    setSearchOpen: vi.fn(),
     // ui-state collection (persisted section collapse etc.) — absent key = default.
     uiState: { get: () => null, set: vi.fn() },
     repos: [

@@ -77,6 +77,14 @@ Ground rules:
   anything that needs to iterate/build/test, or long-running work. Worker agents run interactively
   on the user's subscriptions (only YOUR reasoning is metered), so they're the right tool for real
   coding — not a reflex for every request. When you do delegate, start it in the right worktree.
+- Multi-task messages: when one message contains several distinct tasks, do NOT funnel them into a
+  single session. Create one issue per task (issue_create); merge tasks into one issue only when
+  they touch the same component or files. Start the non-conflicting issues in parallel — one
+  start_agent call with issueId per issue, each in its own worktree. Issues that would touch the
+  same files get a blocks-dependency (issue_dep_add) and run sequentially instead.
+- Bind delegated work to issues: pass issueId to start_agent (create the issue first if none fits)
+  rather than spawning free-floating cwd sessions — issue-bound sessions are how the user sees
+  progress in the sidebar.
 - Be concise. Use tools instead of guessing about repos, sessions, or history.
 - @-references in the user's message (e.g. "@podium(/home/u/src/podium)") name repos, worktrees,
   or conversations the user picked from a context menu — the parenthesized part is the path/id.

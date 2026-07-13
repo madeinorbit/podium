@@ -32,23 +32,38 @@ export const SIDEBAR_ASIDE_CLASS =
   'flex w-full min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
 
 const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
-const SIDEBAR_WIDTH_MIN = 238
-const SIDEBAR_WIDTH_MAX = 340
+const SIDEBAR_WIDTH_MIN = 200
+const SIDEBAR_WIDTH_MAX = 520
 const SIDEBAR_WIDTH_DEFAULT = 280
 
 /**
- * The aside shell with a drag-to-resize right edge. The handle lives on a
- * non-scrolling wrapper (the aside itself scrolls, so an absolute child of it
- * would only cover the first viewport-height of content). Width persists via
- * the ui-state collection.
+ * A fixed-width column with a drag-to-resize right edge. The handle lives on a
+ * non-scrolling wrapper (the content inside may scroll, so an absolute child of
+ * it would only cover the first viewport-height of content). Width persists via
+ * the ui-state collection under `storageKey`. This is THE resize mechanism for
+ * shell columns — the sidebar and the superagent column both render through it.
  */
-export function ResizableAside({ children }: { children: ReactNode }): JSX.Element {
+export function ResizableColumn({
+  storageKey,
+  min,
+  max,
+  defaultWidth,
+  handleLabel,
+  className,
+  children,
+}: {
+  storageKey: string
+  min: number
+  max: number
+  defaultWidth: number
+  handleLabel: string
+  className?: string
+  children: ReactNode
+}): JSX.Element {
   const ui = useStoreSelector((s) => s.uiState)
   const [width, setWidth] = useState<number>(() => {
-    const v = Number(ui.get(SIDEBAR_WIDTH_KEY))
-    return Number.isFinite(v) && v >= SIDEBAR_WIDTH_MIN && v <= SIDEBAR_WIDTH_MAX
-      ? v
-      : SIDEBAR_WIDTH_DEFAULT
+    const v = Number(ui.get(storageKey))
+    return Number.isFinite(v) && v >= min && v <= max ? v : defaultWidth
   })
   const onHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -56,14 +71,12 @@ export function ResizableAside({ children }: { children: ReactNode }): JSX.Eleme
     const left = handle.parentElement?.getBoundingClientRect().left ?? 0
     handle.setPointerCapture(e.pointerId)
     const move = (ev: PointerEvent) => {
-      setWidth(
-        Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(ev.clientX - left))),
-      )
+      setWidth(Math.min(max, Math.max(min, Math.round(ev.clientX - left))))
     }
     const up = () => {
       handle.removeEventListener('pointermove', move)
       setWidth((w) => {
-        ui.set(SIDEBAR_WIDTH_KEY, String(w))
+        ui.set(storageKey, String(w))
         return w
       })
     }
@@ -72,16 +85,31 @@ export function ResizableAside({ children }: { children: ReactNode }): JSX.Eleme
     handle.addEventListener('pointercancel', up, { once: true })
   }
   return (
-    <div className="relative flex flex-none" style={{ width }}>
-      <aside className={SIDEBAR_ASIDE_CLASS}>{children}</aside>
+    <div className={cn('relative flex flex-none', className)} style={{ width }}>
+      {children}
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize sidebar"
+        aria-label={handleLabel}
         className="absolute inset-y-0 -right-0.5 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
         onPointerDown={onHandlePointerDown}
       />
     </div>
+  )
+}
+
+/** The sidebar's aside shell wired through {@link ResizableColumn}. */
+export function ResizableAside({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <ResizableColumn
+      storageKey={SIDEBAR_WIDTH_KEY}
+      min={SIDEBAR_WIDTH_MIN}
+      max={SIDEBAR_WIDTH_MAX}
+      defaultWidth={SIDEBAR_WIDTH_DEFAULT}
+      handleLabel="Resize sidebar"
+    >
+      <aside className={SIDEBAR_ASIDE_CLASS}>{children}</aside>
+    </ResizableColumn>
   )
 }
 
@@ -194,6 +222,7 @@ export function PanelRow({
   attention = false,
   dotRight = false,
   suppressUnread = false,
+  trailingMeta,
 }: {
   session: SessionMeta
   pinned: boolean
@@ -211,6 +240,8 @@ export function PanelRow({
   /** WORKING-section rows (#138): a session that's actively in progress is not
    *  "new unseen work", so its unread emphasis is suppressed even when unread. */
   suppressUnread?: boolean
+  /** Small right-side stamp before the status dot (WORKING's elapsed timer). */
+  trailingMeta?: ReactNode
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -327,6 +358,7 @@ export function PanelRow({
           {/* Pinned panels span repos/worktrees, so show which one — compact two
               lines (repo bold, branch below) where the kind label used to sit. */}
           {pinned && <RepoBranchTag cwd={session.cwd} />}
+          {trailingMeta}
           <span className="flex w-2 flex-none justify-center">
             <span className={cn(sessionDotClass(session), 'size-[7px] min-w-[7px]')} />
           </span>

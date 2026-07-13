@@ -8,13 +8,7 @@ import { SessionMeta } from './runtime-state'
 // Ordered lifecycle stages an issue moves through. [spec:SP-0078]
 export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done'])
 export type IssueStage = z.infer<typeof IssueStage>
-export const ISSUE_STAGES: IssueStage[] = [
-  'backlog',
-  'planning',
-  'in_progress',
-  'review',
-  'done',
-]
+export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'done']
 
 export const IssueSessionSummary = z.object({
   total: z.number().int().nonnegative(),
@@ -144,6 +138,8 @@ export const IssueWire = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   archived: z.boolean(),
+  /** Soft-delete tombstone. Present means hidden from active work but recoverable. */
+  deletedAt: z.string().optional(),
   /** Email-style read state (issue #124). Global (single-operator) — the ISO time
    *  the operator last opened this issue, or null if never opened. */
   readAt: z.string().nullable().catch(null).default(null),

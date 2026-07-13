@@ -44,6 +44,10 @@ export interface IssueCaller {
 export interface IssueCommandDeps {
   /** Lazy — the IssueService is assigned late in the composition root. */
   issues(): IssueService
+  /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
+  deleteIssue(id: string): unknown
+  /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
+  restoreIssue(id: string): unknown
   /** True when `id` is a hub-mirrored issue (modules/issues/upstream). */
   isUpstreamIssue(id: string): boolean
   /** Forward one issue mutation to the hub (viaHub write forwarding, §2.2). */
@@ -134,6 +138,12 @@ export class IssueCommandCtx {
 
   get issues(): IssueService {
     return this.deps.issues()
+  }
+  deleteIssue(id: string): unknown {
+    return this.deps.deleteIssue(id)
+  }
+  restoreIssue(id: string): unknown {
+    return this.deps.restoreIssue(id)
   }
 
   /** Idempotency wrapper bound to this command's wire name (issues.<name>). */
@@ -628,17 +638,28 @@ const defs = {
     input: z.object({
       sessionId: z.string(),
       targetId: z.string().optional(),
-      newSubissue: z
-        .object({ title: z.string().min(1), origin: z.enum(['human', 'agent']).optional() })
-        .optional(),
+      // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
+      // from the caller below, exactly like issues.create, so it cannot be forged.
+      newSubissue: z.object({ title: z.string().min(1) }).optional(),
     }),
     action: 'write',
-    handler: (ctx, input) => ctx.issues.attachSession(input),
+    handler: (ctx, input) => {
+      const origin: 'human' | 'agent' =
+        ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
+      const { newSubissue, ...rest } = input
+      return ctx.issues.attachSession(
+        newSubissue
+          ? { ...rest, newSubissue: { title: newSubissue.title, origin } }
+          : { ...rest },
+      )
+    },
   }),
   archive: def({
     kind: 'mutation',
     input: byId,
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation
+    // elsewhere. Archiving is reversible and no more destructive than close.
+    action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.archive(input.id)),
@@ -649,7 +670,15 @@ const defs = {
     action: 'manage',
     scope: 'issue',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.delete(input.id)),
+    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.deleteIssue(input.id)),
+  }),
+  restore: def({
+    kind: 'mutation',
+    input: byId,
+    action: 'manage',
+    scope: 'issue',
+    target: targetId,
+    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.restoreIssue(input.id)),
   }),
   action: def({
     kind: 'mutation',
@@ -785,7 +814,9 @@ const defs = {
   depRemove: def({
     kind: 'mutation',
     input: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
+    action: 'write',
     scope: 'issue',
     target: (i) => i.fromId as string,
     handler: (ctx, input) =>
@@ -851,7 +882,9 @@ const defs = {
   reparent: def({
     kind: 'mutation',
     input: z.object({ id: z.string(), parentId: z.string().nullable() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // This lets an agent repair its own planning hierarchy without recreating issues.
+    action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
@@ -888,7 +921,9 @@ const defs = {
   supersede: def({
     kind: 'mutation',
     input: z.object({ oldId: z.string(), newId: z.string() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // The mutated subject is oldId; newId remains a relation destination.
+    action: 'write',
     scope: 'issue',
     target: (i) => i.oldId as string,
     handler: (ctx, input) =>
@@ -897,7 +932,9 @@ const defs = {
   duplicate: def({
     kind: 'mutation',
     input: z.object({ id: z.string(), canonicalId: z.string() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // The mutated subject is id; canonicalId remains a relation destination.
+    action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>

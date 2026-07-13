@@ -68,7 +68,8 @@ export function resolveActiveWorktree(args: {
 export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null {
   let best: IssueWire | null = null
   for (const i of issues) {
-    if (i.archived || i.worktreePath == null || !cwdInWorktree(cwd, i.worktreePath)) continue
+    if (i.archived || i.deletedAt || i.worktreePath == null || !cwdInWorktree(cwd, i.worktreePath))
+      continue
     if (
       !best ||
       i.worktreePath.length > (best.worktreePath as string).length ||
@@ -96,7 +97,7 @@ export function issueForPanel(args: {
     : undefined
   const id = session?.issueId
   if (id !== undefined) {
-    const attached = args.issues.find((i) => i.id === id && !i.archived)
+    const attached = args.issues.find((i) => i.id === id && !i.archived && !i.deletedAt)
     if (attached) return attached
   }
   return issueForCwd(args.issues, args.cwd)

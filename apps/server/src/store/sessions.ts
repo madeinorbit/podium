@@ -1,12 +1,19 @@
 /**
  * Sessions aggregate — owns the `sessions` table plus its UI-adjacent
- * satellites: `pins`, `snoozes`, `tab_order` and `session_drafts` (all keyed
- * by session/worktree and cascaded on session delete).
+ * satellites: `pins`, `snoozes`, `tab_order` and `session_drafts`. Soft
+ * deletion preserves them; explicit internal purge removes them.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { AgentKind } from '@podium/protocol'
-import type { PinKind, PinState, SessionRow, SessionStatusPersisted, SnoozeMap } from './types'
+import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
+import type {
+  PinKind,
+  PinState,
+  SessionDeletionSource,
+  SessionRow,
+  SessionStatusPersisted,
+  SnoozeMap,
+} from './types'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -15,16 +22,38 @@ export class SessionsRepository {
 
   // ---- sessions ----
   loadSessions(): SessionRow[] {
+    return this.readSessions('deleted_at IS NULL')
+  }
+
+  /** All session tombstones, for repository-level inspection and maintenance. */
+  loadDeletedSessions(): SessionRow[] {
+    return this.readSessions('deleted_at IS NOT NULL')
+  }
+
+  /** Recoverable session tombstones created by one issue deletion. */
+  loadDeletedSessionsForIssue(issueId: string): SessionRow[] {
+    return this.readSessions(
+      "deleted_at IS NOT NULL AND deletion_source = 'issue' AND deleted_by_issue_id = ?",
+      issueId,
+    )
+  }
+
+  private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, read_at
-         FROM sessions ORDER BY created_at ASC, rowid ASC`,
+                spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
+                deleted_by_issue_id
+         FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
       )
-      .all() as Record<string, unknown>[]
-    return rows.map((r) => ({
+      .all(...params) as Record<string, unknown>[]
+    return rows.map((r) => this.mapSession(r))
+  }
+
+  private mapSession(r: Record<string, unknown>): SessionRow {
+    return {
       id: r.id as string,
       agentKind: r.agent_kind as string,
       cwd: r.cwd as string,
@@ -49,7 +78,10 @@ export class SessionsRepository {
       headless: r.headless === 1,
       issueId: (r.issue_id as string | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
-    }))
+      deletedAt: (r.deleted_at as string | null) ?? null,
+      deletionSource: (r.deletion_source as SessionDeletionSource | null) ?? null,
+      deletedByIssueId: (r.deleted_by_issue_id as string | null) ?? null,
+    }
   }
 
   upsertSession(row: SessionRow): void {
@@ -67,8 +99,9 @@ export class SessionsRepository {
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, read_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
+            deleted_by_issue_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -88,7 +121,10 @@ export class SessionsRepository {
            last_resumed_at = excluded.last_resumed_at,
            spawned_by = excluded.spawned_by,
            issue_id = excluded.issue_id,
-           read_at = excluded.read_at`,
+           read_at = excluded.read_at,
+           deleted_at = excluded.deleted_at,
+           deletion_source = excluded.deletion_source,
+           deleted_by_issue_id = excluded.deleted_by_issue_id`,
       )
       .run(
         row.id,
@@ -115,10 +151,45 @@ export class SessionsRepository {
         row.headless ? 1 : 0,
         row.issueId ?? null,
         row.readAt ?? null,
+        row.deletedAt ?? null,
+        row.deletionSource ?? null,
+        row.deletedByIssueId ?? null,
       )
   }
 
-  deleteSession(id: string): void {
+  /** Tombstone sessions without destroying their metadata or UI satellites. */
+  softDeleteSessions(
+    ids: string[],
+    deletedAt: string,
+    source: SessionDeletionSource,
+    deletedByIssueId: string | null = null,
+  ): void {
+    const update = this.db.prepare(
+      `UPDATE sessions SET deleted_at = ?, deletion_source = ?, deleted_by_issue_id = ?
+       WHERE id = ? AND deleted_at IS NULL`,
+    )
+    for (const id of ids) update.run(deletedAt, source, deletedByIssueId, id)
+  }
+
+  /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
+  softDeleteForIssue(ids: string[], issueId: string, deletedAt: string): void {
+    this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
+  }
+
+  /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
+  restoreDeletedForIssue(issueId: string): void {
+    this.db
+      .prepare(
+        `UPDATE sessions
+         SET deleted_at = NULL, deletion_source = NULL, deleted_by_issue_id = NULL,
+             status = 'exited', exit_code = NULL
+         WHERE deleted_at IS NOT NULL AND deletion_source = 'issue' AND deleted_by_issue_id = ?`,
+      )
+      .run(issueId)
+  }
+
+  /** Irreversibly remove a session and its satellites. Internal maintenance only. */
+  purgeSession(id: string): void {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
@@ -234,7 +305,7 @@ export class SessionsRepository {
       .run(cleanWorktree, JSON.stringify(sessionIds), new Date().toISOString())
   }
 
-  /** Drop a session id from every saved tab order (called when the session dies). */
+  /** Drop a session id from every saved tab order during irreversible purge. */
   private scrubTabOrders(sessionId: string): void {
     for (const [worktree, ids] of Object.entries(this.listTabOrders())) {
       if (!ids.includes(sessionId)) continue

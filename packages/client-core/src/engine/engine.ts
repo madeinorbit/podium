@@ -149,7 +149,6 @@ interface EngineState {
   tabOrders: Record<string, string[]>
   view: MainView
   settingsTab: string | null
-  searchOpen: boolean
   openIssueId: string | null
   superThreadId: string
   superOpen: boolean
@@ -320,7 +319,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       tabOrders: {},
       view: route.view,
       settingsTab: route.settingsTab,
-      searchOpen: route.searchOpen,
       openIssueId: route.issueId,
       superThreadId: 'global',
       // Default OPEN: the superagent is the desktop shell's center column now, not
@@ -599,7 +597,6 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     const patch: Partial<EngineState> = {
       view: route.view,
       settingsTab: route.settingsTab,
-      searchOpen: route.searchOpen,
       openIssueId: route.issueId,
     }
     if (
@@ -624,7 +621,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   /**
    * INVARIANT (#262, replaces the provider's React-#185 hazard): the engine's
    * router is the ONLY writer of the URL. Every surface navigates through
-   * engine actions (setView / setOpenIssueId / setSettingsTab / setSearchOpen)
+   * engine actions (setView / setOpenIssueId / setSettingsTab)
    * or this mirror; nothing else touches history. The old unbounded update
    * loop ("Podium crashed") needed two independent effect writers re-triggering
    * each other across React commits — with one imperative writer the cycle
@@ -1042,19 +1039,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
             view: 'settings',
             settingsTab: tab,
             issueId: null,
-            searchOpen: false,
           })
         }
-      },
-      setSearchOpen: (open: boolean) => {
-        const cur = this.router.current()
-        if (cur.searchOpen === open) return
-        this.router.navigate({ ...cur, searchOpen: open })
       },
       setOpenIssueId: (id: string | null) => {
         const cur = this.router.current()
         if (cur.view === 'issues' && cur.issueId === id) return
-        this.router.navigate({ ...cur, view: 'issues', issueId: id, searchOpen: false })
+        this.router.navigate({ ...cur, view: 'issues', issueId: id })
       },
       setSuperThreadId: (id: string) => this.apply({ superThreadId: id }),
       setSuperOpen: (open: boolean) => this.apply({ superOpen: open }),

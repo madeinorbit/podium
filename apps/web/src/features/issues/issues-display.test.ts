@@ -81,6 +81,18 @@ describe('filterBoardScope audience (#198)', () => {
     const nested = issue({ id: 'n', audience: 'agent', parentId: 'o' })
     expect(filterBoardScope([orphan, nested], false)).toEqual([])
   })
+  it('keeps deleted drafts and internal issues reachable for recovery', () => {
+    const draft = issue({ id: 'draft', draft: true, deletedAt: '2026-07-13T10:00:00Z' })
+    const internal = issue({
+      id: 'internal',
+      audience: 'agent',
+      deletedAt: '2026-07-13T10:00:00Z',
+    })
+    expect(filterBoardScope([draft, internal], false).map((i) => i.id)).toEqual([
+      'draft',
+      'internal',
+    ])
+  })
   it('showAgentTasks reveals internal issues at the top level', () => {
     const internal = issue({ id: 'a', audience: 'agent' })
     expect(filterBoardScope([internal], true).map((i) => i.id)).toEqual(['a'])

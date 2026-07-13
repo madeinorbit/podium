@@ -1,11 +1,23 @@
 import { randomUUID } from 'node:crypto'
 import { normalizeClosedPatch } from '@podium/domain'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
 import { IssueServiceReads } from './reads'
 import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
+
+/** Prepared half of the atomic issue/session lifecycle transaction. */
+export interface IssueLifecyclePlan {
+  issueId: string
+  worktreePath: string | null
+  wire: IssueWire
+  write(): void
+  changes(): EntityChangeSpec[]
+  apply(): void
+  publish(): void
+}
 
 /**
  * IssueService layer 2 — row mutations and the stage machine (issue #190 split):
@@ -302,30 +314,65 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return wire
   }
 
-  delete(id: string): void {
+  /** Build the issue half of a cross-aggregate soft-delete without mutating
+   *  memory before the durable transaction succeeds. */
+  prepareSoftDelete(id: string, remainingSessions: SessionMeta[]): IssueLifecyclePlan {
+    id = this.resolveRef(id)
+    const current = this.rowOrThrow(id)
+    if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
+    const deletedAt = this.now()
+    const row: IssueRow = { ...current, deletedAt, updatedAt: deletedAt }
+    const wire = this.toWire(row, remainingSessions)
+    return {
+      issueId: row.id,
+      worktreePath: row.worktreePath,
+      wire,
+      write: () => this.deps.store.issues.upsertIssue(row),
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
+      apply: () => {
+        this.rows.set(row.id, row)
+        this.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
+      },
+      publish: () => this.broadcastList(),
+    }
+  }
+
+  /** Permanently purge an automatically-created empty draft. User-facing deletion
+   *  must go through IssueSessionLifecycle and never reaches this method. */
+  purgeEmptyDraft(id: string): void {
     id = this.resolveRef(id)
     this.rowOrThrow(id)
-    // The remove change commits in the SAME transaction as the row delete
-    // ([spec:SP-3fe2] #255) …
     this.deps.ledger.commit({
       write: () => this.deps.store.issues.deleteIssue(id),
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
-    // Re-hydrate from the store only AFTER the transaction committed (#247):
-    // deleteIssue also clears scalar back-refs (parent_id / superseded_by /
-    // duplicate_of) on OTHER rows, so a plain map delete would leave those
-    // stale pointers in the broadcast — but reloading INSIDE the transact span
-    // read the deleted state and then kept it in memory even when the append
-    // threw and the store rolled the delete back.
     this.reload()
-    // … then a full-list reconcile catches the derived ripples (reparented
-    // children, unblocked dependents — see broadcastList's rationale). Both the
-    // committed remove and the reconciled ripples reach delta clients through
-    // the funnel's ordered onAppended pipe in append order (#256); this fans
-    // out only the legacy full-list snapshot.
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
     this.deps.ledger.reconcile('issue', spec.rows)
     this.deps.funnel.publishComputed(spec.snapshot)
+  }
+
+  /** Build the issue half of a cross-aggregate restore without exposing the row
+   *  before its issue and session tombstones have committed together. */
+  prepareRestore(id: string, restoredSessions: SessionMeta[]): IssueLifecyclePlan {
+    id = this.resolveRef(id)
+    const current = this.rowOrThrow(id)
+    if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)
+    const restoredAt = this.now()
+    const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
+    const wire = this.toWire(row, restoredSessions)
+    return {
+      issueId: row.id,
+      worktreePath: row.worktreePath,
+      wire,
+      write: () => this.deps.store.issues.upsertIssue(row),
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
+      apply: () => {
+        this.rows.set(row.id, row)
+        this.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
+      },
+      publish: () => this.broadcastList(),
+    }
   }
 
   setLabels(id: string, labels: string[]): IssueWire {
@@ -348,23 +395,38 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     )
   }
 
-  /** Cycle check over `blocks` edges + the parent link (synthesized from
-   *  issues.parent_id — single parent storage, #164), following from->to. */
-  private wouldCycle(fromId: string, toId: string): boolean {
+  /** Return the dependency-only path from startId to targetId, if one exists.
+   *  Parent containment is organization, not scheduling, and deliberately does
+   *  not participate in dependency-cycle detection. */
+  private dependencyPath(startId: string, targetId: string): string[] | null {
     const seen = new Set<string>()
-    const stack = [toId]
-    while (stack.length) {
-      const cur = stack.pop() as string
-      if (cur === fromId) return true
-      if (seen.has(cur)) continue
-      seen.add(cur)
-      for (const d of this.deps.store.issues.listIssueDeps(cur)) {
-        if (d.type === 'blocks') stack.push(d.toId)
+    const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
+    while (pending.length) {
+      const current = pending.shift() as { id: string; path: string[] }
+      if (current.id === targetId) return current.path
+      if (seen.has(current.id)) continue
+      seen.add(current.id)
+      for (const dep of this.deps.store.issues.listIssueDeps(current.id)) {
+        if (dep.type === 'blocks') {
+          pending.push({ id: dep.toId, path: [...current.path, dep.toId] })
+        }
       }
-      const parentId = this.rows.get(cur)?.parentId
-      if (parentId) stack.push(parentId)
     }
-    return false
+    return null
+  }
+
+  /** Return the containment-only parent path from startId to targetId, if one exists. */
+  private containmentPath(startId: string, targetId: string): string[] | null {
+    const path = [startId]
+    const seen = new Set<string>()
+    let current: string | null | undefined = startId
+    while (current && !seen.has(current)) {
+      if (current === targetId) return path
+      seen.add(current)
+      current = this.rows.get(current)?.parentId
+      if (current) path.push(current)
+    }
+    return null
   }
 
   addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
@@ -377,8 +439,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const row = this.rowOrThrow(fromId)
     this.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
-    if (type === 'blocks' && this.wouldCycle(fromId, toId)) {
-      throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
+    if (type === 'blocks') {
+      const returnPath = this.dependencyPath(toId, fromId)
+      if (returnPath) {
+        throw new Error(
+          `dependency ${fromId} -> ${toId} would create a dependency cycle: ${[fromId, ...returnPath].join(' -> ')}`,
+        )
+      }
     }
     const wire = this.persistWith(row, () => this.deps.store.issues.addIssueDep(fromId, toId, type))
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
@@ -445,17 +512,17 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   }
 
   /** The single cycle-checked reparent path. issues.parent_id is the ONLY
-   *  parent storage (#164 — the mirrored 'parent-child' issue_deps rows are
-   *  gone; graph/tree/cycle consumers synthesize the edge from the column).
-   *  Mutates row.parentId; caller persists. wouldCycle returns true the
-   *  instant it reaches row.id (before expanding that node), so row's
-   *  still-current old parent link is never traversed and can't skew it. */
+   *  parent storage (#164). Dependency edges do not participate: hierarchy
+   *  cycles and scheduling cycles are separate invariants. */
   private setParent(row: IssueRow, newParentId: string | null): void {
     if (newParentId === row.parentId) return
     if (newParentId) {
       this.rowOrThrow(newParentId)
-      if (newParentId === row.id || this.wouldCycle(row.id, newParentId)) {
-        throw new Error(`reparent ${row.id} -> ${newParentId} would create a cycle`)
+      const returnPath = this.containmentPath(newParentId, row.id)
+      if (returnPath) {
+        throw new Error(
+          `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
+        )
       }
     }
     row.parentId = newParentId

@@ -47,7 +47,6 @@ describe('issues child tables (P1)', () => {
     expect(t.has('issue_deps')).toBe(true)
     expect(t.has('issue_comments')).toBe(true)
   })
-
 })
 
 function baseRow(over: Partial<IssueRow> = {}): IssueRow {
@@ -162,6 +161,18 @@ describe('issue read state persistence (#124)', () => {
   })
 })
 
+describe('issue soft-delete persistence', () => {
+  it('adds deleted_at and round-trips its tombstone', () => {
+    const store = new SessionStore(':memory:')
+    expect(issueColumns(store).has('deleted_at')).toBe(true)
+    const deletedAt = '2026-07-13T10:00:00.000Z'
+    store.issues.upsertIssue(baseRow({ deletedAt }))
+    expect(store.issues.getIssue('iss_x')?.deletedAt).toBe(deletedAt)
+    store.issues.upsertIssue(baseRow())
+    expect(store.issues.getIssue('iss_x')?.deletedAt).toBeNull()
+  })
+})
+
 describe('needs_human data layer (P4)', () => {
   it('fresh DB has needs_human + human_question columns', () => {
     const cols = issueColumns(new SessionStore(':memory:'))
@@ -171,7 +182,9 @@ describe('needs_human data layer (P4)', () => {
 
   it('persists needsHuman + humanQuestion round-trip', () => {
     const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow({ id: 'iss_x', needsHuman: true, humanQuestion: 'which API key?' }))
+    store.issues.upsertIssue(
+      baseRow({ id: 'iss_x', needsHuman: true, humanQuestion: 'which API key?' }),
+    )
     const got = store.issues.getIssue('iss_x')!
     expect(got.needsHuman).toBe(true)
     expect(got.humanQuestion).toBe('which API key?')
@@ -361,7 +374,9 @@ describe('subscriptions store (Phase B)', () => {
       origin: 'custom',
     })
     expect(all[1]!.deliverNotify).toBe(true)
-    expect(store.events.listSubscriptions({ subscriberId: 'iss_p' }).map((s) => s.id)).toEqual(['sub_a'])
+    expect(store.events.listSubscriptions({ subscriberId: 'iss_p' }).map((s) => s.id)).toEqual([
+      'sub_a',
+    ])
     store.events.removeSubscription('sub_a')
     expect(store.events.listSubscriptions().map((s) => s.id)).toEqual(['sub_b'])
   })

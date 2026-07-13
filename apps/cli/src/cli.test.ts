@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  alreadyRunningMessage,
   daemonOptionsForPlan,
+  helpText,
   type LaunchPlan,
   portInUseMessage,
   resolveModePlan,
   resolvePlan,
+  unknownLaunchToken,
 } from './cli'
 
 describe('resolveModePlan', () => {
@@ -244,6 +247,21 @@ describe('resolvePlan — utility subcommands', () => {
       }),
     ).toEqual({ kind: 'update', channel: 'stable', feedOverride: 'http://env' })
   })
+  it('help: help/--help/-h anywhere, except the sub-CLIs that render their own', () => {
+    expect(plan({}, ['help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['--help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['-h'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['daemon', '--help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['issue', '--help'])).toEqual({ kind: 'issue', args: ['--help'] })
+    expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
+    expect(plan({}, ['session', '--help'])).toEqual({ kind: 'session', args: ['--help'] })
+    expect(plan({}, ['worktree', '--help'])).toEqual({ kind: 'worktree', args: ['--help'] })
+  })
+  it('version: version/--version/-v', () => {
+    expect(plan({}, ['version'])).toEqual({ kind: 'version' })
+    expect(plan({}, ['--version'])).toEqual({ kind: 'version' })
+    expect(plan({}, ['-v'])).toEqual({ kind: 'version' })
+  })
   it('channel: with and without a target', () => {
     expect(plan({}, ['channel'])).toEqual({ kind: 'channel', target: undefined })
     expect(plan({}, ['channel', 'edge'])).toEqual({ kind: 'channel', target: 'edge' })
@@ -288,6 +306,92 @@ describe('resolvePlan — utility subcommands', () => {
   it('status/stop', () => {
     expect(plan({}, ['status'])).toEqual({ kind: 'status' })
     expect(plan({}, ['stop'])).toEqual({ kind: 'stop' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Issue #18: `podium all --help` used to boot the full stack and SIGTERM the
+// running production instance. Help, unknown-token rejection, and the
+// opt-in-only takeover are pinned here.
+// ---------------------------------------------------------------------------
+
+describe('resolvePlan — help (#18)', () => {
+  it('`--help` / `-h` / `help` alone → help plan, never a launch', () => {
+    expect(plan({}, ['--help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['-h'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['help'])).toEqual({ kind: 'help' })
+  })
+  it('`all --help` (the incident invocation) → help, even with a configured box', () => {
+    expect(plan({ mode: 'all-in-one', persistence: 'systemd' }, ['all', '--help'])).toEqual({
+      kind: 'help',
+    })
+    expect(plan({}, ['server', '--help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['setup', '--join', '--help'])).toEqual({ kind: 'help' })
+  })
+  it('help wins over TTY setup gates and utility dispatch', () => {
+    expect(plan({}, ['--help'], {}, true)).toEqual({ kind: 'help' })
+    expect(plan({}, ['update', '--help'])).toEqual({ kind: 'help' })
+  })
+  it('sub-CLIs with their own richer help keep their --help; logs gets top-level help', () => {
+    expect(plan({}, ['issue', '--help'])).toEqual({ kind: 'issue', args: ['--help'] })
+    expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
+    expect(plan({}, ['logs', '--help'])).toEqual({ kind: 'help' })
+  })
+  it('helpText names the commands and the takeover flag', () => {
+    const text = helpText()
+    for (const word of ['all-in-one', 'server', 'daemon', 'setup', '--takeover', 'status', 'stop'])
+      expect(text).toContain(word)
+  })
+})
+
+describe('resolvePlan — unknown launch tokens (#18)', () => {
+  it('an unknown flag on the launch path is a usage error, not a boot', () => {
+    expect(plan({}, ['all', '--halp'])).toEqual({
+      kind: 'usage-error',
+      message: "podium: unknown argument '--halp' (run `podium help` for usage)",
+    })
+  })
+  it('a typo’d subcommand is a usage error, not a silent default-mode boot', () => {
+    expect(plan({}, ['al'])).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['serve'])).toMatchObject({ kind: 'usage-error' })
+  })
+  it('known launch tokens (and value-flag arguments) pass validation', () => {
+    expect(unknownLaunchToken(['all', '--takeover'])).toBeUndefined()
+    expect(unknownLaunchToken(['daemon', '--local', '--server', 'ws://h:1'])).toBeUndefined()
+    expect(unknownLaunchToken(['daemon', '--pair', 'ABC', '--name', 'box'])).toBeUndefined()
+    expect(unknownLaunchToken(['setup', '--reconfigure'])).toBeUndefined()
+    expect(unknownLaunchToken(['--bogus'])).toBe('--bogus')
+  })
+})
+
+describe('resolvePlan — takeover is opt-in (#18)', () => {
+  it('a plain launch carries takeover: false', () => {
+    expect(plan({}, ['all'])).toMatchObject({
+      kind: 'in-process',
+      claimRole: 'all-in-one',
+      takeover: false,
+    })
+    expect(plan({ mode: 'server' }, ['server'])).toMatchObject({ takeover: false })
+  })
+  it('--takeover flips the flag (all modes)', () => {
+    expect(plan({}, ['all', '--takeover'])).toMatchObject({
+      kind: 'in-process',
+      claimRole: 'all-in-one',
+      takeover: true,
+    })
+    expect(plan({}, ['server', '--takeover'])).toMatchObject({ takeover: true })
+    expect(
+      plan({ mode: 'daemon', serverUrl: 'wss://relay' }, ['daemon', '--takeover']),
+    ).toMatchObject({ claimRole: 'daemon', takeover: true })
+  })
+  it('alreadyRunningMessage names the role, pid/port, and the escape hatches', () => {
+    const msg = alreadyRunningMessage('all-in-one', { pid: 4242, port: 18787 })
+    expect(msg).toContain('all-in-one')
+    expect(msg).toContain('pid 4242')
+    expect(msg).toContain('port 18787')
+    expect(msg).toContain('podium stop')
+    expect(msg).toContain('--takeover')
+    expect(alreadyRunningMessage('daemon', { pid: 7 })).not.toContain('port')
   })
 })
 

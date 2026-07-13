@@ -35,11 +35,36 @@ export interface ModePlan {
 
 const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 
+/** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
+ *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
+ *  silently fall through and boot the stack (issue #18). */
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup']
+const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
+const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
+
+/** First token the launch path does not understand (skipping value-flag arguments). */
+export function unknownLaunchToken(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i] as string
+    if (LAUNCH_VALUE_FLAGS.includes(tok)) {
+      i++ // skip the flag's value
+      continue
+    }
+    if (LAUNCH_BOOL_FLAGS.includes(tok) || LAUNCH_BARE_WORDS.includes(tok)) continue
+    return tok
+  }
+  return undefined
+}
+
 /** Pure mode resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
 export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan {
-  const sub = argv.find((a) => (SUBCOMMANDS as string[]).includes(a)) as PodiumMode | undefined
+  // Subcommands are positional: only argv[0] can name the mode — a flag VALUE that
+  // happens to equal a mode name (`--name daemon`) must not switch modes.
+  const sub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '')
+    ? (argv[0] as PodiumMode)
+    : undefined
   // `all` is a friendly alias for all-in-one.
-  const aliased = argv.includes('all') ? 'all-in-one' : undefined
+  const aliased = argv[0] === 'all' ? 'all-in-one' : undefined
   const flagIdx = argv.indexOf('--server')
   const serverFlag = flagIdx >= 0 ? argv[flagIdx + 1] : undefined
   const pairIdx = argv.indexOf('--pair')
@@ -92,6 +117,9 @@ export type DaemonAuthKind =
  *    is `roles.server` only with no registry claim).
  */
 export type LaunchPlan =
+  /** `podium help` / `--help` / `-h`: print usage and exit 0 — NEVER boot anything (#18). */
+  | { kind: 'help' }
+  | { kind: 'version' }
   | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
   | { kind: 'channel'; target: string | undefined }
   | { kind: 'join-config'; token: string }
@@ -132,6 +160,9 @@ export type LaunchPlan =
       modePlan: ModePlan
       /** Print the setup-URL hint after the server comes up. */
       showSetupHint: boolean
+      /** `--takeover`: displace a LIVE same-role instance. Without it, runInProcess
+       *  refuses to start when the run registry shows a live holder (#18). */
+      takeover: boolean
     }
 
 /**
@@ -146,6 +177,22 @@ export function resolvePlan(
   tty: boolean,
 ): LaunchPlan {
   const port = resolvePort(config, env)
+
+  // ---- help / version (before everything else, so a `--help` tacked onto a launch
+  // command can never boot the stack — issue #18) ----
+  // `podium version` / `--version` / `-v`: print the baked-in build version.
+  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
+    return { kind: 'version' }
+  }
+  // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
+  // sub-CLIs that render their own richer help (issue/session/spec/worktree).
+  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree'])
+  if (
+    argv[0] === 'help' ||
+    ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
+  ) {
+    return { kind: 'help' }
+  }
 
   // ---- utility subcommands (historical dispatch order preserved) ----
   // `podium update`: self-update the headless bundle from the configured feed.
@@ -206,12 +253,21 @@ export function resolvePlan(
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
 
   // ---- launch resolution ----
+  // Reject anything the launch path doesn't understand: an unknown flag or a typo'd
+  // subcommand used to be silently ignored and boot the default mode (issue #18).
+  const unknown = unknownLaunchToken(argv)
+  if (unknown !== undefined) {
+    return {
+      kind: 'usage-error',
+      message: `podium: unknown argument '${unknown}' (run \`podium help\` for usage)`,
+    }
+  }
   const modePlan = resolveModePlan(argv, config)
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
   // serving the web setup UI in-process.
-  const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
-  const explicitSub = SUBCOMMANDS.some((s) => argv.includes(s)) || argv.includes('all')
+  const forceSetup = argv[0] === 'setup' || argv.includes('--reconfigure')
+  const explicitSub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '') || argv[0] === 'all'
   const bareInvocation = !explicitSub
   // MIGRATION DEBT: a box configured before the persistence step existed (mode set, no
   // `persistence`) — or one written by the web setup — would otherwise fall through to the
@@ -307,7 +363,63 @@ export function resolvePlan(
     daemonAuth,
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
+    takeover: argv.includes('--takeover'),
   }
+}
+
+/** Baked in at build time via `--define process.env.PODIUM_APP_VERSION` (scripts/build-bun.ts);
+ *  'dev' when running from source. Must stay a literal `process.env.…` read. */
+export function versionText(): string {
+  return `podium ${process.env.PODIUM_APP_VERSION ?? 'dev'}`
+}
+
+/** Top-level `podium --help`. Sub-CLIs (issue/session/spec/worktree) render their own. */
+export function helpText(): string {
+  return [
+    'podium — self-hosted multi-agent workspace (server + daemon + web UI)',
+    '',
+    'Usage: podium [command] [--flags]',
+    '',
+    'Run modes (no command = run the configured mode, default all-in-one):',
+    '  all-in-one            Run server + daemon in this process (alias: all)',
+    '  server                Run only the server',
+    '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
+    '                        Run only the daemon (connects to a server)',
+    '  client                Nothing to run locally; points at a remote server',
+    '',
+    '  --takeover            Replace a live instance of the same role; without it,',
+    '                        podium refuses to start when one is already running',
+    '',
+    'Setup & config:',
+    '  setup                 Interactive setup (TTY) or serve the web setup UI',
+    '  setup --repair        Back up an invalid config.json',
+    '  setup --join <TOKEN> [--persist systemd|detached]',
+    '                        Non-interactive join to a server',
+    '  join-config <TOKEN>   Write daemon join config from a token (no start)',
+    '  set-server <url|join-code>',
+    '                        Rotate the server URL without re-pairing',
+    '',
+    'Lifecycle:',
+    '  status                Show what is running (run registry + systemd)',
+    '  stop                  Stop managed podium processes',
+    '  logs [component]      Show logs for managed processes',
+    '',
+    'Self-update:',
+    '  update                Self-update from the configured channel feed',
+    '  channel [stable|edge] Show or switch the update channel',
+    '',
+    'Work tools (each has its own help, e.g. `podium issue --help`):',
+    '  issue <command>       Drive the native issue tracker',
+    '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
+    '  session <command>     Send turns to agent sessions',
+    '  worktree [path]       Declare the worktree this agent session works in',
+    '',
+    'Other:',
+    '  version | --version   Print the podium version',
+    '  help    | --help      Show this help',
+    '',
+    'Environment: PODIUM_PORT overrides the server port (default 18787).',
+  ].join('\n')
 }
 
 export interface DaemonStartOptions {
@@ -361,6 +473,24 @@ export function portInUseMessage(port: number): string {
 }
 
 /**
+ * Refusal printed when a LIVE same-role instance already holds the run-registry record
+ * and `--takeover` was not passed (issue #18): an accidental `podium all` (or a stray
+ * `--help` that used to fall through) must never SIGTERM a running production instance.
+ */
+export function alreadyRunningMessage(
+  role: string,
+  holder: { pid: number; port?: number },
+): string {
+  const where = holder.port ? `pid ${holder.pid}, port ${holder.port}` : `pid ${holder.pid}`
+  return [
+    `podium: a live '${role}' instance is already running (${where}) — refusing to start another.`,
+    '  → Inspect it:            podium status',
+    '  → Stop it:               podium stop',
+    '  → Really replace it:     re-run with --takeover',
+  ].join('\n')
+}
+
+/**
  * The in-process host seam: apps/cli owns the launcher logic but must not
  * import apps/server or apps/daemon (boundary rule). The runnable entry
  * (scripts/cli.ts, the composition root that bun-compile bundles) injects the
@@ -391,7 +521,18 @@ async function runInProcess(
   // for status/stop. The in-process all-in-one is a single role; the split modes each
   // claim their own.
   if (plan.claimRole) {
-    const { registerProcess } = await import('@podium/runtime/run-registry')
+    const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
+    // registerProcess → reclaim() SIGTERM/SIGKILLs a live holder. That is takeover, and
+    // takeover must be OPT-IN: without --takeover, a live same-role holder means we
+    // refuse and leave it alone (#18). Stale records (dead pid) still fall through so
+    // crashed/force-killed instances are reclaimed as before.
+    if (!plan.takeover) {
+      const holder = liveRecord(plan.claimRole)
+      if (holder) {
+        console.error(alreadyRunningMessage(plan.claimRole, holder))
+        process.exit(1)
+      }
+    }
     try {
       // Daemon-only mode hosts no local port; server/all-in-one record theirs.
       await registerProcess(plan.claimRole, {
@@ -496,6 +637,14 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   const plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
 
   switch (plan.kind) {
+    case 'help': {
+      console.log(helpText())
+      return
+    }
+    case 'version': {
+      console.log(versionText())
+      return
+    }
     case 'update': {
       const { runUpdate } = await import('./podium-update')
       await runUpdate(

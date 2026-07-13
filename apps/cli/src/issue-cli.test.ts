@@ -32,12 +32,58 @@ describe('runIssueCli', () => {
     expect(out).toContain('create')
   })
 
+  it('--help / -h render help without running anything', async () => {
+    for (const argv of [['--help'], ['-h']]) {
+      const out = await runIssueCli(argv, client)
+      expect(out).toContain('podium issue <command>')
+    }
+  })
+
+  it('per-command help: <cmd> --help and help <cmd> show flags with required markers', async () => {
+    for (const argv of [
+      ['claim', '--help'],
+      ['help', 'claim'],
+      ['claim', '-h'],
+    ]) {
+      const out = await runIssueCli(argv, client)
+      expect(out).toContain('podium issue claim')
+      expect(out).toContain('--assignee <value>')
+      expect(out).toContain('(required)')
+    }
+  })
+
+  it('help for an unknown command throws', async () => {
+    await expect(runIssueCli(['help', 'nope'], client)).rejects.toThrow(/unknown command/i)
+  })
+
   it('unknown command throws a helpful error (non-zero exit)', async () => {
     await expect(runIssueCli(['nope'], client)).rejects.toThrow(/unknown command/i)
   })
 
   it('invalid args name the offending field', async () => {
     await expect(runIssueCli(['claim', '--id', '1'], client)).rejects.toThrow(/assignee/)
+  })
+
+  it('unknown flags are rejected, never silently dropped (#345)', async () => {
+    await expect(runIssueCli(['update', '1', '--totally-bogus', 'x'], client)).rejects.toThrow(
+      /unknown flag --totally-bogus/,
+    )
+    // read path too — this used to execute the full list
+    await expect(runIssueCli(['list', '--repoPath', '/r', '--stage', 'x'], client)).rejects.toThrow(
+      /unknown flag --stage/,
+    )
+  })
+
+  it('global flags (--json) do not trip the strict schemas', async () => {
+    const out = await runIssueCli(['ready', '--repoPath', '/r', '--json'], client)
+    expect(JSON.parse(out).ok).toBe(true)
+  })
+
+  it('update with no field flags errors instead of reporting success (#345)', async () => {
+    const update = vi.fn(async () => ({ seq: 1 }))
+    const c = { issues: { update: { mutate: update } } } as any
+    await expect(runIssueCli(['update', '1'], c)).rejects.toThrow(/no fields given/)
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('maps positionals onto the declared keys (show 10 ≡ show --id 10)', async () => {

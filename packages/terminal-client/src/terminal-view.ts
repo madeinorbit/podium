@@ -151,6 +151,12 @@ export class TerminalView {
         () => this.fileLinkConfig,
       ),
     )
+    // OSC 52: the in-terminal application's own "copy to clipboard" (Claude Code's
+    // copy action, tmux set-clipboard, …). xterm.js parses the sequence but has NO
+    // default handler — without this the agent believes it copied ("sent N chars
+    // via OSC 52") while the payload is silently dropped. Write-only: clipboard
+    // READ queries ('?') are ignored, an agent must never see the user's clipboard.
+    this.term.parser.registerOscHandler(52, (data) => handleOsc52(data))
   }
 
   /** Configure (or clear) clickable file-path links. Highlighted, path-like runs
@@ -439,19 +445,42 @@ export class TerminalView {
     this.cleanup.push(() => el.removeEventListener('mouseup', onMouseUp))
 
     this.term.attachCustomKeyEventHandler((ev): boolean => {
+      // Shift+Enter must insert a newline, not submit. A browser sends a bare CR
+      // for it (identical to Enter), which Claude Code reads as "send". Substitute
+      // the Option+Enter sequence (ESC CR) — Claude Code's newline. Plain Enter
+      // still submits; Cmd/Ctrl+Enter are left to the app.
+      const shiftEnter =
+        ev.key === 'Enter' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+      // Cmd+Backspace must clear the line (macOS "delete to line start"). Substitute
+      // Ctrl+U (0x15), the kill-line byte stock terminals send, which Claude Code
+      // and readline both honor. Alt+Backspace (delete word) already works via
+      // xterm's Meta handling.
+      const cmdBackspace =
+        ev.key === 'Backspace' && ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey
+      if (shiftEnter || cmdBackspace) {
+        // preventDefault is load-bearing: returning false only skips xterm's OWN
+        // handling of THIS event. Without it the browser still runs the default
+        // action — Shift+Enter fires a keypress and inserts a newline into xterm's
+        // helper textarea, and xterm's keypress path emits a bare CR, which Claude
+        // Code reads as submit right after our newline (the "shift-enter submits
+        // anyway" bug; happy-dom fires no default actions, so only a real browser
+        // shows it). Swallow keypress/keyup echoes of the chord too.
+        if (ev.type === 'keydown') {
+          ev.preventDefault()
+          this.dataSink?.(shiftEnter ? '\x1b\r' : '\x15')
+        }
+        return false
+      }
       if (ev.type !== 'keydown') return true
       const mod = ev.metaKey || ev.ctrlKey
       const key = ev.key.toLowerCase()
-      // Shift+Enter must insert a newline, not submit. A browser sends a bare CR
-      // for it (identical to Enter), which Claude Code reads as "send". Substitute
-      // the Option+Enter sequence (ESC CR) — Claude Code's newline — and swallow
-      // xterm's CR. Plain Enter still submits; Cmd/Ctrl+Enter are left to the app.
-      if (ev.key === 'Enter' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
-        this.dataSink?.('\x1b\r')
-        return false
-      }
       // Copy: Cmd+C (mac) or Ctrl/Cmd+Shift+C, only when there is a selection.
+      // preventDefault, not just `return false`: returning false only skips
+      // xterm's handling — the BROWSER default still runs (Ctrl+Shift+C is
+      // Chrome's DevTools inspect-element shortcut; Cmd+C is the native copy,
+      // which could clobber the clipboard we just wrote with an empty DOM copy).
       if (mod && key === 'c' && (ev.metaKey || ev.shiftKey) && this.term.hasSelection()) {
+        ev.preventDefault()
         copySelection()
         return false
       }
@@ -590,6 +619,35 @@ function gpuEnabled(): boolean {
   return true
 }
 
+/**
+ * Handle one OSC 52 payload: `<Pc>;<base64>` where Pc names the target
+ * selection(s) (c = clipboard, p = primary, …; empty defaults to clipboard).
+ * The browser only has THE clipboard, so any target writes there. Returns true
+ * always (the sequence is consumed either way). Exported for tests.
+ */
+export function handleOsc52(data: string): boolean {
+  const sep = data.indexOf(';')
+  if (sep === -1) return true
+  const payload = data.slice(sep + 1)
+  // '?' asks the terminal to REPLY with the clipboard contents — never answer
+  // (an agent could silently read whatever the user last copied).
+  if (payload === '?') return true
+  // Bound the payload: a runaway/malformed sequence must not balloon memory.
+  // 1 MiB of base64 ≈ 750 KiB of text, far beyond any legitimate copy.
+  if (payload.length > 1_048_576) return true
+  let text: string
+  try {
+    const bin = atob(payload)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+    text = new TextDecoder().decode(bytes)
+  } catch {
+    return true // not valid base64 — drop it
+  }
+  if (text) void writeClipboard(text)
+  return true
+}
+
 async function writeClipboard(text: string): Promise<void> {
   try {
     if (navigator.clipboard?.writeText) {
@@ -611,18 +669,24 @@ async function readClipboard(): Promise<string> {
   return ''
 }
 
-/** Clipboard API needs a secure context; over plain http (e.g. a Tailscale host) it is
- *  absent, so fall back to a throwaway textarea + execCommand inside the user gesture. */
+/** Clipboard API needs a secure context; over plain http (e.g. a LAN/tailnet host) it
+ *  is absent, so fall back to a throwaway textarea + execCommand inside the user
+ *  gesture. Focus must move to the textarea for execCommand to see its selection, so
+ *  restore it afterwards — otherwise every copy silently defocuses the terminal. */
 function legacyCopy(text: string): void {
   try {
+    const prevFocus = document.activeElement
     const ta = document.createElement('textarea')
     ta.value = text
+    ta.readOnly = true // no soft keyboard, no edit — it only holds the selection
     ta.style.position = 'fixed'
     ta.style.left = '-9999px'
     document.body.appendChild(ta)
     ta.select()
+    ta.setSelectionRange(0, text.length) // iOS Safari ignores select() alone
     document.execCommand('copy')
     document.body.removeChild(ta)
+    if (prevFocus instanceof HTMLElement) prevFocus.focus()
   } catch {
     // nothing else we can do
   }

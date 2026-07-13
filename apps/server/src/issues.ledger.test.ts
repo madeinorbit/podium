@@ -129,12 +129,12 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(bChange?.value?.blocked).toBe(false)
   })
 
-  it('delete emits the remove to delta clients and the log replays to the live state', () => {
+  it('internal draft purge emits the remove and the log replays to live state', () => {
     const { ledger, svc, appended } = harness()
     const parent = svc.create({ repoPath: '/r', title: 'epic', startNow: false })
     const child = svc.create({ repoPath: '/r', title: 'kid', startNow: false, parentId: parent.id })
     appended.length = 0
-    svc.delete(parent.id)
+    svc.purgeEmptyDraft(parent.id)
     // The committed remove entered the delta pipe (the reconcile alone would
     // dedup it away — the baseline already dropped the id — and delta clients
     // would keep the deleted issue until their next snapshot).
@@ -246,14 +246,14 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(ledger.cursor()).toBe(cursorBefore)
   })
 
-  it('a failed change append on delete keeps the row in memory and the store (#247)', () => {
+  it('a failed change append on purge keeps the row in memory and the store (#247)', () => {
     const { store, ledger, svc } = harness()
     const wire = svc.create({ repoPath: '/r', title: 'survivor', startNow: false })
     const cursorBefore = ledger.cursor()
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    expect(() => svc.delete(wire.id)).toThrow('append failed')
+    expect(() => svc.purgeEmptyDraft(wire.id)).toThrow('append failed')
     spy.mockRestore()
     // Memory truth intact (the re-hydrate runs only after a committed tx)…
     expect(svc.get(wire.id)?.title).toBe('survivor')

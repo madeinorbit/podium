@@ -13,9 +13,9 @@ import { useStoreSelector } from './store'
 export type RightPanelTab = 'files' | 'git' | 'issue' | 'shell'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
+  { id: 'issue', label: 'Issue', icon: CircleDot },
   { id: 'files', label: 'Files', icon: FolderTree },
   { id: 'git', label: 'Git', icon: GitBranch },
-  { id: 'issue', label: 'Issue', icon: CircleDot },
   // The dock is where shells LIVE (#23) [spec:SP-75b1] — one per worktree, never
   // a workspace agent tab.
   { id: 'shell', label: 'Shell', icon: SquareTerminal },

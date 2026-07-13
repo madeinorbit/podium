@@ -1,8 +1,8 @@
-import { normalizeSettings } from '@podium/runtime'
 import type { SessionMeta } from '@podium/protocol'
+import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
-import { IssueService, type IssueDeps } from './modules/issues/service'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
 
@@ -1038,6 +1038,36 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
   })
 
+  it('dependency cycles ignore parent-child containment edges (#413)', () => {
+    const { svc } = harness()
+    const root = svc.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const parent = svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    const child = svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: parent.id,
+      startNow: false,
+    })
+    svc.addDep(parent.id, root.id, 'blocks')
+
+    expect(() => svc.addDep(root.id, child.id, 'blocks')).not.toThrow()
+    expect(svc.get(root.id)!.deps).toContainEqual({ id: child.id, type: 'blocks' })
+    expect(svc.doctor('/r').cycles).toEqual([])
+  })
+
+  it('dependency-cycle errors name the offending dependency path (#413)', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.addDep(a.id, b.id)
+    svc.addDep(b.id, c.id)
+
+    expect(() => svc.addDep(c.id, a.id)).toThrow(
+      `dependency ${c.id} -> ${a.id} would create a dependency cycle: ${c.id} -> ${a.id} -> ${b.id} -> ${c.id}`,
+    )
+  })
+
   it('addDep rejects parent-child (reparent owns the hierarchy edge)', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -1357,6 +1387,9 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Epic')
     expect(out).toContain(child.title)
     expect(out).toMatch(/discovered-from|Workflow|track work as issues/i)
+    expect(out).toContain('reparent')
+    expect(out).toContain('--outside-scope')
+    expect(out).toContain('operator-only')
   })
 
   it('prime tells the agent to report worktree moves via `podium worktree`', () => {
@@ -1393,13 +1426,13 @@ describe('IssueService.prime (P1a)', () => {
   })
 })
 
-describe('IssueService.delete (P4b)', () => {
+describe('IssueService.purgeEmptyDraft (internal hard-delete seam)', () => {
   it('removes the issue from the list and broadcasts', () => {
     const { svc, store, deps } = harness()
     const a = svc.create({ repoPath: '/r', title: 'gone', startNow: false })
     svc.create({ repoPath: '/r', title: 'stays', startNow: false })
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
-    svc.delete(a.id)
+    svc.purgeEmptyDraft(a.id)
     expect(svc.get(a.id)).toBeNull()
     expect(svc.list('/r').map((w) => w.title)).toEqual(['stays'])
     expect(store.issues.getIssue(a.id)).toBeNull()
@@ -1407,13 +1440,13 @@ describe('IssueService.delete (P4b)', () => {
   })
   it('throws on unknown id', () => {
     const { svc } = harness()
-    expect(() => svc.delete('iss_missing')).toThrow()
+    expect(() => svc.purgeEmptyDraft('iss_missing')).toThrow()
   })
   it('deleting an issue clears scalar back-references on other issues', () => {
     const { svc, store } = harness()
     const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
     const child = svc.create({ repoPath: '/r', title: 'C', parentId: parent.id, startNow: false })
-    svc.delete(parent.id)
+    svc.purgeEmptyDraft(parent.id)
     expect(svc.get(child.id)!.parentId).toBeUndefined() // wire omits null parentId
     expect(store.issues.getIssue(child.id)!.parentId).toBeNull()
   })
@@ -1594,7 +1627,9 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBeNull()
     expect(h.store.issues.getIssue(w.id)?.branch).toBeNull()
     const comments = h.store.issues.listIssueComments(w.id)
-    expect(comments.some((c) => c.author === 'system:cleanup' && /already gone/.test(c.body))).toBe(true)
+    expect(comments.some((c) => c.author === 'system:cleanup' && /already gone/.test(c.body))).toBe(
+      true,
+    )
     // second call is a clean no-op refusal
     const r2 = await h.svc.cleanup(w.id)
     expect(r2.ok).toBe(false)
@@ -1613,7 +1648,11 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(r.output).toMatch(/not fully merged into 'main'/)
     expect(calls.map((c) => c.op)).toEqual(['status', 'isMergedInto'])
     // ancestor check is read-only against the repo ROOT ref db
-    expect(calls[1]).toEqual({ op: 'isMergedInto', cwd: '/r', args: { branch: BR, parentBranch: 'main' } })
+    expect(calls[1]).toEqual({
+      op: 'isMergedInto',
+      cwd: '/r',
+      args: { branch: BR, parentBranch: 'main' },
+    })
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBe(WT)
     expect(h.store.issues.getIssue(w.id)?.branch).toBe(BR)
   })
@@ -1649,7 +1688,11 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBeNull()
     expect(h.store.issues.getIssue(w.id)?.branch).toBeNull()
     const comments = h.store.issues.listIssueComments(w.id)
-    expect(comments.some((c) => c.author === 'system:cleanup' && c.body.includes(WT) && c.body.includes(BR))).toBe(true)
+    expect(
+      comments.some(
+        (c) => c.author === 'system:cleanup' && c.body.includes(WT) && c.body.includes(BR),
+      ),
+    ).toBe(true)
     const events = h.store.events.listEventsSince(0, { kinds: ['issue.cleaned'] })
     expect(events.length).toBe(1)
   })
@@ -1674,7 +1717,9 @@ describe('IssueService.cleanup (issue #71)', () => {
     expect(h.store.issues.getIssue(w.id)?.worktreePath).toBeNull()
     expect(h.store.issues.getIssue(w.id)?.branch).toBe(BR)
     const comments = h.store.issues.listIssueComments(w.id)
-    expect(comments.some((c) => c.author === 'system:cleanup' && /NOT deleted/.test(c.body))).toBe(true)
+    expect(comments.some((c) => c.author === 'system:cleanup' && /NOT deleted/.test(c.body))).toBe(
+      true,
+    )
   })
 
   it('worktree remove refused by git: surfaces the message, nothing cleared', async () => {
@@ -1739,7 +1784,9 @@ describe('IssueService.cleanup follow-ups (retry + strict gone detection)', () =
     ])
     expect(h.store.issues.getIssue(w.id)?.branch).toBeNull()
     const comments = h.store.issues.listIssueComments(w.id)
-    expect(comments.some((c) => c.author === 'system:cleanup' && /deleted merged branch/.test(c.body))).toBe(true)
+    expect(
+      comments.some((c) => c.author === 'system:cleanup' && /deleted merged branch/.test(c.body)),
+    ).toBe(true)
   })
 
   it('stacked retry still refused by -d gives the precise stacked message, not "nothing to clean up"', async () => {
@@ -2024,7 +2071,9 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(row.needsHuman).toBe(true)
     expect(row.humanQuestion).toMatch(new RegExp(`integration blocked at #${bad!.seq}: CONFLICT`))
     // one summary comment: what landed vs what blocked
-    const comments = h.store.issues.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate')
+    const comments = h.store.issues
+      .listIssueComments(epic.id)
+      .filter((c) => c.author === 'system:integrate')
     expect(comments.length).toBe(1)
     expect(comments[0]!.body).toContain(`integrated #${ok1!.seq}`)
     expect(comments[0]!.body).toContain(`blocked at #${bad!.seq}`)
@@ -2041,7 +2090,9 @@ describe('IssueService.integrate (issue #70)', () => {
     expect(r1.ok).toBe(true)
     expect(r2.ok).toBe(true)
     expect(r2.output).toBe(r1.output)
-    const comments = h.store.issues.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate')
+    const comments = h.store.issues
+      .listIssueComments(epic.id)
+      .filter((c) => c.author === 'system:integrate')
     expect(comments.length).toBe(1)
     const ev = h.store.events.listEventsSince(0, { kinds: ['issue.integration'] })
     expect(ev.length).toBe(2)
@@ -2050,7 +2101,10 @@ describe('IssueService.integrate (issue #70)', () => {
     h.svc.update(extra.id, { branch: 'issue/4-k2' })
     h.svc.close(extra.id)
     await h.svc.integrate(epic.id)
-    expect(h.store.issues.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate').length).toBe(2)
+    expect(
+      h.store.issues.listIssueComments(epic.id).filter((c) => c.author === 'system:integrate')
+        .length,
+    ).toBe(2)
   })
 
   it('closed-but-branchless siblings are skipped, not fatal', async () => {
