@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { isOpencodeCliAvailable } from '../../opencode/cli.js'
 import { createOpencodeConversationProvider } from './opencode.js'
 
 const provider = createOpencodeConversationProvider()
@@ -87,7 +88,11 @@ describe('opencode discovery provider', () => {
     }
   })
 
-  it('summarizes sessions from the opencode sqlite database', async () => {
+  // The provider gates on the real CLI being installed (scanRoot returns [] with a
+  // warning otherwise) — mirror cli.test.ts and self-skip on machines without it.
+  it.skipIf(!isOpencodeCliAvailable())(
+    'summarizes sessions from the opencode sqlite database',
+    async () => {
     home = await mkdtemp(join(tmpdir(), 'podium-opencode-home-'))
     const root = join(home, '.local', 'share', 'opencode')
     await mkdir(root, { recursive: true })

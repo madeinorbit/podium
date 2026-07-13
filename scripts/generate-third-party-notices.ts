@@ -74,6 +74,7 @@ export const PACKAGE_EXCEPTIONS: Record<string, string> = {
   // SIL Open Font License 1.1 — the standard permissive license for font files; imposes
   // no obligations on the embedding application.
   '@fontsource-variable/geist': 'OFL-1.1 font package',
+  '@fontsource-variable/geist-mono': 'OFL-1.1 font package',
 }
 
 // ---------------------------------------------------------------------------------------

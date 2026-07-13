@@ -20,13 +20,13 @@ package and are omitted.
 | BSD-2-Clause | 5 |
 | MPL-2.0 | 3 |
 | BlueOak-1.0.0 | 2 |
+| OFL-1.1 | 2 |
 | SEE LICENSE IN LICENSE.md | 2 |
 | (MIT OR CC0-1.0) | 1 |
 | (MPL-2.0 OR Apache-2.0) | 1 |
 | 0BSD | 1 |
 | CC-BY-4.0 | 1 |
 | CC0-1.0 | 1 |
-| OFL-1.1 | 1 |
 | Python-2.0 | 1 |
 | SEE LICENSE IN README.md | 1 |
 | Unlicense | 1 |
@@ -408,6 +408,14 @@ The following third-party sources are vendored (copied) into this repository:
 - copyright statement(s).
 - Copyright Holder. This restriction only applies to the primary font name as
 - https://fontsource.org/fonts/geist
+
+### @fontsource-variable/geist-mono@5.2.8
+
+- License: OFL-1.1
+- Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git) GeistMono-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
+- copyright statement(s).
+- Copyright Holder. This restriction only applies to the primary font name as
+- https://fontsource.org/fonts/geist-mono
 
 ### @handlewithcare/prosemirror-inputrules@0.1.4
 

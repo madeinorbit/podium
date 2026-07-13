@@ -26,6 +26,7 @@
       "dependencies": {
         "@podium/issue-client": "workspace:*",
         "@podium/runtime": "workspace:*",
+        "zod": "^3.24.0",
       },
       "devDependencies": {
         "typescript": "^6.0.3",
