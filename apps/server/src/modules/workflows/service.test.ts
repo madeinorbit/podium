@@ -259,6 +259,35 @@ describe('WorkflowService', () => {
       issueId: 'issue-1',
       revisionId: created.revision.id,
     })
+    expect(
+      service.executionProfileForLaunch({
+        profileId: profile.id,
+        runId: run.id,
+        stepId: 'review',
+      }),
+    ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
+    service.profileSave(
+      {
+        id: profile.id,
+        name: 'Codex review updated',
+        accountId: 'native:claude-code',
+        harness: 'claude-code',
+        model: 'claude-fable-5',
+        effort: 'high',
+      },
+      operator,
+    )
+    expect(
+      service.executionProfileForLaunch({
+        profileId: profile.id,
+        runId: run.id,
+        stepId: 'review',
+      }),
+    ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
+    expect(service.executionProfileForLaunch({ profileId: profile.id })).toMatchObject({
+      harness: 'claude-code',
+      model: 'claude-fable-5',
+    })
     const first = service.checkpoint(
       {
         runId: run.id,
@@ -283,6 +312,9 @@ describe('WorkflowService', () => {
     expect(first.warnings).toContain('step completed with uncommitted worktree changes')
     expect(first.nextStep?.stepId).toBe('review')
     expect(service.runs({}, operator).map((item) => item.id)).toEqual([run.id])
+    expect(service.renderRunPrime(first.run, 's1')).toContain(
+      `podium agent spawn --issue issue-1 --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id review --execution-profile-id ${profile.id}`,
+    )
 
     service.assignStep({ runId: run.id, stepId: 'review', sessionId: 's2' }, agent('s1'))
     const completed = service.checkpoint(
@@ -406,6 +438,9 @@ describe('WorkflowService', () => {
         agent('s1'),
       ),
     ).toThrow('only the operator')
+    expect(() =>
+      workflowInputs.profileSave.parse({ name: 'Bad', accountId: 'acct', harness: 'unknown' }),
+    ).toThrow()
   })
 
   it('adopts a new revision explicitly and preserves the superseded run', () => {

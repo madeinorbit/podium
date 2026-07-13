@@ -419,7 +419,16 @@ export class SessionRegistry {
       },
       repoIdForPath: (path) => this.store.repos.resolveRepoIdForPath(path),
       notifyCoordinator: (sessionId, text) => {
-        void sessionsSvc.queueText({ sessionId, text })
+        messagesSvc.send(
+          { kind: 'system', name: 'workflow' },
+          {
+            to: { kind: 'session', id: sessionId },
+            body: text,
+            kind: 'notification',
+            urgency: 'next-turn',
+            lifecycle: 'wait',
+          },
+        )
       },
     })
     const issueRelayGate = new IssueRelayGate({
@@ -789,6 +798,7 @@ export class SessionRegistry {
           ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
           ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),
         }),
+      resolveExecutionProfile: (input) => workflows.executionProfileForLaunch(input),
       createIssue: (o) => issues.create({ ...o, startNow: false }),
       appendEvent: (e) => this.store.events.appendEvent(e),
       now: () => new Date(this.now()).toISOString(),

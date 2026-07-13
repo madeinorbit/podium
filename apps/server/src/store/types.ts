@@ -203,6 +203,8 @@ export interface MessageRow {
   inReplyTo: string | null
   fromKind: MessageFromKind
   fromSession: string | null
+  /** Named system producer (for example `workflow` or `steward`). */
+  fromName?: string | null
   /** Sender's issue at send time (agent senders). */
   fromIssue: string | null
   toKind: MessageToKind

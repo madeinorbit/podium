@@ -209,6 +209,81 @@ describe('SessionRegistry', () => {
     ])
   })
 
+  it('delivers worker checkpoints through the durable system:workflow message ledger', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const coordinator = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    }).sessionId
+    const worker = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    }).sessionId
+    const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
+    const created = reg.modules.workflows.create(
+      {
+        name: 'Delegated review',
+        description: '',
+        scope: 'global',
+        instructions: 'Use a separate reviewer.',
+        steps: [
+          {
+            id: 'review',
+            title: 'Review',
+            instructions: 'Review the change.',
+            completionGuidance: 'Report findings.',
+          },
+        ],
+      },
+      operator,
+    )
+    const run = reg.modules.workflows.startRun({
+      sessionId: coordinator,
+      cwd: '/w',
+      revisionId: created.revision.id,
+    })
+    const coordinatorCaller = {
+      actor: { kind: 'session' as const, id: coordinator },
+      capability: reg.modules.sessions.capabilityForSession(coordinator),
+    }
+    reg.modules.workflows.assignStep(
+      { runId: run.id, stepId: 'review', sessionId: worker },
+      coordinatorCaller,
+    )
+    reg.modules.workflows.checkpoint(
+      {
+        runId: run.id,
+        stepId: 'review',
+        status: 'complete',
+        summary: 'No findings.',
+        evidence: { summary: '', tests: [], artifacts: [] },
+      },
+      {
+        actor: { kind: 'session', id: worker },
+        capability: reg.modules.sessions.capabilityForSession(worker),
+      },
+    )
+
+    const notices = store.messages.listMessagesFor({ kind: 'session', id: coordinator })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatchObject({
+      fromKind: 'system',
+      fromName: 'workflow',
+      toKind: 'session',
+      toId: coordinator,
+      kind: 'notification',
+      urgency: 'next-turn',
+      lifecycle: 'wait',
+      body: 'Workflow step "Review" complete: No findings.',
+    })
+    expect(
+      store.events.listEventsSince(0, { kinds: ['message.queued'] }).at(-1)?.payload,
+    ).toMatchObject({ fromKind: 'system', fromName: 'workflow' })
+    reg.dispose()
+  })
+
   it('does NOT put initialPrompt on the spawn for non-argv agents — seeds the composer draft instead', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

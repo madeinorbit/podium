@@ -1,12 +1,13 @@
-import type {
-  ExecutionProfileWire,
-  WorkflowBindingTarget,
-  WorkflowBindingWire,
-  WorkflowDetailWire,
-  WorkflowRunWire,
-  WorkflowScope,
-  WorkflowStep,
-  WorkflowWire,
+import {
+  AgentKind,
+  type ExecutionProfileWire,
+  type WorkflowBindingTarget,
+  type WorkflowBindingWire,
+  type WorkflowDetailWire,
+  type WorkflowRunWire,
+  type WorkflowScope,
+  type WorkflowStep,
+  type WorkflowWire,
 } from '@podium/protocol'
 import { Check, Plus, RefreshCw, ShieldCheck, Workflow } from 'lucide-react'
 import type { FormEvent, JSX, ReactElement } from 'react'
@@ -706,7 +707,7 @@ function Profiles(props: {
   const [name, setName] = useState('')
   const trpc = useStoreSelector((state) => state.trpc)
   const [accountId, setAccountId] = useState('')
-  const [harness, setHarness] = useState('')
+  const [harness, setHarness] = useState<AgentKind>('codex')
   const [model, setModel] = useState('auto')
   const [effort, setEffort] = useState('auto')
   const canSave = name && accountId && harness
@@ -751,12 +752,15 @@ function Profiles(props: {
               />
             </Field>
             <Field label="Harness">
-              <input
+              <select
                 value={harness}
-                onChange={(e) => setHarness(e.target.value)}
-                placeholder="codex"
+                onChange={(e) => setHarness(AgentKind.parse(e.target.value))}
                 className="input"
-              />
+              >
+                {AgentKind.options.map((kind) => (
+                  <option key={kind}>{kind}</option>
+                ))}
+              </select>
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Model">

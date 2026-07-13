@@ -3,6 +3,10 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 /** Instruction-first, immutable agent workflows (#285). */
 export function up(db: SqlDatabase): void {
   db.exec(`
+    -- #237's sender principal already accepts a named system. Persist that
+    -- attribution so workflow/steward/etc. notices remain distinguishable.
+    ALTER TABLE messages ADD COLUMN from_name TEXT;
+
     CREATE TABLE workflows (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

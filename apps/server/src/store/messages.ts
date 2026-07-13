@@ -20,6 +20,9 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     inReplyTo: (r.in_reply_to as string | null) ?? null,
     fromKind: r.from_kind as MessageRow['fromKind'],
     fromSession: (r.from_session as string | null) ?? null,
+    ...(r.from_name !== null && r.from_name !== undefined
+      ? { fromName: r.from_name as string }
+      : {}),
     fromIssue: (r.from_issue as string | null) ?? null,
     toKind: r.to_kind as MessageRow['toKind'],
     toId: (r.to_id as string | null) ?? null,
@@ -46,10 +49,10 @@ export class MessagesRepository {
     this.db
       .prepare(
         `INSERT INTO messages
-           (id, thread_id, in_reply_to, from_kind, from_session, from_issue,
+           (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
             to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
             created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -57,6 +60,7 @@ export class MessagesRepository {
         m.inReplyTo,
         m.fromKind,
         m.fromSession,
+        m.fromName ?? null,
         m.fromIssue,
         m.toKind,
         m.toId,

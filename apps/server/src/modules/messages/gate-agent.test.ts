@@ -53,6 +53,7 @@ const PARENT: Capability = {
 function harness(opts?: {
   sessions?: SessionMeta[]
   spawnSession?: MessageGateDeps['spawnSession']
+  resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
   awaitPollMs?: number
   /** Fake clock shared by service + gate (awaitAgent freshness tests). */
   now?: () => string
@@ -96,6 +97,7 @@ function harness(opts?: {
         spawns.push(i)
         return { sessionId: 'child1' }
       }),
+    ...(opts?.resolveExecutionProfile ? { resolveExecutionProfile: opts.resolveExecutionProfile } : {}),
     // The deliberate --new path registers in the same fake registry so the
     // follow-up issues.get() resolves it (mirrors the real IssueService).
     createIssue: (i) => (issues as unknown as { create(x: unknown): { id: string } }).create(i),
@@ -139,6 +141,54 @@ describe('agent spawn (gate)', () => {
     const evs = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(evs).toHaveLength(1)
     expect(evs[0]!.payload).toMatchObject({ sessionId: 'child1', workflowRunId: 'run_1' })
+  })
+
+  it('uses a resolved execution profile as the authoritative launch preset and audits it', async () => {
+    const { gate, spawns, store } = harness({
+      resolveExecutionProfile: (input) => {
+        expect(input).toEqual({
+          profileId: 'prof_review',
+          runId: 'run_1',
+          stepId: 'review',
+        })
+        return {
+          id: 'prof_review',
+          accountId: 'native:codex',
+          machineId: 'machine-review',
+          harness: 'codex',
+          model: 'gpt-5.6',
+          effort: 'medium',
+        }
+      },
+    })
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'review the change',
+      harness: 'claude-code',
+      model: 'wrong-model',
+      effort: 'low',
+      workflowRunId: 'run_1',
+      workflowStepId: 'review',
+      executionProfileId: 'prof_review',
+    })
+    expect(spawns[0]).toMatchObject({
+      agentKind: 'codex',
+      model: 'gpt-5.6',
+      effort: 'medium',
+      machineId: 'machine-review',
+      workflowRunId: 'run_1',
+      workflowStepId: 'review',
+      executionProfileId: 'prof_review',
+    })
+    const events = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    expect(events[0]?.payload).toMatchObject({
+      harness: 'codex',
+      model: 'gpt-5.6',
+      effort: 'medium',
+      machineId: 'machine-review',
+      accountId: 'native:codex',
+      executionProfileId: 'prof_review',
+    })
   })
 
   it('authz: a subtree caller spawning onto ANOTHER issue needs --outside-scope', async () => {

@@ -311,6 +311,7 @@ export class MessageDeliveryService {
       inReplyTo: input.inReplyTo ?? null,
       fromKind: from.kind,
       fromSession: from.kind === 'agent' ? (from.sessionId ?? null) : null,
+      fromName: from.kind === 'system' ? (from.name ?? null) : null,
       fromIssue: from.kind === 'agent' ? (from.issueId ?? null) : null,
       toKind: input.to.kind,
       toId,
@@ -865,11 +866,13 @@ export class MessageDeliveryService {
 
   private senderKey(from: MessageSender): string {
     if (from.kind === 'agent') return `agent:${from.sessionId ?? from.issueId ?? '?'}`
+    if (from.kind === 'system') return `system:${from.name ?? '?'}`
     return from.kind
   }
 
   private senderKeyOfRow(m: MessageRow): string {
     if (m.fromKind === 'agent') return `agent:${m.fromSession ?? m.fromIssue ?? '?'}`
+    if (m.fromKind === 'system') return `system:${m.fromName ?? '?'}`
     return m.fromKind
   }
 
@@ -989,7 +992,7 @@ export class MessageDeliveryService {
       if (message.fromSession) return `session:${message.fromSession}`
       return 'agent'
     }
-    if (message.fromKind === 'system') return 'system'
+    if (message.fromKind === 'system') return `system${message.fromName ? `:${message.fromName}` : ''}`
     return message.fromKind // superagent
   }
 
@@ -1066,6 +1069,7 @@ export class MessageDeliveryService {
           messageId: message.id,
           threadId: message.threadId,
           fromKind: message.fromKind,
+          ...(message.fromName ? { fromName: message.fromName } : {}),
           ...(message.fromIssue ? { fromIssue: message.fromIssue } : {}),
           ...(message.fromSession ? { fromSession: message.fromSession } : {}),
           toKind: message.toKind,

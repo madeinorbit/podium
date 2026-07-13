@@ -37,7 +37,7 @@ const replyInput = z.object({
 // is a FULL Podium session (real PTY, human-attachable) spawned through the
 // existing session machinery; `newTitle` is the DELIBERATE `--new` issue-create
 // path — an issue is never auto-created when `issue` is supplied. The workflow
-// fields are #285 pass-through metadata: stored on the child, never interpreted.
+// fields are #285 metadata; an execution profile is resolved server-side.
 const spawnAgentInput = z.object({
   issue: z.string().optional(),
   newTitle: z.string().min(1).optional(),
@@ -88,6 +88,20 @@ export interface MessageGateDeps {
     workflowStepId?: string
     executionProfileId?: string
   }): { sessionId: string }
+  /** Resolve a named workflow execution profile. When a run + step are present,
+   *  the workflow service returns the immutable snapshot pinned to that run. */
+  resolveExecutionProfile?(input: {
+    profileId: string
+    runId?: string
+    stepId?: string
+  }): {
+    id: string
+    accountId: string
+    machineId: string | null
+    harness: string
+    model: string
+    effort: string
+  }
   /** The DELIBERATE `--new` issue-create path (never automatic). */
   createIssue?(input: {
     repoPath: string
@@ -364,16 +378,26 @@ export class MessageGate {
       : caller.capability.scope.kind === 'all'
         ? 'user'
         : 'agent'
+    const profile = input.executionProfileId
+      ? this.deps.resolveExecutionProfile?.({
+          profileId: input.executionProfileId,
+          ...(input.workflowRunId ? { runId: input.workflowRunId } : {}),
+          ...(input.workflowStepId ? { stepId: input.workflowStepId } : {}),
+        })
+      : undefined
+    const harness = profile?.harness ?? input.harness ?? issue.defaultAgent
+    const model = profile?.model ?? input.model
+    const effort = profile?.effort ?? input.effort
+    const machineId = profile?.machineId ?? issue.machineId
     const { sessionId } = this.deps.spawnSession({
       cwd,
-      agentKind: input.harness ?? issue.defaultAgent,
+      agentKind: harness,
       initialPrompt: input.prompt,
       issueId,
       spawnedBy,
-      ...(input.model ? { model: input.model } : {}),
-      ...(input.effort ? { effort: input.effort } : {}),
-      ...(issue.machineId ? { machineId: issue.machineId } : {}),
-      // #285 pass-through — stored on the child, never interpreted here.
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(machineId ? { machineId } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
@@ -390,9 +414,14 @@ export class MessageGate {
           // budgetIssue rides the durable event so brake 2 survives restarts
           // (spawnCountFor counts it); absent on unbudgeted operator spawns.
           ...(budgeted ? { budgetIssue: issueId } : {}),
-          harness: input.harness ?? issue.defaultAgent,
+          harness,
+          ...(model ? { model } : {}),
+          ...(effort ? { effort } : {}),
+          ...(machineId ? { machineId } : {}),
+          ...(profile ? { accountId: profile.accountId } : {}),
           ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
           ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
+          ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
         },
       })
     } catch {}
@@ -614,7 +643,10 @@ export class MessageGate {
       id: m.id,
       threadId: m.threadId,
       inReplyTo: m.inReplyTo,
-      from: label(m.fromKind, m.fromIssue, m.fromSession),
+      from:
+        m.fromKind === 'system' && m.fromName
+          ? `system:${m.fromName}`
+          : label(m.fromKind, m.fromIssue, m.fromSession),
       to: label(
         m.toKind,
         m.toKind === 'issue' ? m.toId : null,

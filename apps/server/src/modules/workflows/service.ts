@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
+  AgentKind,
+  type ExecutionProfileWire,
   type WorkflowGitObservation as GitObservation,
   WorkflowBindingTarget,
   WorkflowGitObservation,
@@ -71,7 +73,7 @@ export const workflowInputs = {
     name: z.string().trim().min(1).max(120),
     accountId: z.string().min(1),
     machineId: z.string().min(1).nullable().optional(),
-    harness: z.string().min(1),
+    harness: AgentKind,
     model: z.string().default('auto'),
     effort: z.string().default('auto'),
   }),
@@ -408,6 +410,44 @@ export class WorkflowService {
       actor: this.actor(caller),
       now,
     })
+  }
+
+  /**
+   * Resolve the immutable execution-profile snapshot attached to a run step.
+   * Standalone profile launches use the current shared profile; launches that
+   * identify a run + step use the snapshot pinned when that run started.
+   */
+  executionProfileForLaunch(input: {
+    profileId: string
+    runId?: string
+    stepId?: string
+  }): ExecutionProfileWire & { harness: AgentKind } {
+    let profile: ExecutionProfileWire | null
+    if (input.runId && input.stepId) {
+      const run = this.deps.store.getRun(input.runId)
+      if (!run) throw new Error(`unknown workflow run: ${input.runId}`)
+      const step = this.deps.store
+        .getRunSteps(run.id)
+        .find((candidate) => candidate.stepId === input.stepId)
+      if (!step) throw new Error(`workflow run ${run.id} has no step ${input.stepId}`)
+      if (step.executionProfileId !== input.profileId) {
+        throw new Error(
+          `workflow step ${input.stepId} requires ${step.executionProfileId ?? 'no execution profile'}, not ${input.profileId}`,
+        )
+      }
+      profile = step.executionProfileSnapshot
+      if (!profile) {
+        throw new Error(`execution profile snapshot ${input.profileId} is unavailable`)
+      }
+    } else {
+      profile = this.deps.store.getProfile(input.profileId)
+      if (!profile) throw new Error(`unknown execution profile: ${input.profileId}`)
+    }
+    const harness = AgentKind.safeParse(profile.harness)
+    if (!harness.success) {
+      throw new Error(`execution profile ${profile.id} has unsupported harness ${profile.harness}`)
+    }
+    return { ...profile, harness: harness.data }
   }
 
   private liveRunForSession(sessionId: string): WorkflowRunRow | null {
@@ -930,12 +970,21 @@ export class WorkflowService {
       : run.status === 'complete'
         ? 'Workflow complete.'
         : 'This prompt-only workflow has no structured steps.'
+    const delegation =
+      role === 'coordinator' &&
+      run.subjectKind === 'issue' &&
+      current?.executionProfileId
+        ? `Delegate this step with: podium agent spawn --issue ${run.subjectId} --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id ${current.stepId} --execution-profile-id ${current.executionProfileId}`
+        : ''
     return [
       `# Workflow ${workflow?.name ?? run.revision.workflowId} · revision ${run.revision.version}`,
       `Run: ${run.id} · role: ${role} · status: ${run.status}`,
       run.revision.instructions,
       stepText,
+      delegation,
       'Checkpointing is advisory for behavioral/Git rules; Podium records actual session/worktree evidence and returns the next step.',
-    ].join('\n\n')
+    ]
+      .filter(Boolean)
+      .join('\n\n')
   }
 }
