@@ -68,7 +68,13 @@ export const fileHandlers: Pick<
       )
   },
   fileAssetRequest: (ctx, msg) => {
-    void readAssetSandboxed({ cwd: msg.cwd, path: msg.path, knownPath: msg.knownPath })
+    void readAssetSandboxed({
+      cwd: msg.cwd,
+      path: msg.path,
+      knownPath: msg.knownPath,
+      ...(msg.offset !== undefined ? { offset: msg.offset } : {}),
+      ...(msg.length !== undefined ? { length: msg.length } : {}),
+    })
       .then((r) => ctx.send({ type: 'fileAssetResult', requestId: msg.requestId, ...r }))
       .catch((err) =>
         ctx.send({

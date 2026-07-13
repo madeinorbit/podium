@@ -19,6 +19,12 @@ export const FileAssetRequestMessage = z.object({
   path: z.string(),
   /** Server-asserted transcript-known path; allows reading outside cwd. Read-only. */
   knownPath: z.boolean(),
+  /** Ranged read ([spec:SP-0fc9]): byte offset to start from. With `length`,
+   *  bypasses the single-shot size cap so the server can pull large artifacts
+   *  in chunks. */
+  offset: z.number().int().min(0).optional(),
+  /** Ranged read: max bytes to return (the daemon clamps to its chunk cap). */
+  length: z.number().int().min(1).optional(),
 })
 export type FileAssetRequestMessage = z.infer<typeof FileAssetRequestMessage>
 
@@ -87,6 +93,8 @@ export const FileAssetResultMessage = z.object({
   dataBase64: z.string().optional(),
   contentType: z.string().optional(),
   tooLarge: z.boolean().optional(),
+  /** Total file size in bytes ([spec:SP-0fc9]) — lets a ranged puller loop. */
+  size: z.number().optional(),
   error: z.string().optional(),
 })
 export type FileAssetResultMessage = z.infer<typeof FileAssetResultMessage>

@@ -61,6 +61,15 @@ export const IssuePanelArtifact = z.object({
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
+  /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
+   *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
+   *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
+   *  live /files/asset route against the worktree. */
+  artifactId: z.string().optional(),
+  /** Relpath of the primary file inside the snapshot bundle. */
+  entry: z.string().optional(),
+  /** Bundle manifest — relpaths + sizes of every snapshotted file. */
+  files: z.array(z.object({ path: z.string(), size: z.number() })).optional(),
 })
 export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
 export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })

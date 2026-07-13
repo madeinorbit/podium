@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import type {
   FileAssetResultMessage,
@@ -86,11 +86,16 @@ const ASSET_CONTENT_TYPES: Record<string, string> = {
 type AssetResult = Omit<FileAssetResultMessage, 'type' | 'requestId'>
 
 /** Read a (possibly binary) asset's bytes for the markdown preview, sandboxed to the
- *  session cwd exactly like readFileSandboxed. Returns base64 + a content-type. */
+ *  session cwd exactly like readFileSandboxed. Returns base64 + a content-type.
+ *  Ranged reads (`offset`+`length`, [spec:SP-0fc9]) bypass the single-shot size cap
+ *  so the server can pull large artifact files chunk by chunk; each slice is still
+ *  clamped to MAX_ASSET_BYTES. `size` always reports the total file size. */
 export async function readAssetSandboxed(opts: {
   cwd: string
   path: string
   knownPath: boolean
+  offset?: number
+  length?: number
 }): Promise<AssetResult> {
   const { cwd, path, knownPath } = opts
   let realCwd: string
@@ -105,14 +110,28 @@ export async function readAssetSandboxed(opts: {
   try {
     const st = await stat(real)
     if (!st.isFile()) return { ok: false, path, error: 'not a file' }
-    if (st.size > MAX_ASSET_BYTES) return { ok: false, path, tooLarge: true }
-    const buf = await readFile(real)
+    let buf: Buffer
+    if (opts.length != null) {
+      const offset = opts.offset ?? 0
+      const len = Math.min(opts.length, MAX_ASSET_BYTES, Math.max(0, st.size - offset))
+      buf = Buffer.alloc(len)
+      const fh = await open(real, 'r')
+      try {
+        await fh.read(buf, 0, len, offset)
+      } finally {
+        await fh.close()
+      }
+    } else {
+      if (st.size > MAX_ASSET_BYTES) return { ok: false, path, tooLarge: true, size: st.size }
+      buf = await readFile(real)
+    }
     const ext = real.split('.').pop()?.toLowerCase() ?? ''
     return {
       ok: true,
       path,
       dataBase64: buf.toString('base64'),
       contentType: ASSET_CONTENT_TYPES[ext] ?? 'application/octet-stream',
+      size: st.size,
     }
   } catch {
     return { ok: false, path, error: 'read error' }
@@ -151,10 +170,7 @@ export async function writeFileSandboxed(opts: {
   }
 }
 
-export async function listDirSandboxed(opts: {
-  root: string
-  path?: string
-}): Promise<{
+export async function listDirSandboxed(opts: { root: string; path?: string }): Promise<{
   ok: boolean
   path: string
   entries: { name: string; isDir: boolean }[]

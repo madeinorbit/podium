@@ -1,6 +1,6 @@
 import {
-  mkdtemp,
   mkdir,
+  mkdtemp,
   readFile,
   symlink,
   writeFile,
@@ -145,6 +145,24 @@ describe('readAssetSandboxed', () => {
     const r = await readAssetSandboxed({ cwd: dir, path: '/etc/hosts', knownPath: false })
     expect(r.ok).toBe(false)
     expect(r.error).toBe('outside workspace')
+  })
+  it('ranged reads return the requested slice + total size ([spec:SP-0fc9])', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'asset-'))
+    await writeFileFs(join(dir, 'big.bin'), Buffer.from('0123456789'))
+    const path = join(dir, 'big.bin')
+    const r = await readAssetSandboxed({ cwd: dir, path, knownPath: false, offset: 4, length: 3 })
+    expect(r.ok).toBe(true)
+    expect(r.size).toBe(10)
+    expect(Buffer.from(r.dataBase64 ?? '', 'base64').toString()).toBe('456')
+    // tail-clamped slice
+    const tail = await readAssetSandboxed({
+      cwd: dir,
+      path,
+      knownPath: false,
+      offset: 8,
+      length: 5,
+    })
+    expect(Buffer.from(tail.dataBase64 ?? '', 'base64').toString()).toBe('89')
   })
 })
 

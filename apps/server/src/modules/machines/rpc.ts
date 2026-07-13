@@ -455,7 +455,16 @@ export class DaemonRpcService {
   }
 
   readAsset(
-    input: { sessionId: string; path: string } | { machineId?: string; root: string; path: string },
+    input:
+      | { sessionId: string; path: string }
+      | {
+          machineId?: string
+          root: string
+          path: string
+          /** Ranged pull ([spec:SP-0fc9]) — artifact snapshotting reads large files in chunks. */
+          offset?: number
+          length?: number
+        },
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = this.deps.getSession(input.sessionId)
@@ -491,6 +500,8 @@ export class DaemonRpcService {
         cwd: input.root,
         path: absPath,
         knownPath: false,
+        ...(input.offset !== undefined ? { offset: input.offset } : {}),
+        ...(input.length !== undefined ? { length: input.length } : {}),
       }),
       input.machineId ?? this.deps.defaultMachine(),
     )
