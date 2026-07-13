@@ -12,6 +12,7 @@ import type { HostModules } from '../apps/cli/src/cli'
 import { main as cliMain } from '../apps/cli/src/cli'
 
 export {
+  alreadyRunningMessage,
   type DaemonStartOptions,
   daemonOptionsForPlan,
   type HostModules,
@@ -21,6 +22,8 @@ export {
   portInUseMessage,
   resolveModePlan,
   resolvePlan,
+  unknownLaunchToken,
+  usageText,
 } from '../apps/cli/src/cli'
 
 async function loadHost(): Promise<HostModules> {

@@ -38,7 +38,13 @@ export function spawnDetached(sub: 'server' | 'daemon', opts: SpawnOpts = {}): n
   mkdirSync(logDir(), { recursive: true })
   const logFile = join(logDir(), `${sub}.log`)
   const fd = openSync(logFile, 'a')
-  const extra = opts.local ? ['--local'] : opts.serverUrl ? ['--server', opts.serverUrl] : []
+  // `--takeover`: these spawns are deliberate management actions (setup's detached start,
+  // ensureDetachedUp on roles the registry shows down) — keep the pre-#18 reclaim
+  // semantics for a stale-but-alive holder instead of failing the managed start.
+  const extra = [
+    ...(opts.local ? ['--local'] : opts.serverUrl ? ['--server', opts.serverUrl] : []),
+    '--takeover',
+  ]
   const { cmd, args } = selfInvocation(sub, extra)
   const env: NodeJS.ProcessEnv = { ...process.env, PODIUM_RUN_MODE: 'detached' }
   // Not under systemd — make sure a stray NOTIFY_SOCKET (inherited from a parent unit) doesn't

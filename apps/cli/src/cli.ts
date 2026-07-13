@@ -35,6 +35,63 @@ export interface ModePlan {
 
 const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 
+/** Subcommands that own their remaining argv (each has its own arg parsing / --help). */
+const PASSTHROUGH_SUBCOMMANDS = ['issue', 'session', 'spec', 'worktree', 'logs']
+
+/** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
+ *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
+ *  silently fall through and boot the stack (issue #18). */
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup']
+const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
+const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
+
+/** First token the launch path does not understand (skipping value-flag arguments). */
+export function unknownLaunchToken(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i] as string
+    if (LAUNCH_VALUE_FLAGS.includes(tok)) {
+      i++ // skip the flag's value
+      continue
+    }
+    if (LAUNCH_BOOL_FLAGS.includes(tok) || LAUNCH_BARE_WORDS.includes(tok)) continue
+    return tok
+  }
+  return undefined
+}
+
+/** Aggregate CLI usage — printed by `podium help` / `--help` / `-h` (issue #18). */
+export function usageText(): string {
+  return [
+    'podium — launch and manage the Podium backend',
+    '',
+    'usage: podium [command] [flags]',
+    '',
+    'Launch (host components in this process):',
+    '  podium                     launch per ~/.podium/config.json (default: all-in-one)',
+    '  podium all                 run server + daemon in one process (alias: all-in-one)',
+    '  podium server              run only the server',
+    '  podium daemon              run only the daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
+    '  podium client              nothing to run locally; points at the configured server',
+    '  podium setup               interactive setup [--reconfigure | --repair | --join <TOKEN> [--persist systemd|detached]]',
+    '',
+    'Launch flags:',
+    '  --takeover                 replace a live instance of the same role; without it,',
+    '                             podium refuses to start when one is already running',
+    '',
+    'Manage:',
+    '  podium status              show what is running',
+    '  podium stop                stop the running backend',
+    '  podium logs [args]         show backend logs',
+    '  podium update              self-update from the configured feed',
+    '  podium channel [stable|edge]',
+    '  podium join-config <TOKEN>',
+    '  podium set-server <url-or-join-code>',
+    '',
+    'Tools (each has its own --help):',
+    '  podium issue | session | spec | worktree <args>',
+  ].join('\n')
+}
+
 /** Pure mode resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
 export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan {
   const sub = argv.find((a) => (SUBCOMMANDS as string[]).includes(a)) as PodiumMode | undefined
@@ -92,6 +149,8 @@ export type DaemonAuthKind =
  *    is `roles.server` only with no registry claim).
  */
 export type LaunchPlan =
+  /** `podium help` / `--help` / `-h`: print usage and exit 0 — NEVER boot anything (#18). */
+  | { kind: 'help' }
   | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
   | { kind: 'channel'; target: string | undefined }
   | { kind: 'join-config'; token: string }
@@ -132,6 +191,9 @@ export type LaunchPlan =
       modePlan: ModePlan
       /** Print the setup-URL hint after the server comes up. */
       showSetupHint: boolean
+      /** `--takeover`: displace a LIVE same-role instance. Without it, runInProcess
+       *  refuses to start when the run registry shows a live holder (#18). */
+      takeover: boolean
     }
 
 /**
@@ -146,6 +208,18 @@ export function resolvePlan(
   tty: boolean,
 ): LaunchPlan {
   const port = resolvePort(config, env)
+
+  // `podium help` / `--help` / `-h` anywhere → usage, BEFORE any other dispatch, so a
+  // `--help` tacked onto a launch command can never boot the stack (issue #18). The
+  // passthrough subcommands own their argv (each has its own --help), so theirs is
+  // forwarded untouched.
+  if (
+    argv[0] === 'help' ||
+    (!PASSTHROUGH_SUBCOMMANDS.includes(argv[0] ?? '') &&
+      (argv.includes('--help') || argv.includes('-h')))
+  ) {
+    return { kind: 'help' }
+  }
 
   // ---- utility subcommands (historical dispatch order preserved) ----
   // `podium update`: self-update the headless bundle from the configured feed.
@@ -206,6 +280,15 @@ export function resolvePlan(
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
 
   // ---- launch resolution ----
+  // Reject anything the launch path doesn't understand: an unknown flag or a typo'd
+  // subcommand used to be silently ignored and boot the default mode (issue #18).
+  const unknown = unknownLaunchToken(argv)
+  if (unknown !== undefined) {
+    return {
+      kind: 'usage-error',
+      message: `podium: unknown argument '${unknown}' (run \`podium help\` for usage)`,
+    }
+  }
   const modePlan = resolveModePlan(argv, config)
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
@@ -307,6 +390,7 @@ export function resolvePlan(
     daemonAuth,
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
+    takeover: argv.includes('--takeover'),
   }
 }
 
@@ -361,6 +445,24 @@ export function portInUseMessage(port: number): string {
 }
 
 /**
+ * Refusal printed when a LIVE same-role instance already holds the run-registry record
+ * and `--takeover` was not passed (issue #18): an accidental `podium all` (or a stray
+ * `--help` that used to fall through) must never SIGTERM a running production instance.
+ */
+export function alreadyRunningMessage(
+  role: string,
+  holder: { pid: number; port?: number },
+): string {
+  const where = holder.port ? `pid ${holder.pid}, port ${holder.port}` : `pid ${holder.pid}`
+  return [
+    `podium: a live '${role}' instance is already running (${where}) — refusing to start another.`,
+    '  → Inspect it:            podium status',
+    '  → Stop it:               podium stop',
+    '  → Really replace it:     re-run with --takeover',
+  ].join('\n')
+}
+
+/**
  * The in-process host seam: apps/cli owns the launcher logic but must not
  * import apps/server or apps/daemon (boundary rule). The runnable entry
  * (scripts/cli.ts, the composition root that bun-compile bundles) injects the
@@ -391,7 +493,18 @@ async function runInProcess(
   // for status/stop. The in-process all-in-one is a single role; the split modes each
   // claim their own.
   if (plan.claimRole) {
-    const { registerProcess } = await import('@podium/runtime/run-registry')
+    const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
+    // registerProcess → reclaim() SIGTERM/SIGKILLs a live holder. That is takeover, and
+    // takeover must be OPT-IN: without --takeover, a live same-role holder means we
+    // refuse and leave it alone (#18). Stale records (dead pid) still fall through so
+    // crashed/force-killed instances are reclaimed as before.
+    if (!plan.takeover) {
+      const holder = liveRecord(plan.claimRole)
+      if (holder) {
+        console.error(alreadyRunningMessage(plan.claimRole, holder))
+        process.exit(1)
+      }
+    }
     try {
       // Daemon-only mode hosts no local port; server/all-in-one record theirs.
       await registerProcess(plan.claimRole, {
@@ -496,6 +609,10 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   const plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
 
   switch (plan.kind) {
+    case 'help': {
+      console.log(usageText())
+      return
+    }
     case 'update': {
       const { runUpdate } = await import('./podium-update')
       await runUpdate(
