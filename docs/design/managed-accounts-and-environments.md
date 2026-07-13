@@ -212,7 +212,7 @@ this entirely — another reason to lead with them.
 That is right for LLM credentials — a role picks its backend. It is wrong for
 GitHub, which is not an LLM, is not role-scoped, and must be injected into
 *every* spawn (and into `runRepoOp`, which today shells out `gh` with no env at
-all — see `apps/daemon/src/repo-op.ts:121`).
+all — see `runRepoOp`, `apps/daemon/src/control/exec.ts:17`).
 
 So the Account model needs two classes:
 
@@ -230,7 +230,7 @@ Account {
   var name is a config error, surfaced, not last-write-wins.
 
 This also forces the provider enum open. `AccountProvider` is currently LLM-only
-(`packages/core/src/settings.ts:116`). Split it:
+(`packages/runtime/src/settings.ts:116`). Split it:
 
 ```ts
 LlmProvider        = 'anthropic'|'openai'|'openrouter'|'xai'|'google'
@@ -379,7 +379,7 @@ What they **should** share, and what I'm signing up for:
 version pin: `DISABLE_AUTOUPDATER=1` (+ `DISABLE_INSTALLATION_CHECKS=1`) for
 claude, `OPENCODE_DISABLE_AUTOUPDATE=1` for opencode; codex doesn't auto-update;
 cursor-agent has no clean opt-out. Those vars must reach the **spawned agent's**
-env — `daemon.ts:1357`, the seam this issue owns.
+env — `apps/daemon/src/control/session.ts:118`, the seam this issue owns.
 
 So they are not a special case. They are a **machine-level contribution to the
 spawn env**, and the layering in Part 5 extends by one:
@@ -407,15 +407,36 @@ Concrete seams (all identified, all narrow):
 
 | Concern | Site |
 |---|---|
-| spawn frame schema | `packages/protocol/src/messages.ts:1197` (`SpawnMessage`) |
-| control union | `packages/protocol/src/messages.ts:1617` |
-| server spawn payload | `apps/server/src/modules/sessions/service.ts:1350` |
-| **env injection point** | `apps/daemon/src/daemon.ts:1357-1370` (`spawnOpts.env`) |
+Coordinates **re-verified against `main` on 2026-07-13**, after the architecture
+rebuild (#241) relocated most of them. `packages/core` is now
+`packages/runtime`; the daemon's spawn path moved out of the monolithic
+`daemon.ts` into `apps/daemon/src/control/`; `messages.ts` split into
+`packages/protocol/src/messages/`.
+
+| Concern | Site |
+|---|---|
+| spawn frame schema | `packages/protocol/src/messages/terminal.ts:271` (`SpawnMessage` — still **no `env` field**; the seam is open and unclaimed) |
+| control union | `packages/protocol/src/messages/control.ts:32,50` |
+| server spawn payload | `apps/server/src/modules/sessions/service.ts:1390` (create) and `:1578` (resurrect) — **both** must inject |
+| **env injection point** | `apps/daemon/src/control/session.ts:118-128` (the `env: {…}` overlay) |
+| ambient injection (#214) | `apps/daemon/src/control/exec.ts:17` (`runRepoOp` — still passes no env) |
+| Account / RoleBackend / resolveRole | `packages/runtime/src/settings.ts:122` / `:143` / `:394` |
+| `AccountProvider` (to split) | `packages/runtime/src/settings.ts:116` |
+| native detection | `apps/server/src/accounts.ts:18` (`AccountView`), `:94` (`accountViews`) |
 | argv render | `packages/agent-bridge/src/harness/adapters/*.ts` |
 | settings-changed bus (forward to daemons) | `apps/server/src/modules/settings/service.ts` |
-| machine routing / push | `apps/server/src/modules/machines/service.ts:98` (`toMachine`) |
-| accounts router (extend) | `apps/server/src/router.ts:700` |
-| new tables | `apps/server/src/migrations/010-*.ts` (current version 9) |
+| machine routing / push | `apps/server/src/modules/machines/service.ts` (`toMachine`) |
+| accounts router (extend) | `apps/server/src/router.ts` |
+| new tables | `apps/server/src/migrations/016-*.ts` — **current version is 15**, not 9 |
+
+Two things the rebuild changed for the better:
+
+- **#222 (daemon inventory) has shipped** — migration 14 `machines-inventory`.
+  That was the named hard prerequisite for credential push, so Phase 3 is no
+  longer blocked on it.
+- The spawn env overlay is now a small, single-purpose function in
+  `control/session.ts` rather than buried in a 2400-line `daemon.ts`, which makes
+  the injection point materially easier to extend than when this doc was written.
 
 One correctness catch: a **resumed session must get the same account it started
 with** (transcript location and rate-limit identity both depend on it). So
@@ -541,8 +562,9 @@ seam once.
 - `SpawnMessage.env?: Record<string,string>` — **generic, not Anthropic-shaped**.
   Server populates it from the resolved role account *plus* every enabled ambient
   account. Additive optional field; no `WIRE_VERSION` bump.
-- Daemon maps it into `spawnOpts.env` at `daemon.ts:1357`, and — for #214 — into
-  `runRepoOp`, which currently passes no env at all (`repo-op.ts:121`).
+- Daemon maps it into the spawn env overlay at
+  `apps/daemon/src/control/session.ts:118`, and — for #214 — into `runRepoOp`
+  (`apps/daemon/src/control/exec.ts:17`), which currently passes no env at all.
 - Accounts hub: paste an `ANTHROPIC_API_KEY` or a `setup-token` result; drop
   "Coming soon" for these two.
 - Session row records `account_id`; reattach/resurrect re-inject identically.
@@ -569,8 +591,9 @@ critical path for Anthropic. Pulled ahead of Phase 3 at #214's request.
 **Phase 3 — Sync channel + fresh-daemon bootstrap. Merged with #234.**
 - `accountsSync` / `environmentsSync` / `machineStateSync` as one control-frame
   family pushed on `helloOk` and on change, feeding **one** daemon reconcile loop.
-- Machine × account entitlement grants, decidable only once **#222** (`inventory`
-  on pair/hello) lands — so #222 is a hard prerequisite, not a nice-to-have.
+- Machine × account entitlement grants, decidable only once **#222** (daemon
+  inventory) lands — **#222 has since SHIPPED** (migration 14
+  `machines-inventory`), so this prerequisite is met and Phase 3 is unblocked.
 - Machine env layer (autoupdater pins) merges into spawn env.
 - *Delivers:* the stated "fresh daemon install pulls its environment and is
   ready", and #213's convergence engine, as one thing.
