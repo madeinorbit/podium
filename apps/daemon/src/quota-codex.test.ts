@@ -43,6 +43,29 @@ describe('parseWhamUsage', () => {
     expect(w.map((x) => x.key)).toEqual(['5h'])
   })
 
+  it('classifies a weekly-sized primary_window as weekly (5h limit disabled)', () => {
+    const body = {
+      rate_limit: {
+        primary_window: { used_percent: 19, limit_window_seconds: 604800, reset_at: 1784524870 },
+        secondary_window: null as unknown as undefined,
+      },
+    }
+    const w = parseWhamUsage(body)
+    expect(w.map((x) => [x.key, x.label, x.windowMinutes])).toEqual([
+      ['weekly', 'Weekly', 10080],
+    ])
+  })
+
+  it('classifies a 5h-sized secondary_window as 5h if windows are swapped', () => {
+    const body = {
+      rate_limit: {
+        primary_window: { used_percent: 15, limit_window_seconds: 604800, reset_at: 1782357709 },
+        secondary_window: { used_percent: 4, limit_window_seconds: 18000, reset_at: 1781887992 },
+      },
+    }
+    expect(parseWhamUsage(body).map((x) => x.key)).toEqual(['weekly', '5h'])
+  })
+
   it('returns empty array when rate_limit is absent', () => {
     expect(parseWhamUsage({})).toEqual([])
   })

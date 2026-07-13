@@ -111,6 +111,11 @@ export function IssueListView({
                     {m.seqLabel}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-[13px]">{m.title}</span>
+                  {issue.deletedAt && (
+                    <Badge variant="destructive" className="font-normal">
+                      Deleted
+                    </Badge>
+                  )}
                   {epic && (
                     <Badge
                       variant="outline"

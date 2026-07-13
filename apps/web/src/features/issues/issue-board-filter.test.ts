@@ -38,6 +38,20 @@ describe('filterBoardIssues', () => {
         .sort(),
     ).toEqual(['gone', 'live'])
   })
+
+  it('hides deleted issues by default and shows them in the deleted view', () => {
+    const ys = [
+      makeIssue({ id: 'live' }),
+      makeIssue({ id: 'gone', deletedAt: '2026-07-13T10:00:00.000Z' }),
+      makeIssue({ id: 'archived-gone', archived: true, deletedAt: '2026-07-13T10:00:00.000Z' }),
+    ]
+    expect(filterBoardIssues(ys, {}).map((i) => i.id)).toEqual(['live'])
+    expect(filterBoardIssues(ys, { deleted: true }).map((i) => i.id)).toEqual([
+      'live',
+      'gone',
+      'archived-gone',
+    ])
+  })
 })
 
 describe('filter chips', () => {
@@ -50,9 +64,11 @@ describe('filter chips', () => {
       label: 'ui',
       stage: 'review',
       archived: true,
+      deleted: true,
     })
     expect(chips.map((c) => c.key).sort()).toEqual([
       'archived',
+      'deleted',
       'label',
       'priority',
       'stage',
@@ -62,6 +78,7 @@ describe('filter chips', () => {
     expect(chips.find((c) => c.key === 'priority')?.label).toBe('Priority: P1')
     expect(chips.find((c) => c.key === 'stage')?.label).toBe('Stage: Review')
     expect(chips.find((c) => c.key === 'archived')?.label).toBe('Archived')
+    expect(chips.find((c) => c.key === 'deleted')?.label).toBe('Deleted')
   })
   it('clearChip removes exactly that dimension', () => {
     const f = clearChip({ priority: 1, type: 'bug' }, 'priority')

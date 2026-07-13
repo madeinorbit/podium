@@ -13,6 +13,24 @@ export async function runWorktreeCli(
   argv: string[],
   opts: { relayEndpoint?: string | undefined; cwd: string; fetchImpl?: typeof fetch },
 ): Promise<{ text: string; exitCode: number }> {
+  if (argv.includes('--help') || argv.includes('-h') || argv[0] === 'help') {
+    return {
+      text: [
+        'Usage: podium worktree [path]',
+        '',
+        '  Tell Podium which git worktree this agent session is working in',
+        '  (defaults to the current directory; resolved to its git toplevel).',
+        '  Only works inside a Podium-managed agent session (PODIUM_ISSUE_RELAY).',
+      ].join('\n'),
+      exitCode: 0,
+    }
+  }
+  // Unknown flags are an error, never silently dropped (#345) — a stray flag must
+  // not fall through to "set worktree to cwd".
+  const unknown = argv.filter((a) => a.startsWith('--'))
+  if (unknown.length) {
+    return { text: `podium worktree: unknown flag ${unknown[0]} (see --help)`, exitCode: 1 }
+  }
   if (!opts.relayEndpoint) {
     return {
       text: 'podium worktree: PODIUM_ISSUE_RELAY is not set — this command only works inside a Podium-managed agent session.',

@@ -102,6 +102,12 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     issueId: null,
     // And email-style read state (issue #124): always present, null = never opened.
     readAt: null,
+    // Issue-lifecycle tombstones are always projected by the repository.
+    deletedAt: null,
+    // Tombstones record whether an issue cascade or a standalone remove created them.
+    deletionSource: null,
+    // Provenance lets restore recover cwd-derived sessions that had no explicit issueId.
+    deletedByIssueId: null,
     ...overrides,
   }
 }
@@ -129,9 +135,64 @@ describe('SessionStore sessions', () => {
     expect(b.sessions.loadSessions()).toEqual([
       row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
     ])
-    b.sessions.deleteSession('id-1')
+    b.sessions.purgeSession('id-1')
     expect(b.sessions.loadSessions()).toEqual([])
     b.close()
+  })
+
+  it('hides issue-deleted session tombstones and restores them as exited records', () => {
+    const store = new SessionStore(':memory:')
+    const deletedAt = '2026-07-13T10:00:00.000Z'
+    store.sessions.upsertSession(row({ issueId: 'iss_1', status: 'live' }))
+
+    store.sessions.softDeleteForIssue(['id-1'], 'iss_1', deletedAt)
+    expect(store.sessions.loadSessions()).toEqual([])
+    expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([
+      row({
+        issueId: 'iss_1',
+        status: 'live',
+        deletedAt,
+        deletionSource: 'issue',
+        deletedByIssueId: 'iss_1',
+      }),
+    ])
+
+    store.sessions.restoreDeletedForIssue('iss_1')
+    expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([])
+    expect(store.sessions.loadSessions()).toEqual([row({ issueId: 'iss_1', status: 'exited' })])
+    store.close()
+  })
+
+  it('keeps standalone session tombstones out of active loads and issue restoration', () => {
+    const store = new SessionStore(':memory:')
+    const deletedAt = '2026-07-13T11:00:00.000Z'
+    store.sessions.upsertSession(row({ issueId: 'iss_1', status: 'live' }))
+    store.sessions.setPin('panel', 'id-1', true)
+    store.sessions.setDraft('id-1', 'recoverable input')
+    store.sessions.setSnooze('id-1', null)
+    store.sessions.setTabOrder('/proj', ['id-1'])
+
+    store.sessions.softDeleteSessions(['id-1'], deletedAt, 'standalone')
+
+    expect(store.sessions.loadSessions()).toEqual([])
+    expect(store.sessions.loadDeletedSessions()).toEqual([
+      row({
+        issueId: 'iss_1',
+        status: 'live',
+        deletedAt,
+        deletionSource: 'standalone',
+      }),
+    ])
+    expect(store.sessions.loadDeletedSessionsForIssue('iss_1')).toEqual([])
+    expect(store.sessions.listPins().panels).toEqual(['id-1'])
+    expect(store.sessions.loadDrafts()).toEqual({ 'id-1': 'recoverable input' })
+    expect(store.sessions.listSnoozes()).toEqual({ 'id-1': null })
+    expect(store.sessions.listTabOrders()).toEqual({ '/proj': ['id-1'] })
+
+    store.sessions.restoreDeletedForIssue('iss_1')
+    expect(store.sessions.loadSessions()).toEqual([])
+    expect(store.sessions.loadDeletedSessions()).toHaveLength(1)
+    store.close()
   })
 
   it('round-trips resume metadata', () => {
@@ -179,7 +240,9 @@ describe('SessionStore sessions', () => {
 
   it('round-trips spawnedBy provenance (issue #60)', () => {
     const store = new SessionStore(':memory:')
-    store.sessions.upsertSession(row({ id: 's1', durableLabel: 'podium-s1', spawnedBy: 'issue:iss_9' }))
+    store.sessions.upsertSession(
+      row({ id: 's1', durableLabel: 'podium-s1', spawnedBy: 'issue:iss_9' }),
+    )
     expect(store.sessions.loadSessions()[0]?.spawnedBy).toBe('issue:iss_9')
     store.close()
   })
@@ -246,7 +309,7 @@ describe('SessionStore drafts', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row())
     store.sessions.setDraft('id-1', 'work in progress')
-    store.sessions.deleteSession('id-1')
+    store.sessions.purgeSession('id-1')
     expect(store.sessions.loadDrafts()).toEqual({})
     store.close()
   })
@@ -321,8 +384,8 @@ describe('SessionStore schema migration', () => {
     // Round-trips through the renamed column.
     store.sessions.upsertSession(row({ id: 'new-1', durableLabel: 'podium-new-1' }))
     expect(
-      store
-        .sessions.loadSessions()
+      store.sessions
+        .loadSessions()
         .map((r) => r.durableLabel)
         .sort(),
     ).toEqual(['podium-new-1', 'podium-old-1'])
@@ -457,7 +520,7 @@ describe('SessionStore pins', () => {
     store.sessions.upsertSession(row({ id: 'session-1' }))
     store.sessions.setPin('panel', 'session-1', true)
 
-    store.sessions.deleteSession('session-1')
+    store.sessions.purgeSession('session-1')
 
     expect(store.sessions.listPins()).toEqual({ panels: [], worktrees: [], repos: [] })
     store.close()
@@ -497,7 +560,7 @@ describe('SessionStore snoozes', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(row({ id: 's1' }))
     store.sessions.setSnooze('s1', null)
-    store.sessions.deleteSession('s1')
+    store.sessions.purgeSession('s1')
     expect(store.sessions.listSnoozes(0)).toEqual({})
     store.close()
   })
@@ -540,7 +603,7 @@ describe('SessionStore tab order', () => {
     store.sessions.setTabOrder('/repo/a', ['s2', 's1'])
     store.sessions.setTabOrder('/repo/b', ['s1'])
 
-    store.sessions.deleteSession('s1')
+    store.sessions.purgeSession('s1')
 
     expect(store.sessions.listTabOrders()).toEqual({ '/repo/a': ['s2'] })
     store.close()
@@ -606,7 +669,9 @@ describe('conversation index', () => {
   it('prefix-matches partial words', () => {
     const store = new SessionStore(':memory:')
     store.conversations.upsertConversations([conv('a', { title: 'podium relay endpoint' })])
-    expect(store.conversations.searchConversations({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
+    expect(store.conversations.searchConversations({ query: 'rela' }).map((h) => h.id)).toEqual([
+      'a',
+    ])
     store.close()
   })
 
@@ -631,7 +696,9 @@ describe('conversation index', () => {
     // Empty-query browse: only the top-level session.
     expect(store.conversations.searchConversations({}).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect(store.conversations.searchConversations({ query: 'parser' }).map((h) => h.id)).toEqual(['top'])
+    expect(store.conversations.searchConversations({ query: 'parser' }).map((h) => h.id)).toEqual([
+      'top',
+    ])
     store.close()
   })
 
@@ -642,10 +709,9 @@ describe('conversation index', () => {
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect(store.conversations.searchConversations({ query: 'relay endpoint' }).map((h) => h.id)).toEqual([
-      'newer',
-      'older',
-    ])
+    expect(
+      store.conversations.searchConversations({ query: 'relay endpoint' }).map((h) => h.id),
+    ).toEqual(['newer', 'older'])
     store.close()
   })
 
@@ -672,8 +738,8 @@ describe('conversation index', () => {
     ])
     // Both match before the delete.
     expect(
-      store
-        .conversations.searchConversations({ query: 'keyboard' })
+      store.conversations
+        .searchConversations({ query: 'keyboard' })
         .map((h) => h.id)
         .sort(),
     ).toEqual(['a', 'b'])
@@ -684,7 +750,9 @@ describe('conversation index', () => {
     expect(store.conversations.searchConversations({}).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect(store.conversations.searchConversations({ query: 'keyboard' }).map((h) => h.id)).toEqual(['a'])
+    expect(store.conversations.searchConversations({ query: 'keyboard' }).map((h) => h.id)).toEqual(
+      ['a'],
+    )
     store.close()
   })
 

@@ -127,6 +127,7 @@ export const ISSUE_COMMAND_NAMES = [
   'ready',
   'refreshAssistant',
   'reparent',
+  'restore',
   'search',
   'setLabels',
   'setNeedsHuman',

@@ -37,9 +37,13 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 
 /** Pure mode resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
 export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan {
-  const sub = argv.find((a) => (SUBCOMMANDS as string[]).includes(a)) as PodiumMode | undefined
+  // Subcommands are positional: only argv[0] can name the mode — a flag VALUE that
+  // happens to equal a mode name (`--name daemon`) must not switch modes.
+  const sub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '')
+    ? (argv[0] as PodiumMode)
+    : undefined
   // `all` is a friendly alias for all-in-one.
-  const aliased = argv.includes('all') ? 'all-in-one' : undefined
+  const aliased = argv[0] === 'all' ? 'all-in-one' : undefined
   const flagIdx = argv.indexOf('--server')
   const serverFlag = flagIdx >= 0 ? argv[flagIdx + 1] : undefined
   const pairIdx = argv.indexOf('--pair')
@@ -92,6 +96,8 @@ export type DaemonAuthKind =
  *    is `roles.server` only with no registry claim).
  */
 export type LaunchPlan =
+  | { kind: 'help' }
+  | { kind: 'version' }
   | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
   | { kind: 'channel'; target: string | undefined }
   | { kind: 'join-config'; token: string }
@@ -146,6 +152,21 @@ export function resolvePlan(
   tty: boolean,
 ): LaunchPlan {
   const port = resolvePort(config, env)
+
+  // ---- help / version (before everything else) ----
+  // `podium version` / `--version` / `-v`: print the baked-in build version.
+  if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
+    return { kind: 'version' }
+  }
+  // `podium help` / `--help` / `-h` anywhere → top-level help, EXCEPT for the
+  // sub-CLIs that render their own richer help (issue/session/spec/worktree).
+  const helpDelegated = new Set(['issue', 'session', 'spec', 'worktree'])
+  if (
+    argv[0] === 'help' ||
+    ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
+  ) {
+    return { kind: 'help' }
+  }
 
   // ---- utility subcommands (historical dispatch order preserved) ----
   // `podium update`: self-update the headless bundle from the configured feed.
@@ -210,8 +231,8 @@ export function resolvePlan(
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
   // serving the web setup UI in-process.
-  const forceSetup = argv.includes('setup') || argv.includes('--reconfigure')
-  const explicitSub = SUBCOMMANDS.some((s) => argv.includes(s)) || argv.includes('all')
+  const forceSetup = argv[0] === 'setup' || argv.includes('--reconfigure')
+  const explicitSub = (SUBCOMMANDS as string[]).includes(argv[0] ?? '') || argv[0] === 'all'
   const bareInvocation = !explicitSub
   // MIGRATION DEBT: a box configured before the persistence step existed (mode set, no
   // `persistence`) — or one written by the web setup — would otherwise fall through to the
@@ -308,6 +329,58 @@ export function resolvePlan(
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
   }
+}
+
+/** Baked in at build time via `--define process.env.PODIUM_APP_VERSION` (scripts/build-bun.ts);
+ *  'dev' when running from source. Must stay a literal `process.env.…` read. */
+export function versionText(): string {
+  return `podium ${process.env.PODIUM_APP_VERSION ?? 'dev'}`
+}
+
+/** Top-level `podium --help`. Sub-CLIs (issue/session/spec/worktree) render their own. */
+export function helpText(): string {
+  return [
+    'podium — self-hosted multi-agent workspace (server + daemon + web UI)',
+    '',
+    'Usage: podium [command] [--flags]',
+    '',
+    'Run modes (no command = run the configured mode, default all-in-one):',
+    '  all-in-one            Run server + daemon in this process (alias: all)',
+    '  server                Run only the server',
+    '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
+    '                        Run only the daemon (connects to a server)',
+    '  client                Nothing to run locally; points at a remote server',
+    '',
+    'Setup & config:',
+    '  setup                 Interactive setup (TTY) or serve the web setup UI',
+    '  setup --repair        Back up an invalid config.json',
+    '  setup --join <TOKEN> [--persist systemd|detached]',
+    '                        Non-interactive join to a server',
+    '  join-config <TOKEN>   Write daemon join config from a token (no start)',
+    '  set-server <url|join-code>',
+    '                        Rotate the server URL without re-pairing',
+    '',
+    'Lifecycle:',
+    '  status                Show what is running (run registry + systemd)',
+    '  stop                  Stop managed podium processes',
+    '  logs [component]      Show logs for managed processes',
+    '',
+    'Self-update:',
+    '  update                Self-update from the configured channel feed',
+    '  channel [stable|edge] Show or switch the update channel',
+    '',
+    'Work tools (each has its own help, e.g. `podium issue --help`):',
+    '  issue <command>       Drive the native issue tracker',
+    '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
+    '  session <command>     Send turns to agent sessions',
+    '  worktree [path]       Declare the worktree this agent session works in',
+    '',
+    'Other:',
+    '  version | --version   Print the podium version',
+    '  help    | --help      Show this help',
+    '',
+    'Environment: PODIUM_PORT overrides the server port (default 18787).',
+  ].join('\n')
 }
 
 export interface DaemonStartOptions {
@@ -496,6 +569,14 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
   const plan = resolvePlan(config, argv, process.env, Boolean(process.stdin.isTTY))
 
   switch (plan.kind) {
+    case 'help': {
+      console.log(helpText())
+      return
+    }
+    case 'version': {
+      console.log(versionText())
+      return
+    }
     case 'update': {
       const { runUpdate } = await import('./podium-update')
       await runUpdate(

@@ -136,7 +136,7 @@ export function IssuesView(): JSX.Element {
   // Menus (assignees/labels), rollups, and duplicate targets read the live,
   // non-archived scope — archived issues never seed those, only reappear on the
   // board when explicitly revealed.
-  const nonArchived = issues.filter((i) => !i.archived)
+  const nonArchived = issues.filter((i) => !i.archived && !i.deletedAt)
   const scope = filterBoardScope(nonArchived, display.showAgentTasks)
   // The board view: drafts/agent-origin gating stays, but archived issues ride in
   // the base scope and are gated by `filterBoardIssues` (the Archived filter) —
@@ -335,8 +335,16 @@ export function IssuesView(): JSX.Element {
     )
   const bulkDelete = (): void => {
     if (selectedIds.length === 0) return
-    const n = selectedIds.length
-    if (!window.confirm(`Delete ${n} issue${n > 1 ? 's' : ''}? This can't be undone.`)) return
+    const targets = issues.filter((i) => selectedIds.includes(i.id))
+    const n = targets.length
+    const sessionCount = new Set(targets.flatMap((i) => i.sessions.map((s) => s.sessionId))).size
+    const sessionText = sessionCount === 1 ? '1 session' : `${sessionCount} sessions`
+    if (
+      !window.confirm(
+        `Delete ${n} issue${n > 1 ? 's' : ''} and ${sessionText}? Issues and sessions can be restored; running processes will be stopped.`,
+      )
+    )
+      return
     runMut(Promise.all(selectedIds.map((id) => trpc.issues.delete.mutate({ id }))))
     setKeyState((s) => ({ ...s, selected: [] }))
   }
@@ -780,6 +788,12 @@ function FilterMenu({
         >
           Show archived
         </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={!!filter.deleted}
+          onCheckedChange={(c) => set({ deleted: c === true ? true : undefined })}
+        >
+          Show deleted
+        </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -1089,6 +1103,11 @@ function IssueCard({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <PriorityGlyph priority={issue.priority} />
+          {issue.deletedAt && (
+            <Badge variant="destructive" className="font-normal">
+              Deleted
+            </Badge>
+          )}
           {isEpic(issue) && (
             <Badge
               variant="outline"

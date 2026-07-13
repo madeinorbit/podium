@@ -28,7 +28,7 @@ import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import type { SessionStore } from '../../store'
+import type { SessionRow, SessionStore } from '../../store'
 import {
   isGenericClaudeTitle,
   isTransientTitle,
@@ -84,6 +84,23 @@ export interface SessionLedger {
     changes: MetadataChange[]
   }
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
+}
+
+/** Prepared half of a cross-aggregate issue/session deletion transaction. */
+export interface SessionDeletePlan {
+  sessionIds: string[]
+  write(): void
+  changes(): EntityChangeSpec[]
+  apply(): void
+}
+
+/** Prepared half of restoring issue-owned session tombstones. */
+export interface SessionRestorePlan {
+  sessionIds: string[]
+  restoredSessions: SessionMeta[]
+  write(): void
+  changes(): EntityChangeSpec[]
+  apply(): void
 }
 
 interface SessionsServiceDeps {
@@ -295,91 +312,106 @@ export class SessionsService {
     }
   }
 
+  /** Materialize one persisted row without exposing it until the caller installs it.
+   *  Restored tombstones always come back as exited: deletion killed their runtime,
+   *  so retaining a prior live/starting status would claim a PTY that no longer exists. */
+  private sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore'): Session | null {
+    const kind = AgentKind.safeParse(r.agentKind)
+    if (!kind.success) {
+      console.warn(
+        `[podium] skipping persisted session ${r.id}: invalid agentKind ${JSON.stringify(r.agentKind)}`,
+      )
+      return null
+    }
+    const reloadStatus =
+      mode === 'restore'
+        ? 'exited'
+        : r.headless
+          ? r.status
+          : r.status === 'live' || r.status === 'starting'
+            ? 'reconnecting'
+            : r.status
+    const exitCode = mode === 'restore' || r.status !== 'exited' ? null : r.exitCode
+    if (r.originKind === 'resume' && !r.conversationId) {
+      console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
+    }
+    const machineId = r.machineId ?? LOCAL_PLACEHOLDER
+    let session!: Session
+    session = new Session({
+      sessionId: r.id,
+      agentKind: kind.data,
+      cwd: r.cwd,
+      title: r.title,
+      origin:
+        r.originKind === 'resume'
+          ? { kind: 'resume', conversationId: r.conversationId ?? '' }
+          : { kind: 'spawn' },
+      createdAt: r.createdAt,
+      geometry: { ...DEFAULT_GEOMETRY },
+      machineId,
+      toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
+      onActivity: () => {
+        this.persist(session)
+        this.broadcastSessions()
+      },
+      durableLabel: r.durableLabel,
+      lastActiveAt: r.lastActiveAt,
+      lastOutputAt: r.lastOutputAt,
+      lastInputAt: r.lastInputAt,
+      lastResumedAt: r.lastResumedAt,
+      status: reloadStatus,
+      exitCode: exitCode ?? undefined,
+      ...(r.name ? { name: r.name } : {}),
+      ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
+      ...(r.headless ? { headless: true } : {}),
+      ...(r.issueId ? { issueId: r.issueId } : {}),
+      archived: r.archived,
+      readAt: r.readAt ?? null,
+      ...(Session.parseWorkState(r.workState)
+        ? { workState: Session.parseWorkState(r.workState) }
+        : {}),
+      ...(r.resumeKind && r.resumeValue
+        ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
+        : {}),
+    })
+    return session
+  }
+
+  private installStoredSession(
+    session: Session,
+    snoozes: Record<string, string | null>,
+    draftTimes: Record<string, string>,
+    drafts: Record<string, string>,
+  ): void {
+    this.sessions.set(session.sessionId, session)
+    if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
+    if (session.sessionId in draftTimes) session.draftUpdatedAt = draftTimes[session.sessionId]
+    if (session.sessionId in drafts) {
+      this.draftBySession.set(session.sessionId, drafts[session.sessionId] ?? '')
+    }
+    if (session.resume?.value) {
+      session.conversationPodiumId = this.store.conversations.conversationPodiumId(
+        session.machineId,
+        session.resume.value,
+      )
+    }
+  }
+
   loadFromStore(): void {
-    // Restore persisted composer drafts so attachClient can replay them to the
-    // first client to connect after a server restart (issue #34).
-    for (const [sessionId, text] of Object.entries(this.store.sessions.loadDrafts())) {
+    const drafts = this.store.sessions.loadDrafts()
+    // Drafts historically replay independently of session-row existence. Keep
+    // that contract for crash/orphan recovery; active rows additionally receive
+    // their draft timestamp and runtime metadata below.
+    for (const [sessionId, text] of Object.entries(drafts)) {
       this.draftBySession.set(sessionId, text)
     }
     const draftTimes = this.store.sessions.loadDraftTimes()
     const snoozes = this.store.sessions.listSnoozes()
     for (const r of this.store.sessions.loadSessions()) {
-      const kind = AgentKind.safeParse(r.agentKind)
-      if (!kind.success) {
-        console.warn(
-          `[podium] skipping persisted session ${r.id}: invalid agentKind ${JSON.stringify(r.agentKind)}`,
-        )
-        continue
-      }
-      // Layer 3: a previously live/starting session may still be running in its tmux
-      // server. Reload it as 'reconnecting' so attachDaemon can re-bind it; exited stays
-      // exited, hibernated stays hibernated. HEADLESS sessions have no PTY to
-      // reconcile: they stay 'live' for as long as their thread exists, and
-      // attachDaemon re-establishes their transcript tails via headlessBind.
-      const reloadStatus = r.headless
-        ? r.status
-        : r.status === 'live' || r.status === 'starting'
-          ? 'reconnecting'
-          : r.status
-      const exitCode = r.status === 'exited' ? r.exitCode : null
-      if (r.originKind === 'resume' && !r.conversationId) {
-        console.warn(`[podium] persisted resume session ${r.id} has no conversationId`)
-      }
-      // Route this session's control messages to the machine that owns it. Capture
-      // the id so the closure binds to the right daemon even as the row's machineId
-      // is later rewritten by ensureLocalMachine (it also rewrites the Session's field).
-      const machineId = r.machineId ?? LOCAL_PLACEHOLDER
-      const session = new Session({
-        sessionId: r.id,
-        agentKind: kind.data,
-        cwd: r.cwd,
-        title: r.title,
-        origin:
-          r.originKind === 'resume'
-            ? { kind: 'resume', conversationId: r.conversationId ?? '' }
-            : { kind: 'spawn' },
-        createdAt: r.createdAt,
-        geometry: { ...DEFAULT_GEOMETRY },
-        machineId,
-        toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
-        onActivity: () => {
-          // Shell busy transitions advance lastActiveAt (their only activity signal);
-          // persist so that recency is durable across a restart, then rebroadcast.
-          this.persist(session)
-          this.broadcastSessions()
-        },
-        durableLabel: r.durableLabel,
-        lastActiveAt: r.lastActiveAt,
-        lastOutputAt: r.lastOutputAt,
-        lastInputAt: r.lastInputAt,
-        lastResumedAt: r.lastResumedAt,
-        status: reloadStatus,
-        exitCode: exitCode ?? undefined,
-        ...(r.name ? { name: r.name } : {}),
-        ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
-        ...(r.headless ? { headless: true } : {}),
-        ...(r.issueId ? { issueId: r.issueId } : {}),
-        archived: r.archived,
-        readAt: r.readAt ?? null,
-        ...(Session.parseWorkState(r.workState)
-          ? { workState: Session.parseWorkState(r.workState) }
-          : {}),
-        ...(r.resumeKind && r.resumeValue
-          ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
-          : {}),
-      })
-      this.sessions.set(r.id, session)
-      if (r.id in snoozes) session.snoozedUntil = snoozes[r.id]
-      if (r.id in draftTimes) session.draftUpdatedAt = draftTimes[r.id]
-      if (r.status !== reloadStatus) this.persist(session)
-    }
-    // Re-stamp conversation identities from the registry (lookup only — minting
-    // happens at the observation seams, never speculatively at boot).
-    for (const s of this.sessions.values()) {
-      if (s.resume?.value) {
-        const podiumId = this.store.conversations.conversationPodiumId(s.machineId, s.resume.value)
-        if (podiumId) s.conversationPodiumId = podiumId
-      }
+      const session = this.sessionFromStoredRow(r, 'boot')
+      if (!session) continue
+      this.installStoredSession(session, snoozes, draftTimes, drafts)
+      if (r.status !== session.status) this.persist(session)
     }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
@@ -1377,6 +1409,78 @@ export class SessionsService {
     }
   }
 
+  /** Prepare deletion of every LOCAL session belonging to an issue. The caller
+   *  commits `write` + `changes` together with the issue tombstone, then invokes
+   *  `apply` only after that durable transaction succeeds. */
+  prepareIssueSessionDelete(issueId: string, worktreePath: string | null): SessionDeletePlan {
+    const localMetas = [...this.sessions.values()].map((s) => s.toMeta())
+    const sessionIds = sessionsForIssue(worktreePath, localMetas, issueId).map((s) => s.sessionId)
+    const deletedAt = new Date(this.now()).toISOString()
+    return {
+      sessionIds,
+      write: () => {
+        this.store.sessions.softDeleteForIssue(sessionIds, issueId, deletedAt)
+        for (const sessionId of sessionIds)
+          this.store.sync.deleteQueuedMessagesForSession(sessionId)
+      },
+      changes: () =>
+        sessionIds.map((id) => ({ entity: 'session' as const, id, op: 'remove' as const })),
+      apply: () => {
+        for (const sessionId of sessionIds) this.removeSessionRuntime(sessionId)
+      },
+    }
+  }
+
+  /** Prepare restoration of the sessions tombstoned by one issue deletion. The
+   *  durable rows and ledger upserts commit with the issue restore; runtime
+   *  installation follows only after that transaction succeeds. */
+  prepareIssueSessionRestore(issueId: string): SessionRestorePlan {
+    const rows = this.store.sessions.loadDeletedSessionsForIssue(issueId)
+    const restored = rows
+      .map((row) => ({ row, session: this.sessionFromStoredRow(row, 'restore') }))
+      .filter((entry): entry is { row: SessionRow; session: Session } => entry.session !== null)
+    return {
+      sessionIds: restored.map(({ session }) => session.sessionId),
+      restoredSessions: restored.map(({ session }) => this.sessionWire(session)),
+      write: () => this.store.sessions.restoreDeletedForIssue(issueId),
+      changes: () =>
+        restored.map(({ session }) => ({
+          entity: 'session' as const,
+          id: session.sessionId,
+          op: 'upsert' as const,
+          value: this.sessionWire(session),
+        })),
+      apply: () => {
+        const drafts = this.store.sessions.loadDrafts()
+        const draftTimes = this.store.sessions.loadDraftTimes()
+        const snoozes = this.store.sessions.listSnoozes()
+        for (const { session } of restored) {
+          this.installStoredSession(session, snoozes, draftTimes, drafts)
+        }
+      },
+    }
+  }
+
+  /** Runtime half of a durable session removal. Kept separate so issue deletion
+   *  can batch many rows in one transaction and one sessions broadcast. */
+  private removeSessionRuntime(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, { type: 'kill', sessionId })
+    this.autoContinue.onSessionGone(sessionId)
+    session?.detachAll()
+    this.sessions.delete(sessionId)
+    this.draftBySession.delete(sessionId)
+    this.lastPriority.delete(sessionId)
+    this.titleDebouncers.get(sessionId)?.dispose()
+    this.titleDebouncers.delete(sessionId)
+    const draftTimer = this.draftWriteTimers.get(sessionId)
+    if (draftTimer) {
+      clearTimeout(draftTimer)
+      this.draftWriteTimers.delete(sessionId)
+    }
+    for (const c of this.clients.values()) c.attached.delete(sessionId)
+  }
+
   killSession(input: { sessionId: string }): void {
     // Read-only surface (node-hub-sync §2.3): killing a hub-mirrored session here
     // would fabricate a kill for a PTY this server doesn't own — reject loudly.
@@ -1384,42 +1488,25 @@ export class SessionsService {
       throw new Error(UPSTREAM_COMMAND_REJECTION)
     }
     const session = this.sessions.get(input.sessionId)
-    // Capture before the row is deleted — the reap after cleanup needs it.
+    // Capture before the row is tombstoned — the reap after cleanup needs it.
     const issueId = session?.issueId
-    // The remove change commits in the SAME transaction as the row delete (and
+    const deletedAt = new Date(this.now()).toISOString()
+    // The remove change commits in the SAME transaction as the tombstone (and
     // the queued-send cleanup — a killed session can never deliver, so its rows
     // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
     // durable change log can never say something the sessions table doesn't.
-    // Durable delete FIRST, live teardown after (#247): a commit throw leaves
+    // Durable tombstone FIRST, live teardown after (#247): a commit throw leaves
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
     this.deps.ledger.commit({
       write: () => {
-        this.store.sessions.deleteSession(input.sessionId)
+        this.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
       changes: () => [{ entity: 'session', id: input.sessionId, op: 'remove' }],
     })
-    this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
-      type: 'kill',
-      sessionId: input.sessionId,
-    })
-    this.autoContinue.onSessionGone(input.sessionId)
-    session?.detachAll()
-    this.sessions.delete(input.sessionId)
-    this.draftBySession.delete(input.sessionId)
-    this.titleDebouncers.get(input.sessionId)?.dispose()
-    this.titleDebouncers.delete(input.sessionId)
-    // Cancel any pending debounced draft write (deleteSession already removed the
-    // row in the commit above; this runs in the same synchronous span, so the
-    // timer cannot fire in between and resurrect a draft for a now-dead session).
-    const draftTimer = this.draftWriteTimers.get(input.sessionId)
-    if (draftTimer) {
-      clearTimeout(draftTimer)
-      this.draftWriteTimers.delete(input.sessionId)
-    }
-    for (const c of this.clients.values()) c.attached.delete(input.sessionId)
+    this.removeSessionRuntime(input.sessionId)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty
     // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.

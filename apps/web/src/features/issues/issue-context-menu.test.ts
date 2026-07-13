@@ -28,6 +28,7 @@ describe('issueMenuEligibility', () => {
       canUndefer: false,
       canDuplicate: true,
       canPin: true,
+      canRestore: false,
       canDelete: true,
       canArchive: true,
       canUnarchive: false,
@@ -77,6 +78,21 @@ describe('issueMenuEligibility', () => {
     expect(issueMenuEligibility([makeIssue({ duplicateOf: 'x' })]).canDuplicate).toBe(false)
   })
 
+  it('offers only open and restore for deleted issues', () => {
+    const e = issueMenuEligibility([makeIssue({ deletedAt: '2026-07-13T10:00:00.000Z' })])
+    expect(e.canOpen).toBe(true)
+    expect(e.canRestore).toBe(true)
+    expect(e.canDelete).toBe(false)
+    expect(e.canRename).toBe(false)
+    expect(e.canSetStage).toBe(false)
+    expect(e.canArchive).toBe(false)
+  })
+
+  it('supports bulk restore only when every selected issue is deleted', () => {
+    const deleted = makeIssue({ id: 'gone', deletedAt: '2026-07-13T10:00:00.000Z' })
+    expect(issueMenuEligibility([deleted, { ...deleted, id: 'also-gone' }]).canRestore).toBe(true)
+    expect(issueMenuEligibility([deleted, makeIssue({ id: 'live' })]).canRestore).toBe(false)
+  })
   it('keeps only bulk-capable actions on a multi-selection', () => {
     const e = issueMenuEligibility([makeIssue({ id: 'a' }), makeIssue({ id: 'b' })])
     expect(e.canSetStage).toBe(true)

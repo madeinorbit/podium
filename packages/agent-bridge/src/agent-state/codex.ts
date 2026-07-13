@@ -21,6 +21,13 @@ const POLL_MS = 700
 // state observer only needs the recent tail (the latest event wins). Matches the
 // transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
 const TAIL_BYTES = 128 * 1024
+// PermissionRequest hooks do not say whether the request is routed to the user
+// or Codex's automatic reviewer. The effective reviewer lives in the rollout.
+// Bound the one-off prefix + tail reads so a long-running session never gets
+// slurped just to classify an approval.
+const SESSION_CONTEXT_BYTES = 1024 * 1024
+
+type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -30,6 +37,59 @@ function strField(v: unknown, k: string): string | undefined {
   if (!isRecord(v)) return undefined
   const f = v[k]
   return typeof f === 'string' && f.length > 0 ? f : undefined
+}
+
+function approvalsReviewerField(value: unknown, key: string): CodexApprovalsReviewer | undefined {
+  const reviewer = strField(value, key)
+  return reviewer === 'user' || reviewer === 'auto_review' || reviewer === 'guardian_subagent'
+    ? reviewer
+    : undefined
+}
+
+function codexToolName(payload: Record<string, unknown>): string | undefined {
+  return strField(payload, 'tool_name') ?? strField(payload, 'name')
+}
+
+function isCodexQuestionTool(payload: Record<string, unknown>): boolean {
+  return codexToolName(payload) === 'request_user_input'
+}
+
+function parseCodexToolInput(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const raw = payload.tool_input ?? payload.arguments ?? payload.input
+  if (isRecord(raw)) return raw
+  if (typeof raw !== 'string') return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function codexQuestionSummary(payload: Record<string, unknown>): string | undefined {
+  const input = parseCodexToolInput(payload)
+  if (!input) return undefined
+  if (Array.isArray(input.questions)) {
+    for (const question of input.questions) {
+      const text = strField(question, 'question')
+      if (text) return text
+    }
+  }
+  return strField(input, 'question') ?? strField(input, 'prompt')
+}
+
+function codexQuestionEvent(payload: Record<string, unknown>, at?: string): AgentStateEvent[] {
+  const summary = codexQuestionSummary(payload)
+  return withEventTime(
+    [{ kind: 'needs_user', need: 'question', ...(summary ? { summary } : {}) }],
+    at,
+  )
+}
+
+function codexCallId(payload: Record<string, unknown>): string | undefined {
+  return strField(payload, 'call_id') ?? strField(payload, 'id')
 }
 
 /**
@@ -47,6 +107,82 @@ export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
   return summary ? { kind, summary } : { kind }
 }
 
+/** Read the latest effective approval reviewer from Codex's structured
+ * `turn_context`, with the generated permissions developer message as a
+ * backwards-compatible fallback. User/tool text can legitimately discuss this
+ * setting and must not change live state classification. */
+export function codexApprovalsReviewerFromTranscript(
+  jsonl: string,
+): CodexApprovalsReviewer | undefined {
+  let reviewer: CodexApprovalsReviewer | undefined
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isRecord(record)) continue
+    if (strField(record, 'type') === 'turn_context') {
+      const current = approvalsReviewerField(record.payload, 'approvals_reviewer')
+      if (current) reviewer = current
+      continue
+    }
+    if (strField(record, 'type') !== 'response_item') continue
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    if (
+      !payload ||
+      strField(payload, 'type') !== 'message' ||
+      strField(payload, 'role') !== 'developer' ||
+      !Array.isArray(payload.content)
+    ) {
+      continue
+    }
+    for (const block of payload.content) {
+      const text = strField(block, 'text')
+      if (!text?.includes('<permissions instructions>')) continue
+      const match = /`approvals_reviewer`\s+is\s+`(user|auto_review|guardian_subagent)`/.exec(text)
+      if (match?.[1]) reviewer = match[1] as CodexApprovalsReviewer
+    }
+  }
+  return reviewer
+}
+
+async function permissionRequestIsAutoReviewed(payload: Record<string, unknown>): Promise<boolean> {
+  const transcriptPath = strField(payload, 'transcript_path')
+  if (!transcriptPath) return false
+  try {
+    const handle = await open(transcriptPath, 'r')
+    try {
+      const { size } = await handle.stat()
+      const prefix = Buffer.alloc(Math.min(size, SESSION_CONTEXT_BYTES))
+      const { bytesRead: prefixBytes } = await handle.read(prefix, 0, prefix.length, 0)
+      let context = prefix.toString('utf8', 0, prefixBytes)
+      if (size > SESSION_CONTEXT_BYTES) {
+        const tail = Buffer.alloc(SESSION_CONTEXT_BYTES)
+        const { bytesRead: tailBytes } = await handle.read(
+          tail,
+          0,
+          tail.length,
+          size - SESSION_CONTEXT_BYTES,
+        )
+        // The first tail line can be partial JSON; the parser deliberately
+        // ignores it. A later per-turn context overrides the prefix fallback.
+        context += `\n${tail.toString('utf8', 0, tailBytes)}`
+      }
+      const reviewer = codexApprovalsReviewerFromTranscript(context)
+      return reviewer === 'auto_review' || reviewer === 'guardian_subagent'
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    // Missing/unreadable/old transcript: conservatively preserve the manual
+    // approval signal rather than hiding a real prompt from the user.
+    return false
+  }
+}
+
 /**
  * One Codex native-hook POST (payload carries `hook_event_name`, Claude-style) →
  * state events. Codex ≥0.142 fires shell-command hooks with a JSON payload on
@@ -55,16 +191,24 @@ export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
  * PermissionRequest — codex pauses WITHOUT writing to the rollout while waiting
  * for approval, so the file observer can never see that state.
  */
-function translateCodexHookEvent(payload: Record<string, unknown>): AgentStateEvent[] {
+async function translateCodexHookEvent(
+  payload: Record<string, unknown>,
+): Promise<AgentStateEvent[]> {
   switch (strField(payload, 'hook_event_name')) {
     case 'SessionStart':
       return [{ kind: 'session_started' }]
     case 'UserPromptSubmit':
       return [{ kind: 'prompt_submitted' }]
     case 'PreToolUse':
+      if (isCodexQuestionTool(payload)) return codexQuestionEvent(payload)
+      return [{ kind: 'activity' }]
     case 'PostToolUse':
       return [{ kind: 'activity' }]
     case 'PermissionRequest': {
+      // Codex fires this before routing the request. With auto-review, the
+      // guardian is actively computing and the user has no prompt to answer.
+      // Explicit user review (or missing context, conservatively) needs input.
+      if (await permissionRequestIsAutoReviewed(payload)) return [{ kind: 'activity' }]
       const summary = strField(payload, 'tool_name')
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }
@@ -80,11 +224,26 @@ function translateCodexHookEvent(payload: Record<string, unknown>): AgentStateEv
   }
 }
 
-/** One Codex rollout record (`{type:'event_msg', payload:{type,…}}`) or native
- *  hook payload (`{hook_event_name,…}`) → state events. */
+/** One Codex rollout record (`event_msg` / `response_item`) or native hook
+ * payload (`{hook_event_name,…}`) → state events. */
 export async function translateCodexEvent(record: unknown): Promise<AgentStateEvent[]> {
   if (isRecord(record) && strField(record, 'hook_event_name')) {
-    return translateCodexHookEvent(record)
+    return await translateCodexHookEvent(record)
+  }
+  if (isRecord(record) && strField(record, 'type') === 'response_item') {
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    if (!payload) return []
+    const at = strField(record, 'timestamp')
+    switch (strField(payload, 'type')) {
+      case 'function_call':
+      case 'custom_tool_call':
+        return isCodexQuestionTool(payload) ? codexQuestionEvent(payload, at) : []
+      case 'function_call_output':
+      case 'custom_tool_call_output':
+        return withEventTime([{ kind: 'activity' }], at)
+      default:
+        return []
+    }
   }
   if (!isRecord(record) || strField(record, 'type') !== 'event_msg') return []
   const payload = isRecord(record.payload) ? record.payload : undefined
@@ -100,6 +259,11 @@ export async function translateCodexEvent(record: unknown): Promise<AgentStateEv
     case 'agent_message':
     case 'token_count':
     case 'patch_apply_end':
+      return withEventTime([{ kind: 'activity' }], at)
+    // Older guardian implementations persisted their auto-review lifecycle in
+    // the parent rollout. Every status (in_progress/approved/denied/timed_out)
+    // means Codex, not the user, owns the next step; it is therefore activity.
+    case 'guardian_assessment':
       return withEventTime([{ kind: 'activity' }], at)
     case 'task_complete':
       return withEventTime(
@@ -157,16 +321,16 @@ async function codexBootEvents(opts: {
 }
 
 /**
- * Classify a resumed rollout from its LAST turn-boundary record. A rollout whose
- * newest boundary is `task_started`/`user_message` has an OPEN turn — the agent is
- * still working, and the earlier `task_complete` belongs to a previous turn.
- * Seeding "idle done <old summary>" there (the pre-fix behavior) flapped every
- * mid-turn codex session to idle on each daemon restart AND restamped its recency
- * to the reattach moment. Events are stamped with the record's own timestamp so
- * recency reflects when the agent actually acted.
+ * Classify a resumed rollout from its LAST turn boundary or unresolved user-input
+ * call. A rollout whose newest boundary is `task_started`/`user_message` has an
+ * OPEN turn, unless that turn is parked on `request_user_input`. Matching call
+ * outputs distinguish answered questions from pending ones. Events are stamped
+ * with the record's own timestamp so recency reflects when the agent actually
+ * acted rather than the reattach moment.
  */
 function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
   const lines = jsonl.split(/\r?\n/)
+  const resolvedCallIds = new Set<string>()
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]?.trim()
     if (!line) continue
@@ -176,10 +340,35 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
     } catch {
       continue // torn line
     }
-    if (strField(rec, 'type') !== 'event_msg') continue
     const p = isRecord(rec) && isRecord(rec.payload) ? rec.payload : undefined
     if (!p) continue
     const at = strField(rec, 'timestamp')
+    if (strField(rec, 'type') === 'response_item') {
+      switch (strField(p, 'type')) {
+        case 'function_call_output':
+        case 'custom_tool_call_output': {
+          const callId = codexCallId(p)
+          if (callId) resolvedCallIds.add(callId)
+          continue
+        }
+        case 'function_call':
+        case 'custom_tool_call': {
+          if (!isCodexQuestionTool(p)) continue
+          const callId = codexCallId(p)
+          if (callId && resolvedCallIds.delete(callId)) continue
+          const summary = codexQuestionSummary(p)
+          return {
+            kind: 'needs_user',
+            need: 'question',
+            ...(summary ? { summary } : {}),
+            ...(at ? { at } : {}),
+          }
+        }
+        default:
+          continue
+      }
+    }
+    if (strField(rec, 'type') !== 'event_msg') continue
     switch (strField(p, 'type')) {
       case 'task_complete':
         return {
@@ -216,7 +405,7 @@ export const codexStateProvider: AgentStateProvider = {
 
 /**
  * Discover the live rollout file for a freshly-spawned (or resumed) Codex session
- * and tail its `event_msg` records into normalized state events. Mirrors
+ * and tail its rollout records into normalized state events. Mirrors
  * `observeGrokState`. `onSession` fires once with the rollout id (the `codex-thread`
  * resume value) and the rollout path, so the daemon can mark the session resumable
  * and start the transcript tail directly — no state-DB round-trip on the hot path.
