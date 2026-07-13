@@ -32,6 +32,30 @@ describe('runIssueCli', () => {
     expect(out).toContain('create')
   })
 
+  it('--help / -h render help without running anything', async () => {
+    for (const argv of [['--help'], ['-h']]) {
+      const out = await runIssueCli(argv, client)
+      expect(out).toContain('podium issue <command>')
+    }
+  })
+
+  it('per-command help: <cmd> --help and help <cmd> show flags with required markers', async () => {
+    for (const argv of [
+      ['claim', '--help'],
+      ['help', 'claim'],
+      ['claim', '-h'],
+    ]) {
+      const out = await runIssueCli(argv, client)
+      expect(out).toContain('podium issue claim')
+      expect(out).toContain('--assignee <value>')
+      expect(out).toContain('(required)')
+    }
+  })
+
+  it('help for an unknown command throws', async () => {
+    await expect(runIssueCli(['help', 'nope'], client)).rejects.toThrow(/unknown command/i)
+  })
+
   it('unknown command throws a helpful error (non-zero exit)', async () => {
     await expect(runIssueCli(['nope'], client)).rejects.toThrow(/unknown command/i)
   })

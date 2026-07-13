@@ -244,6 +244,21 @@ describe('resolvePlan — utility subcommands', () => {
       }),
     ).toEqual({ kind: 'update', channel: 'stable', feedOverride: 'http://env' })
   })
+  it('help: help/--help/-h anywhere, except the sub-CLIs that render their own', () => {
+    expect(plan({}, ['help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['--help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['-h'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['daemon', '--help'])).toEqual({ kind: 'help' })
+    expect(plan({}, ['issue', '--help'])).toEqual({ kind: 'issue', args: ['--help'] })
+    expect(plan({}, ['spec', '-h'])).toEqual({ kind: 'spec', args: ['-h'] })
+    expect(plan({}, ['session', '--help'])).toEqual({ kind: 'session', args: ['--help'] })
+    expect(plan({}, ['worktree', '--help'])).toEqual({ kind: 'worktree', args: ['--help'] })
+  })
+  it('version: version/--version/-v', () => {
+    expect(plan({}, ['version'])).toEqual({ kind: 'version' })
+    expect(plan({}, ['--version'])).toEqual({ kind: 'version' })
+    expect(plan({}, ['-v'])).toEqual({ kind: 'version' })
+  })
   it('channel: with and without a target', () => {
     expect(plan({}, ['channel'])).toEqual({ kind: 'channel', target: undefined })
     expect(plan({}, ['channel', 'edge'])).toEqual({ kind: 'channel', target: 'edge' })

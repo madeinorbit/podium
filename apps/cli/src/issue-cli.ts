@@ -18,6 +18,7 @@ const BOOL_FLAGS = new Set([
   'clear',
   'nudge',
   'notify',
+  'help',
 ])
 
 /** A CLI failure that should print as `podium issue: <message>` and exit non-zero. */
@@ -62,7 +63,68 @@ function helpText(): string {
     'podium issue <command> [--flags]',
     '',
     ...ISSUE_COMMANDS.map((c) => `  ${c.name.padEnd(w)}  ${c.summary}`),
+    '',
+    'Run `podium issue <command> --help` for that command’s flags.',
   ].join('\n')
+}
+
+/** The registry slice per-command help renders (both ISSUE_COMMANDS and SPEC_COMMANDS fit). */
+interface HelpableCommand {
+  name: string
+  summary: string
+  args: unknown
+  positionals?: string[]
+  restKey?: string
+}
+
+/** Render `podium <tool> <command> --help` from the command's zod object shape:
+ *  usage line (positionals from the registry), summary, then one row per flag with a
+ *  (required) marker for non-optional keys. Boolean flags render without `<value>`. */
+export function commandHelpText(tool: string, cmd: HelpableCommand): string {
+  const shape =
+    ((cmd.args as { shape?: Record<string, { isOptional?: () => boolean }> }).shape ?? {}) || {}
+  const pos = (cmd.positionals ?? []).map((p) => `<${p}>`).join(' ')
+  const rest = cmd.restKey ? ` [<${cmd.restKey}>…]` : ''
+  const keys = Object.keys(shape)
+  const flag = (k: string): string =>
+    `--${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}${BOOL_FLAGS.has(k) ? '' : ' <value>'}`
+  const w = Math.max(0, ...keys.map((k) => flag(k).length))
+  return [
+    `Usage: podium ${tool} ${cmd.name}${pos ? ` ${pos}` : ''}${rest}${keys.length ? ' [--flags]' : ''}`,
+    '',
+    `  ${cmd.summary}`,
+    ...(keys.length
+      ? [
+          '',
+          'Flags:',
+          ...keys.map((k) => {
+            const optional = shape[k]?.isOptional?.() ?? true
+            return `  ${flag(k).padEnd(w)}${optional ? '' : '  (required)'}`
+          }),
+        ]
+      : []),
+    ...('repoPath' in shape ? ['', '(--repo-path is inferred from the cwd when omitted)'] : []),
+  ].join('\n')
+}
+
+/** Shared help dispatch for the registry-driven CLIs (issue/spec): handles
+ *  `--help`, `help`, and `help <command>`. Returns undefined when not a help request. */
+export function registryHelp(
+  tool: string,
+  commands: readonly HelpableCommand[],
+  overview: () => string,
+  parsed: { command?: string; args: Record<string, unknown>; positionals: string[] },
+): string | undefined {
+  const { command, args, positionals } = parsed
+  const forCommand = (name: string): string => {
+    const cmd = commands.find((c) => c.name === name)
+    if (!cmd) throw new IssueCliError(`unknown command: ${name}\n\n${overview()}`)
+    return commandHelpText(tool, cmd)
+  }
+  if (args.help === true) return command && command !== 'help' ? forCommand(command) : overview()
+  if (command === 'help') return positionals[0] ? forCommand(positionals[0]) : overview()
+  if (!command) return overview()
+  return undefined
 }
 
 /** Inject the inferred repo when the command takes a `--repoPath` and none was given.
@@ -90,8 +152,14 @@ export async function runIssueCli(
   client: IssueTrpc,
   opts?: { defaultAuthor?: string },
 ): Promise<string> {
-  const { command, args, positionals } = parseIssueArgs(argv)
-  if (!command || command === 'help') return helpText()
+  // `-h` ≡ `--help`; a leading `--help` reads as the `help` command (no command to attach to).
+  const mapped = argv.map((a) => (a === '-h' ? '--help' : a))
+  if (mapped[0] === '--help') mapped[0] = 'help'
+  const parsedArgs = parseIssueArgs(mapped)
+  const { command, args, positionals } = parsedArgs
+  const help = registryHelp('issue', ISSUE_COMMANDS, helpText, parsedArgs)
+  if (help != null) return help
+  if (!command) return helpText() // unreachable (registryHelp covers it) — narrows the type
   const cmd = ISSUE_COMMANDS.find((c) => c.name === command)
   if (!cmd) throw new IssueCliError(`unknown command: ${command}\n\n${helpText()}`)
   // Positionals map onto the command's declared keys (flags win on conflict),

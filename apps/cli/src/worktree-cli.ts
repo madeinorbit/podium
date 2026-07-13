@@ -13,6 +13,18 @@ export async function runWorktreeCli(
   argv: string[],
   opts: { relayEndpoint?: string | undefined; cwd: string; fetchImpl?: typeof fetch },
 ): Promise<{ text: string; exitCode: number }> {
+  if (argv.includes('--help') || argv.includes('-h') || argv[0] === 'help') {
+    return {
+      text: [
+        'Usage: podium worktree [path]',
+        '',
+        '  Tell Podium which git worktree this agent session is working in',
+        '  (defaults to the current directory; resolved to its git toplevel).',
+        '  Only works inside a Podium-managed agent session (PODIUM_ISSUE_RELAY).',
+      ].join('\n'),
+      exitCode: 0,
+    }
+  }
   if (!opts.relayEndpoint) {
     return {
       text: 'podium worktree: PODIUM_ISSUE_RELAY is not set — this command only works inside a Podium-managed agent session.',

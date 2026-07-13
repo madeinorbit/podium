@@ -21,7 +21,7 @@ export function parseSessionArgs(argv: string[]): {
   const [command, ...rest] = argv
   const args: Record<string, string | boolean> = {}
   const positionals: string[] = []
-  const booleans = new Set(['json', 'outside-scope', 'wake'])
+  const booleans = new Set(['json', 'outside-scope', 'wake', 'help'])
   for (let i = 0; i < rest.length; i++) {
     const token = rest[i]
     if (!token?.startsWith('--')) {
@@ -58,6 +58,7 @@ function helpText(): string {
 }
 
 export async function runSessionCli(argv: string[], client: SessionControlClient): Promise<string> {
+  if (argv.includes('--help') || argv.includes('-h')) return helpText()
   const { command, args, positionals } = parseSessionArgs(argv)
   if (!command || command === 'help') return helpText()
   const sessionId = positionals[0]
