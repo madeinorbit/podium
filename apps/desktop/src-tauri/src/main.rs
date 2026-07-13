@@ -165,10 +165,13 @@ fn main() {
                 bootstrap::LaunchAction::LocalAllInOne
                 | bootstrap::LaunchAction::LocalServerOnly => {
                     // Shared local path: pick a port, spawn the sidecar, point the window local.
+                    // `--takeover`: the desktop SUPERVISES its sidecar — an orphan left by a
+                    // force-killed desktop must be reclaimed, so it opts into the CLI's
+                    // otherwise-refused displacement of a live same-role instance (#18).
                     let sidecar_args: Vec<String> = if server_only {
-                        vec!["server".to_string()]
+                        vec!["server".to_string(), "--takeover".to_string()]
                     } else {
-                        vec![]
+                        vec!["--takeover".to_string()]
                     };
                     let port = bootstrap::pick_free_port();
 

@@ -35,6 +35,27 @@ export interface ModePlan {
 
 const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 
+/** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
+ *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
+ *  silently fall through and boot the stack (issue #18). */
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup']
+const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
+const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
+
+/** First token the launch path does not understand (skipping value-flag arguments). */
+export function unknownLaunchToken(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i] as string
+    if (LAUNCH_VALUE_FLAGS.includes(tok)) {
+      i++ // skip the flag's value
+      continue
+    }
+    if (LAUNCH_BOOL_FLAGS.includes(tok) || LAUNCH_BARE_WORDS.includes(tok)) continue
+    return tok
+  }
+  return undefined
+}
+
 /** Pure mode resolver: explicit subcommand > config.mode > default all-in-one (+setup hint). */
 export function resolveModePlan(argv: string[], config: PodiumConfig): ModePlan {
   // Subcommands are positional: only argv[0] can name the mode — a flag VALUE that
@@ -96,6 +117,7 @@ export type DaemonAuthKind =
  *    is `roles.server` only with no registry claim).
  */
 export type LaunchPlan =
+  /** `podium help` / `--help` / `-h`: print usage and exit 0 — NEVER boot anything (#18). */
   | { kind: 'help' }
   | { kind: 'version' }
   | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
@@ -138,6 +160,9 @@ export type LaunchPlan =
       modePlan: ModePlan
       /** Print the setup-URL hint after the server comes up. */
       showSetupHint: boolean
+      /** `--takeover`: displace a LIVE same-role instance. Without it, runInProcess
+       *  refuses to start when the run registry shows a live holder (#18). */
+      takeover: boolean
     }
 
 /**
@@ -153,7 +178,8 @@ export function resolvePlan(
 ): LaunchPlan {
   const port = resolvePort(config, env)
 
-  // ---- help / version (before everything else) ----
+  // ---- help / version (before everything else, so a `--help` tacked onto a launch
+  // command can never boot the stack — issue #18) ----
   // `podium version` / `--version` / `-v`: print the baked-in build version.
   if (argv[0] === 'version' || argv[0] === '--version' || argv[0] === '-v') {
     return { kind: 'version' }
@@ -227,6 +253,15 @@ export function resolvePlan(
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
 
   // ---- launch resolution ----
+  // Reject anything the launch path doesn't understand: an unknown flag or a typo'd
+  // subcommand used to be silently ignored and boot the default mode (issue #18).
+  const unknown = unknownLaunchToken(argv)
+  if (unknown !== undefined) {
+    return {
+      kind: 'usage-error',
+      message: `podium: unknown argument '${unknown}' (run \`podium help\` for usage)`,
+    }
+  }
   const modePlan = resolveModePlan(argv, config)
   // `podium setup` (or --reconfigure) re-enters the interactive flow — the mode-first menu
   // that can switch this box between modes. TTY-gated below; headless falls through to
@@ -328,6 +363,7 @@ export function resolvePlan(
     daemonAuth,
     modePlan,
     showSetupHint: forceSetup || modePlan.showSetupHint,
+    takeover: argv.includes('--takeover'),
   }
 }
 
@@ -350,6 +386,9 @@ export function helpText(): string {
     '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
     '                        Run only the daemon (connects to a server)',
     '  client                Nothing to run locally; points at a remote server',
+    '',
+    '  --takeover            Replace a live instance of the same role; without it,',
+    '                        podium refuses to start when one is already running',
     '',
     'Setup & config:',
     '  setup                 Interactive setup (TTY) or serve the web setup UI',
@@ -434,6 +473,24 @@ export function portInUseMessage(port: number): string {
 }
 
 /**
+ * Refusal printed when a LIVE same-role instance already holds the run-registry record
+ * and `--takeover` was not passed (issue #18): an accidental `podium all` (or a stray
+ * `--help` that used to fall through) must never SIGTERM a running production instance.
+ */
+export function alreadyRunningMessage(
+  role: string,
+  holder: { pid: number; port?: number },
+): string {
+  const where = holder.port ? `pid ${holder.pid}, port ${holder.port}` : `pid ${holder.pid}`
+  return [
+    `podium: a live '${role}' instance is already running (${where}) — refusing to start another.`,
+    '  → Inspect it:            podium status',
+    '  → Stop it:               podium stop',
+    '  → Really replace it:     re-run with --takeover',
+  ].join('\n')
+}
+
+/**
  * The in-process host seam: apps/cli owns the launcher logic but must not
  * import apps/server or apps/daemon (boundary rule). The runnable entry
  * (scripts/cli.ts, the composition root that bun-compile bundles) injects the
@@ -464,7 +521,18 @@ async function runInProcess(
   // for status/stop. The in-process all-in-one is a single role; the split modes each
   // claim their own.
   if (plan.claimRole) {
-    const { registerProcess } = await import('@podium/runtime/run-registry')
+    const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
+    // registerProcess → reclaim() SIGTERM/SIGKILLs a live holder. That is takeover, and
+    // takeover must be OPT-IN: without --takeover, a live same-role holder means we
+    // refuse and leave it alone (#18). Stale records (dead pid) still fall through so
+    // crashed/force-killed instances are reclaimed as before.
+    if (!plan.takeover) {
+      const holder = liveRecord(plan.claimRole)
+      if (holder) {
+        console.error(alreadyRunningMessage(plan.claimRole, holder))
+        process.exit(1)
+      }
+    }
     try {
       // Daemon-only mode hosts no local port; server/all-in-one record theirs.
       await registerProcess(plan.claimRole, {
