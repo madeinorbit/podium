@@ -11,8 +11,8 @@ import type { IssueCommand, IssueCommandResult } from './commands.js'
  * refuses a git merge — scripts branch on the exit code instead.
  */
 
-/** Default lease TTL: 10 minutes. */
-export const DEFAULT_LOCK_TTL_SECONDS = 600
+/** Default lease TTL: 2 minutes. */
+export const DEFAULT_LOCK_TTL_SECONDS = 120
 
 /** Parse a human TTL (`10m`, `30s`, `2h`, bare seconds `600`) to seconds. */
 export function parseTtl(raw: string): number {

@@ -17,8 +17,8 @@ import type { WriteFunnel } from '../funnel'
  *  - session-bound auto-release: releaseForSession on session exit.
  */
 
-/** Default lease TTL (10 minutes) — also what queue-advance grants use. */
-export const DEFAULT_LOCK_TTL_SECONDS = 600
+/** Default lease TTL (2 minutes) — also what queue-advance grants use. */
+export const DEFAULT_LOCK_TTL_SECONDS = 120
 
 /** Who is acquiring/holding: the relayed agent's session + bound issue, or the
  *  direct-HTTP operator (both null session and issue). */
