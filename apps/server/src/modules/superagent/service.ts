@@ -10,25 +10,36 @@
  */
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { HARNESS_MCP_SUPPORT, resolveRole, roleApiBackend, superagentHarnessAgent } from '@podium/runtime'
 import { HarnessAgent, type IssueWire } from '@podium/protocol'
+import { HARNESS_MCP_SUPPORT, resolveRole, superagentHarnessAgent } from '@podium/runtime'
 import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
-import type { SessionStore, SuperagentMessageRow, SuperagentThreadRow } from '../../store'
-import { transcriptDelta, buildBtwDelta, buildBtwSeed, buildHandoffSeed, type BtwSessionInfo } from './btw'
+import type {
+  PendingSuperagentTurnRow,
+  QueuedSuperagentInputRow,
+  SessionStore,
+  SuperagentMessageRow,
+  SuperagentThreadRow,
+} from '../../store'
+import {
+  type BtwSessionInfo,
+  buildBtwDelta,
+  buildBtwSeed,
+  buildHandoffSeed,
+  transcriptDelta,
+} from './btw'
 import {
   buildConciergeDelta,
   buildConciergeSeed,
+  type ConciergeEvent,
+  type ConciergeSessionInfo,
   conciergeRepoPath,
   conciergeSystemPrompt,
   conciergeThreadId,
-  type ConciergeEvent,
-  type ConciergeSessionInfo,
 } from './concierge'
 import {
   buildFocusBlock,
   buildGlobalSeed,
-  type FocusIssueInfo,
   type FocusSessionInfo,
   type GlobalQuestion,
   type GlobalRepoDigest,
@@ -98,6 +109,13 @@ export class SuperagentService {
   // writer per harness session, and the UI shows the running turn live via
   // headlessActivity anyway.
   private readonly turnInFlight = new Set<string>()
+  /** Pending rows currently dispatched by THIS server process. The durable row
+   * remains the source of truth across a restart. */
+  private readonly dispatchedTurnIds = new Set<string>()
+  private readonly preparingInputs = new Map<
+    string,
+    Promise<{ threadId: string; podiumSessionId: string }>
+  >()
   // Where a harness-backed agent reaches Podium's own tools over MCP. Set by the
   // server once it's listening (it knows its own HTTP port + the access token).
   private mcpEndpoint: { url: string; token: string; allToolNames?: string[] } | undefined
@@ -125,12 +143,22 @@ export class SuperagentService {
   ) {
     this.waitPollMs = opts?.waitPollMs ?? 2000
     this.eventReadLimit = opts?.eventReadLimit ?? 500
+    for (const pending of this.store.superagent.listPendingTurns()) {
+      this.turnInFlight.add(pending.threadId)
+    }
+    for (const queued of this.store.superagent.listQueuedInputs()) {
+      this.turnInFlight.add(queued.threadId)
+    }
+    this.modules.bus.on('machine.connected', ({ machineId }) => {
+      this.resumePendingTurns(machineId)
+    })
   }
 
   /** Point harness agents at the in-process MCP server (Podium's orchestrator
    *  tools). Called by the server after it binds its port. */
   setMcpEndpoint(url: string, token: string, allToolNames?: string[]): void {
     this.mcpEndpoint = { url, token, ...(allToolNames ? { allToolNames } : {}) }
+    this.resumePendingTurns()
   }
 
   /** Mint (or reuse) the opaque MCP token identifying `threadId` to the HTTP MCP
@@ -280,7 +308,7 @@ export class SuperagentService {
     /** What the sending client has on screen (#225) — prepended to every turn. */
     focus?: UserFocusInput
   }): Promise<{ threadId: string; podiumSessionId: string }> {
-    let thread = this.store.superagent.getSuperagentThread(threadId)
+    const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
       throw new Error('a turn is already running on this thread — stop it or wait for it to finish')
@@ -288,92 +316,202 @@ export class SuperagentService {
     const lockError = this.terminalLockError(thread)
     if (lockError) throw new Error(lockError)
     this.turnInFlight.add(threadId)
-    let sessionId: string
+    let queued: QueuedSuperagentInputRow | undefined
     try {
-      const settings = this.store.settings.getSettings()
-      const intended = superagentHarnessAgent(settings)
-      const frozen = HarnessAgent.safeParse(thread.agentKind)
-      // Freeze the agent onto the thread on first contact. On later turns, if the
-      // user has since changed the superagent harness, SWITCH (#199): the harness
-      // owns its native session so we can't retarget it — start a fresh one and
-      // hand off context digested from the outgoing harness's transcript.
-      let agent: HarnessAgent
-      let handoff: string | undefined
-      if (!frozen.success) {
-        agent = intended
-        this.store.superagent.updateSuperagentThreadBinding(threadId, { agentKind: agent })
-      } else if (frozen.data !== intended) {
-        agent = intended
-        handoff = await this.buildHandoff(thread, frozen.data, intended)
-        // Drop the harness resume + headless row so this becomes a fresh first
-        // turn on the new harness (re-fetch the row to reflect the reset).
-        this.store.superagent.updateSuperagentThreadBinding(threadId, {
-          agentKind: agent,
-          harnessSessionId: null,
-          podiumSessionId: null,
+      queued = this.store.superagent.putQueuedInput({
+        inputId: randomUUID(),
+        threadId,
+        text,
+        ...(focus ? { focus } : {}),
+      })
+      return await this.prepareQueuedInput(queued, true)
+    } catch (err) {
+      if (queued) this.store.superagent.deleteQueuedInput(queued.inputId)
+      this.turnInFlight.delete(threadId)
+      throw err
+    }
+  }
+
+  private prepareQueuedInput(
+    queued: QueuedSuperagentInputRow,
+    allowWithoutMcp = false,
+  ): Promise<{ threadId: string; podiumSessionId: string }> {
+    const existing = this.preparingInputs.get(queued.inputId)
+    if (existing) return existing
+    const preparing = this.prepareQueuedInputInner(queued, allowWithoutMcp).finally(() => {
+      this.preparingInputs.delete(queued.inputId)
+    })
+    this.preparingInputs.set(queued.inputId, preparing)
+    return preparing
+  }
+
+  private async prepareQueuedInputInner(
+    queued: QueuedSuperagentInputRow,
+    allowWithoutMcp: boolean,
+  ): Promise<{ threadId: string; podiumSessionId: string }> {
+    const { inputId, threadId, text, focus } = queued
+    let thread = this.store.superagent.getSuperagentThread(threadId)
+    if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
+    const settings = this.store.settings.getSettings()
+    const intended = superagentHarnessAgent(settings)
+    const frozen = HarnessAgent.safeParse(thread.agentKind)
+    // Freeze the agent onto the thread on first contact. On later turns, if the
+    // user has since changed the superagent harness, SWITCH (#199): the harness
+    // owns its native session so we can't retarget it — start a fresh one and
+    // hand off context digested from the outgoing harness's transcript.
+    let agent: HarnessAgent
+    let handoff: string | undefined
+    if (!frozen.success) {
+      agent = intended
+      this.store.superagent.updateSuperagentThreadBinding(threadId, { agentKind: agent })
+    } else if (frozen.data !== intended) {
+      agent = intended
+      handoff = await this.buildHandoff(thread, frozen.data, intended)
+      // Drop the harness resume + headless row so this becomes a fresh first
+      // turn on the new harness (re-fetch the row to reflect the reset).
+      this.store.superagent.updateSuperagentThreadBinding(threadId, {
+        agentKind: agent,
+        harnessSessionId: null,
+        podiumSessionId: null,
+      })
+      const refreshed = this.store.superagent.getSuperagentThread(threadId)
+      if (refreshed) thread = refreshed
+    } else {
+      agent = frozen.data
+    }
+    const cwd = this.threadCwd(thread)
+    // Ensure the headless Podium session (recreate if the row was deleted).
+    const boundSessionId = thread.podiumSessionId
+    const existingSession = boundSessionId
+      ? this.listSessions().find((session) => session.sessionId === boundSessionId)
+      : undefined
+    let sessionId: string
+    if (existingSession) {
+      sessionId = existingSession.sessionId
+    } else {
+      sessionId = this.modules.headless.createHeadlessSession({
+        agentKind: agent,
+        cwd,
+        title: thread.title ?? threadId,
+        spawnedBy: `superagent:${threadId}`,
+      }).sessionId
+      this.store.superagent.updateSuperagentThreadBinding(threadId, {
+        podiumSessionId: sessionId,
+      })
+    }
+    // First HARNESS turn = no harness session yet. A legacy thread (buffered
+    // messages, no harness session) re-primes through the seed the same way.
+    const firstTurn = !thread.harnessSessionId
+    const context = await this.composeContext(thread, firstTurn)
+    // Handoff (harness switch) leads, then the kind-specific seed/delta, then
+    // the user's current screen — closest to their message, where "this" resolves.
+    const preamble = [handoff, context, this.focusBlock(focus)].filter(Boolean).join('\n\n')
+    const systemPrompt =
+      thread.kind === 'concierge'
+        ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
+        : SYSTEM_PROMPT
+    const backend = resolveRole(settings, 'superagent')
+    // Claude and Grok can accept a server-minted first-turn id. This makes
+    // transcript binding deterministic before a durable turn finishes.
+    const sessionUuid =
+      firstTurn && (agent === 'claude-code' || agent === 'grok') ? randomUUID() : undefined
+    const pending = this.store.superagent.promoteQueuedInput(inputId, {
+      turnId: randomUUID(),
+      threadId,
+      podiumSessionId: sessionId,
+      firstTurn,
+      payload: {
+        agent,
+        model: backend.execution === 'harness' ? backend.model : 'auto',
+        ...(backend.effort && backend.effort !== 'auto' ? { effort: backend.effort } : {}),
+        cwd,
+        prompt: text,
+        ...(preamble ? { contextPrompt: preamble } : {}),
+        systemPrompt,
+        permissionMode: 'auto',
+        timeoutMs: SUPERAGENT_HARNESS_TIMEOUT_MS,
+        ...(thread.harnessSessionId ? { resumeValue: thread.harnessSessionId } : {}),
+        ...(sessionUuid ? { sessionUuid } : {}),
+      },
+    })
+    this.modules.headless.broadcastHeadlessActivity(sessionId, { kind: 'turn-start' })
+    this.dispatchPendingTurn(pending, allowWithoutMcp)
+    return { threadId, podiumSessionId: sessionId }
+  }
+
+  private resumePendingTurns(machineId?: string): void {
+    for (const queued of this.store.superagent.listQueuedInputs()) {
+      this.turnInFlight.add(queued.threadId)
+      void this.prepareQueuedInput(queued).catch((error) => {
+        this.store.superagent.deleteQueuedInput(queued.inputId)
+        this.store.superagent.appendSuperagentMessage(queued.threadId, {
+          role: 'assistant',
+          content: `${TURN_FAILED_MARKER}: ${error instanceof Error ? error.message : String(error)}`,
         })
-        const refreshed = this.store.superagent.getSuperagentThread(threadId)
-        if (refreshed) thread = refreshed
-      } else {
-        agent = frozen.data
+        this.turnInFlight.delete(queued.threadId)
+      })
+    }
+    for (const pending of this.store.superagent.listPendingTurns()) {
+      const session = this.listSessions().find((s) => s.sessionId === pending.podiumSessionId)
+      if (!session || (machineId !== undefined && session.machineId !== machineId)) continue
+      this.turnInFlight.add(pending.threadId)
+      this.dispatchPendingTurn(pending)
+    }
+  }
+
+  private dispatchPendingTurn(pending: PendingSuperagentTurnRow, allowWithoutMcp = false): void {
+    if (this.dispatchedTurnIds.has(pending.turnId)) return
+    const agent = HarnessAgent.safeParse(pending.payload.agent)
+    if (!agent.success) {
+      this.finishPendingTurn(pending, {
+        ok: false,
+        error: `unknown persisted harness: ${pending.payload.agent}`,
+      })
+      return
+    }
+    // Full-MCP harnesses need a fresh endpoint/token after every server restart;
+    // never replay the stale credential serialized by an older process.
+    if (HARNESS_MCP_SUPPORT[agent.data] === 'full' && !this.mcpEndpoint && !allowWithoutMcp) {
+      return
+    }
+    this.dispatchedTurnIds.add(pending.turnId)
+    const turn = this.modules.headless.headlessTurn(
+      {
+        turnId: pending.turnId,
+        sessionId: pending.podiumSessionId,
+        threadId: pending.threadId,
+        ...pending.payload,
+        agent: agent.data,
+        ...(HARNESS_MCP_SUPPORT[agent.data] === 'full' && this.mcpEndpoint
+          ? this.harnessMcp(pending.threadId)
+          : {}),
+      },
+      (event) => this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, event),
+    )
+    void turn.then((result) => {
+      this.dispatchedTurnIds.delete(pending.turnId)
+      if (result.retryable) {
+        const retry = setTimeout(() => {
+          const current = this.store.superagent
+            .listPendingTurns()
+            .find((row) => row.turnId === pending.turnId)
+          if (current) this.dispatchPendingTurn(current)
+        }, 1000)
+        retry.unref?.()
+        return
       }
-      const cwd = this.threadCwd(thread)
-      // Ensure the headless Podium session (recreate if the row was deleted).
-      const boundSessionId = thread.podiumSessionId
-      const existing = boundSessionId
-        ? this.listSessions().find((s) => s.sessionId === boundSessionId)
-        : undefined
-      if (existing) {
-        sessionId = existing.sessionId
-      } else {
-        sessionId = this.modules.headless.createHeadlessSession({
-          agentKind: agent,
-          cwd,
-          title: thread.title ?? threadId,
-          spawnedBy: `superagent:${threadId}`,
-        }).sessionId
-        this.store.superagent.updateSuperagentThreadBinding(threadId, { podiumSessionId: sessionId })
-      }
-      // First HARNESS turn = no harness session yet. A legacy thread (buffered
-      // messages, no harness session) re-primes through the seed the same way.
-      const firstTurn = !thread.harnessSessionId
-      const context = await this.composeContext(thread, firstTurn)
-      // Handoff (harness switch) leads, then the kind-specific seed/delta, then
-      // the user's current screen — closest to their message, where "this" resolves.
-      const preamble = [handoff, context, this.focusBlock(focus)].filter(Boolean).join('\n\n')
-      const prompt = preamble ? `${preamble}\n\n${text}` : text
-      const systemPrompt =
-        thread.kind === 'concierge'
-          ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
-          : SYSTEM_PROMPT
-      const backend = resolveRole(settings, 'superagent')
-      // Claude sessions are minted with our uuid so the thread↔transcript
-      // binding is deterministic from turn 1; other harnesses report theirs.
-      const sessionUuid = firstTurn && agent === 'claude-code' ? randomUUID() : undefined
-      this.modules.headless.broadcastHeadlessActivity(sessionId, { kind: 'turn-start' })
-      const turn = this.modules.headless.headlessTurn(
-        {
-          sessionId,
-          threadId,
-          agent,
-          // Harness execution uses the role's model; api execution (managed
-          // provider / codex) still runs a harness with no model override.
-          model: backend.execution === 'harness' ? backend.model : 'auto',
-          ...(backend.effort && backend.effort !== 'auto' ? { effort: backend.effort } : {}),
-          cwd,
-          prompt,
-          systemPrompt,
-          timeoutMs: SUPERAGENT_HARNESS_TIMEOUT_MS,
-          ...(thread.harnessSessionId ? { resumeValue: thread.harnessSessionId } : {}),
-          ...(sessionUuid ? { sessionUuid } : {}),
-          // Podium's orchestrator tools over MCP, when this harness can mount
-          // them per-invocation; grok/cursor/opencode run without (as today).
-          ...(HARNESS_MCP_SUPPORT[agent] === 'full' ? this.harnessMcp(threadId) : {}),
-        },
-        (event) => this.modules.headless.broadcastHeadlessActivity(sessionId, event),
-      )
-      void turn.then((result) => {
-        this.turnInFlight.delete(threadId)
+      this.finishPendingTurn(pending, result)
+    })
+  }
+
+  private finishPendingTurn(
+    pending: PendingSuperagentTurnRow,
+    result: { ok: boolean; error?: string; harnessSessionId?: string; output?: string },
+  ): void {
+    const agent = HarnessAgent.safeParse(pending.payload.agent)
+    const sessionUuid = pending.payload.sessionUuid
+    try {
+      if (agent.success) {
         // Bind the harness session on the FIRST turn whether it succeeded or not.
         // A turn that fails after the harness minted its session (interrupt, tool
         // crash, error_during_execution) still wrote a real conversation to disk;
@@ -387,31 +525,41 @@ export class SuperagentService {
         // and binding that uuid would leave every later turn resuming a session
         // that does not exist.
         const harnessSessionId = result.harnessSessionId ?? (result.ok ? sessionUuid : undefined)
-        if (firstTurn && harnessSessionId) {
-          this.store.superagent.updateSuperagentThreadBinding(threadId, { harnessSessionId })
-          this.modules.headless.setHeadlessResume(sessionId, {
-            kind: RESUME_KIND[agent],
+        if (pending.firstTurn && harnessSessionId) {
+          this.store.superagent.updateSuperagentThreadBinding(pending.threadId, {
+            harnessSessionId,
+          })
+          this.modules.headless.setHeadlessResume(pending.podiumSessionId, {
+            kind: RESUME_KIND[agent.data],
             value: harnessSessionId,
           })
         }
         if (result.ok) {
-          this.modules.headless.broadcastHeadlessActivity(sessionId, { kind: 'turn-end' })
+          this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
+            kind: 'turn-end',
+          })
         } else {
           const error = result.error ?? 'unknown error'
           // Persisted failure notice: visible on the thread's legacy history,
           // never a silent fallback to the buffered path.
-          this.store.superagent.appendSuperagentMessage(threadId, {
+          this.store.superagent.appendSuperagentMessage(pending.threadId, {
             role: 'assistant',
-            content: `${TURN_FAILED_MARKER} (${agent}): ${error}`,
+            content: `${TURN_FAILED_MARKER} (${agent.data}): ${error}`,
           })
-          this.modules.headless.broadcastHeadlessActivity(sessionId, { kind: 'turn-end', error })
+          this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
+            kind: 'turn-end',
+            error,
+          })
         }
-      })
-    } catch (err) {
-      this.turnInFlight.delete(threadId)
-      throw err
+      }
+    } finally {
+      // Delete first: if the server dies before ACK, the daemon merely retains
+      // an orphan journal; the accepted user turn can never be replayed twice.
+      this.store.superagent.deletePendingTurn(pending.turnId)
+      this.modules.headless.headlessTurnAck(pending.podiumSessionId, pending.turnId)
+      this.turnInFlight.delete(pending.threadId)
+      this.dispatchedTurnIds.delete(pending.turnId)
     }
-    return { threadId, podiumSessionId: sessionId }
   }
 
   /** Interrupt the thread's running headless turn (fire-and-forget; the turn's
@@ -622,7 +770,7 @@ export class SuperagentService {
         const info = this.listSessions().find((s) => s.sessionId === originId)
         const session: BtwSessionInfo = {
           sessionId: originId,
-          ...(info?.name ?? info?.title ? { name: info?.name ?? info?.title } : {}),
+          ...((info?.name ?? info?.title) ? { name: info?.name ?? info?.title } : {}),
           ...(info?.agentKind ? { agentKind: info.agentKind } : {}),
           ...(info?.cwd ? { cwd: info.cwd } : {}),
         }
@@ -642,7 +790,11 @@ export class SuperagentService {
         delta,
         now: now(),
       })
-      this.store.superagent.setThreadWatermark(thread.id, last?.id ?? thread.watermarkItemId ?? '', last?.ts)
+      this.store.superagent.setThreadWatermark(
+        thread.id,
+        last?.id ?? thread.watermarkItemId ?? '',
+        last?.ts,
+      )
       return update
     }
     // Global thread: prime a fresh session with the cross-repo digest (#225). No

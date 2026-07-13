@@ -1,10 +1,25 @@
 import { z } from 'zod'
 import { ApprovalExecRequestMessage } from './approvals'
 import { RepoOpRequestMessage, ScanReposRequestMessage, ScanRequestMessage } from './discovery'
-import { FileAssetRequestMessage, FileReadRequestMessage, FileWriteRequestMessage, DirListRequestMessage, ImageUploadRequestMessage } from './files'
+import {
+  DirListRequestMessage,
+  FileAssetRequestMessage,
+  FileReadRequestMessage,
+  FileWriteRequestMessage,
+  ImageUploadRequestMessage,
+} from './files'
 import { HarnessExecRequestMessage } from './harness'
-import { HeadlessBindMessage, HeadlessInterruptMessage, HeadlessTurnRequestMessage } from './headless'
-import { AgentQuotaRequestMessage, MemoryBreakdownRequestMessage, UsageRequestMessage } from './host'
+import {
+  HeadlessBindMessage,
+  HeadlessInterruptMessage,
+  HeadlessTurnAckMessage,
+  HeadlessTurnRequestMessage,
+} from './headless'
+import {
+  AgentQuotaRequestMessage,
+  MemoryBreakdownRequestMessage,
+  UsageRequestMessage,
+} from './host'
 import { InventoryRequestMessage } from './inventory'
 import { IssueRelayResultMessage } from './issues'
 import {
@@ -26,6 +41,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HarnessExecRequestMessage,
   HeadlessTurnRequestMessage,
   HeadlessInterruptMessage,
+  HeadlessTurnAckMessage,
   HeadlessBindMessage,
   UsageRequestMessage,
   AgentQuotaRequestMessage,

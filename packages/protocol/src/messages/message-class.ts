@@ -115,6 +115,7 @@ export const CONTROL_MESSAGE_CLASS = {
   harnessExecRequest: 'command',
   headlessTurnRequest: 'command',
   headlessInterrupt: 'command',
+  headlessTurnAck: 'command',
   headlessBind: 'command',
   usageRequest: 'command',
   agentQuotaRequest: 'command',

@@ -71,13 +71,32 @@ describe('buildHeadlessExec argv shapes', () => {
     expect(args).toEqual(['-p', '--resume', 'chat-1', 'hi'])
   })
 
-  it('prepends the system prompt for CLIs with no native flag', () => {
+  it('uses Grok native rules and auto permission mode without polluting the prompt', () => {
     const { args } = buildHeadlessExec(
       'grok',
-      { prompt: 'task', systemPrompt: 'orchestrate', sessionId: 'u' },
+      {
+        prompt: 'task',
+        systemPrompt: 'orchestrate',
+        contextPrompt: 'repo context',
+        permissionMode: 'auto',
+        sessionId: 'u',
+      },
       bins,
     )
-    expect(args.at(-1)).toBe('orchestrate\n\n---\n\ntask')
+    expect(args).toContain('--rules')
+    expect(args[args.indexOf('--rules') + 1]).toBe('orchestrate\n\nrepo context')
+    expect(args).toContain('--permission-mode')
+    expect(args.at(-1)).toBe('task')
+  })
+
+  it('uses Codex developer instructions without polluting the user prompt', () => {
+    const { args } = buildHeadlessExec(
+      'codex',
+      { prompt: 'task', systemPrompt: 'orchestrate', contextPrompt: 'repo context' },
+      bins,
+    )
+    expect(args).toContain('developer_instructions="orchestrate\\n\\nrepo context"')
+    expect(args.at(-1)).toBe('task')
   })
 
   it("model 'auto' means no model flag", () => {

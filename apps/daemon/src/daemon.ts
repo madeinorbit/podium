@@ -475,6 +475,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
     }
     ctx.bridges.clear()
+    for (const turn of ctx.runningHeadlessTurns.values()) {
+      if (reapSessions) turn.interrupt()
+      else turn.dispose?.()
+    }
+    ctx.runningHeadlessTurns.clear()
     observers.disposeObservers()
   }
 

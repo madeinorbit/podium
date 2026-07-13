@@ -265,3 +265,44 @@ export interface SuperagentThreadRow {
   updatedAt: string
   archived: boolean
 }
+
+/** One accepted-but-not-yet-finished superagent turn. The JSON payload mirrors
+ * the restart-stable portion of a headlessTurnRequest. */
+export interface PendingSuperagentTurnRow {
+  turnId: string
+  threadId: string
+  podiumSessionId: string
+  payload: {
+    agent: string
+    model?: string
+    effort?: string
+    cwd: string
+    prompt: string
+    contextPrompt?: string
+    systemPrompt?: string
+    mcpConfig?: string
+    allowedTools?: string[]
+    permissionMode?: string
+    resumeValue?: string
+    sessionUuid?: string
+    timeoutMs?: number
+  }
+  firstTurn: boolean
+  createdAt: string
+}
+
+/** Raw user input persisted synchronously before context/session preparation. */
+export interface QueuedSuperagentInputRow {
+  inputId: string
+  threadId: string
+  text: string
+  focus?: {
+    view?: string
+    worktreePath?: string
+    issueId?: string
+    focusedSessionId?: string
+    visibleSessionIds?: string[]
+    filePath?: string
+  }
+  createdAt: string
+}

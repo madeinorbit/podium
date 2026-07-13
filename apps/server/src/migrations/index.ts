@@ -41,6 +41,7 @@ import { up as issueSessionSoftDelete } from './011-issues-soft-delete'
 import { up as approvalRequests } from './012-approval-requests'
 import { up as locks } from './013-locks'
 import { up as machinesInventory } from './014-machines-inventory'
+import { up as superagentPendingTurns } from './015-superagent-pending-turns'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -74,6 +75,7 @@ export const MIGRATIONS: Migration[] = [
   // Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock.
   { version: 13, name: 'locks', up: locks },
   { version: 14, name: 'machines-inventory', up: machinesInventory },
+  { version: 15, name: 'superagent-pending-turns', up: superagentPendingTurns },
 ]
 
 /** Highest schema version the running code knows about. */

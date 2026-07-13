@@ -4,9 +4,15 @@
  * 'concierge' intake threads).
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseJsonColumn } from './helpers'
-import type { SuperagentMessageRow, SuperagentThreadRow, ToolCallRow } from './types'
+import type {
+  PendingSuperagentTurnRow,
+  QueuedSuperagentInputRow,
+  SuperagentMessageRow,
+  SuperagentThreadRow,
+  ToolCallRow,
+} from './types'
 
 export class SuperagentRepository {
   constructor(private readonly db: SqlDatabase) {}
@@ -162,6 +168,100 @@ export class SuperagentRepository {
 
   archiveSuperagentThread(id: string): void {
     this.db.prepare('UPDATE superagent_threads SET archived = 1 WHERE id = ?').run(id)
+  }
+
+  putQueuedInput(row: Omit<QueuedSuperagentInputRow, 'createdAt'>): QueuedSuperagentInputRow {
+    const createdAt = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO superagent_queued_inputs
+           (input_id, thread_id, text, focus_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.inputId,
+        row.threadId,
+        row.text,
+        row.focus ? JSON.stringify(row.focus) : null,
+        createdAt,
+      )
+    return { ...row, createdAt }
+  }
+
+  listQueuedInputs(): QueuedSuperagentInputRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM superagent_queued_inputs ORDER BY created_at ASC')
+      .all() as Record<string, unknown>[]
+    return rows.map((row) => ({
+      inputId: row.input_id as string,
+      threadId: row.thread_id as string,
+      text: row.text as string,
+      focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
+        row.focus_json,
+        `queued superagent input ${String(row.input_id)}`,
+      ),
+      createdAt: row.created_at as string,
+    }))
+  }
+
+  deleteQueuedInput(inputId: string): void {
+    this.db.prepare('DELETE FROM superagent_queued_inputs WHERE input_id = ?').run(inputId)
+  }
+
+  putPendingTurn(row: Omit<PendingSuperagentTurnRow, 'createdAt'>): PendingSuperagentTurnRow {
+    const createdAt = new Date().toISOString()
+    this.db
+      .prepare(
+        `INSERT INTO superagent_pending_turns
+           (turn_id, thread_id, podium_session_id, payload_json, first_turn, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.turnId,
+        row.threadId,
+        row.podiumSessionId,
+        JSON.stringify(row.payload),
+        row.firstTurn ? 1 : 0,
+        createdAt,
+      )
+    return { ...row, createdAt }
+  }
+
+  promoteQueuedInput(
+    inputId: string,
+    row: Omit<PendingSuperagentTurnRow, 'createdAt'>,
+  ): PendingSuperagentTurnRow {
+    return transaction(this.db, () => {
+      const pending = this.putPendingTurn(row)
+      this.deleteQueuedInput(inputId)
+      return pending
+    })
+  }
+
+  listPendingTurns(): PendingSuperagentTurnRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM superagent_pending_turns ORDER BY created_at ASC')
+      .all() as Record<string, unknown>[]
+    return rows.map((row) => {
+      const turnId = row.turn_id as string
+      const payload = parseJsonColumn<PendingSuperagentTurnRow['payload']>(
+        row.payload_json,
+        `pending superagent turn ${turnId}`,
+      )
+      if (!payload) throw new Error(`invalid persisted superagent turn payload: ${turnId}`)
+      return {
+        turnId,
+        threadId: row.thread_id as string,
+        podiumSessionId: row.podium_session_id as string,
+        payload,
+        firstTurn: Boolean(row.first_turn),
+        createdAt: row.created_at as string,
+      }
+    })
+  }
+
+  deletePendingTurn(turnId: string): void {
+    this.db.prepare('DELETE FROM superagent_pending_turns WHERE turn_id = ?').run(turnId)
   }
 
   private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {

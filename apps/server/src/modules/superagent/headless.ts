@@ -45,6 +45,7 @@ export class HeadlessService {
         error?: string
         harnessSessionId?: string
         output?: string
+        retryable?: boolean
       }) => void
       onEvent?: (e: HeadlessTurnEvent) => void
     }
@@ -97,7 +98,7 @@ export class HeadlessService {
    */
   setHeadlessResume(sessionId: string, resume: ResumeRef): void {
     const session = this.deps.getSession(sessionId)
-    if (!session || !session.headless) return
+    if (!session?.headless) return
     session.resume = resume
     this.deps.persist(session)
     this.deps.broadcastSessions()
@@ -117,6 +118,7 @@ export class HeadlessService {
    */
   headlessTurn(
     input: {
+      turnId: string
       sessionId: string
       threadId: string
       agent: HarnessAgent
@@ -124,6 +126,7 @@ export class HeadlessService {
       effort?: string
       cwd: string
       prompt: string
+      contextPrompt?: string
       systemPrompt?: string
       mcpConfig?: string
       allowedTools?: string[]
@@ -133,14 +136,20 @@ export class HeadlessService {
       timeoutMs?: number
     },
     onEvent?: (event: HeadlessTurnEvent) => void,
-  ): Promise<{ ok: boolean; error?: string; harnessSessionId?: string; output?: string }> {
+  ): Promise<{
+    ok: boolean
+    error?: string
+    harnessSessionId?: string
+    output?: string
+    retryable?: boolean
+  }> {
     const machineId = this.deps.getSession(input.sessionId)?.machineId ?? this.deps.defaultMachine()
     const requestId = this.deps.nextRequestId('ht')
     const timeoutMs = (input.timeoutMs ?? 600_000) + 10_000
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pendingTurns.delete(requestId)
-        resolve({ ok: false, error: 'headless turn timed out' })
+        resolve({ ok: false, error: 'headless turn transport timed out', retryable: true })
       }, timeoutMs)
       timer.unref?.()
       this.pendingTurns.set(requestId, {
@@ -151,25 +160,44 @@ export class HeadlessService {
         },
         ...(onEvent ? { onEvent } : {}),
       })
-      this.deps.toMachine(machineId, {
-        type: 'headlessTurnRequest',
-        requestId,
-        sessionId: input.sessionId,
-        threadId: input.threadId,
-        agent: input.agent,
-        cwd: input.cwd,
-        prompt: input.prompt,
-        ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-        ...(input.effort ? { effort: input.effort } : {}),
-        ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-        ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
-        ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
-        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
-        ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-        ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
-        ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-      })
+      try {
+        this.deps.toMachine(machineId, {
+          type: 'headlessTurnRequest',
+          requestId,
+          turnId: input.turnId,
+          sessionId: input.sessionId,
+          threadId: input.threadId,
+          agent: input.agent,
+          cwd: input.cwd,
+          prompt: input.prompt,
+          ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
+          ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
+          ...(input.effort ? { effort: input.effort } : {}),
+          ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+          ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
+          ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+          ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+          ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+          ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
+          ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+        })
+      } catch (error) {
+        clearTimeout(timer)
+        this.pendingTurns.delete(requestId)
+        resolve({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          retryable: true,
+        })
+      }
     })
+  }
+
+  /** The server has durably committed the terminal result and no longer needs
+   * the daemon's per-turn journal for restart replay. */
+  headlessTurnAck(sessionId: string, turnId: string): void {
+    const machineId = this.deps.getSession(sessionId)?.machineId ?? this.deps.defaultMachine()
+    this.deps.toMachine(machineId, { type: 'headlessTurnAck', sessionId, turnId })
   }
 
   /** Interrupt a headless session's running turn (fire-and-forget; the turn's

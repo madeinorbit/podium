@@ -863,6 +863,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
     const msg: ControlMessage = {
       type: 'headlessTurnRequest',
       requestId: 'ht1',
+      turnId: 'turn-1',
       sessionId: 's1',
       threadId: 'concierge',
       agent: 'claude-code',
@@ -884,6 +885,7 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
     const msg: ControlMessage = {
       type: 'headlessTurnRequest',
       requestId: 'ht2',
+      turnId: 'turn-2',
       sessionId: 's1',
       threadId: 'btw_x',
       agent: 'codex',

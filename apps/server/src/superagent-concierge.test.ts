@@ -180,12 +180,13 @@ describe('concierge threads (issue #64)', () => {
       spawnedBy: 'user',
     })
     await sa.conciergeTurn({ repoPath: '/r', text: 'status?' })
-    const prompt = turnReqs[0]?.prompt ?? ''
-    expect(prompt).toContain('[CONCIERGE CONTEXT]')
-    expect(prompt).toContain(`#${ready.seq} Fix login`)
-    expect(prompt).toContain('Which region?')
-    expect(prompt).toContain('claude-code')
-    expect(prompt.endsWith('status?')).toBe(true)
+    const request = turnReqs[0]
+    const context = request?.contextPrompt ?? ''
+    expect(request?.prompt).toBe('status?')
+    expect(context).toContain('[CONCIERGE CONTEXT]')
+    expect(context).toContain(`#${ready.seq} Fix login`)
+    expect(context).toContain('Which region?')
+    expect(context).toContain('claude-code')
   })
 
   it('gates start-capable tools behind confirmed:true on concierge threads', async () => {
@@ -381,7 +382,7 @@ describe('concierge threads (issue #64)', () => {
     registry.issues.create({ repoPath: '/r', title: 'C', startNow: false })
     await sa.conciergeTurn({ repoPath: '/r', text: 'update?' })
     await settle()
-    const second = turnReqs[1]?.prompt ?? ''
+    const second = turnReqs[1]?.contextPrompt ?? ''
     expect(second).toContain('[CONCIERGE UPDATE')
     expect(second).toContain('created "A"')
     expect(second).toContain('created "B"')
@@ -389,7 +390,7 @@ describe('concierge threads (issue #64)', () => {
     // The overflowed remainder arrives on the next turn — nothing silently lost.
     await sa.conciergeTurn({ repoPath: '/r', text: 'more?' })
     await settle()
-    const third = turnReqs[2]?.prompt ?? ''
+    const third = turnReqs[2]?.contextPrompt ?? ''
     expect(third).toContain('[CONCIERGE UPDATE')
     expect(third).toContain('created "C"')
   })

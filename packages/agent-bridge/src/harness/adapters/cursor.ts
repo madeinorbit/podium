@@ -53,7 +53,8 @@ export const cursorAdapter: HarnessAdapter = {
     buildExec(opts, bins) {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
       const sys = opts.systemPrompt?.trim()
-      const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
+      const context = opts.contextPrompt?.trim()
+      const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
         cmd: bins.cursor(),
         args: [
@@ -61,6 +62,7 @@ export const cursorAdapter: HarnessAdapter = {
           '--resume',
           opts.sessionId ?? '',
           ...(model ? ['--model', model] : []),
+          ...(opts.permissionMode === 'auto' ? ['--auto-review'] : []),
           prompt,
         ],
       }

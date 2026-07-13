@@ -23,6 +23,7 @@ export interface HeadlessTurnSpec {
   effort?: string
   cwd: string
   prompt: string
+  contextPrompt?: string
   systemPrompt?: string
   /** MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
   mcpConfig?: string
@@ -59,12 +60,23 @@ export class HeadlessTurnError extends Error {
 export type HeadlessEmit = (event: HeadlessTurnEvent) => void
 
 export interface HeadlessTurnHandle {
+  /** Stable durable turn id when the control layer assigned one. */
+  turnId?: string
   done: Promise<HeadlessTurnOutcome>
   interrupt(): void
+  /** Detach local resources without killing a durable master. */
+  dispose?(): void
 }
 
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
-const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk'])
+const PERMISSION_MODES = new Set([
+  'default',
+  'acceptEdits',
+  'auto',
+  'bypassPermissions',
+  'plan',
+  'dontAsk',
+])
 
 /** Parse the Claude-shaped MCP config JSON into SDK mcpServers. Servers without
  *  a `type` are treated as streamable-HTTP (the shape the server composes). */
@@ -98,7 +110,7 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
   const mode: PermissionMode =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
       ? (spec.permissionMode as PermissionMode)
-      : 'bypassPermissions'
+      : 'auto'
   const options: Options = {
     cwd: spec.cwd,
     includePartialMessages: true,
@@ -119,9 +131,13 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
       : {}),
     // The orchestrator prompt APPENDS to the claude_code preset — same posture
     // as harness-exec's --append-system-prompt.
-    ...(spec.systemPrompt?.trim()
+    ...([spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim()
       ? {
-          systemPrompt: { type: 'preset', preset: 'claude_code', append: spec.systemPrompt.trim() },
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+            append: [spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim(),
+          },
         }
       : {}),
     ...(spec.resumeValue
@@ -291,7 +307,9 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
       ...(spec.model ? { model: spec.model } : {}),
       ...(spec.effort ? { effort: spec.effort } : {}),
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
+      ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
       ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
+      ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
       ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
     },
     { opencode: () => 'opencode', cursor: () => 'cursor-agent' },
@@ -371,6 +389,8 @@ function runResumeExecTurn(
     ...(spec.model ? { model: spec.model } : {}),
     ...(spec.effort ? { effort: spec.effort } : {}),
     ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
+    ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
+    ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
     ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
   }
   emit({ kind: 'status', status: 'starting' })

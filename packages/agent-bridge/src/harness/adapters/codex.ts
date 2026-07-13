@@ -104,8 +104,10 @@ export const codexAdapter: HarnessAdapter = {
     resumeIdAllocation: 'stream-captured',
     buildExec(opts) {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
-      const sys = opts.systemPrompt?.trim()
-      const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
+      const instructions = [opts.systemPrompt, opts.contextPrompt]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join('\n\n')
       return {
         cmd: 'codex',
         args: [
@@ -117,10 +119,13 @@ export const codexAdapter: HarnessAdapter = {
           '--skip-git-repo-check',
           ...(model ? ['--model', model] : []),
           ...(opts.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(opts.effort)}`] : []),
+          // Codex exposes a native developer-instruction layer. Using it keeps
+          // Podium's seed/focus blocks out of the transcript's user message.
+          ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
           ...codexMcpArgs(opts.mcpConfig, 'headless'),
           // Prompt as positional is safe: no variadic flag precedes it (same
           // reasoning as exec above). The caller closes stdin immediately.
-          prompt,
+          opts.prompt,
         ],
       }
     },

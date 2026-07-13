@@ -67,10 +67,14 @@ export interface HarnessBins {
 
 export interface HeadlessExecOptions {
   prompt: string
+  /** Machine-authored seed/delta/focus context. Adapters with a native
+   * instruction channel keep this out of the visible user message. */
+  contextPrompt?: string
   model?: string
   effort?: string
   systemPrompt?: string
   mcpConfig?: string
+  permissionMode?: string
   /** Harness session id to resume; absent = first turn. */
   resumeValue?: string
   /** The pinned harness session id (pre-minted for grok/cursor). */

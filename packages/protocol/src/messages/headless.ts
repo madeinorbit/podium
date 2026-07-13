@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { AgentKind } from './terminal'
 import { HarnessAgent } from './harness'
+import { AgentKind } from './terminal'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 // A headless session is a persistent harness session driven turn-by-turn by the
@@ -49,6 +49,9 @@ export type HeadlessActivityMessage = z.infer<typeof HeadlessActivityMessage>
 export const HeadlessTurnRequestMessage = z.object({
   type: z.literal('headlessTurnRequest'),
   requestId: z.string(),
+  /** Stable across server/daemon restarts. The daemon uses this to reattach to
+   *  (or return the completed result of) the same durable abduco turn. */
+  turnId: z.string(),
   sessionId: z.string(),
   /** Superagent thread this turn belongs to (opaque to the daemon). */
   threadId: z.string(),
@@ -56,7 +59,11 @@ export const HeadlessTurnRequestMessage = z.object({
   model: z.string().optional(),
   effort: z.string().optional(),
   cwd: z.string(),
+  /** The human-authored text only. Machine context is carried separately so
+   *  harnesses with a native hidden instruction channel need not fold it into
+   *  the transcript's visible user message. */
   prompt: z.string(),
+  contextPrompt: z.string().optional(),
   systemPrompt: z.string().optional(),
   /** MCP config JSON ({ mcpServers: … }), same shape harnessExec takes. */
   mcpConfig: z.string().optional(),
@@ -72,6 +79,11 @@ export const HeadlessTurnRequestMessage = z.object({
 export const HeadlessInterruptMessage = z.object({
   type: z.literal('headlessInterrupt'),
   requestId: z.string(),
+  sessionId: z.string(),
+})
+export const HeadlessTurnAckMessage = z.object({
+  type: z.literal('headlessTurnAck'),
+  turnId: z.string(),
   sessionId: z.string(),
 })
 // server -> daemon: (re)establish the per-kind transcript observers/tails for a

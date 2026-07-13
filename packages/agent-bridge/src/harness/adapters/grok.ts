@@ -51,16 +51,21 @@ export const grokAdapter: HarnessAdapter = {
     resumeIdAllocation: 'daemon-minted-uuid',
     buildExec(opts) {
       const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
-      const sys = opts.systemPrompt?.trim()
-      const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
+      const rules = [opts.systemPrompt, opts.contextPrompt]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join('\n\n')
       return {
         cmd: 'grok',
         args: [
           '-p',
-          '--session-id',
-          opts.sessionId ?? '',
+          ...(opts.resumeValue
+            ? ['--resume', opts.resumeValue]
+            : ['--session-id', opts.sessionId ?? '']),
           ...(model ? ['--model', model] : []),
-          prompt,
+          ...(opts.permissionMode === 'auto' ? ['--permission-mode', 'auto'] : []),
+          ...(rules ? ['--rules', rules] : []),
+          opts.prompt,
         ],
       }
     },
