@@ -28,16 +28,38 @@ export interface ModelChoice {
 }
 type Choice = { value: string; label: string }
 
-const AGENT_MODELS: Record<IssueAgentKind, Choice[]> = {
+// Reasoning-effort ladders, each verified against the agent's own authoritative
+// source (not guessed):
+//   claude  `claude --help` → low, medium, high, xhigh, max
+//   grok    `grok --help`   → low, medium, high, xhigh, max
+//   codex   `codex debug models` supported_reasoning_levels → low, medium, high, xhigh
+//   opencode `opencode run --help` --variant examples → minimal, low, medium, high, max
+//   cursor   no effort flag — effort rides the model string (`model[effort=high]`)
+const CLAUDE_GROK_EFFORT: Choice[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+  { value: 'max', label: 'Max' },
+]
+
+const CODEX_EFFORT: Choice[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+]
+
+const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
   'claude-code': [
-    { value: 'opus', label: 'Opus' },
-    { value: 'sonnet', label: 'Sonnet' },
-    { value: 'haiku', label: 'Haiku' },
+    { value: 'opus', label: 'Opus', efforts: CLAUDE_GROK_EFFORT.map((o) => o.value) },
+    { value: 'sonnet', label: 'Sonnet', efforts: CLAUDE_GROK_EFFORT.map((o) => o.value) },
+    { value: 'haiku', label: 'Haiku', efforts: [] },
   ],
   // Fallback only — codex is live-enumerated server-side via `codex debug models`.
   codex: [
-    { value: 'gpt-5.5', label: 'GPT-5.5' },
-    { value: 'gpt-5.4', label: 'GPT-5.4' },
+    { value: 'gpt-5.5', label: 'GPT-5.5', efforts: CODEX_EFFORT.map((o) => o.value) },
+    { value: 'gpt-5.4', label: 'GPT-5.4', efforts: CODEX_EFFORT.map((o) => o.value) },
   ],
   grok: [
     { value: 'grok-composer-2.5-fast', label: 'Grok Composer 2.5 Fast' },
@@ -55,30 +77,10 @@ const AGENT_MODELS: Record<IssueAgentKind, Choice[]> = {
   ],
 }
 
-// Reasoning-effort ladders, each verified against the agent's own authoritative
-// source (not guessed):
-//   claude  `claude --help` → low, medium, high, xhigh, max
-//   grok    `grok --help`   → low, medium, high, xhigh, max
-//   codex   `codex debug models` supported_reasoning_levels → low, medium, high, xhigh
-//   opencode `opencode run --help` --variant examples → minimal, low, medium, high, max
-//   cursor   no effort flag — effort rides the model string (`model[effort=high]`)
-const CLAUDE_GROK_EFFORT: Choice[] = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max' },
-]
-
 const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
   'claude-code': CLAUDE_GROK_EFFORT,
   grok: CLAUDE_GROK_EFFORT,
-  codex: [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'xhigh', label: 'Extra high' },
-  ],
+  codex: CODEX_EFFORT,
   opencode: [
     { value: 'minimal', label: 'Minimal' },
     { value: 'low', label: 'Low' },
@@ -138,22 +140,23 @@ function effortLevelLabel(level: string): string {
  * returns [] (effort stays auto). When the live catalog reports the model's effort
  * levels (claude `capabilities.effort`, codex `supported_reasoning_levels`), those are
  * authoritative: a model with `[]` (e.g. claude haiku) offers no effort. When the source
- * doesn't expose per-model effort (grok/cursor/opencode, or before the live list loads),
- * falls back to the agent's known ladder. Empty result = hide the effort picker.
+ * doesn't expose per-model effort (grok/opencode), falls back to the agent's verified
+ * CLI ladder. Empty result = hide the effort picker.
  */
 export function effortOptionsForModel(
-  _kind: IssueAgentKind,
+  kind: IssueAgentKind,
   modelValue: string | null | undefined,
   live?: readonly ModelChoice[],
 ): PropertyOption[] {
   if (!modelValue || modelValue === AUTO) return []
-  // Only offer effort we can confirm for THIS model — claude `capabilities.effort`,
-  // codex `supported_reasoning_levels`. When the source doesn't expose per-model effort
-  // (grok/cursor/opencode, or before the live catalog loads), hide it rather than guess
-  // with an agent-wide ladder that may not apply (e.g. grok composer is non-reasoning).
-  const efforts = live?.find((m) => m.value === modelValue)?.efforts
-  if (!efforts || efforts.length === 0) return []
-  return withAuto(efforts.map((e) => ({ value: e, label: effortLevelLabel(e) })))
+  const efforts = agentModels(kind, live).find((m) => m.value === modelValue)?.efforts
+  if (efforts !== undefined) {
+    if (efforts.length === 0) return []
+    return withAuto(efforts.map((e) => ({ value: e, label: effortLevelLabel(e) })))
+  }
+  // Grok/OpenCode expose an effort flag but no per-model metadata. Keep their
+  // full verified ladders available; an explicit [] remains authoritative.
+  return agentSupportsEffort(kind) ? effortOptions(kind) : []
 }
 
 /** Display label for a stored model value; checks live models first, falls back to the

@@ -411,6 +411,10 @@ export class SuperagentService {
         ? conciergeSystemPrompt(thread.repoPath ?? conciergeRepoPath(threadId) ?? '?')
         : SYSTEM_PROMPT
     const backend = resolveRole(settings, 'superagent')
+    const turnBackend =
+      backend.execution === 'harness' && backend.harness === agent
+        ? backend
+        : resolveRole(settings, 'coding')
     // Claude and Grok can accept a server-minted first-turn id. This makes
     // transcript binding deterministic before a durable turn finishes.
     const sessionUuid =
@@ -422,8 +426,10 @@ export class SuperagentService {
       firstTurn,
       payload: {
         agent,
-        model: backend.execution === 'harness' ? backend.model : 'auto',
-        ...(backend.effort && backend.effort !== 'auto' ? { effort: backend.effort } : {}),
+        model: turnBackend.model,
+        ...(turnBackend.effort && turnBackend.effort !== 'auto'
+          ? { effort: turnBackend.effort }
+          : {}),
         cwd,
         prompt: text,
         ...(preamble ? { contextPrompt: preamble } : {}),

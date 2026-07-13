@@ -69,7 +69,8 @@ describe('normalizeSettings — legacy → roles migration', () => {
       accountId: nativeAccountId('claude-code'),
       model: 'auto',
     })
-    // codex api → native:codex account; one-shot/orchestrator roles run it as the Responses API.
+    // The superagent is always harness-backed; the one-shot background role keeps
+    // using the Codex Responses API.
     expect(s.roles.superagent).toMatchObject({
       accountId: nativeAccountId('codex'),
       model: 'gpt-5.5',
@@ -79,8 +80,8 @@ describe('normalizeSettings — legacy → roles migration', () => {
       model: 'gpt-5.4-mini',
     })
     expect(resolveRole(s, 'superagent')).toMatchObject({
-      execution: 'api',
-      provider: 'codex',
+      execution: 'harness',
+      harness: 'codex',
       model: 'gpt-5.5',
     })
     expect(resolveRole(s, 'background')).toMatchObject({
@@ -182,6 +183,25 @@ describe('normalizeSettings — Codex harness migration into roles', () => {
 describe('superagentHarnessAgent (issue #84)', () => {
   it('follows an explicit harness choice', () => {
     const s = normalizeSettings({ superagent: { kind: 'harness', harnessAgent: 'codex' } })
+    expect(superagentHarnessAgent(s)).toBe('codex')
+  })
+  it('treats a native Codex account as the Codex harness without a discriminator', () => {
+    const s = normalizeSettings({
+      roles: {
+        coding: { accountId: nativeAccountId('grok') },
+        superagent: {
+          accountId: nativeAccountId('codex'),
+          model: 'gpt-5.5',
+          effort: 'high',
+        },
+      },
+    })
+    expect(resolveRole(s, 'superagent')).toMatchObject({
+      execution: 'harness',
+      harness: 'codex',
+      model: 'gpt-5.5',
+      effort: 'high',
+    })
     expect(superagentHarnessAgent(s)).toBe('codex')
   })
   it('falls back to sessionDefaults.agent for api-kind settings', () => {

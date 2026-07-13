@@ -143,26 +143,35 @@ export function RoleBackendEditor({
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
   const options = accountOptions(role)
-  const accountId = backend.accountId || options[0]!.id
+  const accountId = backend.accountId || options[0]?.id || 'native:claude-code'
   const isNative = accountId.startsWith('native:')
   const harness = isNative ? (accountId.slice('native:'.length) as HarnessAgent) : undefined
-  // Codex is a native login, but the orchestrator/background roles reach it over
-  // the Responses API (free-text model), while coding runs it as a CLI harness.
-  const harnessForModels =
-    harness && !(harness === 'codex' && role !== 'coding') ? harness : undefined
-  const agentKind = harnessForModels ? issueDefaultAgentKind(harnessForModels) : undefined
+  const agentKind = harness ? issueDefaultAgentKind(harness) : undefined
   const showModelEffort =
-    (agentKind &&
-      effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind]).length > 0) ||
-    accountId === 'native:codex'
+    agentKind && effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind]).length > 0
+  const updateBackend = (patch: Partial<RoleBackend>) =>
+    onChange({
+      ...backend,
+      ...patch,
+      ...(role === 'superagent' && harness ? { harness } : {}),
+    })
   return (
     <>
       <Row label="Account">
         <Select
           value={accountId}
-          onValueChange={(value) =>
-            onChange({ accountId: value ?? '', model: 'auto', effort: 'auto' })
-          }
+          onValueChange={(value) => {
+            const nextAccountId = value ?? ''
+            const nativeHarness = nextAccountId.startsWith('native:')
+              ? (nextAccountId.slice('native:'.length) as HarnessAgent)
+              : undefined
+            onChange({
+              accountId: nextAccountId,
+              model: 'auto',
+              effort: 'auto',
+              ...(role === 'superagent' && nativeHarness ? { harness: nativeHarness } : {}),
+            })
+          }}
         >
           <SelectTrigger className="w-full flex-1">
             <SelectValue />
@@ -187,43 +196,26 @@ export function RoleBackendEditor({
             variant="field"
             agentKind={agentKind}
             value={backend.model}
-            onChange={(model) => onChange({ ...backend, model, effort: 'auto' })}
+            onChange={(model) => updateBackend({ model, effort: 'auto' })}
           />
         ) : (
           <Input
             type="text"
             placeholder="auto"
             value={backend.model === 'auto' ? '' : backend.model}
-            onChange={(e) => onChange({ ...backend, model: e.target.value || 'auto' })}
+            onChange={(e) => updateBackend({ model: e.target.value || 'auto' })}
           />
         )}
       </Row>
       {showModelEffort && (
         <Row label="Effort">
-          {agentKind ? (
-            <EffortPicker
-              variant="field"
-              agentKind={agentKind}
-              model={backend.model}
-              value={backend.effort}
-              onChange={(effort) => onChange({ ...backend, effort })}
-            />
-          ) : (
-            <Select
-              value={backend.effort || 'auto'}
-              onValueChange={(value) => onChange({ ...backend, effort: value ?? 'auto' })}
-            >
-              <SelectTrigger className="w-full flex-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Default (medium)</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
+          <EffortPicker
+            variant="field"
+            agentKind={agentKind}
+            model={backend.model}
+            value={backend.effort}
+            onChange={(effort) => updateBackend({ effort })}
+          />
         </Row>
       )}
       {accountId === 'native:claude-code' ? (

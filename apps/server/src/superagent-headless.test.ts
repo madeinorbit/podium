@@ -636,7 +636,7 @@ describe('boot reconciliation for headless sessions', () => {
 describe('harness switch + effort (#199)', () => {
   const setSuperagentHarness = (
     h: Awaited<ReturnType<typeof harness>>,
-    patch: { harness?: HarnessAgent; effort?: string },
+    patch: { harness?: HarnessAgent; model?: string; effort?: string },
   ) => {
     const cur = h.registry.sessionStore.settings.getSettings()
     const harness = patch.harness ?? 'claude-code'
@@ -648,6 +648,7 @@ describe('harness switch + effort (#199)', () => {
           ...cur.roles.superagent,
           accountId: nativeAccountId(harness),
           harness,
+          ...(patch.model !== undefined ? { model: patch.model } : {}),
           ...(patch.effort !== undefined ? { effort: patch.effort } : {}),
         },
       },
@@ -714,6 +715,37 @@ describe('harness switch + effort (#199)', () => {
     setSuperagentHarness(h2, { harness: 'claude-code', effort: 'auto' })
     await h2.sa.sendTurn({ threadId: 'global', text: 'hi' })
     expect(h2.turnReqs[0]?.effort).toBeUndefined()
+  })
+
+  it('uses a native Codex superagent model even when coding uses another harness', async () => {
+    const h = await harness()
+    const current = h.registry.sessionStore.settings.getSettings()
+    h.registry.sessionStore.settings.setSettings({
+      ...current,
+      roles: {
+        ...current.roles,
+        coding: {
+          ...current.roles.coding,
+          accountId: nativeAccountId('grok'),
+          model: 'grok-build',
+          effort: 'low',
+        },
+        // Existing settings blobs can predate the explicit harness field.
+        superagent: {
+          accountId: nativeAccountId('codex'),
+          model: 'gpt-5.5',
+          effort: 'xhigh',
+        },
+      },
+    })
+
+    await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
+
+    expect(h.turnReqs[0]).toMatchObject({
+      agent: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+    })
   })
 })
 

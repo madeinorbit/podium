@@ -1,8 +1,12 @@
 import { expect, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
+import { nativeAccountId, normalizeSettings } from '../../../packages/runtime/src/settings'
 import { RELAY } from './_harness'
 
-test.skip(({ isMobile }) => isMobile, 'desktop test (Settings nav button lives in the <aside> Sidebar)')
+test.skip(
+  ({ isMobile }) => isMobile,
+  'desktop test (Settings nav button lives in the <aside> Sidebar)',
+)
 
 async function seedStaleCodexWorkLlm(): Promise<void> {
   const trpc = makeTrpc('http://localhost:8799')
@@ -32,6 +36,60 @@ function backgroundWorkSection(page: Page) {
     .filter({ has: page.getByRole('heading', { name: 'Background work LLM' }) })
     .first()
 }
+
+function superagentSection(page: Page) {
+  return page
+    .getByRole('region', { name: 'Settings' })
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Superagent' }) })
+    .first()
+}
+
+test('superagent uses shared Codex model and effort dropdowns', async ({ page }) => {
+  const trpc = makeTrpc('http://localhost:8799')
+  await trpc.settings.set.mutate(
+    normalizeSettings({
+      roles: {
+        coding: { accountId: nativeAccountId('grok') },
+        superagent: {
+          accountId: nativeAccountId('codex'),
+          model: 'gpt-5.5',
+          effort: 'auto',
+        },
+      },
+    }),
+  )
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page
+    .locator('aside')
+    .getByRole('button', { name: 'Settings', exact: true })
+    .click({ timeout: 15_000 })
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await expect(settings).toBeVisible({ timeout: 10_000 })
+  await settings.getByRole('button', { name: 'Superagent' }).click()
+
+  const section = superagentSection(page)
+  const model = section.getByRole('button', { name: 'Model' })
+  await expect(model).toContainText('GPT-5.5')
+  await model.click()
+  await page.getByRole('menuitem', { name: 'GPT-5.4' }).click()
+
+  const effort = section.getByRole('button', { name: 'Effort' })
+  await effort.click()
+  await page.getByRole('menuitem', { name: 'Extra high' }).click()
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('Saved.')).toBeVisible({ timeout: 10_000 })
+
+  const saved = await trpc.settings.get.query()
+  expect(saved.roles.superagent).toMatchObject({
+    accountId: nativeAccountId('codex'),
+    harness: 'codex',
+    model: 'gpt-5.4',
+    effort: 'xhigh',
+  })
+})
 
 test('background LLM run target: stale Codex API setting can be saved as harness', async ({
   page,

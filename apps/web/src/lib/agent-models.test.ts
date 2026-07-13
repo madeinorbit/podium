@@ -92,18 +92,21 @@ describe('effortOptionsForModel — effort follows the selected model', () => {
     expect(effortOptionsForModel('claude-code', 'claude-haiku-4-5', live)).toEqual([])
   })
 
-  it('hides effort when there is no authoritative per-model data (no agent-ladder guess)', () => {
-    // grok/cursor/opencode expose no per-model effort → hidden even for a concrete model
-    // (this is the fix: grok composer no longer shows a spurious low..max ladder).
+  it('falls back to the verified agent ladder when per-model data is unavailable', () => {
     expect(
       effortOptionsForModel('grok', 'grok-composer-2.5-fast', [
         { value: 'grok-composer-2.5-fast', label: 'x' },
-      ]),
-    ).toEqual([])
+      ]).map((o) => o.value),
+    ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
     expect(
       effortOptionsForModel('cursor', 'composer-2.5', [{ value: 'composer-2.5', label: 'x' }]),
     ).toEqual([])
-    // Also hidden before the live catalog loads (model absent from an empty live list).
-    expect(effortOptionsForModel('claude-code', 'claude-opus-4-8', [])).toEqual([])
+    expect(effortOptionsForModel('codex', 'gpt-5.5', []).map((o) => o.value)).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
   })
 })

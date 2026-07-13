@@ -137,8 +137,9 @@ export type Account = z.infer<typeof Account>
  *  `accountId` names the auth source (a synthetic derived id today, e.g.
  *  'native:claude-code' or 'managed:anthropic'; '' = the role's default). The
  *  account determines execution (harness vs api) + provider/harness; `model` +
- *  `effort` layer on top. `harness` is reserved for the future managed case
- *  (run a chosen harness on a managed credential); native accounts imply it. */
+ *  `effort` layer on top. `harness` makes that choice explicit for persisted UI
+ *  selections and can later select a harness for a managed credential; native
+ *  superagent accounts imply their harness even on older settings blobs. */
 export const RoleBackend = z.object({
   accountId: z.string().default(''),
   model: z.string().default('auto'),
@@ -359,17 +360,15 @@ export interface ResolvedRole {
 
 const DEFAULT_ACCOUNT: Record<RoleName, string> = {
   coding: nativeAccountId('claude-code'),
-  // The orchestrator + background roles default to the managed provider (matching
-  // the legacy api/openrouter LlmBackend default). For the superagent this means
-  // execution 'api', so superagentHarnessAgent falls through to the coding harness
-  // — the long-standing "api superagent runs the session-default harness" path.
-  superagent: managedAccountId('openrouter'),
+  // The orchestrator always runs a real harness with Podium's MCP tools. Keep its
+  // empty/default account aligned with what the settings UI displays.
+  superagent: nativeAccountId('claude-code'),
   background: managedAccountId('openrouter'),
 }
 
-/** Decode a synthetic account id into an execution plan for a role. Codex is
- *  special: its CLI harness runs coding sessions, but the one-shot/orchestrator
- *  roles reach it over the ChatGPT Responses API (the CLI harness is chat-only). */
+/** Decode a synthetic account id into an execution plan for a role. A native
+ *  superagent account always means that harness. Background Codex remains the
+ *  one special case: that one-shot consumer uses the ChatGPT Responses API. */
 function decodeAccount(
   accountId: string,
   role: RoleName,
@@ -377,7 +376,7 @@ function decodeAccount(
   if (accountId.startsWith(HARNESS_ACCOUNT)) {
     const raw = accountId.slice(HARNESS_ACCOUNT.length)
     const harness = HarnessAgent.safeParse(raw).success ? (raw as HarnessAgent) : 'claude-code'
-    if (harness === 'codex' && role !== 'coding') {
+    if (harness === 'codex' && role === 'background') {
       return { execution: 'api', harness, provider: 'codex' }
     }
     return { execution: 'harness', harness }
@@ -428,10 +427,8 @@ export function roleApiBackend(settings: PodiumSettings, role: RoleName): LlmBac
 
 /**
  * Which harness runs a superagent turn. When the superagent's account resolves
- * to a harness, that's it; when it resolves to the api path (managed provider or
- * codex), the orchestrator still runs a harness — the coding role's — matching
- * the long-standing fallback (superagent api mode ran the session-default
- * harness, not the chosen provider).
+ * to a harness, that's it; a legacy managed-provider setting still falls back
+ * to the coding role's harness.
  */
 export function superagentHarnessAgent(settings: PodiumSettings): HarnessAgent {
   const sa = resolveRole(settings, 'superagent')
