@@ -19,28 +19,43 @@ const isoFromUnix = (s: number | undefined): string =>
 
 const pct = (p: number | undefined): number => (typeof p === 'number' && Number.isFinite(p) ? p : 0)
 
+// Codex sometimes drops the 5h window entirely and reports only the weekly
+// limit as primary_window, so classify by limit_window_seconds instead of
+// assuming primary=5h / secondary=weekly. Fallbacks (no window seconds) keep
+// the old positional assumption.
+const DAY_SECONDS = 86_400
+
+function classifyWindow(
+  w: NonNullable<NonNullable<WhamUsageResponse['rate_limit']>['primary_window']>,
+  fallbackKey: '5h' | 'weekly',
+): QuotaWindowWire {
+  const seconds = w.limit_window_seconds
+  const key =
+    typeof seconds === 'number' && Number.isFinite(seconds)
+      ? seconds >= DAY_SECONDS
+        ? 'weekly'
+        : '5h'
+      : fallbackKey
+  return {
+    key,
+    label: key === '5h' ? '5-hour' : 'Weekly',
+    usedPercent: pct(w.used_percent),
+    resetsAt: isoFromUnix(w.reset_at),
+    windowMinutes:
+      typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0
+        ? Math.round(seconds / 60)
+        : key === '5h'
+          ? 300
+          : 10_080,
+  }
+}
+
 export function parseWhamUsage(body: WhamUsageResponse): QuotaWindowWire[] {
   const windows: QuotaWindowWire[] = []
   const rl = body.rate_limit
   if (!rl) return windows
-  if (rl.primary_window) {
-    windows.push({
-      key: '5h',
-      label: '5-hour',
-      usedPercent: pct(rl.primary_window.used_percent),
-      resetsAt: isoFromUnix(rl.primary_window.reset_at),
-      windowMinutes: 300,
-    })
-  }
-  if (rl.secondary_window) {
-    windows.push({
-      key: 'weekly',
-      label: 'Weekly',
-      usedPercent: pct(rl.secondary_window.used_percent),
-      resetsAt: isoFromUnix(rl.secondary_window.reset_at),
-      windowMinutes: 10_080,
-    })
-  }
+  if (rl.primary_window) windows.push(classifyWindow(rl.primary_window, '5h'))
+  if (rl.secondary_window) windows.push(classifyWindow(rl.secondary_window, 'weekly'))
   return windows
 }
 
