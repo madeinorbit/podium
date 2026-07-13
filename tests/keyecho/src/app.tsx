@@ -12,6 +12,8 @@ const ANYMOTION_ON = '\x1b[?1003h'
 const ANYMOTION_OFF = '\x1b[?1003l'
 const MAX_LOG = 500
 const MODES: Mode[] = ['raw', 'ink', 'both']
+/** Deterministic Ctrl+Y OSC 52 payload; e2e specs assert it reaches the clipboard. */
+export const OSC52_PAYLOAD = 'keyecho osc52 payload'
 
 type LogAction = { type: 'add'; e: InputEvent } | { type: 'clear' }
 
@@ -37,6 +39,10 @@ export function App({ mode: initialMode, lock }: { mode: Mode; lock: boolean }) 
       else if (e.name === 'f2') setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length] as Mode)
       else if (e.name === 'f3') setAnyMotion((v) => !v)
       else if (e.name === 'f4') dispatch({ type: 'clear' })
+      // Emit an OSC 52 clipboard write, the way an agent's "copy to clipboard"
+      // does — lets e2e specs assert the sequence survives the full PTY chain.
+      else if (e.ctrl && e.name === 'y')
+        process.stdout.write(`\x1b]52;c;${Buffer.from(OSC52_PAYLOAD).toString('base64')}\x07`)
     },
     [lock, primary, exit],
   )
@@ -98,7 +104,9 @@ export function App({ mode: initialMode, lock }: { mode: Mode; lock: boolean }) 
           </Text>
         ))}
       </Box>
-      {!lock && <Text dimColor>Ctrl+Q quit · F2 mode · F3 mouse-motion · F4 clear</Text>}
+      {!lock && (
+        <Text dimColor>Ctrl+Q quit · F2 mode · F3 mouse-motion · F4 clear · Ctrl+Y osc52</Text>
+      )}
     </Box>
   )
 }
