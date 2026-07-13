@@ -5,6 +5,7 @@ import { FileAssetRequestMessage, FileReadRequestMessage, FileWriteRequestMessag
 import { HarnessExecRequestMessage } from './harness'
 import { HeadlessBindMessage, HeadlessInterruptMessage, HeadlessTurnRequestMessage } from './headless'
 import { AgentQuotaRequestMessage, MemoryBreakdownRequestMessage, UsageRequestMessage } from './host'
+import { InventoryRequestMessage } from './inventory'
 import { IssueRelayResultMessage } from './issues'
 import {
   InputMessage,
@@ -28,6 +29,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HeadlessBindMessage,
   UsageRequestMessage,
   AgentQuotaRequestMessage,
+  InventoryRequestMessage,
   ImageUploadRequestMessage,
   SpawnMessage,
   ReattachMessage,

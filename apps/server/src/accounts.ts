@@ -5,11 +5,13 @@
 // managed API keys already stored in settings. MANAGED credential injection into
 // harnesses + oauth rotation are modelled but ship "Coming soon" — this slice
 // only detects + displays; it never writes a credential.
-import { existsSync, readFileSync } from 'node:fs'
+//
+// The raw login detectors live in @podium/agent-bridge (inventory/detect-login,
+// #222) so the daemon can report about ITS OWN machine; this module keeps the
+// server-side AccountView presentation on top of them.
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { detectClaudeLogin, detectCodexLogin, detectGrokLogin } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/runtime'
-import { codexAuthPath, codexLoginPresent } from './codex-auth'
 
 /** A row in the Accounts hub. Native rows are observed at read-time (identity +
  *  status can drift); managed rows reflect what Podium stores. */
@@ -38,40 +40,26 @@ function maskKey(key: string): string {
 /** Native Claude Code login: email lives in ~/.claude.json (oauthAccount),
  *  separate from the credential token. Best-effort. */
 function detectClaude(homeDir: string): AccountView {
-  let identity: string | undefined
-  try {
-    const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
-      oauthAccount?: { emailAddress?: string }
-    }
-    identity = raw.oauthAccount?.emailAddress
-  } catch {
-    identity = undefined
-  }
+  const login = detectClaudeLogin(homeDir)
   return {
     id: 'native:claude-code',
     provider: 'anthropic',
     source: 'native',
     harness: 'claude-code',
-    identity: identity ?? undefined,
-    status: identity ? 'connected' : 'not-configured',
+    identity: login.account,
+    status: login.state === 'in' ? 'connected' : 'not-configured',
   }
 }
 
 /** Native Codex / ChatGPT login (~/.codex/auth.json). */
-function detectCodex(): AccountView {
-  let identity: string | undefined
-  const present = codexLoginPresent()
-  if (present) {
-    try {
-      const file = JSON.parse(readFileSync(codexAuthPath(), 'utf8')) as {
-        tokens?: { account_id?: string }
-      }
-      const acct = file.tokens?.account_id
-      identity = acct ? `ChatGPT · ${maskKey(acct)}` : 'ChatGPT subscription'
-    } catch {
-      identity = 'ChatGPT subscription'
-    }
-  }
+function detectCodex(homeDir: string): AccountView {
+  const login = detectCodexLogin(homeDir)
+  const present = login.state === 'in'
+  const identity = present
+    ? login.account
+      ? `ChatGPT · ${maskKey(login.account)}`
+      : 'ChatGPT subscription'
+    : undefined
   return {
     id: 'native:codex',
     provider: 'openai',
@@ -84,11 +72,7 @@ function detectCodex(): AccountView {
 
 /** Native Grok login (~/.grok). Presence-only; the CLI owns the credential. */
 function detectGrok(homeDir: string): AccountView {
-  const grokHome =
-    process.env.GROK_HOME && process.env.GROK_HOME.length > 0
-      ? process.env.GROK_HOME
-      : join(homeDir, '.grok')
-  const present = existsSync(grokHome)
+  const present = detectGrokLogin(homeDir).state === 'in'
   return {
     id: 'native:grok',
     provider: 'xai',
@@ -108,7 +92,7 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
  * they surface as a "Coming soon" affordance in the UI.
  */
 export function accountViews(settings: PodiumSettings, homeDir: string = homedir()): AccountView[] {
-  const native = [detectClaude(homeDir), detectCodex(), detectGrok(homeDir)]
+  const native = [detectClaude(homeDir), detectCodex(homeDir), detectGrok(homeDir)]
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
     const key = settings.apiKeys[provider] ?? ''
     return {

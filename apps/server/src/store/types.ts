@@ -74,6 +74,9 @@ export interface MachineRecord {
   hostname: string
   createdAt: string
   lastSeenAt: string
+  /** Parsed machines.inventory_json (#222); absent until the daemon reports
+   *  (or when the stored blob fails to parse — defensive). */
+  inventory?: import('@podium/protocol').Inventory
 }
 
 /** One row of the `issues` table (camelCase mirror; `blockedBy` stored as JSON text). */

@@ -27,6 +27,7 @@ import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import type { DaemonContext, DurableBackend } from './control/context'
+import { reportInventory } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -385,10 +386,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     })
   }
 
+  const identity = loadIdentity(opts.identityDir ? { dir: opts.identityDir } : {})
+  // The bundled local daemon overrides this with the server's stable local id so it
+  // attaches to the machine the server already adopted; remote daemons use the identity.
+  const machineId = opts.machineId ?? identity.machineId
+
   // THE explicit handler context (#195): every control-frame handler receives
   // this object instead of closing over startDaemon's scope.
   const ctx: DaemonContext = {
     send,
+    machineId,
     backend,
     launch,
     settingsDir,
@@ -496,11 +503,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     },
   }
 
-  const identity = loadIdentity(opts.identityDir ? { dir: opts.identityDir } : {})
-  // The bundled local daemon overrides this with the server's stable local id so it
-  // attaches to the machine the server already adopted; remote daemons use the identity.
-  const machineId = opts.machineId ?? identity.machineId
-
   // Connectivity truthfulness (#19): a REMOTE daemon (pair-code / stored-token auth)
   // records its server-link state next to daemon.json so `podium status` reports actual
   // connectivity instead of inferring "up" from the PID alone. The bundled LOCAL daemon
@@ -554,6 +556,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
         uploadsGcTimer.unref?.()
       }
+      // Machine inventory (#222): fire an unsolicited report after every successful
+      // auth (paired AND every reconnect's helloOk) — off the handshake path, so a
+      // hung CLI probe can never stall the first frame.
+      void reportInventory(ctx)
       resolveStart()
     }
     // Send the handshake as the FIRST frame on a socket's open. The server holds the

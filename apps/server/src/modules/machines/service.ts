@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type {
   ControlMessage,
   DaemonHandshake,
+  Inventory,
   LiveServerMessage,
   MachineWire,
   ServerMessage,
@@ -280,6 +281,13 @@ export class MachinesService {
       online: this.daemons.has(m.id),
       lastSeenAt: m.lastSeenAt,
     }))
+  }
+
+  /** Persist a daemon's inventoryReport (#222) on its machine row. */
+  recordInventory(machineId: string, inventory: Inventory): void {
+    this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+    this.invalidateMachineCache()
+    this.broadcastMachines()
   }
 
   renameMachine(id: string, name: string): void {

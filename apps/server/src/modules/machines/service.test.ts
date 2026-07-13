@@ -1,5 +1,6 @@
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage, Inventory } from '@podium/protocol'
 import { describe, expect, test } from 'vitest'
+import { SessionStore } from '../../store'
 import type { Send } from '../sessions/session'
 import { type MachinesDeps, MachinesService } from './service'
 
@@ -64,5 +65,41 @@ describe('MachinesService daemon socket identity', () => {
 
     expect(svc.detach(MACHINE)).toBe(true)
     expect(svc.hasDaemon(MACHINE)).toBe(false)
+  })
+})
+
+describe('MachinesService inventory persistence (#222)', () => {
+  const INV: Inventory = {
+    os: 'linux',
+    arch: 'arm64',
+    podiumVersion: '9.9.9',
+    agents: [
+      { kind: 'claude-code', installed: true, version: '2.1.0', login: { state: 'in', account: 'a@b.c' } },
+      { kind: 'opencode', installed: false, login: { state: 'unknown' } },
+    ],
+  }
+
+  function makeStoreService(): { svc: MachinesService; store: SessionStore } {
+    const store = new SessionStore(':memory:')
+    const svc = new MachinesService({
+      store,
+      retargetPlaceholderSessions: () => {},
+      broadcastSessions: () => {},
+      clients: () => [],
+    } satisfies MachinesDeps)
+    return { svc, store }
+  }
+
+  test('recordInventory persists the report and it survives a hello reconnect', () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({ id: MACHINE, name: 'vmi', hostname: 'vmi', tokenHash: 'x' })
+
+    svc.recordInventory(MACHINE, INV)
+    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
+
+    // A hello only restamps last_seen_at/hostname — the inventory must remain.
+    store.machines.touchMachine(MACHINE, 'vmi-renamed')
+    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
+    expect(store.machines.getMachine(MACHINE)?.hostname).toBe('vmi-renamed')
   })
 })

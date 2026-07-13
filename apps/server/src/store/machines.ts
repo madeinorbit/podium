@@ -4,8 +4,31 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
+import type { Inventory } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MachineRecord } from './types'
+
+/** Defensive JSON.parse of a stored inventory blob → undefined on any failure. */
+function parseInventory(json: unknown): Inventory | undefined {
+  if (typeof json !== 'string' || json.length === 0) return undefined
+  try {
+    return JSON.parse(json) as Inventory
+  } catch {
+    return undefined
+  }
+}
+
+function toRecord(r: Record<string, unknown>): MachineRecord {
+  const inventory = parseInventory(r.inventory_json)
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    hostname: r.hostname as string,
+    createdAt: r.created_at as string,
+    lastSeenAt: r.last_seen_at as string,
+    ...(inventory !== undefined ? { inventory } : {}),
+  }
+}
 
 export class MachinesRepository {
   constructor(private readonly db: SqlDatabase) {}
@@ -29,30 +52,25 @@ export class MachinesRepository {
     return (
       this.db
         .prepare(
-          'SELECT id, name, hostname, created_at, last_seen_at FROM machines ORDER BY created_at ASC',
+          'SELECT id, name, hostname, created_at, last_seen_at, inventory_json FROM machines ORDER BY created_at ASC',
         )
         .all() as Record<string, unknown>[]
-    ).map((r) => ({
-      id: r.id as string,
-      name: r.name as string,
-      hostname: r.hostname as string,
-      createdAt: r.created_at as string,
-      lastSeenAt: r.last_seen_at as string,
-    }))
+    ).map(toRecord)
   }
 
   getMachine(id: string): MachineRecord | undefined {
     const r = this.db
-      .prepare('SELECT id, name, hostname, created_at, last_seen_at FROM machines WHERE id = ?')
+      .prepare(
+        'SELECT id, name, hostname, created_at, last_seen_at, inventory_json FROM machines WHERE id = ?',
+      )
       .get(id) as Record<string, unknown> | undefined
     if (!r) return undefined
-    return {
-      id: r.id as string,
-      name: r.name as string,
-      hostname: r.hostname as string,
-      createdAt: r.created_at as string,
-      lastSeenAt: r.last_seen_at as string,
-    }
+    return toRecord(r)
+  }
+
+  /** Persist a daemon-reported inventory (#222) as the raw JSON blob. */
+  setMachineInventory(id: string, inventoryJson: string): void {
+    this.db.prepare('UPDATE machines SET inventory_json = ? WHERE id = ?').run(inventoryJson, id)
   }
 
   /** Constant-time token comparison using sha-256 hex. */

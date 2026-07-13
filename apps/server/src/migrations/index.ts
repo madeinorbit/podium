@@ -40,6 +40,7 @@ import { up as issuesDropVerifyingStage } from './010-issues-drop-verifying-stag
 import { up as issueSessionSoftDelete } from './011-issues-soft-delete'
 import { up as approvalRequests } from './012-approval-requests'
 import { up as locks } from './013-locks'
+import { up as machinesInventory } from './014-machines-inventory'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -72,6 +73,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 12, name: 'approval-requests', up: approvalRequests },
   // Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock.
   { version: 13, name: 'locks', up: locks },
+  { version: 14, name: 'machines-inventory', up: machinesInventory },
 ]
 
 /** Highest schema version the running code knows about. */

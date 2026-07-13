@@ -23,6 +23,8 @@ export interface DaemonContext {
   send(msg: DaemonMessage): void
 
   // -- configuration ---------------------------------------------------------
+  /** The machine identity this daemon registers as (inventory reports carry it). */
+  machineId: string
   backend: DurableBackend
   /** Maps an agent kind to a spawn command (tests inject a fixture). */
   launch: typeof agentLaunchCommand

@@ -10,6 +10,7 @@ import { ApprovalExecResultMessage } from './approvals'
 import { HarnessExecResultMessage } from './harness'
 import { HeadlessBindResultMessage, HeadlessTurnEventMessage, HeadlessTurnResultMessage } from './headless'
 import { AgentQuotaResultMessage, HostMetricsMessage, MemoryBreakdownResultMessage, UsageResultMessage } from './host'
+import { InventoryReportMessage } from './inventory'
 import { IssueRelayRequestMessage } from './issues'
 import { AgentStateMessage } from './runtime-state'
 import {
@@ -62,6 +63,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,
+  InventoryReportMessage,
   BindMessage,
   AgentFrameMessage,
   AgentFrameBatchMessage,

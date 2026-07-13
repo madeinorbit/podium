@@ -237,7 +237,14 @@ export function wireDaemonSocket(ws: import('ws').WebSocket, registry: SessionRe
       return
     }
     try {
-      registry.modules.sessions.onDaemonMessageFrom(machineId, parseDaemonMessage(raw.toString()))
+      const msg = parseDaemonMessage(raw.toString())
+      // inventoryReport is machine metadata, not session traffic (#222): persist it
+      // on the machine row instead of feeding the session pipeline.
+      if (msg.type === 'inventoryReport') {
+        registry.modules.machines.recordInventory(machineId, msg.inventory)
+      } else {
+        registry.modules.sessions.onDaemonMessageFrom(machineId, msg)
+      }
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.

@@ -63,6 +63,31 @@ describe('runMigrations', () => {
     ])
   })
 
+  it('014 adds machines.inventory_json, nullable, existing rows read back NULL (#222)', () => {
+    const db = openMemory()
+    // Bring the schema to just before 014, seed a machine row.
+    runMigrations(
+      db,
+      MIGRATIONS.filter((m) => m.version <= 13),
+    )
+    db.exec(
+      `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
+       VALUES ('m1', 'box', 'box.local', 'h', 't', 't')`,
+    )
+    // Apply 014.
+    runMigrations(db)
+    const cols = (db.prepare('PRAGMA table_info(machines)').all() as { name: string }[]).map(
+      (c) => c.name,
+    )
+    expect(cols).toContain('inventory_json')
+    const row = db.prepare('SELECT inventory_json FROM machines WHERE id = ?').get('m1') as {
+      inventory_json: string | null
+    }
+    expect(row.inventory_json).toBeNull()
+    // Idempotent when the column already exists (a DB that ran a newer inline DDL).
+    expect(() => MIGRATIONS.find((m) => m.version === 14)!.up(db)).not.toThrow()
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)
