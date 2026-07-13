@@ -37,11 +37,13 @@ const SIDEBAR_WIDTH_MAX = 520
 const SIDEBAR_WIDTH_DEFAULT = 280
 
 /**
- * A fixed-width column with a drag-to-resize right edge. The handle lives on a
+ * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —
+ * a right-docked column resizes from its LEFT edge). The handle lives on a
  * non-scrolling wrapper (the content inside may scroll, so an absolute child of
  * it would only cover the first viewport-height of content). Width persists via
  * the ui-state collection under `storageKey`. This is THE resize mechanism for
- * shell columns — the sidebar and the superagent column both render through it.
+ * shell columns — the sidebar, the superagent column, and the right dock all
+ * render through it.
  */
 export function ResizableColumn({
   storageKey,
@@ -49,6 +51,7 @@ export function ResizableColumn({
   max,
   defaultWidth,
   handleLabel,
+  handleSide = 'right',
   className,
   children,
 }: {
@@ -57,6 +60,7 @@ export function ResizableColumn({
   max: number
   defaultWidth: number
   handleLabel: string
+  handleSide?: 'left' | 'right'
   className?: string
   children: ReactNode
 }): JSX.Element {
@@ -68,10 +72,14 @@ export function ResizableColumn({
   const onHandlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault()
     const handle = e.currentTarget
-    const left = handle.parentElement?.getBoundingClientRect().left ?? 0
+    // The edge OPPOSITE the handle stays put during the drag — measure from it.
+    const rect = handle.parentElement?.getBoundingClientRect()
+    const anchorLeft = rect?.left ?? 0
+    const anchorRight = rect?.right ?? 0
     handle.setPointerCapture(e.pointerId)
     const move = (ev: PointerEvent) => {
-      setWidth(Math.min(max, Math.max(min, Math.round(ev.clientX - left))))
+      const raw = handleSide === 'right' ? ev.clientX - anchorLeft : anchorRight - ev.clientX
+      setWidth(Math.min(max, Math.max(min, Math.round(raw))))
     }
     const up = () => {
       handle.removeEventListener('pointermove', move)
@@ -91,7 +99,10 @@ export function ResizableColumn({
         role="separator"
         aria-orientation="vertical"
         aria-label={handleLabel}
-        className="absolute inset-y-0 -right-0.5 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60"
+        className={cn(
+          'absolute inset-y-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60',
+          handleSide === 'right' ? '-right-0.5' : '-left-0.5',
+        )}
         onPointerDown={onHandlePointerDown}
       />
     </div>

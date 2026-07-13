@@ -174,9 +174,19 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
             )}
             <MainViewOutlet workspace={<Workspace />} />
             {rightPanel && (
-              <aside className="flex w-[340px] max-w-[30vw] flex-none flex-col border-l border-border bg-background">
-                <RightDock tab={rightPanel} onClose={() => setRightPanel(null)} />
-              </aside>
+              <ResizableColumn
+                storageKey="podium:rightdock:width"
+                min={280}
+                max={860}
+                defaultWidth={340}
+                handleLabel="Resize right dock"
+                handleSide="left"
+                className="max-w-[45vw]"
+              >
+                <aside className="flex w-full min-w-0 min-h-0 flex-col border-l border-border bg-background">
+                  <RightDock tab={rightPanel} onClose={() => setRightPanel(null)} />
+                </aside>
+              </ResizableColumn>
             )}
             {/* Thin right rail: always visible, vertical icons — reopen the
                 superagent column, and toggle the Files/Git/Issue panel. */}
