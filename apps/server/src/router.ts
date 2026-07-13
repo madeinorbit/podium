@@ -1042,6 +1042,14 @@ export const appRouter = t.router({
         ({ ctx, input }) =>
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'show', input)!,
       ),
+    // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
+    // delivery ledger — pure read, operator-only (enforced in the gate).
+    ledger: t.procedure
+      .input(z.unknown())
+      .query(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'ledger', input)!,
+      ),
     reply: t.procedure
       .input(z.unknown())
       .mutation(

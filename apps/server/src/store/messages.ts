@@ -107,6 +107,31 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
+  /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
+   *  every row the principal SENT or was ADDRESSED (issue box / session box /
+   *  delivered-to), newest first — the "what happened to my message" view. */
+  listLedger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
+    const ors: string[] = []
+    const params: unknown[] = []
+    if (q.issueId) {
+      ors.push("from_issue = ?", "(to_kind = 'issue' AND to_id = ?)")
+      params.push(q.issueId, q.issueId)
+    }
+    if (q.sessionId) {
+      ors.push("from_session = ?", "(to_kind = 'session' AND to_id = ?)", 'delivered_to = ?')
+      params.push(q.sessionId, q.sessionId, q.sessionId)
+    }
+    if (ors.length === 0) return []
+    params.push(Math.min(500, Math.max(1, q.limit ?? 200)))
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE ${ors.join(' OR ')}
+         ORDER BY created_at DESC, id DESC LIMIT ?`,
+      )
+      .all(...(params as never[])) as Record<string, unknown>[]
+    return rows.map(mapMessage)
+  }
+
   /** Undelivered (queued) messages awaiting a principal, oldest first. */
   pendingFor(to: MessagePrincipalRef): MessageRow[] {
     return this.listMessagesFor(to, { status: 'queued' })

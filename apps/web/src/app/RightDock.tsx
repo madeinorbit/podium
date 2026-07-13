@@ -1,16 +1,25 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { CircleDot, FolderTree, GitBranch, type LucideIcon, SquareTerminal, X } from 'lucide-react'
+import {
+  CircleDot,
+  FolderTree,
+  GitBranch,
+  type LucideIcon,
+  Mail,
+  SquareTerminal,
+  X,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
+import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
-import { resolveActiveWorktree } from '@/lib/dock-panel'
+import { issueForCwd, resolveActiveWorktree } from '@/lib/dock-panel'
 import { useStoreSelector } from './store'
 
 /** The right-panel surfaces (the superagent lives in its own center column). */
-export type RightPanelTab = 'files' | 'git' | 'issue' | 'shell'
+export type RightPanelTab = 'files' | 'git' | 'issue' | 'shell' | 'mail'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
   { id: 'issue', label: 'Issue', icon: CircleDot },
@@ -19,6 +28,9 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   // The dock is where shells LIVE (#23) [spec:SP-75b1] — one per worktree, never
   // a workspace agent tab.
   { id: 'shell', label: 'Shell', icon: SquareTerminal },
+  // The message ledger (#237) [spec:SP-34d7 web] — the active session's and
+  // its issue's delivery ledger ("what happened to my message").
+  { id: 'mail', label: 'Messages', icon: Mail },
 ]
 
 function GitPlaceholder(): JSX.Element {
@@ -43,8 +55,8 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions } = useStoreSelector(
-    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions }),
+  const { paneA, fileTabs, sessions, issues } = useStoreSelector(
+    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions, issues: s.issues }),
     shallowEqual,
   )
   const active = useMemo(
@@ -83,6 +95,19 @@ export function RightDock({
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}
       {tab === 'git' && <GitPlaceholder />}
+      {tab === 'mail' &&
+        (active ? (
+          <MessageLedgerView
+            key={active.sessionId ?? active.cwd}
+            sessionId={active.sessionId}
+            issueId={
+              sessions.find((s) => s.sessionId === active.sessionId)?.issueId ??
+              issueForCwd(issues, active.cwd)?.id
+            }
+          />
+        ) : (
+          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+        ))}
       {tab === 'issue' &&
         (active ? (
           <IssuePanelView

@@ -70,7 +70,13 @@ import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor } from '@/lib/WorkerLabel'
-import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
+import {
+  CollapsibleSection,
+  GroupedSessionRows,
+  PanelRow,
+  StaleSection,
+  useCollapsed,
+} from './sidebar-common'
 import { AgoStamp, WorkingTimer, workingSinceMs } from './time-indicators'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
@@ -1082,7 +1088,7 @@ function UnifiedIssueRow({
           </>
         }
       >
-        {visible.map(renderRow)}
+        <GroupedSessionRows sessions={visible} render={renderRow} />
         <StaleSection sessions={stale} render={renderRow} />
       </UnifiedRowShell>
       {menu}
@@ -1156,7 +1162,7 @@ function UnifiedWorktreeRow({
         ) : undefined
       }
     >
-      {visible.map(renderRow)}
+      <GroupedSessionRows sessions={visible} render={renderRow} />
       <StaleSection sessions={stale} render={renderRow} />
     </UnifiedRowShell>
   )

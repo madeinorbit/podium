@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import {
   agentBadge,
   agentColorHex,
+  groupSessionsByParent,
   isSessionWorking,
   isSnoozed,
   repoBranchForCwd,
@@ -216,6 +217,72 @@ export function StaleSection({
         )}
         <span>
           Stale
+          {!open && <span className="ml-1 font-normal lowercase">· {sessions.length}</span>}
+        </span>
+      </button>
+      {open && sessions.map(render)}
+    </div>
+  )
+}
+
+/** Session rows grouped by spawn parentage (#237) [spec:SP-34d7 web]:
+ *  cross-harness children (`spawnedBy: 'session:<parent>'`) nest indented
+ *  under their spawner instead of flattening the list; consumed (exited)
+ *  children auto-tuck behind a quiet "finished" disclosure. */
+export function GroupedSessionRows({
+  sessions,
+  render,
+}: {
+  sessions: SessionMeta[]
+  render: (session: SessionMeta) => JSX.Element
+}): JSX.Element {
+  const groups = groupSessionsByParent(sessions)
+  return (
+    <>
+      {groups.map((g) => (
+        <div key={g.session.sessionId} data-testid="session-group">
+          {render(g.session)}
+          {(g.children.length > 0 || g.consumed.length > 0) && (
+            <div
+              className="ml-5 border-l border-border/50 pl-0.5"
+              data-testid="session-group-children"
+            >
+              {g.children.map(render)}
+              <ConsumedChildren sessions={g.consumed} render={render} />
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  )
+}
+
+/** Collapsed "finished" tail of a spawn group — consumed children stay
+ *  reachable without cluttering the live fan-out. */
+function ConsumedChildren({
+  sessions,
+  render,
+}: {
+  sessions: SessionMeta[]
+  render: (session: SessionMeta) => JSX.Element
+}): JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  if (sessions.length === 0) return null
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1 py-[3px] pr-3 pl-2 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown size={11} aria-hidden="true" className="flex-none" />
+        ) : (
+          <ChevronRight size={11} aria-hidden="true" className="flex-none" />
+        )}
+        <span>
+          Finished
           {!open && <span className="ml-1 font-normal lowercase">· {sessions.length}</span>}
         </span>
       </button>

@@ -711,6 +711,12 @@ export class MessageDeliveryService {
     return this.deps.messages.getMessage(id)
   }
 
+  /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
+   *  a pure read (never consumes queued status). */
+  ledger(q: { issueId?: string; sessionId?: string; limit?: number }): MessageRow[] {
+    return this.deps.messages.listLedger(q)
+  }
+
   /**
    * Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]: poll
    * `acked_by` until the deadline; returns the ack row or null ("no answer

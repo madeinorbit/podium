@@ -21,6 +21,13 @@ const sendInput = z.object({
 })
 const inboxInput = z.object({ issue: z.string().optional() }).optional()
 const showInput = z.object({ id: z.string() })
+// The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
+// delivery ledger. Operator-only — it exposes other principals' traffic.
+const ledgerInput = z.object({
+  issueId: z.string().optional(),
+  sessionId: z.string().optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+})
 const replyInput = z.object({
   id: z.string(),
   body: z.string().min(1).max(32_768),
@@ -111,6 +118,15 @@ export interface MessageWire {
   createdAt: string
   status: string
   ackedBy: string | null
+  // Delivery-ledger fields (#237) [spec:SP-34d7 web] — additive, so the CLI
+  // renderers ignore them; the web ledger view answers "what happened to my
+  // message / why didn't my wake fire" from these.
+  deliveredAt: string | null
+  deliveredTo: string | null
+  expiresAt: string | null
+  /** JSON of the REQUESTED axes when the clamp matrix downgraded them. */
+  clampedFrom: string | null
+  hop: number
 }
 
 export class MessageGate {
@@ -131,6 +147,8 @@ export class MessageGate {
         return Promise.resolve().then(() => this.inbox(caller, inboxInput.parse(input)))
       case 'show':
         return Promise.resolve().then(() => this.show(caller, showInput.parse(input)))
+      case 'ledger':
+        return Promise.resolve().then(() => this.ledger(caller, ledgerInput.parse(input)))
       case 'reply':
         return Promise.resolve().then(() => this.reply(caller, replyInput.parse(input)))
       case 'pendingReminders':
@@ -211,6 +229,19 @@ export class MessageGate {
       throw new Error('not allowed to view a message you neither sent nor received')
     }
     return this.wire(m)
+  }
+
+  /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web]:
+   *  a pure read (never consumes queued status), newest first. Operator-only —
+   *  it surfaces traffic the caller neither sent nor received. */
+  private ledger(
+    caller: { capability: Capability },
+    input: z.infer<typeof ledgerInput>,
+  ): MessageWire[] {
+    if (caller.capability.scope.kind !== 'all') {
+      throw new Error('the message ledger is an operator surface')
+    }
+    return this.deps.messages().ledger(input).map((m) => this.wire(m))
   }
 
   private reply(caller: { capability: Capability }, input: z.infer<typeof replyInput>): unknown {
@@ -555,6 +586,11 @@ export class MessageGate {
       createdAt: m.createdAt,
       status: m.status,
       ackedBy: m.ackedBy,
+      deliveredAt: m.deliveredAt,
+      deliveredTo: m.deliveredTo,
+      expiresAt: m.expiresAt,
+      clampedFrom: m.clampedFrom,
+      hop: m.hop,
     }
   }
 }

@@ -1,5 +1,5 @@
 import { formatChurn, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
-import { Clock, FileText, Image as ImageIcon } from 'lucide-react'
+import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
 import type { JSX } from 'react'
 import { memo, useMemo } from 'react'
 import { handleCodeCopyClick } from '@/lib/code-copy'
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
+import { envelopePrincipalLabel, parseMessageEnvelope } from './message-envelope'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 
@@ -48,7 +49,19 @@ export const ChatBlockView = memo(function ChatBlockView({
   collapseContext?: boolean
 }): JSX.Element | null {
   const { item } = block
-  const html = useMemo(() => renderMarkdown(item.text), [item.text])
+  // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
+  // superagent / system message reaches the harness as a server-rendered frame
+  // in a "user" turn — render it as a distinct framed block, never a "You"
+  // bubble. Operator messages arrive unwrapped and fall through to the
+  // ordinary user rendering (unwrapped = the human).
+  const envelope = useMemo(
+    () => (item.role === 'user' ? parseMessageEnvelope(item.text) : null),
+    [item.role, item.text],
+  )
+  const html = useMemo(
+    () => renderMarkdown(envelope ? envelope.body : item.text),
+    [envelope, item.text],
+  )
   const rowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
     highlighted && 'rounded-md outline outline-1 outline-primary outline-offset-4',
@@ -151,6 +164,43 @@ export const ChatBlockView = memo(function ChatBlockView({
       </div>
     )
   }
+
+  // A delivered message from another principal — a distinct framed block, not
+  // a "You" bubble (#237) [spec:SP-34d7 web]. Sender, message id, question
+  // marker; the body is the sanitized text the agent actually received.
+  if (envelope)
+    return (
+      <div className={rowClass} data-block={index} data-testid="message-envelope">
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+        <div className="transcript-body">
+          <div className="rounded-md border border-info/40 bg-info/5 px-3 py-2">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
+              <MailIcon size={12} className="self-center text-info" aria-hidden="true" />
+              <span className="font-medium text-info">
+                {envelopePrincipalLabel(envelope.from)}
+              </span>
+              <span className="text-muted-foreground/70">→ {envelopePrincipalLabel(envelope.to)}</span>
+              {envelope.question && (
+                <span className="rounded border border-amber-500/50 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                  question
+                </span>
+              )}
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
+                {envelope.id}
+              </span>
+            </div>
+            <div
+              className="chat-md mt-1"
+              onClick={(e) => {
+                handleCodeCopyClick(e)
+              }}
+              // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
+              dangerouslySetInnerHTML={{ __html: html }}
+            />
+          </div>
+        </div>
+      </div>
+    )
 
   // Rail: user → blue accent, final answer → primary/amber, everything else → none
   const hasUserRail = item.role === 'user'

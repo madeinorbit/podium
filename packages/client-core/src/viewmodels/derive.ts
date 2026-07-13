@@ -643,6 +643,79 @@ export function partitionStaleSessions(
   }
 }
 
+/** One sidebar session group (#237) [spec:SP-34d7 web]: a top-level session
+ *  plus the cross-harness children spawned by it (`spawnedBy: 'session:<id>'`,
+ *  resolved to the topmost listed ancestor so deep fan-out stays one level in
+ *  the UI). Children split into `children` (live/attention-worthy) and
+ *  `consumed` (exited — auto-tucked behind a disclosure). */
+export interface SessionGroup {
+  session: SessionMeta
+  children: SessionMeta[]
+  consumed: SessionMeta[]
+}
+
+const spawnedByParentId = (s: SessionMeta): string | null => {
+  const m = /^session:(.+)$/.exec(s.spawnedBy ?? '')
+  return m?.[1] ?? null
+}
+
+/** A consumed child: its work is done (exited) — nothing left to watch. */
+export function isConsumedChild(s: SessionMeta): boolean {
+  return s.status === 'exited'
+}
+
+/**
+ * Group a row's sessions by spawn parentage so cross-harness fan-out doesn't
+ * flatten into an unusable list: a session whose spawner is ALSO in the list
+ * nests under it (grandchildren fold into the topmost listed ancestor); a
+ * session whose spawner isn't listed stays top-level. Input order is preserved
+ * on both levels.
+ */
+export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
+  const byId = new Map(sessions.map((s) => [s.sessionId, s]))
+  // Topmost listed ancestor (cycle-guarded); null = top-level.
+  const anchorOf = (s: SessionMeta): string | null => {
+    let cur = s
+    let anchor: string | null = null
+    const seen = new Set<string>([s.sessionId])
+    for (;;) {
+      const pid = spawnedByParentId(cur)
+      if (!pid || seen.has(pid)) break
+      const parent = byId.get(pid)
+      if (!parent) break
+      anchor = pid
+      seen.add(pid)
+      cur = parent
+    }
+    return anchor
+  }
+  const groups: SessionGroup[] = []
+  const groupByAnchor = new Map<string, SessionGroup>()
+  for (const s of sessions) {
+    if (anchorOf(s) === null) {
+      const g: SessionGroup = { session: s, children: [], consumed: [] }
+      groups.push(g)
+      groupByAnchor.set(s.sessionId, g)
+    }
+  }
+  for (const s of sessions) {
+    const anchor = anchorOf(s)
+    if (anchor === null) continue
+    const g = groupByAnchor.get(anchor)
+    if (!g) continue // ancestor listed but itself nested-orphaned — treat as top-level
+    ;(isConsumedChild(s) ? g.consumed : g.children).push(s)
+  }
+  // Orphaned nested children (anchor resolved but the anchor never became a
+  // group — can't happen with anchorOf's topmost rule, but stay total):
+  for (const s of sessions) {
+    const anchor = anchorOf(s)
+    if (anchor !== null && !groupByAnchor.has(anchor)) {
+      groups.push({ session: s, children: [], consumed: [] })
+    }
+  }
+  return groups
+}
+
 export interface IssueNavView {
   issue: IssueWire
   repoName: string

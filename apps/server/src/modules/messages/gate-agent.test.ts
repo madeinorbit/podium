@@ -336,3 +336,63 @@ describe('session ask — the seance (#237 tier 4)', () => {
     expect(r.answered).toBe(false)
   })
 })
+
+// The web ledger view (#237) [spec:SP-34d7 web]: operator-only, per-issue /
+// per-session, pure read (never consumes queued status), newest first, and
+// carries the delivery-ledger fields the CLI wire previously omitted.
+describe('message ledger (gate)', () => {
+  it('operator reads an issue ledger with delivery fields; reads never consume', async () => {
+    const { gate, svc } = harness()
+    svc.send({ kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' }, {
+      to: { kind: 'issue', id: ISSUE.id },
+      body: 'first',
+    })
+    svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'second' })
+    const rows = (await gate.dispatch(OPERATOR, undefined, 'ledger', {
+      issueId: ISSUE.id,
+    })) as Record<string, unknown>[]
+    expect(rows).toHaveLength(2)
+    // Newest first.
+    expect(rows.map((r) => r.body)).toEqual(['second', 'first'])
+    expect(rows[1]).toMatchObject({ from: 'issue:#212', to: 'issue:#228', status: 'queued' })
+    // Ledger fields present on the wire.
+    expect(rows[0]).toHaveProperty('deliveredAt')
+    expect(rows[0]).toHaveProperty('clampedFrom')
+    expect(rows[0]).toHaveProperty('hop')
+    // A second read sees the SAME statuses — the ledger never consumes.
+    const again = (await gate.dispatch(OPERATOR, undefined, 'ledger', {
+      issueId: ISSUE.id,
+    })) as Record<string, unknown>[]
+    expect(again.map((r) => r.status)).toEqual(rows.map((r) => r.status))
+  })
+
+  it('a session ledger sees sent, addressed and delivered-to rows', async () => {
+    const sessions = [
+      {
+        sessionId: 's1',
+        cwd: '/wt/a',
+        agentKind: 'claude-code',
+        status: 'live',
+        busy: false,
+        issueId: ISSUE.id,
+      } as unknown as SessionMeta,
+    ]
+    const { gate, svc } = harness({ sessions })
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'to the session' })
+    svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { to: { kind: 'issue', id: SENDER_ISSUE.id }, body: 'from the session' },
+    )
+    const rows = (await gate.dispatch(OPERATOR, undefined, 'ledger', {
+      sessionId: 's1',
+    })) as Record<string, unknown>[]
+    expect(rows.map((r) => r.body).sort()).toEqual(['from the session', 'to the session'])
+  })
+
+  it('agents are refused — the ledger is an operator surface', async () => {
+    const { gate } = harness()
+    await expect(
+      gate.dispatch(PARENT, undefined, 'ledger', { issueId: ISSUE.id }),
+    ).rejects.toThrow(/operator surface/)
+  })
+})
