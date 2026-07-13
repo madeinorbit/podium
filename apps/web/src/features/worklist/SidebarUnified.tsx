@@ -90,8 +90,8 @@ export function SidebarUnified(): JSX.Element {
     shallowEqual,
   )
   const nav: { id: Parameters<typeof setView>[0]; label: string; Icon: LucideIcon }[] = [
-    { id: 'home', label: 'Command center', Icon: Home },
     { id: 'issues', label: 'Issues', Icon: KanbanSquare },
+    { id: 'home', label: 'Command center', Icon: Home },
     { id: 'specs', label: 'Specs', Icon: BookOpenText },
     { id: 'automations', label: 'Automations', Icon: RotateCw },
   ]
@@ -383,10 +383,10 @@ export function NewWorkRow(): JSX.Element {
   )
 }
 
-/** App-level tools: analytics, settings, conversation search, add repo. */
+/** App-level tools: add repo, analytics, settings, search (the cmd-k palette). */
 export function AppToolsRow({ className }: { className?: string }): JSX.Element {
-  const { view, setView, setSearchOpen } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView, setSearchOpen: s.setSearchOpen }),
+  const { view, setView, setPaletteOpen } = useStoreSelector(
+    (s) => ({ view: s.view, setView: s.setView, setPaletteOpen: s.setPaletteOpen }),
     shallowEqual,
   )
   const [repoScanOpen, setRepoScanOpen] = useState(false)
@@ -397,6 +397,15 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
     )
   return (
     <div className={cn('flex items-center gap-[3px]', className)}>
+      <button
+        type="button"
+        className={btn()}
+        title="Add repo"
+        aria-label="Add repo"
+        onClick={() => setRepoScanOpen(true)}
+      >
+        <FolderPlus size={15} aria-hidden="true" />
+      </button>
       <button
         type="button"
         className={btn(view === 'usage')}
@@ -420,20 +429,11 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       <button
         type="button"
         className={btn()}
-        title="Search conversations"
-        aria-label="Search conversations"
-        onClick={() => setSearchOpen(true)}
+        title="Search (⌘K)"
+        aria-label="Search"
+        onClick={() => setPaletteOpen(true)}
       >
         <Search size={15} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={btn()}
-        title="Add repo"
-        aria-label="Add repo"
-        onClick={() => setRepoScanOpen(true)}
-      >
-        <FolderPlus size={15} aria-hidden="true" />
       </button>
       {repoScanOpen && (
         <RepoScanFlow

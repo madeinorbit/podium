@@ -43,9 +43,9 @@ const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2
 
 /**
- * Debounced, race-guarded issue search over `trpc.issues.search` (the same
- * source SearchView's omni-index feeds from) — merged into the local navigate
- * results once the query is ≥2 chars. Failures degrade silently to local-only.
+ * Debounced, race-guarded issue search over `trpc.issues.search` — merged into
+ * the local navigate results once the query is ≥2 chars. Failures degrade
+ * silently to local-only.
  */
 function useIssueSearch(query: string, enabled: boolean): IssueWire[] {
   const trpc = useStoreSelector((s) => s.trpc)

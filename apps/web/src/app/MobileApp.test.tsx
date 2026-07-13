@@ -76,7 +76,6 @@ const state = { view: 'home' as string, selectedIssueId: null as string | null }
 
 vi.mock('./store', () => {
   const useStore = () => ({
-    setSearchOpen: vi.fn(),
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     reposLoading: false,
@@ -151,7 +150,7 @@ describe('MobileApp home view (#227)', () => {
 
   it('offers the app tools the retired worktree sheet used to hold', () => {
     render(<MobileApp />)
-    for (const label of ['Usage & analytics', 'Settings', 'Search conversations', 'Add repo']) {
+    for (const label of ['Add repo', 'Usage & analytics', 'Settings', 'Search']) {
       expect(screen.getByLabelText(label)).toBeTruthy()
     }
   })

@@ -82,7 +82,6 @@ function issue(id: string, title: string, over: Record<string, unknown> = {}) {
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
-    setSearchOpen: vi.fn(),
     // ui-state collection (persisted section collapse etc.) — absent key = default.
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],

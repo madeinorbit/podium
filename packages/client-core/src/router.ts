@@ -11,8 +11,6 @@
  *   /issues/:id             the board with an issue page open
  *   /settings[/:tab]        settings, optionally on a specific tab
  *   /usage  /automations  /specs    the respective views
- *   /search                 the conversation-search overlay (over home);
- *                           `?search=1` opens it over any other route
  *
  * Unknown URLs fall back to home (replaceState, so back doesn't bounce).
  * Foreign query params (`?server=`, `?e2e`) are preserved across navigation.
@@ -34,19 +32,17 @@ export interface RouteState {
   issueId: string | null
   /** Settings deep-link tab, or null. */
   settingsTab: string | null
-  /** Whether the conversation-search overlay is open (renders over any view). */
-  searchOpen: boolean
   /** Workspace pane state (query-encoded so a workspace URL is shareable). */
   worktree: string | null
   pane: string | null
 }
 
 export function routeDefaults(view: MainView): RouteState {
-  return { view, issueId: null, settingsTab: null, searchOpen: false, worktree: null, pane: null }
+  return { view, issueId: null, settingsTab: null, worktree: null, pane: null }
 }
 
 /** Query params owned by the router — everything else is preserved verbatim. */
-const ROUTE_PARAMS = ['wt', 'pane', 'search'] as const
+const ROUTE_PARAMS = ['wt', 'pane'] as const
 
 function decode(seg: string): string {
   try {
@@ -60,11 +56,9 @@ function decode(seg: string): string {
 export function parseRoute(pathname: string, search: string): RouteState | null {
   const params = new URLSearchParams(search)
   const segs = pathname.split('/').filter(Boolean).map(decode)
-  const searchOpen = params.get('search') === '1'
   const base: Omit<RouteState, 'view'> = {
     issueId: null,
     settingsTab: null,
-    searchOpen,
     worktree: params.get('wt'),
     pane: params.get('pane'),
   }
@@ -74,8 +68,6 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
   const [head, second, ...rest] = segs
   if (rest.length > 0) return null
   switch (head) {
-    case 'search':
-      return second === undefined ? { view: 'home', ...base, searchOpen: true } : null
     case 'workspace':
       return second === undefined ? { view: 'workspace', ...base } : null
     case 'issues':
@@ -98,7 +90,7 @@ export function routePath(route: RouteState, currentSearch = ''): string {
   let path: string
   switch (route.view) {
     case 'home':
-      path = route.searchOpen ? '/search' : '/'
+      path = '/'
       break
     case 'workspace':
       path = '/workspace'
@@ -125,7 +117,6 @@ export function routePath(route: RouteState, currentSearch = ''): string {
     if (route.worktree) params.set('wt', route.worktree)
     if (route.pane) params.set('pane', route.pane)
   }
-  if (route.searchOpen && path !== '/search') params.set('search', '1')
   const qs = params.toString()
   return qs ? `${path}?${qs}` : path
 }
@@ -180,8 +171,7 @@ export function createRouter(init: RouterInit = {}): Router {
   } else if (
     init.fallbackView &&
     init.fallbackView !== 'home' &&
-    win.location.pathname.replace(/\/+$/, '') === '' &&
-    !parsed.searchOpen
+    win.location.pathname.replace(/\/+$/, '') === ''
   ) {
     // Plain `/` start: restore the persisted surface (reload lands where you
     // were), as a replace so back never returns to a transient `/`.

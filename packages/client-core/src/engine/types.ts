@@ -125,10 +125,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
   paletteOpen: boolean
   setPaletteOpen: (open: boolean) => void
-  /** Whether the conversation-search overlay is open. Route-backed (/search or
-   *  ?search=1), so a deep link opens it and back closes it. */
-  searchOpen: boolean
-  setSearchOpen: (open: boolean) => void
   selectedWorktree: string | null
   setSelectedWorktree: (path: string | null) => void
   /** Issue-keyed workspace selection (unified sidebar only): the issue whose

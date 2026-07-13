@@ -27,23 +27,21 @@ describe('parseRoute', () => {
     expect(at('/settings/hosts')).toMatchObject({ view: 'settings', settingsTab: 'hosts' })
     expect(at('/usage')?.view).toBe('usage')
     expect(at('/automations')?.view).toBe('automations')
-    expect(at('/search')).toMatchObject({ view: 'home', searchOpen: true })
   })
 
-  it('reads workspace pane state and the search flag from the query', () => {
+  it('reads workspace pane state from the query', () => {
     expect(at('/workspace', '?wt=%2Fw%2Fmain&pane=s1')).toMatchObject({
       view: 'workspace',
       worktree: '/w/main',
       pane: 's1',
     })
-    expect(at('/issues', '?search=1')).toMatchObject({ view: 'issues', searchOpen: true })
   })
 
   it('returns null for unknown URLs', () => {
     expect(at('/bogus')).toBeNull()
     expect(at('/issues/x/y')).toBeNull()
     expect(at('/workspace/extra')).toBeNull()
-    expect(at('/search/deep')).toBeNull()
+    expect(at('/search')).toBeNull()
   })
 })
 
@@ -51,7 +49,6 @@ describe('routePath', () => {
   it('round-trips every route', () => {
     const routes: RouteState[] = [
       routeDefaults('home'),
-      { ...routeDefaults('home'), searchOpen: true },
       { ...routeDefaults('workspace'), worktree: '/w/x', pane: 's9' },
       { ...routeDefaults('issues'), issueId: 'iss_1' },
       { ...routeDefaults('settings'), settingsTab: 'notifications' },
