@@ -657,7 +657,9 @@ const defs = {
   archive: def({
     kind: 'mutation',
     input: byId,
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation
+    // elsewhere. Archiving is reversible and no more destructive than close.
+    action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.archive(input.id)),
@@ -812,7 +814,9 @@ const defs = {
   depRemove: def({
     kind: 'mutation',
     input: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
+    action: 'write',
     scope: 'issue',
     target: (i) => i.fromId as string,
     handler: (ctx, input) =>
@@ -878,7 +882,9 @@ const defs = {
   reparent: def({
     kind: 'mutation',
     input: z.object({ id: z.string(), parentId: z.string().nullable() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // This lets an agent repair its own planning hierarchy without recreating issues.
+    action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
@@ -915,7 +921,9 @@ const defs = {
   supersede: def({
     kind: 'mutation',
     input: z.object({ oldId: z.string(), newId: z.string() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // The mutated subject is oldId; newId remains a relation destination.
+    action: 'write',
     scope: 'issue',
     target: (i) => i.oldId as string,
     handler: (ctx, input) =>
@@ -924,7 +932,9 @@ const defs = {
   duplicate: def({
     kind: 'mutation',
     input: z.object({ id: z.string(), canonicalId: z.string() }),
-    action: 'manage',
+    // Agent posture: allow in subtree; require --outside-scope confirmation.
+    // The mutated subject is id; canonicalId remains a relation destination.
+    action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>

@@ -1038,6 +1038,36 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     expect(svc.get(old.id)!.dependents).toContainEqual({ id: x.id, type: 'parent-child' })
   })
 
+  it('dependency cycles ignore parent-child containment edges (#413)', () => {
+    const { svc } = harness()
+    const root = svc.create({ repoPath: '/r', title: 'Root', startNow: false })
+    const parent = svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    const child = svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: parent.id,
+      startNow: false,
+    })
+    svc.addDep(parent.id, root.id, 'blocks')
+
+    expect(() => svc.addDep(root.id, child.id, 'blocks')).not.toThrow()
+    expect(svc.get(root.id)!.deps).toContainEqual({ id: child.id, type: 'blocks' })
+    expect(svc.doctor('/r').cycles).toEqual([])
+  })
+
+  it('dependency-cycle errors name the offending dependency path (#413)', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
+    svc.addDep(a.id, b.id)
+    svc.addDep(b.id, c.id)
+
+    expect(() => svc.addDep(c.id, a.id)).toThrow(
+      `dependency ${c.id} -> ${a.id} would create a dependency cycle: ${c.id} -> ${a.id} -> ${b.id} -> ${c.id}`,
+    )
+  })
+
   it('addDep rejects parent-child (reparent owns the hierarchy edge)', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -1357,6 +1387,9 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Epic')
     expect(out).toContain(child.title)
     expect(out).toMatch(/discovered-from|Workflow|track work as issues/i)
+    expect(out).toContain('reparent')
+    expect(out).toContain('--outside-scope')
+    expect(out).toContain('operator-only')
   })
 
   it('prime tells the agent to report worktree moves via `podium worktree`', () => {

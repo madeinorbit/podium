@@ -14,7 +14,7 @@
 
 export type IssueRole = 'viewer' | 'worker' | 'admin'
 
-/** What an issue op requires. viewer=read · worker=+write · admin=+manage (structural/destructive). */
+/** What an issue op requires. viewer=read · worker=+write · admin=+manage (operator-only destructive/administrative). */
 export type IssueAction = 'read' | 'write' | 'manage'
 
 const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {

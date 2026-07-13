@@ -5,15 +5,12 @@ import { SessionRegistry } from '../../relay'
 import { guardIssueCommand, issueRegistry } from './registry'
 
 /**
- * Registry completeness + authz parity (#248 [spec:SP-3fe2]). The old
- * PROC_ACTION/SCOPED_TARGET string maps are hardcoded HERE as historical pins:
- * the registry definitions must classify every command exactly as the maps did
- * the day they were deleted. Changing a classification is a deliberate edit to
- * this file, never a silent side effect of a rename.
+ * Registry completeness + explicit authz decisions (#248, #413). Action and
+ * target metadata are pinned here so every policy change is deliberate.
  */
 
-// PROC_ACTION as deleted from packages/domain/src/issue-authz.ts. Unlisted ⇒ 'read'.
-const OLD_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
+// Expected registry action for every non-read command. Unlisted commands are explicit reads.
+const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   claim: 'write',
   update: 'write',
   addComment: 'write',
@@ -45,14 +42,14 @@ const OLD_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   subscriptionRemove: 'write',
   subscriptionSetEnabled: 'write',
   subscriptionList: 'read',
-  archive: 'manage',
+  archive: 'write',
   delete: 'manage',
   restore: 'manage',
   setLabels: 'manage',
-  depRemove: 'manage',
-  reparent: 'manage',
-  supersede: 'manage',
-  duplicate: 'manage',
+  depRemove: 'write',
+  reparent: 'write',
+  supersede: 'write',
+  duplicate: 'write',
 }
 
 // SCOPED_TARGET as deleted: proc → the input field carrying the target issue id.
@@ -105,16 +102,16 @@ describe('issue command registry completeness', () => {
     expect(issueRegistry.namespace).toBe('issues')
   })
 
-  it('every old PROC_ACTION key has a def with the SAME action', () => {
-    for (const [proc, action] of Object.entries(OLD_PROC_ACTION)) {
+  it('every command has its explicit expected action', () => {
+    for (const [proc, action] of Object.entries(EXPECTED_PROC_ACTION)) {
       expect(defs[proc], `missing def for ${proc}`).toBeTruthy()
       expect(defs[proc]?.action, proc).toBe(action)
     }
   })
 
-  it("every command the old map left unlisted is an explicit 'read' now", () => {
+  it("every command the expected-action map leaves unlisted is an explicit 'read' now", () => {
     for (const name of ISSUE_COMMAND_NAMES) {
-      if (!Object.hasOwn(OLD_PROC_ACTION, name)) {
+      if (!Object.hasOwn(EXPECTED_PROC_ACTION, name)) {
         expect(defs[name]?.action, name).toBe('read')
       }
     }
@@ -144,9 +141,8 @@ describe('issue command registry completeness', () => {
   })
 })
 
-// Authz parity: the derived guard must admit/reject exactly as the old
-// string-map path (router middleware over PROC_ACTION/SCOPED_TARGET) did.
-describe('guardIssueCommand parity with the old string-map guard', () => {
+// Authz matrix: historical classifications plus deliberate lifecycle posture changes.
+describe('guardIssueCommand authorization matrix', () => {
   const registries: SessionRegistry[] = []
   const fresh = () => {
     const r = new SessionRegistry()
@@ -215,6 +211,59 @@ describe('guardIssueCommand parity with the old string-map guard', () => {
         patch: {},
       }),
     ).not.toThrow()
+  })
+
+  it('the five lifecycle repairs are worker-write in subtree, confirm outside, and viewer-denied', () => {
+    const reg = fresh()
+    const epic = reg.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const child = reg.issues.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    const outside = reg.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
+    const scoped = {
+      capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: epic.id } },
+    }
+    const viewer = {
+      capability: { role: 'viewer' as const, scope: { kind: 'all' as const } },
+    }
+    const cases = [
+      ['archive', { id: child.id }, { id: outside.id }],
+      ['depRemove', { fromId: child.id, toId: epic.id }, { fromId: outside.id, toId: epic.id }],
+      ['reparent', { id: child.id, parentId: epic.id }, { id: outside.id, parentId: epic.id }],
+      ['supersede', { oldId: child.id, newId: epic.id }, { oldId: outside.id, newId: epic.id }],
+      [
+        'duplicate',
+        { id: child.id, canonicalId: epic.id },
+        { id: outside.id, canonicalId: epic.id },
+      ],
+    ] as const
+
+    for (const [name, insideInput, outsideInput] of cases) {
+      const definition = issueRegistry.defs[name]
+      expect(definition.action, name).toBe('write')
+      expect(definition.scope, name).toBe('issue')
+      expect(() =>
+        guardIssueCommand(scoped, reg.issues, name, definition, insideInput),
+      ).not.toThrow()
+      expect(() => guardIssueCommand(scoped, reg.issues, name, definition, outsideInput)).toThrow(
+        /outside your subtree/,
+      )
+      expect(() =>
+        guardIssueCommand(
+          { ...scoped, overrideScope: true },
+          reg.issues,
+          name,
+          definition,
+          outsideInput,
+        ),
+      ).not.toThrow()
+      expect(() => guardIssueCommand(viewer, reg.issues, name, definition, insideInput)).toThrow(
+        /not allowed/,
+      )
+    }
   })
 
   it('additive writes (create/mailSend) and manage-tier are gated by role only', () => {

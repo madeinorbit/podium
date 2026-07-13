@@ -442,7 +442,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'archive',
-    summary: 'Archive an issue: archive <id>.',
+    summary:
+      'Archive an issue: archive <id>. Agents may archive inside their subtree; use --outside-scope elsewhere.',
     args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
@@ -526,7 +527,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'comment',
     summary: 'Add a comment: comment <id> --body "…" [--author name].',
-    args: z.strictObject({ id: idArg, author: z.string().default('agent'), body: z.string().min(1) }),
+    args: z.strictObject({
+      id: idArg,
+      author: z.string().default('agent'),
+      body: z.string().min(1),
+    }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.addComment.mutate({
@@ -799,7 +804,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'supersede',
-    summary: 'Supersede <old> with <new>: supersede <oldId> <newId>.',
+    summary:
+      'Supersede <old> with <new>: supersede <oldId> <newId>. Agents: in-subtree, or confirm with --outside-scope.',
     args: z.strictObject({ oldId: idArg, newId: idArg }),
     positionals: ['oldId', 'newId'],
     async run(c, a) {
@@ -812,7 +818,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'duplicate',
-    summary: 'Mark a duplicate: duplicate <id> <canonicalId>.',
+    summary:
+      'Mark a duplicate: duplicate <id> <canonicalId>. Agents: in-subtree, or confirm with --outside-scope.',
     args: z.strictObject({ id: idArg, canonicalId: idArg }),
     positionals: ['id', 'canonicalId'],
     async run(c, a) {
@@ -825,7 +832,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'dep-remove',
-    summary: 'Remove a dependency: dep-remove <fromId> <toId> [--type].',
+    summary:
+      'Remove a dependency: dep-remove <fromId> <toId> [--type]. Agents: in-subtree, or confirm with --outside-scope.',
     args: z.strictObject({ fromId: idArg, toId: idArg, type: z.string().optional() }),
     positionals: ['fromId', 'toId'],
     async run(c, a) {
@@ -840,7 +848,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'reparent',
     summary:
-      "Set/clear an issue's parent: reparent <id> [--parentId <id>] (omit parentId to clear).",
+      "Set/clear an issue's parent: reparent <id> [--parentId <id>] (omit parentId to clear). Agents: in-subtree, or confirm with --outside-scope.",
     args: z.strictObject({ id: idArg, parentId: idArg.optional() }),
     positionals: ['id', 'parentId'],
     async run(c, a) {

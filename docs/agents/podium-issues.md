@@ -16,7 +16,23 @@ it is relayed through your daemon with a capability scoped to the issue you're w
 6. Record real blockers: `podium issue dep-add --fromId <blocked> --toId <blocker> --type blocks`.
 7. Close with a summary: `podium issue close --id <id> --reason "done: <what/where>"`.
 
+## Repairing issue structure
+
+Agents may use these commands on their own issue or anything below it:
+
+- `reparent <id> [parentId]` - move or unparent an issue.
+- `supersede <oldId> <newId>` - close an obsolete issue and point at its replacement.
+- `duplicate <id> <canonicalId>` - close a duplicate and point at the canonical issue.
+- `dep-remove <fromId> <toId> [--type ...]` - remove a mistaken relationship.
+- `archive <id>` - hide an issue without deleting it.
+
+The mutated issue (`id`, `oldId`, or `fromId`) determines scope. A target elsewhere is
+refused once; re-run with `--outside-scope` to confirm. `delete` and `restore` remain
+operator-only. Parent-child containment is separate from `blocks` scheduling: dependency
+cycle checks traverse only `blocks` edges.
+
 ## Rules
+
 - Track durable, discovered, or cross-session work as issues — not markdown TODO files or a parallel list.
   (An in-session scratch todo for the current micro-steps is fine.)
 - You may read any issue in the repo; you may write your own issue and its subtree freely. Editing an

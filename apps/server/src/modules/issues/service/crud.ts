@@ -395,23 +395,38 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     )
   }
 
-  /** Cycle check over `blocks` edges + the parent link (synthesized from
-   *  issues.parent_id — single parent storage, #164), following from->to. */
-  private wouldCycle(fromId: string, toId: string): boolean {
+  /** Return the dependency-only path from startId to targetId, if one exists.
+   *  Parent containment is organization, not scheduling, and deliberately does
+   *  not participate in dependency-cycle detection. */
+  private dependencyPath(startId: string, targetId: string): string[] | null {
     const seen = new Set<string>()
-    const stack = [toId]
-    while (stack.length) {
-      const cur = stack.pop() as string
-      if (cur === fromId) return true
-      if (seen.has(cur)) continue
-      seen.add(cur)
-      for (const d of this.deps.store.issues.listIssueDeps(cur)) {
-        if (d.type === 'blocks') stack.push(d.toId)
+    const pending: Array<{ id: string; path: string[] }> = [{ id: startId, path: [startId] }]
+    while (pending.length) {
+      const current = pending.shift() as { id: string; path: string[] }
+      if (current.id === targetId) return current.path
+      if (seen.has(current.id)) continue
+      seen.add(current.id)
+      for (const dep of this.deps.store.issues.listIssueDeps(current.id)) {
+        if (dep.type === 'blocks') {
+          pending.push({ id: dep.toId, path: [...current.path, dep.toId] })
+        }
       }
-      const parentId = this.rows.get(cur)?.parentId
-      if (parentId) stack.push(parentId)
     }
-    return false
+    return null
+  }
+
+  /** Return the containment-only parent path from startId to targetId, if one exists. */
+  private containmentPath(startId: string, targetId: string): string[] | null {
+    const path = [startId]
+    const seen = new Set<string>()
+    let current: string | null | undefined = startId
+    while (current && !seen.has(current)) {
+      if (current === targetId) return path
+      seen.add(current)
+      current = this.rows.get(current)?.parentId
+      if (current) path.push(current)
+    }
+    return null
   }
 
   addDep(fromId: string, toId: string, type = 'blocks'): IssueWire {
@@ -424,8 +439,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const row = this.rowOrThrow(fromId)
     this.rowOrThrow(toId)
     if (fromId === toId) throw new Error('an issue cannot depend on itself (self-dep)')
-    if (type === 'blocks' && this.wouldCycle(fromId, toId)) {
-      throw new Error(`dependency ${fromId} -> ${toId} would create a cycle`)
+    if (type === 'blocks') {
+      const returnPath = this.dependencyPath(toId, fromId)
+      if (returnPath) {
+        throw new Error(
+          `dependency ${fromId} -> ${toId} would create a dependency cycle: ${[fromId, ...returnPath].join(' -> ')}`,
+        )
+      }
     }
     const wire = this.persistWith(row, () => this.deps.store.issues.addIssueDep(fromId, toId, type))
     this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
@@ -492,17 +512,17 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   }
 
   /** The single cycle-checked reparent path. issues.parent_id is the ONLY
-   *  parent storage (#164 — the mirrored 'parent-child' issue_deps rows are
-   *  gone; graph/tree/cycle consumers synthesize the edge from the column).
-   *  Mutates row.parentId; caller persists. wouldCycle returns true the
-   *  instant it reaches row.id (before expanding that node), so row's
-   *  still-current old parent link is never traversed and can't skew it. */
+   *  parent storage (#164). Dependency edges do not participate: hierarchy
+   *  cycles and scheduling cycles are separate invariants. */
   private setParent(row: IssueRow, newParentId: string | null): void {
     if (newParentId === row.parentId) return
     if (newParentId) {
       this.rowOrThrow(newParentId)
-      if (newParentId === row.id || this.wouldCycle(row.id, newParentId)) {
-        throw new Error(`reparent ${row.id} -> ${newParentId} would create a cycle`)
+      const returnPath = this.containmentPath(newParentId, row.id)
+      if (returnPath) {
+        throw new Error(
+          `reparent ${row.id} -> ${newParentId} would create a containment cycle: ${[row.id, ...returnPath].join(' -> ')}`,
+        )
       }
     }
     row.parentId = newParentId

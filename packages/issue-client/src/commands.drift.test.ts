@@ -76,6 +76,14 @@ describe('CLI table ↔ protocol command-name drift', () => {
     expect(unknown).toEqual([])
   })
 
+  it('documents lifecycle repair scope on every affected CLI/MCP command', () => {
+    for (const name of ['archive', 'supersede', 'duplicate', 'dep-remove', 'reparent']) {
+      const command = ISSUE_COMMANDS.find((entry) => entry.name === name)
+      expect(command?.summary, name).toContain('outside-scope')
+      expect(command?.summary, name).toMatch(/subtree|in-subtree/)
+    }
+  })
+
   it('command verbs are unique and every entry declares a summary + zod args', () => {
     const verbs = ISSUE_COMMANDS.map((c) => c.name)
     expect(new Set(verbs).size).toBe(verbs.length)
