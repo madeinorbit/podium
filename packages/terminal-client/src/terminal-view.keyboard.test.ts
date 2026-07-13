@@ -74,10 +74,23 @@ function pressKey(
   const start = out.length
   const kd = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...pk })
   textarea.dispatchEvent(kd)
-  if (composed !== undefined && !kd.defaultPrevented) {
-    textarea.dispatchEvent(
-      new InputEvent('input', { data: composed, inputType: 'insertText', bubbles: true }),
-    )
+  if (!kd.defaultPrevented) {
+    // A real browser fires keypress for Enter unless the keydown was
+    // default-prevented. This is how the "shift-enter submits anyway" bug
+    // escaped: xterm's keypress path emits a bare CR for Enter even when the
+    // custom keydown handler returned false — only preventDefault stops it.
+    // (Printable keys are modeled by the `input` event below instead; a
+    // synthetic keypress lacks the charCode fidelity xterm needs for those.)
+    if (pk.key === 'Enter') {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keypress', { bubbles: true, cancelable: true, ...pk }),
+      )
+    }
+    if (composed !== undefined) {
+      textarea.dispatchEvent(
+        new InputEvent('input', { data: composed, inputType: 'insertText', bubbles: true }),
+      )
+    }
   }
   textarea.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, ...pk }))
   return out.slice(start).join('')
@@ -141,5 +154,21 @@ describe('TerminalView keyboard fidelity (macOS)', () => {
   // Plain Enter must still submit (bare CR) — the rewrite is Shift-only.
   it('leaves plain Enter as a submit (CR)', () => {
     expect(pressKey(textarea, out, { key: 'Enter', code: 'Enter', keyCode: 13 })).toBe('\r')
+  })
+
+  // Cmd+Backspace = "delete to line start" on macOS. The browser never delivers
+  // the chord to xterm's keydown path, so we rewrite it to Ctrl+U (0x15) — the
+  // kill-line byte Claude Code and readline expect.
+  it('rewrites Cmd+Backspace to kill-line (Ctrl+U)', () => {
+    expect(
+      pressKey(textarea, out, { key: 'Backspace', code: 'Backspace', keyCode: 8, metaKey: true }),
+    ).toBe('\x15')
+  })
+
+  // Plain Backspace must stay a single-char delete (DEL).
+  it('leaves plain Backspace as DEL (0x7f)', () => {
+    expect(pressKey(textarea, out, { key: 'Backspace', code: 'Backspace', keyCode: 8 })).toBe(
+      '\x7f',
+    )
   })
 })

@@ -439,17 +439,35 @@ export class TerminalView {
     this.cleanup.push(() => el.removeEventListener('mouseup', onMouseUp))
 
     this.term.attachCustomKeyEventHandler((ev): boolean => {
+      // Shift+Enter must insert a newline, not submit. A browser sends a bare CR
+      // for it (identical to Enter), which Claude Code reads as "send". Substitute
+      // the Option+Enter sequence (ESC CR) — Claude Code's newline. Plain Enter
+      // still submits; Cmd/Ctrl+Enter are left to the app.
+      const shiftEnter =
+        ev.key === 'Enter' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey
+      // Cmd+Backspace must clear the line (macOS "delete to line start"). Substitute
+      // Ctrl+U (0x15), the kill-line byte stock terminals send, which Claude Code
+      // and readline both honor. Alt+Backspace (delete word) already works via
+      // xterm's Meta handling.
+      const cmdBackspace =
+        ev.key === 'Backspace' && ev.metaKey && !ev.ctrlKey && !ev.altKey && !ev.shiftKey
+      if (shiftEnter || cmdBackspace) {
+        // preventDefault is load-bearing: returning false only skips xterm's OWN
+        // handling of THIS event. Without it the browser still runs the default
+        // action — Shift+Enter fires a keypress and inserts a newline into xterm's
+        // helper textarea, and xterm's keypress path emits a bare CR, which Claude
+        // Code reads as submit right after our newline (the "shift-enter submits
+        // anyway" bug; happy-dom fires no default actions, so only a real browser
+        // shows it). Swallow keypress/keyup echoes of the chord too.
+        if (ev.type === 'keydown') {
+          ev.preventDefault()
+          this.dataSink?.(shiftEnter ? '\x1b\r' : '\x15')
+        }
+        return false
+      }
       if (ev.type !== 'keydown') return true
       const mod = ev.metaKey || ev.ctrlKey
       const key = ev.key.toLowerCase()
-      // Shift+Enter must insert a newline, not submit. A browser sends a bare CR
-      // for it (identical to Enter), which Claude Code reads as "send". Substitute
-      // the Option+Enter sequence (ESC CR) — Claude Code's newline — and swallow
-      // xterm's CR. Plain Enter still submits; Cmd/Ctrl+Enter are left to the app.
-      if (ev.key === 'Enter' && ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
-        this.dataSink?.('\x1b\r')
-        return false
-      }
       // Copy: Cmd+C (mac) or Ctrl/Cmd+Shift+C, only when there is a selection.
       if (mod && key === 'c' && (ev.metaKey || ev.shiftKey) && this.term.hasSelection()) {
         copySelection()
