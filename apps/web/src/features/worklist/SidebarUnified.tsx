@@ -18,7 +18,6 @@ import {
   RotateCw,
   Search,
   Settings as SettingsIcon,
-  SquareTerminal,
 } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -564,56 +563,30 @@ export function WorkSections(): JSX.Element {
     setView('issues')
   }
 
-  // "Open shell here" (#23): spawn a shell IN the row's own worktree — attached
-  // to the row's issue when there is one — and focus it. This is the per-worktree
-  // shell the workspace "+" menu dropped [spec:SP-75b1]; the New-work dropdown's
-  // "New Shell" only covers the fresh-draft-in-primary-checkout case.
-  const worktreeByPath = new Map(repoNavs.flatMap((r) => r.worktrees.map((w) => [w.path, w])))
-  const openShellIn = async (cwd: string, issue?: IssueWire) => {
-    const machineId = worktreeByPath.get(cwd)?.machineId
-    const { sessionId } = await trpc.sessions.create.mutate({
-      agentKind: 'shell',
-      cwd,
-      ...(machineId ? { machineId } : {}),
-      ...(issue ? { issueId: issue.id } : {}),
-    })
-    if (issue) selectPanelForIssue(issue, sessionId)
-    else selectPanel(cwd, sessionId)
-  }
-
   // One WORK/WORKING row (issue or unowned worktree), shared by both sections.
   // `suppressUnread` mutes the email-style unread emphasis for WORKING rows (#138):
   // active work isn't "new unseen work". WORK/PINNED rows pass it false.
-  const renderWorkRow = (row: UnifiedWorkRow, suppressUnread = false) => {
-    if (row.kind === 'issue') {
-      const issueWorktree = row.issue.worktreePath
-      return (
-        <UnifiedIssueRow
-          key={`issue:${row.issue.id}`}
-          row={row}
-          allWorktreePaths={allWorktreePaths}
-          sessions={sessions}
-          issues={issues}
-          active={selectedIssueId === row.issue.id}
-          paneA={paneA}
-          now={now}
-          suppressUnread={suppressUnread}
-          onSelect={() => selectIssue(row.issue)}
-          onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
-          onPinned={(sid, p) => void setPinned('panel', sid, p)}
-          onOpenShell={
-            issueWorktree
-              ? () => void openShellIn(issueWorktree, row.issue).catch(() => {})
-              : undefined
-          }
-          onOpenIssue={openIssuePage}
-          onRename={(title) =>
-            void trpc.issues.update.mutate({ id: row.issue.id, patch: { title } }).catch(() => {})
-          }
-        />
-      )
-    }
-    return (
+  const renderWorkRow = (row: UnifiedWorkRow, suppressUnread = false) =>
+    row.kind === 'issue' ? (
+      <UnifiedIssueRow
+        key={`issue:${row.issue.id}`}
+        row={row}
+        allWorktreePaths={allWorktreePaths}
+        sessions={sessions}
+        issues={issues}
+        active={selectedIssueId === row.issue.id}
+        paneA={paneA}
+        now={now}
+        suppressUnread={suppressUnread}
+        onSelect={() => selectIssue(row.issue)}
+        onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
+        onPinned={(sid, p) => void setPinned('panel', sid, p)}
+        onOpenIssue={openIssuePage}
+        onRename={(title) =>
+          void trpc.issues.update.mutate({ id: row.issue.id, patch: { title } }).catch(() => {})
+        }
+      />
+    ) : (
       <UnifiedWorktreeRow
         key={`wt:${row.worktree.path}`}
         row={row}
@@ -624,10 +597,8 @@ export function WorkSections(): JSX.Element {
         onSelect={() => selectWorktree(row.worktree.path)}
         onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
-        onOpenShell={() => void openShellIn(row.worktree.path).catch(() => {})}
       />
     )
-  }
   // A WORKING entry: a lifted individual session renders as a PanelRow (like
   // PINNED); a fully-working issue/worktree renders as its normal row. Everything
   // here suppresses unread emphasis (#138) — it's actively-in-progress work.
@@ -766,7 +737,6 @@ function UnifiedRowShell({
   dotSession,
   count,
   extras,
-  action,
   children,
   testId,
 }: {
@@ -789,9 +759,6 @@ function UnifiedRowShell({
   /** Child-session count shown before the dot (only when children exist). */
   count?: number
   extras?: ReactNode
-  /** Hover-revealed trailing button (e.g. "open shell here", #23). Rendered as a
-   *  SIBLING of the select button — actions can't nest inside it. */
-  action?: ReactNode
   children?: ReactNode
   testId: string
 }): JSX.Element {
@@ -871,11 +838,6 @@ function UnifiedRowShell({
             {dotSession && <span className={sessionDotClass(dotSession)} />}
           </button>
         )}
-        {action && (
-          <span className="hidden flex-none items-center pr-1.5 group-hover/row:flex">
-            {action}
-          </span>
-        )}
       </div>
       {/* Child agent rows: a tree guide (vertical line + per-row stubs, via
           .tree-children CSS) ties the group to its parent. */}
@@ -886,24 +848,6 @@ function UnifiedRowShell({
         </div>
       )}
     </div>
-  )
-}
-
-/** The hover-revealed "open shell here" row action (#23): spawns a shell session
- *  in the row's own worktree, restoring the per-worktree shell lost when the
- *  workspace "+" menu went agents-only [spec:SP-75b1]. */
-function OpenShellButton({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
-  return (
-    <button
-      type="button"
-      title="Open shell in this worktree"
-      aria-label={`Open shell in ${label}`}
-      data-testid="row-open-shell"
-      className="flex size-[22px] cursor-pointer items-center justify-center rounded text-[#7a7a86] transition-colors hover:bg-[#2a2a36] hover:text-foreground"
-      onClick={onClick}
-    >
-      <SquareTerminal size={13} aria-hidden="true" />
-    </button>
   )
 }
 
@@ -925,7 +869,6 @@ function UnifiedIssueRow({
   onSelect,
   onSelectPanel,
   onPinned,
-  onOpenShell,
   onOpenIssue,
   onRename,
 }: {
@@ -943,8 +886,6 @@ function UnifiedIssueRow({
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
-  /** Spawn a shell in this issue's worktree (#23). Absent = no worktree yet. */
-  onOpenShell?: () => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: string) => void
   /** Commit a renamed title (double-click / context-menu Rename, #170). */
@@ -1099,7 +1040,6 @@ function UnifiedIssueRow({
             )}
           </>
         }
-        action={onOpenShell ? <OpenShellButton label={label} onClick={onOpenShell} /> : undefined}
       >
         {visible.map(renderRow)}
         <StaleSection sessions={stale} render={renderRow} />
@@ -1119,7 +1059,6 @@ function UnifiedWorktreeRow({
   onSelect,
   onSelectPanel,
   onPinned,
-  onOpenShell,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
   active: boolean
@@ -1131,8 +1070,6 @@ function UnifiedWorktreeRow({
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
-  /** Spawn a shell in this worktree (#23). */
-  onOpenShell: () => void
 }): JSX.Element {
   const { worktree } = row
   const unread = suppressUnread ? false : rowUnreadEmphasized(row)
@@ -1141,7 +1078,6 @@ function UnifiedWorktreeRow({
   // dot IS that agent's indicator. Child rows only exist from 2 agents up.
   const showChildren = worktree.sessions.length >= 2
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
-  const label = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
   const renderRow = (session: SessionMeta) => (
     <PanelRow
       key={session.sessionId}
@@ -1158,7 +1094,7 @@ function UnifiedWorktreeRow({
     <UnifiedRowShell
       testId="unified-worktree-row"
       icon={<GitBranch size={14} aria-hidden="true" className="flex-none text-[#8a8a97]" />}
-      label={label}
+      label={worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path}
       active={active}
       unread={unread}
       expandable={showChildren}
@@ -1174,7 +1110,6 @@ function UnifiedWorktreeRow({
           </span>
         ) : undefined
       }
-      action={<OpenShellButton label={label} onClick={onOpenShell} />}
     >
       {visible.map(renderRow)}
       <StaleSection sessions={stale} render={renderRow} />
