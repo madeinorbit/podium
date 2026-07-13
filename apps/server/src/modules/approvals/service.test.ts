@@ -11,6 +11,7 @@ function harness() {
   const sent: Array<{ machineId: string; msg: ControlMessage }> = []
   const broadcasts: LiveServerMessage[] = []
   const events: Array<{ kind: string; issueId: string | null }> = []
+  const mails: string[] = []
   const svc = new ApprovalService({
     store: new ApprovalsRepository(db),
     now: () => '2026-07-13T00:00:00.000Z',
@@ -20,8 +21,9 @@ function harness() {
     issueInfo: () => ({ seq: 410, title: 'Approval broker' }),
     machineName: () => 'ludovico',
     logEvent: (kind, issueId) => events.push({ kind, issueId }),
+    notifyIssue: (_issueId, body) => mails.push(body),
   })
-  return { svc, sent, broadcasts, events }
+  return { svc, sent, broadcasts, events, mails }
 }
 
 const req = (svc: ApprovalService, op: unknown = { kind: 'update' }) =>
@@ -83,16 +85,17 @@ describe('ApprovalService', () => {
     ])
   })
 
-  it('deny is terminal and double-decisions throw', () => {
-    const { svc, sent } = harness()
+  it('deny is terminal, mails the requesting issue, and double-decisions throw', () => {
+    const { svc, sent, mails } = harness()
     const { id } = req(svc)
     expect(svc.deny(id).status).toBe('denied')
+    expect(mails).toEqual([expect.stringContaining('denied by the operator')])
     expect(() => svc.approve(id)).toThrow(/not pending/)
     expect(sent).toHaveLength(0)
   })
 
-  it('failed execution records the output', () => {
-    const { svc } = harness()
+  it('failed execution records the output and mails the outcome', () => {
+    const { svc, mails } = harness()
     const { id } = req(svc)
     svc.approve(id)
     svc.onExecResult({
@@ -105,5 +108,6 @@ describe('ApprovalService', () => {
     const w = svc.get({ id })
     expect(w.status).toBe('failed')
     expect(w.resultText).toContain('signature')
+    expect(mails.at(-1)).toContain('FAILED')
   })
 })

@@ -32,6 +32,9 @@ export interface ApprovalServiceDeps {
   machineName(machineId: string): string | undefined
   /** Append to the durable event log (renders in the issue activity feed). */
   logEvent(kind: string, issueId: string | null, payload: Record<string, unknown>): void
+  /** Push the outcome to the requesting agent via issue mail (stop-hook/nudge
+   *  delivery) — the agent must not have to poll to learn the decision. */
+  notifyIssue(issueId: string, body: string): void
 }
 
 export class ApprovalService {
@@ -63,6 +66,16 @@ export class ApprovalService {
   private broadcast(): void {
     const msg: LiveServerMessage = { type: 'approvalsChanged', pending: this.listPending() }
     for (const c of this.deps.clients()) c.send(msg)
+  }
+
+  private notify(row: ApprovalRow, outcome: string): void {
+    if (!row.issueId) return
+    try {
+      this.deps.notifyIssue(
+        row.issueId,
+        `approval ${row.id} ("${describeApprovalOp(row.op)}"): ${outcome}`,
+      )
+    } catch {}
   }
 
   private log(row: ApprovalRow, kind: string, extra: Record<string, unknown> = {}): void {
@@ -133,6 +146,9 @@ export class ApprovalService {
     }
     this.deps.toMachine(row.machineId, { type: 'approvalExecRequest', requestId: id, op: row.op })
     this.log(row, 'issue.approval_approved')
+    // A 'stop' kills the daemon mid-exec — its result may never arrive, so the
+    // decision itself is the last thing we can reliably deliver.
+    if (row.op.kind === 'stop') this.notify(row, 'approved — executing')
     this.broadcast()
     return this.toWire(this.deps.store.get(id)!)
   }
@@ -145,6 +161,7 @@ export class ApprovalService {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
     this.log(row, 'issue.approval_denied')
+    this.notify(row, 'denied by the operator')
     this.broadcast()
     return this.toWire(this.deps.store.get(id)!)
   }
@@ -162,6 +179,7 @@ export class ApprovalService {
     this.log(row, msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed', {
       exitCode: msg.exitCode,
     })
+    this.notify(row, `${msg.ok ? 'succeeded' : 'FAILED'} — ${text.slice(0, 400)}`)
     this.broadcast()
   }
 }

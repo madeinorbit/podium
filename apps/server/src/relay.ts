@@ -4,6 +4,7 @@ import { Ledger } from '@podium/sync'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER } from './local-machine'
 import type { ModelProbe } from './model-catalog'
+import { ApprovalService } from './modules/approvals/service'
 import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
 import { EventLogRetention } from './modules/events/retention'
@@ -13,7 +14,6 @@ import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
-import { ApprovalService } from './modules/approvals/service'
 import { IssueRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { UpstreamIssuesService } from './modules/issues/upstream'
@@ -310,6 +310,7 @@ export class SessionRegistry {
         return w ? { seq: w.seq, title: w.title } : null
       },
       machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
+      notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
       logEvent: (kind, issueId, payload) => {
         try {
           this.store.events.appendEvent({
