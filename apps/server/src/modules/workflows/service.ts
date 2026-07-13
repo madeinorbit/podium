@@ -974,7 +974,10 @@ export class WorkflowService {
       role === 'coordinator' &&
       run.subjectKind === 'issue' &&
       current?.executionProfileId
-        ? `Delegate this step with: podium agent spawn --issue ${run.subjectId} --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id ${current.stepId} --execution-profile-id ${current.executionProfileId}`
+        ? [
+            `Delegate this step with: podium agent spawn --issue ${run.subjectId} --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id ${current.stepId} --execution-profile-id ${current.executionProfileId}`,
+            `Then assign the returned child: podium workflow assign-step ${current.stepId} <child-session-id> --run ${run.id}`,
+          ].join('\n')
         : ''
     return [
       `# Workflow ${workflow?.name ?? run.revision.workflowId} · revision ${run.revision.version}`,

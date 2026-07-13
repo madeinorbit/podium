@@ -315,6 +315,9 @@ describe('WorkflowService', () => {
     expect(service.renderRunPrime(first.run, 's1')).toContain(
       `podium agent spawn --issue issue-1 --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id review --execution-profile-id ${profile.id}`,
     )
+    expect(service.renderRunPrime(first.run, 's1')).toContain(
+      `podium workflow assign-step review <child-session-id> --run ${run.id}`,
+    )
 
     service.assignStep({ runId: run.id, stepId: 'review', sessionId: 's2' }, agent('s1'))
     const completed = service.checkpoint(
