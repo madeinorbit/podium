@@ -71,6 +71,69 @@ describe('lock registry', () => {
     expect(Array.isArray(status)).toBe(true)
   })
 
+  it('a relayed caller with an UNKNOWN session is not the operator (no null-null conflation)', async () => {
+    await dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name: 'op-held' })
+    // Constrained caller, no actorSessionId (session not in the live map):
+    // must NOT be able to release/renew the operator's lock.
+    const ghost = { capability: { role: 'worker' as const, scope: { kind: 'none' as const } } }
+    await expect(
+      dispatch(ghost, 'release', { repoPath: '/repo', name: 'op-held' }),
+    ).rejects.toThrow(/not by you/)
+    await expect(dispatch(ghost, 'renew', { repoPath: '/repo', name: 'op-held' })).rejects.toThrow(
+      /not by you/,
+    )
+    // ...while the real operator still can.
+    const r = (await dispatch({ capability: OPERATOR }, 'release', {
+      repoPath: '/repo',
+      name: 'op-held',
+    })) as { released: boolean }
+    expect(r.released).toBe(true)
+  })
+
+  it('lock names are validated: control chars/newlines and over-long names are rejected', async () => {
+    const bad = ['bad\nname', 'bad name', '--flag', 'a'.repeat(201), 'ütf']
+    for (const name of bad) {
+      await expect(
+        dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name }),
+      ).rejects.toThrow()
+    }
+    // merge:<branch> with a realistic branch name passes
+    const ok = (await dispatch({ capability: OPERATOR }, 'acquire', {
+      repoPath: '/repo',
+      name: 'merge:feat/issue-343_v1.2',
+    })) as { granted: boolean }
+    expect(ok.granted).toBe(true)
+  })
+
+  it('cancel round-trips: a queued caller can leave the queue', async () => {
+    const holder = {
+      capability: {
+        role: 'worker' as const,
+        scope: { kind: 'none' as const },
+        actorSessionId: 'sess_h',
+      },
+    }
+    const waiter = {
+      capability: {
+        role: 'worker' as const,
+        scope: { kind: 'none' as const },
+        actorSessionId: 'sess_w',
+      },
+    }
+    await dispatch(holder, 'acquire', { repoPath: '/repo', name: 'c' })
+    const q = (await dispatch(waiter, 'acquire', { repoPath: '/repo', name: 'c' })) as {
+      granted: boolean
+    }
+    expect(q.granted).toBe(false)
+    const c = (await dispatch(waiter, 'cancel', { repoPath: '/repo', name: 'c' })) as {
+      cancelled: boolean
+    }
+    expect(c.cancelled).toBe(true)
+    await expect(dispatch(waiter, 'cancel', { repoPath: '/repo', name: 'c' })).rejects.toThrow(
+      /not queued/,
+    )
+  })
+
   it('unknown procs return undefined (relay "no such procedure" shape)', () => {
     expect(dispatch({ capability: OPERATOR }, 'nuke', {})).toBeUndefined()
   })

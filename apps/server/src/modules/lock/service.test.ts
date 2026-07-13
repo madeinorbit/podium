@@ -209,6 +209,20 @@ describe('LockService', () => {
     expect(rel2.next?.sessionId).toBeNull()
   })
 
+  it('cancel removes the caller from the wait queue; holder/non-queued cancels error', () => {
+    const { svc, alive } = harness()
+    alive.add('sess_1').add('sess_2').add('sess_3')
+    svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
+    svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
+    svc.acquire(agent(3), { repoPath: REPO, name: 'l' })
+    expect(() => svc.cancel(agent(1), { repoPath: REPO, name: 'l' })).toThrow(/use `release`/)
+    expect(svc.cancel(agent(2), { repoPath: REPO, name: 'l' })).toEqual({ cancelled: true })
+    expect(() => svc.cancel(agent(2), { repoPath: REPO, name: 'l' })).toThrow(/not queued/)
+    // FIFO integrity: sess_3 is now first in line
+    const r = svc.release(agent(1), { repoPath: REPO, name: 'l' })
+    expect(r.next?.label).toBe('issue:#3')
+  })
+
   it('locks are scoped by repo_id: the same name in another repo is independent', () => {
     const { svc } = harness()
     svc.acquire(agent(1), { repoPath: '/repo-a', name: 'merge:main' })

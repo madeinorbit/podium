@@ -1515,6 +1515,14 @@ export class SessionsService {
     // The killed session may have been the last living occupant of an empty
     // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.
     this.maybeReapDraftIssue(issueId)
+    // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
+    // kill deletes the row from the map BEFORE the daemon's agentExit arrives,
+    // so the agentExit-path emit would be skipped — fire it here. killSession
+    // is never the hibernate path (hibernateSession only flips status).
+    this.bus.emit('session.exited', {
+      sessionId: input.sessionId,
+      code: session?.exitCode ?? -1,
+    })
   }
 
   private spawn(input: {
@@ -1842,6 +1850,9 @@ export class SessionsService {
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
         this.broadcastSessions()
+        // markSpawnError sets status 'exited' — notify lock auto-release etc.
+        // [spec:SP-85d1] like any other real death.
+        if (s) this.bus.emit('session.exited', { sessionId: s.sessionId, code: -1 })
         break
       }
       case 'reattachFailed': {

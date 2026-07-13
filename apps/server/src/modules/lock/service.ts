@@ -270,6 +270,32 @@ export class LockService {
     })
   }
 
+  /** Leave the FIFO wait queue: remove the caller's own waiter entry. Errors
+   *  when the caller isn't queued (a holder should `release`, not cancel). */
+  cancel(
+    caller: LockCallerIdentity,
+    input: { repoPath: string; name: string },
+  ): { cancelled: true } {
+    const repoId = this.repoIdFor(input.repoPath)
+    return this.deps.funnel.run({
+      write: () =>
+        this.deps.transact(() => {
+          this.sweepExpired(repoId)
+          const existing = this.deps.locks.getLock(repoId, input.name)
+          if (existing && this.sameHolder(existing, caller)) {
+            throw new Error(`you hold lock '${input.name}' — use \`release\`, not cancel`)
+          }
+          const key = this.sessionKey(caller)
+          const queued = this.deps.locks
+            .listWaiters(repoId, input.name)
+            .some((w) => w.sessionId === key)
+          if (!queued) throw new Error(`not queued for lock '${input.name}'`)
+          this.deps.locks.removeWaiterBySession(repoId, input.name, key)
+          return { cancelled: true as const }
+        }),
+    })
+  }
+
   renew(
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string; ttlSeconds?: number },

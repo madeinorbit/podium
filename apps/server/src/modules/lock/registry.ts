@@ -74,7 +74,11 @@ export class LockCommandCtx {
    */
   callerIdentity(): LockCallerIdentity {
     const cap = this.caller.capability
-    const sessionId = cap.actorSessionId ?? null
+    // Only the unconstrained operator (scope 'all', no actor session) maps to
+    // the null holder; a constrained caller with no known session gets the
+    // UNKNOWN_RELAY_SESSION sentinel so it can never impersonate the operator.
+    const sessionId =
+      cap.actorSessionId ?? (cap.scope.kind === 'all' ? null : UNKNOWN_RELAY_SESSION)
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'
     if (issueId) {
@@ -87,9 +91,33 @@ export class LockCommandCtx {
   }
 }
 
+/**
+ * Sentinel session id for a RELAYED caller whose session is unknown to the
+ * live map (capabilityForSession minted no actorSessionId). Distinct from the
+ * operator's null holder so an anomalous relay caller can never release/renew
+ * an operator-held lock (null == null would have conflated them). Behaves as a
+ * dead session everywhere else (pruned from queues; its own leases expire by
+ * TTL).
+ */
+export const UNKNOWN_RELAY_SESSION = 'unknown-session'
+
+// Lock names are interpolated into agent mail and the durable event log, so
+// they are tightly constrained: printable, short, no control chars/newlines.
+// The charset covers merge:<branch> for real branch names (slashes, dots,
+// dashes, underscores); first char alphanumeric so a name can't look like a
+// flag.
+const lockName = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/,
+    'lock names allow letters, digits and - _ : . / (starting with a letter or digit)',
+  )
+
 // Shared input fragments. repoPath is REQUIRED: a lock is meaningless without
 // its repo scope; the CLI injects it from the cwd (repos.inferFromPath).
-const lockRef = z.object({ repoPath: z.string(), name: z.string().min(1) })
+const lockRef = z.object({ repoPath: z.string(), name: lockName })
 const ttlField = { ttlSeconds: z.number().int().positive().max(86_400).optional() }
 
 const defs = {
@@ -99,6 +127,13 @@ const defs = {
     action: 'write',
     cli: { positional: ['name'], summary: 'Acquire (or renew) a named lease lock.' },
     handler: (ctx, input) => ctx.locks.acquire(ctx.callerIdentity(), input),
+  }),
+  cancel: def({
+    kind: 'mutation',
+    input: lockRef,
+    action: 'write',
+    cli: { positional: ['name'], summary: "Leave a lock's wait queue." },
+    handler: (ctx, input) => ctx.locks.cancel(ctx.callerIdentity(), input),
   }),
   release: def({
     kind: 'mutation',
@@ -116,7 +151,7 @@ const defs = {
   }),
   status: def({
     kind: 'query',
-    input: z.object({ repoPath: z.string(), name: z.string().min(1).optional() }),
+    input: z.object({ repoPath: z.string(), name: lockName.optional() }),
     action: 'read',
     cli: { positional: ['name'], summary: 'Show lock state (one lock or the whole repo).' },
     handler: (ctx, input) => ctx.locks.status(input),

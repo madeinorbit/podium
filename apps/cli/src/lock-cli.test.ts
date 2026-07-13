@@ -114,9 +114,10 @@ describe('runLockCli', () => {
     expect(sleep).toHaveBeenCalledTimes(2)
   })
 
-  it('acquire --wait times out with its own exit code (timeout capped at 540s)', async () => {
+  it('acquire --wait times out with its own exit code (timeout capped at 540s) and auto-cancels the waiter', async () => {
     const mutate = vi.fn(async () => queuedWire('l', 1))
-    const client = { lock: { acquire: { mutate } } } as never
+    const cancel = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { acquire: { mutate }, cancel: { mutate: cancel } } } as never
     let nowMs = 0
     const out = await runLockCli(
       ['acquire', 'l', '--repoPath', '/r', '--wait', '--timeout', '9999'],
@@ -130,6 +131,39 @@ describe('runLockCli', () => {
     )
     expect(out.exitCode).toBe(EXIT_WAIT_TIMEOUT)
     expect(out.text).toContain('timed out after 540s')
+    expect(cancel).toHaveBeenCalledWith({ repoPath: '/r', name: 'l' })
+  })
+
+  it('--wait timeout still exits 4 when the best-effort cancel fails', async () => {
+    const client = {
+      lock: {
+        acquire: { mutate: vi.fn(async () => queuedWire('l', 1)) },
+        cancel: {
+          mutate: vi.fn(async () => {
+            throw new Error('gone')
+          }),
+        },
+      },
+    } as never
+    let nowMs = 0
+    const out = await runLockCli(['acquire', 'l', '--repoPath', '/r', '--wait'], client, {
+      now: () => nowMs,
+      sleep: async () => {
+        nowMs += 600_000
+      },
+    })
+    expect(out.exitCode).toBe(EXIT_WAIT_TIMEOUT)
+  })
+
+  it('cancel leaves the queue (and merge-lock maps it onto merge:<branch>)', async () => {
+    const mutate = vi.fn(async () => ({ cancelled: true }))
+    const client = { lock: { cancel: { mutate } } } as never
+    const out = await runLockCli(mergeLockArgv(['cancel', '--repoPath', '/r']), client, {
+      group: 'merge-lock',
+    })
+    expect(out.exitCode).toBe(0)
+    expect(out.text).toContain("left the queue for 'merge:main'")
+    expect(mutate).toHaveBeenCalledWith({ repoPath: '/r', name: 'merge:main' })
   })
 
   it('status renders the repo listing and release its confirmation', async () => {

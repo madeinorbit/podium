@@ -155,7 +155,14 @@ export type IssueCommandName = (typeof ISSUE_COMMAND_NAMES)[number]
  * `satisfies`-checked against it and @podium/issue-client keys its
  * `IssueTrpc.lock` client shape off the same union.
  */
-export const LOCK_COMMAND_NAMES = ['acquire', 'release', 'renew', 'status', 'steal'] as const
+export const LOCK_COMMAND_NAMES = [
+  'acquire',
+  'cancel',
+  'release',
+  'renew',
+  'status',
+  'steal',
+] as const
 
 /** One lock-command def key — see {@link LOCK_COMMAND_NAMES}. */
 export type LockCommandName = (typeof LOCK_COMMAND_NAMES)[number]

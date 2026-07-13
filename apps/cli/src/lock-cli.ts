@@ -187,6 +187,14 @@ export async function runLockCli(
       const granted = (res.data as { granted?: boolean } | undefined)?.granted === true
       if (granted) return { text: res.text, exitCode: 0, data: res.data }
       if (now() >= deadline) {
+        // Best-effort: leave the wait queue on timeout so an abandoned --wait
+        // doesn't hold a queue slot until its session dies.
+        try {
+          await client.lock.cancel.mutate({
+            repoPath: validated.repoPath as string,
+            name: validated.name as string,
+          })
+        } catch {}
         return {
           text: `timed out after ${timeoutS}s waiting for '${validated.name}'\n${res.text}`,
           exitCode: EXIT_WAIT_TIMEOUT,

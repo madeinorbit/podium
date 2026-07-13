@@ -111,6 +111,20 @@ export const LOCK_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'cancel',
+    summary:
+      "Leave a lock's wait queue: cancel <name>. Errors if you are not queued (a holder uses release).",
+    args: z.object({ ...nameArg, ...repoArg }),
+    positionals: ['name'],
+    async run(c, a): Promise<IssueCommandResult> {
+      const r = (await c.lock.cancel.mutate({
+        repoPath: a.repoPath as string,
+        name: a.name as string,
+      })) as { cancelled: true }
+      return { text: `left the queue for '${a.name}'`, data: r }
+    },
+  },
+  {
     name: 'release',
     summary: 'Release a lock you hold: release <name>. The next queued waiter is granted.',
     args: z.object({ ...nameArg, ...repoArg }),
