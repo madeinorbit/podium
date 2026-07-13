@@ -475,7 +475,12 @@ export class TerminalView {
       const mod = ev.metaKey || ev.ctrlKey
       const key = ev.key.toLowerCase()
       // Copy: Cmd+C (mac) or Ctrl/Cmd+Shift+C, only when there is a selection.
+      // preventDefault, not just `return false`: returning false only skips
+      // xterm's handling — the BROWSER default still runs (Ctrl+Shift+C is
+      // Chrome's DevTools inspect-element shortcut; Cmd+C is the native copy,
+      // which could clobber the clipboard we just wrote with an empty DOM copy).
       if (mod && key === 'c' && (ev.metaKey || ev.shiftKey) && this.term.hasSelection()) {
+        ev.preventDefault()
         copySelection()
         return false
       }
