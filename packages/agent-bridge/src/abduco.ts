@@ -1,4 +1,5 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './pty/index.js'
@@ -85,21 +86,50 @@ function reclaimStaleScope(label: string): void {
   if (abducoHasSession(label)) return
   for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
     try {
-      spawnSync('systemctl', args, { stdio: 'ignore', timeout: 8000 })
+      spawnSync('systemctl', args, {
+        stdio: 'ignore',
+        timeout: 8000,
+        env: scopeEnv(process.env),
+      })
     } catch {
       // best-effort: no such unit / no systemd
     }
   }
 }
 
+/**
+ * The user manager's runtime dir. `XDG_RUNTIME_DIR` is only in the environment of
+ * logind sessions and `--user` units — a SYSTEM service with `User=` (the all-in-one
+ * `podium.service`) never gets it, which silently disabled scoping and put every
+ * master back in the service cgroup (the "all sessions die on redeploy" bug, again).
+ * Fall back to the fixed logind path `/run/user/<uid>`; it exists exactly when a
+ * user manager is running for us (login session or `loginctl enable-linger`).
+ */
+export function userRuntimeDir(): string | undefined {
+  if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR
+  if (process.platform !== 'linux' || typeof process.getuid !== 'function') return undefined
+  const dir = `/run/user/${process.getuid()}`
+  return existsSync(dir) ? dir : undefined
+}
+
+/** Env for systemd-run/systemctl `--user` calls: they locate the user bus via XDG_RUNTIME_DIR. */
+function scopeEnv(base: NodeJS.ProcessEnv): Record<string, string> {
+  const dir = userRuntimeDir()
+  return { ...base, ...(dir ? { XDG_RUNTIME_DIR: dir } : {}) } as Record<string, string>
+}
+
 let scopeChecked = false
 let scopeOk = false
+let scopeWarned = false
 
 /**
  * Whether the abduco master can be launched in its own systemd scope: a Linux
- * systemd *user* manager (XDG_RUNTIME_DIR present) with a working `systemd-run`.
- * `PODIUM_NO_SCOPE` forces it off (tests / non-systemd hosts). Memoized — the
- * answer can't change within a process.
+ * systemd *user* manager (see {@link userRuntimeDir}) that actually accepts a
+ * transient scope. The probe launches a real throwaway scope rather than checking
+ * `systemd-run --version`: a present binary with a dead/absent user manager (env
+ * var set but no lingering, container without logind) must read as NO here, or
+ * every spawn takes the failure path. `PODIUM_NO_SCOPE` forces it off (tests /
+ * non-systemd hosts). Memoized — the answer can't change within a process.
  */
 export function canScopeMaster(): boolean {
   if (scopeChecked) return scopeOk
@@ -107,8 +137,12 @@ export function canScopeMaster(): boolean {
   scopeOk =
     !process.env.PODIUM_NO_SCOPE &&
     process.platform === 'linux' &&
-    Boolean(process.env.XDG_RUNTIME_DIR) &&
-    spawnSync('systemd-run', ['--version'], { stdio: 'ignore' }).status === 0
+    userRuntimeDir() !== undefined &&
+    spawnSync('systemd-run', ['--user', '--scope', '--collect', '--quiet', '--', 'true'], {
+      stdio: 'ignore',
+      timeout: 8000,
+      env: scopeEnv(process.env),
+    }).status === 0
   return scopeOk
 }
 
@@ -304,11 +338,11 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
     stdio: 'ignore',
     cwd: opts.cwd ?? process.cwd(),
     env: {
-      ...process.env,
+      ...scopeEnv(process.env),
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       ...opts.env,
-    } as Record<string, string>,
+    },
   } as const
   // Create the master in its own systemd scope so it outlives a redeploy. `--scope`
   // runs in the foreground but returns the instant the create process exits — abduco
@@ -340,6 +374,13 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
         `[podium] systemd scope unavailable for ${opts.label}; session will NOT survive a podium restart: ${err instanceof Error ? err.message : String(err)}`,
       )
     }
+  } else if (process.platform === 'linux' && !process.env.PODIUM_NO_SCOPE && !scopeWarned) {
+    // Same degradation as the catch above, but on the no-user-manager path (system
+    // service without lingering). Once per process, not per session.
+    scopeWarned = true
+    console.warn(
+      '[podium] no systemd user manager reachable (XDG_RUNTIME_DIR/linger missing?); durable sessions will NOT survive a podium restart — run `loginctl enable-linger <user>`',
+    )
   }
   execFileSync(bin, createArgs, execOpts)
   return attachAbducoAgent({

@@ -16,6 +16,7 @@ import {
   scopeReclaimArgvs,
   spawnAbducoAgent,
   systemdScopeArgv,
+  userRuntimeDir,
 } from './abduco.js'
 import { spawnAgent } from './session'
 
@@ -78,6 +79,39 @@ describe('abduco command builders', () => {
       ['--user', 'stop', 'podium-1.scope'],
       ['--user', 'reset-failed', 'podium-1.scope'],
     ])
+  })
+})
+
+describe('userRuntimeDir', () => {
+  it('prefers XDG_RUNTIME_DIR when the environment provides it', () => {
+    const prev = process.env.XDG_RUNTIME_DIR
+    process.env.XDG_RUNTIME_DIR = '/run/user/424242'
+    try {
+      expect(userRuntimeDir()).toBe('/run/user/424242')
+    } finally {
+      if (prev === undefined) delete process.env.XDG_RUNTIME_DIR
+      else process.env.XDG_RUNTIME_DIR = prev
+    }
+  })
+
+  it('falls back to /run/user/<uid> when unset (system service with User=) if it exists', () => {
+    // A system unit with `User=` never gets XDG_RUNTIME_DIR from logind, which used
+    // to silently disable scoping and park every master in the service cgroup — the
+    // "all sessions die when podium.service restarts" bug.
+    const prev = process.env.XDG_RUNTIME_DIR
+    delete process.env.XDG_RUNTIME_DIR
+    try {
+      const dir = userRuntimeDir()
+      if (process.platform === 'linux' && typeof process.getuid === 'function') {
+        const logind = `/run/user/${process.getuid()}`
+        expect(dir === undefined || dir === logind).toBe(true)
+      } else {
+        expect(dir).toBeUndefined()
+      }
+    } finally {
+      if (prev === undefined) delete process.env.XDG_RUNTIME_DIR
+      else process.env.XDG_RUNTIME_DIR = prev
+    }
   })
 })
 
