@@ -567,8 +567,21 @@ seam once.
   (`apps/daemon/src/control/exec.ts:17`), which currently passes no env at all.
 - Accounts hub: paste an `ANTHROPIC_API_KEY` or a `setup-token` result; drop
   "Coming soon" for these two.
-- Session row records `account_id`; reattach/resurrect re-inject identically.
+- Resurrect re-injects identically (reattach needs nothing — it joins a living
+  master whose env is already set).
+- ~~Session row records `account_id`~~ — **deferred, see below.**
 - *Delivers:* "connect an account once on the server, any daemon runs on it."
+
+> **Correction while planning #216 (2026-07-13):** persisting `account_id` on the
+> session row is **not** needed in Phase 1 and has been dropped from it. The
+> resolver reads settings live at spawn, exactly as the existing `modelDefaults()`
+> already does for `model` and `effort` — so a resurrected session picks up the
+> *current* account, not the one it was born with. That is correct here: both
+> Phase 1 credentials are account-wide, long-lived, and nothing about a transcript
+> is bound to them. It stops being correct in **Phase 5**, where
+> `CLAUDE_CONFIG_DIR` relocates transcripts and a session's identity really does
+> bind to its account. The column belongs there, not here. Adding it early would
+> be a schema commitment made before the constraint that shapes it exists.
 
 **Phase 1.5 — At-rest encryption + redaction.** AES-256-GCM, `PODIUM_MASTER_KEY`,
 credential redaction in the protocol logger. **Gates #214 and Phase 5**, not the
