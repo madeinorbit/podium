@@ -3,6 +3,7 @@
  */
 export * from './connection'
 export * from './dom-viewport'
+export * from './echo-latency'
 export * from './keys'
 export * from './prompt-extract'
 export * from './session-mount'

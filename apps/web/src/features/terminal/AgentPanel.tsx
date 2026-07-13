@@ -52,6 +52,7 @@ import { useVoiceInput } from '@/lib/voice'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
 import { TERMINAL_DEFAULTS } from './appearance'
+import { EchoHud, echoHudEnabled } from './EchoHud'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -767,6 +768,7 @@ export function AgentPanel({
                 <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
               </Button>
             )}
+            {echoHudEnabled() && <EchoHud hub={hub} mountedRef={mountedRef} />}
           </div>
           {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the
               Blink-style arrow D-pad, then voice. D-pad left of the mic so the right

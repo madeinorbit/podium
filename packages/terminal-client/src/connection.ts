@@ -19,6 +19,7 @@ import {
   type SyncChangesSinceResultLenient,
   type TranscriptItem,
 } from '@podium/protocol'
+import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 
 export interface WebSocketLike {
   send(data: string): void
@@ -1185,6 +1186,7 @@ export class SessionConnection {
   private rows: number
   private epoch = 0
   private lastSeq = -1
+  private readonly echo = new EchoLatencyTracker()
 
   constructor(
     hub: SocketHub,
@@ -1209,7 +1211,13 @@ export class SessionConnection {
   }
 
   sendInput(bytes: string): void {
+    this.echo.onInput(Date.now())
     this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
+  }
+
+  /** Keystroke→echo latency over the last 30s — see {@link EchoLatencyTracker}. */
+  echoLatency(): EchoLatencyStats {
+    return this.echo.stats(Date.now())
   }
 
   sendResize(cols: number, rows: number): void {
@@ -1264,6 +1272,7 @@ export class SessionConnection {
     outputFrame: (msg) => {
       this.lastSeq = msg.seq
       this.epoch = msg.epoch
+      this.echo.onOutput(Date.now())
       this.emit()
       this.cb.onFrame?.(fromBase64Utf8(msg.data))
     },

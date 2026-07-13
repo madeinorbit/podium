@@ -319,6 +319,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   if (opts.test) {
     ;(globalThis as unknown as { __podium?: unknown }).__podium = {
       state: () => connection.state(),
+      echoLatency: () => connection.echoLatency(),
       screenHash: () => view.screenHash(),
       screenText: () => view.screenText(),
       sendInput: (s: string) => connection.sendInput(s),
