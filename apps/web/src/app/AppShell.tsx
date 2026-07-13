@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { HostStatusBar } from '@/features/machines/HostIndicators'
-import { SearchView } from '@/features/search/SearchView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
@@ -96,8 +95,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     setSuperOpen,
     paletteOpen,
     setPaletteOpen,
-    searchOpen,
-    setSearchOpen,
     uiState,
   } = useStoreSelector(
     (s) => ({
@@ -107,8 +104,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       setSuperOpen: s.setSuperOpen,
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
-      searchOpen: s.searchOpen,
-      setSearchOpen: s.setSearchOpen,
       uiState: s.uiState,
     }),
     shallowEqual,
@@ -223,9 +218,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
           <HostStatusBar />
         </div>
       )}
-      {/* Route-backed conversation search (/search or ?search=1) — rendered at
-          shell level so both chromes share it and back closes it. */}
-      {searchOpen && <SearchView onClose={() => setSearchOpen(false)} />}
       <AutoContinueDialog />
       <CommandPalette />
     </>
