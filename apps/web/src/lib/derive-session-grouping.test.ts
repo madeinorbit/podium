@@ -66,10 +66,7 @@ describe('groupSessionsByParent', () => {
     const a = sess('a', { spawnedBy: 'session:b' })
     const b = sess('b', { spawnedBy: 'session:a' })
     const groups = groupSessionsByParent([a, b])
-    const ids = groups.flatMap((g) => [
-      g.session.sessionId,
-      ...g.children.map((s) => s.sessionId),
-    ])
+    const ids = groups.flatMap((g) => [g.session.sessionId, ...g.children.map((s) => s.sessionId)])
     expect(ids.sort()).toEqual(['a', 'b'])
   })
 })

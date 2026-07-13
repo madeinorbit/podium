@@ -2,7 +2,6 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { resolveAbducoBin } from './abduco-bin.js'
 import {
   abducoAttachArgv,
   abducoCreateArgv,
@@ -18,6 +17,7 @@ import {
   systemdScopeArgv,
   userRuntimeDir,
 } from './abduco.js'
+import { resolveAbducoBin } from './abduco-bin.js'
 import { spawnAgent } from './session'
 
 describe('abduco command builders', () => {

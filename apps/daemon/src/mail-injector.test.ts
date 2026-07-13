@@ -12,7 +12,7 @@ describe('mail injector', () => {
   it('blocks on Stop when the issue has unread mail', async () => {
     const inj = createMailInjector(unreadRelay(2))
     const body = await inj.respondTo('s1', { hook_event_name: 'Stop', stop_hook_active: false })
-    const parsed = JSON.parse(body!)
+    const parsed = JSON.parse(body ?? 'null')
     expect(parsed.decision).toBe('block')
     expect(parsed.reason).toContain('podium issue mail inbox')
     expect(parsed.reason).toContain('podium issue mail claim')
@@ -24,7 +24,7 @@ describe('mail injector', () => {
       result: { unread: 2, senders: ['issue:#212', 'superagent'] },
     }))
     const body = await inj.respondTo('s1', { hook_event_name: 'Stop' })
-    const parsed = JSON.parse(body!)
+    const parsed = JSON.parse(body ?? 'null')
     expect(parsed.reason).toContain('2 message(s) from issue:#212, superagent')
     expect(parsed.reason).toContain('podium issue mail inbox')
   })
@@ -118,7 +118,7 @@ describe('ack reminder injector (#237) [spec:SP-34d7 acks]', () => {
       ]),
     )
     const body = await inj.respondTo('s1', { hook_event_name: 'Stop' })
-    const parsed = JSON.parse(body!)
+    const parsed = JSON.parse(body ?? 'null')
     expect(parsed.decision).toBe('block')
     expect(parsed.reason).toContain('podium mail reply msg_1')
     expect(parsed.reason).toContain('podium mail reply msg_2')

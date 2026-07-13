@@ -11,7 +11,7 @@ import { z } from 'zod'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
-import { type MessageDeliveryService, senderFromCapability } from './service'
+import { type MessageDeliveryService, SPAWN_BUDGET_PER_DAY, senderFromCapability } from './service'
 
 const sendInput = z.object({
   to: z.string().min(1),
@@ -205,15 +205,25 @@ export class MessageGate {
   ): MessageWire[] {
     const svc = this.deps.messages()
     if (input?.issue) {
-      // Peek at a named issue's box: a read (scope-free, like mailInbox peeks) —
-      // never consumes queued status unless it IS the caller's own issue.
+      // Peek at a named issue's box — never consumes queued status unless it
+      // IS the caller's own issue. Cross-SCOPE peeks are body-filtered: the
+      // substrate carries richer traffic than legacy issue mail (operator ↔
+      // issue in unrelated subtrees), so outside the caller's subtree only
+      // rows it could mayView (sent or received) come back.
       const id = this.deps.issues().resolveRef(input.issue)
-      const own =
-        caller.capability.scope.kind === 'subtree' && caller.capability.scope.rootId === id
+      const scope = caller.capability.scope
+      const own = scope.kind === 'subtree' && scope.rootId === id
+      const inScope =
+        scope.kind === 'all' ||
+        own ||
+        (scope.kind === 'subtree' &&
+          scope.rootId !== undefined &&
+          this.deps.issues().ancestorIds(id).includes(scope.rootId))
       const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
-      return svc
-        .readInbox([{ kind: 'issue', id }], consume !== undefined ? { consume } : {})
-        .map((m) => this.wire(m))
+      const rows = svc.readInbox([{ kind: 'issue', id }], consume !== undefined ? { consume } : {})
+      return (inScope ? rows : rows.filter((m) => this.mayView(caller.capability, m))).map((m) =>
+        this.wire(m),
+      )
     }
     const principals = this.callerPrincipals(caller.capability)
     if (principals.length === 0) throw new Error('no mailbox bound to this caller')
@@ -241,7 +251,10 @@ export class MessageGate {
     if (caller.capability.scope.kind !== 'all') {
       throw new Error('the message ledger is an operator surface')
     }
-    return this.deps.messages().ledger(input).map((m) => this.wire(m))
+    return this.deps
+      .messages()
+      .ledger(input)
+      .map((m) => this.wire(m))
   }
 
   private reply(caller: { capability: Capability }, input: z.infer<typeof replyInput>): unknown {
@@ -321,6 +334,25 @@ export class MessageGate {
     }
     const issue = issues.get(issueId)
     if (!issue) throw new Error(`unknown issue ${issueId}`)
+    // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
+    // the same per-issue daily budget as the spawn-on-wake seam, or a looping
+    // agent (or its spawned children re-spawning) fork-bombs the host with
+    // full PTY sessions. Operator intent is never braked.
+    const budgeted = caller.capability.scope.kind !== 'all'
+    if (budgeted && !this.deps.messages().takeSpawnBudget(issueId).ok) {
+      try {
+        this.deps.appendEvent?.({
+          ts: this.deps.now?.() ?? new Date().toISOString(),
+          kind: 'agent.spawn_budget_exhausted',
+          subject: issueId,
+          payload: { issueId, caller: caller.capability.actorSessionId ?? null },
+        })
+      } catch {}
+      throw new Error(
+        `spawn budget exhausted for issue #${issue.seq} (${SPAWN_BUDGET_PER_DAY}/day); ` +
+          'message the issue instead, or ask the operator',
+      )
+    }
     if (input.worktree && !issue.worktreePath) {
       // Starting an issue (worktree + branch) stays a deliberate coordinator
       // action — podium issue start owns that flow; spawn never forks a second one.
@@ -355,6 +387,9 @@ export class MessageGate {
           sessionId,
           issueId,
           spawnedBy,
+          // budgetIssue rides the durable event so brake 2 survives restarts
+          // (spawnCountFor counts it); absent on unbudgeted operator spawns.
+          ...(budgeted ? { budgetIssue: issueId } : {}),
           harness: input.harness ?? issue.defaultAgent,
           ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
           ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -389,15 +424,21 @@ export class MessageGate {
     const sleep = this.deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
     const principals = this.callerPrincipals(caller.capability)
     const deadline = Date.now() + timeoutMs
+    // Only acks SINCE THE WAIT BEGAN count (the documented contract) — a stale
+    // ack from a previous round must not satisfy a new await, or the parent
+    // believes new work finished when the child never acked the new instruction.
+    const waitStart = this.deps.now?.() ?? new Date().toISOString()
     // biome-ignore lint/nursery/noConstantCondition: loop exits via return
     for (;;) {
       const s = this.deps.listSessions().find((x) => x.sessionId === input.sessionId)
       if (!s) return { done: true, result: 'gone', snapshot: null }
       // Rich agent ack first (it carries WHAT the child did): the child's most
-      // recent ack addressed back to this caller.
+      // recent ack addressed back to this caller since the wait began.
       const ack = svc
         .inbox(principals, { limit: 50 })
-        .filter((m) => m.kind === 'ack' && m.fromSession === input.sessionId)
+        .filter(
+          (m) => m.kind === 'ack' && m.fromSession === input.sessionId && m.createdAt >= waitStart,
+        )
         .at(-1)
       if (ack) return { done: true, result: 'acked', ack: this.wire(ack), snapshot: snap(s) }
       // … else a settle (parked, or the harness reports a settled phase).

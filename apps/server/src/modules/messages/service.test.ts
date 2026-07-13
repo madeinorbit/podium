@@ -1013,6 +1013,21 @@ describe('substrate body sanitizer (PTY bracketed-paste escape)', () => {
     expect(sent[0]!.text).toBe(body)
   })
 
+  it('an operator QUESTION renders the reply frame around the byte-faithful body', () => {
+    // The ask round-trip needs the message id + reply pointer or the target
+    // can never ack — the ONE exception to unwrapped-operator delivery.
+    const { svc, sent } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, kind: 'question', body: `raw${BEL}bytes?` },
+    )
+    const text = sent[0]?.text ?? ''
+    expect(text).toContain(`[podium message ${r.message.id} · from the operator`)
+    expect(text).toContain(`podium mail reply ${r.message.id}`)
+    expect(text).toContain('this is a question')
+    expect(text).toContain(`raw${BEL}bytes?`) // still byte-faithful
+  })
+
   it('the SAME control-laden body from an agent is still neutralized + enveloped', () => {
     const body = `a${PASTE_END}b${BEL}c\rd${C1_ST}e`
     const { svc, sent } = harness([session({ sessionId: 's1' })])
@@ -1185,5 +1200,28 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     await expect(
       gate.dispatch(peerCap, undefined, 'send', { to: SENDER_ISSUE.id, body: 'self note' }),
     ).resolves.toMatchObject({ ok: true })
+  })
+
+  it('a cross-scope issue inbox peek only returns rows the caller could view', async () => {
+    const { svc } = harness([])
+    const gate = gateFor(svc)
+    // Operator ↔ issue traffic in ANOTHER subtree must not leak to a peer.
+    svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'operator note' })
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'my own note' },
+    )
+    const peek = (await gate.dispatch(peerCap, undefined, 'inbox', {
+      issue: ISSUE.id,
+    })) as { body: string; status: string }[]
+    expect(peek.map((m) => m.body)).toEqual(['my own note']) // sender may re-read its own
+    // ...and the peek never consumed anything (pure read).
+    expect(peek[0]?.status).toBe('queued')
+    // The operator's peek is unrestricted.
+    const operatorCap: Capability = { role: 'admin', scope: { kind: 'all' } }
+    const all = (await gate.dispatch(operatorCap, undefined, 'inbox', {
+      issue: ISSUE.id,
+    })) as unknown[]
+    expect(all).toHaveLength(2)
   })
 })

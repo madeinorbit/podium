@@ -133,7 +133,10 @@ export function MessageLedgerView({
   }, [refresh])
   const now = Date.now()
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2.5" data-testid="message-ledger">
+    <div
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2.5"
+      data-testid="message-ledger"
+    >
       <div className="flex items-center gap-1.5 pb-1.5 text-[10.5px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
         <MailIcon size={12} aria-hidden="true" />
         Message ledger

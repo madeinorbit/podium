@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  clampSummary,
-  deliveryLine,
-  type LedgerMessage,
-  ledgerStatusTone,
-} from './message-ledger'
+import { clampSummary, deliveryLine, type LedgerMessage, ledgerStatusTone } from './message-ledger'
 
 const base: LedgerMessage = {
   id: 'msg_1',

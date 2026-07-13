@@ -114,11 +114,11 @@ export class MessagesRepository {
     const ors: string[] = []
     const params: unknown[] = []
     if (q.issueId) {
-      ors.push("from_issue = ?", "(to_kind = 'issue' AND to_id = ?)")
+      ors.push('from_issue = ?', "(to_kind = 'issue' AND to_id = ?)")
       params.push(q.issueId, q.issueId)
     }
     if (q.sessionId) {
-      ors.push("from_session = ?", "(to_kind = 'session' AND to_id = ?)", 'delivered_to = ?')
+      ors.push('from_session = ?', "(to_kind = 'session' AND to_id = ?)", 'delivered_to = ?')
       params.push(q.sessionId, q.sessionId, q.sessionId)
     }
     if (ors.length === 0) return []

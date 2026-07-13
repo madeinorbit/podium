@@ -7,7 +7,7 @@ import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../../store'
 import type { IssueService } from '../issues/service'
-import { MessageDeliveryService, type MessageDeliveryDeps } from './service'
+import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake, spawnedByForMessage } from './spawn'
 
 const ISSUE = {

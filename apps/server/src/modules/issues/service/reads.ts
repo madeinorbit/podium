@@ -247,11 +247,13 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       .sort((a, b) => a.seq - b.seq)
     const toks = new Map(open.map((r) => [r.id, tokenize(`${r.title} ${r.description}`)]))
     const out: DuplicateCandidate[] = []
-    for (let i = 0; i < open.length; i++) {
-      for (let j = i + 1; j < open.length; j++) {
-        const a = open[i]!
-        const b = open[j]!
-        const score = jaccard(toks.get(a.id)!, toks.get(b.id)!)
+    for (const [i, a] of open.entries()) {
+      const ta = toks.get(a.id)
+      if (!ta) continue
+      for (const b of open.slice(i + 1)) {
+        const tb = toks.get(b.id)
+        if (!tb) continue
+        const score = jaccard(ta, tb)
         if (score >= threshold) out.push({ a: a.id, b: b.id, score })
       }
     }

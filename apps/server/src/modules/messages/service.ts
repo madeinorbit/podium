@@ -855,22 +855,39 @@ export class MessageDeliveryService {
   }
 
   /** Today's spawn count for an issue key — in-memory cache over the durable
-   *  `message.spawned` event ledger, so a restart never resets brake 2. */
+   *  event ledger (`message.spawned` from the wake seam, plus `agent.spawned`
+   *  rows that carry `budgetIssue` — the gate's budgeted agent spawns), so a
+   *  restart never resets brake 2. */
   private spawnCountFor(key: string, day: string): number {
     const entry = this.spawnCount.get(key)
     if (entry?.day === day) return entry.count
     let count = 0
     try {
       for (const e of this.deps.events.listEventsSince(0, {
-        kinds: ['message.spawned'],
+        kinds: ['message.spawned', 'agent.spawned'],
         limit: 5000,
       })) {
-        const p = e.payload as { spawnIssue?: string } | null
-        if (e.ts.slice(0, 10) === day && (p?.spawnIssue ?? 'no-issue') === key) count++
+        const p = e.payload as { spawnIssue?: string; budgetIssue?: string } | null
+        // agent.spawned rows only count when budgeted (operator spawns are free).
+        const k = e.kind === 'agent.spawned' ? p?.budgetIssue : (p?.spawnIssue ?? 'no-issue')
+        if (k !== undefined && e.ts.slice(0, 10) === day && k === key) count++
       }
     } catch {}
     this.spawnCount.set(key, { day, count })
     return count
+  }
+
+  /** Brake 2 for DIRECT agent spawns (`podium agent spawn`) — the gate shares
+   *  the same per-issue daily budget as the spawn-on-wake seam, or a looping
+   *  agent could fork-bomb the host with full PTY sessions the wake budget
+   *  never sees [spec:SP-34d7 containment]. Consumes one unit when available. */
+  takeSpawnBudget(issueId: string | null): { ok: boolean; count: number } {
+    const key = issueId ?? 'no-issue'
+    const day = this.deps.now().slice(0, 10)
+    const count = this.spawnCountFor(key, day)
+    if (count >= SPAWN_BUDGET_PER_DAY) return { ok: false, count }
+    this.spawnCount.set(key, { day, count: count + 1 })
+    return { ok: true, count: count + 1 }
   }
 
   /** The cooldown key of a stored row — MUST mirror recordWake/send: session
@@ -925,8 +942,15 @@ export class MessageDeliveryService {
     }
     // Operator bodies are BYTE-FAITHFUL: the human's bytes are their own —
     // they can already type anything directly into their own terminal, so
-    // there is no escalation to prevent. Unwrapped AND unsanitized.
-    if (message.fromKind === 'operator') return message.body
+    // there is no escalation to prevent. Unwrapped AND unsanitized. The ONE
+    // exception is a question [spec:SP-34d7 read-toolkit tier 4]: the ask
+    // round-trip needs the reply frame (message id + `podium mail reply`) or
+    // the target can never ack and awaitAck always times out — so operator
+    // questions render the frame around the still-byte-faithful body.
+    if (message.fromKind === 'operator') {
+      if (message.kind !== 'question') return message.body
+      return renderEnvelope(message, 'the operator', this.toLabel(message))
+    }
     // Substrate boundary: every NON-operator delivered body is control-stripped
     // so it can never break out of the bracketed paste (ESC[201~) in typeText.
     const body = sanitizeBody(message.body)
