@@ -84,31 +84,59 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const eligible = (): boolean => active && pageVisible()
 
   // fit-with-retry: a measurable container fits immediately; an unmeasurable one
-  // (just-revealed, layout not settled) retries across rAFs. onMeasured runs once
-  // a grid is obtained.
-  const MAX_FIT_RETRIES = 10
-  let fitRunning = false
-  function fitWithRetry(onMeasured: (grid: Grid) => void): void {
-    const grid = view.fit()
-    if (grid) {
-      onMeasured(grid)
+  // (just-revealed, layout not settled) retries across rAFs, then falls back to a
+  // few longer timeouts — layout after a heavy workspace remount (or a web-font
+  // load) can take well past 10 frames, and a fixed rAF cap that then gives up
+  // FOREVER left panes wrapped at a stale tiny grid until a window resize (#29).
+  // A new request RESTARTS the schedule with the newest onMeasured (it never
+  // drops the request — the old code silently discarded fits that arrived while
+  // a retry loop was in flight, so the ResizeObserver backstop could lose the
+  // one event that carried the real size). onMeasured runs once a grid is
+  // obtained; a request that outlives every backstop is abandoned — the next
+  // viewport change or reveal schedules a fresh one.
+  const RAF_FIT_RETRIES = 10
+  const SLOW_FIT_DELAYS_MS = [250, 500, 1000]
+  let fitAttempt = 0
+  let fitRaf: number | undefined
+  let fitTimer: ReturnType<typeof setTimeout> | undefined
+  let onFitMeasured: ((grid: Grid) => void) | null = null
+  function cancelScheduledFit(): void {
+    if (fitRaf !== undefined) cancelAnimationFrame(fitRaf)
+    if (fitTimer !== undefined) clearTimeout(fitTimer)
+    fitRaf = undefined
+    fitTimer = undefined
+    onFitMeasured = null
+  }
+  function tryScheduledFit(): void {
+    fitRaf = undefined
+    fitTimer = undefined
+    // Hidden again mid-schedule: abandon — a hidden pane must never drive the PTY
+    // size. The next reveal/viewport change schedules a fresh fit.
+    if (!eligible()) {
+      onFitMeasured = null
       return
     }
-    if (fitRunning) return
-    fitRunning = true
-    let attempts = 0
-    const retry = (): void => {
-      attempts += 1
-      const g = view.fit()
-      if (g) {
-        fitRunning = false
-        onMeasured(g)
-        return
-      }
-      if (attempts < MAX_FIT_RETRIES) requestAnimationFrame(retry)
-      else fitRunning = false
+    const grid = view.fit()
+    if (grid) {
+      const cb = onFitMeasured
+      onFitMeasured = null
+      cb?.(grid)
+      return
     }
-    requestAnimationFrame(retry)
+    fitAttempt += 1
+    if (fitAttempt <= RAF_FIT_RETRIES) {
+      fitRaf = requestAnimationFrame(tryScheduledFit)
+      return
+    }
+    const delay = SLOW_FIT_DELAYS_MS[fitAttempt - RAF_FIT_RETRIES - 1]
+    if (delay !== undefined) fitTimer = setTimeout(tryScheduledFit, delay)
+    else onFitMeasured = null
+  }
+  function fitWithRetry(onMeasured: (grid: Grid) => void): void {
+    cancelScheduledFit()
+    fitAttempt = 0
+    onFitMeasured = onMeasured
+    tryScheduledFit()
   }
 
   function applyFit(forceRedrawIfSame: boolean): void {
@@ -263,8 +291,21 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     connection.sendInput(toolbar ? toolbar.applyModifiers(data) : data),
   )
 
+  // Container-size changes (ResizeObserver + visualViewport) re-fit the grid. This
+  // is the backstop that catches EVERY layout path — pane drags, dock toggles, and
+  // the display:none → visible transition (ResizeObserver fires on it) — not just
+  // window resizes. Debounced: a layout transition emits a burst of intermediate
+  // sizes, and fitting each one would sendResize → SIGWINCH-flash the TUI per step.
+  const VIEWPORT_FIT_DEBOUNCE_MS = 60
+  let viewportFitTimer: ReturnType<typeof setTimeout> | undefined
   const viewport = new DomViewportSource(el)
-  const offViewport = viewport.onChange(() => applyFit(false))
+  const offViewport = viewport.onChange(() => {
+    if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
+    viewportFitTimer = setTimeout(() => {
+      viewportFitTimer = undefined
+      applyFit(false)
+    }, VIEWPORT_FIT_DEBOUNCE_MS)
+  })
 
   const onVisibility = (): void => {
     if (eligible()) reveal() // page returning to the foreground is a reveal (canvas was freed)
@@ -333,6 +374,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     },
     dispose() {
       if (readyTimer !== undefined) clearTimeout(readyTimer)
+      if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
+      cancelScheduledFit()
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)
       }
