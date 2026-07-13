@@ -38,6 +38,7 @@ import { up as issuesRepoIdIndex } from './008-issues-repo-id-index'
 import { up as issuesAudience } from './009-issues-audience'
 import { up as issuesDropVerifyingStage } from './010-issues-drop-verifying-stage'
 import { up as issueSessionSoftDelete } from './011-issues-soft-delete'
+import { up as approvalRequests } from './012-approval-requests'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -67,6 +68,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 9, name: 'issues-audience', up: issuesAudience },
   { version: 10, name: 'issues-drop-verifying-stage', up: issuesDropVerifyingStage },
   { version: 11, name: 'issue-session-soft-delete', up: issueSessionSoftDelete },
+  { version: 12, name: 'approval-requests', up: approvalRequests },
 ]
 
 /** Highest schema version the running code knows about. */

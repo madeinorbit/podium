@@ -7,6 +7,7 @@ import {
   type HostMetricsWire,
   type IssueWire,
   isKnownMetadataChange,
+  type ApprovalWire,
   type MachineWire,
   type MetadataChange,
   type MetadataChangeLenient,
@@ -202,6 +203,8 @@ export interface HubEvents {
   conversations: [conversations: ConversationSummaryWire[]]
   hostMetrics: [hosts: HostMetricsWire[]]
   machines: [machines: MachineWire[]]
+  /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
+  approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
   issues: [issues: IssueWire[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
@@ -234,6 +237,7 @@ export class SocketHub {
   private conversationList: ConversationSummaryWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
+  private approvalsList: ApprovalWire[] = []
   private issueList: IssueWire[] = []
   // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
   /** Last applied oplog seq; null until the first changesSince completes. */
@@ -967,6 +971,10 @@ export class SocketHub {
     machinesChanged: (msg) => {
       this.machinesList = msg.machines
       this.emit('machines', this.machinesList)
+    },
+    approvalsChanged: (msg) => {
+      this.approvalsList = msg.pending
+      this.emit('approvals', this.approvalsList)
     },
     // Session-scoped terminal stream: forwarded to the matching SessionConnection
     // (or dropped when no view is attached — same as the old fall-through arm).

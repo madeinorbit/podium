@@ -35,6 +35,7 @@ import { SyncRepository } from '@podium/sync'
 import { MIGRATIONS, runMigrations } from './migrations/index'
 import { AuthRepository } from './store/auth'
 import { ConversationsRepository } from './store/conversations'
+import { ApprovalsRepository } from './store/approvals'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
 import { MachinesRepository } from './store/machines'
@@ -63,6 +64,7 @@ export class SessionStore {
   readonly settings: SettingsRepository
   readonly machines: MachinesRepository
   readonly events: EventsRepository
+  readonly approvals: ApprovalsRepository
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -91,6 +93,7 @@ export class SessionStore {
     this.repos = new ReposRepository(this.db, (repoId, repoPath) =>
       this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
     )
+    this.approvals = new ApprovalsRepository(this.db)
     this.conversations = new ConversationsRepository(this.db)
     this.sync = new SyncRepository(this.db)
     this.auth = new AuthRepository(this.db)

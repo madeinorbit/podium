@@ -257,6 +257,36 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['session', '--help'])).toEqual({ kind: 'session', args: ['--help'] })
     expect(plan({}, ['worktree', '--help'])).toEqual({ kind: 'worktree', args: ['--help'] })
   })
+  it('approval broker: agent sessions turn management ops into requests (#410)', () => {
+    const agent = { PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1' }
+    expect(plan({}, ['update'], agent)).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'update' },
+    })
+    expect(plan({}, ['stop'], agent)).toEqual({ kind: 'approval-request', op: { kind: 'stop' } })
+    expect(plan({}, ['channel', 'edge'], agent)).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'channel', target: 'edge' },
+    })
+    expect(plan({}, ['channel', 'nope'], agent)).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['set-server', 'wss://x'], agent)).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'set-server', target: 'wss://x' },
+    })
+    // status polling; outside agent sessions the command explains itself
+    expect(plan({}, ['approval', 'status', 'apr_1'], agent)).toEqual({
+      kind: 'approval-status',
+      id: 'apr_1',
+    })
+    expect(plan({}, ['approval', 'status', 'apr_1'])).toMatchObject({ kind: 'usage-error' })
+    // outside an agent session management ops run directly, as ever
+    expect(plan({}, ['update'])).toMatchObject({ kind: 'update' })
+    expect(plan({}, ['stop'])).toEqual({ kind: 'stop' })
+    // work tools stay direct inside agent sessions
+    expect(plan({}, ['issue', 'ready'], agent)).toEqual({ kind: 'issue', args: ['ready'] })
+    expect(plan({}, ['status'], agent)).toEqual({ kind: 'status' })
+  })
+
   it('version: version/--version/-v', () => {
     expect(plan({}, ['version'])).toEqual({ kind: 'version' })
     expect(plan({}, ['--version'])).toEqual({ kind: 'version' })

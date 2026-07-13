@@ -6,6 +6,7 @@ import {
   ScanResultMessage,
 } from './discovery'
 import { FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage, DirListResultMessage, ImageUploadResultMessage } from './files'
+import { ApprovalExecResultMessage } from './approvals'
 import { HarnessExecResultMessage } from './harness'
 import { HeadlessBindResultMessage, HeadlessTurnEventMessage, HeadlessTurnResultMessage } from './headless'
 import { AgentQuotaResultMessage, HostMetricsMessage, MemoryBreakdownResultMessage, UsageResultMessage } from './host'
@@ -51,6 +52,7 @@ export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   IssueRelayRequestMessage,
+  ApprovalExecResultMessage,
   HarnessExecResultMessage,
   HeadlessTurnEventMessage,
   HeadlessTurnResultMessage,

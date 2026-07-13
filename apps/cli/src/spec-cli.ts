@@ -67,7 +67,9 @@ export async function runSpecCli(argv: string[], client: IssueTrpc): Promise<str
   }
   const parsed = cmd.args.safeParse(stripGlobalFlags(args))
   if (!parsed.success) {
-    throw new IssueCliError(`invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`)
+    throw new IssueCliError(
+      `invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`,
+    )
   }
   const res = await cmd.run(client, parsed.data as Record<string, unknown>)
   return args.json === true

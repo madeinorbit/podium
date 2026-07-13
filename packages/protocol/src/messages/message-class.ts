@@ -69,6 +69,9 @@ export const SERVER_MESSAGE_CLASS = {
   machinesChanged: 'live',
   hostMetricsChanged: 'live',
   attentionEvent: 'live',
+  // Approval-broker snapshot (small pending list) — re-broadcast on change and
+  // on attach; not an oplog entity.
+  approvalsChanged: 'live',
 } as const satisfies Record<ServerMessage['type'], 'durable' | 'live'>
 
 /** The message types a raw (non-funnel) send may carry. */
@@ -132,6 +135,7 @@ export const CONTROL_MESSAGE_CLASS = {
   fileAssetRequest: 'command',
   fileWriteRequest: 'command',
   dirListRequest: 'command',
+  approvalExecRequest: 'command',
 } as const satisfies Record<ControlMessage['type'], MessageSyncClass>
 
 /** Daemon→server classification. PTY/agent-runtime streams are `live` (mirrors
@@ -172,4 +176,5 @@ export const DAEMON_MESSAGE_CLASS = {
   fileAssetResult: 'command',
   fileWriteResult: 'command',
   dirListResult: 'command',
+  approvalExecResult: 'command',
 } as const satisfies Record<DaemonMessage['type'], MessageSyncClass>

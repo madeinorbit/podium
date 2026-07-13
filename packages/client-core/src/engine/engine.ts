@@ -27,6 +27,7 @@ import type {
   GitRepositoryWire,
   HostMetricsWire,
   IssueWire,
+  ApprovalWire,
   MachineWire,
   SessionMeta,
   WorkState,
@@ -145,6 +146,8 @@ interface EngineState {
   pendingSpawnIds: ReadonlySet<string>
   hostMetrics: HostMetricsWire[]
   machines: MachineWire[]
+  /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
+  approvals: ApprovalWire[]
   pins: PinState
   tabOrders: Record<string, string[]>
   view: MainView
@@ -316,6 +319,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       pendingSpawnIds: EMPTY_ID_SET,
       hostMetrics: [],
       machines: [],
+      approvals: [],
       pins: EMPTY_PINS,
       tabOrders: {},
       view: route.view,
@@ -402,6 +406,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
     offs.push(this.hub.on('hostMetrics', (m) => this.apply({ hostMetrics: m })))
+    offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Repos are only scannable through a connected daemon, so a machine coming
     // online (e.g. the split daemon reconnecting after a restart) can make
     // previously-empty repos available. Refetch when the online count climbs, so
@@ -1091,6 +1096,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           pane === 'A' ? { paneA: id, focusedPane: pane } : { paneB: id, focusedPane: pane },
         ),
       setFocusedPane: (pane: 'A' | 'B') => this.apply({ focusedPane: pane }),
+      // [spec:SP-a1c0] (#411) THE central navigate-to-session action: any surface
+      // that references a session (approval popup, notifications, mail, activity
+      // entries) jumps through here — never roll per-feature navigation. Selects
+      // the session's issue (when known) and focuses the session in pane A.
+      navigateToSession: (sessionId: string) => {
+        const meta = this.state.sessions.find((s) => s.sessionId === sessionId)
+        this.apply({
+          ...(meta?.issueId ? { selectedIssueId: meta.issueId } : {}),
+          paneA: sessionId,
+          focusedPane: 'A',
+        })
+      },
       setPanelMode: (sessionId: string, mode: 'chat' | 'native') => {
         const m = this.state.panelMode
         if (m[sessionId] === mode) return

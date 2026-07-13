@@ -1,4 +1,5 @@
 import type { ControlMessage } from '@podium/protocol'
+import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
 import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
@@ -22,6 +23,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...fileHandlers,
   ...execHandlers,
   ...headlessHandlers,
+  ...approvalHandlers,
   issueRelayResult: (ctx, msg) => ctx.issueRelayHub.onResult(msg),
 }
 

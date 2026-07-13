@@ -13,6 +13,7 @@ import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
+import { ApprovalService } from './modules/approvals/service'
 import { IssueRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { UpstreamIssuesService } from './modules/issues/upstream'
@@ -95,6 +96,7 @@ export interface RegistryModules {
   issuePublisher: IssuePublisher
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
+  approvals: ApprovalService
 }
 
 /**
@@ -288,6 +290,32 @@ export class SessionRegistry {
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
     })
+    // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
+    const approvals = new ApprovalService({
+      store: this.store.approvals,
+      now: () => new Date().toISOString(),
+      toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      clients: () => clients().values(),
+      sessionIssueId: (sessionId) => {
+        const s = sessionsSvc.listSessions().find((x) => x.sessionId === sessionId)
+        return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
+      },
+      issueInfo: (issueId) => {
+        const w = issues.get(issueId)
+        return w ? { seq: w.seq, title: w.title } : null
+      },
+      machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
+      logEvent: (kind, issueId, payload) => {
+        try {
+          this.store.events.appendEvent({
+            ts: new Date().toISOString(),
+            kind,
+            subject: issueId ?? 'approvals',
+            payload,
+          })
+        } catch {}
+      },
+    })
     const issueRelayGate = new IssueRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -357,6 +385,11 @@ export class SessionRegistry {
             )
           })()
         }
+        if (router === 'approvals') {
+          if (proc === 'request') return Promise.resolve(approvals.request(input))
+          if (proc === 'get') return Promise.resolve(approvals.get(input))
+          return undefined
+        }
         return issueCommands.dispatch(
           { capability, ...(overrideScope ? { overrideScope } : {}) },
           router,
@@ -398,6 +431,8 @@ export class SessionRegistry {
       publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.safeIssuesList()),
       runIssueRelay: (machineId, msg) => void issueRelayGate.run(machineId, msg),
+      onApprovalExecResult: (msg) => approvals.onExecResult(msg),
+      approvalsPending: () => approvals.listPending(),
     })
     // Hub-staleness flips fan out over the bus: the conversation and issue
     // mirrors follow the sessions-owned flag (spec §2.3 stale-visible).
@@ -504,6 +539,7 @@ export class SessionRegistry {
       issuePublisher: publisher,
       issueCommands,
       specs,
+      approvals,
     }
   }
 

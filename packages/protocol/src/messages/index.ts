@@ -3,6 +3,7 @@
  * `@podium/protocol`'s public import path is unaffected by the split.
  */
 
+export * from './approvals'
 export * from './client'
 export * from './codec'
 export * from './control'

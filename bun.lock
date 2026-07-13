@@ -25,6 +25,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@podium/issue-client": "workspace:*",
+        "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "zod": "^3.24.0",
       },

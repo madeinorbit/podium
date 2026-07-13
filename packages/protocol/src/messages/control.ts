@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ApprovalExecRequestMessage } from './approvals'
 import { RepoOpRequestMessage, ScanReposRequestMessage, ScanRequestMessage } from './discovery'
 import { FileAssetRequestMessage, FileReadRequestMessage, FileWriteRequestMessage, DirListRequestMessage, ImageUploadRequestMessage } from './files'
 import { HarnessExecRequestMessage } from './harness'
@@ -18,6 +19,7 @@ import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './tra
 
 // ---- Server -> daemon control frames ----
 export const ControlMessage = z.discriminatedUnion('type', [
+  ApprovalExecRequestMessage,
   RepoOpRequestMessage,
   IssueRelayResultMessage,
   HarnessExecRequestMessage,

@@ -11,6 +11,7 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
+import type { ApprovalOp } from '@podium/protocol'
 import {
   loadConfig,
   needsSetup,
@@ -119,6 +120,9 @@ export type DaemonAuthKind =
 export type LaunchPlan =
   /** `podium help` / `--help` / `-h`: print usage and exit 0 — NEVER boot anything (#18). */
   | { kind: 'help' }
+  /** Approval broker [spec:SP-edbb]: agent-session management op → relay request. */
+  | { kind: 'approval-request'; op: ApprovalOp }
+  | { kind: 'approval-status'; id: string }
   | { kind: 'version' }
   | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
   | { kind: 'channel'; target: string | undefined }
@@ -192,6 +196,39 @@ export function resolvePlan(
     ((argv.includes('--help') || argv.includes('-h')) && !helpDelegated.has(argv[0] ?? ''))
   ) {
     return { kind: 'help' }
+  }
+
+  // ---- approval broker [spec:SP-edbb] ----
+  // Inside a Podium-managed agent session, management ops never execute here:
+  // they become approval requests the operator decides in the UI (#410). The
+  // daemon executes on approval. Status/logs/work tools stay direct.
+  const agentSession = !!env.PODIUM_ISSUE_RELAY
+  if (argv[0] === 'approval') {
+    if (!agentSession) {
+      return {
+        kind: 'usage-error',
+        message:
+          'podium approval only works inside a Podium-managed agent session (approvals are decided in the web UI)',
+      }
+    }
+    return argv[1] === 'status' && argv[2]
+      ? { kind: 'approval-status', id: argv[2] }
+      : { kind: 'usage-error', message: 'usage: podium approval status <id>' }
+  }
+  if (agentSession) {
+    if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
+    if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
+    if (argv[0] === 'channel' && argv[1]) {
+      return argv[1] === 'stable' || argv[1] === 'edge'
+        ? { kind: 'approval-request', op: { kind: 'channel', target: argv[1] } }
+        : {
+            kind: 'usage-error',
+            message: `podium channel must be stable or edge (got '${argv[1]}')`,
+          }
+    }
+    if (argv[0] === 'set-server' && argv[1]) {
+      return { kind: 'approval-request', op: { kind: 'set-server', target: argv[1] } }
+    }
   }
 
   // ---- utility subcommands (historical dispatch order preserved) ----
@@ -413,6 +450,9 @@ export function helpText(): string {
     '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
     '  session <command>     Send turns to agent sessions',
     '  worktree [path]       Declare the worktree this agent session works in',
+    '',
+    'Agent sessions: update/stop/channel/set-server become APPROVAL REQUESTS the',
+    'operator decides in the Podium UI; poll with `podium approval status <id>`.',
     '',
     'Other:',
     '  version | --version   Print the podium version',
@@ -643,6 +683,28 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     }
     case 'version': {
       console.log(versionText())
+      return
+    }
+    case 'approval-request': {
+      const { resolveIssueRelay } = await import('@podium/runtime/config')
+      const { requestApproval } = await import('./approval-cli')
+      try {
+        console.log(await requestApproval(resolveIssueRelay()!, plan.op))
+      } catch (e) {
+        console.error(`podium: approval request failed — ${(e as Error).message}`)
+        process.exit(1)
+      }
+      return
+    }
+    case 'approval-status': {
+      const { resolveIssueRelay } = await import('@podium/runtime/config')
+      const { approvalStatus } = await import('./approval-cli')
+      try {
+        console.log(await approvalStatus(resolveIssueRelay()!, plan.id))
+      } catch (e) {
+        console.error(`podium: ${(e as Error).message}`)
+        process.exit(1)
+      }
       return
     }
     case 'update': {

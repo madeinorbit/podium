@@ -13,6 +13,7 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
 import { AppErrorPage } from './AppErrorPage'
+import { ApprovalDialog } from './ApprovalDialog'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -229,6 +230,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         </div>
       )}
       <AutoContinueDialog />
+      <ApprovalDialog />
       <CommandPalette />
     </>
   )

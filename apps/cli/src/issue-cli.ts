@@ -219,7 +219,9 @@ export async function runIssueCli(
   })
   const parsed = cmd.args.safeParse(stripGlobalFlags(resolved))
   if (!parsed.success) {
-    throw new IssueCliError(`invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`)
+    throw new IssueCliError(
+      `invalid args for ${command}: ${renderArgIssues(command, parsed.error)}`,
+    )
   }
   const res = await cmd.run(client, parsed.data as Record<string, unknown>)
   return args.json === true

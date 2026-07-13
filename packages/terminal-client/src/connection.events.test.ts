@@ -62,6 +62,7 @@ const meta = (sessionId: string): SessionMeta => ({
 describe('SocketHub dispatch exhaustiveness (type-level)', () => {
   const noop = () => {}
   const total: DispatchHandlers<ServerMessage> = {
+    approvalsChanged: noop,
     welcome: noop,
     pong: noop,
     attached: noop,

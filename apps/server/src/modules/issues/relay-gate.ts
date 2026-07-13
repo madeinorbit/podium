@@ -16,6 +16,9 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // beyond its repo-root allowlist.
   specs: null,
   sessions: new Set(['sendText', 'resumeAndSend', 'continue']),
+  // Approval broker [spec:SP-edbb]: agents may REQUEST any management op (and
+  // poll its status); approve/deny/execution stay operator+daemon-side.
+  approvals: new Set(['request', 'get']),
 }
 
 export interface IssueRelayGateDeps {
@@ -74,7 +77,15 @@ export class IssueRelayGate {
       const input =
         msg.router === 'issues' && msg.proc === 'attachSession'
           ? { ...(msg.input as Record<string, unknown> | undefined), sessionId: msg.sessionId }
-          : msg.input
+          : // approvals bind to the CALLING session + its machine — both come from
+            // the relay context, never from agent input (provenance cannot lie).
+            msg.router === 'approvals'
+            ? {
+                ...(msg.input as Record<string, unknown> | undefined),
+                sessionId: msg.sessionId,
+                machineId,
+              }
+            : msg.input
       const result = this.deps.dispatch(
         this.deps.capabilityForSession(msg.sessionId),
         msg.outsideScope,

@@ -13,6 +13,7 @@ import type {
   GitRepositoryWire,
   HostMetricsWire,
   IssueWire,
+  ApprovalWire,
   MachineWire,
   SessionMeta,
   WorkState,
@@ -89,6 +90,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
   machines: MachineWire[]
+  /** Approval broker [spec:SP-edbb]: pending management-op requests. */
+  approvals: ApprovalWire[]
   pins: PinState
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
   /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
@@ -201,6 +204,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  or null when the popup is closed. */
   autoContinuePromptSessionId: string | null
   closeAutoContinuePrompt: () => void
+  /** [spec:SP-a1c0] Central navigate-to-session (#411): the ONLY way UI surfaces jump to a session. */
+  navigateToSession: (sessionId: string) => void
   renameSession: (sessionId: string, name: string) => Promise<void>
   hibernateSession: (sessionId: string) => Promise<void>
   resurrectSession: (sessionId: string) => Promise<void>

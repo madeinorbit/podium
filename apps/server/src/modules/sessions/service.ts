@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
+  type ApprovalWire,
   AgentKind,
   type AgentRuntimeState,
   agentSupportsEffort,
@@ -129,6 +130,9 @@ interface SessionsServiceDeps {
   issuesWire(): IssueWire[]
   /** Relayed agent issue op (modules/issues/relay-gate). */
   runIssueRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'issueRelayRequest' }>): void
+  /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
+  onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
+  approvalsPending(): ApprovalWire[]
 }
 
 /**
@@ -1646,6 +1650,7 @@ export class SessionsService {
       diagnostics: this.conversations().diagnostics(),
     })
     send({ type: 'machinesChanged', machines: this.machines.listMachines() })
+    send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
     this.hosts.snapshotFor(send)
     return id
   }
@@ -1774,6 +1779,10 @@ export class SessionsService {
    *  to scope/tag their data; `*Result` replies settle in the RPC module. */
   onDaemonMessageFrom(machineId: string, msg: DaemonMessage): void {
     switch (msg.type) {
+      case 'approvalExecResult': {
+        this.deps.onApprovalExecResult(msg)
+        return
+      }
       case 'issueRelayRequest': {
         this.deps.runIssueRelay(machineId, msg)
         break

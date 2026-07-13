@@ -1003,6 +1003,17 @@ export const appRouter = t.router({
   // apps/server/src/pspec.ts). Prototype scope: local-filesystem repos only
   // (reads/writes on the server host). The repo-root allowlist gate lives in
   // the SpecsService so the daemon-relay path enforces the identical check.
+  // Approval broker [spec:SP-edbb] (#410): the operator decision surface. The
+  // agent side (request/get) rides the issue relay, never this router.
+  approvals: t.router({
+    list: t.procedure.query(({ ctx }) => mods(ctx).approvals.listPending()),
+    approve: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => mods(ctx).approvals.approve(input.id)),
+    deny: t.procedure
+      .input(z.object({ id: z.string() }))
+      .mutation(({ ctx, input }) => mods(ctx).approvals.deny(input.id)),
+  }),
   specs: t.router({
     list: t.procedure
       .input(specsInputs.list)

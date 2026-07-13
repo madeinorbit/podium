@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ConversationsChangedMessage } from './discovery'
 import { HeadlessActivityMessage } from './headless'
 import { AttentionEventMessage, HostMetricsChangedMessage, MachinesChangedMessage } from './host'
+import { ApprovalsChangedMessage } from './approvals'
 import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
 import { SessionAgentStateChangedMessage, SessionsChangedMessage } from './runtime-state'
 import {
@@ -51,6 +52,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PongMessage,
   AttentionEventMessage,
   TranscriptDeltaMessage,
+  ApprovalsChangedMessage,
   IssuesChangedMessage,
   IssueUpdatedMessage,
   MetadataDeltaMessage,
