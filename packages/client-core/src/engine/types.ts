@@ -156,6 +156,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   dockShells: Record<string, string>
   /** Point a worktree's dock at `sessionId` (null = forget the mapping). */
   setDockShell: (worktreePath: string, sessionId: string | null) => void
+  /** The dock shell currently RENDERED (mounted terminal), reported in the
+   *  viewState `visible` set so the server accepts its resizes. Not persisted. */
+  dockVisibleSession: string | null
+  setDockVisibleSession: (sessionId: string | null) => void
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
   openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => void

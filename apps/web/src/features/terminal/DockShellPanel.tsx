@@ -21,17 +21,19 @@ export function DockShellPanel({
   cwd: string
   machineId?: string
 }): JSX.Element {
-  const { hub, trpc, sessions, reposLoaded, dockShells, setDockShell } = useStoreSelector(
-    (s) => ({
-      hub: s.hub,
-      trpc: s.trpc,
-      sessions: s.sessions,
-      reposLoaded: s.reposLoaded,
-      dockShells: s.dockShells,
-      setDockShell: s.setDockShell,
-    }),
-    shallowEqual,
-  )
+  const { hub, trpc, sessions, reposLoaded, dockShells, setDockShell, setDockVisibleSession } =
+    useStoreSelector(
+      (s) => ({
+        hub: s.hub,
+        trpc: s.trpc,
+        sessions: s.sessions,
+        reposLoaded: s.reposLoaded,
+        dockShells: s.dockShells,
+        setDockShell: s.setDockShell,
+        setDockVisibleSession: s.setDockVisibleSession,
+      }),
+      shallowEqual,
+    )
   const mapped = dockShells[cwd]
   const session = sessions.find((s) => s.sessionId === mapped)
   // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
@@ -90,12 +92,26 @@ export function DockShellPanel({
     })()
   }, [needsCreate, cwd, machineId, session, trpc, setDockShell])
 
+  const terminalShown = alive && !!mapped && session.status !== 'starting'
+  // Report the rendered dock shell in the viewState `visible` set: the server's
+  // viewVisible gate drops resizes from clients not rendering a session, so an
+  // unreported dock terminal would stay pinned to the spawn-default 80×24.
+  useEffect(() => {
+    if (!terminalShown || !mapped) return
+    setDockVisibleSession(mapped)
+    return () => setDockVisibleSession(null)
+  }, [terminalShown, mapped, setDockVisibleSession])
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // min-w-0 the whole chain: a flex child's min-width:auto would let the
+    // xterm canvas (sized before the first fit) push the column past the
+    // dock's fixed width, and view.fit() then measures the OVERFLOWED box —
+    // the terminal never shrinks back to the panel.
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex-none truncate border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground/70">
         {prettyCwd(cwd)}
       </div>
-      {alive && mapped && session.status !== 'starting' ? (
+      {terminalShown && mapped ? (
         // 'starting' holds the mount: the PTY may not exist server-side yet, and
         // the terminal's one-shot attach would be dropped and never retried.
         <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} />
@@ -125,10 +141,10 @@ function DockShellTerminal({
   })
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       style={{ backgroundColor: termBg }}
     >
-      <div ref={containerRef} className="term min-h-0 flex-1 px-2 py-1.5" />
+      <div ref={containerRef} className="term min-h-0 min-w-0 flex-1 overflow-hidden px-2 py-1.5" />
       {!ready && (
         <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/70"

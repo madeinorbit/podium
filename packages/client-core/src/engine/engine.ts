@@ -163,6 +163,7 @@ interface EngineState {
   focusedPane: 'A' | 'B'
   panelMode: Record<string, 'chat' | 'native'>
   dockShells: Record<string, string>
+  dockVisibleSession: string | null
   autoContinuePromptSessionId: string | null
   drafts: Record<string, string>
   sidebarSettings: SidebarSettings
@@ -338,6 +339,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       focusedPane: 'A',
       panelMode: readStoredPanelModes(this.ui),
       dockShells: readStoredDockShells(this.ui),
+      dockVisibleSession: null,
       autoContinuePromptSessionId: null,
       drafts: {},
       sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
@@ -567,7 +569,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // State→URL mirror — the single URL writer (old lines 1172-1176).
     if (any('selectedWorktree', 'paneA')) this.mirrorUrl()
     // View-state report to the server (old lines 1038-1060).
-    if (any('paneA', 'paneB', 'split', 'focusedPane')) this.reportViewState()
+    if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession'))
+      this.reportViewState()
     // Mark-the-viewed-session-read debounce (old useMarkReadOnView call).
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane')) this.updateMarkReadTimer()
   }
@@ -697,8 +700,17 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     const st = this.state
     const tabVisible = tabIsVisible()
     const effectivePane: 'A' | 'B' = st.split ? st.focusedPane : 'A'
+    // The dock's shell (#23) renders OUTSIDE the panes — without reporting it
+    // here the server's viewVisible gate drops its resizes and the terminal
+    // stays pinned to the spawn-default 80×24.
     const visible = tabVisible
-      ? [st.paneA, st.split ? st.paneB : null].filter((x): x is string => x != null)
+      ? [
+          ...new Set(
+            [st.paneA, st.split ? st.paneB : null, st.dockVisibleSession].filter(
+              (x): x is string => x != null,
+            ),
+          ),
+        ]
       : []
     const focused = tabVisible ? (effectivePane === 'A' ? st.paneA : st.paneB) : null
     // Rendered mode (native/chat) for each visible session — default 'native'
@@ -1084,6 +1096,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         if (m[sessionId] === mode) return
         this.apply({ panelMode: { ...m, [sessionId]: mode } })
       },
+      setDockVisibleSession: (sessionId: string | null) =>
+        this.apply({ dockVisibleSession: sessionId }),
       setDockShell: (worktreePath: string, sessionId: string | null) => {
         const m = this.state.dockShells
         if ((m[worktreePath] ?? null) === sessionId) return
