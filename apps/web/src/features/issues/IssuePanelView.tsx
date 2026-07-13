@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { copyToClipboard } from '@/lib/clipboard'
 import { subIssuesOf } from '@/lib/derive'
 import {
   artifactKind,
@@ -17,7 +18,7 @@ import {
 import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
-import { STAGE_LABELS } from './issue-card'
+import { issueIdTitle, STAGE_LABELS } from './issue-card'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
@@ -121,7 +122,24 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
     <header className="border-b border-border/60 px-3 pt-3 pb-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-mono text-[11px] text-muted-foreground/70">#{issue.seq}</div>
+          <div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/70">
+            <button
+              type="button"
+              className="cursor-pointer hover:text-foreground"
+              title={`${issue.id} — click to copy "#${issue.seq}"`}
+              onClick={() => copyToClipboard(`#${issue.seq}`, `Copied #${issue.seq}`)}
+            >
+              #{issue.seq}
+            </button>
+            <button
+              type="button"
+              className="min-w-0 max-w-36 cursor-pointer truncate hover:text-foreground"
+              title={`${issue.id} — click to copy`}
+              onClick={() => copyToClipboard(issue.id, 'Copied internal issue id')}
+            >
+              {issue.id}
+            </button>
+          </div>
           <h2 className="text-[14px] leading-snug font-semibold text-foreground">{issue.title}</h2>
         </div>
         <StageChip stage={issue.stage} />
@@ -182,7 +200,9 @@ function SubissueRow({ sub }: { sub: IssueWire }): JSX.Element {
       )}
     >
       <span className={cn('size-2 flex-none rounded-full', a.dot)} aria-hidden="true" />
-      <span className="font-mono text-[11px] text-muted-foreground/70">#{sub.seq}</span>
+      <span className="font-mono text-[11px] text-muted-foreground/70" title={issueIdTitle(sub)}>
+        #{sub.seq}
+      </span>
       <span
         className={cn(
           'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',

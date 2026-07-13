@@ -35,6 +35,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusIcon } from '@/features/issues/IssueStatusIcon'
+import { issueIdTitle } from '@/features/issues/issue-card'
 import { isEpic } from '@/features/issues/issue-hierarchy'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
@@ -737,11 +738,14 @@ function UnifiedRowShell({
   dotSession,
   count,
   extras,
+  titleHint,
   children,
   testId,
 }: {
   icon: ReactNode
   label: string
+  /** Native hover tooltip on the row (issue ids, #21). */
+  titleHint?: string
   active: boolean
   /** Email-style unread emphasis (#126): the label reads bold until opened. */
   unread?: boolean
@@ -812,6 +816,7 @@ function UnifiedRowShell({
               // signal, so a selected-but-read row can't be mistaken for unread.
               active ? 'text-[#f3f3f8]' : 'text-[#dcdce4]',
             )}
+            title={titleHint}
             onClick={onSelect}
             onDoubleClick={onDoubleClick}
             onContextMenu={onContextMenu}
@@ -843,7 +848,10 @@ function UnifiedRowShell({
           .tree-children CSS) ties the group to its parent. */}
       {!collapsed && children && (
         <div className="tree-children relative pt-0.5 pb-1">
-          <span className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border" aria-hidden="true" />
+          <span
+            className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border"
+            aria-hidden="true"
+          />
           {children}
         </div>
       )}
@@ -984,6 +992,7 @@ function UnifiedIssueRow({
           onSelect={() => (first ? onSelectPanel(first.sessionId) : onSelect())}
           onContextMenu={onContextMenu}
           dotSession={urgent}
+          titleHint={issueIdTitle(issue)}
           extras={
             draftMeta ? (
               <span className="flex-none text-[10px] text-[#d4a017]">{draftMeta}</span>
@@ -1013,8 +1022,14 @@ function UnifiedIssueRow({
         editor={renameEditor}
         dotSession={urgent}
         count={showChildren ? mine.length : undefined}
+        titleHint={issueIdTitle(issue)}
         extras={
           <>
+            {/* The seq agents cite ("#15") — small and muted, purely for
+                orientation when matching chat/CLI references to rows (#21). */}
+            <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
+              #{issue.seq}
+            </span>
             {issue.pinned && (
               <Pin size={11} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}

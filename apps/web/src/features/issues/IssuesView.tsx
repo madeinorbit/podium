@@ -41,7 +41,7 @@ import { IssueContextMenu } from './IssueContextMenu'
 import { IssueListView } from './IssueListView'
 import { IssuePage } from './IssuePage'
 import { type BoardFilter, clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
-import { issueCardModel, STAGE_LABELS } from './issue-card'
+import { issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
 import { contextMenuTargets } from './issue-context-menu'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import {
@@ -1057,6 +1057,7 @@ function IssueCard({
           focused && 'ring-2 ring-primary/60',
           selected && 'bg-primary/10',
         )}
+        title={issueIdTitle(issue)}
         onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
         onContextMenu={(e) => onContextMenu(issue.id, e)}
       >
