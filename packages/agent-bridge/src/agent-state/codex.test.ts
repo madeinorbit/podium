@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import {
   classifyCodexVerdict,
+  codexApprovalsReviewerFromTranscript,
   codexStateProvider,
   findCodexRolloutPath,
   findLiveCodexRollout,
@@ -17,6 +18,41 @@ const env = (ptype: string, extra: Record<string, unknown> = {}) => ({
   payload: { type: ptype, ...extra },
 })
 
+const permissionRecord = (reviewer: 'user' | 'auto_review' | 'guardian_subagent') => ({
+  type: 'response_item',
+  payload: {
+    type: 'message',
+    role: 'developer',
+    content: [
+      {
+        type: 'input_text',
+        text:
+          '<permissions instructions>\n' +
+          `\`approvals_reviewer\` is \`${reviewer}\`: escalation routing.\n` +
+          '</permissions instructions>',
+      },
+    ],
+  },
+})
+
+const turnContextRecord = (reviewer: 'user' | 'auto_review' | 'guardian_subagent') => ({
+  type: 'turn_context',
+  payload: { approvals_reviewer: reviewer },
+})
+
+async function writePermissionTranscript(
+  reviewer: 'user' | 'auto_review' | 'guardian_subagent',
+  extra: unknown[] = [],
+): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'podium-codex-permission-'))
+  const path = join(dir, 'rollout.jsonl')
+  await writeFile(
+    path,
+    `${[permissionRecord(reviewer), ...extra].map((record) => JSON.stringify(record)).join('\n')}\n`,
+  )
+  return path
+}
+
 describe('translateCodexEvent', () => {
   it('maps task_started / user_message to prompt_submitted', async () => {
     expect(await translateCodexEvent(env('task_started'))).toEqual([{ kind: 'prompt_submitted' }])
@@ -28,6 +64,15 @@ describe('translateCodexEvent', () => {
   it('maps agent_message / token_count to activity', async () => {
     expect(await translateCodexEvent(env('agent_message'))).toEqual([{ kind: 'activity' }])
     expect(await translateCodexEvent(env('token_count'))).toEqual([{ kind: 'activity' }])
+  })
+
+  it('maps legacy guardian_assessment events to activity', async () => {
+    expect(
+      await translateCodexEvent(env('guardian_assessment', { status: 'in_progress' })),
+    ).toEqual([{ kind: 'activity' }])
+    expect(await translateCodexEvent(env('guardian_assessment', { status: 'denied' }))).toEqual([
+      { kind: 'activity' },
+    ])
   })
 
   it('maps task_complete to turn_completed with a classified verdict', async () => {
@@ -93,12 +138,65 @@ describe('translateCodexEvent — native hook payloads (hook_event_name)', () =>
     ])
   })
 
-  it('maps PermissionRequest to needs_user/permission with the tool name', async () => {
+  it('maps a user-reviewed PermissionRequest to needs_user/permission with the tool name', async () => {
     // The rollout can NEVER carry this signal (codex pauses without writing);
-    // the hook is the only source for the red "waiting on approval" state.
+    // the hook is the only source for the amber "waiting on approval" state.
+    const transcript_path = await writePermissionTranscript('user')
+    expect(
+      await translateCodexEvent(hook('PermissionRequest', { tool_name: 'Bash', transcript_path })),
+    ).toEqual([{ kind: 'needs_user', need: 'permission', summary: 'Bash' }])
+  })
+
+  it.each([
+    'auto_review',
+    'guardian_subagent',
+  ] as const)('keeps an automatically reviewed PermissionRequest working (%s)', async (reviewer) => {
+    const transcript_path = await writePermissionTranscript(reviewer)
+    expect(
+      await translateCodexEvent(hook('PermissionRequest', { tool_name: 'Bash', transcript_path })),
+    ).toEqual([{ kind: 'activity' }])
+  })
+
+  it('defaults an unclassified PermissionRequest to needs_user', async () => {
     expect(await translateCodexEvent(hook('PermissionRequest', { tool_name: 'Bash' }))).toEqual([
       { kind: 'needs_user', need: 'permission', summary: 'Bash' },
     ])
+    expect(
+      await translateCodexEvent(
+        hook('PermissionRequest', {
+          tool_name: 'Bash',
+          transcript_path: '/no/such/codex-rollout.jsonl',
+        }),
+      ),
+    ).toEqual([{ kind: 'needs_user', need: 'permission', summary: 'Bash' }])
+  })
+
+  it('uses the latest per-turn reviewer from the bounded transcript tail', async () => {
+    const largeRecord = {
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'x'.repeat(1024 * 1024) }],
+      },
+    }
+    const transcript_path = await writePermissionTranscript('user', [
+      largeRecord,
+      turnContextRecord('auto_review'),
+    ])
+    expect(
+      await translateCodexEvent(hook('PermissionRequest', { tool_name: 'Bash', transcript_path })),
+    ).toEqual([{ kind: 'activity' }])
+
+    const manual_path = await writePermissionTranscript('auto_review', [
+      largeRecord,
+      turnContextRecord('user'),
+    ])
+    expect(
+      await translateCodexEvent(
+        hook('PermissionRequest', { tool_name: 'Bash', transcript_path: manual_path }),
+      ),
+    ).toEqual([{ kind: 'needs_user', need: 'permission', summary: 'Bash' }])
   })
 
   it('maps Stop to a classified turn_completed from last_assistant_message', async () => {
@@ -117,6 +215,27 @@ describe('classifyCodexVerdict', () => {
     expect(classifyCodexVerdict('Should I proceed?').kind).toBe('question')
     expect(classifyCodexVerdict('Done.').kind).toBe('done')
     expect(classifyCodexVerdict(undefined).kind).toBe('done')
+  })
+})
+
+describe('codexApprovalsReviewerFromTranscript', () => {
+  it('prefers the latest structured turn context over the developer fallback', () => {
+    const misleading = {
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '`approvals_reviewer` is `auto_review`' }],
+      },
+    }
+    const jsonl = [permissionRecord('user'), misleading, turnContextRecord('auto_review')]
+      .map((r) => JSON.stringify(r))
+      .join('\n')
+    expect(codexApprovalsReviewerFromTranscript(jsonl)).toBe('auto_review')
+  })
+
+  it('ignores malformed and unrelated records', () => {
+    expect(codexApprovalsReviewerFromTranscript('{torn\n{"type":"event_msg"}')).toBeUndefined()
   })
 })
 

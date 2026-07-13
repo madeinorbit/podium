@@ -21,6 +21,13 @@ const POLL_MS = 700
 // state observer only needs the recent tail (the latest event wins). Matches the
 // transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
 const TAIL_BYTES = 128 * 1024
+// PermissionRequest hooks do not say whether the request is routed to the user
+// or Codex's automatic reviewer. The effective reviewer lives in the rollout.
+// Bound the one-off prefix + tail reads so a long-running session never gets
+// slurped just to classify an approval.
+const SESSION_CONTEXT_BYTES = 1024 * 1024
+
+type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -30,6 +37,13 @@ function strField(v: unknown, k: string): string | undefined {
   if (!isRecord(v)) return undefined
   const f = v[k]
   return typeof f === 'string' && f.length > 0 ? f : undefined
+}
+
+function approvalsReviewerField(value: unknown, key: string): CodexApprovalsReviewer | undefined {
+  const reviewer = strField(value, key)
+  return reviewer === 'user' || reviewer === 'auto_review' || reviewer === 'guardian_subagent'
+    ? reviewer
+    : undefined
 }
 
 /**
@@ -47,6 +61,82 @@ export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
   return summary ? { kind, summary } : { kind }
 }
 
+/** Read the latest effective approval reviewer from Codex's structured
+ * `turn_context`, with the generated permissions developer message as a
+ * backwards-compatible fallback. User/tool text can legitimately discuss this
+ * setting and must not change live state classification. */
+export function codexApprovalsReviewerFromTranscript(
+  jsonl: string,
+): CodexApprovalsReviewer | undefined {
+  let reviewer: CodexApprovalsReviewer | undefined
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isRecord(record)) continue
+    if (strField(record, 'type') === 'turn_context') {
+      const current = approvalsReviewerField(record.payload, 'approvals_reviewer')
+      if (current) reviewer = current
+      continue
+    }
+    if (strField(record, 'type') !== 'response_item') continue
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    if (
+      !payload ||
+      strField(payload, 'type') !== 'message' ||
+      strField(payload, 'role') !== 'developer' ||
+      !Array.isArray(payload.content)
+    ) {
+      continue
+    }
+    for (const block of payload.content) {
+      const text = strField(block, 'text')
+      if (!text?.includes('<permissions instructions>')) continue
+      const match = /`approvals_reviewer`\s+is\s+`(user|auto_review|guardian_subagent)`/.exec(text)
+      if (match?.[1]) reviewer = match[1] as CodexApprovalsReviewer
+    }
+  }
+  return reviewer
+}
+
+async function permissionRequestIsAutoReviewed(payload: Record<string, unknown>): Promise<boolean> {
+  const transcriptPath = strField(payload, 'transcript_path')
+  if (!transcriptPath) return false
+  try {
+    const handle = await open(transcriptPath, 'r')
+    try {
+      const { size } = await handle.stat()
+      const prefix = Buffer.alloc(Math.min(size, SESSION_CONTEXT_BYTES))
+      const { bytesRead: prefixBytes } = await handle.read(prefix, 0, prefix.length, 0)
+      let context = prefix.toString('utf8', 0, prefixBytes)
+      if (size > SESSION_CONTEXT_BYTES) {
+        const tail = Buffer.alloc(SESSION_CONTEXT_BYTES)
+        const { bytesRead: tailBytes } = await handle.read(
+          tail,
+          0,
+          tail.length,
+          size - SESSION_CONTEXT_BYTES,
+        )
+        // The first tail line can be partial JSON; the parser deliberately
+        // ignores it. A later per-turn context overrides the prefix fallback.
+        context += `\n${tail.toString('utf8', 0, tailBytes)}`
+      }
+      const reviewer = codexApprovalsReviewerFromTranscript(context)
+      return reviewer === 'auto_review' || reviewer === 'guardian_subagent'
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    // Missing/unreadable/old transcript: conservatively preserve the manual
+    // approval signal rather than hiding a real prompt from the user.
+    return false
+  }
+}
+
 /**
  * One Codex native-hook POST (payload carries `hook_event_name`, Claude-style) →
  * state events. Codex ≥0.142 fires shell-command hooks with a JSON payload on
@@ -55,7 +145,9 @@ export function classifyCodexVerdict(lastAgentMessage: string | undefined): {
  * PermissionRequest — codex pauses WITHOUT writing to the rollout while waiting
  * for approval, so the file observer can never see that state.
  */
-function translateCodexHookEvent(payload: Record<string, unknown>): AgentStateEvent[] {
+async function translateCodexHookEvent(
+  payload: Record<string, unknown>,
+): Promise<AgentStateEvent[]> {
   switch (strField(payload, 'hook_event_name')) {
     case 'SessionStart':
       return [{ kind: 'session_started' }]
@@ -65,6 +157,10 @@ function translateCodexHookEvent(payload: Record<string, unknown>): AgentStateEv
     case 'PostToolUse':
       return [{ kind: 'activity' }]
     case 'PermissionRequest': {
+      // Codex fires this before routing the request. With auto-review, the
+      // guardian is actively computing and the user has no prompt to answer.
+      // Explicit user review (or missing context, conservatively) needs input.
+      if (await permissionRequestIsAutoReviewed(payload)) return [{ kind: 'activity' }]
       const summary = strField(payload, 'tool_name')
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }
@@ -84,7 +180,7 @@ function translateCodexHookEvent(payload: Record<string, unknown>): AgentStateEv
  *  hook payload (`{hook_event_name,…}`) → state events. */
 export async function translateCodexEvent(record: unknown): Promise<AgentStateEvent[]> {
   if (isRecord(record) && strField(record, 'hook_event_name')) {
-    return translateCodexHookEvent(record)
+    return await translateCodexHookEvent(record)
   }
   if (!isRecord(record) || strField(record, 'type') !== 'event_msg') return []
   const payload = isRecord(record.payload) ? record.payload : undefined
@@ -100,6 +196,11 @@ export async function translateCodexEvent(record: unknown): Promise<AgentStateEv
     case 'agent_message':
     case 'token_count':
     case 'patch_apply_end':
+      return withEventTime([{ kind: 'activity' }], at)
+    // Older guardian implementations persisted their auto-review lifecycle in
+    // the parent rollout. Every status (in_progress/approved/denied/timed_out)
+    // means Codex, not the user, owns the next step; it is therefore activity.
+    case 'guardian_assessment':
       return withEventTime([{ kind: 'activity' }], at)
     case 'task_complete':
       return withEventTime(
