@@ -46,6 +46,52 @@ function approvalsReviewerField(value: unknown, key: string): CodexApprovalsRevi
     : undefined
 }
 
+function codexToolName(payload: Record<string, unknown>): string | undefined {
+  return strField(payload, 'tool_name') ?? strField(payload, 'name')
+}
+
+function isCodexQuestionTool(payload: Record<string, unknown>): boolean {
+  return codexToolName(payload) === 'request_user_input'
+}
+
+function parseCodexToolInput(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const raw = payload.tool_input ?? payload.arguments ?? payload.input
+  if (isRecord(raw)) return raw
+  if (typeof raw !== 'string') return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function codexQuestionSummary(payload: Record<string, unknown>): string | undefined {
+  const input = parseCodexToolInput(payload)
+  if (!input) return undefined
+  if (Array.isArray(input.questions)) {
+    for (const question of input.questions) {
+      const text = strField(question, 'question')
+      if (text) return text
+    }
+  }
+  return strField(input, 'question') ?? strField(input, 'prompt')
+}
+
+function codexQuestionEvent(payload: Record<string, unknown>, at?: string): AgentStateEvent[] {
+  const summary = codexQuestionSummary(payload)
+  return withEventTime(
+    [{ kind: 'needs_user', need: 'question', ...(summary ? { summary } : {}) }],
+    at,
+  )
+}
+
+function codexCallId(payload: Record<string, unknown>): string | undefined {
+  return strField(payload, 'call_id') ?? strField(payload, 'id')
+}
+
 /**
  * Best-effort idle verdict from the agent's last message. A trailing question
  * mark reads as "needs answer"; otherwise the turn is done. Codex's rollout has
@@ -154,6 +200,8 @@ async function translateCodexHookEvent(
     case 'UserPromptSubmit':
       return [{ kind: 'prompt_submitted' }]
     case 'PreToolUse':
+      if (isCodexQuestionTool(payload)) return codexQuestionEvent(payload)
+      return [{ kind: 'activity' }]
     case 'PostToolUse':
       return [{ kind: 'activity' }]
     case 'PermissionRequest': {
@@ -176,11 +224,26 @@ async function translateCodexHookEvent(
   }
 }
 
-/** One Codex rollout record (`{type:'event_msg', payload:{type,…}}`) or native
- *  hook payload (`{hook_event_name,…}`) → state events. */
+/** One Codex rollout record (`event_msg` / `response_item`) or native hook
+ * payload (`{hook_event_name,…}`) → state events. */
 export async function translateCodexEvent(record: unknown): Promise<AgentStateEvent[]> {
   if (isRecord(record) && strField(record, 'hook_event_name')) {
     return await translateCodexHookEvent(record)
+  }
+  if (isRecord(record) && strField(record, 'type') === 'response_item') {
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    if (!payload) return []
+    const at = strField(record, 'timestamp')
+    switch (strField(payload, 'type')) {
+      case 'function_call':
+      case 'custom_tool_call':
+        return isCodexQuestionTool(payload) ? codexQuestionEvent(payload, at) : []
+      case 'function_call_output':
+      case 'custom_tool_call_output':
+        return withEventTime([{ kind: 'activity' }], at)
+      default:
+        return []
+    }
   }
   if (!isRecord(record) || strField(record, 'type') !== 'event_msg') return []
   const payload = isRecord(record.payload) ? record.payload : undefined
@@ -258,16 +321,16 @@ async function codexBootEvents(opts: {
 }
 
 /**
- * Classify a resumed rollout from its LAST turn-boundary record. A rollout whose
- * newest boundary is `task_started`/`user_message` has an OPEN turn — the agent is
- * still working, and the earlier `task_complete` belongs to a previous turn.
- * Seeding "idle done <old summary>" there (the pre-fix behavior) flapped every
- * mid-turn codex session to idle on each daemon restart AND restamped its recency
- * to the reattach moment. Events are stamped with the record's own timestamp so
- * recency reflects when the agent actually acted.
+ * Classify a resumed rollout from its LAST turn boundary or unresolved user-input
+ * call. A rollout whose newest boundary is `task_started`/`user_message` has an
+ * OPEN turn, unless that turn is parked on `request_user_input`. Matching call
+ * outputs distinguish answered questions from pending ones. Events are stamped
+ * with the record's own timestamp so recency reflects when the agent actually
+ * acted rather than the reattach moment.
  */
 function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
   const lines = jsonl.split(/\r?\n/)
+  const resolvedCallIds = new Set<string>()
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]?.trim()
     if (!line) continue
@@ -277,10 +340,35 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
     } catch {
       continue // torn line
     }
-    if (strField(rec, 'type') !== 'event_msg') continue
     const p = isRecord(rec) && isRecord(rec.payload) ? rec.payload : undefined
     if (!p) continue
     const at = strField(rec, 'timestamp')
+    if (strField(rec, 'type') === 'response_item') {
+      switch (strField(p, 'type')) {
+        case 'function_call_output':
+        case 'custom_tool_call_output': {
+          const callId = codexCallId(p)
+          if (callId) resolvedCallIds.add(callId)
+          continue
+        }
+        case 'function_call':
+        case 'custom_tool_call': {
+          if (!isCodexQuestionTool(p)) continue
+          const callId = codexCallId(p)
+          if (callId && resolvedCallIds.delete(callId)) continue
+          const summary = codexQuestionSummary(p)
+          return {
+            kind: 'needs_user',
+            need: 'question',
+            ...(summary ? { summary } : {}),
+            ...(at ? { at } : {}),
+          }
+        }
+        default:
+          continue
+      }
+    }
+    if (strField(rec, 'type') !== 'event_msg') continue
     switch (strField(p, 'type')) {
       case 'task_complete':
         return {
@@ -317,7 +405,7 @@ export const codexStateProvider: AgentStateProvider = {
 
 /**
  * Discover the live rollout file for a freshly-spawned (or resumed) Codex session
- * and tail its `event_msg` records into normalized state events. Mirrors
+ * and tail its rollout records into normalized state events. Mirrors
  * `observeGrokState`. `onSession` fires once with the rollout id (the `codex-thread`
  * resume value) and the rollout path, so the daemon can mark the session resumable
  * and start the transcript tail directly — no state-DB round-trip on the hot path.

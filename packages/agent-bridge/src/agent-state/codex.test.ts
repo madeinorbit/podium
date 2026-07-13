@@ -90,6 +90,51 @@ describe('translateCodexEvent', () => {
     ])
   })
 
+  it('maps request_user_input calls to needs_user/question and tool results back to activity', async () => {
+    const timestamp = '2026-07-13T08:47:06.776Z'
+    expect(
+      await translateCodexEvent({
+        timestamp,
+        type: 'response_item',
+        payload: {
+          type: 'function_call',
+          name: 'request_user_input',
+          call_id: 'call-question',
+          arguments: JSON.stringify({
+            questions: [{ question: 'How ambitious should the first version be?' }],
+          }),
+        },
+      }),
+    ).toEqual([
+      {
+        kind: 'needs_user',
+        need: 'question',
+        summary: 'How ambitious should the first version be?',
+        at: timestamp,
+      },
+    ])
+    expect(
+      await translateCodexEvent({
+        timestamp: '2026-07-13T08:48:00.000Z',
+        type: 'response_item',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-question',
+          output: '{"v1_depth":"hybrid"}',
+        },
+      }),
+    ).toEqual([{ kind: 'activity', at: '2026-07-13T08:48:00.000Z' }])
+  })
+
+  it('ignores ordinary rollout tool starts so they cannot race and clear a permission hook', async () => {
+    expect(
+      await translateCodexEvent({
+        type: 'response_item',
+        payload: { type: 'function_call', name: 'wait', arguments: '{"cell_id":"3"}' },
+      }),
+    ).toEqual([])
+  })
+
   it('ignores non-event_msg and unknown events', async () => {
     expect(
       await translateCodexEvent({ type: 'response_item', payload: { type: 'message' } }),
@@ -135,6 +180,25 @@ describe('translateCodexEvent — native hook payloads (hook_event_name)', () =>
     ])
     expect(await translateCodexEvent(hook('PostToolUse', { tool_name: 'Bash' }))).toEqual([
       { kind: 'activity' },
+    ])
+  })
+
+  it('maps request_user_input PreToolUse to needs_user/question', async () => {
+    expect(
+      await translateCodexEvent(
+        hook('PreToolUse', {
+          tool_name: 'request_user_input',
+          tool_input: {
+            questions: [{ question: 'Who should advance each workflow phase?' }],
+          },
+        }),
+      ),
+    ).toEqual([
+      {
+        kind: 'needs_user',
+        need: 'question',
+        summary: 'Who should advance each workflow phase?',
+      },
     ])
   })
 
@@ -671,6 +735,8 @@ describe('findLiveCodexRollout sibling disambiguation (nearest-after floor)', ()
 describe('codexBootEvents (resumed session classification)', () => {
   const rec = (ptype: string, ts: string, extra: Record<string, unknown> = {}) =>
     JSON.stringify({ type: 'event_msg', timestamp: ts, payload: { type: ptype, ...extra } })
+  const response = (ptype: string, ts: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: 'response_item', timestamp: ts, payload: { type: ptype, ...extra } })
   const meta = (id: string) =>
     JSON.stringify({ type: 'session_meta', payload: { id, cwd: '/repo/x', source: 'cli' } })
 
@@ -732,6 +798,56 @@ describe('codexBootEvents (resumed session classification)', () => {
       homeDir: home,
     })
     expect(events).toEqual([{ kind: 'prompt_submitted', at: '2026-07-06T10:10:00.500Z' }])
+  })
+
+  it('seeds NEEDS_USER when the open turn ends on an unresolved request_user_input call', async () => {
+    const home = await homeWithRollout('th-question', [
+      meta('th-question'),
+      rec('task_started', '2026-07-13T08:43:09.089Z'),
+      response('function_call', '2026-07-13T08:47:06.776Z', {
+        name: 'request_user_input',
+        call_id: 'call-q',
+        arguments: JSON.stringify({
+          questions: [{ question: 'Where should workflow defaults apply?' }],
+        }),
+      }),
+    ])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-question',
+      homeDir: home,
+    })
+    expect(events).toEqual([
+      {
+        kind: 'needs_user',
+        need: 'question',
+        summary: 'Where should workflow defaults apply?',
+        at: '2026-07-13T08:47:06.776Z',
+      },
+    ])
+  })
+
+  it('keeps an answered request_user_input turn working until task completion', async () => {
+    const home = await homeWithRollout('th-answered', [
+      meta('th-answered'),
+      rec('task_started', '2026-07-13T08:43:09.089Z'),
+      response('function_call', '2026-07-13T08:47:06.776Z', {
+        name: 'request_user_input',
+        call_id: 'call-q',
+        arguments: JSON.stringify({ questions: [{ question: 'Pick one?' }] }),
+      }),
+      response('function_call_output', '2026-07-13T08:48:00.000Z', {
+        call_id: 'call-q',
+        output: '{"choice":"first"}',
+      }),
+      rec('token_count', '2026-07-13T08:48:01.000Z'),
+    ])
+    const events = await codexStateProvider.bootEvents!({
+      cwd: '/repo/x',
+      resumeValue: 'th-answered',
+      homeDir: home,
+    })
+    expect(events).toEqual([{ kind: 'prompt_submitted', at: '2026-07-13T08:43:09.089Z' }])
   })
 
   it('classifies an aborted last turn as interrupted', async () => {
