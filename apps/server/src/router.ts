@@ -25,6 +25,8 @@ import {
 import { buildJoinCommand } from './hub/machines-join'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
+import { lockRegistry } from './modules/lock/registry'
+import { lockRouterFromCommands } from './modules/lock/trpc'
 import { specsInputs } from './modules/specs/service'
 import { UserFocus } from './modules/superagent'
 import type { RegistryModules } from './relay'
@@ -946,6 +948,9 @@ export const appRouter = t.router({
   // capability guard reads authz from the DEFINITION (no path-string parsing),
   // and the daemon relay + MCP dispatch run the SAME pipeline.
   issues: routerFromCommands(issueRegistry),
+  // Advisory named lease locks [spec:SP-85d1] — same derivation pattern, over
+  // the lock registry (role-gated only; no issue-scope targets).
+  lock: lockRouterFromCommands(lockRegistry),
   files: t.router({
     read: t.procedure
       .input(

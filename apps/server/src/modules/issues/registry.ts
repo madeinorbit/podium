@@ -1244,6 +1244,22 @@ export class IssueCommandDispatcher {
     const specs = Object.fromEntries(
       ['list', 'get', 'create', 'save', 'remove', 'search'].map((n) => [n, specProc(n)]),
     )
-    return { issues, repos: { inferFromPath: proc('repos', 'inferFromPath') }, specs } as IssueTrpc
+    // Like specs, the in-process surface doesn't serve the lock router
+    // [spec:SP-85d1] — locks ride the daemon relay / HTTP (podium lock CLI).
+    const lockProc = (name: string): IssueProc => {
+      const call = (): Promise<unknown> => {
+        throw new Error(`no such issue procedure: lock.${name}`)
+      }
+      return { query: call, mutate: call }
+    }
+    const lock = Object.fromEntries(
+      ['acquire', 'release', 'renew', 'status', 'steal'].map((n) => [n, lockProc(n)]),
+    )
+    return {
+      issues,
+      repos: { inferFromPath: proc('repos', 'inferFromPath') },
+      specs,
+      lock,
+    } as IssueTrpc
   }
 }

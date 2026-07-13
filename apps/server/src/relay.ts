@@ -17,6 +17,8 @@ import { ApprovalService } from './modules/approvals/service'
 import { IssueRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { UpstreamIssuesService } from './modules/issues/upstream'
+import { LockCommandDispatcher } from './modules/lock/registry'
+import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
 import {
@@ -97,6 +99,9 @@ export interface RegistryModules {
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
   approvals: ApprovalService
+  /** Advisory named lease locks [spec:SP-85d1]. */
+  locks: LockService
+  lockCommands: LockCommandDispatcher
 }
 
 /**
@@ -316,6 +321,31 @@ export class SessionRegistry {
         } catch {}
       },
     })
+    // Advisory named lease locks [spec:SP-85d1]. Lazy closures: sessionsSvc and
+    // issues are assigned below and only ever consulted per-operation.
+    const locks = new LockService({
+      locks: this.store.locks,
+      transact: (fn) => this.store.transact(fn),
+      funnel,
+      now: () => this.now(),
+      resolveRepoId: (repoPath) => this.store.repos.resolveRepoIdForPath(repoPath),
+      sessionAlive: (sessionId) => {
+        const s = liveSessions().get(sessionId)
+        return !!s && s.status !== 'exited'
+      },
+      // Grant/steal notifications ride agent mail; best-effort by contract
+      // (the waiter also discovers the grant via polling).
+      sendMail: (issueId, from, body) => {
+        try {
+          issues.sendMail(issueId, from, body)
+        } catch {}
+      },
+      appendEvent: (e) => this.store.events.appendEvent(e),
+    })
+    const lockCommands = new LockCommandDispatcher({
+      locks: () => locks,
+      issues: () => issues,
+    })
     const issueRelayGate = new IssueRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -327,6 +357,15 @@ export class SessionRegistry {
       dispatch: (capability, overrideScope, router, proc, input) => {
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
+        }
+        // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
+        // stamped server-side via the capability (actorSessionId), never from input.
+        if (router === 'lock') {
+          return lockCommands.dispatch(
+            { capability, ...(overrideScope ? { overrideScope } : {}) },
+            proc,
+            input,
+          )
         }
         if (router === 'sessions') {
           if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
@@ -434,6 +473,11 @@ export class SessionRegistry {
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
     })
+    // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
+    // releases its held locks and leaves every wait queue (the queue advances
+    // with a grant-notification mail). Best-effort — the lazy expiry sweep is
+    // the backstop if this listener ever misses a death.
+    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // Hub-staleness flips fan out over the bus: the conversation and issue
     // mirrors follow the sessions-owned flag (spec §2.3 stale-visible).
     this.bus.on('upstream.staleChanged', () => {
@@ -540,6 +584,8 @@ export class SessionRegistry {
       issueCommands,
       specs,
       approvals,
+      locks,
+      lockCommands,
     }
   }
 

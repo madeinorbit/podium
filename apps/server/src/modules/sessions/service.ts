@@ -1829,6 +1829,12 @@ export class SessionsService {
         // the draft. A hibernate kill lands here too, but onExit keeps status
         // 'hibernated', which blocks the reap — parked drafts survive.
         this.maybeReapDraftIssue(s?.issueId)
+        // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
+        // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
+        // and the session's leases with it.
+        if (s?.status === 'exited') {
+          this.bus.emit('session.exited', { sessionId: msg.sessionId, code: msg.code })
+        }
         break
       }
       case 'spawnError': {
@@ -1848,6 +1854,13 @@ export class SessionsService {
           s.onExit(-1) // the durable host is gone; the agent died with it
           this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
           this.persist(s)
+          // Real death (not a boot-time probe of an already-exited row) —
+          // notify lock auto-release etc. [spec:SP-85d1]. onExit keeps a
+          // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
+          // lookup: the narrowed `s.status` above would defeat the compare.)
+          if (this.sessions.get(msg.sessionId)?.status === 'exited') {
+            this.bus.emit('session.exited', { sessionId: s.sessionId, code: -1 })
+          }
         }
         this.broadcastSessions()
         break

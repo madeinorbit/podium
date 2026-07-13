@@ -148,6 +148,18 @@ export const ISSUE_COMMAND_NAMES = [
 /** One issue-command def key — see {@link ISSUE_COMMAND_NAMES}. */
 export type IssueCommandName = (typeof ISSUE_COMMAND_NAMES)[number]
 
+/**
+ * THE canonical lock-command name list [spec:SP-85d1] — the def keys of the
+ * server's `lock` registry (advisory named lease locks), declared here for the
+ * same reason as {@link ISSUE_COMMAND_NAMES}: the server registry is
+ * `satisfies`-checked against it and @podium/issue-client keys its
+ * `IssueTrpc.lock` client shape off the same union.
+ */
+export const LOCK_COMMAND_NAMES = ['acquire', 'release', 'renew', 'status', 'steal'] as const
+
+/** One lock-command def key — see {@link LOCK_COMMAND_NAMES}. */
+export type LockCommandName = (typeof LOCK_COMMAND_NAMES)[number]
+
 /** The parsed input type of one command definition. */
 export type CommandInput<D extends CommandDef> = z.infer<D['input']>
 

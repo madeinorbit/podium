@@ -1,4 +1,4 @@
-import type { IssueCommandName } from '@podium/protocol'
+import type { IssueCommandName, LockCommandName } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -27,10 +27,16 @@ type IssueProcName = IssueCommandName
 /** The specs router (pspec v1, #135) — `podium spec` drives these. */
 type SpecProcName = 'list' | 'get' | 'create' | 'save' | 'remove' | 'search'
 
+/** The lock router (advisory named lease locks [spec:SP-85d1]) — `podium lock`
+ *  / `podium merge-lock` drive these; the union derives from the same protocol
+ *  list the server registry is satisfies-checked against. */
+type LockProcName = LockCommandName
+
 export interface IssueTrpc {
   issues: Record<IssueProcName, IssueProc>
   repos: { inferFromPath: IssueProc }
   specs: Record<SpecProcName, IssueProc>
+  lock: Record<LockProcName, IssueProc>
 }
 
 /** Typed-transport tRPC client for the issue tracker. baseUrl e.g. http://localhost:18787

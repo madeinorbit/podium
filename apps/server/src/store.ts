@@ -38,6 +38,7 @@ import { ConversationsRepository } from './store/conversations'
 import { ApprovalsRepository } from './store/approvals'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
+import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
@@ -65,6 +66,8 @@ export class SessionStore {
   readonly machines: MachinesRepository
   readonly events: EventsRepository
   readonly approvals: ApprovalsRepository
+  /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
+  readonly locks: LocksRepository
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -101,6 +104,7 @@ export class SessionStore {
     this.settings = new SettingsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.events = new EventsRepository(this.db)
+    this.locks = new LocksRepository(this.db)
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.

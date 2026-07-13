@@ -134,6 +134,8 @@ export type LaunchPlan =
   | { kind: 'session'; args: string[] }
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
+  | { kind: 'lock'; args: string[] }
+  | { kind: 'merge-lock'; args: string[] }
   | { kind: 'status' }
   | { kind: 'stop' }
   | { kind: 'logs'; args: string[] }
@@ -285,6 +287,8 @@ export function resolvePlan(
   if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
+  if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
+  if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
   if (argv[0] === 'stop') return { kind: 'stop' }
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
@@ -807,6 +811,18 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'worktree': {
       const { worktreeCliMain } = await import('./worktree-cli')
       await worktreeCliMain(plan.args)
+      return
+    }
+    // `podium lock <command>`: advisory named lease locks [spec:SP-85d1].
+    case 'lock': {
+      const { lockCliMain } = await import('./lock-cli')
+      await lockCliMain(plan.args)
+      return
+    }
+    // `podium merge-lock <command>`: the merge:<branch> sugar over the same locks.
+    case 'merge-lock': {
+      const { mergeLockCliMain } = await import('./lock-cli')
+      await mergeLockCliMain(plan.args)
       return
     }
     case 'status': {
