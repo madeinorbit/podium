@@ -60,7 +60,7 @@ test('mobile chat view: the native key bar / toolbar are NOT shown (chat uses th
   await openApp(page)
   await newSession(page, 'Claude') // claude-code is chatCapable, so the toggle is offered
   // Switch to the chat view.
-  await page.locator('button[aria-label="Chat view"]').click()
+  await page.locator('button[aria-label="Switch to chat view"]').click()
   await expect(page.getByPlaceholder(/Message/)).toBeVisible({ timeout: 20_000 })
 
   // The on-screen terminal key rows (Submit/arrows/voice + the Ctrl/Esc toolbar)

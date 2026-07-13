@@ -43,7 +43,7 @@ test('real claude: chat send submits both a short and a long (paste-sized) messa
   await openApp(page)
   await newSession(page, 'Claude')
   await waitReady(page)
-  await page.locator('button[aria-label="Chat view"]').click()
+  await page.locator('button[aria-label="Switch to chat view"]').click()
   await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
 
   // A normal chat message submits and claude replies (137+246=383). Before the fix
@@ -78,7 +78,7 @@ test('real codex: chat send submits and starts a turn', async ({ page }) => {
     })
     .toBeGreaterThan(40)
   await page.waitForTimeout(5000)
-  await page.locator('button[aria-label="Chat view"]').click()
+  await page.locator('button[aria-label="Switch to chat view"]').click()
   await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
 
   // The same chat send path (bracketed paste + delayed CR) must submit for codex.
@@ -101,7 +101,7 @@ test('real codex: resume-and-send waits for the resumed TUI before delivering (#
     })
     .toBeGreaterThan(40)
   await page.waitForTimeout(5000)
-  await page.locator('button[aria-label="Chat view"]').click()
+  await page.locator('button[aria-label="Switch to chat view"]').click()
   await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
 
   // A first turn establishes codex's rollout thread → the session becomes resumable

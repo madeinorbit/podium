@@ -18,6 +18,7 @@ import {
   Moon,
   RotateCcw,
   Sparkles,
+  SquareTerminal,
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
@@ -540,43 +541,31 @@ export function AgentPanel({
             <span className="truncate">{prettyCwd(session.cwd)}</span>
           </span>
         )}
-        {/* Chat/native view toggle, restored per #20 [spec:SP-9e10]. It only
-            makes sense with a live PTY behind it — a hibernated/exited session
-            has no terminal to switch to, so hide it rather than render a
-            control that visibly does nothing. */}
+        {/* Chat/native view toggle, restored per #20 [spec:SP-9e10]. A single
+            icon button showing the view a click switches TO (the header's
+            CHAT/NATIVE eyebrow states the current one). SquareTerminal, not the
+            plain Terminal glyph — the resume-command menu in this same row
+            already uses that one. Only offered with a live PTY behind it — a
+            hibernated/exited session has no terminal to switch to, so hide it
+            rather than render a control that visibly does nothing. */}
         {chatCapable && !hibernated && !exited && (
-          <div className="inline-flex flex-none items-center rounded-md border border-input p-0.5">
-            <button
-              type="button"
-              aria-pressed={effectiveMode === 'chat'}
-              aria-label="Chat view"
-              title="Chat view"
-              onClick={() => pickMode('chat')}
-              className={cn(
-                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
-                effectiveMode === 'chat'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-7 flex-none text-muted-foreground"
+            aria-label={
+              effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'
+            }
+            title={effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'}
+            onClick={() => pickMode(effectiveMode === 'chat' ? 'native' : 'chat')}
+          >
+            {effectiveMode === 'chat' ? (
+              <SquareTerminal size={13} aria-hidden="true" />
+            ) : (
               <MessageSquareText size={13} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              aria-pressed={effectiveMode === 'native'}
-              aria-label="Native terminal"
-              title="Native terminal"
-              onClick={() => pickMode('native')}
-              className={cn(
-                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
-                effectiveMode === 'native'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <TerminalIcon size={13} aria-hidden="true" />
-            </button>
-          </div>
+            )}
+          </Button>
         )}
         {/* Native resume command (#119): the literal `claude --resume <id>` etc.
             so you can pick the conversation back up in your own terminal. Shown

@@ -77,9 +77,9 @@ async function seedTranscript(uuid: string, lines: string[]): Promise<void> {
 // one newSession() just brought to front. `visible=true` excludes the display:none
 // panels so the locator resolves to a single element.
 const chatToggle = (page: Page) =>
-  page.locator('button[aria-label="Chat view"]').locator('visible=true')
+  page.locator('button[aria-label="Switch to chat view"]').locator('visible=true')
 const nativeToggle = (page: Page) =>
-  page.locator('button[aria-label="Native terminal"]').locator('visible=true')
+  page.locator('button[aria-label="Switch to native terminal"]').locator('visible=true')
 
 test.afterEach(async () => {
   await rm(BUCKET, { recursive: true, force: true }).catch(() => {})
