@@ -13,6 +13,7 @@ import {
   Copy,
   Folder,
   Keyboard,
+  MessageSquareText,
   Mic,
   Moon,
   RotateCcw,
@@ -134,6 +135,7 @@ export function AgentPanel({
     hibernateSession,
     openFile,
     panelMode,
+    setPanelMode,
     setPanelRenderMode,
     uiState,
   } = useStoreSelector(
@@ -150,6 +152,7 @@ export function AgentPanel({
       hibernateSession: s.hibernateSession,
       openFile: s.openFile,
       panelMode: s.panelMode,
+      setPanelMode: s.setPanelMode,
       setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
     }),
@@ -204,6 +207,13 @@ export function AgentPanel({
   useEffect(() => {
     setPanelRenderMode(sessionId, effectiveMode)
   }, [sessionId, effectiveMode, setPanelRenderMode])
+
+  const pickMode = (m: PanelMode) => {
+    // Persist the per-session override in the store (#35)…
+    setPanelMode(sessionId, m)
+    // …and remember the latest pick as the per-device default for not-yet-seen sessions.
+    uiState.set(PANEL_MODE_DEFAULT_KEY, m)
+  }
 
   const hibernated = session?.status === 'hibernated'
   const exited = session?.status === 'exited'
@@ -529,9 +539,44 @@ export function AgentPanel({
             <span className="truncate">{prettyCwd(session.cwd)}</span>
           </span>
         )}
-        {/* chat/native toggle removed [spec:SP-9e10] — the pane renders per the
-            mode-resolution rules (native on desktop, chat on mobile/hibernated/
-            exited); the desktop agent pane is native-only. */}
+        {/* Chat/native view toggle, restored per #20 [spec:SP-9e10]. It only
+            makes sense with a live PTY behind it — a hibernated/exited session
+            has no terminal to switch to, so hide it rather than render a
+            control that visibly does nothing. */}
+        {chatCapable && !hibernated && !exited && (
+          <div className="inline-flex flex-none items-center rounded-md border border-input p-0.5">
+            <button
+              type="button"
+              aria-pressed={effectiveMode === 'chat'}
+              aria-label="Chat view"
+              title="Chat view"
+              onClick={() => pickMode('chat')}
+              className={cn(
+                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
+                effectiveMode === 'chat'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <MessageSquareText size={13} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              aria-pressed={effectiveMode === 'native'}
+              aria-label="Native terminal"
+              title="Native terminal"
+              onClick={() => pickMode('native')}
+              className={cn(
+                'flex items-center justify-center rounded-[5px] px-2 py-1 transition-colors',
+                effectiveMode === 'native'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <TerminalIcon size={13} aria-hidden="true" />
+            </button>
+          </div>
+        )}
         {/* Native resume command (#119): the literal `claude --resume <id>` etc.
             so you can pick the conversation back up in your own terminal. Shown
             whenever the harness has handed us a resume ref. As the first
