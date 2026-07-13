@@ -46,6 +46,7 @@ import { up as messages } from './016-messages'
 import { up as messagesAxes } from './017-messages-axes'
 import { up as messagesReminded } from './018-messages-reminded'
 import { up as sessionsWorkflowMetadata } from './019-sessions-workflow-metadata'
+import { up as recapWatermarks } from './020-recap-watermarks'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -85,6 +86,8 @@ export const MIGRATIONS: Migration[] = [
   { version: 17, name: 'messages-axes', up: messagesAxes },
   { version: 18, name: 'messages-reminded', up: messagesReminded },
   { version: 19, name: 'sessions-workflow-metadata', up: sessionsWorkflowMetadata },
+  // Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: recap watermarks.
+  { version: 20, name: 'recap-watermarks', up: recapWatermarks },
 ]
 
 /** Highest schema version the running code knows about. */

@@ -51,6 +51,15 @@ const awaitAgentInput = z.object({
   sessionId: z.string(),
   timeoutSeconds: z.number().min(0).max(300).optional(),
 })
+// The seance [spec:SP-34d7 read-toolkit tier 4]: a `question` message
+// (next-turn + wake, ack expected) + a bounded wait for the answer. Not a new
+// mechanism — it rides the send pipeline, so the clamp matrix, wake cooldown
+// and hop brake all apply unchanged (it costs a turn of the target's quota).
+const askInput = z.object({
+  sessionId: z.string(),
+  question: z.string().min(1).max(32_768),
+  timeoutSeconds: z.number().min(0).max(300).optional(),
+})
 
 export interface MessageGateDeps {
   messages(): MessageDeliveryService
@@ -130,6 +139,8 @@ export class MessageGate {
         return Promise.resolve().then(() => this.spawnAgent(caller, spawnAgentInput.parse(input)))
       case 'awaitAgent':
         return this.awaitAgent(caller, awaitAgentInput.parse(input))
+      case 'ask':
+        return this.ask(caller, askInput.parse(input))
       default:
         return undefined
     }
@@ -383,6 +394,62 @@ export class MessageGate {
         ...(s.lastActiveAt ? { lastActiveAt: s.lastActiveAt } : {}),
         ...(s.queuedMessageCount ? { queuedMessageCount: s.queuedMessageCount } : {}),
       }
+    }
+  }
+
+  /**
+   * `podium session ask <id> --question "…"` — the seance [spec:SP-34d7
+   * read-toolkit tier 4]. Implemented AS A MESSAGE: a `kind:'question'` row at
+   * next-turn + wake whose server-rendered envelope constrains the receiver to
+   * answer-then-resume; a dead/parked target wakes via harness-native resume so
+   * the predecessor's full context answers, and only the answer (the ack)
+   * crosses back. Authz = the session-target gate (same as send); the send
+   * pipeline's clamps/cooldown apply unchanged — a question is never exempt.
+   * The wait is BOUNDED: the answer, or "no answer yet" + a status snapshot.
+   */
+  private async ask(
+    caller: { capability: Capability; overrideScope?: boolean },
+    input: z.infer<typeof askInput>,
+  ): Promise<unknown> {
+    this.assertSessionTargetAccess(caller, input.sessionId, 'messages.ask')
+    const svc = this.deps.messages()
+    const r = svc.send(senderFromCapability(caller.capability), {
+      to: { kind: 'session', id: input.sessionId },
+      body: input.question,
+      kind: 'question',
+      urgency: 'next-turn',
+      lifecycle: 'wake',
+    })
+    const sleep = this.deps.sleep ?? undefined
+    const ack = await svc.awaitAck(r.message.id, {
+      timeoutMs: (input.timeoutSeconds ?? 30) * 1000,
+      ...(this.deps.awaitPollMs !== undefined ? { pollMs: this.deps.awaitPollMs } : {}),
+      ...(sleep ? { sleep } : {}),
+    })
+    const target = this.deps.listSessions().find((s) => s.sessionId === input.sessionId)
+    const snapshot = target
+      ? {
+          sessionId: target.sessionId,
+          status: target.status,
+          ...(target.agentState?.phase ? { phase: target.agentState.phase } : {}),
+          ...(target.issueId ? { issueId: target.issueId } : {}),
+        }
+      : null
+    if (ack) {
+      return {
+        answered: true,
+        questionId: r.message.id,
+        answer: ack.body,
+        ackId: ack.id,
+        snapshot,
+      }
+    }
+    return {
+      answered: false,
+      questionId: r.message.id,
+      reason: 'no answer yet — the question is delivered/queued; check back or await the ack',
+      ...(r.message.clampedFrom ? { clamped: true } : {}),
+      snapshot,
     }
   }
 

@@ -431,6 +431,23 @@ export const appRouter = t.router({
       .query(({ ctx, input }) =>
         mods(ctx).readToolkit.read(input, ctx.capability.actorSessionId ?? 'operator'),
       ),
+    // Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
+    // since a watermark — repeated check-ins pay only for the delta (the
+    // watermark persists per (reader, target)).
+    recap: t.procedure
+      .input(z.object({ sessionId: z.string(), since: z.string().optional() }))
+      .query(({ ctx, input }) =>
+        mods(ctx).readToolkit.recap(input, ctx.capability.actorSessionId ?? 'operator'),
+      ),
+    // Read toolkit tier 4 (#237) [spec:SP-34d7 read-toolkit]: the seance — a
+    // question message (next-turn + wake, ack expected) + a bounded ack wait.
+    // Authz/clamps live in the MessageGate, shared verbatim with the relay arm.
+    ask: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'ask', input)!,
+      ),
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),

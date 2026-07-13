@@ -12,8 +12,9 @@ export interface BtwSessionInfo {
   cwd?: string
 }
 
-/** One transcript item as a marked, length-bounded line (id + ts for awareness). */
-function lineForItem(it: TranscriptItem): string {
+/** One transcript item as a marked, length-bounded line (id + ts for awareness).
+ *  Exported for the read-toolkit's tier-3 recap (#237) [spec:SP-34d7]. */
+export function lineForItem(it: TranscriptItem): string {
   const stamp = `${it.ts ?? '?'} · ${it.id}`
   if (it.role === 'tool') {
     if (it.toolName) return `[${stamp}] ⚙ ${it.toolName} ${it.toolInput ?? ''}`.trim()

@@ -33,6 +33,8 @@ const ISSUE = {
 function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean }) {
   const events: { kind: string; subject: string; payload: unknown }[] = []
   const repoOps: string[] = []
+  const watermarks = new Map<string, string>()
+  const reads: { anchor?: string; direction: string }[] = []
   const toolkit = new SessionReadToolkit({
     listSessions: () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
     issues: () =>
@@ -60,16 +62,32 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         ? { ok: true, output: 'c1 one\nc2 two\nc3\nc4\nc5\nc6\nc7' }
         : { ok: true, output: '## branch\n M a.ts\n?? b.ts' }
     },
-    readTranscript: async () => ({
-      items: opts?.items ?? [
+    watermarks: {
+      getRecapWatermark: (reader, sessionId) => watermarks.get(`${reader}|${sessionId}`) ?? null,
+      setRecapWatermark: (reader, sessionId, watermark) => {
+        watermarks.set(`${reader}|${sessionId}`, watermark)
+      },
+    },
+    // Cursor-aware fake: 'after' an anchor returns only the items past it —
+    // the delta semantics the recap watermark rides.
+    readTranscript: async (input) => {
+      reads.push({
+        ...(input.anchor !== undefined ? { anchor: input.anchor } : {}),
+        direction: input.direction,
+      })
+      const all = opts?.items ?? [
         { id: 'i1', cursor: 'c1', role: 'user', text: 'hi' },
         { id: 'i2', cursor: 'c2', role: 'assistant', text: 'hello' },
-      ],
-      hasMore: opts?.hasMore ?? false,
-    }),
+      ]
+      if (input.direction === 'after' && input.anchor) {
+        const idx = all.findIndex((i) => i.cursor === input.anchor)
+        return { items: idx >= 0 ? all.slice(idx + 1) : all, hasMore: false }
+      }
+      return { items: all, hasMore: opts?.hasMore ?? false }
+    },
     now: () => 't0',
   })
-  return { toolkit, events, repoOps }
+  return { toolkit, events, repoOps, watermarks, reads }
 }
 
 describe('session status (tier 1)', () => {
@@ -131,5 +149,68 @@ describe('session read (tier 2)', () => {
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
     await expect(toolkit.read({ sessionId: 'nope' }, 'op')).rejects.toThrow(/unknown session/)
+  })
+})
+
+describe('session recap (tier 3)', () => {
+  const ITEMS: TranscriptItem[] = [
+    { id: 'i1', cursor: 'c1', role: 'user', text: 'do the thing' },
+    { id: 'i2', cursor: 'c2', role: 'assistant', text: 'done part one' },
+    { id: 'i3', cursor: 'c3', role: 'assistant', text: 'done part two' },
+  ] as TranscriptItem[]
+
+  it('first call summarizes the latest window and persists the watermark per (reader, target)', async () => {
+    const { toolkit, events, watermarks } = harness({ items: ITEMS })
+    const r = await toolkit.recap({ sessionId: 's1' }, 'parent-1')
+    expect(r.newItems).toBe(3)
+    expect(r.delta).toBe(false)
+    expect(r.recap).toContain('Recap: 1 user / 2 assistant turns')
+    expect(r.recap).toContain('do the thing')
+    expect(r.watermark).toBe('c3')
+    expect(watermarks.get('parent-1|s1')).toBe('c3')
+    expect(events[0]).toMatchObject({
+      kind: 'session.recap_read',
+      subject: 's1',
+      payload: { reader: 'parent-1' },
+    })
+  })
+
+  it('the second call summarizes ONLY the delta and advances the watermark', async () => {
+    const { toolkit, reads } = harness({ items: ITEMS })
+    await toolkit.recap({ sessionId: 's1' }, 'parent-1')
+    // Simulate new activity by re-calling: the fake slices after the anchor.
+    const r2 = await toolkit.recap({ sessionId: 's1' }, 'parent-1')
+    expect(reads[1]).toEqual({ anchor: 'c3', direction: 'after' })
+    expect(r2.delta).toBe(true)
+    expect(r2.newItems).toBe(0)
+    expect(r2.recap).toContain('No new activity since watermark c3')
+    expect(r2.watermark).toBe('c3')
+  })
+
+  it('an explicit --since overrides the persisted watermark and the delta pays only for what follows', async () => {
+    const { toolkit, reads, watermarks } = harness({ items: ITEMS })
+    const r = await toolkit.recap({ sessionId: 's1', since: 'c1' }, 'op')
+    expect(reads[0]).toEqual({ anchor: 'c1', direction: 'after' })
+    expect(r.delta).toBe(true)
+    expect(r.newItems).toBe(2)
+    expect(r.recap).toContain('Since you last looked (item c1')
+    expect(r.recap).not.toContain('do the thing')
+    expect(r.watermark).toBe('c3')
+    expect(watermarks.get('op|s1')).toBe('c3')
+  })
+
+  it('watermarks are per-reader: a second caller re-summarizes from its own mark', async () => {
+    const { toolkit, watermarks } = harness({ items: ITEMS })
+    await toolkit.recap({ sessionId: 's1' }, 'reader-a')
+    const r = await toolkit.recap({ sessionId: 's1' }, 'reader-b')
+    expect(r.delta).toBe(false)
+    expect(r.newItems).toBe(3)
+    expect(watermarks.get('reader-a|s1')).toBe('c3')
+    expect(watermarks.get('reader-b|s1')).toBe('c3')
+  })
+
+  it('rejects an unknown session', async () => {
+    const { toolkit } = harness()
+    await expect(toolkit.recap({ sessionId: 'nope' }, 'op')).rejects.toThrow(/unknown session/)
   })
 })

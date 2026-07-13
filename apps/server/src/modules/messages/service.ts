@@ -150,9 +150,18 @@ export function sanitizeBody(body: string): string {
  *  their own — a spoofed "[podium message …]" inside `body` lands INSIDE the
  *  real frame and reads as quoted text. */
 export function renderEnvelope(m: MessageRow, fromLabel: string, toLabel: string): string {
+  // The seance constraint [spec:SP-34d7 read-toolkit tier 4]: a question's
+  // frame binds the receiver — answer from existing context, reply, then
+  // RESUME. Server-rendered like the rest of the frame, never client text.
+  const questionRule =
+    m.kind === 'question'
+      ? `[this is a question: answer it from your existing context with \`podium mail reply ${m.id}\`, ` +
+        `then RETURN TO WHAT YOU WERE DOING — do not take up new work because of it]\n`
+      : ''
   return (
     `[podium message ${m.id} · from ${fromLabel} · to ${toLabel} · reply: podium mail reply ${m.id}]\n` +
     `${m.body}\n` +
+    questionRule +
     `[end podium message ${m.id}]`
   )
 }
@@ -700,6 +709,27 @@ export class MessageDeliveryService {
   /** Message lookup for the read surfaces (gate/CLI). */
   message(id: string): MessageRow | null {
     return this.deps.messages.getMessage(id)
+  }
+
+  /**
+   * Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]: poll
+   * `acked_by` until the deadline; returns the ack row or null ("no answer
+   * yet"). NEVER hangs — the same every-wait-bounded rule as agent await.
+   * Shared by the seance (`podium session ask`) across gate + superagent.
+   */
+  async awaitAck(
+    messageId: string,
+    opts: { timeoutMs: number; pollMs?: number; sleep?(ms: number): Promise<void> },
+  ): Promise<MessageRow | null> {
+    const pollMs = opts.pollMs ?? 500
+    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+    const deadline = Date.now() + opts.timeoutMs
+    for (;;) {
+      const m = this.deps.messages.getMessage(messageId)
+      if (m?.ackedBy) return this.deps.messages.getMessage(m.ackedBy)
+      if (Date.now() >= deadline) return null
+      await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
+    }
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */

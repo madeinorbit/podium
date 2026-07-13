@@ -22,7 +22,26 @@ const READ = {
   truncated: false,
 }
 
-function client(result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true }) {
+const RECAP = {
+  sessionId: 's1',
+  recap: 'Recap: 1 user / 1 assistant turns, 0 tool calls',
+  watermark: 'w2',
+  newItems: 2,
+  delta: true,
+}
+
+const ASK = {
+  answered: true,
+  questionId: 'msg_q1',
+  answer: 'the port is 18787',
+  ackId: 'msg_a1',
+  snapshot: { sessionId: 's1', status: 'live', phase: 'working' },
+}
+
+function client(
+  result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true },
+  ask: unknown = ASK,
+) {
   return {
     sessions: {
       sendText: { mutate: vi.fn(async () => result) },
@@ -30,6 +49,8 @@ function client(result: { ok: boolean; queued?: boolean; reason?: string } = { o
       continue: { mutate: vi.fn(async () => result) },
       status: { query: vi.fn(async (): Promise<unknown> => STATUS) },
       read: { query: vi.fn(async (): Promise<unknown> => READ) },
+      recap: { query: vi.fn(async (): Promise<unknown> => RECAP) },
+      ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
     },
   } satisfies SessionControlClient
 }
@@ -115,6 +136,55 @@ describe('podium session status/read (#237 read toolkit)', () => {
   })
 })
 
+describe('podium session recap/ask (#237 read toolkit tiers 3–4)', () => {
+  it('recap forwards --since and renders the recap + persisted-watermark hint', async () => {
+    const c = client()
+    const out = await runSessionCli(['recap', 's1', '--since', 'w1'], c)
+    expect(c.sessions.recap.query).toHaveBeenCalledWith({ sessionId: 's1', since: 'w1' })
+    expect(out).toContain('Recap: 1 user / 1 assistant turns')
+    expect(out).toContain('watermark: w2')
+  })
+
+  it('recap without --since relies on the server-persisted watermark', async () => {
+    const c = client()
+    await runSessionCli(['recap', 's1'], c)
+    expect(c.sessions.recap.query).toHaveBeenCalledWith({ sessionId: 's1' })
+  })
+
+  it('ask sends the question with a bounded timeout and prints the answer', async () => {
+    const c = client()
+    const out = await runSessionCli(['ask', 's1', '--question', 'which port?', '--timeout', '5'], c)
+    expect(c.sessions.ask.mutate).toHaveBeenCalledWith({
+      sessionId: 's1',
+      question: 'which port?',
+      timeoutSeconds: 5,
+    })
+    expect(out).toBe('the port is 18787')
+  })
+
+  it('ask renders "no answer yet" + snapshot when the bounded wait expires', async () => {
+    const c = client(
+      { ok: true },
+      {
+        answered: false,
+        questionId: 'msg_q1',
+        snapshot: { sessionId: 's1', status: 'live', phase: 'working' },
+      },
+    )
+    const out = await runSessionCli(['ask', 's1', '--question', 'q'], c)
+    expect(out).toContain('no answer yet')
+    expect(out).toContain('live/working')
+  })
+
+  it('ask validates --question and --timeout', async () => {
+    const c = client()
+    await expect(runSessionCli(['ask', 's1'], c)).rejects.toThrow(/needs --question/)
+    await expect(
+      runSessionCli(['ask', 's1', '--question', 'q', '--timeout', 'soon'], c),
+    ).rejects.toThrow(/whole number/)
+  })
+})
+
 // Real-binary smoke (repo norm: skip-if-absent, same pattern as mail-cli):
 // drive the actual runnable CLI entry with bun. Help must render without a
 // server; unknown commands must exit non-zero.
@@ -134,6 +204,8 @@ describe.skipIf(!hasBun)('podium session real-binary smoke', () => {
     expect(out).toContain('podium session <command>')
     expect(out).toContain('status <session-id|#issue>')
     expect(out).toContain('read <session-id>')
+    expect(out).toContain('recap <session-id>')
+    expect(out).toContain('ask <session-id> --question')
   })
 
   it('fails fast on an unknown session command', () => {

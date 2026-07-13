@@ -15,12 +15,17 @@
 import type { SessionMeta, TranscriptItem } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
+import type { ReadWatermarksRepository } from '../../store/read-watermarks'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
+import { buildBtwDelta, buildBtwRecap, lineForItem } from '../superagent/btw'
 
 /** Hard caps: transcript lines per read call and turns per window. */
 export const READ_LINE_CAP = 200
 export const READ_TURN_CAP = 50
+/** Recap (tier 3): max transcript items summarized per call and max recap chars. */
+export const RECAP_ITEM_CAP = 400
+export const RECAP_CHAR_CAP = 12_000
 
 export interface SessionStatusResult {
   sessionId: string
@@ -51,11 +56,26 @@ export interface SessionReadResult {
   truncated: boolean
 }
 
+export interface SessionRecapResult {
+  sessionId: string
+  /** Deterministic Hermes-style recap of the window since the watermark. */
+  recap: string
+  /** Pass back as --since (also persisted per (reader, target)) — the next
+   *  call summarizes only what happened after this cursor. */
+  watermark: string | null
+  /** Items the recap covered; 0 = nothing new since the watermark. */
+  newItems: number
+  /** True when this call summarized a delta (a watermark was in effect). */
+  delta: boolean
+}
+
 export interface SessionReadToolkitDeps {
   listSessions(): SessionMeta[]
   issues(): IssueService
   messages(): MessageDeliveryService
   events: Pick<EventsRepository, 'appendEvent'>
+  /** Persisted per-(reader, target) recap watermarks (tier 3). */
+  watermarks: Pick<ReadWatermarksRepository, 'getRecapWatermark' | 'setRecapWatermark'>
   /** Allowlisted daemon git op ('log' → oneline -20, 'status' → porcelain -b). */
   repoOp(
     op: 'log' | 'status',
@@ -176,6 +196,73 @@ export class SessionReadToolkit {
       cursor: kept[0]?.cursor ?? slice.items[0]?.cursor ?? null,
       hasMore: slice.hasMore || truncated,
       truncated,
+    }
+  }
+
+  /**
+   * Tier 3 — `podium session recap <id> [--since <watermark>]`: a server-side
+   * summary of the session's transcript SINCE a watermark, over the existing
+   * Hermes-recap machinery (buildBtwRecap/buildBtwDelta — the btw-thread
+   * digest infra), never a new summarizer. The advanced watermark is returned
+   * AND persisted per (reader, target), so a parent polling its child pays
+   * only for the delta on every check-in. Explicit --since overrides the
+   * persisted mark (re-summarize from an older point without losing it is not
+   * a goal — the persisted mark still advances).
+   */
+  async recap(
+    input: { sessionId: string; since?: string },
+    reader: string,
+  ): Promise<SessionRecapResult> {
+    const target = this.deps.listSessions().find((s) => s.sessionId === input.sessionId)
+    if (!target) throw new Error(`unknown session ${input.sessionId}`)
+    this.logRead('session.recap_read', target.sessionId, reader)
+    const since =
+      input.since ?? this.deps.watermarks.getRecapWatermark(reader, target.sessionId) ?? undefined
+    // Delta read when a watermark exists ('after' the cursor); first contact
+    // summarizes the latest window instead of the whole history.
+    const slice = since
+      ? await this.deps.readTranscript({
+          sessionId: target.sessionId,
+          anchor: since,
+          direction: 'after',
+          limit: RECAP_ITEM_CAP,
+        })
+      : await this.deps.readTranscript({
+          sessionId: target.sessionId,
+          direction: 'before',
+          limit: RECAP_ITEM_CAP,
+        })
+    const items = slice.items
+    if (items.length === 0) {
+      return {
+        sessionId: target.sessionId,
+        recap: since
+          ? `No new activity since watermark ${since}.`
+          : 'No transcript items found for this session.',
+        watermark: since ?? null,
+        newItems: 0,
+        delta: since !== undefined,
+      }
+    }
+    const head = buildBtwRecap(items)
+    const body = since
+      ? buildBtwDelta({ prev: { itemId: since }, delta: items, now: this.deps.now() })
+      : `Latest activity (${items.length} items):\n${items.map(lineForItem).join('\n')}`
+    const recap = `${head}\n\n${body}`.slice(0, RECAP_CHAR_CAP)
+    // The watermark is the newest item's cursor (the transcriptRead paging
+    // anchor). Items without a cursor keep the previous mark rather than
+    // corrupting it.
+    const last = [...items].reverse().find((i) => i.cursor)
+    const watermark = last?.cursor ?? since ?? null
+    if (watermark) {
+      this.deps.watermarks.setRecapWatermark(reader, target.sessionId, watermark, this.deps.now())
+    }
+    return {
+      sessionId: target.sessionId,
+      recap,
+      watermark,
+      newItems: items.length,
+      delta: since !== undefined,
     }
   }
 

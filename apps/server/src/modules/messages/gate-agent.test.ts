@@ -60,15 +60,25 @@ function harness(opts?: {
   const spawns: Record<string, unknown>[] = []
   const created: Record<string, unknown>[] = []
   const issues = fakeIssues(created)
+  const sent: { fn: string; sessionId: string; text: string }[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
     events: store.events,
     issues: () => fakeIssues(),
     sessions: () => ({
       listSessions: () => sessions,
-      sendText: () => ({ ok: true }),
-      queueText: () => ({ ok: true, queued: true }),
-      interruptText: () => ({ ok: true, queued: true }),
+      sendText: (i) => {
+        sent.push({ fn: 'sendText', ...i })
+        return { ok: true }
+      },
+      queueText: (i) => {
+        sent.push({ fn: 'queueText', ...i })
+        return { ok: true, queued: true }
+      },
+      interruptText: (i) => {
+        sent.push({ fn: 'interruptText', ...i })
+        return { ok: true, queued: true }
+      },
     }),
     now: () => new Date().toISOString(),
   })
@@ -89,7 +99,7 @@ function harness(opts?: {
     sleep: () => Promise.resolve(), // never actually blocks the test
     awaitPollMs: opts?.awaitPollMs ?? 1,
   })
-  return { gate, svc, store, spawns, created, sessions }
+  return { gate, svc, store, spawns, created, sessions, sent }
 }
 
 describe('agent spawn (gate)', () => {
@@ -251,5 +261,78 @@ describe('agent await (bounded, never hangs)', () => {
       timeoutSeconds: 0,
     })) as { result: string }
     expect(r.result).toBe('working')
+  })
+})
+
+describe('session ask — the seance (#237 tier 4)', () => {
+  const child = (over: Partial<SessionMeta>): SessionMeta =>
+    ({
+      sessionId: 'child1',
+      cwd: '/wt/a',
+      agentKind: 'claude-code',
+      status: 'live',
+      title: 'child',
+      createdAt: 't',
+      issueId: ISSUE.id,
+      spawnedBy: 'session:sParent',
+      agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+      ...over,
+    }) as SessionMeta
+
+  it('round-trips: question → delivery with the answer-then-resume envelope → ack carries the answer back', async () => {
+    const { gate, svc, sent } = harness({ sessions: [child({})] })
+    const p = gate.dispatch(PARENT, true, 'ask', {
+      sessionId: 'child1',
+      question: 'which port does the relay use?',
+      timeoutSeconds: 5,
+    }) as Promise<{ answered: boolean; answer?: string; questionId: string }>
+    // The question is delivered inline (idle target) as a kind:'question'
+    // envelope that CONSTRAINS the receiver: answer, then resume — server-
+    // rendered, so a body can never fake or omit it.
+    expect(sent).toHaveLength(1)
+    const text = sent[0]!.text
+    expect(text).toContain('which port does the relay use?')
+    expect(text).toContain('this is a question')
+    expect(text).toContain('RETURN TO WHAT YOU WERE DOING')
+    const id = /podium message (msg_\S+) /.exec(text)![1]!
+    expect(text).toContain(`podium mail reply ${id}`)
+    // The child answers via the ack — only the answer crosses back.
+    svc.sendReply(
+      { kind: 'agent', sessionId: 'child1', issueId: ISSUE.id },
+      { inReplyTo: id, body: 'port 18787' },
+    )
+    const r = await p
+    expect(r).toMatchObject({ answered: true, questionId: id, answer: 'port 18787' })
+  })
+
+  it('ask on a parked session resumes it (wake → queueText, harness-native resume path)', async () => {
+    const { gate, sent } = harness({ sessions: [child({ status: 'hibernated' })] })
+    const r = (await gate.dispatch(OPERATOR, undefined, 'ask', {
+      sessionId: 'child1',
+      question: 'status?',
+      timeoutSeconds: 0,
+    })) as { answered: boolean; snapshot: { status: string } }
+    // wake lifecycle rides queueText, which durably queues + resurrects.
+    expect(sent[0]).toMatchObject({ fn: 'queueText', sessionId: 'child1' })
+    // Bounded wait returned instead of hanging: no answer yet + snapshot.
+    expect(r.answered).toBe(false)
+    expect(r.snapshot).toMatchObject({ sessionId: 'child1', status: 'hibernated' })
+  })
+
+  it('is subject to the session-target scope gate: denied outside the subtree without --outside-scope', async () => {
+    const { gate } = harness({ sessions: [child({ spawnedBy: 'user' })] })
+    await expect(
+      gate.dispatch(PARENT, undefined, 'ask', {
+        sessionId: 'child1',
+        question: 'q',
+        timeoutSeconds: 0,
+      }),
+    ).rejects.toThrow(/outside your subtree/)
+    const r = (await gate.dispatch(PARENT, true, 'ask', {
+      sessionId: 'child1',
+      question: 'q',
+      timeoutSeconds: 0,
+    })) as { answered: boolean }
+    expect(r.answered).toBe(false)
   })
 })

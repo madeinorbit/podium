@@ -398,7 +398,13 @@ export class SessionRegistry {
           // a structured snapshot (no transcript text); read is a bounded
           // uuid-cursor transcript window. Both are scope-gated like the send
           // ops against the RESOLVED target's issue and event-logged per read.
-          if (proc === 'status' || proc === 'read') {
+          // Tier 4 — the seance (#237) [spec:SP-34d7 read-toolkit]: `podium
+          // session ask` rides the messages gate (it IS a message: question +
+          // next-turn + wake + bounded ack wait; the gate owns its authz).
+          if (proc === 'ask') {
+            return messageGate.dispatch(capability, overrideScope, 'ask', input)
+          }
+          if (proc === 'status' || proc === 'read' || proc === 'recap') {
             return (async () => {
               const raw = (input ?? {}) as Record<string, unknown>
               const ref = proc === 'status' ? raw.ref : raw.sessionId
@@ -429,6 +435,17 @@ export class SessionRegistry {
               }
               const reader = capability.actorSessionId ?? 'operator'
               if (proc === 'status') return readToolkit.status(ref, reader)
+              // Tier 3 — server-side recap since a watermark (#237)
+              // [spec:SP-34d7 read-toolkit]: delta-priced repeated check-ins.
+              if (proc === 'recap') {
+                return readToolkit.recap(
+                  {
+                    sessionId: target.sessionId,
+                    ...(typeof raw.since === 'string' && raw.since ? { since: raw.since } : {}),
+                  },
+                  reader,
+                )
+              }
               const turns = raw.turns != null ? Number(raw.turns) : undefined
               return readToolkit.read(
                 {
@@ -696,6 +713,8 @@ export class SessionRegistry {
       issues: () => issues,
       messages: () => messagesSvc,
       events: this.store.events,
+      // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
+      watermarks: this.store.readWatermarks,
       repoOp: async (op, cwd, machineId) => rpc.repoOp(op, cwd, undefined, machineId),
       readTranscript: (input) => rpc.readTranscript(input),
       now: () => new Date(this.now()).toISOString(),

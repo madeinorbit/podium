@@ -9,9 +9,11 @@ export interface SessionControlClient {
     sendText: SessionProc
     resumeAndSend: SessionProc
     continue: SessionProc
-    /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]. */
+    /** Read toolkit tiers 1–4 (#237) [spec:SP-34d7]. */
     status: SessionQuery
     read: SessionQuery
+    recap: SessionQuery
+    ask: { mutate(input: Record<string, unknown>): Promise<unknown> }
   }
 }
 
@@ -25,6 +27,26 @@ interface StatusWire {
   commits: string[]
   files: string[]
   unackedMessages: number
+}
+
+/** Tier-3 recap wire shape (modules/sessions/read-toolkit). */
+interface RecapWire {
+  sessionId: string
+  recap: string
+  watermark: string | null
+  newItems: number
+  delta: boolean
+}
+
+/** Tier-4 seance wire shape (modules/messages/gate `ask`). */
+interface AskWire {
+  answered: boolean
+  questionId: string
+  answer?: string
+  ackId?: string
+  reason?: string
+  clamped?: boolean
+  snapshot: { sessionId: string; status: string; phase?: string; issueId?: string } | null
 }
 
 interface ReadWire {
@@ -65,6 +87,25 @@ function renderRead(r: ReadWire): string {
     .filter(Boolean)
     .join(' ')
   return [body || '(no transcript items)', tail].filter(Boolean).join('\n')
+}
+
+function renderRecap(r: RecapWire): string {
+  return [
+    r.recap,
+    r.watermark
+      ? `(watermark: ${r.watermark} — persisted; next recap covers only what follows)`
+      : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function renderAsk(a: AskWire): string {
+  if (a.answered) return a.answer ?? '(empty answer)'
+  const snap = a.snapshot
+    ? ` — session ${a.snapshot.sessionId} is ${a.snapshot.status}${a.snapshot.phase ? `/${a.snapshot.phase}` : ''}`
+    : ''
+  return `no answer yet (question ${a.questionId} sent${a.clamped ? ', clamped' : ''})${snap}`
 }
 
 export class SessionCliError extends Error {}
@@ -116,6 +157,12 @@ function helpText(): string {
     '  read <session-id> [--turns N] [--cursor C] [--outside-scope]',
     '      Bounded raw-transcript window (newest first page; --cursor pages back).',
     '      Hard-capped per call; every read is event-logged.',
+    '  recap <session-id> [--since <watermark>] [--outside-scope]',
+    '      Server-side summary since a watermark; returns recap + new watermark.',
+    '      The watermark persists per caller, so repeated check-ins pay only for the delta.',
+    '  ask <session-id> --question <text> [--timeout SECONDS] [--outside-scope]',
+    "      The seance: send a question message (next-turn + wake — resumes a parked session's",
+    '      full context), then wait (bounded) for the ack carrying the answer.',
   ].join('\n')
 }
 
@@ -124,7 +171,17 @@ export async function runSessionCli(argv: string[], client: SessionControlClient
   const { command, args, positionals } = parseSessionArgs(argv)
   if (!command || command === 'help') return helpText()
   // Unknown flags are an error, never silently dropped (#345).
-  const known = new Set(['text', 'wake', 'json', 'outside-scope', 'turns', 'cursor'])
+  const known = new Set([
+    'text',
+    'wake',
+    'json',
+    'outside-scope',
+    'turns',
+    'cursor',
+    'since',
+    'question',
+    'timeout',
+  ])
   const unknown = Object.keys(args).filter((k) => !known.has(k))
   if (unknown.length) {
     throw new SessionCliError(
@@ -154,6 +211,31 @@ export async function runSessionCli(argv: string[], client: SessionControlClient
       ...(typeof args.cursor === 'string' ? { cursor: args.cursor } : {}),
     })) as ReadWire
     return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRead(r)
+  }
+  // Tier 3 (#237) [spec:SP-34d7 read-toolkit]: delta-priced server-side recap.
+  if (command === 'recap') {
+    const r = (await client.sessions.recap.query({
+      sessionId,
+      ...(typeof args.since === 'string' ? { since: args.since } : {}),
+    })) as RecapWire
+    return args.json === true ? JSON.stringify({ command, ok: true, data: r }) : renderRecap(r)
+  }
+  // Tier 4 (#237) [spec:SP-34d7 read-toolkit]: the seance.
+  if (command === 'ask') {
+    const question = args.question
+    if (typeof question !== 'string' || question.length === 0) {
+      throw new SessionCliError('ask needs --question')
+    }
+    if (question.length > 32_768) throw new SessionCliError('question exceeds 32768 characters')
+    if (args.timeout !== undefined && !/^\d+$/.test(String(args.timeout))) {
+      throw new SessionCliError('--timeout must be a whole number of seconds')
+    }
+    const a = (await client.sessions.ask.mutate({
+      sessionId,
+      question,
+      ...(args.timeout !== undefined ? { timeoutSeconds: Number(args.timeout) } : {}),
+    })) as AskWire
+    return args.json === true ? JSON.stringify({ command, ok: true, data: a }) : renderAsk(a)
   }
 
   let result: SessionResult

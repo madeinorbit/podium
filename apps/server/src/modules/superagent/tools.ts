@@ -612,6 +612,98 @@ export function buildSuperagentTools(
     },
     {
       spec: {
+        name: 'recap_session',
+        description:
+          "Read toolkit tier 3: a server-side summary of a session's transcript since your " +
+          'last recap (the watermark persists per caller, so repeated check-ins cost only ' +
+          'the delta). Cheaper than reading the raw transcript for "what happened since?".',
+        parameters: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string' },
+            since: {
+              type: 'string',
+              description: 'optional explicit watermark; omit to use your persisted one',
+            },
+          },
+          required: ['sessionId'],
+        },
+      },
+      // Watermark reader identity is thread-scoped when known, so parallel
+      // superagent threads each keep their own catch-up point (#237)
+      // [spec:SP-34d7 read-toolkit].
+      run: async (args) =>
+        JSON.stringify(
+          await modules.readToolkit.recap(
+            {
+              sessionId: str(args.sessionId) ?? '',
+              ...(str(args.since) ? { since: str(args.since) as string } : {}),
+            },
+            threadId ? `superagent:${threadId}` : 'superagent',
+          ),
+        ),
+    },
+    {
+      spec: {
+        name: 'ask_agent',
+        description:
+          'Read toolkit tier 4 (the seance): send a question message to a session ' +
+          '(next-turn + wake — a parked session resumes with its full context to answer), ' +
+          'then wait (bounded) for the ack carrying the answer. The receiver is instructed ' +
+          'to answer and return to its work. Returns the answer, or "no answer yet" + status.',
+        parameters: {
+          type: 'object',
+          properties: {
+            sessionId: { type: 'string' },
+            question: { type: 'string' },
+            timeoutSeconds: { type: 'number', description: 'wait bound, default 30, max 300' },
+          },
+          required: ['sessionId', 'question'],
+        },
+      },
+      run: async (args) => {
+        const sessionId = str(args.sessionId) ?? ''
+        const question = str(args.question) ?? ''
+        if (!question) return 'question is required'
+        // Same substrate as podium session ask: a question message through the
+        // one send path (clamps/cooldown apply), then a bounded ack wait.
+        const r = modules.messages.send(
+          { kind: 'superagent' },
+          {
+            to: { kind: 'session', id: sessionId },
+            body: question,
+            kind: 'question',
+            urgency: 'next-turn',
+            lifecycle: 'wake',
+          },
+        )
+        const timeoutMs = Math.min(300, Math.max(0, num(args.timeoutSeconds) ?? 30)) * 1000
+        const ack = await modules.messages.awaitAck(r.message.id, {
+          timeoutMs,
+          pollMs: waitPollMs,
+        })
+        const s = getSession(sessionId)
+        const snapshot = s
+          ? { status: s.status, phase: s.agentState?.phase ?? 'unknown' }
+          : { status: 'gone' }
+        if (ack) {
+          return JSON.stringify({
+            answered: true,
+            questionId: r.message.id,
+            answer: ack.body,
+            snapshot,
+          })
+        }
+        return JSON.stringify({
+          answered: false,
+          questionId: r.message.id,
+          reason: 'no answer yet — check back with recap_session or wait_for_session',
+          snapshot,
+        })
+      },
+    },
+    {
+      spec: {
         name: 'search_conversations',
         description: 'Keyword search over all indexed past conversations.',
         parameters: {
