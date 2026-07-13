@@ -6,6 +6,7 @@
  * re-exports everything plus the css-classname helpers) enforce the split.
  */
 import {
+  DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
   isIssueSnoozed,
@@ -39,6 +40,7 @@ import type { PinState, RepoView, WorktreeView } from './types'
 // existing `@podium/client-core/viewmodels` / `./derive` call sites keep
 // working unchanged.
 export {
+  DEFER_NEXT_MESSAGE,
   dedupeSessionsByResume,
   isHeadlessSession,
   isIssueSnoozed,

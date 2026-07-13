@@ -17,9 +17,17 @@ export function isIssueClosed(row: IssueClosedFields): boolean {
   return row.stage === 'done' || row.closedReason != null
 }
 
-/** Deferred = snoozed until a future instant. `nowIso` injected for testability
- *  (ISO-8601 strings compare lexicographically in timestamp order). */
+/** Sentinel `deferUntil` value: snoozed until a session on the issue next needs
+ *  attention (the issue analog of a session's `snoozedUntil: null`). Not a
+ *  timestamp — every defer predicate special-cases it, and the server clears it
+ *  when a member session enters an attention phase. */
+export const DEFER_NEXT_MESSAGE = 'next-message'
+
+/** Deferred = snoozed until a future instant (or until the next message).
+ *  `nowIso` injected for testability (ISO-8601 strings compare
+ *  lexicographically in timestamp order). */
 export function isIssueDeferred(row: { deferUntil?: string | null }, nowIso: string): boolean {
+  if (row.deferUntil === DEFER_NEXT_MESSAGE) return true
   return row.deferUntil != null && row.deferUntil > nowIso
 }
 
@@ -32,6 +40,7 @@ export function isIssueDeferred(row: { deferUntil?: string | null }, nowIso: str
  *  date (`YYYY-MM-DD`, the board's defer presets) or a full ISO instant; both
  *  parse via `Date.parse`. */
 export function isIssueSnoozed(row: { deferUntil?: string | null }, now: number): boolean {
+  if (row.deferUntil === DEFER_NEXT_MESSAGE) return true
   return row.deferUntil != null && Date.parse(row.deferUntil) > now
 }
 
@@ -40,6 +49,7 @@ export function isIssueSnoozed(row: { deferUntil?: string | null }, now: number)
  *  sidebar marks such an issue "Unsnoozed" and floats it back to the top, and
  *  selecting it clears the stale defer (transient tag). */
 export function issueReturnedFromDefer(row: { deferUntil?: string | null }, now: number): boolean {
+  if (row.deferUntil === DEFER_NEXT_MESSAGE) return false // never lapses by time
   return row.deferUntil != null && Date.parse(row.deferUntil) <= now
 }
 

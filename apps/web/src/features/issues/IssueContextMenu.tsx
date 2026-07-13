@@ -24,7 +24,7 @@ import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
-import { snoozeUntil1h } from '@/lib/derive'
+import { DEFER_NEXT_MESSAGE, snoozeUntil1h } from '@/lib/derive'
 import { issueAgentOptions } from '@/lib/issue-agents'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { STAGE_LABELS } from './issue-card'
@@ -294,6 +294,15 @@ export function IssueContextMenu({
         onClick={() => defer(deferDateFromNow(Date.now(), 7))}
       >
         <AlarmClock size={14} aria-hidden="true" /> For a week
+      </button>,
+      <button
+        key="next-message"
+        type="button"
+        role="menuitem"
+        className={itemCls}
+        onClick={() => defer(DEFER_NEXT_MESSAGE)}
+      >
+        <AlarmClock size={14} aria-hidden="true" /> Until next message
       </button>,
       ...(elig.canUndefer
         ? [

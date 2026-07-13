@@ -1906,6 +1906,11 @@ export class SessionsService {
         ) {
           this.clearSnooze(msg.sessionId)
         }
+        // Entering an attention phase = a new message needs the user: end any
+        // "until next message" defer on the issue that owns this session.
+        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(msg.state)) {
+          this.issues().onSessionAttention(msg.sessionId)
+        }
         break
       }
       case 'agentColor': {

@@ -1,3 +1,4 @@
+import { DEFER_NEXT_MESSAGE } from '@podium/domain'
 import type { IssueWire, OrphanIssue } from '@podium/protocol'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
@@ -510,6 +511,19 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     if (!key) return []
     const search = this.d.linearSearch ?? searchIssues
     return search(key, query)
+  }
+
+  /** A member session just ENTERED an attention phase — a new message needs the
+   *  user. End any "until next message" defer on the issue(s) owning the session
+   *  so they resurface exactly when there's something new (the issue mirror of a
+   *  session's `snoozedUntil: null` snooze). */
+  onSessionAttention(sessionId: string): void {
+    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    if (!sess) return
+    for (const row of [...this.rows.values()]) {
+      if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
+      if (sessionsForIssue(row.worktreePath, [sess], row.id).length > 0) this.defer(row.id, null)
+    }
   }
 
   private assistantTimers = new Map<string, ReturnType<typeof setTimeout>>()

@@ -377,6 +377,34 @@ describe('IssueService archive cascade to sessions (#133)', () => {
   })
 })
 
+describe('IssueService next-message defer (#430)', () => {
+  it('defers until next message and clears when a member session enters attention', () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions)
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.defer(w.id, 'next-message')
+    expect(svc.get(w.id)!.deferred).toBe(true)
+    // A session explicitly attached to the issue enters attention → defer clears.
+    sessions.push({ ...sess('/elsewhere', 'awaiting_input'), issueId: w.id } as SessionMeta)
+    svc.onSessionAttention('/elsewhere')
+    expect(svc.get(w.id)!.deferred).toBe(false)
+    expect(svc.get(w.id)!.deferUntil == null).toBe(true)
+  })
+
+  it("does not clear another issue's defer or timed defers", () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions)
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.defer(a.id, 'next-message')
+    svc.defer(b.id, '2099-01-01')
+    sessions.push({ ...sess('/x', 'awaiting_input'), issueId: b.id } as SessionMeta)
+    svc.onSessionAttention('/x')
+    expect(svc.get(a.id)!.deferred).toBe(true) // session belongs to b, not a
+    expect(svc.get(b.id)!.deferred).toBe(true) // timed defer untouched
+  })
+})
+
 describe('IssueService.undefer (manual unsnooze #133)', () => {
   const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
   it('drops a snooze into the returned-from-defer state (past deferUntil, not null) + emits issue.unsnoozed', () => {
