@@ -23,6 +23,7 @@ import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
 import { MessageDeliveryService, senderFromCapability } from './modules/messages/service'
+import { makeSpawnOnWake } from './modules/messages/spawn'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -654,6 +655,15 @@ export class SessionRegistry {
             this.store.issues.markIssueMessagesRead(issueId, ids, new Date().toISOString()),
         }),
       transact: (fn) => this.store.transact(fn),
+      // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake
+      // spawns a fresh agent on the target issue through the SAME machinery
+      // issue_start rides (createSession); the service then queues the message
+      // as the child's first prompt. Authz (gate.send write check) → spawn
+      // budget → cooldown all bite before this seam is reached.
+      spawnOnWake: makeSpawnOnWake({
+        issues: () => issues,
+        createSession: (o) => sessionsSvc.createSession(o),
+      }),
       now: () => new Date(this.now()).toISOString(),
     })
     messageGate = new MessageGate({
