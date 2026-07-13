@@ -8,12 +8,12 @@
 
 import type {
   AgentKind,
+  ApprovalWire,
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
   IssueWire,
-  ApprovalWire,
   MachineWire,
   SessionMeta,
   WorkState,

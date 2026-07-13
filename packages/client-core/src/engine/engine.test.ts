@@ -69,7 +69,7 @@ const KNOWN_REPO = {
   path: '/tmp/known-repo',
   kind: 'repository',
   branch: 'main',
-  worktrees: [],
+  worktrees: [{ path: '/tmp/known-repo/.worktrees/wt1', branch: 'wt1' }],
 } as unknown as GitRepositoryWire
 
 function session(id: string, cwd: string): SessionMeta {
@@ -916,5 +916,51 @@ describe('outbox drain on reconnect', () => {
     expect(renameCalls).toBe(2)
     expect(engine.getSnapshot().outboxSize).toBe(0)
     engine.dispose()
+  })
+})
+
+// ------------------------------------------------------- navigate-to-session
+
+/**
+ * [spec:SP-a1c0] (#411) The central navigate-to-session action. Landing on a
+ * session needs the whole context — view + worktree + pane (+ its issue) —
+ * not just the pane: the workspace renders the SELECTED WORKTREE's sessions,
+ * and mirrorUrl only writes the URL while the view is already 'workspace'. The
+ * first cut set the pane alone, so the URL flipped and reverted and the view
+ * never changed. These pin the full landing.
+ */
+describe('navigateToSession (#411)', () => {
+  const withSession = async (url = '/issues') => {
+    const h = makeEngine({ url })
+    h.engine.start()
+    await settle()
+    h.engine.replica.applySnapshot('sessions', [
+      session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
+    ])
+    await settle()
+    return h
+  }
+
+  it("switches to the workspace, selects the session's worktree, and opens its pane", async () => {
+    const { engine, rw } = await withSession()
+    engine.getSnapshot().navigateToSession('s1')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('s1')
+    expect(st.focusedPane).toBe('A')
+    // the URL landed on the session and STAYED there (no flip-back)
+    expect(rw.url()).toContain('/workspace')
+    expect(rw.url()).toContain('pane=s1')
+  })
+
+  it('is inert for an unknown session (no view change, no URL write)', async () => {
+    const { engine, rw } = await withSession()
+    const before = rw.writes.length
+    engine.getSnapshot().navigateToSession('nope')
+    await settle()
+    expect(engine.getSnapshot().view).toBe('issues')
+    expect(rw.writes.length).toBe(before)
   })
 })

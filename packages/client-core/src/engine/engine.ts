@@ -22,12 +22,12 @@
 
 import type {
   AgentKind,
+  ApprovalWire,
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
   HostMetricsWire,
   IssueWire,
-  ApprovalWire,
   MachineWire,
   SessionMeta,
   WorkState,
@@ -1098,14 +1098,38 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       setFocusedPane: (pane: 'A' | 'B') => this.apply({ focusedPane: pane }),
       // [spec:SP-a1c0] (#411) THE central navigate-to-session action: any surface
       // that references a session (approval popup, notifications, mail, activity
-      // entries) jumps through here — never roll per-feature navigation. Selects
-      // the session's issue (when known) and focuses the session in pane A.
+      // entries) jumps through here — never roll per-feature navigation.
+      //
+      // Landing on a session takes all four pieces, the same ones the sidebar's
+      // selectIssue sets: its issue, its WORKTREE (the workspace renders the
+      // selected worktree's sessions — without it the pane is ignored), the pane
+      // itself, and the workspace VIEW. Setting only the pane made the URL flip
+      // and revert (#411 follow-up): mirrorUrl bails unless the view is already
+      // 'workspace', so the navigation never landed. The router is the single URL
+      // writer, so the surface switch goes through it with the pane in hand rather
+      // than through setView (which would re-apply the CURRENT route's stale pane).
       navigateToSession: (sessionId: string) => {
-        const meta = this.state.sessions.find((s) => s.sessionId === sessionId)
+        const st = this.state
+        const meta = st.sessions.find((s) => s.sessionId === sessionId)
+        if (!meta) return
+        // The worktree that contains the session's cwd (deepest match wins — nested
+        // worktrees); a session outside every known worktree keeps the selection.
+        const worktree =
+          reposToViews(st.repos)
+            .flatMap((repo) => repo.worktrees)
+            .map((w) => w.path)
+            .filter((p) => meta.cwd === p || meta.cwd.startsWith(`${p}/`))
+            .sort((a, b) => b.length - a.length)[0] ?? st.selectedWorktree
         this.apply({
-          ...(meta?.issueId ? { selectedIssueId: meta.issueId } : {}),
+          ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
+          ...(worktree ? { selectedWorktree: worktree } : {}),
           paneA: sessionId,
           focusedPane: 'A',
+        })
+        this.router.navigate({
+          ...routeDefaults('workspace'),
+          ...(worktree ? { worktree } : {}),
+          pane: sessionId,
         })
       },
       setPanelMode: (sessionId: string, mode: 'chat' | 'native') => {
