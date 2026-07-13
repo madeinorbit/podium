@@ -12,9 +12,9 @@ import { useStoreSelector } from './store'
 export type RightPanelTab = 'files' | 'git' | 'issue'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
+  { id: 'issue', label: 'Issue', icon: CircleDot },
   { id: 'files', label: 'Files', icon: FolderTree },
   { id: 'git', label: 'Git', icon: GitBranch },
-  { id: 'issue', label: 'Issue', icon: CircleDot },
 ]
 
 function GitPlaceholder(): JSX.Element {

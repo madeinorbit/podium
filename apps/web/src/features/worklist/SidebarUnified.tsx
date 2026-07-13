@@ -90,8 +90,8 @@ export function SidebarUnified(): JSX.Element {
     shallowEqual,
   )
   const nav: { id: Parameters<typeof setView>[0]; label: string; Icon: LucideIcon }[] = [
-    { id: 'issues', label: 'Issues', Icon: KanbanSquare },
     { id: 'home', label: 'Command center', Icon: Home },
+    { id: 'issues', label: 'Issues', Icon: KanbanSquare },
     { id: 'specs', label: 'Specs', Icon: BookOpenText },
     { id: 'automations', label: 'Automations', Icon: RotateCw },
   ]
