@@ -1,5 +1,7 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { nodePtyBackend } from '../../src/pty/index'
 import { spawnAgent } from '../../src/session'
@@ -7,12 +9,20 @@ import { spawnAgent } from '../../src/session'
 // biome-ignore lint/suspicious/noControlCharactersInRegex: needed to strip ANSI escapes
 const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g
 
-/** Real `claude` is opt-in: present on PATH, authed (HOME), and not explicitly skipped. */
+/** Real `claude` is opt-in: present on PATH, authed (HOME), and not explicitly skipped.
+ *  HOME must also already be TRUSTED in ~/.claude.json — on a fresh machine claude
+ *  renders the folder-trust prompt instead of the composer, and this test must skip,
+ *  not fail. Accept the prompt once (run `claude` in $HOME) to enable the smoke. */
 function claudeReady(): boolean {
   if (process.env.PODIUM_SKIP_CLAUDE_SMOKE) return false
   try {
     execFileSync('claude', ['--version'], { stdio: 'ignore' })
-    return Boolean(process.env.HOME ?? homedir())
+    const home = process.env.HOME ?? homedir()
+    if (!home) return false
+    const cfg = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')) as {
+      projects?: Record<string, { hasTrustDialogAccepted?: boolean }>
+    }
+    return cfg.projects?.[home]?.hasTrustDialogAccepted === true
   } catch {
     return false
   }

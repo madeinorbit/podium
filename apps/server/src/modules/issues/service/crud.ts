@@ -284,7 +284,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
     row.readAt = this.now()
-    const wire = this.persist(row)
+    const wire = this.persist(row, { touch: false })
     this.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
   }
@@ -297,7 +297,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const row = this.rows.get(this.resolveRef(id))
     if (!row) throw new Error(`unknown issue ${id}`)
     row.readAt = null
-    const wire = this.persist(row)
+    const wire = this.persist(row, { touch: false })
     this.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
   }

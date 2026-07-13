@@ -30,6 +30,7 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
     requestPaste: vi.fn(),
   },
   setActive,
+  setAppearance: vi.fn(),
   dispose,
 }))
 

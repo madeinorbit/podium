@@ -28,9 +28,34 @@ export default defineConfig({
   },
   test: {
     passWithNoTests: true,
-    // Don't run tests inside nested agent-harness worktrees (e.g. .claude/worktrees/*).
-    // `*.bun.test.ts` files are for `bun test` only (they import `bun:test`); vitest
-    // must never collect them.
-    exclude: [...configDefaults.exclude, '**/.claude/**', '**/.claire/**', '**/*.bun.test.ts'],
+    // Two projects so one root `vitest run` covers the whole workspace with the
+    // right environment per suite: everything except apps/web runs under node;
+    // apps/web needs happy-dom and its own aliases, so it brings its own config.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          // Shared-vCPU hosts make sqlite-heavy tests (migrations) overrun the
+          // 5s default; 20s keeps them honest without flaking on CPU steal.
+          testTimeout: 20_000,
+          // One retry absorbs single-shot timing flakes (PTY spawns, event-loop-lag
+          // thresholds) that CPU steal causes on shared hosts during the fully
+          // parallel run; genuine failures still fail twice and surface.
+          retry: 1,
+          // Don't run tests inside nested agent-harness worktrees (e.g. .claude/worktrees/*).
+          // `*.bun.test.ts` files are for `bun test` only (they import `bun:test`); vitest
+          // must never collect them. apps/web belongs to the web project below.
+          exclude: [
+            ...configDefaults.exclude,
+            '**/.claude/**',
+            '**/.claire/**',
+            '**/*.bun.test.ts',
+            'apps/web/**',
+          ],
+        },
+      },
+      './apps/web/vitest.config.ts',
+    ],
   },
 })

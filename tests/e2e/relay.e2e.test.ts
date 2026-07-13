@@ -76,7 +76,7 @@ describe('e2e: daemon -> server -> client', () => {
     })
     // Create a session after the daemon is connected — the server will immediately
     // send a spawn control message that the daemon picks up.
-    const { sessionId } = srv.registry.createSession({
+    const { sessionId } = srv.registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/tmp',
       title: 'e2e-test',
@@ -97,13 +97,26 @@ describe('e2e: daemon -> server -> client', () => {
       )
       await waitFor(() => c.text.includes('last-input=61'))
 
-      // 3) takeover bumps epoch and resizes the agent
-      client.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
-      client.send(encode({ type: 'requestControl', sessionId }))
-      const getSess = () => srv.registry.listSessions().find((s) => s.sessionId === sessionId)
-      await waitFor(() => (getSess()?.epoch ?? 0) >= 1)
-      expect(getSess()?.geometry).toEqual({ cols: 100, rows: 30 })
-      await waitFor(() => c.text.includes('cols=100 rows=30'))
+      // 3) takeover bumps epoch and resizes the agent. Control must move BETWEEN
+      // clients: the first attacher is auto-promoted to controller and re-claiming
+      // is a no-op (0d145414), so a SECOND client performs the takeover. Geometry
+      // snaps only for clients that declared the session visible via viewState
+      // (f332c655), so client2 sends that first.
+      const client2 = await openWs(`ws://localhost:${srv.port}/client`)
+      const c2 = collect(client2)
+      try {
+        client2.send(encode({ type: 'attach', sessionId }))
+        client2.send(encode({ type: 'viewState', visible: [sessionId], focused: sessionId }))
+        client2.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
+        client2.send(encode({ type: 'requestControl', sessionId }))
+        const getSess = () =>
+          srv.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+        await waitFor(() => (getSess()?.epoch ?? 0) >= 1)
+        expect(getSess()?.geometry).toEqual({ cols: 100, rows: 30 })
+        await waitFor(() => c2.text.includes('cols=100 rows=30'))
+      } finally {
+        client2.close()
+      }
     } finally {
       client.close()
       await daemon.close()

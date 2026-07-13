@@ -289,8 +289,8 @@ export abstract class IssueServiceCore {
    *  toWire; mutations that change OTHER issues' derived wire data (closed flips
    *  → dependents' blocked/ready + parent childDoneCount, hierarchy/dep edits,
    *  membership changes) additionally call {@link broadcastList}. */
-  protected persist(row: IssueRow): IssueWire {
-    return this.persistWith(row)
+  protected persist(row: IssueRow, opts?: { touch?: boolean }): IssueWire {
+    return this.persistWith(row, undefined, opts)
   }
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
@@ -298,7 +298,11 @@ export abstract class IssueServiceCore {
    *  commit ([spec:SP-3fe2] #255) binds the write and its declared change row
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
-  protected persistWith(row: IssueRow, extraWrite?: () => void): IssueWire {
+  protected persistWith(
+    row: IssueRow,
+    extraWrite?: () => void,
+    opts?: { touch?: boolean },
+  ): IssueWire {
     // In-place rollback seam (#247): for an EXISTING issue, `row` is the
     // MAP-OWNED object and every mutation path (update()'s Object.assign,
     // setState/panelApply/markIssueRead/undefer/workflow's field writes, plus
@@ -312,7 +316,11 @@ export abstract class IssueServiceCore {
     // A brand-new row has no committed state (backup null): the post-commit
     // rows.set() below is what keeps a failed create out of the map.
     const backup = this.deps.store.issues.getIssue(row.id)
-    row.updatedAt = this.now()
+    // touch:false = read-tracking writes (markIssueRead/Unread): reading is not
+    // activity, so it must not bump updatedAt — the stamp would land a tick AFTER
+    // markIssueRead's readAt and computeUnread (lastActivity > readAt) would flip
+    // the issue straight back to unread. It also must not reorder sidebar recency.
+    if (opts?.touch !== false) row.updatedAt = this.now()
     let wire: IssueWire
     try {
       wire = this.deps.ledger.commit({

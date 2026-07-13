@@ -31,7 +31,10 @@ const EXCEPTIONS: Record<string, Record<string, string>> = {
   },
   terminal: { chat: 'agent pane embeds the chat surface' },
   superagent: { chat: 'superagent thread is a chat surface' },
-  settings: { setup: 'settings reuses the SetupView form' },
+  settings: {
+    setup: 'settings reuses the SetupView form',
+    terminal: 'appearance section edits the terminal appearance store (dc7e248)',
+  },
 }
 
 const walk = (dir: string): string[] =>

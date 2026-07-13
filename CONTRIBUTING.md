@@ -62,7 +62,7 @@ bun run --cwd apps/desktop build                # release build (.app/.dmg on ma
 | `bun run typecheck` | `tsc --noEmit` across every workspace. |
 | `bun run build` | Builds the publishable libraries (`packages/*`) with tsup. Not required to run the app. |
 | `bun run dev` | Watch-build the publishable libraries (this does **not** start the app — use `bun run host`). |
-| `bun run test` | Runs Vitest. |
+| `bun run test` | The full test suite: vitest across every workspace (web under happy-dom) + the bun-only suites. Needs a real Node ≥ 22 on PATH (never symlink `node`→`bun`) — see README § Testing. |
 | `bun run lint` | Biome check. |
 | `bun run format` | Biome format (writes). |
 | `bun run --filter <name> <script>` | Run one workspace's script, e.g. `bun run --filter @podium/protocol build`. |

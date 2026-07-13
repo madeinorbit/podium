@@ -260,8 +260,13 @@ describe('markRead mutations (#124)', () => {
 
   it('sessions.markRead flips a session to read', async () => {
     const { call, registry } = repoCaller()
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(true)
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread,
+    ).toBe(true)
     await call.sessions.markRead({ sessionId })
     const s = registry.modules.sessions.listSessions().find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(false)
@@ -279,9 +284,14 @@ describe('markRead mutations (#124)', () => {
 
   it('sessions.markUnread flips a read session back to unread (#138)', async () => {
     const { call, registry } = repoCaller()
-    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
     await call.sessions.markRead({ sessionId })
-    expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread).toBe(false)
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.unread,
+    ).toBe(false)
     await call.sessions.markUnread({ sessionId })
     const s = registry.modules.sessions.listSessions().find((x) => x.sessionId === sessionId)
     expect(s?.unread).toBe(true)
@@ -336,7 +346,14 @@ describe('repos router', () => {
       repositories: [],
       diagnostics: [],
     })
-    await expect(p).resolves.toEqual({ repositories: [], diagnostics: [] })
+    // The registered root survives an empty scan as a fallback entry (see
+    // scanReposAll's registeredFallbacks) — it stays a valid spawn target.
+    await expect(p).resolves.toEqual({
+      repositories: [
+        expect.objectContaining({ path: '/abs/app', kind: 'repository', machineId: 'local' }),
+      ],
+      diagnostics: [],
+    })
   })
 
   it('discovery.scanFolder scans the chosen folder to a bounded depth', async () => {

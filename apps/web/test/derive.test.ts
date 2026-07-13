@@ -672,7 +672,7 @@ describe('sessionDotClass', () => {
       base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
     )
     expect(working).toContain('dot-working')
-    expect(working).toContain('bg-emerald-500')
+    expect(working).toContain('bg-live')
   })
 
   it('does not animate a hibernated dot even if its last tone was working', () => {

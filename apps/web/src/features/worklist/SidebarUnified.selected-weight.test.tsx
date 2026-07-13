@@ -129,9 +129,12 @@ describe('SidebarUnified selection weight (#170 Fix 1)', () => {
   it('a selected-but-read row is NOT bold — selection is background-only', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue')
-    // Selection reads as an accent background, not a heavier font.
-    expect(active.className).toContain('bg-accent')
-    expect(active.className).toContain('text-accent-foreground')
+    // Selection reads as a background (on the row wrapper) plus a brighter label
+    // tint — never a heavier font. Hex tokens per the Claude Design shell restyle
+    // (30c8be0a replaced bg-accent/text-accent-foreground).
+    const row = active.closest('[class*="group/row"]') as HTMLElement
+    expect(row.className).toContain('bg-[#232330]')
+    expect(active.className).toContain('text-[#f3f3f8]')
     // NEITHER weight class may appear on the selected read row.
     expect(active.className).not.toContain('font-medium')
     expect(active.className).not.toContain('font-semibold')

@@ -49,7 +49,7 @@ describe('e2e: split server/daemon local transition', () => {
 
     // An UPGRADED single-machine DB: a session + repo stranded at machine_id='__local__'.
     const seed = new SessionStore() // PODIUM_STATE_DIR/podium.db (harness-isolated)
-    seed.upsertSession({
+    seed.sessions.upsertSession({
       id: 'leg-1',
       agentKind: 'claude-code',
       cwd: '/tmp',
@@ -68,7 +68,7 @@ describe('e2e: split server/daemon local transition', () => {
       workState: null,
       machineId: '__local__',
     })
-    seed.addRepo('/tmp/legacy-repo', '__local__')
+    seed.repos.addRepo('/tmp/legacy-repo', '__local__')
     seed.close()
 
     const srv = await startServer()
@@ -78,14 +78,18 @@ describe('e2e: split server/daemon local transition', () => {
       // LAYER 1 — the disaster cannot recur: with NO daemon connected yet, the server has
       // already adopted the legacy rows onto the local machine. Even if the daemon never
       // authenticates, the sessions/repos are attributed and visible.
-      const before = srv.registry.listSessions().find((s) => s.sessionId === 'leg-1')
+      const before = srv.registry.modules.sessions
+        .listSessions()
+        .find((s) => s.sessionId === 'leg-1')
       expect(before?.machineId).toBe(LOCAL_MACHINE_ID)
-      expect(srv.registry.sessionStore.listRepos(LOCAL_MACHINE_ID).map((r) => r.path)).toContain(
-        '/tmp/legacy-repo',
-      )
-      expect(srv.registry.sessionStore.listRepos('__local__')).toHaveLength(0)
+      expect(
+        srv.registry.sessionStore.repos.listRepos(LOCAL_MACHINE_ID).map((r) => r.path),
+      ).toContain('/tmp/legacy-repo')
+      expect(srv.registry.sessionStore.repos.listRepos('__local__')).toHaveLength(0)
       // The local machine exists but is OFFLINE until its daemon attaches.
-      expect(srv.registry.listMachines().find((m) => m.id === LOCAL_MACHINE_ID)?.online).toBe(false)
+      expect(
+        srv.registry.modules.machines.listMachines().find((m) => m.id === LOCAL_MACHINE_ID)?.online,
+      ).toBe(false)
 
       // LAYER 2 — the split daemon (no in-process token; reads the shared secret file, and
       // presents the stable local id) authenticates and attaches to the SAME machine.
@@ -103,11 +107,15 @@ describe('e2e: split server/daemon local transition', () => {
       try {
         // The local machine is now online (the daemon attached to it, not a second one).
         await waitFor(
-          () => srv.registry.listMachines().find((m) => m.id === LOCAL_MACHINE_ID)?.online === true,
+          () =>
+            srv.registry.modules.machines.listMachines().find((m) => m.id === LOCAL_MACHINE_ID)
+              ?.online === true,
         )
-        expect(srv.registry.listMachines()).toHaveLength(1)
+        expect(srv.registry.modules.machines.listMachines()).toHaveLength(1)
         // The legacy session is still attributed to the local machine, not stranded.
-        const after = srv.registry.listSessions().find((s) => s.sessionId === 'leg-1')
+        const after = srv.registry.modules.sessions
+          .listSessions()
+          .find((s) => s.sessionId === 'leg-1')
         expect(after?.machineId).toBe(LOCAL_MACHINE_ID)
         expect(after?.machineId).not.toBe('__local__')
       } finally {

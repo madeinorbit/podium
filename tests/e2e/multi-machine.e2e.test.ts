@@ -61,7 +61,7 @@ describe('e2e: two-daemon pairing + routing', () => {
     })
 
     // mint a pairing code for daemon2
-    const pairCode = srv.registry.mintPairingCode()
+    const pairCode = srv.registry.modules.machines.mintPairingCode()
 
     // daemon2: the "remote" machine that pairs with the code
     const daemon2 = await startDaemon({
@@ -81,7 +81,7 @@ describe('e2e: two-daemon pairing + routing', () => {
 
     try {
       // 1) Both machines must appear online
-      const machines = srv.registry.listMachines()
+      const machines = srv.registry.modules.machines.listMachines()
       expect(machines).toHaveLength(2)
       expect(machines.every((m) => m.online)).toBe(true)
 
@@ -102,7 +102,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       const machine2Name = machines.find((m) => m.id === daemon2Id)?.name ?? ''
 
       // 3) Create a session explicitly targeting daemon2 (the "remote" paired machine)
-      const { sessionId } = srv.registry.createSession({
+      const { sessionId } = srv.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/tmp',
         machineId: daemon2Id,
@@ -112,14 +112,18 @@ describe('e2e: two-daemon pairing + routing', () => {
       //    executed the fixture, and sent a `bind` back — proving that the spawn was
       //    actually delivered to daemon2's socket, not daemon1's.
       await waitFor(() => {
-        const s = srv.registry.listSessions().find((s) => s.sessionId === sessionId)
+        const s = srv.registry.modules.sessions
+          .listSessions()
+          .find((s) => s.sessionId === sessionId)
         return s?.status === 'live'
       }, 10_000)
 
       // 5) Assert routing: the session is attributed to daemon2, NOT daemon1.
       //    The negative assertion (machineId !== daemon1Id) is the key proof —
       //    without it the test passes trivially if spawn lands on the wrong daemon.
-      const meta = srv.registry.listSessions().find((s) => s.sessionId === sessionId)
+      const meta = srv.registry.modules.sessions
+        .listSessions()
+        .find((s) => s.sessionId === sessionId)
       expect(meta).toBeDefined()
       expect(meta?.machineId).toBe(daemon2Id)
       expect(meta?.machineId).not.toBe(daemon1Id)

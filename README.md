@@ -62,9 +62,44 @@ bun run test
 
 Requires **Bun ≥ 1.3** — package manager, task runner, bundler, *and* runtime. The shipped
 binaries (`podium-server`, `podium-daemon`, `podium`) are `bun build --compile` artifacts
-that run on Bun alone. Node is **not** required: the agent-bridge auto-selects `Bun.Terminal`
-for PTYs under Bun and only falls back to `node-pty` if you run a dev entrypoint under Node
-(`tsx`).
+that run on Bun alone. Node is **not** required to *run* the app: the agent-bridge
+auto-selects `Bun.Terminal` for PTYs under Bun and only falls back to `node-pty` if you run
+a dev entrypoint under Node (`tsx`). Running the *test suite* DOES require a real
+**Node ≥ 22** (see Testing below).
+
+## Testing
+
+The whole suite runs with one command from the repo root:
+
+```bash
+bun run test    # vitest (all workspaces, web under happy-dom) + the bun-only suites
+```
+
+Prerequisites: **Bun ≥ 1.3** and a real **Node ≥ 22** on PATH. Vitest runs under Node —
+do NOT symlink `node` → `bun`; Bun's Node shim breaks vitest's CJS interop (symptoms:
+`z.string is not a function`, `DOMPurify.sanitize is undefined`, `document is not defined`
+across hundreds of files).
+
+Some tests self-skip when their machine setup is absent (they never fail for it):
+
+- `apps/cli/src/podium-update.test.ts` swap tests — need the operator's signing key
+  (`apps/cli/src/.podium-update-dev.key`, the private half of `PODIUM_UPDATE_PUBKEY`).
+- `packages/agent-bridge/test/pty-behavior/claude-smoke.test.ts` — needs `claude` on PATH
+  with `$HOME` already trusted (run `claude` once in `$HOME` and accept the prompt), or
+  set `PODIUM_SKIP_CLAUDE_SMOKE=1`.
+- `packages/agent-bridge/src/opencode/*` detection tests expect the `opencode` CLI at
+  `~/.opencode/bin/opencode`.
+
+Browser E2E (Playwright, headless Chromium; builds protocol + web, then boots the real
+relay/daemon harness):
+
+```bash
+bunx playwright install chromium         # once per machine
+cd tests/e2e && NODE_OPTIONS="--conditions=@podium/source" bunx playwright test --project=chromium-desktop
+```
+
+The `NODE_OPTIONS` condition is required so Playwright's loader resolves workspace
+packages from source instead of (possibly unbuilt) `dist/`.
 
 On macOS, install the Xcode Command Line Tools (`xcode-select --install`) — a C compiler is used
 to build the bundled `abduco` session helper on first run. See `CONTRIBUTING.md` for details.

@@ -67,7 +67,11 @@ describe('verifyTarball', () => {
 // --- crash-safe swap (FIX wave 1) -------------------------------------------
 // These exercise runUpdate's real download → extract → atomic-swap path against a tiny
 // local feed (no 119MB headless build needed) to prove same-filesystem staging + fail-loud.
-describe('podium update swap crash-safety', () => {
+// They sign the served tarball with the PRIVATE half of PODIUM_UPDATE_PUBKEY, which lives
+// only in the operator's secret store (gitignored dev key). On machines without that key
+// the suite skips rather than fails — there is no way to mint a matching signature.
+const hasDevSigningKey = existsSync(join(__dirname, '.podium-update-dev.key'))
+describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
   let work: string
   let server: Server | undefined
   const savedHome = process.env.PODIUM_HOME
