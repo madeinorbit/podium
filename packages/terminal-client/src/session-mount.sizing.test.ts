@@ -40,6 +40,70 @@ function withFittableAddon(): void {
   })
 }
 
+/** Like withFittableAddon, but measurability is toggled by the test — undefined
+ *  until `measurable = true`, then 150×50 (a pane hidden / mid-layout, revealed later). */
+function withToggleableAddon(): { setMeasurable: (m: boolean) => void } {
+  const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
+  const original = proto.proposeDimensions
+  let measurable = false
+  proto.proposeDimensions = () => (measurable ? { cols: 150, rows: 50 } : undefined)
+  protoPatchRestorers.push(() => {
+    proto.proposeDimensions = original
+  })
+  return {
+    setMeasurable: (m: boolean) => {
+      measurable = m
+    },
+  }
+}
+
+/** ResizeObserver stub that lets the test fire the observer callbacks — the
+ *  container-size-changed signal a real browser emits on display:none → visible. */
+function withCapturingResizeObserver(): { fire: () => void } {
+  const g = globalThis as unknown as { ResizeObserver?: unknown }
+  const original = g.ResizeObserver
+  const cbs: Array<() => void> = []
+  g.ResizeObserver = class {
+    constructor(cb: () => void) {
+      cbs.push(cb)
+    }
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  protoPatchRestorers.push(() => {
+    g.ResizeObserver = original
+  })
+  return {
+    fire: () => {
+      for (const cb of cbs) cb()
+    },
+  }
+}
+
+/** Drive requestAnimationFrame off setTimeout so vitest fake timers control the
+ *  fit-retry schedule deterministically. */
+function withFakeTimedRaf(): void {
+  vi.useFakeTimers()
+  const g = globalThis as unknown as {
+    requestAnimationFrame: typeof requestAnimationFrame
+    cancelAnimationFrame: typeof cancelAnimationFrame
+  }
+  const origRaf = g.requestAnimationFrame
+  const origCaf = g.cancelAnimationFrame
+  g.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+    setTimeout(() => cb(0), 16)) as unknown as typeof requestAnimationFrame
+  g.cancelAnimationFrame = ((id: number) =>
+    clearTimeout(
+      id as unknown as Parameters<typeof clearTimeout>[0],
+    )) as typeof cancelAnimationFrame
+  protoPatchRestorers.push(() => {
+    g.requestAnimationFrame = origRaf
+    g.cancelAnimationFrame = origCaf
+    vi.useRealTimers()
+  })
+}
+
 /** Hub stub that records resize/redraw/requestControl and lets a test drive onState. */
 function fakeHub() {
   let cbs: SessionCallbacks = {}
@@ -113,7 +177,8 @@ describe('mountSession eligibility-gated sizing', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     protoPatchRestorers.push(() => {
       if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility)
-      else Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+      else
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     })
 
     const { hub, calls } = fakeHub()
@@ -183,6 +248,50 @@ describe('mountSession eligibility-gated sizing', () => {
     expect(reload, 'unchanged-grid reveal recreates the GL renderer').toHaveBeenCalled()
     expect(calls.resize, 'no PTY resize when the grid is unchanged').toEqual([])
     mounted.dispose()
+  })
+
+  it('re-fits when the pane becomes measurable after the rAF retry window (#29 stale tiny grid)', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    const addon = withToggleableAddon() // unmeasurable at mount: hidden / mid-layout
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    // Exhaust the 10-frame rAF window while the pane is still unmeasurable — the
+    // old scheduler gave up here permanently.
+    vi.advanceTimersByTime(16 * 12)
+    expect(calls.resize).toEqual([])
+    // Layout settles only AFTER the rAF window (heavy workspace remount, font
+    // load). The container's own size never changed, so no ResizeObserver event
+    // fires — only the slow-timeout backstop can pick this up.
+    addon.setMeasurable(true)
+    vi.advanceTimersByTime(250)
+    expect(calls.resize.at(-1), 'slow-layout backstop re-fits and resizes the PTY').toEqual([
+      150, 50,
+    ])
+    mounted.dispose()
+    vi.advanceTimersByTime(1) // run the deferred terminal dispose under fake timers
+  })
+
+  it('re-fits from a ResizeObserver event after every retry backstop expired (#29 hidden→visible)', () => {
+    const ro = withCapturingResizeObserver()
+    withFakeTimedRaf()
+    const addon = withToggleableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), { hub, sessionId: 's1', active: true })
+    // Let the whole retry schedule (rAF window + slow timeouts) run dry while hidden.
+    vi.advanceTimersByTime(16 * 12 + 250 + 500 + 1000 + 50)
+    expect(calls.resize).toEqual([])
+    // The pane is revealed: it lays out (measurable) and the container size change
+    // fires the ResizeObserver — the debounced backstop must schedule a fresh fit,
+    // not find a dead scheduler.
+    addon.setMeasurable(true)
+    ro.fire()
+    vi.advanceTimersByTime(100) // > the 60ms debounce
+    expect(calls.resize.at(-1), 'reveal via ResizeObserver re-fits and resizes the PTY').toEqual([
+      150, 50,
+    ])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
   })
 
   it('skips the GL recreate on reveal when the fit changes the grid (resize repaints)', async () => {
