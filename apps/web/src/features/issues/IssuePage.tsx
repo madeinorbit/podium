@@ -8,7 +8,6 @@ import {
   ChevronUp,
   Circle,
   CircleDot,
-  Copy,
   ExternalLink,
   Flag,
   FlagOff,
@@ -39,8 +38,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
-import { STAGE_LABELS } from './issue-card'
+import { issueIdTitle, STAGE_LABELS } from './issue-card'
 import type { IssueEventIcon } from './issue-events'
 import { AssigneeAvatar, StageGlyph } from './issue-glyphs'
 import { type IssuePageCommands, issuePageCommands } from './issue-page-commands'
@@ -142,16 +142,24 @@ export function IssuePage({
         </Button>
         <span className="text-[13px] text-muted-foreground">{repoName}</span>
         <span className="text-[13px] text-muted-foreground">›</span>
-        <span className="font-medium text-[13px]">#{issue.seq}</span>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="icon-sm"
-          title="Copy issue id"
-          onClick={() => void navigator.clipboard?.writeText(`#${issue.seq}`)}
+          className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
+          title={`${issue.id} — click to copy "#${issue.seq}"`}
+          onClick={() => copyToClipboard(`#${issue.seq}`, `Copied #${issue.seq}`)}
         >
-          <Copy size={13} aria-hidden="true" />
-        </Button>
+          #{issue.seq}
+        </button>
+        {/* The internal id agents quote in transcripts/CLI output — shown so it can
+            be matched by eye, click-to-copy for pasting into commands (#21). */}
+        <button
+          type="button"
+          className="max-w-44 cursor-pointer truncate rounded font-mono text-[11px] text-muted-foreground/70 hover:text-foreground"
+          title={`${issue.id} — click to copy`}
+          onClick={() => copyToClipboard(issue.id, 'Copied internal issue id')}
+        >
+          {issue.id}
+        </button>
         <div className="ml-auto flex items-center gap-1">
           <Button
             type="button"
@@ -321,6 +329,7 @@ export function IssuePage({
                   'flex items-center gap-2 rounded px-1.5 py-1 text-left text-[13px] hover:bg-muted/50',
                   c.archived && 'opacity-60',
                 )}
+                title={issueIdTitle(c)}
                 onClick={() => onNavigate(c.id)}
               >
                 <StageGlyph stage={c.stage} />
@@ -583,7 +592,9 @@ function IssueOverflowMenu({
       />
       <DropdownMenuContent align="end" className="w-52">
         {issue.branch && (
-          <DropdownMenuItem onClick={() => void navigator.clipboard?.writeText(issue.branch ?? '')}>
+          <DropdownMenuItem
+            onClick={() => copyToClipboard(issue.branch ?? '', 'Copied branch name')}
+          >
             <GitBranch size={14} aria-hidden="true" /> Copy branch name
           </DropdownMenuItem>
         )}

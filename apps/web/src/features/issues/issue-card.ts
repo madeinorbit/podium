@@ -8,6 +8,12 @@ export const STAGE_LABELS: Record<IssueStage, string> = {
   done: 'Done',
 }
 
+/** Hover text for any issue row/reference: both the display seq and the
+ *  internal id, so agents' `iss_…` references can be matched by eye (#21). */
+export function issueIdTitle(issue: Pick<IssueWire, 'seq' | 'id'>): string {
+  return `#${issue.seq} · ${issue.id}`
+}
+
 export function issueCardModel(issue: IssueWire): {
   title: string
   typeLabel: string
@@ -32,7 +38,9 @@ export function issueCardModel(issue: IssueWire): {
     needsHuman: issue.needsHuman,
     seqLabel: `#${issue.seq}`,
     ...(issue.assignee ? { assignee: issue.assignee } : {}),
-    ...(issue.childCount > 0 ? { subProgress: { done: issue.childDoneCount, total: issue.childCount } } : {}),
+    ...(issue.childCount > 0
+      ? { subProgress: { done: issue.childDoneCount, total: issue.childCount } }
+      : {}),
     isBlocked: issue.blocked,
     isBlocking: issue.dependents.some((d) => d.type === 'blocks'),
     sessionCount: issue.sessionSummary.total,

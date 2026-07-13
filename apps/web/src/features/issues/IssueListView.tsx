@@ -4,7 +4,7 @@ import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { issueCardModel, STAGE_LABELS } from './issue-card'
+import { issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { type IssueRow, isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
@@ -76,6 +76,7 @@ export function IssueListView({
                     selected.includes(issue.id) && 'bg-primary/10',
                   )}
                   style={depth > 0 ? { paddingLeft: `${16 + depth * 22}px` } : undefined}
+                  title={issueIdTitle(issue)}
                   onClick={(e) => (e.shiftKey ? onToggleSelect(issue.id) : onOpen(issue.id))}
                   onContextMenu={(e) => onContextMenu(issue.id, e)}
                 >
