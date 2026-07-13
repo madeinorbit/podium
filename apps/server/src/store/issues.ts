@@ -46,8 +46,8 @@ export class IssuesRepository {
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
             needs_human, human_question, panel,
-            created_at, updated_at, archived, origin, audience, draft, read_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
@@ -70,7 +70,8 @@ export class IssuesRepository {
            panel = excluded.panel,
            updated_at = excluded.updated_at, archived = excluded.archived,
            origin = excluded.origin, audience = excluded.audience,
-           draft = excluded.draft, read_at = excluded.read_at`,
+           draft = excluded.draft, read_at = excluded.read_at,
+           deleted_at = excluded.deleted_at`,
       )
       .run(
         row.id,
@@ -121,6 +122,7 @@ export class IssuesRepository {
         row.audience ?? 'human',
         row.draft ? 1 : 0,
         row.readAt ?? null,
+        row.deletedAt ?? null,
       )
   }
 
@@ -170,6 +172,7 @@ export class IssuesRepository {
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,
       archived: r.archived === 1,
+      deletedAt: (r.deleted_at as string | null) ?? null,
       origin: (r.origin as string | null) ?? 'human',
       audience: (r.audience as string | null) ?? 'human',
       draft: r.draft === 1,

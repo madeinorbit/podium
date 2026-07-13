@@ -414,7 +414,7 @@ export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
  *  vanish it from its parent. Scoped to the subissue list — the main board's
  *  default hide-archived behavior is unchanged. */
 export function subIssuesOf(issues: readonly IssueWire[], parentId: string): IssueWire[] {
-  return issues.filter((i) => i.parentId === parentId).sort((a, b) => a.seq - b.seq)
+  return issues.filter((i) => i.parentId === parentId && !i.deletedAt).sort((a, b) => a.seq - b.seq)
 }
 
 export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
@@ -672,7 +672,7 @@ export function issueNavList(
   now: number = Date.now(),
 ): IssueNavView[] {
   const views = issues
-    .filter((i) => !i.archived)
+    .filter((i) => !i.archived && !i.deletedAt)
     .map((issue): IssueNavView => {
       const mine = sortSessionsForSidebar(
         sessionsForIssueWorktree(sessions, issue.worktreePath),
@@ -1012,7 +1012,7 @@ function buildUnifiedRows(
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
-    if (issue.archived) continue
+    if (issue.archived || issue.deletedAt) continue
     const mine = sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now)
     // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
     // session-less issue into the list.
@@ -1030,7 +1030,7 @@ function buildUnifiedRows(
       rank: rowRank(mine, now),
     })
   }
-  const liveIssueIds = new Set(issues.filter((i) => !i.archived).map((i) => i.id))
+  const liveIssueIds = new Set(issues.filter((i) => !i.archived && !i.deletedAt).map((i) => i.id))
   const seen = new Set<string>()
   const navWorktrees = [
     ...sections.pinnedWorktrees,

@@ -9,6 +9,7 @@ import { ConversationsService } from './modules/conversations/service'
 import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
@@ -86,6 +87,7 @@ export interface RegistryModules {
   conversations: ConversationsService
   hosts: HostsService
   settings: SettingsService
+  issueSessionLifecycle: IssueSessionLifecycle
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
@@ -165,6 +167,7 @@ export class SessionRegistry {
     let sessionsSvc!: SessionsService
     let conversations!: ConversationsService
     let issues!: IssueService
+    let issueSessionLifecycle!: IssueSessionLifecycle
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
 
@@ -272,6 +275,8 @@ export class SessionRegistry {
     })
     const issueCommands = new IssueCommandDispatcher({
       issues: () => issues,
+      deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
+      restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
       isUpstreamIssue: (id) => upstreamIssues.isUpstreamIssue(id),
       forwardIssueMutation: (proc, input) => upstreamIssues.forwardIssueMutation(proc, input),
       upstreamIssueRepoPaths: () => upstreamIssues.repoPaths(),
@@ -456,6 +461,12 @@ export class SessionRegistry {
           ...(row.worktreePath ? { worktreePath: row.worktreePath } : {}),
         }),
     })
+    issueSessionLifecycle = new IssueSessionLifecycle({
+      issues,
+      sessions: sessionsSvc,
+      ledger,
+    })
+
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
@@ -488,6 +499,7 @@ export class SessionRegistry {
       headless,
       notify,
       issues,
+      issueSessionLifecycle,
       upstreamIssues,
       issuePublisher: publisher,
       issueCommands,

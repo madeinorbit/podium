@@ -101,6 +101,12 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
         onDeleted()
       })
     },
+    restoreIssue: (onRestored: () => void): void => {
+      void run(async () => {
+        await trpc.issues.restore.mutate({ id })
+        onRestored()
+      })
+    },
     supersedeWith: (newId: string): void => {
       void run(() => trpc.issues.supersede.mutate({ oldId: id, newId }))
     },

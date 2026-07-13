@@ -111,6 +111,7 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   depAdd: { fromId: HUB_ID, toId: 'iss_other' },
   archive: { id: HUB_ID },
   delete: { id: HUB_ID },
+  restore: { id: HUB_ID },
   setLabels: { id: HUB_ID, labels: ['x'] },
   reparent: { id: HUB_ID, parentId: null },
   depRemove: { fromId: HUB_ID, toId: 'iss_other' },

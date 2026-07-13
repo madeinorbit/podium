@@ -1,5 +1,6 @@
 import type { IssueWire } from '@podium/protocol'
 import {
+  ArchiveRestore,
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
@@ -179,6 +180,22 @@ export function IssuePage({
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-y-auto px-6 py-4">
           {/* ---- Banners ---- */}
+          {issue.deletedAt && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-[13px]">
+              <p>
+                This issue and its sessions were deleted. Restoring it returns the sessions as
+                exited records; their running processes were stopped.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                disabled={busy}
+                onClick={() => commands.restoreIssue(onBack)}
+              >
+                <ArchiveRestore size={14} aria-hidden="true" /> Restore issue
+              </Button>
+            </div>
+          )}
           {issue.suggestedStage && (
             <div className="mb-4 flex flex-col gap-2 rounded-lg border border-primary/40 bg-primary/5 p-3 text-[13px]">
               <p className="text-foreground">
@@ -548,9 +565,12 @@ function IssueOverflowMenu({
   }
 
   const handleDelete = (): void => {
-    if (!window.confirm(`Delete "#${issue.seq} ${issue.title}"? This can't be undone.`)) return
+    const sessionCount = issue.sessions.length
+    const message = `Delete "#${issue.seq} ${issue.title}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The issue and sessions can be restored; running processes will be stopped.`
+    if (!window.confirm(message)) return
     commands.deleteIssue(onDeleted)
   }
+  const handleRestore = (): void => commands.restoreIssue(onDeleted)
 
   return (
     <DropdownMenu>
@@ -574,10 +594,12 @@ function IssueOverflowMenu({
             <ExternalLink size={14} aria-hidden="true" /> Open in Linear
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem onClick={flagForHuman}>
-          <Flag size={14} aria-hidden="true" /> Flag for human…
-        </DropdownMenuItem>
-        {targetIssues.length > 0 && (
+        {!issue.deletedAt && (
+          <DropdownMenuItem onClick={flagForHuman}>
+            <Flag size={14} aria-hidden="true" /> Flag for human…
+          </DropdownMenuItem>
+        )}
+        {!issue.deletedAt && targetIssues.length > 0 && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
@@ -603,12 +625,18 @@ function IssueOverflowMenu({
           </>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={handleDelete}
-          className="text-destructive focus:text-destructive"
-        >
-          <Trash2 size={14} aria-hidden="true" /> Delete
-        </DropdownMenuItem>
+        {issue.deletedAt ? (
+          <DropdownMenuItem onClick={handleRestore}>
+            <ArchiveRestore size={14} aria-hidden="true" /> Restore issue
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem
+            onClick={handleDelete}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 size={14} aria-hidden="true" /> Delete
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

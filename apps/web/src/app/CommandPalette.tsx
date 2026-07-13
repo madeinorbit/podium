@@ -263,7 +263,7 @@ function PaletteDialog({
       },
     })
     for (const i of issues) {
-      if (i.archived || i.draft) continue
+      if (i.archived || i.deletedAt || i.draft) continue
       localIds.add(i.id)
       out.push(issueCmd(i))
     }

@@ -155,9 +155,16 @@ export function IssueContextMenu({
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
-    if (!window.confirm(`Delete ${n} issue${n > 1 ? 's' : ''}? This can't be undone.`)) return
+    const sessions = new Set(
+      issues.flatMap((issue) => issue.sessions.map((session) => session.sessionId)),
+    )
+    const sessionCount = sessions.size
+    const message = `Delete ${n} issue${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Issues and sessions can be restored; running processes will be stopped.`
+    if (!window.confirm(message)) return
     run(() => Promise.all(ids.map((id) => trpc.issues.delete.mutate({ id }))))
   }
+  const restore = (): void =>
+    run(() => Promise.all(ids.map((id) => trpc.issues.restore.mutate({ id }))))
 
   // Label pool / duplicate targets come from the whole board scope.
   const labelPool = [
@@ -165,7 +172,7 @@ export function IssueContextMenu({
   ].sort()
   const targetSet = new Set(ids)
   const dupMates = allIssues
-    .filter((i) => i.repoPath === first.repoPath && !targetSet.has(i.id))
+    .filter((i) => !i.deletedAt && i.repoPath === first.repoPath && !targetSet.has(i.id))
     .sort((a, b) => a.seq - b.seq)
 
   const itemCls =
@@ -370,7 +377,7 @@ export function IssueContextMenu({
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
 
       {(elig.canClose || elig.canDefer || elig.canUndefer) && (
-        <div className="my-1 h-px bg-border" role="separator" />
+        <hr className="my-1 h-px border-0 bg-border" />
       )}
       {elig.canClose && (
         <button
@@ -401,7 +408,8 @@ export function IssueContextMenu({
         elig.canArchive ||
         elig.canUnarchive ||
         elig.canDuplicate ||
-        elig.canDelete) && <div className="my-1 h-px bg-border" role="separator" />}
+        elig.canRestore ||
+        elig.canDelete) && <hr className="my-1 h-px border-0 bg-border" />}
       {elig.canPin && (
         <button
           type="button"
@@ -445,6 +453,11 @@ export function IssueContextMenu({
       )}
       {elig.canDuplicate &&
         subTrigger('duplicate', <Copy size={14} aria-hidden="true" />, 'Duplicate of')}
+      {elig.canRestore && (
+        <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={restore}>
+          <ArchiveRestore size={14} aria-hidden="true" /> Restore
+        </button>
+      )}
       {elig.canDelete && (
         <button
           type="button"

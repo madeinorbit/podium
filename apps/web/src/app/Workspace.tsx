@@ -121,7 +121,7 @@ export function Workspace(): JSX.Element {
   // issue row is selected, the tab strip shows the issue's sessions (explicit
   // issueId first-class + cwd-contained legacy) instead of a worktree's.
   const issue = selectedIssueId
-    ? issues.find((i) => i.id === selectedIssueId && !i.archived)
+    ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)

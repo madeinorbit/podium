@@ -403,8 +403,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         : `integrate: rebuilt '${intBranch}' from '${row.parentBranch}'; integrated ${landed}; integration blocked at #${blockedAt}: ${blockedWhy}`
     // Comment dedup: rebuild runs are idempotent, so an unchanged outcome must not
     // spam a new comment — skip when the latest integrate comment is identical.
-    const prior = this.d.store
-      .issues.listIssueComments(row.id)
+    const prior = this.d.store.issues
+      .listIssueComments(row.id)
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary) this.addComment(row.id, 'system:integrate', summary)
@@ -549,7 +549,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       this.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
     const others = [...this.rows.values()]
-      .filter((r) => r.id !== row.id && this.inRepoScope(r, row.repoPath) && !r.archived)
+      .filter(
+        (r) => r.id !== row.id && this.inRepoScope(r, row.repoPath) && !r.archived && !r.deletedAt,
+      )
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
     const ctx = {
       issue: {

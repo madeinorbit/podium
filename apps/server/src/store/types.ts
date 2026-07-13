@@ -15,6 +15,7 @@ export interface PinState {
 export type SnoozeMap = Record<string, string | null>
 
 export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+export type SessionDeletionSource = 'issue' | 'standalone'
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
@@ -57,6 +58,13 @@ export interface SessionRow {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null
+  /** Issue-lifecycle tombstone. Tombstoned rows are excluded from active session loads. */
+  deletedAt?: string | null
+  /** User-facing path that created the tombstone. */
+  deletionSource?: SessionDeletionSource | null
+  /** The issue deletion that produced this tombstone. Kept separate from issueId
+   *  because cwd-derived member sessions may not have been explicitly attached. */
+  deletedByIssueId?: string | null
 }
 
 /** One row of the machines table (token_hash is internal — not included here). */
@@ -108,6 +116,8 @@ export interface IssueRow {
   createdAt: string
   updatedAt: string
   archived: boolean
+  /** Soft-delete tombstone. The row and its tracker history remain recoverable. */
+  deletedAt?: string | null
   priority: number
   type: string
   assignee: string | null

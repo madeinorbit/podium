@@ -32,6 +32,7 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
   canPin: boolean
   canDelete: boolean
   canArchive: boolean
+  canRestore: boolean
   canUnarchive: boolean
   canMarkRead: boolean
   canMarkUnread: boolean
@@ -40,31 +41,34 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
   const single = issues.length === 1
   const first = issues[0]
   const openSingle = single && first !== undefined && !isIssueClosed(first)
+  const hasDeleted = issues.some((i) => !!i.deletedAt)
+  const activeAny = any && !hasDeleted
   return {
     canOpen: single,
     // Rename is single-target and applies to any issue, open or closed (#170).
-    canRename: single,
-    canSetStage: any,
-    canSetPriority: any,
-    canAssignAgent: openSingle,
-    canSetLabels: any,
-    canClose: openSingle,
-    canDefer: openSingle,
-    canUndefer: single && first?.deferUntil != null,
+    canRename: single && !hasDeleted,
+    canSetStage: activeAny,
+    canSetPriority: activeAny,
+    canAssignAgent: openSingle && !hasDeleted,
+    canSetLabels: activeAny,
+    canClose: openSingle && !hasDeleted,
+    canDefer: openSingle && !hasDeleted,
+    canUndefer: single && !hasDeleted && first?.deferUntil != null,
     // "Duplicate" marks the issue a duplicate of a canonical sibling — pointless
     // once it already points at one.
-    canDuplicate: single && first?.duplicateOf == null,
-    canPin: single,
-    canDelete: any,
+    canDuplicate: single && !hasDeleted && first?.duplicateOf == null,
+    canPin: single && !hasDeleted,
+    canDelete: activeAny,
+    canRestore: any && issues.every((i) => !!i.deletedAt),
     // Archive removes an issue from the board/sidebar without deleting it; the
     // pair is single-target and mutually exclusive on the issue's `archived`.
-    canArchive: single && first?.archived === false,
-    canUnarchive: single && first?.archived === true,
+    canArchive: single && !hasDeleted && first?.archived === false,
+    canUnarchive: single && !hasDeleted && first?.archived === true,
     // Email-style read toggle (#138): single-target, mutually exclusive on the
     // derived `unread`. A currently-read row offers "mark unread"; an unread one
     // offers "mark read". (`unread` is always a boolean on the wire.)
-    canMarkRead: single && first?.unread === true,
-    canMarkUnread: single && !first?.unread,
+    canMarkRead: single && !hasDeleted && first?.unread === true,
+    canMarkUnread: single && !hasDeleted && !first?.unread,
   }
 }
 

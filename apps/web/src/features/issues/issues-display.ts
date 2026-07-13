@@ -69,20 +69,21 @@ export function writeIssuesDisplay(d: IssuesDisplay): string {
 }
 
 /**
- * Board/list scope filter (issue-as-workspace): drafts never show on the board
- * (they live in the sidebar), and internal (audience: 'agent') issues are hidden
- * unless `showAgentTasks` — EXCEPT children whose parent survives the filter,
- * which always ride under it (epic drill-down shows all children).
+ * Board/list scope filter (issue-as-workspace): drafts and internal
+ * (audience: 'agent') issues stay off the board unless explicitly enabled —
+ * EXCEPT recoverable tombstones, which must remain reachable through Show deleted
+ * even when the original issue was a draft or agent-internal. Children whose
+ * parent survives the filter also ride under it (epic drill-down).
  *
  * Keys on `audience` (who the issue is FOR, #198 [spec:SP-a859]), NOT `origin`:
  * an agent acting for the human can cut a human-audience issue that belongs on the
  * board, and the human's own quick note to an agent can be internal.
  */
 export function filterBoardScope(issues: IssueWire[], showAgentTasks: boolean): IssueWire[] {
-  const noDrafts = issues.filter((i) => !i.draft)
+  const noDrafts = issues.filter((i) => !i.draft || !!i.deletedAt)
   if (showAgentTasks) return noDrafts
   const byId = new Map(noDrafts.map((i) => [i.id, i]))
-  const topLevelVisible = (i: IssueWire): boolean => i.audience !== 'agent'
+  const topLevelVisible = (i: IssueWire): boolean => !!i.deletedAt || i.audience !== 'agent'
   return noDrafts.filter((i) => {
     if (topLevelVisible(i)) return true
     // Internal (audience: agent): keep only when some ancestor chain reaches a

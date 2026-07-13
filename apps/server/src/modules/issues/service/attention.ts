@@ -74,7 +74,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
    *  dangles. Returns true iff the issue was deleted. */
   reapIfEmptyDraft(id: string): boolean {
     const row = this.rows.get(id)
-    if (!row || !row.draft || row.worktreePath) return false
+    if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
     const hasChildren = [...this.rows.values()].some((r) => r.parentId === id)
     if (hasChildren) return false
     const attached = this.deps.listSessions().filter((s) => s.issueId === id)
@@ -85,7 +85,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     if (this.deps.setSessionIssueId) {
       for (const s of attached) this.deps.setSessionIssueId(s.sessionId, null)
     }
-    this.delete(id)
+    this.purgeEmptyDraft(id)
     return true
   }
 
@@ -204,7 +204,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     const out: IssueWire[] = []
     let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
     for (const row of this.rows.values()) {
-      if (row.archived) continue // idempotent: never re-archive
+      if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.isClosed(row)) continue // not done / not closed
       if (row.readAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(row.readAt)

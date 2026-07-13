@@ -128,7 +128,7 @@ describe('boot-time leaked-draft sweep', () => {
     reg1.modules.sessions.attachDaemon('local', () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
-    new SessionStore(file).sessions.deleteSession(sessionId)
+    new SessionStore(file).sessions.purgeSession(sessionId)
     const reg2 = new SessionRegistry(new SessionStore(file))
     expect(reg2.issues.get(draft.id)).toBeNull()
   })

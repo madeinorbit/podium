@@ -8,7 +8,7 @@ import { SessionStore } from './store'
 /**
  * Session writes on the write-seam Ledger ([spec:SP-3fe2] #256): persist()
  * commits the row write and the declared SessionMeta change atomically;
- * kill commits the remove with the row delete; boot reconciles; and every
+ * kill commits the remove with the row tombstone; boot reconciles; and every
  * appended batch reaches delta clients through the funnel's ONE ordered
  * metadataDelta pipe. Registry-level tests pin the production wiring.
  */
@@ -172,7 +172,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(delta.inbox.slice(before).some((m) => m.type === 'sessionsChanged')).toBe(false)
   })
 
-  it('(e) kill commits a remove in the same transaction as the row delete', () => {
+  it('(e) kill commits a remove in the same transaction as the row tombstone', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const cursor = cursorOf(registry)
@@ -187,13 +187,20 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       healed.changes.some((c) => c.entity === 'session' && c.id === sessionId && c.op === 'remove'),
     ).toBe(true)
-    // …and live: it reached the delta client, and the row is gone.
+    // …and live: it reached the delta client, while the durable row is tombstoned.
     expect(
       sessionChanges(delta.inbox.slice(before)).some(
         (c) => c.id === sessionId && c.op === 'remove',
       ),
     ).toBe(true)
     expect(registry.sessionStore.sessions.loadSessions()).toHaveLength(0)
+    expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
+      expect.objectContaining({
+        id: sessionId,
+        deletionSource: 'standalone',
+        deletedByIssueId: null,
+      }),
+    ])
   })
 
   it('(f) boot reconcile records offline row changes durably, with no fan-out', () => {
@@ -358,11 +365,12 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(() => registry.modules.sessions.killSession({ sessionId })).toThrow('append failed')
     spy.mockRestore()
     // Memory truth survived: the session is still listed; the store rolled the
-    // row delete back inside the same transact span.
+    // tombstone write back inside the same transact span.
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
       true,
     )
     expect(registry.sessionStore.sessions.loadSessions().some((r) => r.id === sessionId)).toBe(true)
+    expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([])
     // A subsequent broadcast reconcile appends NOTHING for the untouched entity.
     registry.modules.sessions.broadcastSessions()
     registry.modules.sessions.flushBroadcasts()
@@ -375,6 +383,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
+    expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
+      expect.objectContaining({ id: sessionId, deletionSource: 'standalone' }),
+    ])
   })
 
   it('(l) a transient issue-append failure during an attach-driven broadcast is retried by the NEXT broadcast (#247)', () => {

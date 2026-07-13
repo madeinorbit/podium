@@ -50,7 +50,10 @@ export abstract class IssueServiceCore {
 
   /** Worktree paths of all issues (for cwd-based worker-role resolution). */
   worktreePaths(): string[] {
-    return [...this.rows.values()].map((r) => r.worktreePath).filter((p): p is string => !!p)
+    return [...this.rows.values()]
+      .filter((r) => !r.deletedAt)
+      .map((r) => r.worktreePath)
+      .filter((p): p is string => !!p)
   }
 
   protected now(): string {
@@ -58,7 +61,7 @@ export abstract class IssueServiceCore {
   }
 
   protected isClosed(row: IssueRow): boolean {
-    return isIssueClosed(row)
+    return !!row.deletedAt || isIssueClosed(row)
   }
 
   protected isDeferred(row: IssueRow): boolean {
@@ -71,6 +74,7 @@ export abstract class IssueServiceCore {
    *  opened → unread (updatedAt always exists). Kept cheap: no event-log scan, since
    *  every meaningful mutation already bumps updatedAt. */
   protected computeUnread(row: IssueRow, sessions: SessionMeta[]): boolean {
+    if (row.deletedAt) return false
     if (row.readAt == null) return true
     const readMs = Date.parse(row.readAt)
     if (!Number.isFinite(readMs)) return true
@@ -101,9 +105,9 @@ export abstract class IssueServiceCore {
     sessionList: SessionMeta[] = this.deps.listSessions(),
     commentCounts?: Map<string, number>,
   ): IssueWire {
-    const sessions = sessionsForIssue(row.worktreePath, sessionList, row.id)
+    const sessions = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
     const labels = this.deps.store.issues.getIssueLabels(row.id)
-    const children = [...this.rows.values()].filter((r) => r.parentId === row.id)
+    const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
     // Wire deps/dependents keep carrying the parent-child edges for client
     // compatibility, but they are SYNTHESIZED from parent_id / children —
     // issue_deps stores only real dependency types (#164).
@@ -176,6 +180,7 @@ export abstract class IssueServiceCore {
       updatedAt: row.updatedAt,
       archived: row.archived,
       readAt: row.readAt ?? null,
+      ...(row.deletedAt ? { deletedAt: row.deletedAt } : {}),
       unread: this.computeUnread(row, sessions),
       sessions,
       sessionSummary: summarizeSessions(sessions),

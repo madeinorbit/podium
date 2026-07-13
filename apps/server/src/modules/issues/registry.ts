@@ -44,6 +44,10 @@ export interface IssueCaller {
 export interface IssueCommandDeps {
   /** Lazy — the IssueService is assigned late in the composition root. */
   issues(): IssueService
+  /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
+  deleteIssue(id: string): unknown
+  /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
+  restoreIssue(id: string): unknown
   /** True when `id` is a hub-mirrored issue (modules/issues/upstream). */
   isUpstreamIssue(id: string): boolean
   /** Forward one issue mutation to the hub (viaHub write forwarding, §2.2). */
@@ -134,6 +138,12 @@ export class IssueCommandCtx {
 
   get issues(): IssueService {
     return this.deps.issues()
+  }
+  deleteIssue(id: string): unknown {
+    return this.deps.deleteIssue(id)
+  }
+  restoreIssue(id: string): unknown {
+    return this.deps.restoreIssue(id)
   }
 
   /** Idempotency wrapper bound to this command's wire name (issues.<name>). */
@@ -649,7 +659,15 @@ const defs = {
     action: 'manage',
     scope: 'issue',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.delete(input.id)),
+    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.deleteIssue(input.id)),
+  }),
+  restore: def({
+    kind: 'mutation',
+    input: byId,
+    action: 'manage',
+    scope: 'issue',
+    target: targetId,
+    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.restoreIssue(input.id)),
   }),
   action: def({
     kind: 'mutation',

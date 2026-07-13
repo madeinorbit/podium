@@ -669,12 +669,22 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'delete',
-    summary: 'Delete an issue permanently (maintainer): delete <id>.',
+    summary: 'Soft-delete an issue and tombstone its sessions (maintainer): delete <id>.',
     args: z.object({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
       const r = (await c.issues.delete.mutate({ id: a.id as string })) as unknown
       return { text: `deleted ${a.id}`, data: r }
+    },
+  },
+  {
+    name: 'restore',
+    summary: 'Restore an issue and its sessions as exited records: restore <id>.',
+    args: z.object({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const r = (await c.issues.restore.mutate({ id: a.id as string })) as unknown
+      return { text: `restored ${a.id}`, data: r }
     },
   },
   {
