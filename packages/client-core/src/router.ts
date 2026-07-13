@@ -10,7 +10,7 @@
  *   /issues                 the issues board
  *   /issues/:id             the board with an issue page open
  *   /settings[/:tab]        settings, optionally on a specific tab
- *   /usage  /automations  /specs    the respective views
+ *   /usage  /automations  /specs  /workflows    the respective views
  *
  * Unknown URLs fall back to home (replaceState, so back doesn't bounce).
  * Foreign query params (`?server=`, `?e2e`) are preserved across navigation.
@@ -25,6 +25,7 @@ export type MainView =
   | 'issues'
   | 'automations'
   | 'specs'
+  | 'workflows'
 
 export interface RouteState {
   view: MainView
@@ -80,6 +81,8 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
       return second === undefined ? { view: 'automations', ...base } : null
     case 'specs':
       return second === undefined ? { view: 'specs', ...base } : null
+    case 'workflows':
+      return second === undefined ? { view: 'workflows', ...base } : null
     default:
       return null
   }
@@ -109,6 +112,9 @@ export function routePath(route: RouteState, currentSearch = ''): string {
       break
     case 'specs':
       path = '/specs'
+      break
+    case 'workflows':
+      path = '/workflows'
       break
   }
   const params = new URLSearchParams(currentSearch)

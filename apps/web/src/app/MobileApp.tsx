@@ -1,6 +1,15 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
-import { ChevronDown, FileText, Home, KanbanSquare, Pin, Sparkles, X } from 'lucide-react'
+import {
+  ChevronDown,
+  FileText,
+  Home,
+  KanbanSquare,
+  ListChecks,
+  Pin,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { HostIndicators } from '@/features/machines/HostIndicators'
@@ -289,6 +298,18 @@ export function MobileApp(): JSX.Element {
           onClick={() => setView('issues')}
         >
           <KanbanSquare size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center border-r border-border px-3 text-muted-foreground',
+            view === 'workflows' && 'text-primary',
+          )}
+          title="Workflows"
+          aria-pressed={view === 'workflows'}
+          onClick={() => setView('workflows')}
+        >
+          <ListChecks size={15} aria-hidden="true" />
         </button>
         {/* The one main dropdown (#227): the selected issue, opening to its
             panels. It replaced the worktree picker — work is chosen on home. */}

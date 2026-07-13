@@ -12,6 +12,7 @@ import {
   GitBranch,
   Home,
   KanbanSquare,
+  ListChecks,
   type LucideIcon,
   Pin,
   Plus,
@@ -100,6 +101,7 @@ export function SidebarUnified(): JSX.Element {
   const nav: { id: Parameters<typeof setView>[0]; label: string; Icon: LucideIcon }[] = [
     { id: 'home', label: 'Command center', Icon: Home },
     { id: 'issues', label: 'Issues', Icon: KanbanSquare },
+    { id: 'workflows', label: 'Workflows', Icon: ListChecks },
     { id: 'specs', label: 'Specs', Icon: BookOpenText },
     { id: 'automations', label: 'Automations', Icon: RotateCw },
   ]

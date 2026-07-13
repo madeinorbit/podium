@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   createRouter,
   parseRoute,
+  type RouterWindow,
+  type RouteState,
   routeDefaults,
   routePath,
-  type RouteState,
-  type RouterWindow,
 } from './router'
 
 // ---------------------------------------------------------------------------
@@ -54,6 +54,7 @@ describe('routePath', () => {
       { ...routeDefaults('settings'), settingsTab: 'notifications' },
       routeDefaults('usage'),
       routeDefaults('automations'),
+      routeDefaults('workflows'),
     ]
     for (const r of routes) {
       const url = routePath(r)

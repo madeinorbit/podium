@@ -34,7 +34,8 @@ export function readStoredView(ui: UiState): MainView {
     v === 'usage' ||
     v === 'issues' ||
     v === 'automations' ||
-    v === 'specs'
+    v === 'specs' ||
+    v === 'workflows'
     ? v
     : 'home'
 }

@@ -4,6 +4,7 @@ import { AutomationsView } from '@/features/automations/AutomationsView'
 import { IssuesView } from '@/features/issues/IssuesView'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { UsageView } from '@/features/usage/UsageView'
+import { WorkflowsView } from '@/features/workflows/WorkflowsView'
 import { HomeView } from '@/features/worklist/HomeView'
 import { useStoreSelector } from './store'
 
@@ -38,6 +39,8 @@ export function MainViewOutlet({
       return <UsageView />
     case 'issues':
       return <IssuesView />
+    case 'workflows':
+      return <WorkflowsView />
     case 'automations':
       return <AutomationsView />
     case 'specs':
