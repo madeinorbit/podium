@@ -37,6 +37,25 @@ describe('IssueCommandDispatcher.asIssueTrpc (in-process MCP client)', () => {
     expect(list).toHaveLength(1)
   })
 
+  it('panelApply artifact-add pulls a snapshot — errors cleanly with no worktree/session ([spec:SP-0fc9])', async () => {
+    const c = client()
+    const created = (await c.issues.create.mutate({
+      repoPath: '/r',
+      title: 'a',
+      startNow: false,
+    })) as { id: string }
+    await expect(
+      Promise.resolve(
+        c.issues.panelApply.mutate({ id: created.id, op: 'artifact-add', path: 'shot.png' }),
+      ),
+    ).rejects.toThrow(/no worktree or session/)
+    // nothing half-registered
+    const got = (await c.issues.get.query({ id: created.id })) as {
+      panel?: { artifacts: unknown[] }
+    }
+    expect(got.panel?.artifacts ?? []).toEqual([])
+  })
+
   it('an unknown router/proc throws the historical "no such issue procedure"', async () => {
     const c = client()
     expect(() => c.specs.list.query({})).toThrow(/no such issue procedure: specs\.list/)

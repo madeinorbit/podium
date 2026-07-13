@@ -70,7 +70,16 @@ export type IssuePanelOp =
   | { op: 'todo-add'; text: string }
   | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index: number }
   | { op: 'todo-clear' }
-  | { op: 'artifact-add'; path: string; title?: string }
+  | {
+      op: 'artifact-add'
+      path: string
+      title?: string
+      /** Permanent-store snapshot fields ([spec:SP-0fc9]) — set by panelArtifactAdd
+       *  after the pull succeeded; a bare artifact-add stays a legacy path entry. */
+      artifactId?: string
+      entry?: string
+      files?: { path: string; size: number }[]
+    }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }
   | { op: 'deferred-remove'; index: number }
@@ -182,6 +191,20 @@ export interface IssueDeps {
   /** Send-time mail delivery hook (issue #103): the registry nudges the target
    *  issue's live agent session. Best-effort — sendMail swallows its failures. */
   onMailSent?(row: IssueRow, message: IssueMessageRow): void
+  /** Permanent artifact snapshot store ([spec:SP-0fc9] #441) — the server-pull
+   *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
+   *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
+  artifacts?: {
+    snapshot(o: {
+      issueId: string
+      root: string
+      machineId?: string
+      sourcePath: string
+      extraPaths?: string[]
+    }): Promise<{ artifactId: string; entry: string; files: { path: string; size: number }[] }>
+    remove(issueId: string, artifactId: string): Promise<void>
+    removeIssue(issueId: string): Promise<void>
+  }
 }
 
 export interface CreateIssueInput {

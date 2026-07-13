@@ -516,20 +516,43 @@ const defs = {
       index: z.number().int().min(1).optional(),
       path: z.string().optional(),
       title: z.string().optional(),
+      /** Extra file paths bundled with `path` into one artifact snapshot ([spec:SP-0fc9]). */
+      extraPaths: z.array(z.string()).optional(),
     }),
     action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.issues.panelApply(input.id, {
+      ctx.issueWrite(input, () => {
+        // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
+        // add pulls a snapshot from the owning daemon before the panel commit;
+        // remove also deletes the snapshot dir.
+        if (input.op === 'artifact-add') {
+          if (!input.path) throw new Error('artifact-add requires a path')
+          return ctx.issues.panelArtifactAdd(
+            input.id,
+            {
+              path: input.path,
+              ...(input.title ? { title: input.title } : {}),
+              ...(input.extraPaths ? { extraPaths: input.extraPaths } : {}),
+            },
+            ctx.caller.capability.actorSessionId
+              ? { actorSessionId: ctx.caller.capability.actorSessionId }
+              : undefined,
+          )
+        }
+        if (input.op === 'artifact-remove') {
+          if (input.index == null) throw new Error('artifact-remove requires an index')
+          return ctx.issues.panelArtifactRemove(input.id, input.index)
+        }
+        return ctx.issues.panelApply(input.id, {
           op: input.op,
           text: input.text,
           index: input.index,
           path: input.path,
           title: input.title,
-        } as never),
-      ),
+        } as never)
+      }),
   }),
   // write — filing/decomposing is additive; scope gates writes to EXISTING issues,
   // not creation (no `target`).

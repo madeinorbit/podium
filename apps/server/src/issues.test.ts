@@ -2239,6 +2239,88 @@ describe('IssueService panelApply (agent-published human panel)', () => {
   })
 })
 
+describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc9])', () => {
+  function artifactHarness() {
+    const h = harness([sess('/wt')])
+    let n = 0
+    const snapshot = vi.fn(async (o: { sourcePath: string }) => ({
+      artifactId: `art${++n}`,
+      entry: o.sourcePath.split('/').pop() as string,
+      files: [{ path: o.sourcePath.split('/').pop() as string, size: 3 }],
+    }))
+    const remove = vi.fn(async () => {})
+    h.deps.artifacts = { snapshot, remove, removeIssue: vi.fn(async () => {}) }
+    const svc = new IssueService(h.deps)
+    return { ...h, svc, snapshot, remove }
+  }
+
+  it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
+    const { svc, snapshot } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    const wire = await svc.panelArtifactAdd(w.id, { path: 'shots/a.png', title: 'Shot' })
+    expect(snapshot).toHaveBeenCalledWith({
+      issueId: w.id,
+      root: '/wt/issue-1',
+      sourcePath: 'shots/a.png',
+    })
+    const a = wire.panel?.artifacts[0]
+    expect(a).toMatchObject({
+      path: 'shots/a.png',
+      title: 'Shot',
+      artifactId: 'art1',
+      entry: 'a.png',
+      files: [{ path: 'a.png', size: 3 }],
+    })
+  })
+
+  it('re-add replaces in place under a NEW artifactId and deletes the old dir after commit', async () => {
+    const { svc, remove } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png' })
+    await svc.panelArtifactAdd(w.id, { path: 'b.png' })
+    const wire = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'v2' })
+    expect(wire.panel?.artifacts.map((x) => x.path)).toEqual(['a.png', 'b.png']) // position stable
+    expect(wire.panel?.artifacts[0]?.artifactId).toBe('art3')
+    expect(remove).toHaveBeenCalledWith(w.id, 'art1')
+  })
+
+  it('a failed pull errors the op with nothing half-registered', async () => {
+    const { svc, snapshot } = artifactHarness()
+    snapshot.mockRejectedValueOnce(new Error('cannot read /wt/gone.png: not found'))
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await expect(svc.panelArtifactAdd(w.id, { path: 'gone.png' })).rejects.toThrow(/gone\.png/)
+    expect(svc.get(w.id)?.panel?.artifacts ?? []).toEqual([])
+  })
+
+  it('falls back to the invoking session cwd when the issue has no worktree', async () => {
+    const { svc, snapshot } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: '/wt' })
+    expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({ root: '/wt' }))
+  })
+
+  it('remove deletes the panel entry AND its store directory', async () => {
+    const { svc, remove } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png' })
+    const wire = svc.panelArtifactRemove(w.id, 1)
+    expect(wire.panel?.artifacts).toEqual([])
+    expect(remove).toHaveBeenCalledWith(w.id, 'art1')
+  })
+
+  it('legacy path-only entries stay untouched by remove (no store delete call)', async () => {
+    const { svc, remove } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.panelApply(w.id, { op: 'artifact-add', path: 'old.png' }) // legacy, no artifactId
+    svc.panelArtifactRemove(w.id, 1)
+    expect(remove).not.toHaveBeenCalled()
+  })
+})
+
 describe('IssueService setState (agent-posted current state → activityNotes)', () => {
   it('writes activityNotes + notesUpdatedAt and broadcasts', () => {
     const { svc } = harness()

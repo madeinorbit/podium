@@ -72,13 +72,19 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         panel.todos = []
         break
       case 'artifact-add': {
-        // Re-adding the same path replaces its entry (agents iterate on artifacts).
-        panel.artifacts = panel.artifacts.filter((a) => a.path !== op.path)
-        panel.artifacts.push({
+        // Re-adding the same path replaces its entry IN PLACE (agents iterate on
+        // artifacts; the list position is stable — [spec:SP-0fc9]).
+        const next = {
           path: op.path,
           ...(op.title ? { title: op.title } : {}),
           addedAt: this.now(),
-        })
+          ...(op.artifactId ? { artifactId: op.artifactId } : {}),
+          ...(op.entry ? { entry: op.entry } : {}),
+          ...(op.files ? { files: op.files } : {}),
+        }
+        const existing = panel.artifacts.findIndex((a) => a.path === op.path)
+        if (existing >= 0) panel.artifacts[existing] = next
+        else panel.artifacts.push(next)
         break
       }
       case 'artifact-remove':
@@ -96,6 +102,64 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     row.panel = JSON.stringify(panel)
     const wire = this.persist(row)
     this.emitEvent('issue.panel', row.id, { seq: row.seq, op: op.op })
+    return wire
+  }
+
+  /**
+   * artifact-add with permanent-store snapshotting ([spec:SP-0fc9] #441): pull
+   * the bytes from the owning daemon into `<state-dir>/artifacts/<issueId>/`
+   * BEFORE committing the panel entry — a pull/write failure errors the op with
+   * nothing half-registered. Re-add of the same source path snapshots under a
+   * NEW artifactId, swaps the entry in place, then deletes the old dir
+   * (best-effort) AFTER the commit. Falls back to a legacy path-only entry when
+   * no artifact store is wired (tests / minimal deployments).
+   */
+  async panelArtifactAdd(
+    id: string,
+    input: { path: string; title?: string; extraPaths?: string[] },
+    opts?: { actorSessionId?: string },
+  ): Promise<IssueWire> {
+    const row = this.rowOrThrow(this.resolveRef(id))
+    const store = this.deps.artifacts
+    const title = input.title ? { title: input.title } : {}
+    if (!store) return this.panelApply(row.id, { op: 'artifact-add', path: input.path, ...title })
+    // Owning machine + root: the issue worktree, falling back to the invoking
+    // session's machine/cwd — the same resolution the live render route uses.
+    const session = opts?.actorSessionId
+      ? this.deps.listSessions().find((s) => s.sessionId === opts.actorSessionId)
+      : undefined
+    const root = row.worktreePath ?? session?.cwd
+    if (!root) throw new Error('no worktree or session to read the artifact from')
+    const machineId = row.machineId ?? session?.machineId ?? undefined
+    const snap = await store.snapshot({
+      issueId: row.id,
+      root,
+      ...(machineId ? { machineId } : {}),
+      sourcePath: input.path,
+      ...(input.extraPaths?.length ? { extraPaths: input.extraPaths } : {}),
+    })
+    const oldId = this.parsePanel(row).artifacts.find((a) => a.path === input.path)?.artifactId
+    const wire = this.panelApply(row.id, {
+      op: 'artifact-add',
+      path: input.path,
+      ...title,
+      artifactId: snap.artifactId,
+      entry: snap.entry,
+      files: snap.files,
+    })
+    if (oldId) void store.remove(row.id, oldId).catch(() => {})
+    return wire
+  }
+
+  /** artifact-remove that also deletes the snapshot's store dir ([spec:SP-0fc9]).
+   *  The dir delete is best-effort AFTER the committed panel update. */
+  panelArtifactRemove(id: string, index: number): IssueWire {
+    const row = this.rowOrThrow(this.resolveRef(id))
+    const removed = this.parsePanel(row).artifacts[index - 1]
+    const wire = this.panelApply(row.id, { op: 'artifact-remove', index })
+    if (removed?.artifactId && this.deps.artifacts) {
+      void this.deps.artifacts.remove(row.id, removed.artifactId).catch(() => {})
+    }
     return wire
   }
 
@@ -350,6 +414,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
     this.deps.ledger.reconcile('issue', spec.rows)
     this.deps.funnel.publishComputed(spec.snapshot)
+    // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
+    void this.deps.artifacts?.removeIssue(id).catch(() => {})
   }
 
   /** Build the issue half of a cross-aggregate restore without exposing the row

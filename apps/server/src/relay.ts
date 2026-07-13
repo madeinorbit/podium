@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto'
+import { join } from 'node:path'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { checkIssueAccess } from './issue-authz'
-import { LOCAL_PLACEHOLDER } from './local-machine'
+import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
 import { EventBus } from './modules/bus'
@@ -11,6 +12,7 @@ import { EventLogRetention } from './modules/events/retention'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
+import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
@@ -114,6 +116,8 @@ export interface RegistryModules {
   messageGate: MessageGate
   /** Read toolkit tiers 1–2 — session status/read (#237) [spec:SP-34d7]. */
   readToolkit: SessionReadToolkit
+  /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
+  issueArtifacts: IssueArtifactStore
 }
 
 /**
@@ -714,8 +718,16 @@ export class SessionRegistry {
       },
       options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {},
     )
+    // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
+    // from the owning daemon at artifact-add time into <state-dir>/artifacts and
+    // serves them locally via /files/artifact (registered in server.ts).
+    const issueArtifacts = new IssueArtifactStore(join(stateDir(), 'artifacts'), {
+      readAsset: (i) => rpc.readAsset(i),
+      listDir: (i) => rpc.listDir(i),
+    })
     issues = new IssueService({
       store: this.store,
+      artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),
       getSettings: () => this.store.settings.getSettings(),
       spawnSession: (o) =>
@@ -902,6 +914,7 @@ export class SessionRegistry {
       messages: messagesSvc,
       messageGate,
       readToolkit,
+      issueArtifacts,
     }
   }
 

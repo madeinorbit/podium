@@ -14,6 +14,7 @@ import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
 import { applyEnvPassword, hasPassword } from './auth-store'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
+import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
 import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
@@ -218,6 +219,8 @@ export async function startServer(
   registerAuthRoute(app, { store: store.auth })
   app.use('/files/*', guard)
   registerAssetRoute(app, { readAsset: (a) => registry.modules.rpc.readAsset(a) })
+  // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
+  registerArtifactRoute(app, registry.modules.issueArtifacts)
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win
