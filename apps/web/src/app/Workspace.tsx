@@ -73,6 +73,7 @@ export function Workspace(): JSX.Element {
     repos,
     selectedIssueId,
     issues,
+    dockShells,
   } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
@@ -92,6 +93,7 @@ export function Workspace(): JSX.Element {
       repos: s.repos,
       selectedIssueId: s.selectedIssueId,
       issues: s.issues,
+      dockShells: s.dockShells,
     }),
     shallowEqual,
   )
@@ -141,18 +143,24 @@ export function Workspace(): JSX.Element {
   // sessions then files; a manual drag order (persisted per worktree — or per
   // issue under an `issue:<id>` key — may include file ids) is applied on top.
   // File ids that no longer exist (after reload) are dropped.
-  const liveSessionList = issue
-    ? sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
-    : worktree
-      ? sessionsForWorktree(sessions, worktree.path, allWorktreePaths)
-      : []
+  // Dock-owned shells (#23) live in the right dock's Shell panel, never as tabs.
+  const dockShellIds = new Set(Object.values(dockShells))
+  const liveSessionList = (
+    issue
+      ? sessionsForIssueNav(issue, sessions, allWorktreePaths, { includeShells: true })
+      : worktree
+        ? sessionsForWorktree(sessions, worktree.path, allWorktreePaths)
+        : []
+  ).filter((s) => !dockShellIds.has(s.sessionId))
   // Archived members of the viewed issue/worktree — kept out of the strip until
   // revealed, then appended so they reopen as (readable) tabs.
-  const archivedMembers = issue
-    ? archivedSessionsForIssue(issue, sessions, allWorktreePaths)
-    : worktree
-      ? archivedSessionsForWorktreePath(sessions, worktree.path, allWorktreePaths)
-      : []
+  const archivedMembers = (
+    issue
+      ? archivedSessionsForIssue(issue, sessions, allWorktreePaths)
+      : worktree
+        ? archivedSessionsForWorktreePath(sessions, worktree.path, allWorktreePaths)
+        : []
+  ).filter((s) => !dockShellIds.has(s.sessionId))
   const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
   const fileList = issue
     ? issue.worktreePath

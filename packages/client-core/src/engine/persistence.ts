@@ -22,6 +22,7 @@ export const SPLIT_KEY = 'podium.split'
 // doesn't hide the new column for returning users.
 export const SUPER_OPEN_KEY = 'podium.superOpen.v2'
 export const PANEL_MODE_KEY = 'podium.panelMode'
+export const DOCK_SHELLS_KEY = 'podium.dockShells'
 
 export function readStoredView(ui: UiState): MainView {
   const v = ui.get(VIEW_KEY)
@@ -36,6 +37,24 @@ export function readStoredView(ui: UiState): MainView {
     v === 'specs'
     ? v
     : 'home'
+}
+
+/** The persisted worktreePath → dock-shell-session map (#23). A corrupt/missing
+ *  blob reads as empty. */
+export function readStoredDockShells(ui: UiState): Record<string, string> {
+  const raw = ui.get(DOCK_SHELLS_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return {}
+    const out: Record<string, string> = {}
+    for (const [wt, id] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof id === 'string' && id) out[wt] = id
+    }
+    return out
+  } catch {
+    return {}
+  }
 }
 
 /** The persisted per-session panel-mode map. A corrupt/missing blob reads as empty. */

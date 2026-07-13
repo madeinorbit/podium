@@ -153,6 +153,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  AgentPanel computes it — distinct from the saved `panelMode` override. Reported
    *  up the viewState channel so the server has the signal; not persisted. */
   setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => void
+  /** The right dock's shell per worktree (#23): worktreePath → the shell session
+   *  living in the dock's Shell panel. Dock shells render THERE, not as workspace
+   *  tabs — the tab strip filters every id in this map. Persisted so a reload
+   *  reattaches the same shell [spec:SP-75b1]. */
+  dockShells: Record<string, string>
+  /** Point a worktree's dock at `sessionId` (null = forget the mapping). */
+  setDockShell: (worktreePath: string, sessionId: string | null) => void
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
   openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => void

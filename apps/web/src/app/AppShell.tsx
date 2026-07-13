@@ -85,7 +85,7 @@ export function AppShell(): JSX.Element {
 const RIGHT_PANEL_KEY = 'podium.rightPanel'
 
 function readStoredRightPanel(v: string | null): RightPanelTab | null {
-  return v === 'files' || v === 'git' || v === 'issue' ? v : null
+  return v === 'files' || v === 'git' || v === 'issue' || v === 'shell' ? v : null
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {

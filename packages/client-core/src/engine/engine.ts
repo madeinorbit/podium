@@ -75,11 +75,13 @@ import {
   rowFingerprint,
 } from './overlay'
 import {
+  DOCK_SHELLS_KEY,
   DOCK_TAB_KEY,
   ISSUE_SEL_KEY,
   PANE_A_KEY,
   PANE_B_KEY,
   PANEL_MODE_KEY,
+  readStoredDockShells,
   readStoredPanelModes,
   readStoredView,
   SPLIT_KEY,
@@ -161,6 +163,7 @@ interface EngineState {
   split: boolean
   focusedPane: 'A' | 'B'
   panelMode: Record<string, 'chat' | 'native'>
+  dockShells: Record<string, string>
   autoContinuePromptSessionId: string | null
   drafts: Record<string, string>
   sidebarSettings: SidebarSettings
@@ -336,6 +339,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // which is the right default (A is always the shown pane when split is off).
       focusedPane: 'A',
       panelMode: readStoredPanelModes(this.ui),
+      dockShells: readStoredDockShells(this.ui),
       autoContinuePromptSessionId: null,
       drafts: {},
       sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
@@ -554,6 +558,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     if (changed.has('split')) this.ui.set(SPLIT_KEY, this.state.split ? '1' : '0')
     if (changed.has('superOpen')) this.ui.set(SUPER_OPEN_KEY, this.state.superOpen ? '1' : '0')
     if (changed.has('panelMode')) this.ui.set(PANEL_MODE_KEY, JSON.stringify(this.state.panelMode))
+    if (changed.has('dockShells'))
+      this.ui.set(DOCK_SHELLS_KEY, JSON.stringify(this.state.dockShells))
     if (changed.has('dockTab')) this.ui.set(DOCK_TAB_KEY, this.state.dockTab)
     // Session-follows-view policy (old lines 1113-1136): diffs consecutive
     // session snapshots, so it reacts to sessions only.
@@ -954,6 +960,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.ui.set(SPLIT_KEY, st.split ? '1' : '0')
     this.ui.set(SUPER_OPEN_KEY, st.superOpen ? '1' : '0')
     this.ui.set(PANEL_MODE_KEY, JSON.stringify(st.panelMode))
+    this.ui.set(DOCK_SHELLS_KEY, JSON.stringify(st.dockShells))
   }
 
   /** Enrich the registered repos with branch/worktree metadata (fast — no
@@ -1085,6 +1092,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const m = this.state.panelMode
         if (m[sessionId] === mode) return
         this.apply({ panelMode: { ...m, [sessionId]: mode } })
+      },
+      setDockShell: (worktreePath: string, sessionId: string | null) => {
+        const m = this.state.dockShells
+        if ((m[worktreePath] ?? null) === sessionId) return
+        const next = { ...m }
+        if (sessionId) next[worktreePath] = sessionId
+        else delete next[worktreePath]
+        this.apply({ dockShells: next })
       },
       setPanelRenderMode: (sessionId: string, mode: 'chat' | 'native') => {
         if (this.panelRenderModes[sessionId] === mode) return

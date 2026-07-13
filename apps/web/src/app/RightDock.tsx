@@ -1,20 +1,24 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { CircleDot, FolderTree, GitBranch, type LucideIcon, X } from 'lucide-react'
+import { CircleDot, FolderTree, GitBranch, type LucideIcon, SquareTerminal, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
+import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import { resolveActiveWorktree } from '@/lib/dock-panel'
 import { useStoreSelector } from './store'
 
 /** The right-panel surfaces (the superagent lives in its own center column). */
-export type RightPanelTab = 'files' | 'git' | 'issue'
+export type RightPanelTab = 'files' | 'git' | 'issue' | 'shell'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
   { id: 'files', label: 'Files', icon: FolderTree },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'issue', label: 'Issue', icon: CircleDot },
+  // The dock is where shells LIVE (#23) [spec:SP-75b1] — one per worktree, never
+  // a workspace agent tab.
+  { id: 'shell', label: 'Shell', icon: SquareTerminal },
 ]
 
 function GitPlaceholder(): JSX.Element {
@@ -88,6 +92,13 @@ export function RightDock({
           />
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+        ))}
+      {tab === 'shell' &&
+        (active ? (
+          // Keyed by cwd: switching worktrees swaps to THAT worktree's shell.
+          <DockShellPanel key={active.cwd} cwd={active.cwd} machineId={active.machineId} />
+        ) : (
+          <div className="p-3 text-xs text-muted-foreground/70">No active worktree.</div>
         ))}
     </div>
   )
