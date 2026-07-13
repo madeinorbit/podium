@@ -455,8 +455,8 @@ export function helpText(): string {
     '  session <command>     Send turns to agent sessions',
     '  worktree [path]       Declare the worktree this agent session works in',
     '',
-    'Agent sessions: update/stop/channel/set-server become APPROVAL REQUESTS the',
-    'operator decides in the Podium UI; poll with `podium approval status <id>`.',
+    "Agent sessions: update/stop/channel/set-server need the operator's approval —",
+    'the command BLOCKS until they approve (runs it) or deny (exits non-zero).',
     '',
     'Other:',
     '  version | --version   Print the podium version',
@@ -693,7 +693,11 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       const { resolveIssueRelay } = await import('@podium/runtime/config')
       const { requestApproval } = await import('./approval-cli')
       try {
-        console.log(await requestApproval(resolveIssueRelay()!, plan.op))
+        // BLOCKS until the operator decides (or the wait budget runs out) — the
+        // command finishing IS how the agent learns the answer.
+        const { text, exitCode } = await requestApproval(resolveIssueRelay()!, plan.op)
+        ;(exitCode === 0 ? console.log : console.error)(text)
+        if (exitCode !== 0) process.exit(exitCode)
       } catch (e) {
         console.error(`podium: approval request failed — ${(e as Error).message}`)
         process.exit(1)

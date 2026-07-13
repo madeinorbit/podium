@@ -38,6 +38,14 @@ export interface ApprovalServiceDeps {
 }
 
 export class ApprovalService {
+  /** When the requesting CLI last polled (it blocks on the decision, so a recent
+   *  poll means it is still there and WILL print the outcome itself). */
+  private readonly lastPolledAt = new Map<string, number>()
+
+  /** A blocked CLI counts as live if it polled within this window (it polls every
+   *  1.5s); anything staler means nobody is listening on that command. */
+  private static readonly WAITER_LIVE_MS = 15_000
+
   constructor(private readonly deps: ApprovalServiceDeps) {}
 
   private toWire(row: ApprovalRow): ApprovalWire {
@@ -68,8 +76,16 @@ export class ApprovalService {
     for (const c of this.deps.clients()) c.send(msg)
   }
 
+  /**
+   * Outcome delivery. The normal path needs NO push: the agent's command BLOCKS
+   * on the decision and prints the result itself. Mail is the fallback for the
+   * cases a blocked CLI cannot see — it timed out, its session ended, or the op
+   * killed its own daemon mid-flight — so a decision is never lost.
+   */
   private notify(row: ApprovalRow, outcome: string): void {
     if (!row.issueId) return
+    const polled = this.lastPolledAt.get(row.id) ?? 0
+    if (Date.now() - polled < ApprovalService.WAITER_LIVE_MS) return // the CLI reports it
     try {
       this.deps.notifyIssue(
         row.issueId,
@@ -124,16 +140,26 @@ export class ApprovalService {
     return {
       id: row.id,
       status: 'pending',
-      message: `requested — awaiting approval in the Podium UI (check: podium approval status ${row.id})`,
+      message: `requested — awaiting the operator's decision in the Podium UI`,
     }
   }
 
-  /** Relay entry (agent): poll one request's state. */
+  /** Read one request's state (no side effects). */
   get(input: unknown): ApprovalWire {
     const id = String((input as Record<string, unknown> | undefined)?.id ?? '')
     const row = this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
     return this.toWire(row)
+  }
+
+  /** RELAY entry for `get`: same read, but it also marks the caller as a live
+   *  waiter — the agent's CLI blocks on the decision and polls this, so a recent
+   *  poll tells `notify` the command will print the outcome itself and no mail
+   *  push is needed. (Operator/test reads go through `get`, which does not.) */
+  getFromAgent(input: unknown): ApprovalWire {
+    const w = this.get(input)
+    this.lastPolledAt.set(w.id, Date.now())
+    return w
   }
 
   /** Operator: approve → mark executing and hand the op to the owning daemon.

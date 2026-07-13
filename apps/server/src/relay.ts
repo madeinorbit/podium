@@ -427,7 +427,7 @@ export class SessionRegistry {
         }
         if (router === 'approvals') {
           if (proc === 'request') return Promise.resolve(approvals.request(input))
-          if (proc === 'get') return Promise.resolve(approvals.get(input))
+          if (proc === 'get') return Promise.resolve(approvals.getFromAgent(input))
           return undefined
         }
         return issueCommands.dispatch(

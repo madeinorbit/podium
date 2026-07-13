@@ -30,11 +30,11 @@ const req = (svc: ApprovalService, op: unknown = { kind: 'update' }) =>
   svc.request({ op, sessionId: 's1', machineId: 'm1' })
 
 describe('ApprovalService', () => {
-  it('request files a pending row, logs, broadcasts, and names the poll command', () => {
+  it('request files a pending row, logs, and broadcasts', () => {
     const { svc, broadcasts, events } = harness()
     const r = req(svc)
     expect(r.status).toBe('pending')
-    expect(r.message).toContain('approval status')
+    expect(r.message).toContain('awaiting the operator')
     expect(events).toEqual([{ kind: 'issue.approval_requested', issueId: 'iss_1' }])
     expect(broadcasts.at(-1)).toMatchObject({ type: 'approvalsChanged' })
     expect(svc.listPending()).toHaveLength(1)
@@ -92,6 +92,14 @@ describe('ApprovalService', () => {
     expect(mails).toEqual([expect.stringContaining('denied by the operator')])
     expect(() => svc.approve(id)).toThrow(/not pending/)
     expect(sent).toHaveLength(0)
+  })
+
+  it('no mail when the requesting CLI is still blocked on the decision (it reports itself)', () => {
+    const { svc, mails } = harness()
+    const { id } = req(svc)
+    svc.getFromAgent({ id }) // the blocked CLI polling — marks a live waiter
+    svc.deny(id)
+    expect(mails).toEqual([]) // the command prints "denied" itself; no duplicate push
   })
 
   it('failed execution records the output and mails the outcome', () => {
