@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileTab } from '@/app/store'
 import {
   artifactKind,
+  artifactUrl,
   basename,
   cwdInWorktree,
   issueForCwd,
@@ -239,6 +240,37 @@ describe('artifact helpers', () => {
     expect(worktreeAssetUrl({ httpOrigin: 'http://x', root: '/w', path: 'p.png' })).not.toContain(
       'machineId',
     )
+  })
+  it('artifactUrl prefers the permanent-store route when artifactId is present [spec:SP-0fc9]', () => {
+    expect(
+      artifactUrl({
+        httpOrigin: 'http://x/',
+        issueId: 'iss_1',
+        artifact: { path: 'shots/a b.png', artifactId: 'abc123', entry: 'a b.png' },
+        root: '/wt',
+      }),
+    ).toBe('http://x/files/artifact/iss_1/abc123/a%20b.png')
+    // entry defaults to the source basename
+    expect(
+      artifactUrl({
+        httpOrigin: 'http://x',
+        issueId: 'iss_1',
+        artifact: { path: 'shots/a.png', artifactId: 'abc' },
+      }),
+    ).toBe('http://x/files/artifact/iss_1/abc/a.png')
+    // legacy entries (no artifactId) fall back to the live worktree route
+    expect(
+      artifactUrl({
+        httpOrigin: 'http://x',
+        issueId: 'iss_1',
+        artifact: { path: 'p.png' },
+        root: '/w',
+        machineId: 'm1',
+      }),
+    ).toBe('http://x/files/asset?root=%2Fw&path=p.png&machineId=m1')
+    expect(
+      artifactUrl({ httpOrigin: 'http://x', issueId: 'iss_1', artifact: { path: 'p.png' } }),
+    ).toBeNull()
   })
 })
 

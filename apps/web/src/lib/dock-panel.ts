@@ -3,6 +3,7 @@ export {
   type ActiveWorktree,
   type ArtifactKind,
   artifactKind,
+  artifactUrl,
   basename,
   cwdInWorktree,
   type DockTab,

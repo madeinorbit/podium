@@ -132,6 +132,33 @@ export function basename(path: string): string {
   return i === -1 ? path : path.slice(i + 1)
 }
 
+/** URL for an issue-panel artifact's bytes ([spec:SP-0fc9] #441): snapshotted
+ *  entries (artifactId present) serve from the permanent store via
+ *  /files/artifact — immutable, machine-offline-safe; legacy path-only entries
+ *  fall back to the live /files/asset worktree route (null without a root). */
+export function artifactUrl(args: {
+  httpOrigin: string
+  issueId: string
+  artifact: { path: string; artifactId?: string; entry?: string }
+  root?: string
+  machineId?: string
+}): string | null {
+  const origin = args.httpOrigin.replace(/\/+$/, '')
+  const a = args.artifact
+  if (a.artifactId) {
+    const rel = a.entry || basename(a.path)
+    const relEnc = rel.split('/').map(encodeURIComponent).join('/')
+    return `${origin}/files/artifact/${encodeURIComponent(args.issueId)}/${encodeURIComponent(a.artifactId)}/${relEnc}`
+  }
+  if (!args.root) return null
+  return worktreeAssetUrl({
+    httpOrigin: args.httpOrigin,
+    root: args.root,
+    path: a.path,
+    ...(args.machineId ? { machineId: args.machineId } : {}),
+  })
+}
+
 /** URL for serving an artifact's bytes out of a worktree checkout via the
  *  server's /files/asset route (root-scoped variant of asset-url.ts). */
 export function worktreeAssetUrl(args: {

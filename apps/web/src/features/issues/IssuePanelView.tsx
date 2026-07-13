@@ -9,13 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { copyToClipboard } from '@/lib/clipboard'
 import { subIssuesOf } from '@/lib/derive'
-import {
-  artifactKind,
-  basename,
-  issueForPanel,
-  panelNonEmpty,
-  worktreeAssetUrl,
-} from '@/lib/dock-panel'
+import { artifactKind, artifactUrl, basename, issueForPanel, panelNonEmpty } from '@/lib/dock-panel'
 import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
@@ -317,10 +311,18 @@ function PanelSections({
         ) : (
           <div className="flex flex-col gap-2.5">
             {artifacts.map((a) => {
-              const kind = artifactKind(a.path)
+              const kind = artifactKind(a.entry ?? a.path)
               const label = a.title ?? basename(a.path)
-              if (root && kind === 'image') {
-                const src = worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })
+              // Snapshotted artifacts ([spec:SP-0fc9]) serve from the permanent
+              // store; legacy path-only entries need the live worktree root.
+              const src = artifactUrl({
+                httpOrigin,
+                issueId: issue.id,
+                artifact: a,
+                root,
+                machineId,
+              })
+              if (src && kind === 'image') {
                 return (
                   <figure key={a.path}>
                     <button
@@ -341,8 +343,7 @@ function PanelSections({
                   </figure>
                 )
               }
-              if (root && kind === 'video') {
-                const src = worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })
+              if (src && kind === 'video') {
                 return (
                   <figure key={a.path}>
                     {/* Inline preview only (first frame + play glyph); clicking
@@ -377,15 +378,20 @@ function PanelSections({
                   variant="ghost"
                   size="sm"
                   className="h-auto w-full justify-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-left font-normal hover:bg-accent/60"
-                  disabled={!root}
+                  disabled={!root && !a.artifactId}
                   onClick={() => {
-                    // Artifact paths may be worktree-relative; file tabs need absolute.
-                    if (root)
+                    // Live worktree files open in a file tab; a snapshot without a
+                    // worktree ([spec:SP-0fc9]) opens its stored bytes directly.
+                    if (root) {
+                      // Artifact paths may be worktree-relative; file tabs need absolute.
                       openFileInWorktree({
                         machineId,
                         root,
                         path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
                       })
+                    } else if (src) {
+                      window.open(src, '_blank', 'noopener')
+                    }
                   }}
                 >
                   <FileText size={14} className="flex-none text-blue-300" />
