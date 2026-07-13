@@ -131,6 +131,8 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     writeFileSync(join(base, 'secret.txt'), 'top')
     expect(await store.read('iss_1', snap.artifactId, '../../secret.txt')).toBeNull()
     expect(await store.read('..', snap.artifactId, 'a.txt')).toBeNull()
+    // dot ids must be rejected structurally: '.'/'.' would resolve to baseDir itself
+    expect(await store.read('.', '.', 'secret.txt')).toBeNull()
     expect(await store.read('iss_1', '../iss_1', 'a.txt')).toBeNull()
     expect(await store.read('iss_1', snap.artifactId, 'missing.txt')).toBeNull()
   })

@@ -90,7 +90,7 @@ export interface ArtifactRpc {
   }>
 }
 
-const ID_RE = /^[A-Za-z0-9._-]+$/
+const ID_RE = /^(?!\.+$)[A-Za-z0-9._-]+$/
 
 /** The added HTML/MD file (or the first file) is the bundle's primary entry. */
 function pickEntry(relPaths: string[]): string {
