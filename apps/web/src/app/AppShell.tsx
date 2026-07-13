@@ -9,7 +9,7 @@ import { SearchView } from '@/features/search/SearchView'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { ResizableAside } from '@/features/worklist/sidebar-common'
+import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { cn } from '@/lib/utils'
@@ -161,11 +161,21 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
               <SidebarUnified />
             </ResizableAside>
             {/* The superagent is the CENTER column (sidebar | superagent |
-                workspace), collapsible via superOpen so the workspace can go wide. */}
+                workspace), collapsible via superOpen so the workspace can go
+                wide, drag-resizable on its right edge like the sidebar. */}
             {superOpen && (
-              <aside className="flex min-w-0 flex-1 flex-col border-r border-border bg-background">
-                <SuperagentView onClose={() => setSuperOpen(false)} />
-              </aside>
+              <ResizableColumn
+                storageKey="podium:superagent:width"
+                min={320}
+                max={860}
+                defaultWidth={460}
+                handleLabel="Resize superagent panel"
+                className="max-w-[55vw]"
+              >
+                <aside className="flex w-full min-w-0 min-h-0 flex-col border-r border-border bg-background">
+                  <SuperagentView onClose={() => setSuperOpen(false)} />
+                </aside>
+              </ResizableColumn>
             )}
             <MainViewOutlet workspace={<Workspace />} />
             {rightPanel && (

@@ -70,6 +70,7 @@ import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, SessionNameEditor } from '@/lib/WorkerLabel'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
+import { AgoStamp, WorkingTimer, workingSinceMs } from './time-indicators'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
 function agentIconFor(kind: AgentKind) {
@@ -564,10 +565,21 @@ export function WorkSections(): JSX.Element {
   }
 
   // One WORK/WORKING row (issue or unowned worktree), shared by both sections.
-  // `suppressUnread` mutes the email-style unread emphasis for WORKING rows (#138):
-  // active work isn't "new unseen work". WORK/PINNED rows pass it false.
-  const renderWorkRow = (row: UnifiedWorkRow, suppressUnread = false) =>
-    row.kind === 'issue' ? (
+  // `working` marks WORKING-section placement: it mutes the email-style unread
+  // emphasis (#138 — active work isn't "new unseen work") and swaps the row's
+  // time stamp from the relative "2h ago" to the live elapsed timer.
+  const renderWorkRow = (row: UnifiedWorkRow, working = false) => {
+    const suppressUnread = working
+    const rowSessions = row.kind === 'issue' ? row.sessions : row.worktree.sessions
+    const since = working ? workingSinceMs(rowSessions) : null
+    const timeMeta = working ? (
+      since !== null ? (
+        <WorkingTimer sinceMs={since} />
+      ) : undefined
+    ) : (
+      <AgoStamp atMs={row.activityAt} now={now} />
+    )
+    return row.kind === 'issue' ? (
       <UnifiedIssueRow
         key={`issue:${row.issue.id}`}
         row={row}
@@ -578,6 +590,7 @@ export function WorkSections(): JSX.Element {
         paneA={paneA}
         now={now}
         suppressUnread={suppressUnread}
+        timeMeta={timeMeta}
         onSelect={() => selectIssue(row.issue)}
         onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
@@ -594,17 +607,20 @@ export function WorkSections(): JSX.Element {
         paneA={paneA}
         now={now}
         suppressUnread={suppressUnread}
+        timeMeta={timeMeta}
         onSelect={() => selectWorktree(row.worktree.path)}
         onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
       />
     )
+  }
   // A WORKING entry: a lifted individual session renders as a PanelRow (like
   // PINNED); a fully-working issue/worktree renders as its normal row. Everything
   // here suppresses unread emphasis (#138) — it's actively-in-progress work.
   const renderWorkingEntry = (entry: WorkingEntry) => {
     if (entry.kind === 'session') {
       const s = entry.session
+      const since = workingSinceMs([s])
       return (
         <PanelRow
           key={`working:${s.sessionId}`}
@@ -612,6 +628,7 @@ export function WorkSections(): JSX.Element {
           pinned={pins.panels.includes(s.sessionId)}
           active={paneA === s.sessionId}
           suppressUnread
+          trailingMeta={since !== null ? <WorkingTimer sinceMs={since} /> : undefined}
           onSelect={() => selectPanel(s.cwd, s.sessionId)}
           onPinned={(p) => void setPinned('panel', s.sessionId, p)}
         />
@@ -737,6 +754,7 @@ function UnifiedRowShell({
   dotSession,
   count,
   extras,
+  timeMeta,
   children,
   testId,
 }: {
@@ -759,6 +777,8 @@ function UnifiedRowShell({
   /** Child-session count shown before the dot (only when children exist). */
   count?: number
   extras?: ReactNode
+  /** Right-side time stamp (elapsed timer / "2h ago"), just before the dot. */
+  timeMeta?: ReactNode
   children?: ReactNode
   testId: string
 }): JSX.Element {
@@ -829,6 +849,7 @@ function UnifiedRowShell({
               {label}
             </span>
             {extras}
+            {timeMeta}
             {count !== undefined && (
               <span className="flex-none text-[10.5px] tabular-nums text-[#6c6c78]">{count}</span>
             )}
@@ -843,7 +864,10 @@ function UnifiedRowShell({
           .tree-children CSS) ties the group to its parent. */}
       {!collapsed && children && (
         <div className="tree-children relative pt-0.5 pb-1">
-          <span className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border" aria-hidden="true" />
+          <span
+            className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border"
+            aria-hidden="true"
+          />
           {children}
         </div>
       )}
@@ -866,6 +890,7 @@ function UnifiedIssueRow({
   paneA,
   now,
   suppressUnread = false,
+  timeMeta,
   onSelect,
   onSelectPanel,
   onPinned,
@@ -883,6 +908,8 @@ function UnifiedIssueRow({
   /** WORKING placement (#138): mute the unread emphasis on this row and its
    *  child session rows — active work isn't "new unseen work". */
   suppressUnread?: boolean
+  /** Right-side time stamp (WORKING's elapsed timer / WORK's "2h ago"). */
+  timeMeta?: ReactNode
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
@@ -989,6 +1016,7 @@ function UnifiedIssueRow({
               <span className="flex-none text-[10px] text-[#d4a017]">{draftMeta}</span>
             ) : undefined
           }
+          timeMeta={timeMeta}
         />
         {menu}
       </>
@@ -1013,6 +1041,7 @@ function UnifiedIssueRow({
         editor={renameEditor}
         dotSession={urgent}
         count={showChildren ? mine.length : undefined}
+        timeMeta={timeMeta}
         extras={
           <>
             {issue.pinned && (
@@ -1056,6 +1085,7 @@ function UnifiedWorktreeRow({
   paneA,
   now,
   suppressUnread = false,
+  timeMeta,
   onSelect,
   onSelectPanel,
   onPinned,
@@ -1067,6 +1097,8 @@ function UnifiedWorktreeRow({
   /** WORKING placement (#138): mute the unread emphasis on this row and its
    *  child session rows — active work isn't "new unseen work". */
   suppressUnread?: boolean
+  /** Right-side time stamp (WORKING's elapsed timer / WORK's "2h ago"). */
+  timeMeta?: ReactNode
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
@@ -1103,6 +1135,7 @@ function UnifiedWorktreeRow({
       onSelect={onSelect}
       dotSession={mostUrgentSession(worktree.sessions, now)}
       count={showChildren ? worktree.sessions.length : undefined}
+      timeMeta={timeMeta}
       extras={
         worktree.isMain ? (
           <span className="rounded border border-border px-[5px] py-px text-[9.5px] uppercase tracking-[0.03em] text-[#8a8a97]">

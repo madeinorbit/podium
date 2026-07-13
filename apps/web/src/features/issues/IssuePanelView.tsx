@@ -1,9 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueComment, IssueStage, IssueWire } from '@podium/protocol'
-import { CircleAlert, CircleCheck, FileText, User } from 'lucide-react'
+import { CircleAlert, CircleCheck, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { subIssuesOf } from '@/lib/derive'
@@ -221,7 +222,16 @@ function PanelSections({
   const artifacts = panel?.artifacts ?? []
   const deferred = panel?.deferred ?? []
   const doneCount = todos.filter((t) => t.done).length
-  const root = issue.worktreePath
+  // An issue with no dedicated worktree is worked in the repo's primary
+  // checkout — serve its artifacts from there instead of rendering every
+  // artifact as a dead disabled button.
+  const root = issue.worktreePath ?? issue.repoPath
+  // Media artifact opened full-size (click a preview; Esc / click-out closes).
+  const [lightbox, setLightbox] = useState<{
+    kind: 'image' | 'video'
+    src: string
+    label: string
+  } | null>(null)
 
   const toggleTodo = (index1: number, done: boolean) => {
     void trpc.issues.panelApply
@@ -285,13 +295,21 @@ function PanelSections({
               const kind = artifactKind(a.path)
               const label = a.title ?? basename(a.path)
               if (root && kind === 'image') {
+                const src = worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })
                 return (
                   <figure key={a.path}>
-                    <img
-                      src={worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })}
-                      alt={label}
-                      className="max-w-full rounded-md border border-border shadow-sm"
-                    />
+                    <button
+                      type="button"
+                      className="block w-full cursor-zoom-in"
+                      title={`View ${label} full size`}
+                      onClick={() => setLightbox({ kind: 'image', src, label })}
+                    >
+                      <img
+                        src={src}
+                        alt={label}
+                        className="max-w-full rounded-md border border-border shadow-sm"
+                      />
+                    </button>
                     <figcaption className="mt-1 text-[11px] text-muted-foreground">
                       {label}
                     </figcaption>
@@ -299,14 +317,29 @@ function PanelSections({
                 )
               }
               if (root && kind === 'video') {
+                const src = worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })
                 return (
                   <figure key={a.path}>
-                    {/* biome-ignore lint/a11y/useMediaCaption: agent-published artifact videos have no captions */}
-                    <video
-                      src={worktreeAssetUrl({ httpOrigin, root, path: a.path, machineId })}
-                      controls
-                      className="max-w-full rounded-md border border-border shadow-sm"
-                    />
+                    {/* Inline preview only (first frame + play glyph); clicking
+                        opens the lightbox, where the video plays with controls. */}
+                    <button
+                      type="button"
+                      className="group relative block w-full cursor-zoom-in"
+                      title={`Play ${label}`}
+                      onClick={() => setLightbox({ kind: 'video', src, label })}
+                    >
+                      <video
+                        src={src}
+                        preload="metadata"
+                        muted
+                        className="pointer-events-none max-w-full rounded-md border border-border shadow-sm"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center">
+                        <span className="flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors group-hover:bg-black/75">
+                          <Play size={16} aria-hidden="true" className="translate-x-px" />
+                        </span>
+                      </span>
+                    </button>
                     <figcaption className="mt-1 text-[11px] text-muted-foreground">
                       {label}
                     </figcaption>
@@ -364,6 +397,8 @@ function PanelSections({
           </div>
         )}
       </DockSection>
+
+      {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </>
   )
 }
