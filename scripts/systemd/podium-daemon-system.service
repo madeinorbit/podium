@@ -1,7 +1,15 @@
 # /etc/systemd/system/podium-daemon.service  (system-wide alternative to the --user unit)
 # Install: sudo cp scripts/systemd/podium-daemon-system.service /etc/systemd/system/podium-daemon.service
 #          sudo systemctl enable --now podium-daemon
+#          sudo loginctl enable-linger podium
 # Requires: a `podium` binary on PATH and a $PODIUM_STATE_DIR the User can write.
+#
+# enable-linger keeps a systemd *user* manager running for the service User. Agent
+# sessions are launched into transient `systemd-run --user` scopes (spawnAbducoAgent)
+# so they survive this unit restarting (KillMode default = control-group kills every
+# process left inside the service cgroup). Without linger there is no user manager,
+# scoping degrades with a warning, and every session dies on each restart/redeploy.
+# A system unit with User= gets no XDG_RUNTIME_DIR; the daemon derives /run/user/<uid>.
 [Unit]
 Description=Podium agent daemon
 After=network-online.target
