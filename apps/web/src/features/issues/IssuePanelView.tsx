@@ -190,13 +190,18 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
   )
 }
 
-function SubissueRow({ sub }: { sub: IssueWire }): JSX.Element {
+/** A child of the docked issue. Clicking it opens that subissue's page — same
+ *  destination as the issue page's own sub-issue list and the sidebar's "Open". */
+function SubissueRow({ sub, onOpen }: { sub: IssueWire; onOpen: () => void }): JSX.Element {
   const a = STAGE_ACCENT[sub.stage]
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
   return (
-    <div
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`Open #${sub.seq} ${sub.title}`}
       className={cn(
-        'flex items-center gap-2 rounded-md px-1 py-1 text-[13px] hover:bg-accent/40',
+        'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[13px] hover:bg-accent/40',
         sub.archived && 'opacity-60',
       )}
     >
@@ -218,7 +223,7 @@ function SubissueRow({ sub }: { sub: IssueWire }): JSX.Element {
         </span>
       )}
       {sub.blocked && <span className="flex-none text-[10px] text-red-400 uppercase">blocked</span>}
-    </div>
+    </button>
   )
 }
 
@@ -435,10 +440,19 @@ export function IssuePanelView({
   machineId?: string
   sessionId?: string
 }): JSX.Element {
-  const { issues, sessions } = useStoreSelector(
-    (s) => ({ issues: s.issues, sessions: s.sessions }),
+  const { issues, sessions, setOpenIssueId, setView } = useStoreSelector(
+    (s) => ({
+      issues: s.issues,
+      sessions: s.sessions,
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+    }),
     shallowEqual,
   )
+  const openIssuePage = (id: string) => {
+    setOpenIssueId(id)
+    setView('issues')
+  }
   const issue = useMemo(
     () => issueForPanel({ issues, sessions, cwd, sessionId }),
     [issues, sessions, cwd, sessionId],
@@ -465,9 +479,9 @@ export function IssuePanelView({
       <SummaryHeader issue={issue} />
       {children.length > 0 && (
         <DockSection storageKey="subissues" title="Subissues" count={children.length}>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex flex-col gap-0.5" data-testid="dock-subissues">
             {children.map((sub) => (
-              <SubissueRow key={sub.id} sub={sub} />
+              <SubissueRow key={sub.id} sub={sub} onOpen={() => openIssuePage(sub.id)} />
             ))}
           </div>
         </DockSection>
