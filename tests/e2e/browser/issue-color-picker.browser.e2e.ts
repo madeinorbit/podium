@@ -75,9 +75,17 @@ test('ID square state language and picker persist a colour and clear it again', 
 
   // Real hit-tested clicks: square → white-ring popover trigger → canonical
   // swatch. The working spinner remains mounted throughout the colour change.
-  await square.click()
   const picker = page.getByRole('dialog', { name: /Issue colour for #/ })
-  await expect(picker).toBeVisible()
+  // The popover can miss a click while the row re-renders (session feed
+  // updates) — retry the trigger until the dialog is actually up, same as the
+  // native-pane sibling spec.
+  await expect
+    .poll(async () => {
+      if (await picker.isVisible().catch(() => false)) return true
+      await square.click().catch(() => {})
+      return picker.isVisible().catch(() => false)
+    })
+    .toBe(true)
   await expect(square).toHaveCSS('box-shadow', /rgb\(243, 243, 248\)/)
   await expect(picker.getByRole('button', { name: 'Violet' })).toBeVisible()
   await picker.getByRole('button', { name: 'Violet' }).click()
@@ -101,9 +109,17 @@ test('ID square state language and picker persist a colour and clear it again', 
 
   // Clear through the actual footer action and prove NULL/absence also survives
   // a reload (neutral slate is a flow fallback, never a stored palette slot).
-  await persistedSquare.click()
-  await page
-    .getByRole('dialog', { name: /Issue colour for #/ })
+  // Same select-then-pick retry as above: after the reload the auto-selected
+  // issue can be another spec's leftover, making the first click a SELECT.
+  const reopened = page.getByRole('dialog', { name: /Issue colour for #/ })
+  await expect
+    .poll(async () => {
+      if (await reopened.isVisible().catch(() => false)) return true
+      await persistedSquare.click().catch(() => {})
+      return reopened.isVisible().catch(() => false)
+    })
+    .toBe(true)
+  await reopened
     .getByRole('button', {
       name: 'No colour',
     })
