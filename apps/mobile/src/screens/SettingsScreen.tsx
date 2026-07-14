@@ -10,11 +10,10 @@ import { SectionHeader } from '../components/ui'
 import { color, font, radius, space } from '../theme/theme'
 
 function openDesktop() {
-  if (typeof document !== 'undefined') {
-    document.cookie = 'podium_desktop=1; Path=/; SameSite=Lax; Max-Age=2592000'
-  }
+  // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
+  // just a stable link back, no opt-out cookie involved.
   if (typeof window !== 'undefined') {
-    window.location.assign('/desktop')
+    window.location.assign('/desktop' + window.location.search)
   }
 }
 
