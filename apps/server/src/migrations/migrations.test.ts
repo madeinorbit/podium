@@ -126,6 +126,26 @@ describe('runMigrations', () => {
     expect(db.prepare('SELECT id, from_issue FROM messages ORDER BY id').all()).toEqual(rows)
   })
 
+  it('022 applies workflows after an existing database has completed repair 021', () => {
+    const db = openMemory()
+    runMigrations(
+      db,
+      MIGRATIONS.filter((migration) => migration.version <= 21),
+    )
+    expect(dbSchemaVersion(db)).toBe(21)
+
+    expect(runMigrations(db, MIGRATIONS)).toEqual([22])
+    expect(dbSchemaVersion(db)).toBe(22)
+    const columns = (db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map(
+      (column) => column.name,
+    )
+    expect(columns).toContain('from_name')
+    const workflowTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflows'")
+      .get()
+    expect(workflowTable).toBeDefined()
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)
