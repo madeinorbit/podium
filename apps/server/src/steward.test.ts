@@ -33,15 +33,19 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   }
   const issues = new IssueService(issueDeps)
   const sendTextWhenReady = vi.fn()
+  // The external-notification seam (#470) [spec:SP-17db] — injected, so the unit
+  // tests assert the call without ever reaching ntfy/Telegram.
+  const notify = vi.fn()
   const deps: StewardDeps = {
     store: store.events,
     issues,
     listSessions: () => sessions,
     sendTextWhenReady,
+    notify,
     getSettings: () => settings,
     now,
   }
-  return { store, issues, sendTextWhenReady, deps, steward: new StewardService(deps) }
+  return { store, issues, sendTextWhenReady, notify, deps, steward: new StewardService(deps) }
 }
 
 const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
@@ -725,8 +729,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(targets).toEqual(['other'])
   })
 
-  it('deliverNotify appends a steward.notify breadcrumb', async () => {
-    const { store, issues, steward, sendTextWhenReady } = harness()
+  it('deliverNotify appends a steward.notify breadcrumb AND pushes externally (#470)', async () => {
+    const { store, issues, steward, sendTextWhenReady, notify } = harness()
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
     store.events.addSubscription(
@@ -741,12 +745,57 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     issues.close(x.id)
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
+    // The breadcrumb stays — it is the durable audit record the dedup is keyed on.
     const crumbs = store.events.listEventsSince(0, { kinds: ['steward.notify'] })
     expect(crumbs.length).toBe(1)
     expect(crumbs[0]).toMatchObject({
       subject: p.id,
       payload: { subscriptionId: 'sub_n', event: 'issue.closed' },
     })
+    // …and the switch now does what its label says.
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify.mock.calls[0]![0]).toMatchObject({
+      title: 'Podium: issue.closed',
+      body: expect.stringContaining(x.id),
+    })
+    // Replay-safe with the breadcrumb: a cursor rewind re-matches but never re-pushes.
+    store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(notify).toHaveBeenCalledTimes(1)
+  })
+
+  it('a notify:false subscription never pushes', async () => {
+    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const { store, issues, steward, notify } = harness({ sessions })
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.events.addSubscription(seedSub({ id: 'sub_q', subscriberId: p.id, sourceRef: x.id }))
+    issues.close(x.id)
+    await steward.tick()
+    expect(notify).not.toHaveBeenCalled()
+  })
+
+  it('a throwing notifier costs neither the breadcrumb nor the cursor advance', async () => {
+    const { store, issues, steward, deps, notify } = harness()
+    notify.mockImplementation(() => {
+      throw new Error('ntfy exploded')
+    })
+    expect(deps.notify).toBe(notify)
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.events.addSubscription(
+      seedSub({
+        id: 'sub_boom',
+        subscriberId: p.id,
+        sourceRef: x.id,
+        deliverNudge: false,
+        deliverNotify: true,
+      }),
+    )
+    issues.close(x.id)
+    await expect(steward.tick()).resolves.toBeUndefined()
+    expect(store.events.listEventsSince(0, { kinds: ['steward.notify'] })).toHaveLength(1)
   })
 })
 

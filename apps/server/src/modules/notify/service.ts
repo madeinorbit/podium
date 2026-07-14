@@ -116,6 +116,26 @@ export class NotifyService {
   }
 
   /**
+   * Push a notice to the configured EXTERNAL targets (ntfy / Telegram) — the
+   * delivery behind a subscription's "Notify" switch (#470) [spec:SP-17db], which
+   * until now wrote a `steward.notify` event nobody read.
+   *
+   * Two deliberate differences from notifyAttention:
+   *  - No visibility gate. The attention path suppresses the phone push while a
+   *    Podium window is visible (a heuristic about where you are looking). A
+   *    subscription's Notify is an EXPLICIT standing request for an external
+   *    ping — silently dropping it because a browser tab is open would reproduce
+   *    the exact bug this fixes.
+   *  - No in-app `attentionEvent`. That message is keyed on a session; a
+   *    subscription's subscriber may be an issue.
+   */
+  notifyExternal(notice: AttentionNotice): void {
+    const settings = this.deps.getSettings().notifications
+    if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
+    if (isTelegramEnabled(settings)) this.pushers.telegram(telegramConfig(settings), notice)
+  }
+
+  /**
    * Smart-routed attention notifications. Web clients always get the event
    * (each shows it only while hidden); the mobile push (ntfy) fires only when
    * NO Podium window is visible anywhere — if you're looking at a desktop, the

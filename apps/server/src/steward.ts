@@ -87,6 +87,19 @@ function subscriptionNudge(sub: Subscription, e: StewardEvent): string {
   ).replace(/`/g, '')
 }
 
+/** The external notification (ntfy/Telegram) a stored subscription delivers when its
+ *  `notify` switch is on (#470) [spec:SP-17db]. Phone-shaped, not agent-shaped: it
+ *  says what fired, not what to run — the CLI instructions belong in the nudge. */
+export function subscriptionNotice(
+  sub: Subscription,
+  e: StewardEvent,
+): { title: string; body: string } {
+  return {
+    title: `Podium: ${sub.event}`,
+    body: firstLineCapped(`${sub.event} fired for ${e.subject}`),
+  }
+}
+
 export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
   closed: {
     marker: (s) => `Child #${s} closed:`,
@@ -160,6 +173,11 @@ export interface StewardDeps {
   messaging?: {
     ackFallback(sessionId: string, outcome: 'finished' | 'errored'): void
   }
+  /** External notification seam (#470) [spec:SP-17db]: the delivery behind a
+   *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
+   *  composition root. Structurally typed (not the NotifyService type) so the
+   *  steward's unit tests stay hermetic. Absent = notify is breadcrumb-only. */
+  notify?: (notice: { title: string; body: string }) => void
   getSettings: () => PodiumSettings
   intervalMs?: number
   now?: () => string
@@ -347,7 +365,10 @@ export class StewardService {
 
   /** Deliver a matched subscription exactly once (markDelivered dedup). nudge →
    *  the subscriber's live/starting non-shell sessions (minus the causer, #116);
-   *  notify → a durable `steward.notify` breadcrumb (the UI consumer is Phase C).
+   *  notify → a durable `steward.notify` breadcrumb AND an external push (#470)
+   *  [spec:SP-17db] — the breadcrumb stays because it is the audit record the
+   *  dedup and the event log are keyed on; the push is what the switch's label
+   *  ("Send an external notification") has always promised.
    *  The nudge stays single-line with no backticks, mirroring the fixed handlers. */
   private deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): void {
     // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
@@ -377,6 +398,13 @@ export class StewardService {
           eventSubject: e.subject,
         },
       })
+      // The push itself is fire-and-forget (the pushers log their own failures) —
+      // but a thrown notifier must not cost the caller its delivery record.
+      try {
+        this.deps.notify?.(subscriptionNotice(sub, e))
+      } catch (err) {
+        console.warn(`[podium:steward] notify for subscription ${sub.id} failed:`, err)
+      }
     }
   }
 

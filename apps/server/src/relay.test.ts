@@ -1363,6 +1363,38 @@ describe('agent state', () => {
     }
   })
 
+  it('notifyExternal pushes to every configured target, visible client or not (#470)', () => {
+    // The subscription "Notify" switch is an explicit standing request — unlike the
+    // attention path it must NOT be suppressed by an open browser tab [spec:SP-17db].
+    const store = new SessionStore(':memory:')
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
+      ...settings,
+      notifications: {
+        ...settings.notifications,
+        ntfyTopic: 'podium-topic',
+        telegramBotToken: '123456:secret',
+        telegramChatId: '-100123',
+      },
+    })
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+    try {
+      const reg = new SessionRegistry(store, { ntfy, telegram })
+      const visible = sink()
+      const visibleId = reg.modules.sessions.attachClient(visible.send)
+      reg.modules.sessions.onClientMessage(visibleId, { type: 'presence', visible: true })
+
+      const notice = { title: 'Podium: issue.closed', body: 'issue.closed fired for iss_x' }
+      reg.modules.notify.notifyExternal(notice)
+
+      expect(ntfy).toHaveBeenCalledWith('podium-topic', notice)
+      expect(telegram).toHaveBeenCalledWith({ botToken: '123456:secret', chatId: '-100123' }, notice)
+    } finally {
+      store.close()
+    }
+  })
+
   it('connects Telegram from a start-code update', async () => {
     const store = new SessionStore(':memory:')
     const settings = store.settings.getSettings()

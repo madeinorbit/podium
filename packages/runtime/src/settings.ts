@@ -283,10 +283,13 @@ export const PodiumSettings = z.object({
     })
     .default({}),
   /** The steward: the orchestrator's trigger queue over the durable event log
-   *  (deterministic unblock nudges etc.). Ships dark — default off. */
+   *  (deterministic unblock nudges etc.). On by default (#470) [spec:SP-17db]:
+   *  the feature has been live long enough to be trusted, and the dark default
+   *  only broke NEW installs — their Notification triggers silently never fired.
+   *  Existing installs are unaffected (the persisted `meta` value wins). */
   steward: z
     .object({
-      enabled: z.boolean().default(false),
+      enabled: z.boolean().default(true),
     })
     .default({}),
   /** When enabled, the server re-sends `continue` to any session stopped on a
