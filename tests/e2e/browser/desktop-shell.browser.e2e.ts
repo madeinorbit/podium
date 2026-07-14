@@ -33,7 +33,7 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   await page.getByRole('button', { name: 'Collapse sidebar' }).click()
   await expect(page.getByRole('complementary', { name: 'Collapsed work sidebar' })).toBeVisible()
 
-  await page.getByTitle('Collapse the superagent panel').click()
+  await page.getByTitle('Fold the tray and superagent column').click()
   await expect(
     page.getByRole('complementary', { name: 'Folded tray and superagent' }),
   ).toBeVisible()
