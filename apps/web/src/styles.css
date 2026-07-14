@@ -575,6 +575,19 @@ body:has(.mobile-shell) {
   text-decoration: underline;
   cursor: pointer;
 }
+/* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown/terminal.
+   A subtle accent-tinted underline, distinct from external links but clearly live. */
+.ref-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.ref-link:hover {
+  text-decoration-style: solid;
+}
 .chat-md blockquote {
   border-left: 2px solid var(--border);
   margin: 8px 0;

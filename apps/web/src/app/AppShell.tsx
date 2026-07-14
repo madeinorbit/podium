@@ -2,6 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { HostStatusBar } from '@/features/machines/HostIndicators'
@@ -85,32 +86,23 @@ export function AppShell(): JSX.Element {
 const RIGHT_PANEL_KEY = 'podium.rightPanel'
 
 function readStoredRightPanel(v: string | null): RightPanelTab | null {
-  return v === 'files' || v === 'git' || v === 'issue' || v === 'shell' || v === 'mail'
-    ? v
-    : null
+  return v === 'files' || v === 'git' || v === 'issue' || v === 'shell' || v === 'mail' ? v : null
 }
 
 function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
-  const {
-    repos,
-    reposLoaded,
-    superOpen,
-    setSuperOpen,
-    paletteOpen,
-    setPaletteOpen,
-    uiState,
-  } = useStoreSelector(
-    (s) => ({
-      repos: s.repos,
-      reposLoaded: s.reposLoaded,
-      superOpen: s.superOpen,
-      setSuperOpen: s.setSuperOpen,
-      paletteOpen: s.paletteOpen,
-      setPaletteOpen: s.setPaletteOpen,
-      uiState: s.uiState,
-    }),
-    shallowEqual,
-  )
+  const { repos, reposLoaded, superOpen, setSuperOpen, paletteOpen, setPaletteOpen, uiState } =
+    useStoreSelector(
+      (s) => ({
+        repos: s.repos,
+        reposLoaded: s.reposLoaded,
+        superOpen: s.superOpen,
+        setSuperOpen: s.setSuperOpen,
+        paletteOpen: s.paletteOpen,
+        setPaletteOpen: s.setPaletteOpen,
+        uiState: s.uiState,
+      }),
+      shallowEqual,
+    )
   const [dismissed, setDismissed] = useState(false)
   // The right dock panel (Files/Git/Issue), opened from the thin icon rail on the
   // shell's right edge. One panel at a time; persisted like the other shell state.
@@ -234,6 +226,10 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       <AutoContinueDialog />
       <ApprovalDialog />
       <CommandPalette />
+      {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
+          floating miniview. Both render nothing until there's something to show. */}
+      <RefPrefixSync />
+      <RefMiniviewHost />
     </>
   )
 }

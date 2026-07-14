@@ -92,6 +92,17 @@ export function setKnownRefPrefixes(prefixes: Iterable<string>): void {
   knownRefPrefixes = new Set(prefixes)
 }
 
+/** The registered repo prefixes (#474). Shared with the terminal link provider so
+ *  markdown and terminal linkify agree on which tokens are real refs. */
+export function getKnownRefPrefixes(): ReadonlySet<string> {
+  return knownRefPrefixes
+}
+
+/** Whether `prefix` is a registered repo prefix (#474). */
+export function isKnownRefPrefix(prefix: string): boolean {
+  return knownRefPrefixes.has(prefix)
+}
+
 /**
  * Turn `PREFIX-N` / `PREFIX-N-LETTER` / `PREFIX-DRAFT-N` tokens into ref anchors
  * (#474), analogous to {@link linkifyCodePaths}. Runs on sanitized HTML and only
