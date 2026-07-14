@@ -1,6 +1,14 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { AgentKind, TranscriptItem } from '@podium/protocol'
-import { ArrowUpRight, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
+import {
+  ArrowUpRight,
+  ChevronDown,
+  Eraser,
+  Mic,
+  PanelRightClose,
+  Send,
+  SquareTerminal,
+} from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CardBoundary } from '@/app/CardBoundary'
@@ -76,7 +84,13 @@ const THREAD_ID = 'global'
  * its own persisted state; the tray/chat split is drag-resizable. The #40
  * shell owns the column's width and open|folded|closed mode around this.
  */
-export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.Element {
+export function SuperagentView({
+  onClose,
+  mobile = false,
+}: {
+  onClose?: () => void
+  mobile?: boolean
+} = {}): JSX.Element {
   const {
     hub,
     trpc,
@@ -326,14 +340,20 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
         className="border-b"
         actions={
           onClose ? (
+            // Desktop folds the column; the mobile full-screen overlay minimizes
+            // via the ⌄ in this bar instead (mobile.md §2.4).
             <Button
               variant="ghost"
               size="icon-sm"
               className="size-5 flex-none text-muted-foreground"
-              title="Fold the tray and superagent column"
+              title={mobile ? 'Minimize' : 'Fold the tray and superagent column'}
               onClick={onClose}
             >
-              <PanelRightClose size={13} aria-hidden="true" />
+              {mobile ? (
+                <ChevronDown size={14} aria-hidden="true" />
+              ) : (
+                <PanelRightClose size={13} aria-hidden="true" />
+              )}
             </Button>
           ) : undefined
         }
