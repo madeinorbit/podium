@@ -232,6 +232,32 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
+  /** The steward settle-fallback set (#468) [spec:SP-34d7 acks]: delivered,
+   *  unacked, unexpired rows for `sessionId` that (a) actually asked for something
+   *  — a `question`, or a non-`fyi` message; a `fyi` is a courtesy note and never
+   *  demands an ack — and (b) have not already produced a settle notice. The
+   *  once-guard is structural: a settle notice is a `notification` row whose
+   *  `in_reply_to` is the original, so "already notified" == such a row exists.
+   *  No column needed; the notice itself is the marker. This is why the notice
+   *  fires at most ONCE per message instead of on every settle. */
+  listSettleNotifiable(sessionId: string, now: string): MessageRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages m
+         WHERE m.status = 'delivered' AND m.delivered_to = ? AND m.acked_by IS NULL
+           AND m.kind IN ('message','question')
+           AND NOT (m.kind = 'message' AND m.urgency = 'fyi')
+           AND (m.expires_at IS NULL OR m.expires_at > ?)
+           AND NOT EXISTS (
+             SELECT 1 FROM messages n
+             WHERE n.kind = 'notification' AND n.in_reply_to = m.id
+           )
+         ORDER BY m.created_at ASC, m.id ASC`,
+      )
+      .all(sessionId, now) as Record<string, unknown>[]
+    return rows.map(mapMessage)
+  }
+
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
   markReminded(id: string, at: string): boolean {
     const r = this.db

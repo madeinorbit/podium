@@ -655,6 +655,13 @@ export class MessageDeliveryService {
     return this.deps.messages.listDeliveredUnacked(sessionId, this.deps.now())
   }
 
+  /** The messages that would produce a settle notice for `sessionId` right now
+   *  (#468): asked-for-something + not-already-notified. The relay guard uses it
+   *  to skip the git-log stitch work when nothing is notifiable. */
+  settleNotifiable(sessionId: string): MessageRow[] {
+    return this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
+  }
+
   /**
    * The stop-hook's single-reminder set: delivered-but-unacked NON-fyi messages
    * this session has never been reminded about. Marking happens here — each
@@ -692,13 +699,15 @@ export class MessageDeliveryService {
       workflowStepId?: string
     },
   ): void {
-    const rows = this.deliveredUnacked(sessionId)
+    // #468: only messages that actually asked for something and have not already
+    // produced a settle notice. The store guards fyi (courtesy notes never demand
+    // an ack) and the once-per-message rule (a prior notification is the marker).
+    // One notice PER MESSAGE — not per sender-group — so every message carries its
+    // own in_reply_to marker; a group notice referencing only the latest would
+    // leave the others unmarked and re-fire them on the next settle (the loop that
+    // sent one message 7 notices in 33 minutes).
+    const rows = this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
     if (rows.length === 0) return
-    const bySender = new Map<string, MessageRow[]>()
-    for (const m of rows) {
-      const key = this.senderKeyOfRow(m)
-      bySender.set(key, [...(bySender.get(key) ?? []), m])
-    }
     const stitch = [
       context.issueSeq != null
         ? `issue #${context.issueSeq}${context.issueStage ? ` stage=${context.issueStage}` : ''}`
@@ -708,21 +717,19 @@ export class MessageDeliveryService {
         ? `workflow step ${context.workflowStepId} unresolved (no report from the worker)`
         : null,
     ].filter(Boolean)
-    for (const group of bySender.values()) {
-      const latest = group[group.length - 1]!
-      const ids = group.map((m) => m.id).join(', ')
+    for (const m of rows) {
       this.send(
         { kind: 'system', name: 'steward' },
         {
-          to: this.replyTarget(latest),
+          to: this.replyTarget(m),
           kind: 'notification',
-          inReplyTo: latest.id,
+          inReplyTo: m.id,
           // System caps are next-turn/wait; ask for the cap so a settle notice
           // lands as the sender's immediate next turn (clamp matrix enforces).
           urgency: 'next-turn',
           lifecycle: 'wait',
           body:
-            `Session ${sessionId} ${context.outcome} without acking your message(s) ${ids}.` +
+            `Session ${sessionId} ${context.outcome} without acking your message ${m.id}.` +
             (stitch.length ? ` ${stitch.join(' · ')}.` : '') +
             ` Use the read toolkit (podium session status/read) if you need more.`,
         },

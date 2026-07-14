@@ -838,7 +838,7 @@ export class SessionRegistry {
       messaging: {
         ackFallback: (sessionId, outcome) =>
           void (async () => {
-            if (messagesSvc.deliveredUnacked(sessionId).length === 0) return
+            if (messagesSvc.settleNotifiable(sessionId).length === 0) return
             const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
             const issueId = meta ? (meta.issueId ?? issues.issueForCwd(meta.cwd)) : null
             const issue = issueId ? issues.get(issueId) : null

@@ -955,7 +955,19 @@ describe('stop-hook single reminder (pendingReminders)', () => {
 })
 
 describe('steward deterministic fallback (systemAckFallback)', () => {
-  it('sends ONE system notification per sender, stitched with issue state', () => {
+  const systemNotices = (store: ReturnType<typeof harness>['store']) => {
+    const all = store.messages
+      .listQueued(100)
+      .concat(
+        store.messages.listMessagesFor({ kind: 'session', id: 'sX' }),
+        store.messages.listMessagesFor({ kind: 'operator' }),
+      )
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    // A delivered notice can surface in both listQueued and listMessagesFor — dedupe by id.
+    return [...new Map(all.map((m) => [m.id, m])).values()]
+  }
+
+  it('sends ONE system notification PER MESSAGE, stitched with issue state', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     // Two messages from the same sender + one from the superagent, all delivered to s1.
@@ -978,16 +990,13 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       issueStage: 'review',
       lastCommit: 'abc123 fix: thing',
     })
-    const notices = store.messages
-      .listQueued(100)
-      .concat(
-        store.messages.listMessagesFor({ kind: 'session', id: 'sX' }),
-        store.messages.listMessagesFor({ kind: 'operator' }),
-      )
-      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
-    // one per sender: agent sX + superagent
-    const bySender = new Set(notices.map((m) => `${m.toKind}:${m.toId}`))
-    expect(bySender).toEqual(new Set(['session:sX', 'operator:null']))
+    const notices = systemNotices(store)
+    // #468: one PER MESSAGE (each carries its own in_reply_to marker) — 2 to the
+    // agent sender, 1 to the superagent.
+    expect(notices).toHaveLength(3)
+    expect(new Set(notices.map((m) => `${m.toKind}:${m.toId}`))).toEqual(
+      new Set(['session:sX', 'operator:null']),
+    )
     const agentNotice = notices.find((m) => m.toId === 'sX')!
     expect(agentNotice.body).toContain('finished without acking')
     expect(agentNotice.body).toContain('issue #228 stage=review')
@@ -995,6 +1004,43 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     // system clamps: next-turn / wait
     expect(agentNotice.urgency).toBe('next-turn')
     expect(agentNotice.lifecycle).toBe('wait')
+  })
+
+  it('#468: fires at most ONCE per message — a second settle synthesizes nothing new', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'm1', urgency: 'next-turn' },
+    )
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(1)
+    // Every subsequent settle (the real bug: 6 nags in 33 minutes) adds nothing.
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback('s1', { outcome: 'errored' })
+    expect(systemNotices(store)).toHaveLength(1)
+  })
+
+  it('#468: an fyi courtesy note NEVER produces a settle notice', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'heads up', urgency: 'fyi' },
+    )
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(0)
+  })
+
+  it('#468: a question always notifies even at fyi urgency (questions expect answers)', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'which one?', urgency: 'fyi', kind: 'question' },
+    )
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(1)
   })
 
   it('is suppressed entirely when the agent acked first (acked_by null-check)', () => {
