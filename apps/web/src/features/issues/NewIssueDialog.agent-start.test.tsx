@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { InputHTMLAttributes } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NewIssueDialog } from './NewIssueDialog'
-import { makeIssue } from './test-issue'
+import { makeIssue } from '@/lib/test-issue'
 
 const create = vi.fn(async () => makeIssue({ id: 'new-issue' }))
 const update = vi.fn(async () => ({}))

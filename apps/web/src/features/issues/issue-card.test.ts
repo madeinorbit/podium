@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { issueCardModel } from './issue-card'
-import { makeIssue as issue } from './test-issue'
+import { makeIssue as issue } from '@/lib/test-issue'
 
 describe('issueCardModel', () => {
   it('exposes the issue title', () => {

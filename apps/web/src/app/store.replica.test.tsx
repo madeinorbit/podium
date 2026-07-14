@@ -2,7 +2,7 @@ import type { IssueWire, SessionMeta, SyncChangesSinceResult } from '@podium/pro
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { makeIssue } from '@/features/issues/test-issue'
+import { makeIssue } from '@/lib/test-issue'
 import { createReplica } from './replica'
 
 // ---------------------------------------------------------------------------

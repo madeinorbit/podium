@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssuePage } from './IssuePage'
-import { makeIssue } from './test-issue'
+import { makeIssue } from '@/lib/test-issue'
 
 const PARENT = makeIssue({
   id: 'p',

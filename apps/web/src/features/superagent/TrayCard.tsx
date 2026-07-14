@@ -1,0 +1,148 @@
+import { relativeTime } from '@podium/client-core'
+import type { CSSProperties, JSX } from 'react'
+import { FLOW_SLATE, issueColorHex, issueSquareFg } from '@/lib/issueColors'
+import type { TrayItem } from './derive-tray'
+
+export interface TrayActions {
+  /** ✓ Done — merge: hand the merge instruction to the super agent. */
+  onMerge: (item: TrayItem) => void
+  /** Send back: compose feedback in the super agent chat. */
+  onSendBack: (item: TrayItem) => void
+  /** Discuss ↓ / Reply…: focus the chat composer with the item as context. */
+  onDiscuss: (item: TrayItem) => void
+  /** session →: open the issue's agent session in the native pane. */
+  onOpenSession: (item: TrayItem) => void
+  /** Quiet dismiss for a question (issues.clearNeedsHuman — answers ride the
+   *  composer until #53 gives the web a real answer path). */
+  onResolve: (item: TrayItem) => void
+}
+
+/** Cards that already row-flashed this app session — a card flashes amber once
+ *  when it ARRIVES, not every time a collapse/expand remounts the tray. */
+const flashed = new Set<string>()
+
+const itemKey = (item: TrayItem): string => `${item.kind}:${item.issue.id}`
+
+/**
+ * One human-actionable tray card (engraved-column.md §2.3): a review with its
+ * action row, or a question with its answer chips. Each card is tinted by ITS
+ * issue's colour (slate when uncoloured) — the colour bridges sidebar → tray.
+ */
+export function TrayCard({
+  item,
+  actions,
+  now,
+}: {
+  item: TrayItem
+  actions: TrayActions
+  now: number
+}): JSX.Element {
+  const issue = item.issue
+  const hex = issueColorHex(issue.color) ?? FLOW_SLATE
+  const colored = issueColorHex(issue.color) !== undefined
+  const review = item.kind === 'review'
+  const agentSession = (issue.sessions ?? []).find(
+    (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
+  )
+  const flash = !flashed.has(itemKey(item))
+  if (flash) flashed.add(itemKey(item))
+  const ago = relativeTime(item.since, now)
+  const cardStyle = {
+    '--issue': hex,
+    border: `1px solid color-mix(in srgb, var(--issue) ${review ? (colored ? 60 : 55) : colored ? 40 : 40}%, transparent)`,
+    background: `color-mix(in srgb, var(--issue) ${review ? (colored ? 20 : 14) : colored ? 10 : 8}%, #0e0e12)`,
+  } as CSSProperties
+
+  return (
+    <div
+      data-testid={`tray-card-${item.kind}`}
+      data-issue-seq={issue.seq}
+      className={`flex flex-col gap-1.5 rounded-[10px] ${review ? 'px-[11px] py-[9px]' : 'px-[11px] py-2'} ${flash ? 'morph-row-flash' : ''}`}
+      style={cardStyle}
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span
+          className="size-2 flex-none rounded-[3px]"
+          style={{ background: 'var(--issue)' }}
+          aria-hidden="true"
+        />
+        <span className="min-w-0 truncate text-[11.5px] font-semibold text-[#f6f3ff]">
+          #{issue.seq} {issue.title}
+          {review && <span className="font-normal text-muted-foreground"> · ready for review</span>}
+        </span>
+        {agentSession?.name && (
+          <span className="flex-none truncate text-[9.5px] text-muted-foreground">
+            · <span className="text-claude">◆</span> {agentSession.name}
+          </span>
+        )}
+        <span
+          key={ago}
+          className="morph-flip-ago ml-auto flex-none font-mono text-[9px] text-attention"
+        >
+          {ago}
+        </span>
+      </div>
+      {review ? (
+        <>
+          <div className="text-[11px] leading-[1.5] text-[#cfc8e2]">{item.body}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              className="flex-none cursor-pointer rounded-[6px] border-0 px-2.5 py-[3px] text-[10.5px] font-semibold"
+              style={{ background: 'var(--issue)', color: issueSquareFg(hex) }}
+              onClick={() => actions.onMerge(item)}
+            >
+              ✓ Done — merge
+            </button>
+            <button
+              type="button"
+              className="flex-none cursor-pointer rounded-[6px] border border-[rgba(243,243,248,.3)] bg-transparent px-[9px] py-[3px] text-[10.5px] text-text-strong"
+              onClick={() => actions.onSendBack(item)}
+            >
+              Send back
+            </button>
+            <button
+              type="button"
+              className="flex-none cursor-pointer rounded-[6px] border border-border-strong bg-transparent px-[9px] py-[3px] text-[10.5px] text-[#9a9aa8]"
+              onClick={() => actions.onDiscuss(item)}
+            >
+              Discuss ↓
+            </button>
+            <button
+              type="button"
+              className="ml-auto flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
+              onClick={() => actions.onOpenSession(item)}
+            >
+              session →
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="pl-[14px] text-[11px] leading-[1.5] text-[#cfc8e2]">
+            asks: “{item.text}”
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-[5px] pl-[15px]">
+            {/* Answer chips render here once the backend carries options (#53);
+                until then Reply… routes the answer through the composer. */}
+            <button
+              type="button"
+              className="flex-none cursor-pointer whitespace-nowrap rounded-[5px] border border-border-strong bg-transparent px-2 py-[2px] text-[10px] text-[#9a9aa8]"
+              onClick={() => actions.onDiscuss(item)}
+            >
+              Reply…
+            </button>
+            <button
+              type="button"
+              className="ml-auto flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
+              title="Dismiss without answering"
+              onClick={() => actions.onResolve(item)}
+            >
+              resolve ✓
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}

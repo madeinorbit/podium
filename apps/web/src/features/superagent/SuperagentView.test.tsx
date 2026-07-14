@@ -2,13 +2,13 @@ import type { TranscriptItem } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
 
 // ---------------------------------------------------------------------------
-// Pins the delta-accumulation contract of SuperagentView's <SpawnedFollow>, the
-// inline live-tail for spawned workers. The hub now forwards per-frame DELTAS
-// (not the full accumulated list); a "treat the delta as the full list" mistake
-// here would render only the LATEST delta. We mount the component with a fake
-// hub that captures the cb, push delta frames, and assert what renders.
+// The engraved column's content contract (issue #42): Tray (ONLY items needing
+// a human) above the single overarching Super agent chat, each section
+// collapsing to its bar with persisted state. Plus the delta-accumulation pin
+// of <SpawnedFollow> (the inline live-tail for spawned workers).
 //
 // markdown/voice touch browser APIs that are flaky under happy-dom, and store
 // has module-load deps — stub them the same way ChatView.test.tsx does so the
@@ -23,41 +23,41 @@ const fakeHub = {
     this.subscribes.push({ sessionId, since, cb })
     return () => {}
   },
+  subscribeHeadless(): () => void {
+    return () => {}
+  },
 }
 
-const superagentThreads = [
-  { id: 'global', kind: 'global' as const, harnessSessionId: 'harness-1' },
-  {
-    id: 'btw_alpha',
-    kind: 'btw' as const,
-    originSessionId: 'alpha',
-    title: 'Fix a long terminal link wrapping regression',
-  },
-  {
-    id: 'btw_beta',
-    kind: 'btw' as const,
-    originSessionId: 'beta',
-    title: 'Review packaging checks on mobile',
-  },
-]
+const superagentThreads = [{ id: 'global', kind: 'global' as const, harnessSessionId: 'harness-1' }]
 
-let storeSuperThreadId = 'global'
 let isMobile = false
 let storeSessions: Array<{ sessionId: string; cwd: string }> = []
+let storeIssues: ReturnType<typeof makeIssue>[] = []
+let storeSelectedIssueId: string | null = null
+const uiStateMap = new Map<string, string>()
+const uiState = {
+  get: (key: string): string | null => uiStateMap.get(key) ?? null,
+  set: vi.fn((key: string, value: string) => {
+    uiStateMap.set(key, value)
+  }),
+}
 const setPane = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setSelectedIssueId = vi.fn()
 const setView = vi.fn()
-const setSuperThreadId = vi.fn((id: string) => {
-  storeSuperThreadId = id
-})
+const setSessionDraft = vi.fn()
 const fakeTrpc = {
   superagent: {
     history: { query: vi.fn(async () => []) },
     listThreads: { query: vi.fn(async () => superagentThreads) },
-    send: { mutate: vi.fn(async () => ({ messages: [], backendLabel: '' })) },
+    sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
     openInTerminal: { mutate: vi.fn(async () => ({ sessionId: 'pty-1' })) },
+  },
+  issues: {
+    events: { query: vi.fn(async () => []) },
+    clearNeedsHuman: { mutate: vi.fn(async () => {}) },
+    update: { mutate: vi.fn(async () => {}) },
   },
 }
 
@@ -67,13 +67,16 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     repos: [],
     sessions: storeSessions,
-    superThreadId: storeSuperThreadId,
-    setSuperThreadId,
+    issues: storeIssues,
+    selectedIssueId: storeSelectedIssueId,
     superRefreshKey: 0,
+    uiState,
     setPane,
     setSelectedWorktree,
     setSelectedIssueId,
     setView,
+    setSessionDraft,
+    getUserFocus: () => ({ view: 'workspace' }),
   })
   // The selector-store hook reads slices off the same store shape.
   return {
@@ -100,9 +103,11 @@ let root: Root
 
 beforeEach(() => {
   fakeHub.subscribes.length = 0
-  storeSuperThreadId = 'global'
   isMobile = false
   storeSessions = []
+  storeIssues = []
+  storeSelectedIssueId = null
+  uiStateMap.clear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -121,44 +126,140 @@ async function flush(): Promise<void> {
   })
 }
 
-describe('Superagent thread switcher', () => {
-  it('renders the thread switcher as a scope-bar dropdown trigger (no header pills)', async () => {
-    act(() => {
-      root.render(<SuperagentView />)
-    })
-    await flush()
+async function mount(): Promise<void> {
+  act(() => {
+    root.render(<SuperagentView />)
+  })
+  await flush()
+}
 
-    // The old header tab strip is gone — the switcher is a quiet dropdown on the
-    // project-scope sub-bar.
-    expect(container.querySelector('[role="tablist"][aria-label="Superagent threads"]')).toBeNull()
-    const trigger = container.querySelector<HTMLButtonElement>(
-      'button[title="Switch superagent conversation"]',
+describe('engraved column structure', () => {
+  it('renders the Tray bar above the Super agent bar with the quiet empty line', async () => {
+    await mount()
+    const bars = container.querySelectorAll('[data-testid="tray-bar"], [data-testid="super-bar"]')
+    expect([...bars].map((b) => b.getAttribute('data-testid'))).toEqual(['tray-bar', 'super-bar'])
+    expect(container.querySelector('[data-testid="tray-empty"]')?.textContent).toContain(
+      'Nothing waiting on you',
     )
-    expect(trigger).not.toBeNull()
-    expect(trigger?.textContent).toContain('All projects')
+    // No issue selected — the tray is unscoped.
+    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain('ALL ISSUES')
   })
 
-  it('shows the active thread title as the scope name', async () => {
-    storeSuperThreadId = 'btw_alpha'
-    act(() => {
-      root.render(<SuperagentView />)
-    })
-    await flush()
-
-    const trigger = container.querySelector<HTMLButtonElement>(
-      'button[title="Switch superagent conversation"]',
+  it('scopes the bar label to the selected issue', async () => {
+    storeIssues = [makeIssue({ id: 'p', seq: 7 })]
+    storeSelectedIssueId = 'p'
+    await mount()
+    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain(
+      'ISSUE SCOPE',
     )
-    expect(trigger?.textContent).toContain('Fix a long terminal link wrapping regression')
+  })
+})
+
+describe('tray filtering (human-actionable only)', () => {
+  it('renders question + human review cards from the selected subtree and NEVER working rows', async () => {
+    storeIssues = [
+      makeIssue({ id: 'p', seq: 1, title: 'Parent epic' }),
+      makeIssue({
+        id: 'q',
+        seq: 2,
+        parentId: 'p',
+        needsHuman: true,
+        humanQuestion: 'Ship behind a flag?',
+      }),
+      makeIssue({ id: 'r', seq: 3, parentId: 'p', stage: 'review', title: 'Refresh-timer fix' }),
+      makeIssue({ id: 'w', seq: 4, parentId: 'p', stage: 'in_progress', title: 'Worker issue' }),
+      makeIssue({ id: 'i', seq: 5, parentId: 'p', stage: 'review', audience: 'agent' }),
+      makeIssue({ id: 'x', seq: 9, needsHuman: true, humanQuestion: 'Outside the subtree?' }),
+    ]
+    storeSelectedIssueId = 'p'
+    await mount()
+    const cards = [...container.querySelectorAll('[data-testid^="tray-card-"]')]
+    expect(cards.map((c) => c.getAttribute('data-issue-seq')).sort()).toEqual(['2', '3'])
+    expect(container.textContent).toContain('Ship behind a flag?')
+    expect(container.textContent).toContain('ready for review')
+    expect(container.textContent).not.toContain('Worker issue')
+    expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
+  })
+
+  it('review actions: ✓ Done — merge hands the instruction to the super agent turn', async () => {
+    storeIssues = [makeIssue({ id: 'r', seq: 3, stage: 'review', title: 'Refresh-timer fix' })]
+    await mount()
+    const merge = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Done — merge'),
+    )
+    expect(merge).not.toBeNull()
+    await act(async () => {
+      merge?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.superagent.sendTurn.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'global',
+        text: expect.stringContaining('#3'),
+      }),
+    )
+  })
+
+  it('question resolve routes through issues.clearNeedsHuman', async () => {
+    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
+    await mount()
+    const resolve = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('resolve'),
+    )
+    await act(async () => {
+      resolve?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.issues.clearNeedsHuman.mutate).toHaveBeenCalledWith({ id: 'q' })
+  })
+})
+
+describe('section collapse states', () => {
+  it('collapsing the tray keeps the bar, shows the amber count pill, and persists', async () => {
+    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
+    await mount()
+    expect(container.querySelector('[data-testid="tray-cards"]')).not.toBeNull()
+    const chevron = container.querySelector<HTMLButtonElement>(
+      '[data-testid="tray-bar"] button[aria-expanded="true"]',
+    )
+    await act(async () => {
+      chevron?.click()
+    })
+    expect(container.querySelector('[data-testid="tray-cards"]')).toBeNull()
+    expect(container.querySelector('[data-testid="tray-bar"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="tray-count-pill"]')?.textContent).toBe('1')
+    expect(uiState.set).toHaveBeenCalledWith('podium:tray:open', 'false')
+  })
+
+  it('collapsing the super agent hides the composer with the section (3b: no input)', async () => {
+    await mount()
+    expect(container.querySelector('textarea')).not.toBeNull()
+    const chevron = container.querySelector<HTMLButtonElement>(
+      '[data-testid="super-bar"] button[aria-expanded="true"]',
+    )
+    await act(async () => {
+      chevron?.click()
+    })
+    expect(container.querySelector('textarea')).toBeNull()
+    expect(container.querySelector('[data-testid="super-bar"]')).not.toBeNull()
+    expect(uiState.set).toHaveBeenCalledWith('podium:superagent:chat', 'false')
+  })
+
+  it('restores persisted section state on mount', async () => {
+    uiStateMap.set('podium:tray:open', 'false')
+    uiStateMap.set('podium:superagent:chat', 'false')
+    await mount()
+    expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
+    expect(container.querySelector('textarea')).toBeNull()
+    // Both bars stay — sections collapse to their bars, never further.
+    expect(container.querySelector('[data-testid="tray-bar"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="super-bar"]')).not.toBeNull()
   })
 })
 
 describe('Open in terminal', () => {
   it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
-    act(() => {
-      root.render(<SuperagentView />)
-    })
-    await flush()
-
+    await mount()
     const btn = container.querySelector<HTMLButtonElement>(
       'button[title="Open this conversation in a terminal session"]',
     )

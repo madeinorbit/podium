@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { clearChip, filterBoardIssues, filterChips } from './issue-board-filter'
-import { makeIssue } from './test-issue'
+import { makeIssue } from '@/lib/test-issue'
 
 describe('filterBoardIssues', () => {
   const xs = [
