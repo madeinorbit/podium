@@ -134,8 +134,11 @@ describe('runMigrations', () => {
     )
     expect(dbSchemaVersion(db)).toBe(21)
 
-    expect(runMigrations(db, MIGRATIONS)).toEqual([22])
-    expect(dbSchemaVersion(db)).toBe(22)
+    // Assert 022 RAN — not that it was the only thing that ran. Pinning the exact
+    // array (`toEqual([22])`) hardcodes whatever happened to be the latest version,
+    // so every later migration breaks this test for a reason unrelated to its intent.
+    expect(runMigrations(db, MIGRATIONS)).toContain(22)
+    expect(dbSchemaVersion(db)).toBe(codeSchemaVersion())
     const columns = (db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map(
       (column) => column.name,
     )
