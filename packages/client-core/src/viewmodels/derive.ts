@@ -1545,7 +1545,12 @@ export function formatClock(ms: number): string {
  * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
-  const sessions = rowSessions(row)
+  return aggregateMotionPhase(rowSessions(row))
+}
+
+/** The same waiting > working > all-done > queued aggregation over any member
+ *  session set — for squares fed by `issue.sessions` directly (#65 right rail). */
+export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
   const phases = sessions.map(motionPhase)
   if (phases.includes('waiting')) return 'waiting'
   if (phases.includes('working')) return 'working'

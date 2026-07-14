@@ -1,7 +1,8 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { IssueColorSlot } from '@podium/domain'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { CSSProperties, JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -135,7 +136,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const setSuperMode = (mode: SuperagentMode): void => {
     setSuperModeState(mode)
     uiState.set(SUPERAGENT_MODE_KEY, mode)
-    setSuperOpen(mode !== 'closed')
+    setSuperOpen(mode === 'open')
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
     setRightPanelState(panel)
@@ -146,15 +147,26 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     }
   }
 
+  // superOpen (store) is how surfaces outside the shell drive the column
+  // (palette toggle, concierge/btw opens, mobile overlay). The desktop shell
+  // mirrors persisted mode back into the store once, then follows superOpen
+  // CHANGES only — and resolves close to 'folded': the column never fully
+  // disappears (#65). Skipped entirely under the mobile shell, whose overlay
+  // semantics for superOpen must not rewrite the desktop mode (the pre-#65
+  // 'closed' poisoning came exactly from that coupling).
+  const lastSuperOpen = useRef(superOpen)
   useEffect(() => {
-    if (!superOpen && superMode !== 'closed') {
-      setSuperModeState('closed')
-      uiState.set(SUPERAGENT_MODE_KEY, 'closed')
-    } else if (superOpen && superMode === 'closed') {
-      setSuperModeState('open')
-      uiState.set(SUPERAGENT_MODE_KEY, 'open')
-    }
-  }, [superOpen, superMode, uiState])
+    if (isMobile) return
+    if (superOpen === lastSuperOpen.current) return
+    lastSuperOpen.current = superOpen
+    const mode = superOpen ? 'open' : 'folded'
+    setSuperModeState(mode)
+    uiState.set(SUPERAGENT_MODE_KEY, mode)
+  }, [isMobile, superOpen, uiState])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted desktop mode.
+  useEffect(() => {
+    if (!isMobile) setSuperOpen(superMode === 'open')
+  }, [])
 
   // The folded 3d bar keeps the ✦ unread dot live — this instance polls only
   // while folded (the open column's own view polls otherwise).
@@ -194,6 +206,11 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   )
   const issueAccent = effectiveHex ?? FLOW_SLATE
   const issueStyle = { '--issue': issueAccent } as CSSProperties
+  // One colour-pick handler for every shell surface showing the ID square.
+  const changeIssueColor = selectedIssue
+    ? (color: IssueColorSlot | null) =>
+        trpc.issues.update.mutate({ id: selectedIssue.id, patch: { color } })
+    : undefined
 
   return (
     <>
@@ -265,13 +282,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
                   if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
                   setSuperMode('open')
                 }}
-                onClose={() => setSuperMode('closed')}
-                onColorChange={
-                  selectedIssue
-                    ? (color) =>
-                        trpc.issues.update.mutate({ id: selectedIssue.id, patch: { color } })
-                    : undefined
-                }
+                onColorChange={changeIssueColor}
               />
             )}
             <MainViewOutlet workspace={<Workspace />} />
@@ -294,9 +305,8 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
               issue={selectedIssue}
               rightPanel={rightPanel}
               lastPanel={lastRightPanel}
-              superMode={superMode}
               onPanelChange={setRightPanel}
-              onSuperModeChange={setSuperMode}
+              onColorChange={changeIssueColor}
             />
           </div>
         </div>

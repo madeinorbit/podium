@@ -13,11 +13,14 @@ describe('desktop shell persistence readers', () => {
     expect(readBooleanState('wat', false)).toBe(false)
   })
 
-  it('restores the engraved tri-state and migrates the legacy open boolean', () => {
+  it('restores open/folded and normalizes every legacy closed shape to folded (#65)', () => {
+    expect(readSuperagentMode('open', false)).toBe('open')
     expect(readSuperagentMode('folded', false)).toBe('folded')
-    expect(readSuperagentMode('closed', true)).toBe('closed')
+    // Pre-#65 persisted 'closed' folds — the column never disappears.
+    expect(readSuperagentMode('closed', true)).toBe('folded')
     expect(readSuperagentMode(null, true)).toBe('open')
-    expect(readSuperagentMode('invalid', false)).toBe('closed')
+    expect(readSuperagentMode(null, false)).toBe('folded')
+    expect(readSuperagentMode('invalid', false)).toBe('folded')
   })
 
   it('accepts only one of the four right-dock panels and defaults last-used to Issue', () => {

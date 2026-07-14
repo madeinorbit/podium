@@ -620,7 +620,8 @@
     var(--issue-base, var(--card)) 240px
   );
 }
-[data-issue-colored='false'] .right-rail {
+[data-issue-colored='false'] .right-rail,
+[data-issue-colored='false'] .right-dock-shell {
   border-left-color: color-mix(in srgb, var(--issue) 30%, transparent);
 }
 

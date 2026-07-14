@@ -1,25 +1,45 @@
+import type { IssueColorSlot } from '@podium/domain'
 import type { IssueWire } from '@podium/protocol'
-import { ChevronLeft, Sparkles } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
+import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
+import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
-import type { RightPanelTab, SuperagentMode } from './shell-state'
+import type { RightPanelTab } from './shell-state'
 
+/** The rail sits on the tinted --card gradient — corner badges punch out of it. */
+const RAIL_SURFACE = '#16161c'
+
+function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | null {
+  if (waitingCount > 0) return { kind: 'count', count: waitingCount }
+  if (phase === 'working') return { kind: 'spinner' }
+  if (phase === 'done') return { kind: 'check' }
+  return null
+}
+
+/**
+ * The 44px right rail (handoff §2.5): expand chevron, then the selected
+ * issue's ID square — the designed bordered/filled square language, carrying
+ * the waiting/working corner badge — toggling the Issue dock panel, then the
+ * Git/Files/Shell panel cells. The Superagent column is NOT reachable from
+ * here (#65): it folds in place and never fully closes.
+ */
 export function RightRail({
   issue,
   rightPanel,
   lastPanel,
-  superMode,
   onPanelChange,
-  onSuperModeChange,
+  onColorChange,
 }: {
   issue?: IssueWire
   rightPanel: RightPanelTab | null
   lastPanel: RightPanelTab
-  superMode: SuperagentMode
   onPanelChange: (panel: RightPanelTab | null) => void
-  onSuperModeChange: (mode: SuperagentMode) => void
+  onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
+  const phase = issue ? aggregateMotionPhase(issue.sessions) : 'queued'
+  const waitingCount = issue ? issue.sessions.filter((s) => motionPhase(s) === 'waiting').length : 0
   return (
     <nav
       aria-label="Panels"
@@ -35,30 +55,36 @@ export function RightRail({
       >
         <ChevronLeft size={12} aria-hidden="true" />
       </button>
-      {superMode === 'closed' && (
+      {issue && onColorChange ? (
+        <IdSquare
+          issue={issue}
+          state={phase}
+          selected={rightPanel === 'issue'}
+          badge={railBadge(phase, waitingCount)}
+          ringColor={RAIL_SURFACE}
+          titleHint={`${idSquareLabel(issue).full} · ${issue.title} — issue panel`}
+          onPrimary={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
+          primaryOnly
+          onColorChange={onColorChange}
+        />
+      ) : (
         <button
           type="button"
-          aria-label="Open superagent"
-          title="Open superagent"
-          onClick={() => onSuperModeChange('open')}
-          className="right-rail-cell"
+          aria-label="Issue"
+          aria-pressed={rightPanel === 'issue'}
+          title="Issue"
+          onClick={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
+          className={cn(
+            // No selected issue: the square language's resting (dashed) look.
+            // Deliberately NOT .right-rail-cell — its unlayered border:0 would
+            // beat the utility border.
+            'flex size-[26px] flex-none cursor-pointer items-center justify-center rounded-[7px] border border-dashed border-[#6c6c78] bg-[#25252f] font-mono text-[8px] font-semibold text-[#8d8d9a] opacity-65 hover:opacity-100',
+            rightPanel === 'issue' && 'text-primary opacity-100',
+          )}
         >
-          <Sparkles size={15} aria-hidden="true" />
+          #—
         </button>
       )}
-      <button
-        type="button"
-        aria-label="Issue"
-        aria-pressed={rightPanel === 'issue'}
-        title={issue ? `Issue #${issue.seq} · ${issue.title}` : 'Issue'}
-        onClick={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
-        className={cn(
-          'right-rail-cell font-mono text-[8px] font-semibold',
-          rightPanel === 'issue' && 'bg-secondary text-primary',
-        )}
-      >
-        {issue ? `#${issue.seq}` : '#—'}
-      </button>
       {RIGHT_PANELS.filter((panel) => panel.id !== 'issue').map((panel) => (
         <button
           key={panel.id}
