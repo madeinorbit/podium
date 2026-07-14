@@ -136,6 +136,16 @@ describe('SessionStore sessions', () => {
     s.close()
   })
 
+  it('round-trips optional cumulative compute time and preserves legacy absence', () => {
+    const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(row({ workingMsTotal: 123_456 }))
+    expect(store.sessions.loadSessions()[0]?.workingMsTotal).toBe(123_456)
+
+    store.sessions.upsertSession(row())
+    expect(store.sessions.loadSessions()[0]).not.toHaveProperty('workingMsTotal')
+    store.close()
+  })
+
   it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
     const file = await tmpDbPath()
     const a = new SessionStore(file)

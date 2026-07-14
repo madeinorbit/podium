@@ -41,6 +41,11 @@ export type AgentError = z.infer<typeof AgentError>
 export const AgentRuntimeState = z.object({
   phase: AgentPhase,
   since: z.string(), // ISO 8601 of the last phase change
+  /** Completed working/compacting stretches before `since`, in milliseconds.
+   *  Optional for compatibility with daemons and persisted rows from before the
+   *  cumulative motion timer existed. While actively working, clients add the
+   *  live `now - since` stretch; in a stopped phase this is the final total. */
+  workingMsTotal: z.number().int().nonnegative().optional(),
   openTaskCount: z.number().int().nonnegative(),
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'

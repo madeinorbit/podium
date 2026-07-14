@@ -123,6 +123,29 @@ describe('reduceAgentState', () => {
     expect(s.openTaskCount).toBe(1)
   })
 
+  it('accumulates working and compacting stretches across waiting transitions', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(s, { kind: 'compaction', phase: 'start' }, T1)
+    expect(s.workingMsTotal).toBe(1_000)
+
+    s = reduceAgentState(s, { kind: 'compaction', phase: 'end' }, '2026-06-12T10:00:03.000Z')
+    expect(s.workingMsTotal).toBe(3_000)
+
+    s = reduceAgentState(s, { kind: 'turn_completed' }, '2026-06-12T10:00:05.000Z')
+    expect(s.workingMsTotal).toBe(5_000)
+
+    s = reduceAgentState(s, { kind: 'prompt_submitted' }, '2026-06-12T10:00:08.000Z')
+    expect(s.workingMsTotal).toBe(5_000)
+    s = reduceAgentState(s, { kind: 'needs_user', need: 'question' }, '2026-06-12T10:00:10.000Z')
+    expect(s.workingMsTotal).toBe(7_000)
+  })
+
+  it('starts accumulating from zero when a legacy state has no total', () => {
+    const legacy = { phase: 'working' as const, since: T0, openTaskCount: 0 }
+    const stopped = reduceAgentState(legacy, { kind: 'turn_completed' }, T1)
+    expect(stopped.workingMsTotal).toBe(1_000)
+  })
+
   it('uses the event-time (event.at) for `since`, not the observe-time `now`', () => {
     // A poller replaying an old transcript record on reattach must produce the
     // record's real timestamp as `since` — not "now" — so recency stays stable.

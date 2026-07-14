@@ -702,6 +702,7 @@ describe('agent runtime state', () => {
   const state = {
     phase: 'errored',
     since: '2026-06-12T10:00:00.000Z',
+    workingMsTotal: 123_456,
     openTaskCount: 2,
     error: { class: 'rate_limit', retryable: true },
   }

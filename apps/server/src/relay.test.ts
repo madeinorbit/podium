@@ -1329,6 +1329,47 @@ describe('agent state', () => {
     // Late joiners still see the state via listSessions().
     expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState).toEqual(STATE)
   })
+  it('rebases daemon tracker resets and broadcasts the canonical persisted total', () => {
+    const reg = new SessionRegistry()
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
+    const client = sink()
+    reg.modules.sessions.attachClient(client.send)
+    client.sent.length = 0
+
+    const send = (
+      phase: 'working' | 'idle',
+      workingMsTotal: number,
+      since: string,
+    ): void => {
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase,
+          since,
+          workingMsTotal,
+          openTaskCount: 0,
+          ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+        },
+      })
+    }
+
+    send('working', 0, '2026-06-12T10:00:00.000Z')
+    send('idle', 5_000, '2026-06-12T10:00:05.000Z')
+    send('working', 0, '2026-06-12T10:01:00.000Z')
+    send('idle', 2_000, '2026-06-12T10:01:02.000Z')
+
+    const updates = client.sent.filter((m) => m.type === 'sessionAgentStateChanged')
+    expect(updates.at(-1)).toMatchObject({ state: { workingMsTotal: 7_000 } })
+    expect(
+      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
+    ).toMatchObject({ workingMsTotal: 7_000 })
+  })
+
 
   it('agentState for an unknown session is ignored', () => {
     const reg = new SessionRegistry()
