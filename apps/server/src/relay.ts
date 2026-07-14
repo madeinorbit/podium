@@ -425,7 +425,8 @@ export class SessionRegistry {
             to: { kind: 'session', id: sessionId },
             body: text,
             kind: 'notification',
-            urgency: 'next-turn',
+            // #471: fyi is the only urgency that currently waits for a turn boundary.
+            urgency: 'fyi',
             lifecycle: 'wait',
           },
         )

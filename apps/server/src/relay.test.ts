@@ -274,13 +274,16 @@ describe('SessionRegistry', () => {
       toKind: 'session',
       toId: coordinator,
       kind: 'notification',
-      urgency: 'next-turn',
+      urgency: 'fyi',
       lifecycle: 'wait',
       body: 'Workflow step "Review" complete: No findings.',
     })
     expect(
       store.events.listEventsSince(0, { kinds: ['message.queued'] }).at(-1)?.payload,
     ).toMatchObject({ fromKind: 'system', fromName: 'workflow' })
+    // Notifications never expect an ack, so #468's settle fallback cannot
+    // repeatedly nag the coordinator for workflow notices.
+    expect(reg.modules.messages.deliveredUnacked(coordinator)).toEqual([])
     reg.dispose()
   })
 
