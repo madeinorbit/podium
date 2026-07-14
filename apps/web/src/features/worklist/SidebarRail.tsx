@@ -11,7 +11,7 @@
  */
 
 import { GitBranch, Search } from 'lucide-react'
-import { Fragment, type JSX } from 'react'
+import { type CSSProperties, Fragment, type JSX } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
@@ -46,10 +46,16 @@ function RailNotch({ hex }: { hex: string | undefined }): JSX.Element {
     <span
       data-testid="bridge-notch"
       aria-hidden="true"
-      className="pointer-events-none absolute top-[7px] right-[-14px] bottom-[7px] w-[10px] rounded-r-[3px]"
-      style={{
-        background: `linear-gradient(90deg, color-mix(in srgb, ${accent} ${hex ? 85 : 75}%, transparent), color-mix(in srgb, ${accent} ${hex ? 12 : 10}%, transparent))`,
-      }}
+      // issue-scope + var-driven gradient: a fresh colour pick animates the
+      // notch through the registered --issue transition (gradients themselves
+      // can't interpolate).
+      className="issue-scope pointer-events-none absolute top-[7px] right-[-14px] bottom-[7px] w-[10px] rounded-r-[3px]"
+      style={
+        {
+          '--issue': accent,
+          background: `linear-gradient(90deg, color-mix(in srgb, var(--issue) ${hex ? 85 : 75}%, transparent), color-mix(in srgb, var(--issue) ${hex ? 12 : 10}%, transparent))`,
+        } as CSSProperties
+      }
     />
   )
 }

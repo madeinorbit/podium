@@ -73,3 +73,34 @@ export function issueSquareFg(hex: string): string {
 
 /** The neutral no-colour flow slate — same value as the --flow token. */
 export const FLOW_SLATE = '#94a3b8'
+
+/** The minimal issue shape colour resolution needs. */
+export interface ColorCarrier {
+  color?: string | null
+  parentId?: string | null
+}
+
+/**
+ * The colour an issue FLOWS downstream: its own palette colour, else the
+ * nearest coloured ancestor's (handoff 1a — POD-129/130 tray cards flow
+ * POD-128's violet), else undefined = the neutral slate flow. Inheritance is
+ * for the flow surfaces only (shell scope, tray cards, terminal tint);
+ * identity surfaces — the ID square, the issue's own sidebar row — keep
+ * {@link issueColorHex} so an uncoloured child still reads as uncoloured.
+ */
+export function effectiveIssueColorHex(
+  issue: ColorCarrier | undefined,
+  byId: (id: string) => ColorCarrier | undefined,
+): string | undefined {
+  const seen = new Set<string>()
+  let current = issue
+  while (current) {
+    const own = issueColorHex(current.color)
+    if (own) return own
+    const parentId = current.parentId
+    if (!parentId || seen.has(parentId)) return undefined
+    seen.add(parentId)
+    current = byId(parentId)
+  }
+  return undefined
+}

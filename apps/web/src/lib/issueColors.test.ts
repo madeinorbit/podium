@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { FLOW_SLATE, ISSUE_PALETTE, issueColorHex, issueSquareFg } from './issueColors'
+import {
+  type ColorCarrier,
+  effectiveIssueColorHex,
+  FLOW_SLATE,
+  ISSUE_PALETTE,
+  issueColorHex,
+  issueSquareFg,
+} from './issueColors'
 
 describe('issue colour palette', () => {
   it('keeps the canonical spectrum order and values from the design handoff', () => {
@@ -35,5 +42,37 @@ describe('issue colour palette', () => {
 
   it('uses the canonical 30%-into-black foreground recipe for solid fills', () => {
     expect(issueSquareFg('#8b5cf6')).toBe('color-mix(in srgb, #8b5cf6 30%, #000)')
+  })
+})
+
+describe('effectiveIssueColorHex (flow-colour inheritance, handoff 1a)', () => {
+  const family: Record<string, ColorCarrier & { id: string }> = {
+    epic: { id: 'epic', color: 'violet' },
+    child: { id: 'child', parentId: 'epic' },
+    grandchild: { id: 'grandchild', parentId: 'child' },
+    teal: { id: 'teal', color: 'teal', parentId: 'epic' },
+    orphan: { id: 'orphan' },
+  }
+  const byId = (id: string) => family[id]
+
+  it('prefers the issue own palette colour', () => {
+    expect(effectiveIssueColorHex(family.teal, byId)).toBe('#14b8a6')
+  })
+
+  it('inherits the nearest coloured ancestor across multiple levels', () => {
+    expect(effectiveIssueColorHex(family.child, byId)).toBe('#8b5cf6')
+    expect(effectiveIssueColorHex(family.grandchild, byId)).toBe('#8b5cf6')
+  })
+
+  it('resolves to undefined (the slate flow) when no ancestor carries a colour', () => {
+    expect(effectiveIssueColorHex(family.orphan, byId)).toBeUndefined()
+    expect(effectiveIssueColorHex(undefined, byId)).toBeUndefined()
+  })
+
+  it('survives a parent cycle and a dangling parentId', () => {
+    const a: ColorCarrier = { parentId: 'b' }
+    const cyclic: Record<string, ColorCarrier> = { a, b: { parentId: 'a' } }
+    expect(effectiveIssueColorHex(a, (id) => cyclic[id])).toBeUndefined()
+    expect(effectiveIssueColorHex({ parentId: 'missing' }, () => undefined)).toBeUndefined()
   })
 })

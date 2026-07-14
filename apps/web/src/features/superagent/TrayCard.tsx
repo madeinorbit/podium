@@ -1,6 +1,7 @@
 import { relativeTime } from '@podium/client-core'
+import type { IssueWire } from '@podium/protocol'
 import type { CSSProperties, JSX } from 'react'
-import { FLOW_SLATE, issueColorHex, issueSquareFg } from '@/lib/issueColors'
+import { effectiveIssueColorHex, FLOW_SLATE, issueSquareFg } from '@/lib/issueColors'
 import type { TrayItem } from './derive-tray'
 
 export interface TrayActions {
@@ -30,16 +31,21 @@ const itemKey = (item: TrayItem): string => `${item.kind}:${item.issue.id}`
  */
 export function TrayCard({
   item,
+  issues,
   actions,
   now,
 }: {
   item: TrayItem
+  /** Full issue list — colour inheritance walks ancestors (§2.5: sub-issues
+   *  of a coloured issue flow ITS colour). */
+  issues: IssueWire[]
   actions: TrayActions
   now: number
 }): JSX.Element {
   const issue = item.issue
-  const hex = issueColorHex(issue.color) ?? FLOW_SLATE
-  const colored = issueColorHex(issue.color) !== undefined
+  const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
+  const hex = flowHex ?? FLOW_SLATE
+  const colored = flowHex !== undefined
   const review = item.kind === 'review'
   const agentSession = (issue.sessions ?? []).find(
     (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
@@ -57,7 +63,8 @@ export function TrayCard({
     <div
       data-testid={`tray-card-${item.kind}`}
       data-issue-seq={issue.seq}
-      className={`flex flex-col gap-1.5 rounded-[10px] ${review ? 'px-[11px] py-[9px]' : 'px-[11px] py-2'} ${flash ? 'morph-row-flash' : ''}`}
+      data-issue-colored={colored ? 'true' : 'false'}
+      className={`issue-scope flex flex-col gap-1.5 rounded-[10px] ${review ? 'px-[11px] py-[9px]' : 'px-[11px] py-2'} ${flash ? 'morph-row-flash' : ''}`}
       style={cardStyle}
     >
       <div className="flex min-w-0 items-center gap-1.5">
@@ -66,7 +73,7 @@ export function TrayCard({
           style={{ background: 'var(--issue)' }}
           aria-hidden="true"
         />
-        <span className="min-w-0 truncate text-[11.5px] font-semibold text-[#f6f3ff]">
+        <span className="min-w-0 truncate text-[11.5px] font-semibold text-(--issue-text)">
           #{issue.seq} {issue.title}
           {review && <span className="font-normal text-muted-foreground"> · ready for review</span>}
         </span>
@@ -84,7 +91,7 @@ export function TrayCard({
       </div>
       {review ? (
         <>
-          <div className="text-[11px] leading-[1.5] text-[#cfc8e2]">{item.body}</div>
+          <div className="text-[11px] leading-[1.5] text-(--issue-bright)">{item.body}</div>
           <div className="flex min-w-0 items-center gap-1.5">
             <button
               type="button"
@@ -96,7 +103,7 @@ export function TrayCard({
             </button>
             <button
               type="button"
-              className="flex-none cursor-pointer rounded-[6px] border border-[rgba(243,243,248,.3)] bg-transparent px-[9px] py-[3px] text-[10.5px] text-text-strong"
+              className="flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-transparent px-[9px] py-[3px] text-[10.5px] text-(--issue-text)"
               onClick={() => actions.onSendBack(item)}
             >
               Send back
@@ -119,7 +126,7 @@ export function TrayCard({
         </>
       ) : (
         <>
-          <div className="pl-[14px] text-[11px] leading-[1.5] text-[#cfc8e2]">
+          <div className="pl-[14px] text-[11px] leading-[1.5] text-(--issue-bright)">
             asks: “{item.text}”
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-[5px] pl-[15px]">

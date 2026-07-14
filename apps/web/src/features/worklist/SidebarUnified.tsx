@@ -854,10 +854,16 @@ function WorkRowShell({
           <span
             data-testid="bridge-notch"
             aria-hidden="true"
-            className="pointer-events-none absolute top-[9px] right-[-10px] bottom-[9px] w-[10px] rounded-r-[3px]"
-            style={{
-              background: `linear-gradient(90deg, color-mix(in srgb, ${accent} ${hex ? 85 : 75}%, transparent), color-mix(in srgb, ${accent} ${hex ? 12 : 10}%, transparent))`,
-            }}
+            // issue-scope + var-driven gradient: a fresh colour pick animates
+            // the notch through the registered --issue transition — gradient
+            // images themselves can't interpolate.
+            className="issue-scope pointer-events-none absolute top-[9px] right-[-10px] bottom-[9px] w-[10px] rounded-r-[3px]"
+            style={
+              {
+                '--issue': accent,
+                background: `linear-gradient(90deg, color-mix(in srgb, var(--issue) ${hex ? 85 : 75}%, transparent), color-mix(in srgb, var(--issue) ${hex ? 12 : 10}%, transparent))`,
+              } as CSSProperties
+            }
           />
         )}
       </div>
