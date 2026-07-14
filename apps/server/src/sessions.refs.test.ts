@@ -70,8 +70,11 @@ describe('session birth naming (#474)', () => {
     store.repos.addRepo('/r/podium')
     const reg1 = new SessionRegistry(store)
     const a = reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }).sessionId
-    // Simulate a pre-#474 row: wipe its ref.
-    store.db.prepare('UPDATE sessions SET ref_draft = NULL WHERE id = ?').run(a)
+    // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the
+    // upsert keeps non-null refs, so write via a fresh row literal).
+    const seeded = store.sessions.loadSessions().find((r) => r.id === a)!
+    store.sessions.purgeSession(a)
+    store.sessions.upsertSession({ ...seeded, refIssueId: null, refLetter: null, refDraft: null })
     const reg2 = new SessionRegistry(store)
     reg2.modules.sessions.loadFromStore()
     const row = store.sessions.loadSessions().find((r) => r.id === a)
