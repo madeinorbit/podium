@@ -1172,6 +1172,37 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
           : [...st.fileTabs, { id, scope, path: args.path, worktreePath: args.root }]
         this.apply({ fileTabs, paneA: id })
       },
+      // Open a permanent artifact snapshot as a file tab ([spec:SP-0fc9] #441):
+      // reads ride the server-local artifact store (the source file may be
+      // gone), and `issueId` keeps the dock's Issue panel on the artifact's
+      // issue instead of re-homing by cwd containment.
+      openArtifact: (args: {
+        issueId: string
+        artifactId: string
+        path: string
+        worktreePath?: string
+      }) => {
+        const scope: FileScope = {
+          kind: 'artifact',
+          issueId: args.issueId,
+          artifactId: args.artifactId,
+        }
+        const id = tabIdFor(scope, args.path)
+        const st = this.state
+        const fileTabs = st.fileTabs.some((t) => t.id === id)
+          ? st.fileTabs
+          : [
+              ...st.fileTabs,
+              {
+                id,
+                scope,
+                path: args.path,
+                worktreePath: args.worktreePath ?? '',
+                issueId: args.issueId,
+              },
+            ]
+        this.apply({ fileTabs, paneA: id })
+      },
       closeFileTab: (id: string) => {
         const st = this.state
         this.apply({
@@ -1183,18 +1214,23 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       readFileScoped: ((scope: FileScope, path: string) =>
         scope.kind === 'session'
           ? api.files.read.query({ sessionId: scope.sessionId, path })
-          : api.files.read.query({
-              machineId: scope.machineId,
-              root: scope.root,
-              path,
-            })) as Store<TApi>['readFileScoped'],
+          : scope.kind === 'artifact'
+            ? api.files.read.query({ issueId: scope.issueId, artifactId: scope.artifactId, path })
+            : api.files.read.query({
+                machineId: scope.machineId,
+                root: scope.root,
+                path,
+              })) as Store<TApi>['readFileScoped'],
       writeFileScoped: ((args: {
         scope: FileScope
         path: string
         content: string
         baseHash?: string
-      }) =>
-        args.scope.kind === 'session'
+      }) => {
+        // Artifact snapshots are immutable ([spec:SP-0fc9] #441) — never hit the API.
+        if (args.scope.kind === 'artifact')
+          return Promise.reject(new Error('artifact snapshots are read-only'))
+        return args.scope.kind === 'session'
           ? api.files.write.mutate({
               sessionId: args.scope.sessionId,
               path: args.path,
@@ -1207,7 +1243,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
               path: args.path,
               content: args.content,
               baseHash: args.baseHash,
-            })) as Store<TApi>['writeFileScoped'],
+            })
+      }) as Store<TApi>['writeFileScoped'],
       listDir: ((args: { machineId?: string; root: string; path?: string }) =>
         api.files.list.query(args)) as Store<TApi>['listDir'],
       spawnDraftAgent: (args: {

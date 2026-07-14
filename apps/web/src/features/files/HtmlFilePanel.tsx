@@ -18,7 +18,10 @@ import { useFileDocument } from './useFileDocument'
 type Mode = 'preview' | 'source' | 'split'
 
 function dirOf(path: string): string {
-  return path.replace(/\/[^/]*$/, '') || '/'
+  // Artifact-scope paths are relpaths ([spec:SP-0fc9] #441): a slash-less entry
+  // lives at the artifact root, so its dir is '' (not the path itself).
+  const i = path.lastIndexOf('/')
+  return i === -1 ? '' : path.slice(0, i) || '/'
 }
 
 export function HtmlFilePanel({

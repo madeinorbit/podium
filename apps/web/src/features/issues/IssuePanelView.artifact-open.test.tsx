@@ -5,9 +5,10 @@ import { IssuePanelView } from './IssuePanelView'
 import { makeIssue } from './test-issue'
 
 // Snapshotted artifact ([spec:SP-0fc9]) on an issue whose repoPath exists:
-// clicking must open the permanent snapshot, NOT a live worktree file tab
-// (the source file may be deleted, and openFileInWorktree re-navigates the
-// sidebar to whatever workspace contains repoPath — #441 regression).
+// clicking must open the permanent snapshot as an in-app artifact file tab,
+// NOT a live worktree file tab and NOT a new browser window (the source file
+// may be deleted, and openFileInWorktree re-homes the dock's Issue panel to
+// whatever workspace contains repoPath — #441 regression).
 const ISSUE = makeIssue({
   id: 'i1',
   repoPath: '/r',
@@ -25,6 +26,7 @@ const ISSUE = makeIssue({
 })
 
 const openFileInWorktree = vi.fn()
+const openArtifact = vi.fn()
 
 vi.mock('@/app/store', () => {
   const state = () =>
@@ -32,6 +34,7 @@ vi.mock('@/app/store', () => {
       trpc: { issues: { comments: { query: vi.fn(async () => []) } } },
       httpOrigin: 'http://h',
       openFileInWorktree,
+      openArtifact,
       uiState: { get: () => null, set: vi.fn() },
       issues: [ISSUE],
       sessions: [],
@@ -50,16 +53,18 @@ afterEach(() => {
 })
 
 describe('IssuePanelView artifact click', () => {
-  it('opens a snapshotted artifact from the permanent store, not a worktree file tab', () => {
+  it('opens a snapshotted artifact as an in-app artifact tab, not a worktree tab or window', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null)
     render(<IssuePanelView cwd="/r" />)
     fireEvent.click(screen.getByText('Proof'))
-    expect(open).toHaveBeenCalledWith(
-      'http://h/files/artifact/i1/art1/proof.html',
-      '_blank',
-      'noopener',
-    )
+    expect(openArtifact).toHaveBeenCalledWith({
+      issueId: 'i1',
+      artifactId: 'art1',
+      path: 'proof.html',
+      worktreePath: '/r',
+    })
     expect(openFileInWorktree).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('legacy path-only artifacts still open as live worktree files', () => {
@@ -71,6 +76,7 @@ describe('IssuePanelView artifact click', () => {
       root: '/r',
       path: '/r/legacy.html',
     })
+    expect(openArtifact).not.toHaveBeenCalled()
     expect(open).not.toHaveBeenCalled()
   })
 })

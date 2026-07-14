@@ -1,4 +1,11 @@
-import { AgentKind, agentSupportsCloud, isAgentKind, ResumeRef, WorkState } from '@podium/protocol'
+import {
+  AgentKind,
+  agentSupportsCloud,
+  type FileReadResultMessage,
+  isAgentKind,
+  ResumeRef,
+  WorkState,
+} from '@podium/protocol'
 import { PodiumSettings } from '@podium/runtime'
 import { loadConfig } from '@podium/runtime/config'
 import {
@@ -1166,10 +1173,20 @@ export const appRouter = t.router({
       .input(
         z.union([
           z.object({ sessionId: z.string(), path: z.string() }),
+          z.object({ issueId: z.string(), artifactId: z.string(), path: z.string() }),
           z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
         ]),
       )
-      .query(({ ctx, input }) => {
+      .query(async ({ ctx, input }): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> => {
+        // Artifact snapshots ([spec:SP-0fc9] #441) serve from the server-local
+        // store — no daemon round-trip, no root allowlist (there is no root),
+        // and no baseHash (snapshots are immutable, writes are rejected).
+        if ('artifactId' in input) {
+          const r = await mods(ctx).issueArtifacts.read(input.issueId, input.artifactId, input.path)
+          return r
+            ? { ok: true, path: input.path, content: r.bytes.toString('utf8') }
+            : { ok: false, path: input.path, error: 'artifact file not found' }
+        }
         if ('root' in input && !isAllowedRoot(ctx.repos.list(), input.root)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
         }

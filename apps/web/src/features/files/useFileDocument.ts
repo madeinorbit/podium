@@ -40,7 +40,8 @@ export function useFileDocument(scope: FileScope, path: string): FileDocument {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
-  const editable = true
+  // Artifact snapshots are immutable ([spec:SP-0fc9] #441) — no save path.
+  const editable = scope.kind !== 'artifact'
 
   const setContent = useCallback((next: string) => {
     contentRef.current = next

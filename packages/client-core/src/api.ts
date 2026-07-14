@@ -89,7 +89,18 @@ export interface PodiumClientApi {
     setOrder: ApiMutation<{ worktree: string; sessionIds: string[] }, Record<string, string[]>>
   }
   files: {
-    read: ApiQuery<{ sessionId?: string; machineId?: string; root?: string; path: string }, unknown>
+    read: ApiQuery<
+      {
+        sessionId?: string
+        machineId?: string
+        root?: string
+        // Artifact-snapshot reads ([spec:SP-0fc9] #441).
+        issueId?: string
+        artifactId?: string
+        path: string
+      },
+      unknown
+    >
     write: ApiMutation<{
       sessionId?: string
       machineId?: string

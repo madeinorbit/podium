@@ -964,3 +964,57 @@ describe('navigateToSession (#411)', () => {
     expect(rw.writes.length).toBe(before)
   })
 })
+
+describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
+  it('openArtifact creates an artifact-scoped tab carrying the issue, and focuses it', () => {
+    const { engine } = makeEngine()
+    engine.start()
+    engine.getSnapshot().openArtifact({
+      issueId: 'iss_1',
+      artifactId: 'abc123',
+      path: 'index.html',
+      worktreePath: '/wt',
+    })
+    const st = engine.getSnapshot()
+    expect(st.fileTabs).toEqual([
+      {
+        id: 'file:a:iss_1:abc123:index.html',
+        scope: { kind: 'artifact', issueId: 'iss_1', artifactId: 'abc123' },
+        path: 'index.html',
+        worktreePath: '/wt',
+        issueId: 'iss_1',
+      },
+    ])
+    expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
+    // Re-opening the same artifact reuses the tab.
+    engine.getSnapshot().openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' })
+    expect(engine.getSnapshot().fileTabs).toHaveLength(1)
+    engine.dispose()
+  })
+
+  it('readFileScoped routes artifact scope to the artifact input; writes are rejected', async () => {
+    const api = makeApi()
+    const reads: unknown[] = []
+    api.files = {
+      read: {
+        query: vi.fn(async (input: unknown) => {
+          reads.push(input)
+          return { ok: true, path: 'index.html', content: '<h1>hi</h1>' }
+        }),
+      },
+      write: { mutate: vi.fn(async () => ({ ok: true })) },
+      list: { query: vi.fn(async () => ({})) },
+    }
+    const { engine } = makeEngine({ api })
+    engine.start()
+    const scope = { kind: 'artifact', issueId: 'iss_1', artifactId: 'abc123' } as const
+    await engine.getSnapshot().readFileScoped(scope, 'index.html')
+    expect(reads).toEqual([{ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' }])
+    // Immutable snapshot: the write API is never called.
+    await expect(
+      engine.getSnapshot().writeFileScoped({ scope, path: 'index.html', content: 'x' }),
+    ).rejects.toThrow('artifact snapshots are read-only')
+    expect(api.files.write.mutate).not.toHaveBeenCalled()
+    engine.dispose()
+  })
+})

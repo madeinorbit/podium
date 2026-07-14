@@ -1,5 +1,9 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from './issue-authz'
+import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -109,6 +113,35 @@ describe('appRouter', () => {
     const list = await call.sessions.list()
     const issueId = list.find((s) => s.sessionId === sessionId)?.issueId
     expect(issueId).toMatch(/^iss_[0-9a-f-]{36}$/)
+  })
+
+  it('files.read serves artifact-snapshot bytes from the server-local store [spec:SP-0fc9]', async () => {
+    const { call, registry } = caller()
+    const base = mkdtempSync(join(tmpdir(), 'podium-artifact-read-'))
+    try {
+      mkdirSync(join(base, 'iss_1', 'abc123'), { recursive: true })
+      writeFileSync(join(base, 'iss_1', 'abc123', 'entry.html'), '<h1>hi</h1>')
+      const stubRpc = {
+        readAsset: async () => ({ ok: false, error: 'unused' }),
+        listDir: async () => ({ ok: false, path: '', entries: [], error: 'unused' }),
+      }
+      registry.modules.issueArtifacts = new IssueArtifactStore(base, stubRpc)
+      // No daemon round-trip, no root allowlist: the bytes come from the store.
+      const r = await call.files.read({ issueId: 'iss_1', artifactId: 'abc123', path: 'entry.html' })
+      expect(r).toEqual({ ok: true, path: 'entry.html', content: '<h1>hi</h1>' })
+      // Missing snapshot → ok:false with an error, matching the daemon shape.
+      const miss = await call.files.read({ issueId: 'iss_1', artifactId: 'dead', path: 'x.html' })
+      expect(miss).toEqual({ ok: false, path: 'x.html', error: 'artifact file not found' })
+      // Traversal out of the artifact dir is refused by the store.
+      const esc = await call.files.read({
+        issueId: 'iss_1',
+        artifactId: 'abc123',
+        path: '../other/entry.html',
+      })
+      expect(esc.ok).toBe(false)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
   })
 
   it('sessions.kill removes the session', async () => {

@@ -239,8 +239,13 @@ function PanelSections({
   machineId?: string
   slug: string
 }): JSX.Element {
-  const { trpc, httpOrigin, openFileInWorktree } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, httpOrigin: s.httpOrigin, openFileInWorktree: s.openFileInWorktree }),
+  const { trpc, httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      httpOrigin: s.httpOrigin,
+      openFileInWorktree: s.openFileInWorktree,
+      openArtifact: s.openArtifact,
+    }),
     shallowEqual,
   )
   const panel = issue.panel
@@ -387,12 +392,18 @@ function PanelSections({
                   className="h-auto w-full justify-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-left font-normal hover:bg-accent/60"
                   disabled={!root && !a.artifactId}
                   onClick={() => {
-                    // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes —
-                    // the source file may be gone, and openFileInWorktree re-homes the
-                    // sidebar to root's containing workspace (#441). Only legacy
-                    // path-only entries open as live worktree file tabs.
-                    if (a.artifactId && src) {
-                      window.open(src, '_blank', 'noopener')
+                    // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes
+                    // as an in-app artifact-scoped file tab — the source file may be
+                    // gone, and openFileInWorktree re-homes the dock's Issue panel to
+                    // root's containing workspace (#441). Only legacy path-only
+                    // entries open as live worktree file tabs.
+                    if (a.artifactId) {
+                      openArtifact({
+                        issueId: issue.id,
+                        artifactId: a.artifactId,
+                        path: a.entry ?? basename(a.path),
+                        ...(root ? { worktreePath: root } : {}),
+                      })
                     } else if (root) {
                       // Artifact paths may be worktree-relative; file tabs need absolute.
                       openFileInWorktree({
@@ -450,10 +461,14 @@ export function IssuePanelView({
   cwd,
   machineId,
   sessionId,
+  issueId,
 }: {
   cwd: string
   machineId?: string
   sessionId?: string
+  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — wins over the
+   *  session attachment and cwd containment. */
+  issueId?: string
 }): JSX.Element {
   const { issues, sessions, setOpenIssueId, setView } = useStoreSelector(
     (s) => ({
@@ -469,8 +484,8 @@ export function IssuePanelView({
     setView('issues')
   }
   const issue = useMemo(
-    () => issueForPanel({ issues, sessions, cwd, sessionId }),
-    [issues, sessions, cwd, sessionId],
+    () => issueForPanel({ issues, sessions, cwd, sessionId, issueId }),
+    [issues, sessions, cwd, sessionId, issueId],
   )
   // Subissue list keeps archived children visible (marked); the per-child panel
   // sections below deliberately skip archived children so they don't clutter the

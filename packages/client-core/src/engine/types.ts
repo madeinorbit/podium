@@ -166,6 +166,15 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   fileTabs: FileTab[]
   openFile: (sessionId: string, path: string) => void
   openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => void
+  /** Open a permanent artifact snapshot as a read-only file tab ([spec:SP-0fc9]
+   *  #441). `path` is the relpath inside the artifact dir (bundle entry or the
+   *  artifact's basename). */
+  openArtifact: (args: {
+    issueId: string
+    artifactId: string
+    path: string
+    worktreePath?: string
+  }) => void
   closeFileTab: (id: string) => void
   readFileScoped: (
     scope: FileScope,

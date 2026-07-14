@@ -74,6 +74,21 @@ describe('resolveActiveWorktree', () => {
     })
   })
 
+  it('carries issueId from an artifact file tab [spec:SP-0fc9]', () => {
+    const tab: FileTab = {
+      id: 'file:a:i9:art1:index.html',
+      scope: { kind: 'artifact', issueId: 'i9', artifactId: 'art1' },
+      path: 'index.html',
+      worktreePath: '/wt/c',
+      issueId: 'i9',
+    }
+    expect(resolveActiveWorktree({ paneA: tab.id, fileTabs: [tab], sessions: [s1] })).toEqual({
+      cwd: '/wt/c',
+      machineId: undefined,
+      issueId: 'i9',
+    })
+  })
+
   it('falls back to the most recently active session', () => {
     expect(resolveActiveWorktree({ paneA: null, fileTabs: [], sessions: [s1, s2] })).toEqual({
       cwd: '/wt/b',
@@ -136,6 +151,39 @@ describe('issueForPanel', () => {
         sessionId: 's1',
       })?.id,
     ).toBe('i2')
+  })
+
+  it('explicit issueId beats both the session attachment and containment [spec:SP-0fc9]', () => {
+    const target = issue({ id: 'i9', worktreePath: null })
+    const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i2' })
+    expect(
+      issueForPanel({
+        issues: [owning, attached, target],
+        sessions: [s],
+        cwd: '/repo/.worktrees/issue-7',
+        sessionId: 's1',
+        issueId: 'i9',
+      })?.id,
+    ).toBe('i9')
+    // Archived/deleted/unknown explicit issue falls through to the old logic.
+    const gone = issue({ id: 'i9', worktreePath: null, archived: true })
+    expect(
+      issueForPanel({
+        issues: [owning, attached, gone],
+        sessions: [s],
+        cwd: '/repo/.worktrees/issue-7',
+        sessionId: 's1',
+        issueId: 'i9',
+      })?.id,
+    ).toBe('i2')
+    expect(
+      issueForPanel({
+        issues: [owning],
+        sessions: [],
+        cwd: '/repo/.worktrees/issue-7',
+        issueId: 'missing',
+      })?.id,
+    ).toBe('i1')
   })
 
   it('unattached session in an owned worktree falls back to containment', () => {

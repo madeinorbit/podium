@@ -9,6 +9,9 @@ export interface FileTab {
   scope: FileScope
   path: string
   worktreePath: string
+  /** The issue an artifact tab belongs to ([spec:SP-0fc9] #441) — keeps the
+   *  dock's Issue panel on the artifact's issue instead of resolving by cwd. */
+  issueId?: string
 }
 
 /** The four right-dock tabs. Persisted under 'podium.dockTab'. */
@@ -25,6 +28,9 @@ export interface ActiveWorktree {
    *  session (paneA or the recency fallback) — lets the Issue tab fall back to
    *  that session's explicit issue attachment. Absent for file-tab resolution. */
   sessionId?: string
+  /** Explicit issue carried from an artifact file tab ([spec:SP-0fc9] #441) —
+   *  wins over cwd containment when the Issue tab resolves its issue. */
+  issueId?: string
 }
 
 /** True when `cwd` sits at or under `root` (path containment, POSIX). */
@@ -48,7 +54,7 @@ export function resolveActiveWorktree(args: {
     const tab = fileTabs.find((t) => t.id === paneA)
     if (tab?.worktreePath) {
       const machineId = tab.scope.kind === 'worktree' ? tab.scope.machineId : undefined
-      return { cwd: tab.worktreePath, machineId }
+      return { cwd: tab.worktreePath, machineId, ...(tab.issueId ? { issueId: tab.issueId } : {}) }
     }
   }
   // Fall back to the most recently active non-archived session.
@@ -91,7 +97,16 @@ export function issueForPanel(args: {
   sessions: SessionMeta[]
   cwd: string
   sessionId?: string
+  /** Explicit issue (artifact file tabs, [spec:SP-0fc9] #441) — beats both the
+   *  session attachment and cwd containment when it names a live issue. */
+  issueId?: string
 }): IssueWire | null {
+  if (args.issueId !== undefined) {
+    const explicit = args.issues.find(
+      (i) => i.id === args.issueId && !i.archived && !i.deletedAt,
+    )
+    if (explicit) return explicit
+  }
   const session = args.sessionId
     ? args.sessions.find((s) => s.sessionId === args.sessionId)
     : undefined

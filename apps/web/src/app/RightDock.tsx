@@ -114,6 +114,7 @@ export function RightDock({
             cwd={active.cwd}
             machineId={active.machineId}
             sessionId={active.sessionId}
+            issueId={active.issueId}
           />
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
