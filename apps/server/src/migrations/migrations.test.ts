@@ -7,6 +7,8 @@ import {
   appliedMigrations,
   codeSchemaVersion,
   dbSchemaVersion,
+  isTimestampVersion,
+  LAST_SEQUENTIAL_VERSION,
   MIGRATIONS,
   type Migration,
   runMigrations,
@@ -37,6 +39,58 @@ function hasTable(db: SqlDatabase, name: string): boolean {
 }
 
 /**
+ * Timestamp versions (#485) — make a collision IMPOSSIBLE, not merely loud.
+ *
+ * #472 made a duplicate migration number fail loudly instead of vanishing silently.
+ * But it did not stop the collision happening: with hand-assigned sequential numbers,
+ * two agents on parallel branches both take MAX+1 and clash at merge, every time.
+ * A UTC timestamp cannot collide — there is nothing to coordinate. Rails made this
+ * exact switch in 2.1.
+ */
+describe('migration versioning policy (#485)', () => {
+  // Synthetic lists, NOT the real MIGRATIONS tail — these tests must keep working
+  // when someone appends a migration, or they break for reasons unrelated to intent.
+  const base: Migration[] = [{ version: 1, name: 'baseline', up: () => {} }]
+
+  it('REJECTS a new migration that hand-picks the next sequential number', () => {
+    const sequential = [
+      ...base,
+      { version: LAST_SEQUENTIAL_VERSION + 1, name: 'add-widget-table', up: () => {} },
+    ]
+    expect(() => runMigrations(openMemory(), sequential)).toThrow(/must use a UTC timestamp/i)
+    // ...and tells the author exactly how to get a correct one.
+    expect(() => runMigrations(openMemory(), sequential)).toThrow(/migration:new add-widget-table/)
+  })
+
+  it('ACCEPTS a timestamp version', () => {
+    const db = openMemory()
+    const timestamped = [
+      ...base,
+      { version: 20_260_714_132_200, name: 'add-widget-table', up: () => {} },
+    ]
+    expect(() => runMigrations(db, timestamped)).not.toThrow()
+    expect(appliedMigrations(db).get(20_260_714_132_200)).toBe('add-widget-table')
+  })
+
+  it('EVERY registered migration obeys the policy — legacy sequential, or a timestamp', () => {
+    // The invariant, expressed so it still holds after the next migration is added:
+    // a version is legal iff it is one of the grandfathered 1..23, or a real timestamp.
+    const illegal = MIGRATIONS.filter(
+      (m) => m.version > LAST_SEQUENTIAL_VERSION && !isTimestampVersion(m.version),
+    )
+    expect(illegal).toEqual([])
+    expect(() => runMigrations(openMemory(), MIGRATIONS)).not.toThrow()
+  })
+
+  it('rejects a number that merely looks like a timestamp', () => {
+    expect(isTimestampVersion(20_261_314_132_200)).toBe(false) // month 13
+    expect(isTimestampVersion(20_260_714_992_200)).toBe(false) // hour 99
+    expect(isTimestampVersion(24)).toBe(false) // the mistake this exists to catch
+    expect(isTimestampVersion(20_260_714_132_200)).toBe(true)
+  })
+})
+
+/**
  * The silent-skip class (#472).
  *
  * The runner used to decide what to apply by comparing against MAX(applied) — so a
@@ -65,7 +119,10 @@ describe('runMigrations — back-filled and colliding versions (#472)', () => {
     // out of order. The old runner asked `version <= MAX(23)` and skipped 022 forever:
     // no error, `workflows` never created.
     const { db } = dbWithHole(22)
-    expect(dbSchemaVersion(db)).toBe(23) // stamped PAST the hole
+    // Stamped PAST the hole — derived, never hardcoded, or appending any migration
+    // breaks this test for a reason that has nothing to do with what it is testing.
+    expect(dbSchemaVersion(db)).toBe(codeSchemaVersion())
+    expect(dbSchemaVersion(db)).toBeGreaterThan(22)
     expect(hasTable(db, 'workflows')).toBe(false) // ...yet 022's table is missing
 
     const applied = runMigrations(db, MIGRATIONS)
@@ -248,9 +305,8 @@ describe('runMigrations', () => {
     expect(dbSchemaVersion(db)).toBe(codeSchemaVersion())
 
     const hasTable = (name: string) =>
-      db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-        .get(name) !== undefined
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
+      undefined
     const columnsOf = (table: string) =>
       (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 

@@ -10,8 +10,19 @@
  * conversations repository (re)ensures those per boot, because their existence
  * depends on the runtime SQLite build.
  *
+ * ADDING A MIGRATION — run `bun run migration:new <name>`. Never hand-pick a number.
+ *
  * Rules (POLICY — read before adding a migration):
- *  - Migrations are numbered, forward-only, and ADDITIVE-ONLY: no destructive
+ *  - NEW MIGRATIONS ARE VERSIONED BY UTC TIMESTAMP (YYYYMMDDHHMMSS), not MAX+1
+ *    (#485). Hand-assigned sequential numbers GUARANTEE collisions at our
+ *    concurrency: agents work on parallel branches, each takes the next integer,
+ *    and they only discover the clash at merge. A timestamp cannot collide — there
+ *    is nothing to coordinate and no conflict to notice. (Rails made this exact
+ *    switch in 2.1, for this exact reason.) Versions 1–23 are the historical
+ *    sequential ones and stay as they are; the two kinds coexist fine, since a
+ *    timestamp is just a very large integer that sorts after them forever.
+ *    `validate()` REJECTS a new sequential version at the first test run.
+ *  - Migrations are forward-only and ADDITIVE-ONLY: no destructive
  *    column drops or renames within a single release. When a column/table must
  *    go away, do it two-phase: release N stops reading/writing it, release N+1
  *    drops it — so a rollback of one release never faces a schema it cannot read.
@@ -157,12 +168,56 @@ export function dbSchemaVersion(db: SqlDatabase): number {
   return row?.version ?? 0
 }
 
+/**
+ * The last hand-numbered sequential migration. Everything at or below this is
+ * historical and stays exactly as it is; everything ABOVE must be a timestamp.
+ * This is a frozen boundary, not a counter — do not raise it.
+ */
+export const LAST_SEQUENTIAL_VERSION = 23
+
+/** Smallest accepted timestamp version: 2000-01-01T00:00:00Z. */
+const MIN_TIMESTAMP_VERSION = 20_000_101_000_000
+
+/**
+ * A UTC timestamp version, `YYYYMMDDHHMMSS` (e.g. 20260714132200).
+ *
+ * Sequential numbering GUARANTEES collisions at our concurrency: agents work on
+ * parallel branches, each takes MAX+1, and they only discover the clash at merge.
+ * A timestamp is collision-free by construction — nothing to coordinate, no
+ * conflict to notice. (Rails made this same switch in 2.1, for this same reason.)
+ * Generate one with `bun run migration:new <name>`; never hand-type it.
+ */
+export function isTimestampVersion(version: number): boolean {
+  if (!Number.isInteger(version) || version < MIN_TIMESTAMP_VERSION) return false
+  const s = String(version)
+  if (s.length !== 14) return false
+  const month = Number(s.slice(4, 6))
+  const day = Number(s.slice(6, 8))
+  const hour = Number(s.slice(8, 10))
+  const minute = Number(s.slice(10, 12))
+  const second = Number(s.slice(12, 14))
+  return (
+    month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour < 24 && minute < 60 && second < 60
+  )
+}
+
 function validate(migrations: Migration[]): void {
   let prev = 0
   for (const m of migrations) {
     if (!Number.isInteger(m.version) || m.version <= prev) {
       throw new Error(
         `migrations must have positive, strictly increasing integer versions (got ${m.version} after ${prev})`,
+      )
+    }
+    // Anything NEW must be a timestamp. Enforcing it here means a hand-typed MAX+1
+    // fails on the author's very first test run — not at someone else's merge, and
+    // never at a user's boot.
+    if (m.version > LAST_SEQUENTIAL_VERSION && !isTimestampVersion(m.version)) {
+      throw new Error(
+        `migration ${m.version} ('${m.name}') uses a sequential version. New migrations must use a ` +
+          `UTC timestamp (YYYYMMDDHHMMSS) so two branches can never claim the same number — run ` +
+          `\`bun run migration:new ${m.name}\` and use the version it prints. ` +
+          `(${LAST_SEQUENTIAL_VERSION} was the last hand-numbered migration.)`,
       )
     }
     prev = m.version

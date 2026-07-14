@@ -2,7 +2,7 @@
   "name": "podium",
   "private": true,
   "version": "0.1.1",
-  "description": "Mission control for coding agents — run, observe, and steer Claude Code, Codex, and other agent CLIs from one self-hosted web UI.",
+  "description": "Mission control for coding agents \u2014 run, observe, and steer Claude Code, Codex, and other agent CLIs from one self-hosted web UI.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/madeinorbit/podium#readme",
   "repository": {
@@ -51,7 +51,8 @@
     "version-packages": "changeset version",
     "release": "bun run build && changeset publish",
     "package:headless": "bun run --filter @podium/web build && bun scripts/build-bun.ts",
-    "desktop:build": "bun run --cwd apps/desktop build"
+    "desktop:build": "bun run --cwd apps/desktop build",
+    "migration:new": "bun run scripts/new-migration.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",

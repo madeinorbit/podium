@@ -221,9 +221,12 @@ describe('stored schema version is authoritative (#46)', () => {
   it('refuses to open a database from a newer build with an upgrade hint', () => {
     const dbPath = join(tempDir(), 'podium.db')
     const db = open(dbPath)
+    // A migration from a NEWER build. It carries a UTC timestamp version, because
+    // that is what a real future migration has (#485) — `codeSchemaVersion() + 1`
+    // would be a sequential number, which the versioning policy now rejects.
     const future: Migration[] = [
       ...MIGRATIONS,
-      { version: codeSchemaVersion(MIGRATIONS) + 1, name: 'from-the-future', up: () => {} },
+      { version: 20_991_231_235_959, name: 'from-the-future', up: () => {} },
     ]
     runMigrations(db, future, { dbPath })
     const before = backupsFor(dbPath)
