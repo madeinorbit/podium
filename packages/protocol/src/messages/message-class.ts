@@ -113,6 +113,10 @@ export const CLIENT_MESSAGE_CLASS = {
  *  bulk channel. */
 export const CONTROL_MESSAGE_CLASS = {
   repoOpRequest: 'command',
+  handoffExportRequest: 'command',
+  handoffChunkReadRequest: 'command',
+  handoffImportChunk: 'command',
+  handoffImportRequest: 'command',
   agentRelayResult: 'command',
   harnessExecRequest: 'command',
   headlessTurnRequest: 'command',
@@ -149,6 +153,10 @@ export const CONTROL_MESSAGE_CLASS = {
  *  daemon's discovery push feeds the same durable conversation registry). */
 export const DAEMON_MESSAGE_CLASS = {
   repoOpResult: 'command',
+  handoffExportResult: 'command',
+  handoffChunkReadResult: 'command',
+  handoffImportChunkResult: 'command',
+  handoffImportResult: 'command',
   agentRelayRequest: 'command',
   harnessExecResult: 'command',
   headlessTurnEvent: 'command',

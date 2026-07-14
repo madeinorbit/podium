@@ -5,11 +5,32 @@ import {
   ScanReposResultMessage,
   ScanResultMessage,
 } from './discovery'
-import { FileAssetResultMessage, FileReadResultMessage, FileWriteResultMessage, DirListResultMessage, ImageUploadResultMessage } from './files'
+import {
+  FileAssetResultMessage,
+  FileReadResultMessage,
+  FileWriteResultMessage,
+  DirListResultMessage,
+  ImageUploadResultMessage,
+} from './files'
 import { ApprovalExecResultMessage } from './approvals'
 import { HarnessExecResultMessage } from './harness'
-import { HeadlessBindResultMessage, HeadlessTurnEventMessage, HeadlessTurnResultMessage } from './headless'
-import { AgentQuotaResultMessage, HostMetricsMessage, MemoryBreakdownResultMessage, UsageResultMessage } from './host'
+import {
+  HandoffChunkReadResultMessage,
+  HandoffExportResultMessage,
+  HandoffImportChunkResultMessage,
+  HandoffImportResultMessage,
+} from './handoff'
+import {
+  HeadlessBindResultMessage,
+  HeadlessTurnEventMessage,
+  HeadlessTurnResultMessage,
+} from './headless'
+import {
+  AgentQuotaResultMessage,
+  HostMetricsMessage,
+  MemoryBreakdownResultMessage,
+  UsageResultMessage,
+} from './host'
 import { InventoryReportMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
 import { AgentStateMessage } from './runtime-state'
@@ -24,7 +45,11 @@ import {
   SpawnErrorMessage,
   TitleMessage,
 } from './terminal'
-import { TranscriptDeltaMessage, TranscriptMirrorResultMessage, TranscriptReadResultMessage } from './transcript'
+import {
+  TranscriptDeltaMessage,
+  TranscriptMirrorResultMessage,
+  TranscriptReadResultMessage,
+} from './transcript'
 
 // The daemon learned how to resume this session later (e.g. the Claude session
 // uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
@@ -59,6 +84,10 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentRelayRequestMessage,
   ApprovalExecResultMessage,
   HarnessExecResultMessage,
+  HandoffExportResultMessage,
+  HandoffChunkReadResultMessage,
+  HandoffImportChunkResultMessage,
+  HandoffImportResultMessage,
   HeadlessTurnEventMessage,
   HeadlessTurnResultMessage,
   HeadlessBindResultMessage,

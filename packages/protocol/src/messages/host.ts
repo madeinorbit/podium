@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AgentKind } from './terminal'
+import { Inventory } from './inventory'
 
 // Memory state of a daemon host. "Available" is the kernel's estimate of memory
 // applications can still allocate without swapping (Linux MemAvailable) — used is
@@ -29,6 +30,7 @@ export const MachineWire = z.object({
   hostname: z.string(),
   online: z.boolean(),
   lastSeenAt: z.string(), // ISO 8601
+  inventory: Inventory.optional(),
 })
 export type MachineWire = z.infer<typeof MachineWire>
 

@@ -10,6 +10,12 @@ import {
 } from './files'
 import { HarnessExecRequestMessage } from './harness'
 import {
+  HandoffChunkReadRequestMessage,
+  HandoffExportRequestMessage,
+  HandoffImportChunkMessage,
+  HandoffImportRequestMessage,
+} from './handoff'
+import {
   HeadlessBindMessage,
   HeadlessInterruptMessage,
   HeadlessTurnAckMessage,
@@ -39,6 +45,10 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RepoOpRequestMessage,
   AgentRelayResultMessage,
   HarnessExecRequestMessage,
+  HandoffExportRequestMessage,
+  HandoffChunkReadRequestMessage,
+  HandoffImportChunkMessage,
+  HandoffImportRequestMessage,
   HeadlessTurnRequestMessage,
   HeadlessInterruptMessage,
   HeadlessTurnAckMessage,

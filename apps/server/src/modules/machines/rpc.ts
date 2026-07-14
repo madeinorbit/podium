@@ -1,5 +1,11 @@
 import { isAbsolute, join } from 'node:path'
 import type {
+  HandoffExportResultMessage,
+  HandoffChunkReadResultMessage,
+  HandoffImportChunkResultMessage,
+  HandoffImportResultMessage,
+} from '@podium/protocol'
+import type {
   AgentKind,
   AgentQuotaWire,
   ControlMessage,
@@ -90,6 +96,22 @@ export class DaemonRpcService {
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
   private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
+  private readonly pendingHandoffExports = new Map<
+    string,
+    (r: Omit<HandoffExportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingHandoffReads = new Map<
+    string,
+    (r: Omit<HandoffChunkReadResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingHandoffWrites = new Map<
+    string,
+    (r: Omit<HandoffImportChunkResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingHandoffImports = new Map<
+    string,
+    (r: Omit<HandoffImportResultMessage, 'type' | 'requestId'>) => void
+  >()
   private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
   private readonly pendingUsage = new Map<
     string,
@@ -267,6 +289,91 @@ export class DaemonRpcService {
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
       machineId ?? this.deps.resolveMachine(undefined, cwd),
+    )
+  }
+
+  handoffExport(
+    input: {
+      sessionId: string
+      cwd: string
+      agentKind: 'claude-code' | 'codex'
+      resume: { kind: string; value: string }
+      branch: string
+      baseShas: string[]
+      repoId: string
+      title?: string
+      issueId?: string
+      sourceMachineId: string
+    },
+    machineId: string,
+  ): Promise<Omit<HandoffExportResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingHandoffExports,
+      'he',
+      120_000,
+      () => ({ ok: false, error: 'handoff export timed out' }),
+      (requestId) => ({ type: 'handoffExportRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  handoffReadChunk(
+    stagePath: string,
+    offset: number,
+    length: number,
+    machineId: string,
+  ): Promise<Omit<HandoffChunkReadResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingHandoffReads,
+      'hr',
+      30_000,
+      () => ({ ok: false, error: 'handoff read timed out' }),
+      (requestId) => ({ type: 'handoffChunkReadRequest', requestId, stagePath, offset, length }),
+      machineId,
+    )
+  }
+
+  handoffWriteChunk(
+    sessionId: string,
+    offset: number,
+    data: Buffer,
+    machineId: string,
+  ): Promise<Omit<HandoffImportChunkResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingHandoffWrites,
+      'hw',
+      30_000,
+      () => ({ ok: false, error: 'handoff write timed out' }),
+      (requestId) => ({
+        type: 'handoffImportChunk',
+        requestId,
+        sessionId,
+        offset,
+        data: data.toString('base64'),
+      }),
+      machineId,
+    )
+  }
+
+  handoffImport(
+    sessionId: string,
+    repoPath: string,
+    worktreeName: string,
+    machineId: string,
+  ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingHandoffImports,
+      'hi',
+      120_000,
+      () => ({ ok: false, error: 'handoff import timed out' }),
+      (requestId) => ({
+        type: 'handoffImportRequest',
+        requestId,
+        sessionId,
+        repoPath,
+        worktreeName,
+      }),
+      machineId,
     )
   }
 
@@ -563,6 +670,23 @@ export class DaemonRpcService {
       ok: msg.ok,
       output: msg.output,
     })
+  }
+
+  onHandoffExportResult(msg: HandoffExportResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingHandoffExports, requestId, payload)
+  }
+  onHandoffChunkReadResult(msg: HandoffChunkReadResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingHandoffReads, requestId, payload)
+  }
+  onHandoffImportChunkResult(msg: HandoffImportChunkResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingHandoffWrites, requestId, payload)
+  }
+  onHandoffImportResult(msg: HandoffImportResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingHandoffImports, requestId, payload)
   }
 
   onHarnessExecResult(msg: Extract<DaemonMessage, { type: 'harnessExecResult' }>): void {

@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ControlMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -25,7 +28,11 @@ describe('multi-daemon routing', () => {
 
   it('a session carries its machineId in meta', () => {
     const { reg } = regWithTwoDaemons()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/x', machineId: 'm2' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/x',
+      machineId: 'm2',
+    })
     const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta).toBeDefined()
     expect(meta?.machineId).toBe('m2')
@@ -34,8 +41,16 @@ describe('multi-daemon routing', () => {
 
   it('detaching m1 only marks m1 sessions reconnecting', () => {
     const { reg } = regWithTwoDaemons()
-    const a = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a', machineId: 'm1' }).sessionId
-    const b = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/b', machineId: 'm2' }).sessionId
+    const a = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/a',
+      machineId: 'm1',
+    }).sessionId
+    const b = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/b',
+      machineId: 'm2',
+    }).sessionId
     // mark both live as a bind would
     reg.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'bind',
@@ -120,5 +135,137 @@ describe('multi-daemon routing', () => {
       )
       .at(-1)
     expect(afterDetach?.hosts.map((h) => h.machineId)).toEqual(['m2'])
+  })
+})
+
+function handoffRegistry(opts: { failExport?: boolean } = {}) {
+  const store = new SessionStore(':memory:')
+  store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
+  store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y' })
+  const inventory = JSON.stringify({
+    os: 'linux',
+    arch: 'x64',
+    agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+    tools: [],
+  })
+  store.machines.setMachineInventory('m1', inventory)
+  store.machines.setMachineInventory('m2', inventory)
+  store.repos.addRepo('/source/repo', 'm1', 'git@github.com:example/repo.git')
+  store.repos.addRepo('/target/repo', 'm2', 'git@github.com:example/repo.git')
+  const reg = new SessionRegistry(store)
+  const source: ControlMessage[] = []
+  const target: ControlMessage[] = []
+  const sha = 'a'.repeat(40)
+  reg.modules.sessions.attachDaemon('m1', (msg) => {
+    source.push(msg)
+    if (msg.type === 'handoffExportRequest') {
+      const manifest = {
+        format: 1 as const,
+        sessionId: msg.sessionId,
+        agentKind: 'claude-code' as const,
+        resume: { kind: 'claude-session' as const, value: 'native-id' },
+        transcriptFilename: 'native-id.jsonl',
+        repoId: store.repos.listRepos('m1')[0]!.repoId!,
+        branch: 'x',
+        headSha: sha,
+        snapshotSha: null,
+        snapshotFlattened: true as const,
+        worktreeName: 'x',
+        bundleBase: [sha],
+        sourceMachineId: 'm1',
+        exportedAt: new Date().toISOString(),
+      }
+      reg.modules.sessions.onDaemonMessageFrom(
+        'm1',
+        opts.failExport
+          ? {
+              type: 'handoffExportResult',
+              requestId: msg.requestId,
+              ok: false,
+              error: 'export exploded',
+            }
+          : {
+              type: 'handoffExportResult',
+              requestId: msg.requestId,
+              ok: true,
+              manifest,
+              stagePath: '/home/source/.podium/handoff/package.tgz',
+              sizeBytes: 3,
+            },
+      )
+    }
+    if (msg.type === 'handoffChunkReadRequest')
+      reg.modules.sessions.onDaemonMessageFrom('m1', {
+        type: 'handoffChunkReadResult',
+        requestId: msg.requestId,
+        ok: true,
+        data: Buffer.from('pkg').toString('base64'),
+        sizeBytes: 3,
+        eof: true,
+      })
+  })
+  reg.modules.sessions.attachDaemon('m2', (msg) => {
+    target.push(msg)
+    if (msg.type === 'repoOpRequest')
+      reg.modules.sessions.onDaemonMessageFrom('m2', {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: msg.args?.ref === 'main',
+        output: msg.args?.ref === 'main' ? sha : 'missing',
+      })
+    if (msg.type === 'handoffImportChunk')
+      reg.modules.sessions.onDaemonMessageFrom('m2', {
+        type: 'handoffImportChunkResult',
+        requestId: msg.requestId,
+        ok: true,
+        sizeBytes: msg.offset + Buffer.from(msg.data, 'base64').length,
+      })
+    if (msg.type === 'handoffImportRequest')
+      reg.modules.sessions.onDaemonMessageFrom('m2', {
+        type: 'handoffImportResult',
+        requestId: msg.requestId,
+        ok: true,
+        newCwd: '/target/repo/.worktrees/x',
+      })
+  })
+  const { sessionId } = reg.modules.sessions.resumeSession({
+    agentKind: 'claude-code',
+    cwd: '/source/repo/.worktrees/x',
+    resume: { kind: 'claude-session', value: 'native-id' },
+    conversationId: 'native-id',
+    machineId: 'm1',
+  })
+  return { reg, source, target, sessionId }
+}
+
+describe('session handoff orchestration', () => {
+  it('re-homes the canonical row and resumes it on the target', async () => {
+    const prior = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
+    try {
+      const { reg, source, target, sessionId } = handoffRegistry()
+      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+      expect(reg.modules.sessions.listSessions()).toMatchObject([
+        { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
+      ])
+      expect(source).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
+      expect(target).toContainEqual(
+        expect.objectContaining({ type: 'spawn', sessionId, cwd: '/target/repo/.worktrees/x' }),
+      )
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = prior
+    }
+  })
+
+  it('resumes the unchanged source row when export fails', async () => {
+    const { reg, source, sessionId } = handoffRegistry({ failExport: true })
+    await expect(
+      reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }),
+    ).rejects.toThrow('export exploded')
+    expect(reg.modules.sessions.listSessions()).toMatchObject([
+      { sessionId, machineId: 'm1', cwd: '/source/repo/.worktrees/x', status: 'starting' },
+    ])
+    expect(source.filter((message) => message.type === 'spawn')).toHaveLength(2)
   })
 })

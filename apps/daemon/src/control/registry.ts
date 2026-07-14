@@ -5,6 +5,7 @@ import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
 import { headlessHandlers } from './headless'
+import { handoffHandlers } from './handoff'
 import { inventoryHandlers } from './inventory'
 import { sessionHandlers } from './session'
 import { transcriptHandlers } from './transcripts'
@@ -24,6 +25,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...fileHandlers,
   ...execHandlers,
   ...headlessHandlers,
+  ...handoffHandlers,
   ...approvalHandlers,
   ...inventoryHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),

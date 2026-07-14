@@ -168,7 +168,8 @@ export class MachinesService {
       this.deps.store.machines.touchMachine(frame.machineId, frame.hostname)
       this.invalidateMachineCache()
       const name =
-        this.deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ?? frame.hostname
+        this.deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
+        frame.hostname
       return { ok: true, machineId: frame.machineId, name }
     }
     return { ok: false, reason: 'unknown machine — re-pair' }
@@ -234,8 +235,8 @@ export class MachinesService {
         `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
       )
     }
-    const hasRepo = this.deps.store
-      .repos.listRepos(machineId)
+    const hasRepo = this.deps.store.repos
+      .listRepos(machineId)
       .some((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
     if (!hasRepo) {
       throw new Error(
@@ -260,7 +261,9 @@ export class MachinesService {
   pickMachineForRepo(_originUrl: string | undefined, cwd: string): string {
     const online = this.onlineMachineIds()
     const byRepo = online.find((id) =>
-      this.deps.store.repos.listRepos(id).some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
+      this.deps.store.repos
+        .listRepos(id)
+        .some((r) => cwd === r.path || cwd.startsWith(`${r.path}/`)),
     )
     if (byRepo) return byRepo
     if (online.length === 1) return online[0] as string
@@ -280,6 +283,7 @@ export class MachinesService {
       hostname: m.hostname,
       online: this.daemons.has(m.id),
       lastSeenAt: m.lastSeenAt,
+      ...(m.inventory ? { inventory: m.inventory } : {}),
     }))
   }
 

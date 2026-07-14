@@ -131,7 +131,9 @@ export function WorkerLabel({
   /** Wrap the kind icon in the 20px agent chip (work-list agent rows). */
   chip?: boolean
 }): JSX.Element {
-  const name = sessionDisplayName(session)
+  const name = session.handoffTarget
+    ? 'Handing off → ' + session.handoffTarget
+    : sessionDisplayName(session)
   return (
     <span className="worker-label inline-flex min-w-0 items-center gap-2">
       <KindIcon

@@ -364,6 +364,9 @@ export const appRouter = t.router({
     kill: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.killSession(input)),
+    handoff: t.procedure
+      .input(z.object({ sessionId: z.string(), machineId: z.string() }))
+      .mutation(({ ctx, input }) => mods(ctx).sessions.handoffSession(input)),
     continue: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.continueSession(input)),

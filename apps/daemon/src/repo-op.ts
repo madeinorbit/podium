@@ -23,6 +23,13 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':
       return { bin: 'git', argv: ['branch', '-a', '-v'] }
+    case 'revParseVerify': {
+      const ref = args.ref
+      if (!ref) return { error: 'missing args' }
+      const bad = assertSafeRef(ref, 'ref')
+      if (bad) return { error: bad }
+      return { bin: 'git', argv: ['rev-parse', '--verify', ref + '^{commit}'] }
+    }
     case 'worktreeAdd': {
       // Options before `--`; path + optional startPoint ride after it as
       // guaranteed positionals. The -b value is an option argument `--` cannot
@@ -31,7 +38,10 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!path || !branch) return { error: 'missing args' }
       const bad = assertSafeRef(branch, 'branch')
       if (bad) return { error: bad }
-      return { bin: 'git', argv: ['worktree', 'add', '-b', branch, '--', path, ...(startPoint ? [startPoint] : [])] }
+      return {
+        bin: 'git',
+        argv: ['worktree', 'add', '-b', branch, '--', path, ...(startPoint ? [startPoint] : [])],
+      }
     }
     case 'rebase': {
       // `git rebase -- <upstream>` is supported: a '-D' upstream fails with
@@ -118,7 +128,10 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!branch || !parentBranch) return { error: 'missing args' }
       const bad = assertSafeRef(branch, 'branch') ?? assertSafeRef(parentBranch, 'parentBranch')
       if (bad) return { error: bad }
-      return { bin: 'gh', argv: ['pr', 'create', '--base', parentBranch, '--head', branch, '--fill'] }
+      return {
+        bin: 'gh',
+        argv: ['pr', 'create', '--base', parentBranch, '--head', branch, '--fill'],
+      }
     }
   }
 }

@@ -762,7 +762,7 @@ export async function findLiveCodexRollout(
  * exists (the poller retries), so a just-resumed session that hasn't written
  * its file yet keeps waiting rather than latching onto a sibling.
  */
-async function resolvePinnedCodexRollout(
+export async function resolvePinnedCodexRollout(
   resumeValue: string,
   homeDir: string | undefined,
 ): Promise<{ path: string; id: string; confidence: 'exact' } | undefined> {

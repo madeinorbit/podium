@@ -195,6 +195,8 @@ export class Session {
    *  Transient mirror maintained by the registry (enqueue/deliver/boot) — the
    *  table is the truth; this exists so toMeta() stays synchronous. */
   queuedMessageCount = 0
+  /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
+  handoffTarget: string | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
    *  registry when the linkage is learned (resume ref observed/rolled, boot
    *  lookup); transient here — the conversation_segments table is the truth. */
@@ -821,6 +823,7 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
+      ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),

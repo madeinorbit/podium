@@ -29,6 +29,7 @@ import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
+import type { SessionStore } from '../../apps/server/src/store'
 import { writeCodexStartupFixture } from './codex-fixture'
 import {
   applyHarnessEnv,
@@ -102,7 +103,11 @@ const { stateDir } = applyHarnessEnv(PORT)
 const SCRATCH_REPO = join(tmpdir(), `zz-podium-e2e-repo-${PORT}`)
 const SCRATCH_FEAT = `${SCRATCH_REPO}-feat`
 rmSync(SCRATCH_REPO, { recursive: true, force: true })
+const E2E_TARGET_ID = 'e2e-target'
+const E2E_TARGET_REPO = `${SCRATCH_REPO}-target`
+const E2E_ORIGIN = 'https://e2e.invalid/shared.git'
 rmSync(SCRATCH_FEAT, { recursive: true, force: true })
+rmSync(E2E_TARGET_REPO, { recursive: true, force: true })
 mkdirSync(SCRATCH_REPO, { recursive: true })
 const git = (args: string[], cwd: string): void => {
   execFileSync('git', ['-c', 'user.email=e2e@podium', '-c', 'user.name=e2e', ...args], { cwd })
@@ -112,6 +117,10 @@ writeFileSync(join(SCRATCH_REPO, 'README.md'), 'e2e scratch repo\n')
 git(['add', '.'], SCRATCH_REPO)
 git(['commit', '-q', '-m', 'init'], SCRATCH_REPO)
 git(['worktree', 'add', '-q', SCRATCH_FEAT, '-b', 'e2e-feat'], SCRATCH_REPO)
+if (process.env.PODIUM_E2E_HANDOFF === '1') {
+  git(['remote', 'add', 'origin', E2E_ORIGIN], SCRATCH_REPO)
+  git(['clone', '-q', SCRATCH_REPO, E2E_TARGET_REPO], SCRATCH_REPO)
+}
 
 writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT, SCRATCH_REPO]))
 // Pre-pick the deployment mode so the setup gate (SetupGate → /setup/config →
@@ -144,6 +153,51 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
       }
 
 let server = await startServer({ port: PORT })
+
+if (process.env.PODIUM_E2E_HANDOFF === '1') {
+  // A second online machine with the same repo identity. It answers discovery only;
+  // execution remains covered by the coordinated live two-host E2E.
+  const harnessStore = (server.registry as unknown as { store: SessionStore }).store
+  harnessStore.machines.upsertMachine({
+    id: E2E_TARGET_ID,
+    name: 'E2E Target',
+    hostname: 'e2e-target',
+    tokenHash: 'e2e',
+  })
+  harnessStore.repos.updateRepoOrigin(LOCAL_MACHINE_ID, SCRATCH_REPO, E2E_ORIGIN)
+  harnessStore.repos.addRepo(E2E_TARGET_REPO, E2E_TARGET_ID, E2E_ORIGIN)
+  server.registry.modules.sessions.attachDaemon(E2E_TARGET_ID, (msg) => {
+    if (msg.type === 'scanReposRequest') {
+      server.registry.modules.sessions.onDaemonMessageFrom(E2E_TARGET_ID, {
+        type: 'scanReposResult',
+        requestId: msg.requestId,
+        repositories: [
+          {
+            path: E2E_TARGET_REPO,
+            kind: 'repository',
+            branch: 'main',
+            headSha: execFileSync('git', ['-C', E2E_TARGET_REPO, 'rev-parse', 'HEAD'], {
+              encoding: 'utf8',
+            }).trim(),
+            originUrl: E2E_ORIGIN,
+            worktrees: [],
+          },
+        ],
+        diagnostics: [],
+      })
+    }
+  })
+  server.registry.modules.machines.recordInventory(E2E_TARGET_ID, {
+    os: 'linux',
+    arch: 'x64',
+    tools: [],
+    agents: [
+      { kind: 'claude-code', installed: true, login: { state: 'in' } },
+      { kind: 'codex', installed: true, login: { state: 'in' } },
+    ],
+  })
+}
+
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
@@ -152,6 +206,13 @@ const daemon = await startDaemon({
   ...(realAgentCodexEnv ? { discovery: { homeDir: realAgentCodexEnv.discoveryHomeDir } } : {}),
   workerClient: inlineWorkerClient(),
 })
+if (process.env.PODIUM_E2E_HANDOFF === '1') {
+  server.registry.modules.sessions.createSession({
+    agentKind: 'claude-code',
+    cwd: SCRATCH_FEAT,
+    machineId: LOCAL_MACHINE_ID,
+  })
+}
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,
 )

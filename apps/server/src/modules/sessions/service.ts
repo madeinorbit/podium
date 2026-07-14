@@ -49,6 +49,7 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
+import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import type { PreparedSessionInstructions } from './instructions'
@@ -1619,6 +1620,156 @@ export class SessionsService {
     return { ok: true }
   }
 
+  /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
+  async handoffSession(input: {
+    sessionId: string
+    machineId: string
+  }): Promise<{ ok: true; newCwd: string }> {
+    const session = this.sessions.get(input.sessionId)
+    if (!session) throw new Error('unknown session')
+    if (session.agentKind !== 'claude-code' && session.agentKind !== 'codex') {
+      throw new Error('session harness does not support handoff')
+    }
+    if (!session.resume) throw new Error('session has no resume reference')
+    if (session.machineId === input.machineId) throw new Error('session is already on that machine')
+
+    const repos = this.store.repos.listRepos()
+    const sourceRepo = repos
+      .filter(
+        (repo) =>
+          repo.machineId === session.machineId &&
+          (session.cwd === repo.path || session.cwd.startsWith(`${repo.path}/`)),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
+    if (session.cwd === sourceRepo.path) throw new Error('only worktree sessions can be handed off')
+    const targetRepo = repos.find(
+      (repo) => repo.machineId === input.machineId && repo.repoId === sourceRepo.repoId,
+    )
+    if (!targetRepo) throw new Error('target machine does not have this repository')
+
+    const targetMachine = this.machines
+      .listMachines()
+      .find((machine) => machine.id === input.machineId)
+    if (!targetMachine?.online) throw new Error('target machine is offline')
+    const harness = targetMachine.inventory?.agents.find(
+      (agent) => agent.kind === session.agentKind,
+    )
+    if (!harness?.installed || harness.login.state === 'out') {
+      throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
+    }
+
+    const issue = session.issueId ? this.issues().get(session.issueId) : undefined
+    session.handoffTarget = targetMachine.name
+    this.broadcastSessions()
+
+    const branch = issue?.branch ?? basename(session.cwd)
+    const candidates = [
+      ...new Set(
+        [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
+          Boolean(ref),
+        ),
+      ),
+    ]
+    const verified = await Promise.all(
+      candidates.map((ref) =>
+        this.rpc.repoOp('revParseVerify', targetRepo.path, { ref }, input.machineId),
+      ),
+    )
+    const baseShas = verifiedBundleBases(verified)
+    if (baseShas.length === 0) {
+      session.handoffTarget = undefined
+      this.broadcastSessions()
+      throw new Error('target repository has no verified common bundle base')
+    }
+
+    const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }
+    const wasRunning =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+    if (wasRunning) {
+      session.status = 'hibernated'
+      this.autoContinue.onSessionGone(session.sessionId)
+      this.persist(session)
+      this.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
+      this.broadcastSessions()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    try {
+      const exported = await this.rpc.handoffExport(
+        {
+          sessionId: session.sessionId,
+          cwd: source.cwd,
+          agentKind: session.agentKind,
+          resume: session.resume,
+          branch,
+          baseShas,
+          repoId: sourceRepo.repoId,
+          ...(session.name || session.title ? { title: session.name || session.title } : {}),
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+          sourceMachineId: source.machineId,
+        },
+        source.machineId,
+      )
+      if (
+        !exported.ok ||
+        !exported.stagePath ||
+        exported.sizeBytes === undefined ||
+        !exported.manifest
+      ) {
+        throw new Error(exported.error ?? 'source failed to export session')
+      }
+      await transferHandoffPackage({
+        rpc: this.rpc,
+        sessionId: session.sessionId,
+        sourceMachineId: source.machineId,
+        targetMachineId: input.machineId,
+        sourceStagePath: exported.stagePath,
+        sizeBytes: exported.sizeBytes,
+      })
+      const imported = await this.rpc.handoffImport(
+        session.sessionId,
+        targetRepo.path,
+        exported.manifest.worktreeName,
+        input.machineId,
+      )
+      if (!imported.ok || !imported.newCwd)
+        throw new Error(imported.error ?? 'target failed to import session')
+
+      session.handoffTarget = undefined
+      session.machineId = input.machineId
+      session.cwd = imported.newCwd
+      session.status = 'hibernated'
+      this.persist(session)
+      const resumed = this.resumeSession({
+        agentKind: session.agentKind,
+        cwd: session.cwd,
+        resume: session.resume,
+        conversationId:
+          session.origin.kind === 'resume' ? session.origin.conversationId : session.resume.value,
+        ...(session.name || session.title ? { title: session.name || session.title } : {}),
+        machineId: input.machineId,
+      })
+      if (resumed.sessionId !== session.sessionId || (session.status as string) !== 'starting')
+        throw new Error('target session failed to resume')
+      return { ok: true, newCwd: imported.newCwd }
+    } catch (error) {
+      session.handoffTarget = undefined
+      session.machineId = source.machineId
+      session.cwd = source.cwd
+      session.status = 'hibernated'
+      this.persist(session)
+      const rollback = this.resurrectSession({ sessionId: session.sessionId })
+      if (!rollback.ok)
+        console.warn(
+          `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
+        )
+      throw error
+    }
+  }
+
   /**
    * Chat-compose path for a parked session: if it's live, just send; if it's
    * hibernated/exited (process gone, conversation intact), wake it first and
@@ -2470,6 +2621,22 @@ export class SessionsService {
             })
           }
         }
+        break
+      }
+      case 'handoffExportResult': {
+        this.rpc.onHandoffExportResult(msg)
+        break
+      }
+      case 'handoffChunkReadResult': {
+        this.rpc.onHandoffChunkReadResult(msg)
+        break
+      }
+      case 'handoffImportChunkResult': {
+        this.rpc.onHandoffImportChunkResult(msg)
+        break
+      }
+      case 'handoffImportResult': {
+        this.rpc.onHandoffImportResult(msg)
         break
       }
       case 'repoOpResult': {

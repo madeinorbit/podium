@@ -1,0 +1,100 @@
+import { z } from 'zod'
+import { AgentKind, ResumeRef } from './terminal'
+
+/** Canonical portable session package ([spec:SP-3f7a]). */
+export const HandoffManifest = z.object({
+  format: z.literal(1),
+  sessionId: z.string(),
+  agentKind: z.enum(['claude-code', 'codex']),
+  resume: ResumeRef,
+  transcriptFilename: z.string(),
+  transcriptRelativeDir: z.string().optional(),
+  repoId: z.string(),
+  branch: z.string(),
+  headSha: z.string(),
+  snapshotSha: z.string().nullable(),
+  snapshotFlattened: z.literal(true),
+  worktreeName: z.string(),
+  bundleBase: z.array(z.string()),
+  title: z.string().optional(),
+  issueId: z.string().optional(),
+  sourceMachineId: z.string(),
+  exportedAt: z.string(),
+})
+export type HandoffManifest = z.infer<typeof HandoffManifest>
+
+export const HandoffExportRequestMessage = z.object({
+  type: z.literal('handoffExportRequest'),
+  requestId: z.string(),
+  sessionId: z.string(),
+  cwd: z.string(),
+  agentKind: AgentKind,
+  resume: ResumeRef,
+  branch: z.string(),
+  baseShas: z.array(z.string()),
+  repoId: z.string(),
+  title: z.string().optional(),
+  issueId: z.string().optional(),
+  sourceMachineId: z.string(),
+})
+export const HandoffExportResultMessage = z.object({
+  type: z.literal('handoffExportResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  manifest: HandoffManifest.optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  stagePath: z.string().optional(),
+  error: z.string().optional(),
+})
+export const HandoffChunkReadRequestMessage = z.object({
+  type: z.literal('handoffChunkReadRequest'),
+  requestId: z.string(),
+  stagePath: z.string(),
+  offset: z.number().int().nonnegative(),
+  length: z
+    .number()
+    .int()
+    .positive()
+    .max(8 * 1024 * 1024),
+})
+export const HandoffChunkReadResultMessage = z.object({
+  type: z.literal('handoffChunkReadResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  data: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  eof: z.boolean().optional(),
+  error: z.string().optional(),
+})
+export const HandoffImportChunkMessage = z.object({
+  type: z.literal('handoffImportChunk'),
+  requestId: z.string(),
+  sessionId: z.string(),
+  offset: z.number().int().nonnegative(),
+  data: z.string().max(12 * 1024 * 1024),
+})
+export const HandoffImportChunkResultMessage = z.object({
+  type: z.literal('handoffImportChunkResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  error: z.string().optional(),
+})
+export const HandoffImportRequestMessage = z.object({
+  type: z.literal('handoffImportRequest'),
+  requestId: z.string(),
+  sessionId: z.string(),
+  repoPath: z.string(),
+  worktreeName: z.string(),
+})
+export const HandoffImportResultMessage = z.object({
+  type: z.literal('handoffImportResult'),
+  requestId: z.string(),
+  ok: z.boolean(),
+  newCwd: z.string().optional(),
+  error: z.string().optional(),
+})
+export type HandoffExportResultMessage = z.infer<typeof HandoffExportResultMessage>
+export type HandoffChunkReadResultMessage = z.infer<typeof HandoffChunkReadResultMessage>
+export type HandoffImportChunkResultMessage = z.infer<typeof HandoffImportChunkResultMessage>
+export type HandoffImportResultMessage = z.infer<typeof HandoffImportResultMessage>

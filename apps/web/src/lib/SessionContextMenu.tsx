@@ -1,10 +1,13 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { handoffTargets } from '@podium/domain'
 import type { SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
+  ArrowRightLeft,
   AlarmClockOff,
   Archive,
   ArchiveRestore,
+  ChevronRight,
   Mail,
   MailOpen,
   MessageSquareText,
@@ -17,9 +20,10 @@ import {
 } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from './derive'
+import { isSnoozed, reposToViews, snoozeUntil1h, snoozeUntilTomorrow5am } from './derive'
 import { useNow } from './useNow'
 
 export interface ContextMenuAnchor {
@@ -87,6 +91,9 @@ export function SessionContextMenu({
     startBtw,
     markSessionRead,
     markSessionUnread,
+    trpc,
+    repos,
+    machines,
   } = useStoreSelector(
     (s) => ({
       setPinned: s.setPinned,
@@ -97,13 +104,18 @@ export function SessionContextMenu({
       startBtw: s.startBtw,
       markSessionRead: s.markSessionRead,
       markSessionUnread: s.markSessionUnread,
+      trpc: s.trpc,
+      repos: s.repos,
+      machines: s.machines,
     }),
     shallowEqual,
   )
   const { guardedKill, guardedArchive } = useSessionGuard()
   const now = useNow(60_000)
+  const targets = handoffTargets(session, reposToViews(repos), machines)
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
+  const [handoffTop, setHandoffTop] = useState<number | null>(null)
 
   // Clamp into the viewport once the menu has measured its real size, so a
   // right-click near the bottom/right edge doesn't open a clipped menu.
@@ -144,6 +156,14 @@ export function SessionContextMenu({
   const run = (fn: () => void | Promise<void>): void => {
     void fn()
     onClose()
+  }
+
+  const handoff = (machineId: string, machineName: string): void => {
+    onClose()
+    void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
+      () => toast.success('Handed off to ' + machineName),
+      (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
+    )
   }
 
   const itemCls =
@@ -257,6 +277,20 @@ export function SessionContextMenu({
           <Play size={14} aria-hidden="true" /> Resume
         </button>
       )}
+      {targets.length > 0 && (
+        <button
+          type="button"
+          role="menuitem"
+          aria-haspopup="menu"
+          aria-expanded={handoffTop !== null}
+          className={itemCls}
+          onMouseEnter={(event) => setHandoffTop(event.currentTarget.offsetTop)}
+          onClick={(event) => setHandoffTop(event.currentTarget.offsetTop)}
+        >
+          <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
+          <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
+        </button>
+      )}
       <button
         type="button"
         role="menuitem"
@@ -287,6 +321,30 @@ export function SessionContextMenu({
         >
           <X size={14} aria-hidden="true" /> Close
         </button>
+      )}
+      {handoffTop !== null && (
+        <div
+          role="menu"
+          aria-label="Handoff targets"
+          className="absolute left-full z-[61] min-w-[180px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
+          style={{
+            ...(pos.x + 380 > window.innerWidth ? { left: 'auto', right: '100%' } : {}),
+            top: handoffTop - 4,
+          }}
+        >
+          {targets.map((machine) => (
+            <button
+              key={machine.id}
+              type="button"
+              role="menuitem"
+              className={itemCls}
+              onClick={() => handoff(machine.id, machine.name)}
+            >
+              <span className="size-2 rounded-full bg-live" aria-hidden="true" />
+              {machine.name}
+            </button>
+          ))}
+        </div>
       )}
     </div>,
     document.body,

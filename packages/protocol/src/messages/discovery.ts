@@ -131,6 +131,7 @@ export const RepoOp = z.enum([
   'status',
   'log',
   'branches',
+  'revParseVerify',
   'worktreeAdd',
   'rebase',
   'mergeFfOnly',
