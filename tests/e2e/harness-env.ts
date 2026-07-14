@@ -12,6 +12,35 @@ import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+const CLEANUP_MAX_RETRIES = 5
+const CLEANUP_RETRY_DELAY_MS = 100
+
+function sleepSync(delayMs: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs)
+}
+
+/**
+ * A killed harness process can finish one last transcript write while the
+ * recursive removal is walking state/transcripts. Retry that transient
+ * ENOTEMPTY with bounded linear backoff; all other errors remain actionable.
+ */
+export function retryHarnessCleanup(
+  remove: () => void,
+  wait: (delayMs: number) => void = sleepSync,
+): void {
+  for (let retries = 0; ; retries += 1) {
+    try {
+      remove()
+      return
+    } catch (error) {
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+      if (code !== 'ENOTEMPTY' || retries >= CLEANUP_MAX_RETRIES) throw error
+      wait(CLEANUP_RETRY_DELAY_MS * (retries + 1))
+    }
+  }
+}
+
 export function harnessStateBase(port: number): string {
   return join(tmpdir(), `podium-e2e-${port}`)
 }
@@ -136,7 +165,7 @@ export function reapHarnessSessions(port: number): void {
     // tmux not installed
   }
 
-  rmSync(base, { recursive: true, force: true })
+  retryHarnessCleanup(() => rmSync(base, { recursive: true, force: true }))
 }
 
 /** Create the isolation dirs and point this process's env at them. */

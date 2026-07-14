@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { harnessEnv, reapHarnessSessions } from './harness-env'
+import { harnessEnv, reapHarnessSessions, retryHarnessCleanup } from './harness-env'
 
 /**
  * Regression guard for the 2026-06-13 incident: abduco 0.6 silently falls back
@@ -84,5 +84,61 @@ describe('reapHarnessSessions isolation', () => {
 
     await new Promise((r) => setTimeout(r, 200))
     expect(sentinel.signalCode).toBe('SIGTERM')
+  })
+})
+
+describe('reapHarnessSessions cleanup retries', () => {
+  const PORT = 9912
+
+  afterEach(() => {
+    rmSync(harnessEnv(PORT).base, { recursive: true, force: true })
+  })
+
+  it('removes a late transcript write on each repeated run', () => {
+    const { base, stateDir } = harnessEnv(PORT)
+    const waits: number[] = []
+
+    for (let run = 1; run <= 4; run += 1) {
+      const transcripts = join(stateDir, 'transcripts', 'local')
+      mkdirSync(transcripts, { recursive: true })
+      writeFileSync(join(transcripts, `initial-${run}.jsonl`), 'initial')
+      let attempts = 0
+
+      retryHarnessCleanup(
+        () => {
+          attempts += 1
+          if (attempts === 1) {
+            writeFileSync(join(transcripts, `late-${run}.jsonl`), 'late')
+            throw Object.assign(new Error('directory not empty'), { code: 'ENOTEMPTY' })
+          }
+          rmSync(base, { recursive: true, force: true })
+        },
+        (delayMs) => waits.push(delayMs),
+      )
+
+      expect(attempts).toBe(2)
+      expect(existsSync(base)).toBe(false)
+    }
+
+    expect(waits).toEqual([100, 100, 100, 100])
+  })
+
+  it('stops after five ENOTEMPTY retries', () => {
+    const error = Object.assign(new Error('directory not empty'), { code: 'ENOTEMPTY' })
+    const waits: number[] = []
+    let attempts = 0
+
+    expect(() =>
+      retryHarnessCleanup(
+        () => {
+          attempts += 1
+          throw error
+        },
+        (delayMs) => waits.push(delayMs),
+      ),
+    ).toThrow(error)
+
+    expect(attempts).toBe(6)
+    expect(waits).toEqual([100, 200, 300, 400, 500])
   })
 })
