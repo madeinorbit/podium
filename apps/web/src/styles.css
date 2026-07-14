@@ -254,13 +254,13 @@ body:has(.mobile-shell) {
 .toolbar .key:active {
   background: var(--primary);
   border-color: var(--primary);
-  color: #1a1205;
+  color: var(--attention-foreground);
 }
 /* Sticky modifier (Ctrl): lit while armed for the next keystroke. */
 .toolbar .key.mod.armed {
   background: var(--primary);
   border-color: var(--primary);
-  color: #1a1205;
+  color: var(--attention-foreground);
 }
 .toolbar .key-sep {
   flex: 0 0 auto;
@@ -321,7 +321,7 @@ body:has(.mobile-shell) {
 .key-actions .key-act:active {
   background: var(--primary);
   border-color: var(--primary);
-  color: #1a1205;
+  color: var(--attention-foreground);
 }
 .key-actions .key-mic {
   flex: 0 0 auto;

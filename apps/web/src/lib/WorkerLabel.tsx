@@ -97,7 +97,7 @@ export function KindIcon({
   const tone = dimmed
     ? 'text-muted-foreground/70'
     : kind === 'claude-code'
-      ? 'text-[#D97757]'
+      ? 'text-claude'
       : 'text-foreground'
   if (chip) {
     return (

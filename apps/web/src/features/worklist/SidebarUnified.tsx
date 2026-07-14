@@ -288,7 +288,7 @@ export function NewWorkRow(): JSX.Element {
               <AgentIcon
                 size={14}
                 aria-hidden="true"
-                className={cn('flex-none', defaultAgent === 'claude-code' && 'text-[#D97757]')}
+                className={cn('flex-none', defaultAgent === 'claude-code' && 'text-claude')}
               />
             ) : null
           })()}
