@@ -268,7 +268,7 @@ export function Workspace(): JSX.Element {
   }
 
   return (
-    <section className="relative flex min-w-0 flex-1 flex-col">
+    <section className="native-agents-pane relative flex min-w-0 flex-1 flex-col">
       <div className="relative flex items-stretch gap-2 border-b border-border bg-background px-2 pt-1.5">
         <DndContext
           sensors={sensors}

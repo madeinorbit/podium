@@ -74,8 +74,11 @@ function worstWindow(
 export function QuotaIndicator({
   compact = false,
   detail = false,
+  header = false,
 }: {
   compact?: boolean
+  /** Use the 44px desktop-header label + 34×3.5px meter treatment. */
+  header?: boolean
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
 }): JSX.Element | null {
@@ -122,20 +125,28 @@ export function QuotaIndicator({
               className={cn(
                 'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
                 compact && cn('min-w-[30px] justify-center px-1', tone.compact),
+                header && 'header-quota-chip',
               )}
               aria-label="Agent quota — click for the breakdown"
               onClick={() => setOpen(true)}
             >
-              <Gauge size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
+              {header ? (
+                <span>quota</span>
+              ) : (
+                <Gauge size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
+              )}
               {!compact && (
                 <span
-                  className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
+                  className={cn(
+                    'overflow-hidden rounded-sm bg-secondary',
+                    header ? 'h-[3.5px] w-[34px]' : 'h-1 w-9',
+                  )}
                   role="presentation"
                 >
                   <span className={cn('block h-full', tone.fill)} style={{ width: `${worst}%` }} />
                 </span>
               )}
-              {!compact && detail && worstW && (
+              {!compact && !header && detail && worstW && (
                 <span className="whitespace-nowrap text-[#6c6c78]">
                   {agentLabel(worstW.g.agent)} {Math.round(worstW.w.usedPercent)}% ·{' '}
                   {formatReset(worstW.w.resetsAt, Date.now())}

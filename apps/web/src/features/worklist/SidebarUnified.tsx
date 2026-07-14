@@ -5,19 +5,13 @@ import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
   BarChart3,
-  BookOpenText,
   ChevronDown,
   ChevronRight,
   Circle,
   FolderPlus,
   GitBranch,
-  Home,
-  KanbanSquare,
-  ListChecks,
-  type LucideIcon,
   Pin,
   Plus,
-  RotateCw,
   Search,
   Settings as SettingsIcon,
 } from 'lucide-react'
@@ -95,54 +89,10 @@ function agentIconFor(kind: AgentKind) {
  * them into its home view without the desktop nav column (#227).
  */
 export function SidebarUnified(): JSX.Element {
-  const { view, setView } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView }),
-    shallowEqual,
-  )
-  const nav: { id: Parameters<typeof setView>[0]; label: string; Icon: LucideIcon }[] = [
-    { id: 'home', label: 'Command center', Icon: Home },
-    { id: 'issues', label: 'Issues', Icon: KanbanSquare },
-    { id: 'workflows', label: 'Workflows', Icon: ListChecks },
-    { id: 'specs', label: 'Specs', Icon: BookOpenText },
-    { id: 'automations', label: 'Automations', Icon: RotateCw },
-  ]
   return (
     <>
       <NewWorkRow />
-
-      {/* App-surface nav: full-width links to the big non-workspace views.
-          (The classic sidebar is gone — this is THE navigation now.) */}
-      <div className="mx-2 flex flex-col gap-px">
-        {nav.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            type="button"
-            className={cn(
-              'relative flex w-full items-center gap-[9px] rounded-md px-2 py-1.5 text-[13px] transition-colors',
-              view === id
-                ? 'bg-[#232330] font-medium text-[#f3f3f8]'
-                : 'text-[#9a9aa8] hover:bg-[#20202a] hover:text-[#f3f3f8]',
-            )}
-            aria-pressed={view === id}
-            onClick={() => setView(id)}
-          >
-            {view === id && (
-              <span
-                className="absolute inset-y-1.5 left-0 w-[2.5px] rounded-[2px] bg-primary"
-                aria-hidden="true"
-              />
-            )}
-            <Icon
-              size={15}
-              aria-hidden="true"
-              className={cn('flex-none', view === id && 'text-primary')}
-            />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="scroll-none mt-2.5 min-h-0 flex-1 overflow-y-auto px-2 pb-2.5">
+      <div className="scroll-none min-h-0 flex-1 overflow-y-auto px-2 pb-2.5">
         <WorkSections />
       </div>
       <AppToolsRow className="flex-none border-t border-[#1f1f27] px-2.5 py-[7px]" />
