@@ -2286,6 +2286,17 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     expect(remove).toHaveBeenCalledWith(w.id, 'art1')
   })
 
+  it('re-add without --title keeps the existing title; a new title wins', async () => {
+    const { svc } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1' })
+    await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v1' })
+    const kept = await svc.panelArtifactAdd(w.id, { path: 'a.png' })
+    expect(kept.panel?.artifacts[0]?.title).toBe('Mock v1')
+    const renamed = await svc.panelArtifactAdd(w.id, { path: 'a.png', title: 'Mock v2' })
+    expect(renamed.panel?.artifacts[0]?.title).toBe('Mock v2')
+  })
+
   it('a failed pull errors the op with nothing half-registered', async () => {
     const { svc, snapshot } = artifactHarness()
     snapshot.mockRejectedValueOnce(new Error('cannot read /wt/gone.png: not found'))

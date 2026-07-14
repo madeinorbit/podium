@@ -125,11 +125,15 @@ export function inspectConfig(path = configPath()): ConfigInspection {
   try {
     return { state: 'ok', config: PodiumConfig.parse(JSON.parse(readFileSync(path, 'utf8'))) }
   } catch (err) {
-    return {
-      state: 'corrupt',
-      config: {},
-      error: err instanceof Error ? err.message : String(err),
-    }
+    // A ZodError's message is the full issues array as JSON — condense it to
+    // one `path: message` line per issue so boot logs stay readable.
+    const error =
+      err instanceof z.ZodError
+        ? err.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')
+        : err instanceof Error
+          ? err.message
+          : String(err)
+    return { state: 'corrupt', config: {}, error }
   }
 }
 

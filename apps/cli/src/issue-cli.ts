@@ -238,6 +238,14 @@ export async function runIssueCli(
 export async function issueCliMain(argv: string[]): Promise<void> {
   const relay = resolveIssueRelay()
   const outsideScope = argv.includes('--outside-scope')
+  // The session-injected relay wins over PODIUM_STATE_DIR/PODIUM_PORT targeting.
+  // Say so instead of silently routing to the session's server (footgun when
+  // driving an isolated instance from inside an agent session); unset
+  // PODIUM_ISSUE_RELAY to talk to the targeted instance directly.
+  if (relay && process.env.PODIUM_STATE_DIR)
+    console.error(
+      'podium issue: routing via this session’s issue relay (PODIUM_STATE_DIR/PODIUM_PORT ignored; unset PODIUM_ISSUE_RELAY to target another instance)',
+    )
   const client = relay
     ? makeRelayIssueClient(relay, { outsideScope })
     : makeIssueClient(`http://localhost:${resolvePort()}`)

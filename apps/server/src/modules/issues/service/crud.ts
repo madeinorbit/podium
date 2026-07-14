@@ -121,7 +121,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
   ): Promise<IssueWire> {
     const row = this.rowOrThrow(this.resolveRef(id))
     const store = this.deps.artifacts
-    const title = input.title ? { title: input.title } : {}
+    // Re-add keeps the existing title unless a new one is given.
+    const existing = this.parsePanel(row).artifacts.find((a) => a.path === input.path)
+    const effectiveTitle = input.title ?? existing?.title
+    const title = effectiveTitle ? { title: effectiveTitle } : {}
     if (!store) return this.panelApply(row.id, { op: 'artifact-add', path: input.path, ...title })
     // Owning machine + root: the issue worktree, falling back to the invoking
     // session's machine/cwd — the same resolution the live render route uses.
@@ -138,7 +141,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       sourcePath: input.path,
       ...(input.extraPaths?.length ? { extraPaths: input.extraPaths } : {}),
     })
-    const oldId = this.parsePanel(row).artifacts.find((a) => a.path === input.path)?.artifactId
+    const oldId = existing?.artifactId
     const wire = this.panelApply(row.id, {
       op: 'artifact-add',
       path: input.path,
