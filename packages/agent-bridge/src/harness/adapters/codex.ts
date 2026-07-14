@@ -7,6 +7,7 @@ import {
 } from '../../agent-state/codex.js'
 import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
 import { type HarnessAdapter, isSet, type TranscriptSourceInput } from '../adapter.js'
+import { composeAgentInstructions } from '../instructions.js'
 
 /**
  * Translate a Claude-shaped MCP config JSON into codex `-c` TOML overrides:
@@ -58,12 +59,14 @@ export const codexAdapter: HarnessAdapter = {
   resumeKind: 'codex-thread',
 
   launch(opts) {
+    const instructions = composeAgentInstructions(opts.instructions)
     return {
       cmd: 'codex',
       args: [
         ...(opts.resume ? ['resume', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['-c', `model_reasoning_effort=${opts.effort}`] : []),
+        ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
         ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
       ],
       cwd: opts.cwd,

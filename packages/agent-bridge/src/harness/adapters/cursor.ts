@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
@@ -10,6 +11,7 @@ import {
   type TranscriptSourceInput,
   transcriptFileExists,
 } from '../adapter.js'
+import { composeAgentInstructions } from '../instructions.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
@@ -27,14 +29,37 @@ export const cursorAdapter: HarnessAdapter = {
   resumeKind: 'cursor-chat',
 
   launch(opts) {
+    const args = [
+      ...(opts.resume ? ['--resume', opts.resume.value] : []),
+      ...(isSet(opts.model) ? ['--model', opts.model] : []),
+    ]
+    const instructions = composeAgentInstructions(opts.instructions)
+    if (!instructions) return { cmd: resolveCursorBin(), args, cwd: opts.cwd }
+    if (!opts.runtimeDir) throw new Error('cursor launch requires an instruction runtime directory')
+    const manifestPath = join(opts.runtimeDir, '.cursor-plugin', 'plugin.json')
+    const rulePath = join(opts.runtimeDir, 'rules', 'podium-session-context.mdc')
+    const manifest = `${JSON.stringify(
+      {
+        name: 'podium-session-context',
+        displayName: 'Podium Session Context',
+        version: '1.0.0',
+        description: 'Machine-authored instructions supplied by Podium for this session.',
+        author: { name: 'Podium' },
+        license: 'MIT',
+      },
+      null,
+      2,
+    )}\n`
+    const rule = `---\ndescription: Podium session context\nalwaysApply: true\n---\n\n${instructions}\n`
     // No effort flag (capabilities.effortFlag 'none') and no argv prompt.
     return {
       cmd: resolveCursorBin(),
-      args: [
-        ...(opts.resume ? ['--resume', opts.resume.value] : []),
-        ...(isSet(opts.model) ? ['--model', opts.model] : []),
-      ],
+      args: [...args, '--plugin-dir', opts.runtimeDir],
       cwd: opts.cwd,
+      files: [
+        { path: manifestPath, contents: manifest },
+        { path: rulePath, contents: rule },
+      ],
     }
   },
 

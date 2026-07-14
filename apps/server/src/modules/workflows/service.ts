@@ -525,6 +525,19 @@ export class WorkflowService {
     return { revision, prompt: this.renderRevisionPrompt(revision) }
   }
 
+  prepareExistingSession(input: {
+    sessionId: string
+    issueId?: string
+  }): { revision: WorkflowRevisionWire; prompt: string } | null {
+    const existing =
+      this.deps.store.findLiveRunForSession(input.sessionId) ??
+      (input.issueId ? this.deps.store.findLiveRun('issue', input.issueId) : null)
+    if (!existing) return null
+    const revision = this.deps.store.getRevision(existing.revisionId)
+    if (!revision) throw new Error(`workflow run ${existing.id} lost its revision`)
+    return { revision, prompt: this.renderRevisionPrompt(revision) }
+  }
+
   startRun(input: {
     sessionId: string
     cwd: string
@@ -971,9 +984,7 @@ export class WorkflowService {
         ? 'Workflow complete.'
         : 'This prompt-only workflow has no structured steps.'
     const delegation =
-      role === 'coordinator' &&
-      run.subjectKind === 'issue' &&
-      current?.executionProfileId
+      role === 'coordinator' && run.subjectKind === 'issue' && current?.executionProfileId
         ? [
             `Delegate this step with: podium agent spawn --issue ${run.subjectId} --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id ${current.stepId} --execution-profile-id ${current.executionProfileId}`,
             `Then assign the returned child: podium workflow assign-step ${current.stepId} <child-session-id> --run ${run.id}`,

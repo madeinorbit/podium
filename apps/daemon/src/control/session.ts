@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import {
   type AgentSession,
   abducoHasSessionAsync,
@@ -8,6 +8,7 @@ import {
   attachTmuxAgent,
   killAbducoSessionAsync,
   killTmuxServerAsync,
+  type LaunchFile,
   spawnAbducoAgent,
   spawnAgent,
   spawnTmuxAgent,
@@ -42,9 +43,25 @@ export function issueRelayEnv(sessionId: string, endpoint: string): Record<strin
  *  The result is an OVERLAY — the PTY layer layers it over the full process.env. */
 export function spawnEnv(opts: {
   sessionEnv?: Record<string, string>
+  harnessEnv?: Record<string, string>
   podiumEnv: Record<string, string>
 }): Record<string, string> {
-  return { ...(opts.sessionEnv ?? {}), ...opts.podiumEnv }
+  return { ...(opts.sessionEnv ?? {}), ...(opts.harnessEnv ?? {}), ...opts.podiumEnv }
+}
+
+export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
+  for (const file of files ?? []) {
+    mkdirSync(dirname(file.path), { recursive: true })
+    writeFileSync(file.path, file.contents, { mode: 0o600 })
+  }
+}
+
+function instructionRuntimeDir(ctx: DaemonContext, sessionId: string): string {
+  return join(ctx.settingsDir, 'session-instructions', sessionId)
+}
+
+function removeSessionInstructions(ctx: DaemonContext, sessionId: string): void {
+  rmSync(instructionRuntimeDir(ctx, sessionId), { recursive: true, force: true })
 }
 
 export function wireBridge(
@@ -92,6 +109,7 @@ export function wireBridge(
       // directly, so the two are harmlessly idempotent (rmSync force:true is a no-op
       // on a missing dir). The hourly TTL sweep remains a backstop for edge cases.
       removeSessionUploads(sessionId)
+      removeSessionInstructions(ctx, sessionId)
       ctx.send({ type: 'agentExit', sessionId, code })
     })()
   })
@@ -100,13 +118,18 @@ export function wireBridge(
 function spawn(ctx: DaemonContext, msg: SpawnControl): void {
   try {
     const spawnStartedAt = Date.now()
+    const runtimeDir = instructionRuntimeDir(ctx, msg.sessionId)
     const cmd = ctx.launch(msg.agentKind, {
       cwd: msg.cwd,
       ...(msg.resume ? { resume: msg.resume } : {}),
       ...(msg.model ? { model: msg.model } : {}),
       ...(msg.effort ? { effort: msg.effort } : {}),
       ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+      ...(msg.instructions ? { instructions: msg.instructions } : {}),
+      runtimeDir,
+      ...(msg.env ? { env: msg.env } : {}),
     })
+    materializeLaunchFiles(cmd.files)
     const label = `podium-${msg.sessionId}`
     const provider = agentStateProviderFor(msg.agentKind)
     let extraArgs: string[] = []
@@ -129,6 +152,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       env: spawnEnv({
         // Server-resolved managed credential / environment (SP-6454, #216).
         sessionEnv: msg.env,
+        harnessEnv: cmd.env,
         podiumEnv: {
           // Bind the loopback issue-relay + session id into every agent's env so its
           // `podium issue` CLI can reach the daemon for this exact session.
@@ -168,6 +192,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       geometry: msg.geometry,
     })
   } catch (err) {
+    removeSessionInstructions(ctx, msg.sessionId)
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -311,6 +336,7 @@ export const sessionHandlers: Pick<
       void killTmuxServerAsync(`podium-${msg.sessionId}`)
     }
     removeSessionUploads(msg.sessionId)
+    removeSessionInstructions(ctx, msg.sessionId)
   },
   input: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.write(msg.data)

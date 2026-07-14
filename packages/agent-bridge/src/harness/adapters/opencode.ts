@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import {
   type OpencodeMessagePartRow,
@@ -10,6 +11,7 @@ import { createOpencodeConversationProvider } from '../../discovery/providers/op
 import { resolveOpencodeBin } from '../../opencode/cli.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../../opencode/db.js'
 import { type HarnessAdapter, isSet } from '../adapter.js'
+import { composeAgentInstructions } from '../instructions.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
@@ -47,7 +49,7 @@ export const opencodeAdapter: HarnessAdapter = {
   resumeKind: 'opencode-session',
 
   launch(opts) {
-    return {
+    const base = {
       cmd: resolveOpencodeBin(),
       args: [
         ...(opts.resume ? ['--session', opts.resume.value] : []),
@@ -55,6 +57,32 @@ export const opencodeAdapter: HarnessAdapter = {
         ...(isSet(opts.effort) ? ['--variant', opts.effort] : []),
       ],
       cwd: opts.cwd,
+    }
+    const instructions = composeAgentInstructions(opts.instructions)
+    if (!instructions) return base
+    if (!opts.runtimeDir)
+      throw new Error('opencode launch requires an instruction runtime directory')
+    const instructionPath = join(opts.runtimeDir, 'podium-instructions.md')
+    let config: Record<string, unknown>
+    try {
+      config = JSON.parse(
+        opts.env?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? '{}',
+      ) as Record<string, unknown>
+    } catch {
+      throw new Error('malformed OPENCODE_CONFIG_CONTENT — refusing to discard existing config')
+    }
+    const configuredInstructions = Array.isArray(config.instructions)
+      ? config.instructions.filter((item): item is string => typeof item === 'string')
+      : []
+    return {
+      ...base,
+      env: {
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          ...config,
+          instructions: [...configuredInstructions, instructionPath],
+        }),
+      },
+      files: [{ path: instructionPath, contents: instructions }],
     }
   },
 

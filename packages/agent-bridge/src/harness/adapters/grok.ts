@@ -8,6 +8,7 @@ import {
   type TranscriptSourceInput,
   transcriptFileExists,
 } from '../adapter.js'
+import { composeAgentInstructions } from '../instructions.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
@@ -25,12 +26,14 @@ export const grokAdapter: HarnessAdapter = {
   resumeKind: 'grok-session',
 
   launch(opts) {
+    const instructions = composeAgentInstructions(opts.instructions)
     return {
       cmd: 'grok',
       args: [
         ...(opts.resume ? ['--resume', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['--effort', opts.effort] : []),
+        ...(instructions ? ['--rules', instructions] : []),
         ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
       ],
       cwd: opts.cwd,

@@ -204,6 +204,16 @@ describe('SessionRegistry', () => {
     expect(deliveredPrompt).toBe('fix the bug')
     expect(deliveredPrompt).not.toContain('# Podium workflow')
     expect(deliveredPrompt).not.toContain('Research before changing code.')
+    const hiddenInstructions = spawn?.type === 'spawn' ? spawn.instructions : undefined
+    expect(hiddenInstructions?.map((instruction) => instruction.source)).toEqual([
+      'podium:issues',
+      'podium:specs',
+      'podium:workflow',
+    ])
+    expect(hiddenInstructions?.find((instruction) => instruction.source === 'podium:workflow')?.content)
+      .toContain('Research before changing code.')
+    expect(hiddenInstructions?.every((instruction) => !instruction.content.includes('fix the bug')))
+      .toBe(true)
     expect(reg.modules.workflows.runs({}, operator)).toMatchObject([
       { coordinatorSessionId: sessionId, revision: { id: created.revision.id } },
     ])
@@ -219,7 +229,12 @@ describe('SessionRegistry', () => {
     const blankSpawn = daemon.find(
       (message) => message.type === 'spawn' && message.sessionId === blankSessionId,
     )
-    expect(blankSpawn).toMatchObject({ type: 'spawn' })
+    expect(blankSpawn).toMatchObject({
+      type: 'spawn',
+      instructions: expect.arrayContaining([
+        expect.objectContaining({ source: 'podium:workflow' }),
+      ]),
+    })
     expect(blankSpawn).not.toHaveProperty('initialPrompt')
     expect(client.sent).not.toContainEqual(
       expect.objectContaining({ type: 'sessionDraftChanged', sessionId: blankSessionId }),
@@ -388,6 +403,10 @@ describe('SessionRegistry', () => {
         type: 'spawn',
         sessionId,
         resume: { kind: 'codex-thread', value: 't9' },
+        instructions: expect.arrayContaining([
+          expect.objectContaining({ source: 'podium:issues' }),
+          expect.objectContaining({ source: 'podium:specs' }),
+        ]),
       }),
     )
     expect(reg.modules.sessions.listSessions().at(0)).toMatchObject({
@@ -2044,6 +2063,10 @@ describe('hibernation', () => {
         type: 'spawn',
         sessionId,
         resume: { kind: 'claude-session', value: 'abc-123' },
+        instructions: expect.arrayContaining([
+          expect.objectContaining({ source: 'podium:issues' }),
+          expect.objectContaining({ source: 'podium:specs' }),
+        ]),
       }),
     )
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')

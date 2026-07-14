@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { agentLaunchCommand, agentSupportsInitialPrompt, ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './launch'
 import { resolveCursorBin } from './cursor/cli.js'
+import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
 import { resolveOpencodeBin } from './opencode/cli.js'
 
 describe('agentLaunchCommand', () => {
   it('spawns claude fresh', () => {
     expect(agentLaunchCommand('claude-code', { cwd: '/proj' })).toEqual({
       cmd: 'claude',
-      args: ['--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`],
+      args: [],
       cwd: '/proj',
     })
   })
@@ -20,7 +20,7 @@ describe('agentLaunchCommand', () => {
       }),
     ).toEqual({
       cmd: 'claude',
-      args: ['--resume', 'abc', '--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`],
+      args: ['--resume', 'abc'],
       cwd: '/proj',
     })
   })
@@ -117,13 +117,13 @@ describe('agentLaunchCommand', () => {
 
   describe('initialPrompt (argv injection — the robust, race-free first prompt)', () => {
     it('appends the prompt as a trailing positional arg for claude-code', () => {
-      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: 'do the thing' })).toEqual(
-        {
-          cmd: 'claude',
-          args: ['--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`, 'do the thing'],
-          cwd: '/w',
-        },
-      )
+      expect(
+        agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: 'do the thing' }),
+      ).toEqual({
+        cmd: 'claude',
+        args: ['do the thing'],
+        cwd: '/w',
+      })
     })
 
     it('places the prompt LAST, after model/option args (claude-code)', () => {
@@ -131,7 +131,7 @@ describe('agentLaunchCommand', () => {
         agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', initialPrompt: 'fix login' }),
       ).toEqual({
         cmd: 'claude',
-        args: ['--model', 'opus', '--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`, 'fix login'],
+        args: ['--model', 'opus', 'fix login'],
         cwd: '/w',
       })
     })
@@ -152,21 +152,15 @@ describe('agentLaunchCommand', () => {
     it('preserves multi-line prompts as a single argv token', () => {
       const prompt = 'line one\nline two'
       expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: prompt }).args).toEqual([
-        '--append-system-prompt',
-        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
         prompt,
       ])
     })
 
     it('ignores a blank/whitespace-only prompt (no empty arg)', () => {
-      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '   ' }).args).toEqual([
-        '--append-system-prompt',
-        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
-      ])
-      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([
-        '--append-system-prompt',
-        `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`,
-      ])
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '   ' }).args).toEqual(
+        [],
+      )
+      expect(agentLaunchCommand('claude-code', { cwd: '/w', initialPrompt: '' }).args).toEqual([])
     })
 
     it('does NOT append a prompt arg for non-argv agents (opencode/cursor/shell)', () => {
@@ -185,26 +179,72 @@ describe('agentLaunchCommand', () => {
     })
   })
 
-  describe('issue system-prompt pointer (claude-code only)', () => {
-    it('claude-code launch appends the issue system pointer', () => {
-      const spec = agentLaunchCommand('claude-code', { cwd: '/x' })
-      const i = spec.args.indexOf('--append-system-prompt')
-      expect(i).toBeGreaterThanOrEqual(0)
-      expect(spec.args[i + 1]).toBe(`${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`)
+  describe('machine-authored instruction channels', () => {
+    const instructions = [{ source: 'podium:workflow', content: 'Follow the pinned workflow.' }]
+
+    it('uses Claude system prompt without changing the user prompt token', () => {
+      expect(
+        agentLaunchCommand('claude-code', { cwd: '/w', instructions, initialPrompt: 'fix it' }),
+      ).toEqual({
+        cmd: 'claude',
+        args: ['--append-system-prompt', 'Follow the pinned workflow.', 'fix it'],
+        cwd: '/w',
+      })
     })
 
-    it('non-claude agents do not get --append-system-prompt', () => {
-      for (const kind of ['codex', 'grok'] as const) {
-        expect(agentLaunchCommand(kind, { cwd: '/x' }).args).not.toContain('--append-system-prompt')
-      }
+    it('uses Codex developer instructions', () => {
+      expect(agentLaunchCommand('codex', { cwd: '/w', instructions }).args).toEqual([
+        '-c',
+        'developer_instructions="Follow the pinned workflow."',
+      ])
+    })
+
+    it('uses Grok rules', () => {
+      expect(agentLaunchCommand('grok', { cwd: '/w', instructions }).args).toEqual([
+        '--rules',
+        'Follow the pinned workflow.',
+      ])
+    })
+
+    it('uses OpenCode inline config plus a daemon-materialized instruction file', () => {
+      const spec = agentLaunchCommand('opencode', {
+        cwd: '/w',
+        runtimeDir: '/runtime/session',
+        instructions,
+        env: { OPENCODE_CONFIG_CONTENT: '{"permission":{"edit":"ask"}}' },
+      })
+      expect(JSON.parse(spec.env?.OPENCODE_CONFIG_CONTENT ?? '{}')).toEqual({
+        permission: { edit: 'ask' },
+        instructions: ['/runtime/session/podium-instructions.md'],
+      })
+      expect(spec.files).toEqual([
+        {
+          path: '/runtime/session/podium-instructions.md',
+          contents: 'Follow the pinned workflow.',
+        },
+      ])
+    })
+
+    it('uses a per-session Cursor rule plugin', () => {
+      const spec = agentLaunchCommand('cursor', {
+        cwd: '/w',
+        runtimeDir: '/runtime/session',
+        instructions,
+      })
+      expect(spec.args).toEqual(['--plugin-dir', '/runtime/session'])
+      expect(spec.files?.map((file) => file.path)).toEqual([
+        '/runtime/session/.cursor-plugin/plugin.json',
+        '/runtime/session/rules/podium-session-context.mdc',
+      ])
+      expect(spec.files?.[1]?.contents).toContain('alwaysApply: true')
+      expect(spec.files?.[1]?.contents).toContain('Follow the pinned workflow.')
     })
   })
-
   describe('effort (reasoning-effort flag, mapped per CLI)', () => {
     it('claude-code takes --effort, after --model', () => {
       expect(
         agentLaunchCommand('claude-code', { cwd: '/w', model: 'opus', effort: 'high' }).args,
-      ).toEqual(['--model', 'opus', '--effort', 'high', '--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`])
+      ).toEqual(['--model', 'opus', '--effort', 'high'])
     })
 
     it('grok takes --effort', () => {
@@ -233,11 +273,12 @@ describe('agentLaunchCommand', () => {
     })
 
     it("'auto' (the sentinel) emits no model or effort flag", () => {
-      expect(agentLaunchCommand('claude-code', { cwd: '/w', model: 'auto', effort: 'auto' }).args)
-        .toEqual(['--append-system-prompt', `${ISSUE_SYSTEM_POINTER}\n\n${SPEC_SYSTEM_POINTER}`])
-      expect(agentLaunchCommand('codex', { cwd: '/w', model: 'auto', effort: 'auto' }).args).toEqual(
-        [],
-      )
+      expect(
+        agentLaunchCommand('claude-code', { cwd: '/w', model: 'auto', effort: 'auto' }).args,
+      ).toEqual([])
+      expect(
+        agentLaunchCommand('codex', { cwd: '/w', model: 'auto', effort: 'auto' }).args,
+      ).toEqual([])
     })
   })
 

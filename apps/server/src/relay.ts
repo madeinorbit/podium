@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
+import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/agent-bridge'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { checkIssueAccess } from './issue-authz'
@@ -34,6 +35,7 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
+import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
 import type { Session } from './modules/sessions/session'
@@ -205,6 +207,7 @@ export class SessionRegistry {
     let issues!: IssueService
     let issueSessionLifecycle!: IssueSessionLifecycle
     let workflows!: WorkflowService
+    const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
 
@@ -440,6 +443,43 @@ export class SessionRegistry {
             lifecycle: 'wait',
           },
         )
+      },
+    })
+    sessionInstructions.register({
+      source: 'podium:issues',
+      prepare: () => ({ content: ISSUE_SYSTEM_POINTER }),
+    })
+    sessionInstructions.register({
+      source: 'podium:specs',
+      prepare: () => ({ content: SPEC_SYSTEM_POINTER }),
+    })
+    sessionInstructions.register({
+      source: 'podium:workflow',
+      prepare: ({ sessionId, cwd, issueId, workflowRevisionId, existingOnly }) => {
+        const prepared = existingOnly
+          ? workflows.prepareExistingSession({ sessionId, ...(issueId ? { issueId } : {}) })
+          : workflows.prepareStart({
+              sessionId,
+              cwd,
+              ...(issueId ? { issueId } : {}),
+              ...(workflowRevisionId ? { explicitRevisionId: workflowRevisionId } : {}),
+            })
+        if (!prepared) return null
+        return {
+          content: prepared.prompt,
+          ...(!existingOnly
+            ? {
+                afterSpawn: () => {
+                  workflows.startRun({
+                    sessionId,
+                    cwd,
+                    ...(issueId ? { issueId } : {}),
+                    revisionId: prepared.revision.id,
+                  })
+                },
+              }
+            : {}),
+        }
       },
     })
     const issueRelayGate = new IssueRelayGate({
@@ -686,13 +726,7 @@ export class SessionRegistry {
       runIssueRelay: (machineId, msg) => void issueRelayGate.run(machineId, msg),
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
-      workflowForStart: (input) => {
-        const prepared = workflows.prepareStart(input)
-        return prepared ? { revisionId: prepared.revision.id, prompt: prepared.prompt } : null
-      },
-      startWorkflowRun: (input) => {
-        workflows.startRun(input)
-      },
+      instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     // releases its held locks and leaves every wait queue (the queue advances

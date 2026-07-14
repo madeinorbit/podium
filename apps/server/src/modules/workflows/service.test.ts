@@ -373,6 +373,10 @@ describe('WorkflowService', () => {
     })
     expect(prepared?.revision.id).toBe(created.revision.id)
     expect(prepared?.prompt).toContain('version one')
+    const rehydrated = service.prepareExistingSession({ sessionId: 's1', issueId: 'issue-1' })
+    expect(rehydrated?.revision.id).toBe(created.revision.id)
+    expect(rehydrated?.prompt).toContain('version one')
+    expect(rehydrated?.prompt).not.toContain('version two')
     expect(service.prime({}, agent('s2'))).toContain('role: issue participant')
     expect(service.status({}, agent('s2')).id).toBe(run.id)
     expect(() =>

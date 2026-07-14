@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
+  type AgentInstruction,
   AgentKind,
   type AgentRuntimeState,
   type ApprovalWire,
@@ -45,6 +46,7 @@ import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
+import type { PreparedSessionInstructions } from './instructions'
 import { type ClientConn, type Send, Session } from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
@@ -134,22 +136,16 @@ interface SessionsServiceDeps {
   /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
   onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
   approvalsPending(): ApprovalWire[]
-  /** Resolve one exact workflow revision before spawn so the run is pinned to it.
-   * No run is persisted until spawn succeeds. */
-  workflowForStart(input: {
+  /** Prepare every registered source of machine-authored context before spawn.
+   * Providers commit side effects only after the session row + command exist. */
+  instructionsForStart(input: {
     sessionId: string
     cwd: string
+    agentKind: AgentKind
     issueId?: string
-    explicitRevisionId?: string
-  }): { revisionId: string; prompt: string } | null
-  /** Commit the pinned run immediately after the session row + spawn command
-   * exist. This keeps failed spawns from leaving phantom workflow runs. */
-  startWorkflowRun(input: {
-    sessionId: string
-    cwd: string
-    issueId?: string
-    revisionId: string
-  }): void
+    workflowRevisionId?: string
+    existingOnly?: boolean
+  }): PreparedSessionInstructions
 }
 
 /**
@@ -778,16 +774,14 @@ export class SessionsService {
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
     const sessionId = input.sessionId ?? randomUUID()
-    const workflow = this.deps.workflowForStart({
+    const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: input.cwd,
+      agentKind,
       ...(issueId ? { issueId } : {}),
-      ...(input.workflowRevisionId ? { explicitRevisionId: input.workflowRevisionId } : {}),
+      ...(input.workflowRevisionId ? { workflowRevisionId: input.workflowRevisionId } : {}),
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    // Temporary mitigation (#484): workflow instructions must not leak into the
-    // visible user prompt/draft. Resolution + run bookkeeping remain intact while
-    // #482 adds a hidden instruction-delivery seam.
     const useArgv = taskPrompt !== undefined && agentSupportsInitialPrompt(agentKind)
     const spawned = this.spawn({
       agentKind,
@@ -796,6 +790,9 @@ export class SessionsService {
       origin: { kind: 'spawn' },
       machineId: this.machines.resolveMachine(input.machineId, input.cwd),
       ...(useArgv ? { initialPrompt: taskPrompt } : {}),
+      ...(preparedInstructions.instructions.length
+        ? { instructions: preparedInstructions.instructions }
+        : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
@@ -805,13 +802,7 @@ export class SessionsService {
       ...(issueId ? { issueId } : {}),
       sessionId,
     })
-    if (workflow)
-      this.deps.startWorkflowRun({
-        sessionId,
-        cwd: input.cwd,
-        ...(issueId ? { issueId } : {}),
-        revisionId: workflow.revisionId,
-      })
+    preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
     }
@@ -865,15 +856,30 @@ export class SessionsService {
       }
       return { sessionId: existing.sessionId }
     }
-    return this.spawn({
+    const issueId = this.issues().soleOwnerForCwd(input.cwd) ?? undefined
+    const sessionId = randomUUID()
+    const preparedInstructions = this.deps.instructionsForStart({
+      sessionId,
+      cwd: input.cwd,
+      agentKind: input.agentKind,
+      ...(issueId ? { issueId } : {}),
+    })
+    const spawned = this.spawn({
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
       machineId: this.machines.resolveMachine(input.machineId, input.cwd),
+      ...(preparedInstructions.instructions.length
+        ? { instructions: preparedInstructions.instructions }
+        : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+      ...(issueId ? { issueId } : {}),
+      sessionId,
     })
+    preparedInstructions.commit()
+    return spawned
   }
 
   /**
@@ -1482,6 +1488,13 @@ export class SessionsService {
     if (session.agentKind !== 'shell' && !session.resume) {
       return { ok: false, reason: 'no resume ref' }
     }
+    const preparedInstructions = this.deps.instructionsForStart({
+      sessionId,
+      cwd: session.cwd,
+      agentKind: session.agentKind,
+      ...(session.issueId ? { issueId: session.issueId } : {}),
+      existingOnly: true,
+    })
     session.status = 'starting'
     session.exitCode = undefined
     // Waking a session resets its hibernation idle timer — otherwise a stale
@@ -1494,10 +1507,14 @@ export class SessionsService {
       agentKind: session.agentKind,
       cwd: session.cwd,
       ...(session.resume ? { resume: session.resume } : {}),
+      ...(preparedInstructions.instructions.length
+        ? { instructions: preparedInstructions.instructions }
+        : {}),
       geometry: session.geometry,
       ...this.modelDefaults(session.agentKind),
       ...this.accountEnv(session.agentKind),
     })
+    preparedInstructions.commit()
     this.broadcastSessions()
     return { ok: true }
   }
@@ -1636,6 +1653,7 @@ export class SessionsService {
     resume?: ResumeRef
     machineId?: string
     initialPrompt?: string
+    instructions?: AgentInstruction[]
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
@@ -1690,6 +1708,7 @@ export class SessionsService {
       cwd: input.cwd,
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
+      ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...this.modelDefaults(
         input.agentKind,
