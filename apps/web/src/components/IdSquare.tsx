@@ -59,6 +59,7 @@ export function IdSquare({
   ringColor = '#16161c',
   titleHint,
   onPrimary,
+  primaryOnly = false,
   onColorChange,
 }: {
   issue: IssueWire
@@ -74,6 +75,10 @@ export function IdSquare({
    *  (select the issue) and only a click on the already-selected square opens
    *  the colour picker. Without it every click opens the picker (wide rows). */
   onPrimary?: () => void
+  /** Panel-toggle semantics (#65, right rail): EVERY click calls onPrimary —
+   *  this location is never a colour-picker anchor, `selected` is purely the
+   *  pressed treatment. Requires onPrimary. */
+  primaryOnly?: boolean
   onColorChange: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -212,10 +217,12 @@ export function IdSquare({
         className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[6.5px] leading-[1.3] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
         style={squareStyle}
         aria-label={
-          onPrimary && !selected ? `Open issue ${label.full}` : `Set colour for issue ${label.full}`
+          onPrimary && (primaryOnly || !selected)
+            ? `Open issue ${label.full}`
+            : `Set colour for issue ${label.full}`
         }
-        aria-haspopup="dialog"
-        aria-expanded={open}
+        aria-haspopup={primaryOnly ? undefined : 'dialog'}
+        aria-expanded={primaryOnly ? undefined : open}
         aria-busy={saving}
         title={
           titleHint ??
@@ -223,7 +230,7 @@ export function IdSquare({
         }
         onClick={(event) => {
           event.stopPropagation()
-          if (onPrimary && !selected) {
+          if (onPrimary && (primaryOnly || !selected)) {
             onPrimary()
             return
           }

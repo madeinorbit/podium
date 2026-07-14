@@ -1,6 +1,6 @@
 import type { IssueColorSlot } from '@podium/domain'
 import type { IssueWire } from '@podium/protocol'
-import { ChevronLeft, ChevronRight, Sparkles, X } from 'lucide-react'
+import { ChevronRight, Sparkles } from 'lucide-react'
 import type { JSX } from 'react'
 import { IdSquare } from '@/components/IdSquare'
 
@@ -10,20 +10,21 @@ import { IdSquare } from '@/components/IdSquare'
  * ▤ and the unread corner dot on ✦ — and the CTX ID square at the bottom so
  * the issue colour still bridges sidebar → bar → native pane. Clicking ▤/✦
  * expands the column landing on that half (the parent pre-opens the section).
+ *
+ * This is the column's terminal collapse state (#65): there is no close
+ * control — the bar never disappears.
  */
 export function FoldedSuperagentBar({
   issue,
   trayCount = 0,
   unread = false,
   onExpand,
-  onClose,
   onColorChange,
 }: {
   issue?: IssueWire
   trayCount?: number
   unread?: boolean
   onExpand: (target?: 'tray' | 'superagent') => void
-  onClose: () => void
   onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   return (
@@ -84,16 +85,6 @@ export function FoldedSuperagentBar({
           {issue ? `#${issue.seq}` : 'CTX'}
         </span>
       )}
-      <button
-        type="button"
-        className="folded-superagent-control"
-        aria-label="Close tray and superagent"
-        title="Close tray and superagent"
-        onClick={onClose}
-      >
-        <ChevronLeft size={11} aria-hidden="true" />
-        <X size={9} aria-hidden="true" />
-      </button>
     </aside>
   )
 }

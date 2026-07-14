@@ -205,7 +205,9 @@ body {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-left: 1px solid color-mix(in srgb, var(--issue) 30%, transparent);
+  /* Same hairline language as the rail (#65): 35% issue tint, 30% slate —
+     the quiet override lives with the rail's in index.css. */
+  border-left: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
   background: var(--card);
 }
 .right-rail {

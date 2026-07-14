@@ -55,12 +55,19 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   await page.getByRole('button', { name: 'Expand superagent' }).click()
   await expect(page.locator('[data-superagent-mode="open"]')).toBeVisible()
 
-  // closed → open runs through the folded bar’s close and the right rail’s ✦
-  // (the header no longer carries a superagent toggle).
+  // Collapsing folds the column IN PLACE — the folded bar has no close
+  // control, the rail has no superagent cell, and the column never fully
+  // closes (#65). The header carries no superagent toggle (#67), so the fold
+  // affordance is the engraved column's own control.
   await page.getByTitle('Fold the tray and superagent column').click()
-  await page.getByRole('button', { name: 'Close tray and superagent' }).click()
-  await expect(page.getByRole('button', { name: 'Open superagent' })).toBeVisible()
-  await page.getByRole('button', { name: 'Open superagent' }).click()
+  const folded = page.getByRole('complementary', { name: 'Folded tray and superagent' })
+  await expect(folded).toBeVisible()
+  expect(Math.round((await folded.boundingBox())?.width ?? 0)).toBe(44)
+  await expect(folded.getByRole('button', { name: 'Close tray and superagent' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Open superagent' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Expand tray and superagent' }).click()
+  await expect(page.locator('[data-superagent-mode="open"]')).toBeVisible()
 
   await page.getByRole('button', { name: 'Files', exact: true }).click()
   await expect(page.locator('[data-right-dock-panel="files"]')).toBeVisible()
@@ -90,4 +97,25 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
     String(resizedDockWidth),
   )
   expect(Math.round((await page.getByTestId('right-rail').boundingBox())?.width ?? 0)).toBe(44)
+
+  // Designed right-side issue borders (#65): the rail and the open dock wear
+  // the same issue-tinted hairline (35% coloured / 30% slate — never none),
+  // and the rail's issue cell is the bordered ID-square language, not a bare
+  // text cell.
+  const railBorder = await page
+    .getByTestId('right-rail')
+    .evaluate((el) => getComputedStyle(el).borderLeftColor)
+  const dockBorder = await page
+    .locator('.right-dock-shell')
+    .evaluate((el) => getComputedStyle(el).borderLeftColor)
+  expect(dockBorder).toBe(railBorder)
+  expect(railBorder).not.toBe('rgba(0, 0, 0, 0)')
+  const issueCell = page
+    .getByTestId('right-rail')
+    .locator('[data-testid="issue-id-square"], [aria-label="Issue"]')
+  await expect(issueCell).toBeVisible()
+  const cellBorder = await issueCell.evaluate((el) => getComputedStyle(el).borderStyle)
+  expect(['solid', 'dashed']).toContain(cellBorder)
+  const cellWidth = await issueCell.evaluate((el) => getComputedStyle(el).borderLeftWidth)
+  expect(cellWidth).toBe('1px')
 })
