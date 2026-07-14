@@ -42,6 +42,7 @@ import { up as approvalRequests } from './012-approval-requests'
 import { up as locks } from './013-locks'
 import { up as machinesInventory } from './014-machines-inventory'
 import { up as superagentPendingTurns } from './015-superagent-pending-turns'
+import { up as issuesColor } from './016-issues-color'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -76,6 +77,8 @@ export const MIGRATIONS: Migration[] = [
   { version: 13, name: 'locks', up: locks },
   { version: 14, name: 'machines-inventory', up: machinesInventory },
   { version: 15, name: 'superagent-pending-turns', up: superagentPendingTurns },
+  // Issue colour slot [spec:SP-b4d1] — NULL = no colour (neutral slate flow).
+  { version: 16, name: 'issues-color', up: issuesColor },
 ]
 
 /** Highest schema version the running code knows about. */
@@ -139,7 +142,8 @@ export function backupBeforeMigration(
   const backupPath = `${dbPath}.backup-v${fromVersion}-${toVersion}-${stamp}`
   copyFileSync(dbPath, backupPath)
   for (const suffix of ['-wal', '-shm']) {
-    if (existsSync(`${dbPath}${suffix}`)) copyFileSync(`${dbPath}${suffix}`, `${backupPath}${suffix}`)
+    if (existsSync(`${dbPath}${suffix}`))
+      copyFileSync(`${dbPath}${suffix}`, `${backupPath}${suffix}`)
   }
   pruneBackups(dbPath)
   return backupPath

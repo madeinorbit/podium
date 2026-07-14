@@ -3,6 +3,8 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
+import type { IssueColorSlot } from '@podium/domain'
+
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
 export interface PinState {
@@ -134,6 +136,10 @@ export interface IssueRow {
   supersededBy: string | null
   duplicateOf: string | null
   pinned: boolean
+  /** User-assigned colour SLOT NAME [spec:SP-b4d1] ('rose' … 'lime', the palette
+   *  in @podium/domain); null/absent = no colour = the neutral slate flow.
+   *  Optional so pre-existing row literals stay valid. */
+  color?: IssueColorSlot | null
   estimateMin: number | null
   needsHuman: boolean
   humanQuestion: string | null

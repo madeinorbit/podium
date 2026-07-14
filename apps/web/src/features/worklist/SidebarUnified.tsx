@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { IssueColorSlot } from '@podium/domain'
 import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
@@ -33,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
+import { IssueColorPickerButton } from '@/features/issues/IssueColorPicker'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusIcon } from '@/features/issues/IssueStatusIcon'
 import { issueIdTitle } from '@/features/issues/issue-card'
@@ -599,6 +601,7 @@ export function WorkSections(): JSX.Element {
         onRename={(title) =>
           void trpc.issues.update.mutate({ id: row.issue.id, patch: { title } }).catch(() => {})
         }
+        onColorChange={(color) => trpc.issues.update.mutate({ id: row.issue.id, patch: { color } })}
       />
     ) : (
       <UnifiedWorktreeRow
@@ -742,6 +745,7 @@ export function WorkSections(): JSX.Element {
  */
 function UnifiedRowShell({
   icon,
+  iconInteractive = false,
   label,
   active,
   unread = false,
@@ -761,6 +765,8 @@ function UnifiedRowShell({
   testId,
 }: {
   icon: ReactNode
+  /** The leading node owns its click (the issue ID square opens its picker). */
+  iconInteractive?: boolean
   label: string
   /** Native hover tooltip on the row (issue ids, #21). */
   titleHint?: string
@@ -797,7 +803,26 @@ function UnifiedRowShell({
           active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
         )}
       >
-        {expandable ? (
+        {iconInteractive ? (
+          <div className="flex flex-none items-center py-1.5 pl-1">
+            {icon}
+            {expandable && (
+              <button
+                type="button"
+                className="flex w-4 cursor-pointer items-center justify-center text-muted-foreground/60 hover:text-foreground"
+                onClick={onToggle}
+                aria-expanded={!collapsed}
+                aria-label={collapsed ? `Expand ${label}` : `Collapse ${label}`}
+              >
+                {collapsed ? (
+                  <ChevronRight size={12} aria-hidden="true" />
+                ) : (
+                  <ChevronDown size={12} aria-hidden="true" />
+                )}
+              </button>
+            )}
+          </div>
+        ) : expandable ? (
           <button
             type="button"
             className="flex w-[33px] flex-none cursor-pointer items-center justify-end py-1.5 pr-0 pl-2 text-muted-foreground/60 hover:text-foreground"
@@ -901,6 +926,7 @@ function UnifiedIssueRow({
   onPinned,
   onOpenIssue,
   onRename,
+  onColorChange,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'issue' }>
   sessions: SessionMeta[]
@@ -922,6 +948,7 @@ function UnifiedIssueRow({
   onOpenIssue: (id: string) => void
   /** Commit a renamed title (double-click / context-menu Rename, #170). */
   onRename: (title: string) => void
+  onColorChange: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const { issue, sessions: mine } = row
   const unread = suppressUnread ? false : rowUnreadEmphasized(row)
@@ -1032,9 +1059,15 @@ function UnifiedIssueRow({
     <>
       <UnifiedRowShell
         testId="unified-issue-row"
-        // Neutral leading glyph: a task icon with the stage demoted to a corner
-        // badge, so a real issue row doesn't read as a distracting stage colour.
-        icon={<IssueStatusIcon stage={issue.stage} size={15} badge={false} />}
+        icon={
+          <IssueColorPickerButton
+            issue={issue}
+            active={active}
+            queued={mine.length === 0 && issue.stage === 'backlog'}
+            onChange={onColorChange}
+          />
+        }
+        iconInteractive
         label={label}
         active={active}
         unread={unread}
@@ -1051,11 +1084,6 @@ function UnifiedIssueRow({
         titleHint={issueIdTitle(issue)}
         extras={
           <>
-            {/* The seq agents cite ("#15") — small and muted, purely for
-                orientation when matching chat/CLI references to rows (#21). */}
-            <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
-              #{issue.seq}
-            </span>
             {issue.pinned && (
               <Pin size={11} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}

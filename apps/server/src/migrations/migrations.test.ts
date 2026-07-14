@@ -88,6 +88,26 @@ describe('runMigrations', () => {
     expect(() => MIGRATIONS.find((m) => m.version === 14)!.up(db)).not.toThrow()
   })
 
+  it('016 adds issues.color as nullable slot storage and is idempotent (#38)', () => {
+    const db = openMemory()
+    runMigrations(
+      db,
+      MIGRATIONS.filter((m) => m.version <= 15),
+    )
+    db.exec(
+      `INSERT INTO issues (id, repo_path, seq, title, stage, default_agent, created_at, updated_at)
+       VALUES ('iss_1', '/r', 1, 'before colour', 'backlog', 'claude-code', 't', 't')`,
+    )
+    runMigrations(db)
+    const row = db.prepare('SELECT color FROM issues WHERE id = ?').get('iss_1') as {
+      color: string | null
+    }
+    expect(row.color).toBeNull()
+    const colorMigration = MIGRATIONS.find((m) => m.version === 16)
+    expect(colorMigration).toBeDefined()
+    expect(() => colorMigration?.up(db)).not.toThrow()
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)

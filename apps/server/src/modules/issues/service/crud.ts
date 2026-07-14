@@ -169,6 +169,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       supersededBy: null,
       duplicateOf: null,
       pinned: false,
+      color: input.color ?? null,
       estimateMin: null,
       needsHuman: false,
       humanQuestion: null,

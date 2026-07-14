@@ -86,7 +86,11 @@ export function optimisticIssuePatch(
 ): Partial<IssueWire> {
   switch (proc) {
     case 'update': {
-      const patch = (input.patch ?? {}) as Partial<IssueWire>
+      const patch = { ...((input.patch ?? {}) as Partial<IssueWire> & { color?: string | null }) }
+      // The mutation input uses null to clear an optional colour, while IssueWire
+      // represents "no colour" as absence. Keep the node-side optimistic replica
+      // wire-valid instead of briefly exposing color:null to consumers.
+      if (patch.color === null) patch.color = undefined
       return { ...patch, updatedAt: nowIso }
     }
     case 'close':

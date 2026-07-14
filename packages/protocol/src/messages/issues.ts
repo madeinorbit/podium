@@ -72,6 +72,24 @@ export const IssuePanel = z.object({
 })
 export type IssuePanel = z.infer<typeof IssuePanel>
 
+/** The 10 user-pickable issue colour SLOTS [spec:SP-b4d1] — stored/transmitted
+ *  as the slot NAME, never a hex (the palette maps slots to full colouring
+ *  schemes client-side). Mirrors @podium/domain's ISSUE_COLOR_SLOTS (protocol
+ *  stays dependency-free; a drift test in apps/server pins the two lists). */
+export const IssueColor = z.enum([
+  'rose',
+  'pink',
+  'fuchsia',
+  'violet',
+  'indigo',
+  'blue',
+  'cyan',
+  'teal',
+  'green',
+  'lime',
+])
+export type IssueColor = z.infer<typeof IssueColor>
+
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
@@ -113,6 +131,10 @@ export const IssueWire = z.object({
   supersededBy: z.string().optional(),
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),
+  /** User-assigned colour slot [spec:SP-b4d1]; absent = no colour = the neutral
+   *  slate flow. Additive + tolerant (an unknown value from a newer peer parses
+   *  as unset rather than failing the whole issue). */
+  color: IssueColor.optional().catch(undefined),
   estimateMin: z.number().int().optional(),
   needsHuman: z.boolean(),
   humanQuestion: z.string().optional(),

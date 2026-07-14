@@ -145,6 +145,49 @@ describe('issue protocol types', () => {
     expect(malformed.unread).toBe(false)
   })
 
+  // Issue colour [spec:SP-b4d1]: an additive optional slot NAME ('rose' … 'lime',
+  // never a hex). Absent = no colour; an unknown value from a newer peer degrades
+  // to unset instead of failing the whole issue.
+  it('parses the optional colour slot and drops unknown values (issue #38)', () => {
+    const base = {
+      id: 'iss_1',
+      repoPath: '/r',
+      seq: 1,
+      title: 'X',
+      description: '',
+      stage: 'backlog',
+      worktreePath: null,
+      branch: null,
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      blockedBy: [],
+      priority: 2,
+      type: 'task',
+      pinned: false,
+      needsHuman: false,
+      labels: [],
+      deps: [],
+      dependents: [],
+      ready: true,
+      blocked: false,
+      deferred: false,
+      childCount: 0,
+      childDoneCount: 0,
+      createdAt: 't',
+      updatedAt: 't',
+      archived: false,
+      sessions: [],
+      sessionSummary: { total: 0, byPhase: {} },
+    }
+    expect(IssueWire.parse(base).color).toBeUndefined()
+    expect(IssueWire.parse({ ...base, color: 'violet' }).color).toBe('violet')
+    // Not a slot name — hexes and future/unknown slots degrade to unset.
+    expect(IssueWire.parse({ ...base, color: '#8b5cf6' }).color).toBeUndefined()
+    expect(IssueWire.parse({ ...base, color: 'amber' }).color).toBeUndefined()
+  })
+
   // #175: comment bodies left the wire. `comments` is a deprecated optional
   // (old payloads/hubs may still send it); `commentCount` is the additive
   // replacement, also optional so pre-#175 payloads keep parsing (wire v1).

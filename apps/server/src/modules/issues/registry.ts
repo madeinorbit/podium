@@ -2,6 +2,7 @@ import {
   type CommandDef,
   defineCommands,
   ISSUE_COMMAND_NAMES,
+  IssueColor,
   type IssueCommandName,
   IssueStage,
   IssueType,
@@ -523,6 +524,8 @@ const defs = {
       assignee: z.string().optional(),
       labels: z.array(z.string()).optional(),
       parentId: z.string().optional(),
+      // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
+      color: IssueColor.optional(),
       // #198: an agent opts a work item onto the human's top-level board with
       // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
       // caller (operator vs constrained agent), so provenance cannot be forged.
@@ -610,6 +613,8 @@ const defs = {
         deferUntil: z.string().optional(),
         closedReason: z.string().optional(),
         pinned: z.boolean().optional(),
+        // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
+        color: IssueColor.nullable().optional(),
         estimateMin: z.number().int().optional(),
       }),
       mutationId: z.string().max(128).optional(),
@@ -648,9 +653,7 @@ const defs = {
         ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
       const { newSubissue, ...rest } = input
       return ctx.issues.attachSession(
-        newSubissue
-          ? { ...rest, newSubissue: { title: newSubissue.title, origin } }
-          : { ...rest },
+        newSubissue ? { ...rest, newSubissue: { title: newSubissue.title, origin } } : { ...rest },
       )
     },
   }),
