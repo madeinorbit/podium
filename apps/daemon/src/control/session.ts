@@ -36,6 +36,17 @@ export function issueRelayEnv(sessionId: string, endpoint: string): Record<strin
   return { PODIUM_SESSION_ID: sessionId, PODIUM_ISSUE_RELAY: endpoint }
 }
 
+/** Merge the server-resolved session env (managed credentials, #216) under
+ *  Podium's own per-session bindings. Podium's win a collision on purpose: an
+ *  injected credential must never be able to shadow the issue-relay wiring.
+ *  The result is an OVERLAY — the PTY layer layers it over the full process.env. */
+export function spawnEnv(opts: {
+  sessionEnv?: Record<string, string>
+  podiumEnv: Record<string, string>
+}): Record<string, string> {
+  return { ...(opts.sessionEnv ?? {}), ...opts.podiumEnv }
+}
+
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: string,
@@ -115,20 +126,24 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       cwd: cmd.cwd,
       cols: msg.geometry.cols,
       rows: msg.geometry.rows,
-      env: {
-        // Bind the loopback issue-relay + session id into every agent's env so its
-        // `podium issue` CLI can reach the daemon for this exact session.
-        ...issueRelayEnv(msg.sessionId, ctx.issueRelayEndpointFor(msg.sessionId)),
-        // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-        ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
-        // 'global-env' hook installs (codex): hooks.json is installed GLOBALLY
-        // (per CODEX_HOME, not per spawn); the per-session ingest URL rides the
-        // env instead. The hook command exits 0 instantly when the var is
-        // absent, so runs outside Podium are unaffected.
-        ...(AGENT_CAPABILITIES[msg.agentKind].hookInstall === 'global-env'
-          ? { [PODIUM_CODEX_HOOK_URL_ENV]: ctx.hookEndpointFor(msg.sessionId) }
-          : {}),
-      },
+      env: spawnEnv({
+        // Server-resolved managed credential / environment (SP-6454, #216).
+        sessionEnv: msg.env,
+        podiumEnv: {
+          // Bind the loopback issue-relay + session id into every agent's env so its
+          // `podium issue` CLI can reach the daemon for this exact session.
+          ...issueRelayEnv(msg.sessionId, ctx.issueRelayEndpointFor(msg.sessionId)),
+          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+          ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
+          // 'global-env' hook installs (codex): hooks.json is installed GLOBALLY
+          // (per CODEX_HOME, not per spawn); the per-session ingest URL rides the
+          // env instead. The hook command exits 0 instantly when the var is
+          // absent, so runs outside Podium are unaffected.
+          ...(AGENT_CAPABILITIES[msg.agentKind].hookInstall === 'global-env'
+            ? { [PODIUM_CODEX_HOOK_URL_ENV]: ctx.hookEndpointFor(msg.sessionId) }
+            : {}),
+        },
+      }),
     }
     const session =
       ctx.backend === 'abduco'
