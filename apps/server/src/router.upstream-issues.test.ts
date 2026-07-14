@@ -96,7 +96,10 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   close: { id: HUB_ID },
   defer: { id: HUB_ID, until: null },
   undefer: { id: HUB_ID },
-  setNeedsHuman: { id: HUB_ID },
+  // Structured question metadata rides the forward verbatim (issue #53). The node
+  // forwards as the OPERATOR (the forwarder authenticates to the hub as such), so
+  // the server-authoritative askedBy gate does not apply to this path.
+  setNeedsHuman: { id: HUB_ID, question: 'merge?', options: ['Yes', 'No'], askedBy: 'sess_node' },
   clearNeedsHuman: { id: HUB_ID },
   // answerQuestion forwards WHOLE (issue #53): the asking session lives on the
   // hub, so delivery + clear must both happen there.

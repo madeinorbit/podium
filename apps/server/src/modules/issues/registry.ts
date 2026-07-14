@@ -887,7 +887,26 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) => {
-      const askedBy = input.askedBy ?? ctx.caller.capability.actorSessionId
+      // askedBy is SERVER-AUTHORITATIVE (#53 review): issues.answerQuestion later
+      // delivers the human's answer INTO the stored askedBy session, so letting a
+      // constrained caller point it at an arbitrary live session would turn the
+      // human's chip click into an injected message there (confused deputy —
+      // attachSession can re-home any session, so even a "same issue" allowance
+      // is launderable). A constrained caller may attribute the question only to
+      // ITSELF: explicit askedBy must equal its authenticated actorSessionId.
+      // The unconstrained operator (human web/CLI, trusted in-process MCP, and
+      // hub-side execution of node-forwarded mutations, which authenticate as
+      // the operator) stays free to attribute — it IS the principal this deputy
+      // check protects, and the forwarded-node path depends on it.
+      const actor = ctx.caller.capability.actorSessionId
+      const askedBy = input.askedBy ?? actor
+      if (askedBy && ctx.caller.capability.scope.kind !== 'all' && askedBy !== actor) {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message:
+            'askedBy is server-authoritative: agents may only attribute a question to their own session (omit askedBy)',
+        })
+      }
       return ctx.issueWrite(input, () =>
         ctx.issues.setNeedsHuman(input.id, input.question ?? null, {
           ...(input.options ? { options: input.options } : {}),
