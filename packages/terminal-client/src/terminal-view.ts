@@ -2,6 +2,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
+import { makeRefLinkProvider, type RefLinkConfig } from './ref-link-provider'
 import type { TerminalDiagnosticData } from './terminal-diagnostics'
 import { makeUrlLinkProvider } from './url-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
@@ -101,6 +102,7 @@ export class TerminalView {
   // we substitute below) flows through the exact same path as real keystrokes.
   private dataSink: ((data: string) => void) | undefined
   private fileLinkConfig: FileLinkConfig | null = null
+  private refLinkConfig: RefLinkConfig | null = null
   // The live WebGL renderer addon (undefined when GPU is off, WebGL is unavailable, or
   // after a context loss dropped us to the DOM renderer). Kept so repaintRecover() can
   // recover a discarded canvas in place.
@@ -154,6 +156,16 @@ export class TerminalView {
       makeFileLinkProvider(
         () => this.term.buffer.active as unknown as import('./buffer-line').BufferLike,
         () => this.fileLinkConfig,
+      ),
+    )
+    // Human-facing ref link provider (#474): `PREFIX-N` / `PREFIX-N-LETTER` /
+    // `PREFIX-DRAFT-N` tokens whose prefix is a registered repo become clickable,
+    // dispatching the same miniview/navigate semantics as markdown ref links.
+    // Caller configures this via setRefLinks(); a no-op until then.
+    this.term.registerLinkProvider(
+      makeRefLinkProvider(
+        () => this.term.buffer.active as unknown as import('./buffer-line').BufferLike,
+        () => this.refLinkConfig,
       ),
     )
     // OSC 52: the in-terminal application's own "copy to clipboard" (Claude Code's
@@ -213,6 +225,12 @@ export class TerminalView {
    *  that resolve to a known path or a path under cwd become clickable. */
   setFileLinks(cfg: FileLinkConfig | null): void {
     this.fileLinkConfig = cfg
+  }
+
+  /** Configure (or clear) clickable human-facing ref links (#474). Tokens whose
+   *  prefix is registered become clickable; click dispatches onActivate. */
+  setRefLinks(cfg: RefLinkConfig | null): void {
+    this.refLinkConfig = cfg
   }
 
   /**
