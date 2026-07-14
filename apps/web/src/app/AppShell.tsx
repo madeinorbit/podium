@@ -9,6 +9,7 @@ import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column
 import { trayCount } from '@/features/superagent/derive-tray'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { useIssueEvents } from '@/features/superagent/useIssueEvents'
+import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -204,10 +205,10 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
                 >
                   <ChevronRight size={13} aria-hidden="true" />
                 </button>
-                <span className="collapsed-sidebar-label">WORK</span>
+                <SidebarRail />
               </aside>
             ) : (
-              <div className="relative flex flex-none">
+              <div className="relative z-10 flex flex-none">
                 <ResizableAside>
                   <SidebarUnified />
                 </ResizableAside>

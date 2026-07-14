@@ -143,7 +143,8 @@ afterEach(() => {
 describe('MobileApp home view (#227)', () => {
   it('shows the sidebar work list, not the command center', () => {
     render(<MobileApp />)
-    expect(screen.getByText('WORK')).toBeTruthy()
+    // #41: the WORK header gave way to always-on project group labels.
+    expect(screen.getAllByTestId('project-group-label').length).toBeGreaterThan(0)
     expect(screen.getByText('Selected issue')).toBeTruthy()
     expect(screen.queryByText('Command center')).toBeNull()
   })

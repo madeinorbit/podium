@@ -123,6 +123,10 @@ body {
   color: var(--text-strong);
 }
 .collapsed-sidebar {
+  position: relative;
+  /* Above the engraved sibling so the selected square's bridge notch can paint
+     across the border into it (#41). */
+  z-index: 10;
   display: flex;
   flex: 0 0 52px;
   min-height: 0;
@@ -144,16 +148,6 @@ body {
   border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
-}
-.collapsed-sidebar-label {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.18em;
-  writing-mode: vertical-rl;
 }
 .engraved-column {
   display: flex;

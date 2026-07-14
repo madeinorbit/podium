@@ -64,8 +64,9 @@ test('ID square state language and picker persist a colour and clear it again', 
   await expect(square).toBeVisible({ timeout: 30_000 })
   await expect(square).toHaveAttribute('data-color', 'none')
   await expect(square).toHaveAttribute('data-state', 'working')
-  await expect(square).toHaveAttribute('data-spinner', 'true')
-  await expect(square.locator('.spb')).toBeVisible()
+  // #41: the wide row carries the spinner in its line-2 meta, not on the square.
+  await expect(square).toHaveAttribute('data-badge', 'none')
+  await expect(row.locator('.spb')).toBeVisible()
   await expect(square).toHaveCSS('width', '26px')
   await expect(square).toHaveCSS('height', '26px')
   await expect(square).toHaveCSS('border-radius', '7px')
@@ -84,7 +85,7 @@ test('ID square state language and picker persist a colour and clear it again', 
   await expect(square).toHaveCSS('background-color', 'rgb(139, 92, 246)')
   await expect(square).toHaveCSS('border-style', 'solid')
   await expect(square).toHaveCSS('opacity', '1')
-  await expect(square.locator('.spb')).toBeVisible()
+  await expect(row.locator('.spb')).toBeVisible()
   await expect(square).toHaveAttribute('aria-busy', 'false', { timeout: 15_000 })
 
   // Reload from the isolated harness database: violet must come back from the
@@ -121,8 +122,7 @@ test('ID square state language and picker persist a colour and clear it again', 
     .getByRole('button', { name: /Set colour for issue #/ })
   await expect(clearedSquare).toHaveAttribute('data-color', 'none', { timeout: 15_000 })
   await expect(clearedSquare).toHaveAttribute('data-state', 'working')
-  await expect(clearedSquare).toHaveAttribute('data-spinner', 'true')
+  await expect(clearedSquare).toHaveAttribute('data-badge', 'none')
   await expect(clearedSquare).toHaveCSS('border-style', 'solid')
   await expect(clearedSquare).toHaveCSS('opacity', '1')
-  await expect(clearedSquare.locator('.spb')).toBeVisible()
 })
