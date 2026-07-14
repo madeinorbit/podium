@@ -1,0 +1,188 @@
+/* Motion grammar (redesign handoff option 1d, .design/specs/motion.md).
+   The braille spinner + the green counting timer are the ONLY permanent motion,
+   running only while an agent computes; every phase change is a single one-shot
+   morph, then total stillness — stillness means "needs you". No pulses, no
+   glows, no breathing rings. Keyframe values are verbatim from the handoff. */
+
+:root {
+  /* Reserved motion colours (handoff 4b): the issue palette deliberately
+     excludes the emerald and amber bands, so these never collide with an
+     issue colour and are safe to hardcode here. */
+  --motion-working: #10b981; /* spinner + counting timer */
+  --motion-working-bright: #34d399; /* spinner/✓ glyph inside dark badges */
+  --motion-badge-bg: #0c1f18; /* dark green badge fill behind the glyph */
+  --motion-waiting: #f59e0b; /* amber: waiting on you */
+  --motion-waiting-ink: #161006; /* text on an amber pill */
+  --motion-total: #6c6c78; /* grey ∑ total on done rows */
+}
+
+/* THE spinner — pure CSS content animation, 10 braille frames. One rule
+   animates every instance; zero JS. */
+@keyframes podium-spb {
+  0% {
+    content: "⠋";
+  }
+  11% {
+    content: "⠙";
+  }
+  22% {
+    content: "⠹";
+  }
+  33% {
+    content: "⠸";
+  }
+  44% {
+    content: "⠼";
+  }
+  55% {
+    content: "⠴";
+  }
+  66% {
+    content: "⠦";
+  }
+  77% {
+    content: "⠧";
+  }
+  88% {
+    content: "⠇";
+  }
+  100% {
+    content: "⠏";
+  }
+}
+
+/* One-shot morphs. Every class below runs its animation exactly once when the
+   element mounts with the class applied — none of them loop. Consumers gate
+   application with usePhaseMorph so a freshly mounted list never replays them. */
+@keyframes podium-ignite {
+  0% {
+    transform: scale(0.5);
+  }
+  55% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes podium-pop-in {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes podium-row-flash {
+  0% {
+    background-color: rgba(245, 158, 11, 0.32);
+  }
+  100% {
+    background-color: rgba(245, 158, 11, 0.1);
+  }
+}
+@keyframes podium-tick-in {
+  0% {
+    transform: translateY(5px);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes podium-flip-ago {
+  0% {
+    transform: scale(1.35);
+    color: #10b981;
+    opacity: 0.4;
+  }
+  45% {
+    color: #f59e0b;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes podium-icon-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 9px rgba(245, 158, 11, 0);
+  }
+}
+
+/* Spinner span: the glyph lives on ::before so `content` can animate. The
+   min-width pins the widest frame so neighbours never shift as frames change. */
+.spb {
+  display: inline-block;
+  min-width: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  /* Contexts retint via --spb-color (e.g. the dark badge uses the brighter
+     emerald); default is the reserved working green. */
+  color: var(--spb-color, var(--motion-working));
+}
+.spb::before {
+  content: "⠋";
+  animation: podium-spb 0.8s steps(1, end) infinite;
+}
+
+.morph-ignite {
+  animation: podium-ignite 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.morph-pop {
+  animation: podium-pop-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.morph-pop-soft {
+  animation: podium-pop-in 0.4s ease;
+}
+.morph-row-flash {
+  animation: podium-row-flash 0.9s ease-out;
+}
+.morph-tick-in {
+  animation: podium-tick-in 0.35s ease;
+}
+.morph-flip-ago {
+  animation: podium-flip-ago 0.5s ease;
+}
+.morph-icon-flash {
+  animation: podium-icon-flash 1s ease-out;
+}
+
+/* Base transition every phase-coloured surface (row, ID square, rail icon)
+   carries, so background/border/opacity glide 0.4s on any phase change. */
+.phase-surface {
+  transition:
+    background-color 0.4s,
+    border-color 0.4s,
+    opacity 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The spinner freezes on its first frame — the green mono glyph alone still
+     reads "computing" (colour + the ticking timer carry the state). */
+  .spb::before {
+    animation: none;
+  }
+  /* One-shot morphs are dropped entirely; the end state is the resting style,
+     so nothing is lost but the flourish. */
+  .morph-ignite,
+  .morph-pop,
+  .morph-pop-soft,
+  .morph-row-flash,
+  .morph-tick-in,
+  .morph-flip-ago,
+  .morph-icon-flash {
+    animation: none;
+  }
+  .phase-surface {
+    transition: none;
+  }
+}

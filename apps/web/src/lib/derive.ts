@@ -28,9 +28,9 @@ const DOT_TONE_CLASS: Record<DotTone, string> = {
 /**
  * Full className for a session's status dot: the tone hue plus a `parked` marker
  * for hibernated sessions. The marker drives the grayed/italic row look in CSS
- * (`.dot.parked + .worker-label`), independent of the dot colour. A live working
- * (green) dot also gets `dot-working` for the breathing-glow animation — but a
- * hibernated dot stays calm (no animation) even if its last tone was working.
+ * (`.dot.parked + .worker-label`), independent of the dot colour. Status dots
+ * are deliberately still: ongoing agent motion is represented only by the
+ * shared braille spinner + timer primitive.
  */
 export function sessionDotClass(s: SessionMeta): string {
   const tone = sessionDotTone(s)
@@ -39,7 +39,5 @@ export function sessionDotClass(s: SessionMeta): string {
     'dot inline-block size-2 min-w-2 flex-none rounded-full',
     DOT_TONE_CLASS[tone],
     parked && 'parked',
-    tone === 'working' && !parked && 'dot-working',
-    (s.status === 'starting' || s.status === 'reconnecting') && !parked && 'dot-starting',
   )
 }

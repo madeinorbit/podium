@@ -257,7 +257,7 @@ export function HostStatusBar(): JSX.Element {
         <span
           className={cn(
             'dot size-[7px] rounded-full',
-            activeCount > 0 ? 'bg-live dot-working' : 'bg-muted-foreground/50',
+            activeCount > 0 ? 'bg-live' : 'bg-muted-foreground/50',
           )}
           aria-hidden="true"
         />

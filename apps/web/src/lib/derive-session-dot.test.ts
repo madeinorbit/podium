@@ -18,20 +18,20 @@ function sess(over: Partial<SessionMeta> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-describe('sessionDotClass — booting spinner', () => {
-  it('shows dot-starting while status is starting', () => {
-    expect(sessionDotClass(sess({ status: 'starting' }))).toContain('dot-starting')
+describe('sessionDotClass — still status dots', () => {
+  it.each([
+    'starting',
+    'reconnecting',
+    'live',
+  ] as const)('does not add a looping animation class while %s', (status) => {
+    const classes = sessionDotClass(sess({ status }))
+    expect(classes).not.toContain('dot-starting')
+    expect(classes).not.toContain('dot-working')
   })
 
-  it('shows dot-starting while status is reconnecting', () => {
-    expect(sessionDotClass(sess({ status: 'reconnecting' }))).toContain('dot-starting')
-  })
-
-  it('does not show dot-starting for a live session', () => {
-    expect(sessionDotClass(sess({ status: 'live' }))).not.toContain('dot-starting')
-  })
-
-  it('does not show dot-starting for a hibernated (parked) session', () => {
-    expect(sessionDotClass(sess({ status: 'hibernated' }))).not.toContain('dot-starting')
+  it('keeps the parked marker without an animation class', () => {
+    const classes = sessionDotClass(sess({ status: 'hibernated' }))
+    expect(classes).toContain('parked')
+    expect(classes).not.toContain('dot-working')
   })
 })

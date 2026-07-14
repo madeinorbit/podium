@@ -1465,6 +1465,43 @@ export function isSessionWorking(s: SessionMeta): boolean {
 }
 
 /**
+ * The four phases of the redesign's motion grammar (.design/specs/motion.md):
+ * only `working` moves (braille spinner + counting timer); `waiting` is amber
+ * stillness after a one-shot flash ("needs you"); `done` is a still ✓; `queued`
+ * is dimmed stillness for everything not yet (or no longer) in play.
+ */
+export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
+
+/**
+ * Collapse harness phase + shell busyness + liveness into the motion phase.
+ * Kept in lock-step with the existing grammar: `waiting` is exactly
+ * `attentionGroup === 'needsYou'` (question/permission/error/open todos —
+ * hibernated sessions keep their last phase, so a parked "needs input" still
+ * reads amber), and `working` is exactly `isSessionWorking` (the green-dot
+ * predicate). A finished run (`idle.kind === 'done'` or `ended`) is `done`;
+ * starting/exited/uninstrumented-quiet sessions fall through to `queued`.
+ */
+export function motionPhase(s: SessionMeta): MotionPhase {
+  const state = s.agentState
+  if (state?.phase === 'ended' || (state?.phase === 'idle' && state.idle?.kind === 'done')) {
+    return 'done'
+  }
+  if (attentionGroup(s) === 'needsYou') return 'waiting'
+  if (isSessionWorking(s)) return 'working'
+  return 'queued'
+}
+
+/**
+ * Compact clock for the motion timer/∑ stamps: `6:30`, `0:07`, `72:15` —
+ * minutes never roll into hours (matches the handoff's `m:ss` format).
+ * `formatElapsed` remains the format for non-motion surfaces.
+ */
+export function formatClock(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/**
  * The native CLI command that resumes this session's conversation, for #119
  * (show + copy). Mirrors the canonical builder in
  * `@podium/agent-bridge`'s `agentLaunchCommand` (the single place the daemon
