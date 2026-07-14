@@ -28,7 +28,7 @@ export interface ApprovalServiceDeps {
   clients(): Iterable<{ send(msg: LiveServerMessage): void }>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
   sessionIssueId(sessionId: string): string | null
-  issueInfo(issueId: string): { seq: number; title: string } | null
+  issueInfo(issueId: string): { seq: number; title: string; displayRef?: string } | null
   machineName(machineId: string): string | undefined
   /** Append to the durable event log (renders in the issue activity feed). */
   logEvent(kind: string, issueId: string | null, payload: Record<string, unknown>): void
@@ -62,6 +62,7 @@ export class ApprovalService {
       issueId: row.issueId,
       issueSeq: issue?.seq ?? null,
       issueTitle: issue?.title ?? null,
+      ...(issue?.displayRef ? { issueDisplayRef: issue.displayRef } : {}),
       op: row.op,
       status: row.status,
       createdAt: row.createdAt,

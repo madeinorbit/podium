@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
 
 export function normalizeRepoPath(path: string): string {
@@ -158,20 +158,24 @@ export class ReposRepository {
   /**
    * Next per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`).
    * Backed by a high-water counter so an ordinal is never reused even if the
-   * session is later deleted. Atomic within the caller's transaction.
+   * session is later deleted. read-modify-write runs in its own transaction
+   * (mirrors allocateSessionLetter) so concurrent callers can't mint the same
+   * ordinal.
    */
   nextDraftSeq(repoId: string): number {
-    const row = this.db
-      .prepare('SELECT next_seq FROM repo_draft_seq WHERE repo_id = ?')
-      .get(repoId) as { next_seq: number } | undefined
-    const next = row?.next_seq ?? 1
-    this.db
-      .prepare(
-        `INSERT INTO repo_draft_seq (repo_id, next_seq) VALUES (?, ?)
-         ON CONFLICT(repo_id) DO UPDATE SET next_seq = ?`,
-      )
-      .run(repoId, next + 1, next + 1)
-    return next
+    return transaction(this.db, () => {
+      const row = this.db
+        .prepare('SELECT next_seq FROM repo_draft_seq WHERE repo_id = ?')
+        .get(repoId) as { next_seq: number } | undefined
+      const next = row?.next_seq ?? 1
+      this.db
+        .prepare(
+          `INSERT INTO repo_draft_seq (repo_id, next_seq) VALUES (?, ?)
+           ON CONFLICT(repo_id) DO UPDATE SET next_seq = ?`,
+        )
+        .run(repoId, next + 1, next + 1)
+      return next
+    })
   }
 
   /** Per-boot heal: derive+assign a prefix for every logical repo still missing

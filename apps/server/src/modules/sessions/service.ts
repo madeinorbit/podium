@@ -327,13 +327,12 @@ export class SessionsService {
   }
 
   /**
-   * Allocate this session's PERMANENT human-facing nice name at naming time
-   * (#474), then stamp the derived `displayRef` onto its wire meta. Idempotent:
-   * once a session has a ref it is never reallocated (birth name is permanent).
+   * Stamp the derived permanent `displayRef` onto a session's wire meta (#474).
+   * PURE READ — allocation happens at the deliberate naming points
+   * (spawn / first attach / boot backfill), never inside serialization.
    * Upstream/mirrored sessions have no local Session and keep their own ref.
    */
   private stampRef(session: Session, meta: SessionMeta): SessionMeta {
-    this.ensureSessionRef(session)
     const displayRef = this.computeSessionDisplayRef(session)
     return {
       ...meta,
@@ -344,10 +343,18 @@ export class SessionsService {
     }
   }
 
-  /** Assign the birth-issue letter (or DRAFT ordinal) if this session has no ref
-   *  yet. The birth issue is the session's issue at naming time; a session with
-   *  no issue is named in the per-repo DRAFT namespace. Never reallocates. */
-  private ensureSessionRef(session: Session): void {
+  /**
+   * NAMING POINT (#474): assign the permanent birth ref if this session has
+   * none yet. The birth issue is the session's issue AT NAMING TIME; a session
+   * with none is named in the per-repo DRAFT namespace. Never reallocates —
+   * a later re-attach keeps the birth name.
+   *
+   * Called only at deliberate moments (never during reads/serialization):
+   *   - spawnSession, after issueId resolution completed,
+   *   - the first setSessionIssueId on a still-unnamed session,
+   *   - the one-shot boot backfill for pre-#474 historical rows.
+   */
+  private allocateSessionRef(session: Session): void {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
@@ -359,8 +366,11 @@ export class SessionsService {
         return
       }
     }
-    // Truly issueless → per-repo DRAFT counter (`POD-DRAFT-3`).
+    // Truly issueless → per-repo DRAFT counter (`POD-DRAFT-3`). Skip when the
+    // cwd resolves to no registered prefix: the name could never render, and
+    // the high-water counter makes skipping safe (no ordinal is ever reused).
     const repoId = this.store.repos.resolveRepoIdForPath(session.cwd)
+    if (this.store.repos.prefixForRepoId(repoId) === null) return
     session.refDraft = this.store.repos.nextDraftSeq(repoId)
     this.persist(session)
   }
@@ -505,6 +515,11 @@ export class SessionsService {
       this.installStoredSession(session, snoozes, draftTimes, drafts)
       if (r.status !== session.status) this.persist(session)
     }
+    // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
+    // deliberate point instead of burst-allocating inside the first listSessions.
+    // loadSessions returns created_at order, so allocation is deterministic; the
+    // loop is a no-op once every session carries a ref.
+    for (const session of this.sessions.values()) this.allocateSessionRef(session)
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
     // reattaches and the sessions bind.
@@ -1515,6 +1530,10 @@ export class SessionsService {
   setSessionIssueId(sessionId: string, issueId: string | null): void {
     this.mutateSessionMeta(sessionId, (session) => {
       session.issueId = issueId ?? undefined
+      // Naming point (#474): the first attach on a still-unnamed session brands
+      // it with that issue's letter. A detach (null) is NOT a naming point —
+      // the session stays unnamed rather than getting a spurious DRAFT ordinal.
+      if (issueId) this.allocateSessionRef(session)
     })
   }
 
@@ -1822,6 +1841,9 @@ export class SessionsService {
       ...(input.issueId ? { issueId: input.issueId } : {}),
     })
     this.sessions.set(sessionId, session)
+    // Naming point (#474): input.issueId is the resolved birth issue (or absent
+    // for a genuinely issueless spawn) — allocate the permanent ref now.
+    this.allocateSessionRef(session)
     this.persist(session)
     this.toMachine(machineId, {
       type: 'spawn',

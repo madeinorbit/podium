@@ -98,14 +98,22 @@ export class RepoRegistry {
     return inferRepoFromRoots(this.list(machineId), path)
   }
 
-  async add(path: string, machineId?: string): Promise<void> {
+  async add(path: string, machineId?: string, prefix?: string): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
     const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
-    this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined)
+    // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
+    this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined, prefix?.toUpperCase())
+  }
+
+  /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
+   *  server-wide; previously written refs stop resolving (the caller warns). */
+  setPrefix(path: string, prefix: string, machineId?: string): void {
+    const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
+    this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
   }
 
   async remove(path: string, machineId?: string): Promise<void> {

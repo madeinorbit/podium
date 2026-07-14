@@ -243,7 +243,8 @@ export abstract class IssueServiceCore {
     // server-wide, so this resolves without a path qualifier. A prefix that no
     // repo owns falls through to the other branches (and ultimately returns the
     // input unchanged so the caller's unknown-issue error fires).
-    const nice = parseIssueRef(ref.trim())
+    // CLI courtesy: `pod-13` reads as `POD-13` (prefixes are uppercase by grammar).
+    const nice = parseIssueRef(ref.trim().toUpperCase())
     if (nice) {
       const repo = this.deps.store.repos.repoForPrefix(nice.prefix)
       if (repo) {

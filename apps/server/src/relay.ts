@@ -359,7 +359,7 @@ export class SessionRegistry {
       },
       issueInfo: (issueId) => {
         const w = issues.get(issueId)
-        return w ? { seq: w.seq, title: w.title } : null
+        return w ? { seq: w.seq, title: w.title, displayRef: w.displayRef } : null
       },
       machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
       notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),

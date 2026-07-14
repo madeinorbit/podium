@@ -46,6 +46,9 @@ export const ApprovalWire = z.object({
   /** The issue the requesting session was attached to (navigation target). */
   issueId: z.string().nullable(),
   issueSeq: z.number().nullable(),
+  /** Human-facing nice id of the issue (#474), e.g. `POD-13`. Absent on rows
+   *  from a server that predates it or when the repo has no prefix. */
+  issueDisplayRef: z.string().optional(),
   issueTitle: z.string().nullable(),
   op: ApprovalOp,
   status: ApprovalStatus,

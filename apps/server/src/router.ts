@@ -807,15 +807,41 @@ export const appRouter = t.router({
   }),
   repos: t.router({
     list: t.procedure.query(({ ctx }) => ctx.repos.list()),
+    // Full registered-repo rows incl. the human-facing prefix (#474) — the web's
+    // source for the linkify prefix set and the prefix editor.
+    listDetailed: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.repos.listRepos()),
+    // Change a repo's nice-id prefix (#474). Validation (^[A-Z]{2,5}$) and
+    // server-wide uniqueness are enforced in the store; violations surface as
+    // BAD_REQUEST with the store's message. Old refs stop resolving — UI warns.
+    setPrefix: t.procedure
+      .input(z.object({ path: z.string(), prefix: z.string(), machineId: z.string().optional() }))
+      .mutation(({ ctx, input }) => {
+        try {
+          ctx.repos.setPrefix(input.path, input.prefix, input.machineId)
+        } catch (e) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: e instanceof Error ? e.message : String(e),
+          })
+        }
+        return ctx.registry.sessionStore.repos.listRepos()
+      }),
     // cwd → repo inference for the CLI: longest registered root that contains `path`.
     inferFromPath: t.procedure
       .input(z.object({ path: z.string() }))
       .query(({ ctx, input }) => ({ repoPath: ctx.repos.inferFromPath(input.path) ?? null })),
     add: t.procedure
-      .input(z.object({ path: z.string(), machineId: z.string().optional() }))
+      .input(
+        z.object({
+          path: z.string(),
+          machineId: z.string().optional(),
+          // Optional nice-id prefix override (#474); derived from the repo name when absent.
+          prefix: z.string().optional(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         try {
-          await ctx.repos.add(input.path, input.machineId)
+          await ctx.repos.add(input.path, input.machineId, input.prefix)
         } catch (e) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
