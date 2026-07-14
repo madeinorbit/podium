@@ -164,7 +164,7 @@ describe('SessionRegistry', () => {
     )
   })
 
-  it('pins one exact workflow revision, prepends it to the spawn prompt, and starts a run', () => {
+  it('pins one exact workflow revision without exposing it in the human prompt, and starts a run', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
@@ -200,13 +200,38 @@ describe('SessionRegistry', () => {
       (message) => message.type === 'spawn' && message.sessionId === sessionId,
     )
     expect(spawn).toMatchObject({ type: 'spawn' })
-    expect(spawn?.type === 'spawn' ? spawn.initialPrompt : '').toContain(
-      '# Podium workflow: Research, plan, implement (revision 1)',
-    )
-    expect(spawn?.type === 'spawn' ? spawn.initialPrompt : '').toContain('# Task\n\nfix the bug')
+    const deliveredPrompt = spawn?.type === 'spawn' ? spawn.initialPrompt : undefined
+    expect(deliveredPrompt).toBe('fix the bug')
+    expect(deliveredPrompt).not.toContain('# Podium workflow')
+    expect(deliveredPrompt).not.toContain('Research before changing code.')
     expect(reg.modules.workflows.runs({}, operator)).toMatchObject([
       { coordinatorSessionId: sessionId, revision: { id: created.revision.id } },
     ])
+
+    // A workflow-only session receives neither a synthetic user prompt nor a
+    // composer draft, while still starting a run pinned to the revision.
+    const client = sink()
+    reg.modules.sessions.attachClient(client.send)
+    const blankSessionId = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    }).sessionId
+    const blankSpawn = daemon.find(
+      (message) => message.type === 'spawn' && message.sessionId === blankSessionId,
+    )
+    expect(blankSpawn).toMatchObject({ type: 'spawn' })
+    expect(blankSpawn).not.toHaveProperty('initialPrompt')
+    expect(client.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'sessionDraftChanged', sessionId: blankSessionId }),
+    )
+    expect(reg.modules.workflows.runs({}, operator)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          coordinatorSessionId: blankSessionId,
+          revision: expect.objectContaining({ id: created.revision.id }),
+        }),
+      ]),
+    )
   })
 
   it('delivers worker checkpoints through the durable system:workflow message ledger', () => {

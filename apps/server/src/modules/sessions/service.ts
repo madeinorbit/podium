@@ -134,8 +134,8 @@ interface SessionsServiceDeps {
   /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
   onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
   approvalsPending(): ApprovalWire[]
-  /** Resolve one exact workflow revision before spawn so its instructions ride
-   * the race-free initial prompt. No run is persisted until spawn succeeds. */
+  /** Resolve one exact workflow revision before spawn so the run is pinned to it.
+   * No run is persisted until spawn succeeds. */
   workflowForStart(input: {
     sessionId: string
     cwd: string
@@ -730,9 +730,9 @@ export class SessionsService {
   }
 
   /** Agent kind may be omitted — the settings default decides ('auto' = Claude Code).
-   *  `initialPrompt` hands the fresh session a first prompt: for argv-capable agents
-   *  (claude/codex/grok) it rides the launch command (`claude "<prompt>"`, race-free);
-   *  for the rest it's seeded into the composer draft so the text still appears. */
+   *  `initialPrompt` hands the fresh session the human's first prompt: for argv-capable
+   *  agents (claude/codex/grok) it rides the launch command (`claude "<prompt>"`,
+   *  race-free); for the rest it's seeded into the composer draft. */
   createSession(input: {
     agentKind?: AgentKind
     cwd: string
@@ -785,18 +785,17 @@ export class SessionsService {
       ...(input.workflowRevisionId ? { explicitRevisionId: input.workflowRevisionId } : {}),
     })
     const taskPrompt = input.initialPrompt?.trim() ? input.initialPrompt.trim() : undefined
-    const prompt = workflow
-      ? `${workflow.prompt}${taskPrompt ? `\n\n---\n\n# Task\n\n${taskPrompt}` : ''}`
-      : taskPrompt
-    // argv delivery is race-free; other agents receive the same text as a draft seed.
-    const useArgv = prompt !== undefined && agentSupportsInitialPrompt(agentKind)
+    // Temporary mitigation (#484): workflow instructions must not leak into the
+    // visible user prompt/draft. Resolution + run bookkeeping remain intact while
+    // #482 adds a hidden instruction-delivery seam.
+    const useArgv = taskPrompt !== undefined && agentSupportsInitialPrompt(agentKind)
     const spawned = this.spawn({
       agentKind,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
       origin: { kind: 'spawn' },
       machineId: this.machines.resolveMachine(input.machineId, input.cwd),
-      ...(useArgv ? { initialPrompt: prompt } : {}),
+      ...(useArgv ? { initialPrompt: taskPrompt } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
@@ -813,8 +812,8 @@ export class SessionsService {
         ...(issueId ? { issueId } : {}),
         revisionId: workflow.revisionId,
       })
-    if (prompt !== undefined && !useArgv) {
-      this.setSessionDraft({ sessionId: spawned.sessionId, text: prompt })
+    if (taskPrompt !== undefined && !useArgv) {
+      this.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
     }
     return spawned
   }
