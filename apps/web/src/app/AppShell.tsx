@@ -205,7 +205,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
           data-issue-colored={effectiveHex ? 'true' : 'false'}
           style={issueStyle}
         >
-          <TopBar superMode={superMode} onSuperModeChange={setSuperMode} />
+          <TopBar />
           <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
             {sidebarCollapsed ? (
               <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">

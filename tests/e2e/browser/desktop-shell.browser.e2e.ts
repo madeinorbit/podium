@@ -17,14 +17,14 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   await page.getByRole('button', { name: 'Home', exact: true }).click()
   await expect(page).toHaveURL(/\/$|\/?\?/)
 
-  const issueContext = page.getByRole('button', { name: 'Issue context' })
-  await issueContext.click()
-  await page.keyboard.press('Escape')
-
-  const newAgent = page.getByRole('button', { name: 'New agent' })
-  await newAgent.click()
-  await expect(page.getByRole('menuitem', { name: 'New Claude' })).toBeVisible()
-  await page.keyboard.press('Escape')
+  // Handoff v2 desktop header (#63): text nav + host chips only — the
+  // issue-context dropdown, “+” and superagent toggle are mobile-header anatomy.
+  for (const name of ['Specs', 'Automations']) {
+    await expect(header.getByRole('button', { name, exact: true })).toBeVisible()
+  }
+  await expect(header.getByRole('button', { name: 'Issue context' })).toHaveCount(0)
+  await expect(header.getByRole('button', { name: 'New agent' })).toHaveCount(0)
+  await expect(header.getByRole('button', { name: 'Superagent', exact: true })).toHaveCount(0)
 
   await expect(page.locator('[data-resizable-column="podium:sidebar:width"]')).toHaveAttribute(
     'data-width',
@@ -55,7 +55,10 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
   await page.getByRole('button', { name: 'Expand superagent' }).click()
   await expect(page.locator('[data-superagent-mode="open"]')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Superagent', exact: true }).click()
+  // closed → open runs through the folded bar’s close and the right rail’s ✦
+  // (the header no longer carries a superagent toggle).
+  await page.getByTitle('Fold the tray and superagent column').click()
+  await page.getByRole('button', { name: 'Close tray and superagent' }).click()
   await expect(page.getByRole('button', { name: 'Open superagent' })).toBeVisible()
   await page.getByRole('button', { name: 'Open superagent' }).click()
 
