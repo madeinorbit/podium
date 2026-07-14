@@ -2,19 +2,31 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
+import { MIGRATIONS, runMigrations } from './migrations'
+import { AccountsRepository } from './store/accounts'
 
 let home: string
 let codexHome: string
+let accounts: AccountsRepository
 const prevCodexHome = process.env.CODEX_HOME
 const prevGrokHome = process.env.GROK_HOME
+
+/** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
+function emptyAccounts(): AccountsRepository {
+  const db = openDatabase(':memory:')
+  runMigrations(db, MIGRATIONS)
+  return new AccountsRepository(db)
+}
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'acct-home-'))
   codexHome = mkdtempSync(join(tmpdir(), 'acct-codex-'))
   process.env.CODEX_HOME = codexHome
   delete process.env.GROK_HOME
+  accounts = emptyAccounts()
 })
 afterEach(() => {
   rmSync(home, { recursive: true, force: true })
@@ -30,7 +42,7 @@ const settings = (keys: Partial<PodiumSettings['apiKeys']> = {}): PodiumSettings
 
 describe('accountViews', () => {
   it('reports native logins as not-configured when nothing is present', () => {
-    const views = accountViews(settings(), home)
+    const views = accountViews(settings(), accounts, home)
     const claude = views.find((v) => v.id === 'native:claude-code')!
     expect(claude.status).toBe('not-configured')
     expect(views.find((v) => v.id === 'native:codex')!.status).toBe('not-configured')
@@ -42,7 +54,9 @@ describe('accountViews', () => {
       join(home, '.claude.json'),
       JSON.stringify({ oauthAccount: { emailAddress: 'mike@example.com' } }),
     )
-    const claude = accountViews(settings(), home).find((v) => v.id === 'native:claude-code')!
+    const claude = accountViews(settings(), accounts, home).find(
+      (v) => v.id === 'native:claude-code',
+    )!
     expect(claude.status).toBe('connected')
     expect(claude.identity).toBe('mike@example.com')
     expect(claude.source).toBe('native')
@@ -50,13 +64,13 @@ describe('accountViews', () => {
 
   it('detects a Grok login by directory presence', () => {
     mkdirSync(join(home, '.grok'))
-    expect(accountViews(settings(), home).find((v) => v.id === 'native:grok')!.status).toBe(
-      'connected',
-    )
+    expect(
+      accountViews(settings(), accounts, home).find((v) => v.id === 'native:grok')!.status,
+    ).toBe('connected')
   })
 
   it('surfaces set API keys as connected managed accounts with a masked identity', () => {
-    const views = accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), home)
+    const views = accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), accounts, home)
     const anthropic = views.find((v) => v.id === 'managed:anthropic')!
     expect(anthropic.source).toBe('managed')
     expect(anthropic.kind).toBe('api-key')
@@ -65,5 +79,65 @@ describe('accountViews', () => {
     expect(anthropic.identity).not.toContain('abcdefgh')
     // Unset keys are present but not-configured.
     expect(views.find((v) => v.id === 'managed:openai')!.status).toBe('not-configured')
+  })
+
+  it('shows a connected managed account as connected, masked, and never leaks the secret', () => {
+    accounts.upsert({
+      id: 'managed:anthropic',
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-supersecret',
+      identity: 'sk-a…cret',
+      scope: 'role',
+      createdAt: 1,
+    })
+
+    const views = accountViews(settings(), accounts, home)
+    const view = views.find((v) => v.id === 'managed:anthropic')
+
+    expect(view?.status).toBe('connected')
+    expect(view?.identity).toBe('sk-a…cret')
+    expect(view?.comingSoon).toBeUndefined()
+    // The security invariant: a credential never rides out in a response payload.
+    expect(JSON.stringify(views)).not.toContain('sk-ant-supersecret')
+  })
+
+  it('shows a stored Claude setup-token as its own connected oauth account', () => {
+    expect(
+      accountViews(settings(), accounts, home).find((v) => v.id === 'managed:claude-oauth')!.status,
+    ).toBe('not-configured')
+
+    accounts.upsert({
+      id: 'managed:claude-oauth',
+      provider: 'anthropic',
+      kind: 'oauth',
+      credential: 'sk-ant-oat01-supersecret',
+      identity: 'sk-a…cret',
+      scope: 'role',
+      createdAt: 2,
+    })
+
+    const views = accountViews(settings(), accounts, home)
+    const oauth = views.find((v) => v.id === 'managed:claude-oauth')!
+    expect(oauth.status).toBe('connected')
+    expect(oauth.kind).toBe('oauth')
+    expect(oauth.identity).toBe('sk-a…cret')
+    expect(JSON.stringify(views)).not.toContain('sk-ant-oat01-supersecret')
+  })
+
+  it('prefers a stored credential over the legacy settings key', () => {
+    accounts.upsert({
+      id: 'managed:openai',
+      provider: 'openai',
+      kind: 'api-key',
+      credential: 'sk-stored-9999',
+      identity: 'sk-s…9999',
+      scope: 'role',
+      createdAt: 3,
+    })
+    const views = accountViews(settings({ openai: 'sk-legacy-abcd1234' }), accounts, home)
+    const openai = views.find((v) => v.id === 'managed:openai')!
+    expect(openai.identity).toBe('sk-s…9999')
+    expect(JSON.stringify(views)).not.toContain('sk-stored-9999')
   })
 })

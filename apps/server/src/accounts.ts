@@ -12,6 +12,7 @@
 import { homedir } from 'node:os'
 import { detectClaudeLogin, detectCodexLogin, detectGrokLogin } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/runtime'
+import type { AccountsRepository } from './store/accounts'
 
 /** A row in the Accounts hub. Native rows are observed at read-time (identity +
  *  status can drift); managed rows reflect what Podium stores. */
@@ -32,9 +33,10 @@ export interface AccountView {
   comingSoon?: boolean
 }
 
-function maskKey(key: string): string {
-  if (key.length <= 8) return '••••'
-  return `${key.slice(0, 4)}…${key.slice(-4)}`
+/** Display-only preview of a secret. The full value never leaves the server. */
+export function maskCredential(secret: string): string {
+  if (secret.length <= 8) return '••••'
+  return `${secret.slice(0, 4)}…${secret.slice(-4)}`
 }
 
 /** Native Claude Code login: email lives in ~/.claude.json (oauthAccount),
@@ -57,7 +59,7 @@ function detectCodex(homeDir: string): AccountView {
   const present = login.state === 'in'
   const identity = present
     ? login.account
-      ? `ChatGPT · ${maskKey(login.account)}`
+      ? `ChatGPT · ${maskCredential(login.account)}`
       : 'ChatGPT subscription'
     : undefined
   return {
@@ -87,22 +89,49 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
 
 /**
  * All accounts for the hub: native CLI logins on this machine (observed) plus
- * the managed API keys already in settings (functional for the API/one-shot
- * path). Managed oauth + harness credential injection are not enumerated here —
- * they surface as a "Coming soon" affordance in the UI.
+ * the managed credentials Podium holds (#216) — provider API keys and the Claude
+ * subscription setup-token.
+ *
+ * Managed rows are read from the accounts TABLE, never from the settings blob:
+ * settings round-trips to every client wholesale, so a credential kept there
+ * would ship to the browser. Only the masked `identity` is ever returned.
  */
-export function accountViews(settings: PodiumSettings, homeDir: string = homedir()): AccountView[] {
+export function accountViews(
+  settings: PodiumSettings,
+  accounts: AccountsRepository,
+  homeDir: string = homedir(),
+): AccountView[] {
   const native = [detectClaude(homeDir), detectCodex(homeDir), detectGrok(homeDir)]
+
+  // Managed rows: a stored credential (#216) wins; otherwise fall back to the
+  // legacy settings.apiKeys value so an existing key keeps showing as connected.
+  const stored = new Map(accounts.list().map((a) => [a.id, a]))
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
-    const key = settings.apiKeys[provider] ?? ''
+    const id = `managed:${provider}`
+    const row = stored.get(id)
+    const legacyKey = settings.apiKeys[provider] ?? ''
+    const identity = row?.identity || (legacyKey ? maskCredential(legacyKey) : undefined)
     return {
-      id: `managed:${provider}`,
+      id,
       provider,
       source: 'managed' as const,
       kind: 'api-key' as const,
-      identity: key ? maskKey(key) : undefined,
-      status: key ? ('connected' as const) : ('not-configured' as const),
+      identity,
+      status: identity ? ('connected' as const) : ('not-configured' as const),
     }
   })
-  return [...native, ...managed]
+
+  // The Claude subscription OAuth token (`claude setup-token`) — a managed account
+  // with no legacy settings equivalent, so it only ever comes from the store.
+  const oauthRow = stored.get('managed:claude-oauth')
+  const claudeOauth: AccountView = {
+    id: 'managed:claude-oauth',
+    provider: 'anthropic',
+    source: 'managed',
+    kind: 'oauth',
+    identity: oauthRow?.identity,
+    status: oauthRow ? 'connected' : 'not-configured',
+  }
+
+  return [...native, ...managed, claudeOauth]
 }

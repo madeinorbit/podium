@@ -13,7 +13,7 @@ import {
 } from '@podium/runtime/setup'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { accountViews } from './accounts'
+import { accountViews, maskCredential } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
   type CloudAgentKind,
@@ -735,9 +735,39 @@ export const appRouter = t.router({
   }),
   accounts: t.router({
     // The Accounts & Keys hub (SP-6454): native CLI logins on this machine
-    // (observed read-only) + managed API keys from settings. Read at call-time —
+    // (observed read-only) + managed credentials Podium holds. Read at call-time —
     // native identity/quota drifts, so it's never cached as truth.
-    list: t.procedure.query(({ ctx }) => accountViews(mods(ctx).settings.getSettings())),
+    // NB: never returns a credential — only its masked `identity`.
+    list: t.procedure.query(({ ctx }) =>
+      accountViews(mods(ctx).settings.getSettings(), ctx.registry.sessionStore.accounts),
+    ),
+    connect: t.procedure
+      .input(
+        z.object({
+          provider: z.enum(['anthropic', 'openai', 'openrouter']),
+          kind: z.enum(['api-key', 'oauth']),
+          credential: z.string().min(1),
+        }),
+      )
+      .mutation(({ ctx, input }) => {
+        // A Claude setup-token is its own account, distinct from an Anthropic API key.
+        const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
+        ctx.registry.sessionStore.accounts.upsert({
+          id,
+          provider: input.provider,
+          kind: input.kind,
+          credential: input.credential,
+          identity: maskCredential(input.credential),
+          scope: 'role',
+          createdAt: Date.now(),
+        })
+        // Only the id: the credential must never be echoed back to a client.
+        return { id }
+      }),
+    disconnect: t.procedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
+      ctx.registry.sessionStore.accounts.remove(input.id)
+      return { ok: true as const }
+    }),
   }),
   tabs: t.router({
     listOrders: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listTabOrders()),
