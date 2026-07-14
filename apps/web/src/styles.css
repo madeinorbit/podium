@@ -318,15 +318,16 @@ body:has(.mobile-shell) {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   /* Reserve the home-indicator safe area ONLY while the keyboard is closed. With
      the keyboard open the bar rides just above it and the safe area is hidden
      behind the keyboard, so adding it there is the dead gap under the keys that
      read as "whitespace at the bottom". --kb-open (0/1) is set from visualViewport
      in MobileApp; default 0 (keyboard closed) keeps the safe area on desktop/SSR. */
-  padding: 3px 8px calc(3px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
-  background: var(--card);
-  border-top: 1px solid var(--border);
+  padding: 4px 8px calc(8px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
+  /* Key-bar strip (mobile.md §2.3): the --bar surface with bordered card keys. */
+  background: var(--bar);
+  border-top: 1px solid var(--hairline-soft);
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
@@ -347,15 +348,11 @@ body:has(.mobile-shell) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
-  font:
-    13px / 1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  background: var(--card);
+  border: 1px solid var(--hairline-bar);
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  font: 11px / 1 var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   user-select: none;
@@ -381,7 +378,7 @@ body:has(.mobile-shell) {
   width: 1px;
   height: 18px;
   margin: 0 2px;
-  background: var(--border);
+  background: var(--hairline-bar);
 }
 
 /* ---- second key row (above the key bar): submit / newline / paste / voice /
@@ -393,10 +390,10 @@ body:has(.mobile-shell) {
   display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  background: var(--card);
-  border-top: 1px solid var(--border);
+  gap: 5px;
+  padding: 6px 8px 2px;
+  background: var(--bar);
+  border-top: 1px solid var(--hairline-bar);
 }
 /* No mic on the right — pad the bar as if the 36px mic slot were still there. */
 .mobile-shell .key-actions:not(:has(.key-mic)) {
@@ -419,17 +416,21 @@ body:has(.mobile-shell) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--hairline-bar);
+  border-radius: 6px;
+  color: var(--muted-foreground);
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+/* The submit key is the design's tinted ⏎ (2b): the one key that acts. */
+.key-actions .key-act.key-submit {
+  color: #e8c477;
 }
 .key-actions .key-act:active {
   background: var(--primary);
@@ -443,10 +444,10 @@ body:has(.mobile-shell) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--foreground);
+  background: var(--card);
+  border: 1px solid var(--hairline-bar);
+  border-radius: 6px;
+  color: var(--muted-foreground);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }

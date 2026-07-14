@@ -9,6 +9,7 @@ import { MobileApp } from './MobileApp'
 
 const setPane = vi.fn()
 const setView = vi.fn()
+const setSuperOpen = vi.fn()
 
 function sess(id: string, over: Record<string, unknown> = {}) {
   return {
@@ -71,8 +72,17 @@ const issue = {
   unread: false,
 }
 
-// Mutable across tests: the view the shell is on, and what's selected.
-const state = { view: 'home' as string, selectedIssueId: null as string | null }
+// Mutable across tests: the view the shell is on, what's selected, which pane
+// is open, whether the superagent overlay is up, and the session set.
+const state = {
+  view: 'home' as string,
+  selectedIssueId: null as string | null,
+  paneA: null as string | null,
+  superOpen: false,
+  sessions: [sess('agent-one'), sess('shell-one', { agentKind: 'shell' })] as ReturnType<
+    typeof sess
+  >[],
+}
 
 vi.mock('./store', () => {
   const useStore = () => ({
@@ -80,7 +90,7 @@ vi.mock('./store', () => {
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     reposLoading: false,
     repoDiagnostics: [],
-    sessions: [sess('agent-one'), sess('shell-one', { agentKind: 'shell' })],
+    sessions: state.sessions,
     machines: [],
     issues: [issue],
     pins: { panels: [], worktrees: [], repos: [] },
@@ -94,7 +104,7 @@ vi.mock('./store', () => {
     selectedIssueId: state.selectedIssueId,
     setSelectedIssueId: vi.fn(),
     setOpenIssueId: vi.fn(),
-    paneA: null,
+    paneA: state.paneA,
     setPane,
     fileTabs: [
       { id: 'file:s:/repo/notes.md', scope: {}, path: '/repo/notes.md', worktreePath: '/repo' },
@@ -103,8 +113,8 @@ vi.mock('./store', () => {
     tabOrders: {},
     view: state.view,
     setView,
-    superOpen: false,
-    setSuperOpen: vi.fn(),
+    superOpen: state.superOpen,
+    setSuperOpen,
     sidebarSettings: { groupByRepo: false },
     setSidebarSettings: vi.fn(),
     spawnDraftAgent: vi.fn(),
@@ -138,6 +148,9 @@ afterEach(() => {
   vi.clearAllMocks()
   state.view = 'home'
   state.selectedIssueId = null
+  state.paneA = null
+  state.superOpen = false
+  state.sessions = [sess('agent-one'), sess('shell-one', { agentKind: 'shell' })]
 })
 
 describe('MobileApp home view (#227)', () => {
@@ -183,5 +196,85 @@ describe('MobileApp panel dropdown (#227)', () => {
     state.selectedIssueId = 'iss'
     render(<MobileApp />)
     expect(screen.getByLabelText('Select panel').textContent).toContain('Selected issue')
+  })
+})
+
+describe('MobileApp redesigned header (#45, mobile.md §2.1)', () => {
+  it('tints the workspace header with the issue channel; home stays neutral', () => {
+    state.view = 'workspace'
+    state.selectedIssueId = 'iss'
+    const { unmount } = render(<MobileApp />)
+    expect(screen.getByTestId('mobile-header').className).toContain('issue-mix-16')
+    unmount()
+    state.view = 'home'
+    render(<MobileApp />)
+    expect(screen.getByTestId('mobile-header').className).not.toContain('issue-mix-16')
+  })
+
+  it('shows the ID square, the active panel name, and a +N count that hides while open', () => {
+    state.view = 'workspace'
+    state.selectedIssueId = 'iss'
+    state.paneA = 'agent-one'
+    render(<MobileApp />)
+    expect(screen.getByTestId('mobile-header-id-square')).toBeTruthy()
+    const trigger = screen.getByLabelText('Select panel')
+    // Line 1 = issue title, line 2 = the ACTIVE panel's name.
+    expect(trigger.textContent).toContain('Selected issue')
+    expect(trigger.textContent).toContain('agent-one')
+    // 3 panels of this work (agent, shell, file tab) minus the active one.
+    expect(screen.getByTestId('mobile-panel-count').textContent).toBe('+2')
+    fireEvent.click(trigger)
+    expect(screen.queryByTestId('mobile-panel-count')).toBeNull()
+    expect(screen.getByTestId('mobile-panel-menu')).toBeTruthy()
+  })
+
+  it('closes a default-open superagent at mount — mobile lands on Home (2a/2c)', () => {
+    // The desktop column's persisted default is OPEN; inherited on mobile it
+    // would bury the home list under the full-screen overlay on first load.
+    state.superOpen = true
+    render(<MobileApp />)
+    expect(setSuperOpen).toHaveBeenCalledWith(false)
+  })
+
+  it('lights the ✦ cell and mounts the overlay while the superagent is open', () => {
+    state.view = 'workspace'
+    state.selectedIssueId = 'iss'
+    state.superOpen = true
+    render(<MobileApp />)
+    expect(screen.getByTestId('mobile-super-overlay')).toBeTruthy()
+    expect(screen.getByTitle('Superagent').className).toContain('text-attention')
+    // The header reverts to neutral under the overlay (2c).
+    expect(screen.getByTestId('mobile-header').className).not.toContain('issue-mix-16')
+  })
+})
+
+describe('MobileApp panel-menu status grammar (#45, mobile.md §2.3)', () => {
+  it('rows carry the agent-kind label and the working/waiting glyphs', () => {
+    state.view = 'workspace'
+    state.selectedIssueId = 'iss'
+    state.paneA = 'agent-one'
+    state.sessions = [
+      sess('agent-one', { agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+      sess('agent-two', { agentState: { phase: 'needs_user', need: { kind: 'question' } } }),
+    ]
+    const { container } = render(<MobileApp />)
+    fireEvent.click(screen.getByLabelText('Select panel'))
+    const menu = screen.getByTestId('mobile-panel-menu')
+    // Kind label: `· <icon> Claude` after the session name.
+    expect(menu.textContent).toContain('Claude')
+    // Working row → braille spinner; waiting row → amber pill.
+    expect(container.querySelector('[data-testid="mobile-panel-menu"] .spb')).toBeTruthy()
+    expect(screen.getByLabelText('waiting on you')).toBeTruthy()
+  })
+
+  it('the active row wears the 18% issue tint', () => {
+    state.view = 'workspace'
+    state.selectedIssueId = 'iss'
+    state.paneA = 'agent-one'
+    render(<MobileApp />)
+    fireEvent.click(screen.getByLabelText('Select panel'))
+    const menu = screen.getByTestId('mobile-panel-menu')
+    const tinted = menu.querySelector('.issue-mix-18')
+    expect(tinted?.textContent).toContain('agent-one')
   })
 })

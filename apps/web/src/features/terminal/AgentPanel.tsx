@@ -822,11 +822,11 @@ export function AgentPanel({
           >
             <button
               type="button"
-              className="key-act"
+              className="key-act key-submit"
               title="Submit — send the prompt (Enter)"
               onClick={() => mountedRef.current?.connection.sendInput('\r')}
             >
-              Submit
+              ⏎ Submit
             </button>
             <button
               type="button"

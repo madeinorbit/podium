@@ -112,8 +112,7 @@ export function usableMaxForDirection(maxes: UsableMaxes, dir: ArrowDirection): 
 
 export function isConstrainedDirection(usableMax: number): boolean {
   return (
-    usableMax < CFG.constrainedThreshold ||
-    usableMax - CFG.precisionEnd < CFG.constrainedAccelRoom
+    usableMax < CFG.constrainedThreshold || usableMax - CFG.precisionEnd < CFG.constrainedAccelRoom
   )
 }
 
@@ -588,16 +587,32 @@ function DpadGlyphs({
 
   return (
     <>
-      <span className={cls('up')} style={glyphMotion(active, 'up', speedP, edgeHold)} aria-hidden="true">
+      <span
+        className={cls('up')}
+        style={glyphMotion(active, 'up', speedP, edgeHold)}
+        aria-hidden="true"
+      >
         <i />
       </span>
-      <span className={cls('right')} style={glyphMotion(active, 'right', speedP, edgeHold)} aria-hidden="true">
+      <span
+        className={cls('right')}
+        style={glyphMotion(active, 'right', speedP, edgeHold)}
+        aria-hidden="true"
+      >
         <i />
       </span>
-      <span className={cls('down')} style={glyphMotion(active, 'down', speedP, edgeHold)} aria-hidden="true">
+      <span
+        className={cls('down')}
+        style={glyphMotion(active, 'down', speedP, edgeHold)}
+        aria-hidden="true"
+      >
         <i />
       </span>
-      <span className={cls('left')} style={glyphMotion(active, 'left', speedP, edgeHold)} aria-hidden="true">
+      <span
+        className={cls('left')}
+        style={glyphMotion(active, 'left', speedP, edgeHold)}
+        aria-hidden="true"
+      >
         <i />
       </span>
       <span className="ask-center" aria-hidden="true" />
@@ -613,9 +628,10 @@ const ARROW_SWIPE_STYLES = `
   width: 40px;
   height: 30px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--secondary);
+  /* Bordered-key look shared with the key bar (mobile.md §2.3). */
+  border: 1px solid var(--hairline-bar);
+  border-radius: 6px;
+  background: var(--card);
   cursor: pointer;
   font: inherit;
   touch-action: none;
@@ -634,7 +650,7 @@ const ARROW_SWIPE_STYLES = `
 }
 .ask-key.holding {
   background: color-mix(in srgb, var(--secondary) 70%, var(--card));
-  border-color: color-mix(in srgb, var(--border) 65%, var(--primary));
+  border-color: color-mix(in srgb, var(--hairline-bar) 65%, var(--primary));
 }
 .ask-key .ask-g {
   position: absolute;
@@ -899,13 +915,7 @@ export function ArrowSwipeKey({ onFire }: ArrowSwipeKeyProps): JSX.Element {
         onPointerCancel={stop}
       >
         {!visual.overlayVisible && (
-          <DpadGlyphs
-            active={null}
-            speedP={0}
-            edgeHold={false}
-            pulseToken={0}
-            variant="key"
-          />
+          <DpadGlyphs active={null} speedP={0} edgeHold={false} pulseToken={0} variant="key" />
         )}
       </button>
       {typeof document !== 'undefined' &&
