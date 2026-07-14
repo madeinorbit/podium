@@ -63,7 +63,10 @@ export interface AccountView {
   harness?: string
   identity?: string
   status: 'connected' | 'not-configured'
-  comingSoon?: boolean
+  /** Managed only: 'stored' = the accounts table (Podium injects it, and can drop
+   *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
+   *  row for, so it cannot be disconnected from here. */
+  credentialSource?: 'stored' | 'legacy'
 }
 
 export function providerLabel(p: ApiProvider): string {
@@ -113,12 +116,52 @@ const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; labe
   { provider: 'openrouter', label: 'OpenRouter API' },
 ]
 
-/** Only offer execution paths each role can actually run today. Coding and the
- *  superagent run native harnesses. Background work is API-only: managed provider
- *  keys plus Codex's local-login Responses API. */
-export function accountOptions(role: 'coding' | 'superagent' | 'background') {
+/**
+ * Managed credentials a CODING session can actually run on (#216), and the
+ * harnesses each one can authenticate.
+ *
+ * A coding session always runs a harness; a managed account only supplies the
+ * credential it authenticates WITH. So the pairing must be one the CLI really
+ * accepts — credentialEnv() decides that: an anthropic key becomes
+ * ANTHROPIC_API_KEY and the Claude setup-token becomes CLAUDE_CODE_OAUTH_TOKEN
+ * (both read by Claude Code); an openai key becomes OPENAI_API_KEY (read by
+ * Codex). An OPENROUTER_API_KEY authenticates none of the coding CLIs we ship,
+ * so `managed:openrouter` is deliberately NOT offered here — presenting it would
+ * spawn an agent that silently falls back to whatever login the machine happens
+ * to have. It stays available for the API-backed background role below.
+ */
+export const MANAGED_CODING_ACCOUNTS: {
+  id: string
+  label: string
+  harnesses: HarnessAgent[]
+}[] = [
+  {
+    id: 'managed:claude-oauth',
+    label: 'Claude subscription (managed)',
+    harnesses: ['claude-code'],
+  },
+  { id: 'managed:anthropic', label: 'Anthropic API key (managed)', harnesses: ['claude-code'] },
+  { id: 'managed:openai', label: 'OpenAI API key (managed)', harnesses: ['codex'] },
+]
+
+/** The harnesses a managed account can drive for the coding role; [] when it can
+ *  drive none (so it is never offered). */
+export function managedCodingHarnesses(accountId: string): HarnessAgent[] {
+  return MANAGED_CODING_ACCOUNTS.find((a) => a.id === accountId)?.harnesses ?? []
+}
+
+/** Only offer execution paths each role can actually run today. CODING runs a
+ *  native harness, or a MANAGED credential injected into that harness's spawn
+ *  (#216). The superagent runs a native harness. Background work is API-only:
+ *  managed provider keys plus Codex's local-login Responses API. */
+export function accountOptions(
+  role: 'coding' | 'superagent' | 'background',
+): { id: string; label: string }[] {
   const native = NATIVE_HARNESSES.map((o) => ({ id: `native:${o.harness}`, label: o.label }))
-  if (role !== 'background') return native
+  if (role === 'coding') {
+    return [...native, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
+  }
+  if (role === 'superagent') return native
   return [
     { id: 'native:codex', label: 'Codex (ChatGPT)' },
     ...MANAGED_PROVIDERS.map((o) => ({ id: `managed:${o.provider}`, label: o.label })),
@@ -151,16 +194,38 @@ export function RoleBackendEditor({
     selectedAccount?.status === 'connected' ? ` · ${selectedAccount.identity ?? 'connected'}` : ''
   const selectedLabel = selectedOption ? `${selectedOption.label}${selectedStatus}` : accountId
   const isNative = accountId.startsWith('native:')
-  const harness = isNative ? (accountId.slice('native:'.length) as HarnessAgent) : undefined
+  const nativeHarness = isNative ? (accountId.slice('native:'.length) as HarnessAgent) : undefined
+  // A managed credential for the coding role needs a harness to run it on: the
+  // account says WHAT authenticates, `harness` says WHICH CLI. resolveRole() reads
+  // exactly this field, so it must be written — without it the role is ambiguous.
+  const codingHarnesses = role === 'coding' && !isNative ? managedCodingHarnesses(accountId) : []
+  const managedHarness =
+    codingHarnesses.length > 0
+      ? backend.harness && codingHarnesses.includes(backend.harness)
+        ? backend.harness
+        : (codingHarnesses[0] as HarnessAgent)
+      : undefined
+  const harness = nativeHarness ?? managedHarness
   const agentKind = harness ? issueDefaultAgentKind(harness) : undefined
   const showModelEffort =
     agentKind && effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind]).length > 0
+
+  /** The `harness` a given account persists for this role: the superagent pins its
+   *  native harness, a coding managed account pins the CLI its credential drives,
+   *  and everything else leaves it unset (undefined, not absent — the key must be
+   *  written so switching back to a native account CLEARS a stale harness). */
+  const harnessFor = (id: string, chosen?: HarnessAgent): HarnessAgent | undefined => {
+    if (id.startsWith('native:')) {
+      const h = id.slice('native:'.length) as HarnessAgent
+      return role === 'superagent' ? h : undefined
+    }
+    if (role !== 'coding') return undefined
+    const allowed = managedCodingHarnesses(id)
+    if (allowed.length === 0) return undefined
+    return chosen && allowed.includes(chosen) ? chosen : (allowed[0] as HarnessAgent)
+  }
   const updateBackend = (patch: Partial<RoleBackend>) =>
-    onChange({
-      ...backend,
-      ...patch,
-      ...(role === 'superagent' && harness ? { harness } : {}),
-    })
+    onChange({ ...backend, ...patch, harness: harnessFor(accountId, harness) })
   return (
     <>
       <Row label="Account">
@@ -168,14 +233,11 @@ export function RoleBackendEditor({
           value={accountId}
           onValueChange={(value) => {
             const nextAccountId = value ?? ''
-            const nativeHarness = nextAccountId.startsWith('native:')
-              ? (nextAccountId.slice('native:'.length) as HarnessAgent)
-              : undefined
             onChange({
               accountId: nextAccountId,
               model: 'auto',
               effort: 'auto',
-              ...(role === 'superagent' && nativeHarness ? { harness: nativeHarness } : {}),
+              harness: harnessFor(nextAccountId),
             })
           }}
         >
@@ -196,6 +258,31 @@ export function RoleBackendEditor({
           </SelectContent>
         </Select>
       </Row>
+      {codingHarnesses.length > 0 && (
+        <Row label="Harness">
+          <Select
+            value={managedHarness ?? ''}
+            onValueChange={(value) =>
+              onChange({
+                ...backend,
+                accountId,
+                harness: harnessFor(accountId, (value ?? '') as HarnessAgent),
+              })
+            }
+          >
+            <SelectTrigger className="w-full flex-1">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {codingHarnesses.map((h) => (
+                <SelectItem key={h} value={h}>
+                  {harnessAgentLabel(h)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Row>
+      )}
       <Row label="Model">
         {agentKind ? (
           <ModelPicker
@@ -242,10 +329,18 @@ export function RoleBackendEditor({
           Agent CLI harness: Podium runs a real {harness} agent with its own tool belt, using its
           local login on this server.
         </p>
+      ) : codingHarnesses.length > 0 ? (
+        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+          Managed account: Podium runs {managedHarness ? harnessAgentLabel(managedHarness) : 'a'}{' '}
+          harness and injects the credential you connected under Accounts & Keys into its
+          environment — so this session runs on that account from any connected machine, not on the
+          machine's own login.
+        </p>
       ) : (
         <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
           Provider backend (API key or local login): billed per token against the key you set under
-          API keys.
+          Settings → API keys. This role calls the provider API directly; it does not yet use a
+          managed account connected under Accounts & Keys.
         </p>
       )}
     </>

@@ -1466,7 +1466,7 @@ export class SessionsService {
       ...(session.resume ? { resume: session.resume } : {}),
       geometry: session.geometry,
       ...this.modelDefaults(session.agentKind),
-      ...this.accountEnv(),
+      ...this.accountEnv(session.agentKind),
     })
     this.broadcastSessions()
     return { ok: true }
@@ -1667,7 +1667,7 @@ export class SessionsService {
           ? { model: input.model, effort: input.effort }
           : undefined,
       ),
-      ...this.accountEnv(),
+      ...this.accountEnv(input.agentKind),
     })
     this.broadcastSessions()
     return { sessionId }
@@ -1702,8 +1702,15 @@ export class SessionsService {
 
   /** The managed credential (if any) for the coding role, as spawn env (#216).
    *  Native accounts yield {} — the CLI uses its own login and the frame is
-   *  unchanged. Read live at spawn, like modelDefaults. */
-  private accountEnv(): { env?: Record<string, string> } {
+   *  unchanged. Read live at spawn, like modelDefaults.
+   *
+   *  NEVER injected into a 'shell' pane: a shell is an interactive prompt the user
+   *  drives, so the credential would be one `env` away from being streamed to the
+   *  browser and written into persisted scrollback. Only an agent harness — which
+   *  is what the coding role's credential is FOR — gets it. (modelDefaults()
+   *  special-cases shell for the same reason of shape: a shell is not an agent.) */
+  private accountEnv(agentKind: AgentKind): { env?: Record<string, string> } {
+    if (agentKind === 'shell') return {}
     const role = resolveRole(this.store.settings.getSettings(), 'coding')
     return resolveAccountEnv(this.store.accounts, role.accountId)
   }

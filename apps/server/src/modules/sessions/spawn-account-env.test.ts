@@ -59,9 +59,9 @@ function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: Cont
 const spawns = (daemon: ControlMessage[]) => daemon.filter((m) => m.type === 'spawn')
 
 /** The frame for a fresh create (call site 1: SessionsService.spawn). */
-function createFrame(store: SessionStore) {
+function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = 'claude-code') {
   const { reg, daemon } = makeRegistry(store)
-  reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+  reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
   const frame = spawns(daemon).at(-1)
   expect(frame).toBeDefined()
   return frame as Extract<ControlMessage, { type: 'spawn' }>
@@ -112,4 +112,17 @@ it('createSession on a NATIVE account leaves env absent — not an empty object'
 it('resurrectSession on a NATIVE account leaves env absent — not an empty object', () => {
   const frame = resurrectFrame(storeWith('native:claude-code'))
   expect(Object.hasOwn(frame, 'env')).toBe(false)
+})
+
+/**
+ * A SHELL pane is an interactive prompt the user drives, not an agent harness.
+ * Injecting the coding role's credential into it puts the plaintext secret one
+ * `env` away from the browser — and into persisted scrollback. The credential is
+ * for the harness; a shell never gets it.
+ */
+it('never injects the managed credential into a SHELL pane (#216)', () => {
+  const frame = createFrame(storeWith('managed:anthropic', MANAGED_ANTHROPIC), 'shell')
+  expect(frame.agentKind).toBe('shell')
+  expect(Object.hasOwn(frame, 'env')).toBe(false)
+  expect(JSON.stringify(frame)).not.toContain('sk-ant-managed')
 })

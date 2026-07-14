@@ -2,9 +2,9 @@
 //
 // Makes auth first-class and VISIBLE: native CLI logins on this machine (Claude
 // Code, Codex/ChatGPT, Grok) shown read-only with their identity, alongside the
-// managed API keys already stored in settings. MANAGED credential injection into
-// harnesses + oauth rotation are modelled but ship "Coming soon" — this slice
-// only detects + displays; it never writes a credential.
+// MANAGED credentials Podium holds and injects into an agent's spawn env (#216) —
+// a provider API key or a `claude setup-token`. Multi-account oauth ROTATION is
+// still modelled only.
 //
 // The raw login detectors live in @podium/agent-bridge (inventory/detect-login,
 // #222) so the daemon can report about ITS OWN machine; this module keeps the
@@ -51,9 +51,13 @@ export interface AccountView {
   /** Observed, human-facing: an email/plan, a masked key, or a hint. */
   identity?: string
   status: 'connected' | 'not-configured'
-  /** True for capabilities that are modelled but not yet wired (managed
-   *  injection into harnesses, oauth rotation) — the UI disables + labels these. */
-  comingSoon?: boolean
+  /** Managed only: where the credential actually lives.
+   *  'stored' — a row in the accounts table: Podium injects it at spawn, and
+   *    `accounts.disconnect` can really delete it.
+   *  'legacy' — no row; the value comes from the pre-hub `settings.apiKeys`.
+   *    accounts.remove() would delete NOTHING, so the UI must not offer a
+   *    Disconnect the server cannot honour (it points at Settings → API keys). */
+  credentialSource?: 'stored' | 'legacy'
 }
 
 /** Display-only preview of a secret. The full value never leaves the server. */
@@ -128,19 +132,44 @@ export function accountViews(
 
   // Managed rows: a stored credential (#216) wins; otherwise fall back to the
   // legacy settings.apiKeys value so an existing key keeps showing as connected.
+  //
+  // Status keys off the ROW'S EXISTENCE, never the truthiness of its identity: an
+  // identity is only a display mask, and a row with an empty one still holds a
+  // live credential that spawns inject. Keying on identity would render a working
+  // account as "not configured".
   const stored = new Map(accounts.list().map((a) => [a.id, a]))
   const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
     const id = `managed:${provider}`
     const row = stored.get(id)
     const legacyKey = settings.apiKeys[provider] ?? ''
-    const identity = row?.identity || (legacyKey ? maskCredential(legacyKey) : undefined)
+    if (row) {
+      return {
+        id,
+        provider,
+        source: 'managed' as const,
+        kind: 'api-key' as const,
+        identity: row.identity || undefined,
+        status: 'connected' as const,
+        credentialSource: 'stored' as const,
+      }
+    }
+    if (legacyKey) {
+      return {
+        id,
+        provider,
+        source: 'managed' as const,
+        kind: 'api-key' as const,
+        identity: maskCredential(legacyKey),
+        status: 'connected' as const,
+        credentialSource: 'legacy' as const,
+      }
+    }
     return {
       id,
       provider,
       source: 'managed' as const,
       kind: 'api-key' as const,
-      identity,
-      status: identity ? ('connected' as const) : ('not-configured' as const),
+      status: 'not-configured' as const,
     }
   })
 
@@ -152,8 +181,10 @@ export function accountViews(
     provider: 'anthropic',
     source: 'managed',
     kind: 'oauth',
-    identity: oauthRow?.identity,
-    status: oauthRow ? 'connected' : 'not-configured',
+    identity: oauthRow?.identity || undefined,
+    ...(oauthRow
+      ? { status: 'connected' as const, credentialSource: 'stored' as const }
+      : { status: 'not-configured' as const }),
   }
 
   return [...native, ...managed, claudeOauth]

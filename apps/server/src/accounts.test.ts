@@ -81,6 +81,62 @@ describe('accountViews', () => {
     expect(views.find((v) => v.id === 'managed:openai')!.status).toBe('not-configured')
   })
 
+  /** A legacy settings key has NO row for accounts.remove() to delete. Marking it
+   *  'legacy' is what stops the UI offering a Disconnect the server cannot honour
+   *  (the button reported ok:true, deleted nothing, and the row stayed connected —
+   *  an unbreakable loop for anyone with a pre-hub API key). */
+  it('marks a legacy settings key as legacy, and a stored credential as stored', () => {
+    const legacy = accountViews(
+      settings({ anthropic: 'sk-ant-abcdefgh1234' }),
+      accounts,
+      home,
+    ).find((v) => v.id === 'managed:anthropic')!
+    expect(legacy.status).toBe('connected')
+    expect(legacy.credentialSource).toBe('legacy')
+
+    accounts.upsert({
+      id: 'managed:anthropic',
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-stored',
+      identity: 'sk-a…ored',
+      scope: 'role',
+      createdAt: 1,
+    })
+    const stored = accountViews(
+      settings({ anthropic: 'sk-ant-abcdefgh1234' }),
+      accounts,
+      home,
+    ).find((v) => v.id === 'managed:anthropic')!
+    // The stored row wins over the legacy key, and IS disconnectable.
+    expect(stored.credentialSource).toBe('stored')
+    expect(stored.identity).toBe('sk-a…ored')
+  })
+
+  it('leaves an unconfigured managed row with no credential source', () => {
+    const view = accountViews(settings(), accounts, home).find((v) => v.id === 'managed:openai')!
+    expect(view.status).toBe('not-configured')
+    expect(view.credentialSource).toBeUndefined()
+  })
+
+  /** identity is a display mask, not the credential. A stored row with an empty one
+   *  still injects a live key at spawn — status keys off the ROW, not the string. */
+  it('reports a stored row with an empty identity as connected, not not-configured', () => {
+    accounts.upsert({
+      id: 'managed:openai',
+      provider: 'openai',
+      kind: 'api-key',
+      credential: 'sk-live-key',
+      identity: '',
+      scope: 'role',
+      createdAt: 1,
+    })
+    const view = accountViews(settings(), accounts, home).find((v) => v.id === 'managed:openai')!
+    expect(view.status).toBe('connected')
+    expect(view.credentialSource).toBe('stored')
+    expect(JSON.stringify(view)).not.toContain('sk-live-key')
+  })
+
   it('shows a connected managed account as connected, masked, and never leaks the secret', () => {
     accounts.upsert({
       id: 'managed:anthropic',
@@ -97,7 +153,6 @@ describe('accountViews', () => {
 
     expect(view?.status).toBe('connected')
     expect(view?.identity).toBe('sk-a…cret')
-    expect(view?.comingSoon).toBeUndefined()
     // The security invariant: a credential never rides out in a response payload.
     expect(JSON.stringify(views)).not.toContain('sk-ant-supersecret')
   })
@@ -144,20 +199,29 @@ describe('accountViews', () => {
 
 describe('AccountConnectInput', () => {
   it('rejects oauth for non-anthropic providers', () => {
-    const res = AccountConnectInput.safeParse({ provider: 'openai', kind: 'oauth', credential: 'x' })
+    const res = AccountConnectInput.safeParse({
+      provider: 'openai',
+      kind: 'oauth',
+      credential: 'x',
+    })
     expect(res.success).toBe(false)
-    if (!res.success) expect(res.error.issues[0]!.message).toContain('OAuth accounts are only supported for Anthropic')
+    if (!res.success)
+      expect(res.error.issues[0]!.message).toContain(
+        'OAuth accounts are only supported for Anthropic',
+      )
   })
 
   it('accepts oauth for anthropic', () => {
     expect(
-      AccountConnectInput.safeParse({ provider: 'anthropic', kind: 'oauth', credential: 'x' }).success,
+      AccountConnectInput.safeParse({ provider: 'anthropic', kind: 'oauth', credential: 'x' })
+        .success,
     ).toBe(true)
   })
 
   it('accepts api-key for other providers', () => {
     expect(
-      AccountConnectInput.safeParse({ provider: 'openai', kind: 'api-key', credential: 'x' }).success,
+      AccountConnectInput.safeParse({ provider: 'openai', kind: 'api-key', credential: 'x' })
+        .success,
     ).toBe(true)
   })
 })

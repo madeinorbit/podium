@@ -174,6 +174,13 @@ export type RoleName = keyof Roles
 const HARNESS_ACCOUNT = 'native:' as const
 const MANAGED_ACCOUNT = 'managed:' as const
 
+/** The Claude subscription setup-token's account suffix — an anthropic credential
+ *  that is its own account, distinct from an Anthropic API key. */
+const MANAGED_CLAUDE_OAUTH = 'claude-oauth' as const
+
+/** Synthetic account id for the Claude subscription (`claude setup-token`). */
+export const CLAUDE_OAUTH_ACCOUNT_ID = `${MANAGED_ACCOUNT}${MANAGED_CLAUDE_OAUTH}` as const
+
 /** Synthetic account id for a native harness login. */
 export function nativeAccountId(harness: HarnessAgent): string {
   return `${HARNESS_ACCOUNT}${harness}`
@@ -411,6 +418,13 @@ function decodeAccount(
   }
   if (accountId.startsWith(MANAGED_ACCOUNT)) {
     const raw = accountId.slice(MANAGED_ACCOUNT.length)
+    // 'managed:claude-oauth' (the `claude setup-token` subscription credential) is
+    // an ANTHROPIC account whose id is not a provider name — without this case it
+    // fails the ApiProvider parse and falls back to 'openrouter', quietly turning
+    // the Claude subscription into an OpenRouter backend.
+    if (raw === MANAGED_CLAUDE_OAUTH) {
+      return { execution: 'api', harness: 'claude-code', provider: 'anthropic' }
+    }
     const provider = ApiProvider.safeParse(raw).success ? (raw as ApiProvider) : 'openrouter'
     return { execution: 'api', harness: 'claude-code', provider }
   }

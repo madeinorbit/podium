@@ -44,6 +44,12 @@ function ManagedAccountRow({
 
   const isOauth = account.kind === 'oauth'
   const connected = account.status === 'connected'
+  // A legacy key lives in settings.apiKeys, not the accounts table: there is no row
+  // for `accounts.disconnect` to delete, so offering a Disconnect here would be a
+  // button that reports success and changes nothing. Offer the honest action —
+  // replace it with a managed credential (which IS disconnectable), or remove it
+  // where it actually lives.
+  const legacy = connected && account.credentialSource === 'legacy'
   const label = managedLabel(account)
 
   const connect = async (): Promise<void> => {
@@ -85,18 +91,24 @@ function ManagedAccountRow({
   return (
     <div>
       <Row label={label}>
-        {connected ? (
+        {connected && !editing ? (
           <>
             {connectedPill(account)}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => void disconnect()}
-            >
-              Disconnect
-            </Button>
+            {legacy ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
+                Replace
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void disconnect()}
+              >
+                Disconnect
+              </Button>
+            )}
           </>
         ) : editing ? (
           <>
@@ -152,6 +164,19 @@ function ManagedAccountRow({
         <p className="mb-1 max-w-[60ch] text-[12px] text-muted-foreground">
           Run <code className="text-[11px]">claude setup-token</code> in a terminal and paste the
           token here. It is a long-lived subscription token (about a year) and is not your API key.
+        </p>
+      )}
+      {legacy && !editing && (
+        <p className="mb-1 max-w-[60ch] text-[12px] text-warning">
+          This key is set under Settings → API keys, not held as a managed account, so Podium does
+          not inject it into agent spawns and it cannot be disconnected from here. Replace it to
+          store it as a managed account, or clear it under API keys.
+        </p>
+      )}
+      {!isOauth && connected && !legacy && (
+        <p className="mb-1 max-w-[60ch] text-[12px] text-muted-foreground">
+          Injected into agent spawns. The superagent and background LLM roles still read their key
+          from Settings → API keys (issue #469), so this account does not power those.
         </p>
       )}
       {error && <p className="mb-1 max-w-[60ch] text-[12px] text-destructive">{error}</p>}
