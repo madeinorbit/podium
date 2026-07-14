@@ -33,6 +33,7 @@ describe('issues schema migration (P1)', () => {
       'superseded_by',
       'duplicate_of',
       'pinned',
+      'color',
       'estimate_min',
     ]) {
       expect(cols.has(c), `missing column ${c}`).toBe(true)
@@ -98,7 +99,9 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
 
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
 function seedIssues(store: SessionStore, ...ids: string[]): void {
-  ids.forEach((id, i) => store.issues.upsertIssue(baseRow({ id, seq: 100 + i })))
+  ids.forEach((id, i) => {
+    store.issues.upsertIssue(baseRow({ id, seq: 100 + i }))
+  })
 }
 
 describe('IssueRow rich fields round-trip (P1)', () => {
@@ -120,6 +123,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
         supersededBy: 'iss_new',
         duplicateOf: 'iss_canon',
         pinned: true,
+        color: 'violet',
         estimateMin: 30,
       }),
     )
@@ -129,6 +133,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     expect(r.assignee).toBe('agent:claude')
     expect(r.parentId).toBe('iss_epic')
     expect(r.pinned).toBe(true)
+    expect(r.color).toBe('violet')
     expect(r.estimateMin).toBe(30)
     expect(r.deferUntil).toBe('2026-07-05')
     expect(r.closedReason).toBe('duplicate')
@@ -141,6 +146,15 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
     expect(r.pinned).toBe(false)
+    expect(r.color).toBeNull()
+  })
+
+  it('persists palette slots and clears them back to null', () => {
+    const store = new SessionStore(':memory:')
+    store.issues.upsertIssue(baseRow({ color: 'teal' }))
+    expect(store.issues.getIssue('iss_x')?.color).toBe('teal')
+    store.issues.upsertIssue(baseRow({ color: null }))
+    expect(store.issues.getIssue('iss_x')?.color).toBeNull()
   })
 })
 

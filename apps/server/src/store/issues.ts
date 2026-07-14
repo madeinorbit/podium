@@ -44,10 +44,10 @@ export class IssuesRepository {
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, superseded_by, duplicate_of, pinned, estimate_min,
+            defer_until, closed_reason, superseded_by, duplicate_of, pinned, color, estimate_min,
             needs_human, human_question, panel,
             created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
@@ -65,7 +65,8 @@ export class IssuesRepository {
            acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
            defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
-           pinned = excluded.pinned, estimate_min = excluded.estimate_min,
+           pinned = excluded.pinned, color = excluded.color,
+           estimate_min = excluded.estimate_min,
            needs_human = excluded.needs_human, human_question = excluded.human_question,
            panel = excluded.panel,
            updated_at = excluded.updated_at, archived = excluded.archived,
@@ -111,6 +112,7 @@ export class IssuesRepository {
         row.supersededBy,
         row.duplicateOf,
         row.pinned ? 1 : 0,
+        row.color ?? null,
         row.estimateMin,
         row.needsHuman ? 1 : 0,
         row.humanQuestion,
@@ -165,6 +167,7 @@ export class IssuesRepository {
       supersededBy: (r.superseded_by as string | null) ?? null,
       duplicateOf: (r.duplicate_of as string | null) ?? null,
       pinned: r.pinned === 1,
+      color: (r.color as string | null) ?? null,
       estimateMin: (r.estimate_min as number | null) ?? null,
       needsHuman: r.needs_human === 1,
       humanQuestion: (r.human_question as string | null) ?? null,

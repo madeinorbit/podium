@@ -1,4 +1,6 @@
+import { ISSUE_COLOR_SLOTS } from '@podium/domain'
 import { ISSUE_COMMANDS } from '@podium/issue-client'
+import { IssueColor } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { z } from 'zod'
 import { issueRegistry } from './registry'
@@ -63,6 +65,27 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     const input = issueRegistry.defs.attachSession.input as z.ZodObject<z.ZodRawShape>
     const sub = input.shape.newSubissue as z.ZodOptional<z.ZodObject<z.ZodRawShape>>
     expect(Object.keys(sub.unwrap().shape)).toEqual(['title'])
+  })
+
+  it('issue colour palette: the protocol wire enum mirrors the domain slot list [spec:SP-b4d1]', () => {
+    // Domain is a zero-dependency leaf and protocol stays dependency-free, so
+    // the 10 slot names are declared in both — this pin is what keeps them one.
+    expect(IssueColor.options).toEqual([...ISSUE_COLOR_SLOTS])
+  })
+
+  it('accepts palette slot names on create/update and null only on update', () => {
+    const create = issueRegistry.defs.create.input
+    const update = issueRegistry.defs.update.input
+    expect(
+      create.safeParse({ repoPath: '/r', title: 'x', startNow: false, color: 'violet' }).success,
+    ).toBe(true)
+    expect(
+      create.safeParse({ repoPath: '/r', title: 'x', startNow: false, color: null }).success,
+    ).toBe(false)
+    expect(update.safeParse({ id: '1', patch: { color: 'teal' } }).success).toBe(true)
+    expect(update.safeParse({ id: '1', patch: { color: null } }).success).toBe(true)
+    expect(update.safeParse({ id: '1', patch: { color: '#14b8a6' } }).success).toBe(false)
+    expect(update.safeParse({ id: '1', patch: { color: 'amber' } }).success).toBe(false)
   })
 
   it('every CLI command arg schema is strict (unknown flags are rejected, #345)', () => {

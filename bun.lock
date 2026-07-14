@@ -141,6 +141,7 @@
         "@fontsource-variable/geist": "^5.2.9",
         "@fontsource-variable/geist-mono": "^5.2.8",
         "@podium/client-core": "workspace:*",
+        "@podium/domain": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/server": "workspace:*",

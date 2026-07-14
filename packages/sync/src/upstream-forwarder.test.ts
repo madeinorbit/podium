@@ -231,6 +231,12 @@ describe('optimisticIssuePatch', () => {
     expect(
       optimisticIssuePatch('update', { id: 'i', patch: { title: 'T', priority: 1 } }, 'now'),
     ).toMatchObject({ title: 'T', priority: 1, updatedAt: 'now' })
+    expect(
+      optimisticIssuePatch('update', { id: 'i', patch: { color: 'violet' } }, 'now'),
+    ).toMatchObject({ color: 'violet', updatedAt: 'now' })
+    expect(
+      optimisticIssuePatch('update', { id: 'i', patch: { color: null } }, 'now'),
+    ).toMatchObject({ color: undefined, updatedAt: 'now' })
     expect(optimisticIssuePatch('close', { id: 'i', reason: 'done!' }, 'now')).toMatchObject({
       stage: 'done',
       closedReason: 'done!',

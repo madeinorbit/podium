@@ -1,4 +1,4 @@
-import { isIssueBlocked, isIssueClosed, isIssueDeferred } from '@podium/domain'
+import { isIssueBlocked, isIssueClosed, isIssueColorSlot, isIssueDeferred } from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
@@ -157,6 +157,9 @@ export abstract class IssueServiceCore {
       priority: row.priority,
       type: row.type as IssueWire['type'],
       pinned: row.pinned,
+      // Guarded so a corrupt/unknown stored value degrades to "no colour"
+      // rather than failing the whole issue's wire parse [spec:SP-b4d1].
+      ...(isIssueColorSlot(row.color) ? { color: row.color } : {}),
       needsHuman: row.needsHuman,
       ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
       ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),

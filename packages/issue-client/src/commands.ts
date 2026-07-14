@@ -1,4 +1,5 @@
 import { TITLE_RULE_TERSE } from '@podium/protocol'
+import { IssueColor } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 
@@ -67,6 +68,7 @@ interface ShowWire {
   defaultModel?: string | null
   defaultEffort?: string | null
   machineId?: string | null
+  color?: string | null
 }
 
 /** One comment as the show renderer prints it (issues.comments payload, #175). */
@@ -97,6 +99,7 @@ function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
       ? `agent=${i.defaultAgent ?? 'auto'} model=${i.defaultModel ?? 'auto'} effort=${i.defaultEffort ?? 'auto'}`
       : null,
     i.machineId ? `machine=${i.machineId}` : null,
+    i.color ? `color=${i.color}` : null,
     i.labels?.length ? `labels=${i.labels.join(',')}` : null,
     i.branch ? `branch=${i.branch}` : null,
     i.needsHuman ? `NEEDS HUMAN${i.humanQuestion ? `: ${i.humanQuestion}` : ''}` : null,
@@ -265,6 +268,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       assignee: z.string().optional(),
       labels: z.string().optional(),
       parentBranch: z.string().optional(),
+      // Colour slot [spec:SP-b4d1]: rose|pink|fuchsia|violet|indigo|blue|cyan|teal|green|lime.
+      color: IssueColor.optional(),
       start: z.boolean().optional(),
     }),
     async run(c, a) {
@@ -282,6 +287,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
         ...(a.machine ? { machineId: a.machine as string } : {}),
         ...(a.assignee ? { assignee: a.assignee as string } : {}),
+        ...(a.color ? { color: a.color as never } : {}),
         // --labels is comma-separated on the CLI; the proc takes an array.
         ...(a.labels
           ? {
@@ -345,6 +351,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       deferUntil: z.string().optional(),
       closedReason: z.string().optional(),
       pinned: cliBool.optional(),
+      // Colour slot [spec:SP-b4d1]; 'none' clears back to the neutral flow.
+      color: z.union([IssueColor, z.literal('none')]).optional(),
       estimateMin: z.coerce.number().int().optional(),
     }),
     positionals: ['id'],
@@ -374,6 +382,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.effort != null) patch.defaultEffort = a.effort
       // 'none' clears the pin (back to repo-affinity routing).
       if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
+      // 'none' clears the colour (back to the neutral slate flow) [spec:SP-b4d1].
+      if (a.color != null) patch.color = a.color === 'none' ? null : a.color
       // An empty patch is a caller mistake (typo'd/absent flags), not a success (#345).
       if (Object.keys(patch).length === 0) {
         throw new Error('update: no fields given — nothing changed (see update --help for flags)')

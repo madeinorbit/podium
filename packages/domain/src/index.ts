@@ -1,4 +1,5 @@
 export * from './issue-authz'
+export * from './issue-color'
 export * from './issue-stage'
 export * from './snooze'
 export * from './git-identity'

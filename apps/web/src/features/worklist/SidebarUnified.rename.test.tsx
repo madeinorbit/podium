@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -156,5 +156,18 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(updateMutate).not.toHaveBeenCalled()
+  })
+
+  it('writes a picked ID-square colour through the existing issues.update path', async () => {
+    render(<SidebarUnified />)
+    fireEvent.click(screen.getByRole('button', { name: 'Set colour for issue #1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
+
+    await waitFor(() =>
+      expect(updateMutate).toHaveBeenCalledWith({
+        id: 'a',
+        patch: { color: 'violet' },
+      }),
+    )
   })
 })

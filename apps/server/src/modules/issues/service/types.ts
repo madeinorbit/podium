@@ -1,3 +1,4 @@
+import type { IssueColorSlot } from '@podium/domain'
 import type {
   IssueWire,
   MetadataChange,
@@ -231,6 +232,8 @@ export interface CreateIssueInput {
   assignee?: string
   labels?: string[]
   parentId?: string
+  /** Colour slot name [spec:SP-b4d1]; absent = no colour (neutral slate flow). */
+  color?: IssueColorSlot
   /** Who CREATED this issue; caller-derived, default 'human' (#198). */
   origin?: 'human' | 'agent'
   /** Who this issue is FOR; agent-declared, default 'human' (#198). */
@@ -272,6 +275,7 @@ export type IssuePatch = Partial<
     | 'supersededBy'
     | 'duplicateOf'
     | 'pinned'
+    | 'color'
     | 'estimateMin'
     | 'needsHuman'
     | 'humanQuestion'
