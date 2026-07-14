@@ -67,6 +67,9 @@ test('workflow library: creates, revises, publishes, and persists a workflow', a
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 60_000,
   })
+  await page
+    .getByRole('button', { name: `${name} v2 · global`, exact: true })
+    .click({ timeout: 15_000 })
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('revision 2 · published', { exact: true })).toBeVisible()
 
@@ -80,14 +83,16 @@ test('workflow library: creates, revises, publishes, and persists a workflow', a
   await page.getByLabel('Effort').fill('medium')
   await page.getByRole('button', { name: 'Save profile' }).click()
   await expect(page.getByText('Saved the execution profile.')).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText(profileName, { exact: true })).toBeVisible()
-  await expect(page.getByText('grok · grok-4.5 · medium', { exact: true })).toBeVisible()
+  const profileCard = page.getByText(profileName, { exact: true }).locator('..')
+  await expect(profileCard).toBeVisible()
+  await expect(profileCard.getByText('grok · grok-4.5 · medium', { exact: true })).toBeVisible()
 
   await page.reload()
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
     timeout: 60_000,
   })
   await page.getByRole('button', { name: 'Execution profiles', exact: true }).click()
-  await expect(page.getByText(profileName, { exact: true })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByText('account native:grok', { exact: true })).toBeVisible()
+  const persistedProfileCard = page.getByText(profileName, { exact: true }).locator('..')
+  await expect(persistedProfileCard).toBeVisible({ timeout: 15_000 })
+  await expect(persistedProfileCard.getByText('account native:grok', { exact: true })).toBeVisible()
 })

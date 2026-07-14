@@ -415,6 +415,23 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.message.status).toBe('delivered')
   })
 
+  it('attributes a named system sender in the delivered envelope', () => {
+    const { svc, queued } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    const r = svc.send(
+      { kind: 'system', name: 'workflow' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'Continue with the next workflow step.',
+        urgency: 'next-turn',
+      },
+    )
+
+    expect(r.message).toMatchObject({ fromKind: 'system', fromName: 'workflow' })
+    expect(queued).toHaveLength(1)
+    expect(queued[0]?.text).toContain('from system:workflow')
+    expect(queued[0]?.text).toContain('Continue with the next workflow step.')
+  })
+
   it('running target: interrupt (allowed sender) goes through interruptText (ESC + inject)', () => {
     const { svc, interrupted, queued } = harness([
       session({ sessionId: 's1', agentState: WORKING }),
