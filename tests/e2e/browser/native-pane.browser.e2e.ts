@@ -15,6 +15,9 @@ import { harnessEnv } from '../harness-env'
 import { newSession, RELAY } from './_harness'
 
 test.skip(({ isMobile }) => isMobile, 'desktop native pane chrome')
+// Cold-start discovery + real session spawns overrun the 30s default; siblings
+// (engraved-column, reveal-refit) size the budget the same way.
+test.setTimeout(120_000)
 
 /**
  * Open the app WITHOUT the shared openApp's trailing gotoWorkspace step: both
