@@ -75,9 +75,23 @@ describe('agent-models catalog', () => {
 })
 
 describe('effortOptionsForModel — effort follows the selected model', () => {
-  it('auto model → no effort options (effort stays auto)', () => {
-    expect(effortOptionsForModel('claude-code', 'auto')).toEqual([])
-    expect(effortOptionsForModel('claude-code', '')).toEqual([])
+  it('auto model → the full agent effort ladder', () => {
+    expect(effortOptionsForModel('claude-code', 'auto').map((o) => o.value)).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ])
+    expect(effortOptionsForModel('codex', '').map((o) => o.value)).toEqual([
+      'auto',
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
+    expect(effortOptionsForModel('cursor', 'auto')).toEqual([])
   })
 
   it("uses the live model's authoritative per-model efforts", () => {

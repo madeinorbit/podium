@@ -1,4 +1,5 @@
-import type { PodiumSettings } from '@podium/runtime'
+import { AGENT_CAPABILITIES } from '@podium/protocol'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import {
   Select,
@@ -22,12 +23,15 @@ export function SessionsSection({
   accounts: AccountView[]
   patch: (p: Partial<PodiumSettings>) => void
 }): JSX.Element {
+  const codingHarness = resolveRole(settings, 'coding').harness
   return (
     <>
       <Section
         title="New sessions"
         hint="Which account, model, and effort new coding agents start with. The account is a CLI login on this server."
       >
+        {/* Biome mistakes this component prop for an ARIA role attribute. */}
+        {/* biome-ignore lint/a11y/useValidAriaRole: this selects the Podium backend role */}
         <RoleBackendEditor
           role="coding"
           backend={settings.roles.coding}
@@ -38,21 +42,23 @@ export function SessionsSection({
             })
           }
         />
-        <Row label="Model for subagents">
-          <ModelPicker
-            variant="field"
-            agentKind="claude-code"
-            value={settings.roles.coding.subagentModel}
-            onChange={(subagentModel) =>
-              patch({
-                roles: {
-                  ...settings.roles,
-                  coding: { ...settings.roles.coding, subagentModel },
-                },
-              })
-            }
-          />
-        </Row>
+        {AGENT_CAPABILITIES[codingHarness].subagentModelEnv && (
+          <Row label="Model for subagents">
+            <ModelPicker
+              variant="field"
+              agentKind={codingHarness}
+              value={settings.roles.coding.subagentModel}
+              onChange={(subagentModel) =>
+                patch({
+                  roles: {
+                    ...settings.roles,
+                    coding: { ...settings.roles.coding, subagentModel },
+                  },
+                })
+              }
+            />
+          </Row>
+        )}
         <Row label="Subagents">
           <Select
             value={settings.roles.coding.subagentStrategy}

@@ -135,20 +135,21 @@ function effortLevelLabel(level: string): string {
 }
 
 /**
- * Effort options for the SELECTED model — effort is a per-model property, not a blanket
- * per-agent one. With no concrete model (auto) there's nothing to scope effort to, so
- * returns [] (effort stays auto). When the live catalog reports the model's effort
- * levels (claude `capabilities.effort`, codex `supported_reasoning_levels`), those are
- * authoritative: a model with `[]` (e.g. claude haiku) offers no effort. When the source
- * doesn't expose per-model effort (grok/opencode), falls back to the agent's verified
- * CLI ladder. Empty result = hide the effort picker.
+ * Effort options for the selected model. Automatic model selection still accepts an
+ * explicit harness effort, so it uses the agent's verified ladder. When the live
+ * catalog reports model-specific levels (claude `capabilities.effort`, codex
+ * `supported_reasoning_levels`), those are authoritative: a model with `[]` (e.g.
+ * claude haiku) offers no effort. Models without such metadata (grok/opencode) also
+ * fall back to the agent ladder. Empty result = hide the effort picker.
  */
 export function effortOptionsForModel(
   kind: IssueAgentKind,
   modelValue: string | null | undefined,
   live?: readonly ModelChoice[],
 ): PropertyOption[] {
-  if (!modelValue || modelValue === AUTO) return []
+  if (!modelValue || modelValue === AUTO) {
+    return agentSupportsEffort(kind) ? effortOptions(kind) : []
+  }
   const efforts = agentModels(kind, live).find((m) => m.value === modelValue)?.efforts
   if (efforts !== undefined) {
     if (efforts.length === 0) return []

@@ -113,13 +113,14 @@ const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; labe
   { provider: 'openrouter', label: 'OpenRouter API' },
 ]
 
-/** The account choices for a role. Coding always runs a harness (a native login);
- *  the orchestrator/background roles can also use a managed provider key. */
-function accountOptions(role: 'coding' | 'superagent' | 'background') {
+/** Only offer execution paths each role can actually run today. Coding and the
+ *  superagent run native harnesses. Background work is API-only: managed provider
+ *  keys plus Codex's local-login Responses API. */
+export function accountOptions(role: 'coding' | 'superagent' | 'background') {
   const native = NATIVE_HARNESSES.map((o) => ({ id: `native:${o.harness}`, label: o.label }))
-  if (role === 'coding') return native
+  if (role !== 'background') return native
   return [
-    ...native,
+    { id: 'native:codex', label: 'Codex (ChatGPT)' },
     ...MANAGED_PROVIDERS.map((o) => ({ id: `managed:${o.provider}`, label: o.label })),
   ]
 }
@@ -144,6 +145,11 @@ export function RoleBackendEditor({
   const modelCatalog = useModelCatalog()
   const options = accountOptions(role)
   const accountId = backend.accountId || options[0]?.id || 'native:claude-code'
+  const selectedOption = options.find((option) => option.id === accountId)
+  const selectedAccount = accounts.find((account) => account.id === accountId)
+  const selectedStatus =
+    selectedAccount?.status === 'connected' ? ` · ${selectedAccount.identity ?? 'connected'}` : ''
+  const selectedLabel = selectedOption ? `${selectedOption.label}${selectedStatus}` : accountId
   const isNative = accountId.startsWith('native:')
   const harness = isNative ? (accountId.slice('native:'.length) as HarnessAgent) : undefined
   const agentKind = harness ? issueDefaultAgentKind(harness) : undefined
@@ -174,7 +180,7 @@ export function RoleBackendEditor({
           }}
         >
           <SelectTrigger className="w-full flex-1">
-            <SelectValue />
+            <SelectValue>{selectedLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {options.map((o) => {

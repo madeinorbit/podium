@@ -109,8 +109,8 @@ export function EffortPicker({
   variant?: Variant
 }): JSX.Element | null {
   const live = useModelCatalog()[agentKind]
-  // Effort follows the selected model: none when the model is `auto` or supports no
-  // effort (e.g. claude haiku) → hide the picker entirely.
+  // Auto model uses the agent's effort ladder; a concrete model can narrow it or
+  // explicitly report no effort support (e.g. Claude Haiku).
   const options = effortOptionsForModel(agentKind, model, live)
   if (options.length === 0) return null
   return (

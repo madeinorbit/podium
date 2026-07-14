@@ -59,10 +59,11 @@ describe('ModelPicker live catalog', () => {
 })
 
 describe('EffortPicker follows the selected model', () => {
-  it('hides when the model is auto', async () => {
+  it('shows the agent effort ladder when the model is auto', async () => {
     render(<EffortPicker agentKind="claude-code" model="auto" value="auto" onChange={vi.fn()} />)
     await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
-    expect(screen.queryByRole('button', { name: 'Effort' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
+    expect(screen.getByRole('menuitem', { name: 'Max' })).toBeTruthy()
   })
 
   it("shows the selected model's per-model effort levels", async () => {
