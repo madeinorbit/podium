@@ -102,6 +102,13 @@ export class TerminalView {
   // after a context loss dropped us to the DOM renderer). Kept so reloadWebgl() can
   // recreate it to recover a discarded canvas.
   private webgl: WebglAddon | undefined
+  // An OSC 52 payload whose direct clipboard write FAILED. The sequence arrives
+  // asynchronously over the transport — outside any user gesture — and
+  // Safari/Firefox reject gesture-less writeText (Chromium too when the
+  // clipboard-write permission is denied); the execCommand fallback needs a
+  // gesture as well. So the payload is held here and completed inside the next
+  // real gesture on the pane (the copy chord, or a prompt mouseup/keydown).
+  private pendingCopy: { text: string; at: number } | null = null
 
   constructor(opts: TerminalViewOptions = {}) {
     this.term = new Terminal({
@@ -156,7 +163,11 @@ export class TerminalView {
     // default handler — without this the agent believes it copied ("sent N chars
     // via OSC 52") while the payload is silently dropped. Write-only: clipboard
     // READ queries ('?') are ignored, an agent must never see the user's clipboard.
-    this.term.parser.registerOscHandler(52, (data) => handleOsc52(data))
+    this.term.parser.registerOscHandler(52, (data) => {
+      const text = decodeOsc52(data)
+      if (text) void this.copyText(text)
+      return true
+    })
   }
 
   /** Configure (or clear) clickable file-path links. Highlighted, path-like runs
@@ -440,6 +451,12 @@ export class TerminalView {
 
     const onMouseUp = (): void => {
       if (this.term.hasSelection()) copySelection()
+      // No xterm selection = the app owns the mouse (Claude Code's mouse mode).
+      // Its OSC 52 lands ~a round-trip AFTER the selecting drag's mouseup, so a
+      // failed write is completed by the user's next click/drag on the pane —
+      // but only a FRESH payload: an old one must not clobber whatever the user
+      // copied elsewhere since.
+      else this.flushPendingCopy(PENDING_COPY_FRESH_MS)
     }
     el.addEventListener('mouseup', onMouseUp)
     this.cleanup.push(() => el.removeEventListener('mouseup', onMouseUp))
@@ -474,19 +491,51 @@ export class TerminalView {
       if (ev.type !== 'keydown') return true
       const mod = ev.metaKey || ev.ctrlKey
       const key = ev.key.toLowerCase()
-      // Copy: Cmd+C (mac) or Ctrl/Cmd+Shift+C, only when there is a selection.
+      // Copy: Cmd+C (mac) or Ctrl/Cmd+Shift+C. With an xterm selection, copy it.
+      // Without one, the chord still means "copy": in mouse-mode apps (native
+      // claude panes) the selection lives in the APP, which already announced it
+      // via OSC 52 — if that write failed for want of a gesture, THIS keydown is
+      // the gesture; complete it (explicit copy intent, so no freshness bound).
       // preventDefault, not just `return false`: returning false only skips
       // xterm's handling — the BROWSER default still runs (Ctrl+Shift+C is
       // Chrome's DevTools inspect-element shortcut; Cmd+C is the native copy,
       // which could clobber the clipboard we just wrote with an empty DOM copy).
-      if (mod && key === 'c' && (ev.metaKey || ev.shiftKey) && this.term.hasSelection()) {
-        ev.preventDefault()
-        copySelection()
-        return false
+      if (mod && key === 'c' && (ev.metaKey || ev.shiftKey)) {
+        if (this.term.hasSelection()) {
+          ev.preventDefault()
+          copySelection()
+          return false
+        }
+        if (this.pendingCopy) {
+          ev.preventDefault()
+          this.flushPendingCopy()
+          return false
+        }
       }
       // Paste and everything else are left to xterm / the browser (see above).
       return true
     })
+  }
+
+  /** Write app-initiated copy text (OSC 52) to the clipboard; when the browser
+   *  refuses the gesture-less write, hold the payload for a gesture to flush. */
+  private async copyText(text: string): Promise<void> {
+    this.pendingCopy = null
+    if (!(await writeClipboard(text))) this.pendingCopy = { text, at: Date.now() }
+  }
+
+  /** Complete a held OSC 52 write. MUST be called from inside a user-gesture
+   *  event handler — the synchronous execCommand path is what every browser
+   *  permits there. `maxAgeMs` bounds how stale a payload an implicit gesture
+   *  (click/keydown) may flush; omit it for explicit copy intent (the chord). */
+  private flushPendingCopy(maxAgeMs?: number): void {
+    const pending = this.pendingCopy
+    if (!pending) return
+    if (maxAgeMs !== undefined && Date.now() - pending.at > maxAgeMs) {
+      this.pendingCopy = null // stale — drop rather than clobber the clipboard
+      return
+    }
+    if (legacyCopy(pending.text)) this.pendingCopy = null
   }
 
   /** Insert text at the prompt as if pasted — honors the app's bracketed-paste
@@ -619,45 +668,50 @@ function gpuEnabled(): boolean {
   return true
 }
 
+/** How stale a failed OSC 52 payload may be for an IMPLICIT gesture (a click or
+ *  keystroke on the pane) to still flush it. Long enough for "select, then
+ *  click/type to finish the copy"; short enough that a payload the user has
+ *  moved on from never silently replaces a clipboard they filled elsewhere. */
+const PENDING_COPY_FRESH_MS = 30_000
+
 /**
- * Handle one OSC 52 payload: `<Pc>;<base64>` where Pc names the target
+ * Decode one OSC 52 payload: `<Pc>;<base64>` where Pc names the target
  * selection(s) (c = clipboard, p = primary, …; empty defaults to clipboard).
- * The browser only has THE clipboard, so any target writes there. Returns true
- * always (the sequence is consumed either way). Exported for tests.
+ * The browser only has THE clipboard, so any target maps there. Returns the
+ * decoded text, or null for anything that must be dropped. Exported for tests.
  */
-export function handleOsc52(data: string): boolean {
+export function decodeOsc52(data: string): string | null {
   const sep = data.indexOf(';')
-  if (sep === -1) return true
+  if (sep === -1) return null
   const payload = data.slice(sep + 1)
   // '?' asks the terminal to REPLY with the clipboard contents — never answer
   // (an agent could silently read whatever the user last copied).
-  if (payload === '?') return true
+  if (payload === '?') return null
   // Bound the payload: a runaway/malformed sequence must not balloon memory.
   // 1 MiB of base64 ≈ 750 KiB of text, far beyond any legitimate copy.
-  if (payload.length > 1_048_576) return true
-  let text: string
+  if (payload.length > 1_048_576) return null
   try {
     const bin = atob(payload)
     const bytes = new Uint8Array(bin.length)
     for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
-    text = new TextDecoder().decode(bytes)
+    return new TextDecoder().decode(bytes) || null
   } catch {
-    return true // not valid base64 — drop it
+    return null // not valid base64 — drop it
   }
-  if (text) void writeClipboard(text)
-  return true
 }
 
-async function writeClipboard(text: string): Promise<void> {
+/** Returns whether the text reached the clipboard — false means the caller
+ *  should retry inside a user gesture (see pendingCopy). */
+async function writeClipboard(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text)
-      return
+      return true
     }
   } catch {
     // fall through to the execCommand path (e.g. non-secure context / no permission)
   }
-  legacyCopy(text)
+  return legacyCopy(text)
 }
 
 async function readClipboard(): Promise<string> {
@@ -673,7 +727,7 @@ async function readClipboard(): Promise<string> {
  *  is absent, so fall back to a throwaway textarea + execCommand inside the user
  *  gesture. Focus must move to the textarea for execCommand to see its selection, so
  *  restore it afterwards — otherwise every copy silently defocuses the terminal. */
-function legacyCopy(text: string): void {
+function legacyCopy(text: string): boolean {
   try {
     const prevFocus = document.activeElement
     const ta = document.createElement('textarea')
@@ -684,10 +738,11 @@ function legacyCopy(text: string): void {
     document.body.appendChild(ta)
     ta.select()
     ta.setSelectionRange(0, text.length) // iOS Safari ignores select() alone
-    document.execCommand('copy')
+    const ok = document.execCommand('copy')
     document.body.removeChild(ta)
     if (prevFocus instanceof HTMLElement) prevFocus.focus()
+    return ok
   } catch {
-    // nothing else we can do
+    return false // nothing else we can do
   }
 }
