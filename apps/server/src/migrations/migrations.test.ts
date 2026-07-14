@@ -126,7 +126,22 @@ describe('runMigrations', () => {
     expect(db.prepare('SELECT id, from_issue FROM messages ORDER BY id').all()).toEqual(rows)
   })
 
-  it('022 applies workflows after an existing database has completed repair 021', () => {
+  /**
+   * Every pending migration must actually BUILD ITS SCHEMA on an already-upgraded
+   * database — not merely get stamped into schema_version.
+   *
+   * This is the shape of bug that matters here (#472): the runner decides what to
+   * apply by comparing against MAX(applied) rather than the applied set, so a
+   * migration can be silently skipped and leave its table missing, with no error.
+   * Asserting on runMigrations()'s RETURN VALUE cannot catch that — the bookkeeping
+   * and the schema are exactly the two things that can disagree. So assert the
+   * schema.
+   *
+   * Every other migration test starts from an EMPTY database, which applies
+   * everything in order and therefore cannot exhibit the failure at all. This one
+   * starts from a partially-migrated database, like every real one.
+   */
+  it('builds the schema of each later migration on an already-upgraded database', () => {
     const db = openMemory()
     runMigrations(
       db,
@@ -134,19 +149,20 @@ describe('runMigrations', () => {
     )
     expect(dbSchemaVersion(db)).toBe(21)
 
-    // Assert 022 RAN — not that it was the only thing that ran. Pinning the exact
-    // array (`toEqual([22])`) hardcodes whatever happened to be the latest version,
-    // so every later migration breaks this test for a reason unrelated to its intent.
-    expect(runMigrations(db, MIGRATIONS)).toContain(22)
+    runMigrations(db, MIGRATIONS)
     expect(dbSchemaVersion(db)).toBe(codeSchemaVersion())
-    const columns = (db.prepare('PRAGMA table_info(messages)').all() as { name: string }[]).map(
-      (column) => column.name,
-    )
-    expect(columns).toContain('from_name')
-    const workflowTable = db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflows'")
-      .get()
-    expect(workflowTable).toBeDefined()
+
+    const hasTable = (name: string) =>
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(name) !== undefined
+    const columnsOf = (table: string) =>
+      (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+
+    // 021 (repair) ran before this DB was stamped — 022 and 023 are the pending ones.
+    expect(columnsOf('messages')).toContain('from_name') // 022 agent-workflows
+    expect(hasTable('workflows')).toBe(true) // 022 agent-workflows
+    expect(hasTable('accounts')).toBe(true) // 023 accounts (#216)
   })
 
   it('is idempotent on re-run', () => {
