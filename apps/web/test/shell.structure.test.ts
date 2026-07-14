@@ -182,8 +182,14 @@ describe('host health indicators', () => {
     expect(src).toContain("on('hostMetrics'")
     expect(src).toContain('hostMetrics')
   })
-  it('the status bar spans the desktop shell; the mobile header keeps the strip', () => {
-    expect(read('app/AppShell.tsx')).toContain('<HostStatusBar')
+  it('the 44px top bar owns desktop host health; mobile header keeps the strip', () => {
+    const appShell = read('app/AppShell.tsx')
+    const topBar = read('app/TopBar.tsx')
+    const indicators = read('features/machines/HostIndicators.tsx')
+    expect(appShell).toContain('<TopBar')
+    expect(topBar).toContain('className="desktop-topbar"')
+    expect(topBar).toContain('<HeaderHostIndicators')
+    expect(indicators).toContain('<QuotaIndicator header')
     expect(read('app/MobileApp.tsx')).toContain('<HostIndicators')
   })
   it('the connection indicator shows on the hysteresis signal; memory chips per host', () => {
