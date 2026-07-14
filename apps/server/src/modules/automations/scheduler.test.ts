@@ -200,6 +200,31 @@ describe('AutomationsService.create', () => {
     expect(h.service.list()).toEqual([])
   })
 
+  it('rejects a cron below the 5-minute rate floor — every fire is a real session (#470)', () => {
+    const h = harness()
+    expect(() =>
+      h.service.create({ name: 'Runaway', cron: '* * * * *', agentKind: 'codex', prompt: 'x' }),
+    ).toThrow(/too frequent/)
+    expect(h.service.list()).toEqual([])
+    // At the floor exactly: allowed.
+    const ok = h.service.create({
+      name: 'Every five',
+      cron: '*/5 * * * *',
+      agentKind: 'codex',
+      prompt: 'x',
+    })
+    expect(ok.cron).toBe('*/5 * * * *')
+    expect(h.service.list()).toHaveLength(1)
+  })
+
+  it('an update cannot lower an existing automation under the floor', () => {
+    const h = harness()
+    const created = daily(h)
+    expect(() => h.service.update(created.id, { cron: '* * * * *' })).toThrow(/too frequent/)
+    // The stored schedule is untouched — a rejected edit must not half-apply.
+    expect(h.service.list()[0]?.cron).toBe('0 9 * * *')
+  })
+
   it('setEnabled arms and disarms', () => {
     const h = harness()
     const a = h.service.create({

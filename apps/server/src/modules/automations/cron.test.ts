@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { isValidCron, nextAfter, nextRunAfter, parseCron } from './cron'
+import {
+  assertScheduleFloor,
+  isValidCron,
+  MIN_SCHEDULE_INTERVAL_MS,
+  minIntervalMs,
+  nextAfter,
+  nextRunAfter,
+  parseCron,
+  respectsScheduleFloor,
+} from './cron'
 
 /** Local-time constructor — the parser evaluates cron in SERVER-LOCAL time, so the
  *  tests must build their instants the same way (a UTC literal would make every
@@ -94,5 +103,67 @@ describe('nextAfter', () => {
 
   it('returns null for an expression that can never fire', () => {
     expect(nextAfter(parseCron('0 0 30 2 *'), at(2026, 7, 14))).toBeNull() // February 30th
+  })
+})
+
+describe('the 5-minute rate floor (#470)', () => {
+  const from = at(2026, 7, 14, 12, 0)
+  const gap = (expr: string, ref: Date = from): number | null => minIntervalMs(parseCron(expr), ref)
+
+  it('rejects a schedule that fires more often than once every 5 minutes', () => {
+    // The footgun itself: an empty custom-cron box used to fall back to this, and
+    // every fire spawns a REAL agent session — 1440 of them a day.
+    expect(respectsScheduleFloor('* * * * *', from)).toBe(false)
+    expect(gap('* * * * *')).toBe(60_000)
+    expect(() => assertScheduleFloor('* * * * *', from)).toThrow(/too frequent/)
+
+    expect(respectsScheduleFloor('*/2 * * * *', from)).toBe(false)
+    expect(respectsScheduleFloor('*/4 * * * *', from)).toBe(false)
+    // Two fires a minute apart, once a day: the AVERAGE rate is tiny, but two agent
+    // sessions land 60s apart — the floor is about the gap, not the average.
+    expect(respectsScheduleFloor('0,1 9 * * *', from)).toBe(false)
+    // Across the midnight wrap: 23:59 then 00:00 is a 1-minute gap.
+    expect(respectsScheduleFloor('59 23 * * *', from)).toBe(true) // once a day, fine
+    expect(respectsScheduleFloor('0,59 0,23 * * *', from)).toBe(false) // 23:59 → 00:00
+  })
+
+  it('accepts a schedule at or above the floor', () => {
+    expect(respectsScheduleFloor('*/5 * * * *', from)).toBe(true)
+    expect(gap('*/5 * * * *')).toBe(MIN_SCHEDULE_INTERVAL_MS) // exactly 5 min = allowed
+    expect(() => assertScheduleFloor('*/5 * * * *', from)).not.toThrow()
+
+    expect(respectsScheduleFloor('*/15 * * * *', from)).toBe(true)
+    // Every expression the composer's own frequency picker can build.
+    expect(respectsScheduleFloor('0 * * * *', from)).toBe(true) // hourly
+    expect(respectsScheduleFloor('0 9 * * *', from)).toBe(true) // daily
+    expect(respectsScheduleFloor('30 4 * * 0', from)).toBe(true) // weekly
+  })
+
+  it('is independent of the wall-clock instant it is checked at', () => {
+    // Anchoring the walk at `now` rather than at the first occurrence would let
+    // `0,1 9 * * *` read as a 24-hour gap from 09:00:30 and a 1-minute gap from
+    // 08:00 — a validator whose verdict depends on the second it ran.
+    for (const ref of [
+      at(2026, 7, 14, 8, 0),
+      at(2026, 7, 14, 9, 0, 30),
+      at(2026, 7, 14, 9, 1, 0),
+      at(2026, 7, 14, 23, 59),
+    ]) {
+      expect(respectsScheduleFloor('0,1 9 * * *', ref)).toBe(false)
+      expect(respectsScheduleFloor('*/5 * * * *', ref)).toBe(true)
+    }
+  })
+
+  it('treats a sparse or never-firing schedule as no gap to violate', () => {
+    expect(gap('0 0 1 1 *')).toBeNull() // annual: one fire in the scan horizon
+    expect(gap('0 0 30 2 *')).toBeNull() // February 30th: never fires
+    expect(respectsScheduleFloor('0 0 30 2 *', from)).toBe(true)
+  })
+
+  it('lets an unparseable expression through — the parse error is the one to show', () => {
+    // zod runs both refines; the floor check must not add a second, confusing
+    // message on top of "invalid cron expression".
+    expect(respectsScheduleFloor('nonsense', from)).toBe(true)
+    expect(respectsScheduleFloor('', from)).toBe(true)
   })
 })

@@ -168,3 +168,78 @@ export function nextAfter(spec: CronSpec, after: Date): Date | null {
 export function nextRunAfter(expr: string, after: Date): Date | null {
   return nextAfter(parseCron(expr), after)
 }
+
+/**
+ * The rate floor (#470) [spec:SP-17db]: an automation may not be scheduled to fire
+ * more often than once every 5 minutes.
+ *
+ * This is a SAFETY limit, not a taste one. Every fire spawns a real agent session
+ * that costs real tokens; `* * * * *` is a 1440-sessions-per-day footgun that a
+ * single empty cron box used to be able to arm.
+ */
+export const MIN_SCHEDULE_INTERVAL_MS = 5 * 60_000
+
+/** Occurrences to walk before giving up — bounds a pathological expression. A dense
+ *  legal cron (`*<slash>5 * * * *`) has 288 in the window; the cap is far above it, and the
+ *  scan short-circuits the moment it finds a violation. */
+const MAX_OCCURRENCES_SCANNED = 2000
+
+/** How far past the first occurrence to look for the tightest gap. A cron's
+ *  (hour, minute) fire pattern repeats identically on every matching day, so one
+ *  day plus an hour of slack sees every intra-day gap AND the midnight wrap
+ *  (`59 23 * * *` + `0 0 * * *` is a 1-minute gap across the day boundary). */
+const GAP_SCAN_HORIZON_MS = 25 * 60 * 60_000
+
+/**
+ * The tightest gap between two consecutive fires of this schedule, or null when it
+ * fires at most once in the scan horizon (weekly, monthly, never) — such a schedule
+ * cannot violate the floor.
+ *
+ * Anchored at the FIRST occurrence rather than at `from`: anchoring at wall-clock
+ * "now" would make the answer depend on the moment the operator clicked Create.
+ * `0,1 9 * * *` (two fires a minute apart, every morning) reads as a 24-hour gap
+ * from a 09:00:30 "now" and a 1-minute gap from any other — a validator that says
+ * yes or no depending on the second it ran is not a validator.
+ */
+export function minIntervalMs(spec: CronSpec, from: Date = new Date()): number | null {
+  const first = nextAfter(spec, from)
+  if (!first) return null // never fires
+  const horizon = first.getTime() + GAP_SCAN_HORIZON_MS
+  let prev = first
+  let min = Number.POSITIVE_INFINITY
+  for (let i = 0; i < MAX_OCCURRENCES_SCANNED; i++) {
+    const next = nextAfter(spec, prev)
+    if (!next || next.getTime() > horizon) break
+    min = Math.min(min, next.getTime() - prev.getTime())
+    if (min < MIN_SCHEDULE_INTERVAL_MS) break // a violation is a violation — stop early
+    prev = next
+  }
+  return Number.isFinite(min) ? min : null
+}
+
+/**
+ * Does this expression respect the rate floor? An expression that does not PARSE
+ * returns true — it is invalid for a different reason, and the parse error is the
+ * one worth showing (this is the zod refine's contract: one failure, one message).
+ */
+export function respectsScheduleFloor(expr: string, from: Date = new Date()): boolean {
+  let spec: CronSpec
+  try {
+    spec = parseCron(expr)
+  } catch {
+    return true
+  }
+  const gap = minIntervalMs(spec, from)
+  return gap === null || gap >= MIN_SCHEDULE_INTERVAL_MS
+}
+
+/** The human message the composer and the tRPC edge both show for a floor violation. */
+export const SCHEDULE_FLOOR_MESSAGE =
+  'schedule is too frequent — an automation may fire at most once every 5 minutes (each fire spawns a real agent session)'
+
+/** Throws when `expr` fires more often than the floor allows. The service's guard:
+ *  the zod edge rejects this first for tRPC callers, but the invariant belongs to
+ *  the service too, so no future caller can persist a runaway schedule. */
+export function assertScheduleFloor(expr: string, from: Date = new Date()): void {
+  if (!respectsScheduleFloor(expr, from)) throw new CronError(SCHEDULE_FLOOR_MESSAGE)
+}

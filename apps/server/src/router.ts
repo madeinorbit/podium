@@ -23,7 +23,11 @@ import {
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
 import { buildJoinCommand } from './hub/machines-join'
-import { isValidCron } from './modules/automations/cron'
+import {
+  isValidCron,
+  respectsScheduleFloor,
+  SCHEDULE_FLOOR_MESSAGE,
+} from './modules/automations/cron'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
@@ -85,15 +89,18 @@ const cloudMoveSessionInput = z.object({
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
 
 /** Scheduled-automation composer input (#470) [spec:SP-17db]. The cron is validated
- *  HERE (not only in the service) so an unparseable expression comes back as a
- *  BAD_REQUEST the composer can render, never a 500. `repoPath: null` = a GLOBAL
- *  automation: it runs in the home directory, for cross-repo chores. */
+ *  HERE (not only in the service) so an unparseable expression — or one that fires
+ *  more often than the 5-minute rate floor, which would spawn agent sessions in a
+ *  runaway loop — comes back as a BAD_REQUEST the composer can render, never a 500.
+ *  `repoPath: null` = a GLOBAL automation: it runs in the home directory, for
+ *  cross-repo chores. */
 const automationInput = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1).nullable().optional(),
   cron: z
     .string()
-    .refine(isValidCron, 'invalid cron expression — 5 fields: minute hour day month weekday'),
+    .refine(isValidCron, 'invalid cron expression — 5 fields: minute hour day month weekday')
+    .refine((expr) => respectsScheduleFloor(expr), SCHEDULE_FLOOR_MESSAGE),
   agentKind: AgentKind,
   model: z.string().optional(),
   effort: z.string().optional(),

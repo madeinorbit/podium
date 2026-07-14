@@ -32,7 +32,7 @@ import {
   issueDefaultAgentKind,
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
-import { cronFromFields, type Frequency, WEEKDAYS } from './cron-format'
+import { cronFromFields, type Frequency, isValidCronExpression, WEEKDAYS } from './cron-format'
 
 type TriggerKind = 'schedule' | 'reactive'
 type ReactiveTrigger = 'merge-main' | 'new-issue' | 'worktree-idle' | 'file-changed'
@@ -98,8 +98,18 @@ export function NewAutomationDialog({
     .filter((r) => r.kind !== 'worktree')
     .sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))
   const cron = cronFromFields(freq, time, weekday, rawCron)
+  // The composer's own frequencies always build a valid expression; only the custom
+  // cron box can be empty or malformed. Gating Create on validity is what stops an
+  // untouched box from arming a schedule (#470) — it no longer falls back to
+  // `* * * * *`, which would have spawned an agent session every minute.
+  const cronValid = isValidCronExpression(cron)
+  const cronInvalid = freq === 'cron' && cron.length > 0 && !cronValid
   const canCreate =
-    kind === 'schedule' && name.trim().length > 0 && prompt.trim().length > 0 && !saving
+    kind === 'schedule' &&
+    name.trim().length > 0 &&
+    prompt.trim().length > 0 &&
+    cronValid &&
+    !saving
 
   const create = (): void => {
     if (!canCreate) return
@@ -212,12 +222,18 @@ export function NewAutomationDialog({
                     onChange={(e) => setRawCron(e.target.value)}
                     placeholder="*/30 * * * *"
                     className="font-mono"
+                    aria-invalid={cronInvalid}
                   />
+                  <span className="text-[11px] text-muted-foreground">
+                    {cronInvalid
+                      ? 'Not a valid cron expression — 5 fields: minute hour day month weekday.'
+                      : 'Five fields: minute hour day month weekday. At most one run every 5 minutes.'}
+                  </span>
                 </div>
               )}
               <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
                 <span className="text-[11px] text-muted-foreground">cron</span>
-                <code className="font-mono text-[12px] text-foreground">{cron}</code>
+                <code className="font-mono text-[12px] text-foreground">{cron || '—'}</code>
                 <span className="text-[11px] text-muted-foreground/70">server-local time</span>
               </div>
             </div>

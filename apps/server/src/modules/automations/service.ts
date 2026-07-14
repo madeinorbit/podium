@@ -20,7 +20,7 @@ import type {
   AutomationRunRow,
   AutomationsRepository,
 } from '../../store/automations'
-import { nextRunAfter, parseCron } from './cron'
+import { assertScheduleFloor, nextRunAfter, parseCron } from './cron'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
 
 export interface AutomationsDeps {
@@ -86,9 +86,12 @@ export class AutomationsService {
   }
 
   /** Create an automation. Validates the cron up front so an unparseable expression
-   *  is rejected at the composer, never persisted to fail silently at tick time. */
+   *  is rejected at the composer, never persisted to fail silently at tick time —
+   *  and enforces the 5-minute rate floor, so no schedule can spawn a runaway train
+   *  of agent sessions [spec:SP-17db]. */
   create(input: AutomationInput): AutomationRow {
     parseCron(input.cron) // throws with a human-readable message
+    assertScheduleFloor(input.cron, this.now())
     const enabled = input.enabled ?? false
     const row: AutomationRow = {
       id: `aut_${randomUUID()}`,
@@ -113,7 +116,10 @@ export class AutomationsService {
   update(id: string, patch: Partial<AutomationInput>): AutomationRow {
     const current = this.deps.store.get(id)
     if (!current) throw new Error(`unknown automation: ${id}`)
-    if (patch.cron !== undefined) parseCron(patch.cron)
+    if (patch.cron !== undefined) {
+      parseCron(patch.cron)
+      assertScheduleFloor(patch.cron, this.now())
+    }
     const next: AutomationRow = {
       ...current,
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
