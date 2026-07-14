@@ -98,6 +98,9 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   undefer: { id: HUB_ID },
   setNeedsHuman: { id: HUB_ID },
   clearNeedsHuman: { id: HUB_ID },
+  // answerQuestion forwards WHOLE (issue #53): the asking session lives on the
+  // hub, so delivery + clear must both happen there.
+  answerQuestion: { id: HUB_ID, answer: 'Yes' },
   addComment: { id: HUB_ID, author: 'op', body: 'hi' },
   panelApply: { id: HUB_ID, op: 'todo-add', text: 'x' },
   setState: { id: HUB_ID, text: 'x' },

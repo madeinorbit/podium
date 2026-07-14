@@ -279,5 +279,8 @@ export type IssuePatch = Partial<
     | 'estimateMin'
     | 'needsHuman'
     | 'humanQuestion'
+    | 'humanQuestionOptions'
+    | 'humanQuestionAskedBy'
+    | 'humanQuestionAskedAt'
   >
 >

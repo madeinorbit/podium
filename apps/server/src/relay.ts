@@ -43,6 +43,7 @@ import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
 import type { Session } from './modules/sessions/session'
 import { SettingsService, type TelegramSetupClient } from './modules/settings/service'
 import { SpecsService } from './modules/specs/service'
+import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import { HeadlessService } from './modules/superagent/headless'
 import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
@@ -348,6 +349,20 @@ export class SessionRegistry {
       inferRepoFromPath: (path) => inferRepoFromRoots(this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
       sendMessage: (from, input) => messagesSvc.send(from, input),
+      // Tray answer delivery (issue #53): the shared answer_question matching
+      // path, with text fallback — no live menu means the answer arrives as a
+      // normal chat message (resumeAndSend wakes a parked session).
+      answerSessionQuestion: async (sessionId, answer) => {
+        const r = await deliverAnswerToSession(
+          {
+            getSession: (id) => sessionsSvc.listSessions().find((s) => s.sessionId === id),
+            sessions: sessionsSvc,
+            rpc,
+          },
+          { sessionId, answer, textFallback: true },
+        )
+        return r.ok ? { ok: true, via: r.via } : r
+      },
     })
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),

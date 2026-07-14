@@ -169,6 +169,18 @@ describe('IssueService event emission', () => {
     expect(store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
   })
 
+  it('issue.needs_human carries options + askedBy when given (issue #53)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.setNeedsHuman(a.id, 'merge?', { options: ['Yes', 'No'], askedBy: 'sess_asker' })
+    const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
+    expect(flagged.length).toBe(1)
+    expect(flagged[0]).toMatchObject({
+      subject: a.id,
+      payload: { question: 'merge?', options: ['Yes', 'No'], askedBy: 'sess_asker' },
+    })
+  })
+
   // Attention-state transitions S3 renders (issue #124).
   it('markIssueRead emits issue.read', () => {
     const { svc, store } = harness()

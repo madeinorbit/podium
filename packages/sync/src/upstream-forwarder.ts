@@ -117,6 +117,14 @@ export function optimisticIssuePatch(
       return {
         needsHuman: true,
         ...(typeof input.question === 'string' ? { humanQuestion: input.question } : {}),
+        // Structured question metadata (issue #53) — mirrored optimistically so
+        // the node-side tray can render chips before hub truth arrives. askedAt
+        // is hub-stamped; the send time is the honest local approximation.
+        ...(Array.isArray(input.options) && input.options.every((o) => typeof o === 'string')
+          ? { humanQuestionOptions: input.options as string[] }
+          : {}),
+        ...(typeof input.askedBy === 'string' ? { humanQuestionAskedBy: input.askedBy } : {}),
+        humanQuestionAskedAt: nowIso,
         updatedAt: nowIso,
       }
     case 'clearNeedsHuman':

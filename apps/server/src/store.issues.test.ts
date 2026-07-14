@@ -35,6 +35,10 @@ describe('issues schema migration (P1)', () => {
       'pinned',
       'color',
       'estimate_min',
+      // needs-human question metadata (issue #53, migration 018)
+      'human_question_options',
+      'human_question_asked_by',
+      'human_question_asked_at',
     ]) {
       expect(cols.has(c), `missing column ${c}`).toBe(true)
     }
@@ -96,6 +100,37 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
     ...over,
   }
 }
+
+describe('needs-human question metadata round-trip (issue #53)', () => {
+  it('persists options/askedBy/askedAt; corrupt options quarantine to null', () => {
+    const store = new SessionStore(':memory:')
+    store.issues.upsertIssue(
+      baseRow({
+        needsHuman: true,
+        humanQuestion: 'merge?',
+        humanQuestionOptions: ['Yes, merge', 'No', 'Later'],
+        humanQuestionAskedBy: 'sess_1',
+        humanQuestionAskedAt: '2026-07-14T00:00:00.000Z',
+      }),
+    )
+    const back = store.issues.getIssue('iss_x')!
+    expect(back.humanQuestionOptions).toEqual(['Yes, merge', 'No', 'Later'])
+    expect(back.humanQuestionAskedBy).toBe('sess_1')
+    expect(back.humanQuestionAskedAt).toBe('2026-07-14T00:00:00.000Z')
+    // A row literal without the optional fields (legacy shape) reads back null.
+    store.issues.upsertIssue(baseRow({ id: 'iss_plain', seq: 2, needsHuman: true }))
+    const plain = store.issues.getIssue('iss_plain')!
+    expect(plain.humanQuestionOptions).toBeNull()
+    expect(plain.humanQuestionAskedBy).toBeNull()
+    expect(plain.humanQuestionAskedAt).toBeNull()
+    // Corrupt options JSON degrades to null (free-form question) — row survives.
+    // @ts-expect-error private db
+    store.db
+      .prepare('UPDATE issues SET human_question_options = ? WHERE id = ?')
+      .run('not-json', 'iss_x')
+    expect(store.issues.getIssue('iss_x')!.humanQuestionOptions).toBeNull()
+  })
+})
 
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
 function seedIssues(store: SessionStore, ...ids: string[]): void {

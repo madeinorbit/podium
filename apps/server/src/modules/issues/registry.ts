@@ -68,6 +68,14 @@ export interface IssueCommandDeps {
   /** Unified messaging send path (#237) [spec:SP-34d7] — optional so bare test
    *  dispatchers keep working; when absent mailSend falls back to legacy sendMail. */
   sendMessage?(from: MessageSender, input: MessageSendInput): MessageSendResult
+  /** Deliver a Tray answer to the asking agent session (issue #53): the shared
+   *  answer_question matching path (modules/superagent/answer-delivery) with
+   *  text fallback for sessions without a live menu. Injected by the relay;
+   *  optional so existing test deps literals stay valid. */
+  answerSessionQuestion?(
+    sessionId: string,
+    answer: string,
+  ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
 }
 
 export type IssueCommandKind = 'query' | 'mutation'
@@ -958,12 +966,72 @@ const defs = {
   }),
   setNeedsHuman: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), question: z.string().optional() }),
+    input: z.object({
+      id: z.string(),
+      question: z.string().optional(),
+      // Structured question metadata (issue #53): suggested answers rendered as
+      // Tray chips + the asking session (defaults to the caller's own session).
+      options: z.array(z.string().min(1)).max(20).optional(),
+      askedBy: z.string().optional(),
+    }),
+    action: 'write',
+    scope: 'issue',
+    target: targetId,
+    handler: (ctx, input) => {
+      const askedBy = input.askedBy ?? ctx.caller.capability.actorSessionId
+      return ctx.issueWrite(input, () =>
+        ctx.issues.setNeedsHuman(input.id, input.question ?? null, {
+          ...(input.options ? { options: input.options } : {}),
+          ...(askedBy ? { askedBy } : {}),
+        }),
+      )
+    },
+  }),
+  /** Web-callable Tray answer (issue #53): deliver `answer` to the asking
+   *  session via the shared answer_question matching path (live native menu →
+   *  option digits; otherwise a chat message through the durable resumeAndSend),
+   *  then clear needsHuman — ONLY after successful delivery, so a failed match
+   *  or dead session never silently drops the question. */
+  answerQuestion: def({
+    kind: 'mutation',
+    input: z.object({ id: z.string(), answer: z.string().trim().min(1) }),
     action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.setNeedsHuman(input.id, input.question ?? null)),
+      ctx.issueWrite(input, async () => {
+        const issue = ctx.issues.get(input.id)
+        if (!issue) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
+        }
+        if (!issue.needsHuman) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: 'issue has no pending question',
+          })
+        }
+        if (!issue.humanQuestionAskedBy) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message:
+              'question has no asking session recorded — reply in the session, then clearNeedsHuman',
+          })
+        }
+        if (!ctx.deps.answerSessionQuestion) {
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'answer delivery is not wired on this node',
+          })
+        }
+        const r = await ctx.deps.answerSessionQuestion(issue.humanQuestionAskedBy, input.answer)
+        if (!r.ok) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: `answer not delivered: ${r.message}`,
+          })
+        }
+        return { issue: ctx.issues.clearNeedsHuman(input.id), deliveredVia: r.via }
+      }),
   }),
   clearNeedsHuman: def({
     kind: 'mutation',

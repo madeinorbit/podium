@@ -115,6 +115,33 @@ describe('issues.* subtree scope (P1a)', () => {
     )
   })
 
+  it('setNeedsHuman accepts structured options + askedBy (issue #53)', async () => {
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const w = (await c.issues.setNeedsHuman({
+      id: A.id,
+      question: 'merge?',
+      options: ['Yes', 'No'],
+      askedBy: 'sess_asker',
+    })) as { humanQuestionOptions?: string[]; humanQuestionAskedBy?: string }
+    expect(w.humanQuestionOptions).toEqual(['Yes', 'No'])
+    expect(w.humanQuestionAskedBy).toBe('sess_asker')
+  })
+
+  it('answerQuestion is scope-gated and never clears on failed delivery (issue #53)', async () => {
+    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    await expect(c.issues.answerQuestion({ id: B.id, answer: 'Yes' })).rejects.toThrow(
+      /outside your subtree/,
+    )
+    await c.issues.setNeedsHuman({ id: A.id, question: 'merge?', askedBy: 'sess_gone' })
+    // The asking session doesn't exist in this registry → delivery fails →
+    // the pending question must survive.
+    await expect(c.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(
+      /answer not delivered/,
+    )
+    const w = (await c.issues.get({ id: A.id })) as { needsHuman: boolean }
+    expect(w.needsHuman).toBe(true)
+  })
+
   it('issues.prime binds to the capability subtree root', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
     const out = await c.issues.prime({ repoPath: '/r' })

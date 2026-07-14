@@ -1061,6 +1061,32 @@ describe('IssueService field mutations (P1)', () => {
     expect(cleared.humanQuestion).toBeUndefined()
   })
 
+  it('setNeedsHuman carries options/askedBy and stamps askedAt; clear resets all (issue #53)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const flagged = svc.setNeedsHuman(a.id, 'merge?', {
+      options: [' Yes, merge ', 'No', '  '],
+      askedBy: 'sess_asker',
+    })
+    expect(flagged.humanQuestionOptions).toEqual(['Yes, merge', 'No']) // trimmed, blanks dropped
+    expect(flagged.humanQuestionAskedBy).toBe('sess_asker')
+    expect(flagged.humanQuestionAskedAt).toBe('2026-06-30T00:00:00.000Z') // harness now()
+    // Persisted, not just in-memory: the row round-trips through the store.
+    const row = store.issues.getIssue(a.id)!
+    expect(row.humanQuestionOptions).toEqual(['Yes, merge', 'No'])
+    expect(row.humanQuestionAskedBy).toBe('sess_asker')
+    expect(row.humanQuestionAskedAt).toBe('2026-06-30T00:00:00.000Z')
+    // A re-flag REPLACES the whole pending question, metadata included.
+    const reflagged = svc.setNeedsHuman(a.id, 'other question?')
+    expect(reflagged.humanQuestionOptions).toBeUndefined()
+    expect(reflagged.humanQuestionAskedBy).toBeUndefined()
+    const cleared = svc.clearNeedsHuman(a.id)
+    expect(cleared.humanQuestionOptions).toBeUndefined()
+    expect(cleared.humanQuestionAskedBy).toBeUndefined()
+    expect(cleared.humanQuestionAskedAt).toBeUndefined()
+    expect(store.issues.getIssue(a.id)!.humanQuestionAskedBy).toBeNull()
+  })
+
   it('ancestorIds walks the parent chain nearest-first', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'epic', startNow: false })

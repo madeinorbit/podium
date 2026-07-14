@@ -162,6 +162,11 @@ export abstract class IssueServiceCore {
       ...(isIssueColorSlot(row.color) ? { color: row.color } : {}),
       needsHuman: row.needsHuman,
       ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),
+      ...(row.humanQuestionOptions?.length
+        ? { humanQuestionOptions: row.humanQuestionOptions }
+        : {}),
+      ...(row.humanQuestionAskedBy ? { humanQuestionAskedBy: row.humanQuestionAskedBy } : {}),
+      ...(row.humanQuestionAskedAt ? { humanQuestionAskedAt: row.humanQuestionAskedAt } : {}),
       ...(row.supersededBy ? { supersededBy: row.supersededBy } : {}),
       ...(row.duplicateOf ? { duplicateOf: row.duplicateOf } : {}),
       ...(row.assignee ? { assignee: row.assignee } : {}),

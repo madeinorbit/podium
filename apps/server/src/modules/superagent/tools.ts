@@ -12,6 +12,7 @@ import type { McpToolProvider } from '../../mcp-route'
 import type { RegistryModules } from '../../relay'
 import { searchAll } from '../../search'
 import type { SessionStore } from '../../store'
+import { deliverAnswerToSession } from './answer-delivery'
 
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
  *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
@@ -281,74 +282,19 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const sessionId = str(args.sessionId) ?? ''
-        const answer = str(args.answer) ?? ''
-        const session = getSession(sessionId)
-        if (!session) return 'unknown session'
-        // Gate on a LIVE pending menu before touching the PTY: the claude-code
-        // classifier resolves an unresolved AskUserQuestion as needs_user with
-        // need.kind 'question' (agent-bridge ask_user_tool label) — the ONLY
-        // shape a real on-screen menu produces. idle+idle.kind 'question' is a
-        // textual question (no menu; digits would land as message text), and a
-        // working agent must never get stray digits/Enter mid-turn from a stale
-        // menu still sitting in the transcript tail.
-        const state = session.agentState
-        if (!(state?.phase === 'needs_user' && state.need?.kind === 'question')) {
-          return `no pending question (phase=${state?.phase ?? 'unknown'})`
-        }
-        // The live prompt's options live in the transcript: the LAST
-        // AskUserQuestion call carries them as structured toolInputJson (the same
-        // source the chat card renders from).
-        const { items } = await rpc.readTranscript({
-          sessionId,
-          direction: 'before',
-          limit: 50,
-        })
-        const q = [...items]
-          .reverse()
-          .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
-        if (!q) return 'no pending AskUserQuestion found in the transcript tail'
-        let questions: Array<{
-          question?: string
-          multiSelect?: boolean
-          options?: Array<{ label?: string }>
-        }> = []
-        try {
-          const parsed = JSON.parse(q.toolInputJson ?? '{}') as { questions?: unknown }
-          if (Array.isArray(parsed?.questions)) questions = parsed.questions
-        } catch {}
-        if (questions.length === 0) return 'pending question has no parseable options'
-        // One choice entry per question (the registry types digits into the
-        // native menu). The single answer text is resolved against each
-        // question's options — the dominant case is a single question.
-        const choices: { optionIndices: number[] }[] = []
-        const notes: string[] = []
-        for (const qq of questions) {
-          const labels = (qq.options ?? []).map((o) => o.label ?? '')
-          const idx = matchAnswerToOptions(answer, labels)
-          if (idx.length === 0) {
-            return `could not match ${JSON.stringify(answer)} to the options: ${labels
-              .map((l, i) => `${i + 1}) ${l}`)
-              .join(', ')}`
-          }
-          // The native menu takes single digits — the relay silently drops
-          // indices outside 1-9, so fail loudly here instead of reporting a
-          // success that never reached the agent.
-          const over = idx.find((n) => n > 9)
-          if (over !== undefined) {
-            return `option ${over} is beyond the native menu's 1-9 range — answer by label instead`
-          }
-          if (!qq.multiSelect && idx.length > 1) {
-            notes.push(`single-select — used first of ${idx.join(',')}`)
-          }
-          choices.push({ optionIndices: qq.multiSelect ? idx : idx.slice(0, 1) })
-        }
-        const r = sessions.answerAskUserQuestion({ sessionId, choices })
-        if (!r.ok) return 'failed: session not running'
+        // The menu gate + option matching live in answer-delivery.ts (issue #53),
+        // shared with the web-callable issues.answerQuestion. Menu-only here: no
+        // textFallback — this tool's contract is the native menu or a refusal.
+        const r = await deliverAnswerToSession(
+          { getSession, sessions, rpc },
+          { sessionId: str(args.sessionId) ?? '', answer: str(args.answer) ?? '' },
+        )
+        if (!r.ok) return r.message
+        if (r.via !== 'menu') return 'failed: unexpected delivery path' // unreachable without textFallback
         return JSON.stringify({
           answered: true,
-          choices,
-          ...(notes.length > 0 ? { note: notes.join('; ') } : {}),
+          choices: r.choices,
+          ...(r.note ? { note: r.note } : {}),
         })
       },
     },
@@ -941,24 +887,9 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, Math.max(0, ms)))
 }
 
-/**
- * Map a free-text answer to 1-based option indices for one AskUserQuestion:
- * bare number(s) win ("2", "1,3" — repeats deduped), then a case-insensitive
- * exact label match, then a UNIQUE case-insensitive substring match.
- * Empty result = no match.
- */
-export function matchAnswerToOptions(answer: string, labels: string[]): number[] {
-  const t = answer.trim()
-  if (/^\d+(\s*,\s*\d+)*$/.test(t)) {
-    const idx = [...new Set(t.split(',').map((s) => Number.parseInt(s.trim(), 10)))]
-    return idx.every((n) => n >= 1 && n <= labels.length) ? idx : []
-  }
-  const lower = t.toLowerCase()
-  const exact = labels.findIndex((l) => l.trim().toLowerCase() === lower)
-  if (exact !== -1) return [exact + 1]
-  const subs = labels.flatMap((l, i) => (l.toLowerCase().includes(lower) ? [i + 1] : []))
-  return subs.length === 1 ? subs : []
-}
+// matchAnswerToOptions moved to answer-delivery.ts (issue #53); re-exported so
+// existing importers keep working.
+export { matchAnswerToOptions } from './answer-delivery'
 
 function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
