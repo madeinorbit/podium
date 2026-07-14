@@ -326,7 +326,6 @@ The pure function that decides which env var a credential becomes. Lives in
 **Interfaces:**
 - Produces:
   ```ts
-  export const ManagedCredentialKind = z.enum(['api-key', 'oauth'])
   export interface ManagedCredential {
     provider: string
     kind: 'api-key' | 'oauth'
