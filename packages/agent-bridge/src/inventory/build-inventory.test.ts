@@ -103,4 +103,21 @@ describe('buildInventory', () => {
     expect(byKind['codex']!.login).toEqual({ state: 'out' })
     expect(byKind['grok']!.login).toEqual({ state: 'out' })
   })
+
+  it('probes gh into tools[] — absent when not installed (#214)', async () => {
+    const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
+    const gh = inv.tools.find((t) => t.name === 'gh')!
+    expect(gh).toEqual({ name: 'gh', installed: false })
+  })
+
+  it('captures gh version (first line only) + resolved path when installed (#214)', async () => {
+    const inv = await buildInventory({
+      homeDir: home,
+      exec: fakeExec({ gh: 'gh version 2.40.0 (2024-01-01)\nhttps://github.com/cli/cli/releases' }),
+    })
+    const gh = inv.tools.find((t) => t.name === 'gh')!
+    expect(gh.installed).toBe(true)
+    expect(gh.version).toBe('gh version 2.40.0 (2024-01-01)') // first line, trimmed
+    expect(gh.path).toBe(join(home, '.local', 'bin', 'gh')) // first candidate wins
+  })
 })

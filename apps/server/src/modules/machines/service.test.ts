@@ -77,6 +77,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       { kind: 'claude-code', installed: true, version: '2.1.0', login: { state: 'in', account: 'a@b.c' } },
       { kind: 'opencode', installed: false, login: { state: 'unknown' } },
     ],
+    tools: [{ name: 'gh', installed: true, version: 'gh version 2.40.0' }],
   }
 
   function makeStoreService(): { svc: MachinesService; store: SessionStore } {

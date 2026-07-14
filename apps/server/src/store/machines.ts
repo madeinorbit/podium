@@ -4,15 +4,18 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto'
-import type { Inventory } from '@podium/protocol'
+import { Inventory } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MachineRecord } from './types'
 
-/** Defensive JSON.parse of a stored inventory blob → undefined on any failure. */
+/** Defensive parse of a stored inventory blob → undefined on any failure. Goes
+ *  through the zod schema (not a bare cast) so schema defaults are applied — a
+ *  blob persisted before `tools` existed reads back with `tools: []` (#214). */
 function parseInventory(json: unknown): Inventory | undefined {
   if (typeof json !== 'string' || json.length === 0) return undefined
   try {
-    return JSON.parse(json) as Inventory
+    const parsed = Inventory.safeParse(JSON.parse(json))
+    return parsed.success ? parsed.data : undefined
   } catch {
     return undefined
   }

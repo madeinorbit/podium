@@ -14,6 +14,7 @@ const INV: Inventory = {
   os: 'linux',
   arch: 'x64',
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+  tools: [{ name: 'gh', installed: false }],
 }
 
 let seq = 0

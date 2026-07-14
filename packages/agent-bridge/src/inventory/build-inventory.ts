@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentInventory, HarnessAgent, Inventory } from '@podium/protocol'
+import type { AgentInventory, HarnessAgent, Inventory, ToolInventory } from '@podium/protocol'
 import { cursorBinCandidates } from '../cursor/cli.js'
 import { opencodeBinCandidates } from '../opencode/cli.js'
 import { detectHarnessLogin } from './detect-login.js'
@@ -75,6 +75,30 @@ async function probeAgent(
   return { kind, installed: false, login }
 }
 
+/** Non-harness CLIs to probe. Just `gh` today — #214's credential-propagation
+ *  form needs to know whether a machine can receive a gh credential. */
+const ALL_TOOLS = ['gh'] as const
+
+function toolCandidates(name: string, home: string): string[] {
+  return [join(home, '.local', 'bin', name), name]
+}
+
+async function probeTool(name: string, home: string, exec: ProbeExec): Promise<ToolInventory> {
+  for (const candidate of toolCandidates(name, home)) {
+    try {
+      // `gh --version` is multi-line ("gh version X (date)\nhttps://…"); keep the
+      // first line — the useful part — and let a consumer parse further if needed.
+      const version = (await exec([candidate, '--version'], VERSION_TIMEOUT_MS))
+        .split('\n')[0]
+        ?.trim()
+      return { name, installed: true, ...(version ? { version } : {}), path: candidate }
+    } catch {
+      // absent / not executable / timed out — try the next candidate
+    }
+  }
+  return { name, installed: false }
+}
+
 export interface BuildInventoryOptions {
   /** Home dir the detectors + bin candidates resolve against (tests use a fixture). */
   homeDir?: string
@@ -86,7 +110,10 @@ export interface BuildInventoryOptions {
 export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<Inventory> {
   const home = opts.homeDir ?? homedir()
   const exec = opts.exec ?? defaultExec
-  const agents = await Promise.all(ALL_KINDS.map((kind) => probeAgent(kind, home, exec)))
+  const [agents, tools] = await Promise.all([
+    Promise.all(ALL_KINDS.map((kind) => probeAgent(kind, home, exec))),
+    Promise.all(ALL_TOOLS.map((name) => probeTool(name, home, exec))),
+  ])
   // The wire enums cover the platforms Podium daemons actually run on (linux/darwin,
   // x64/arm64). Anything else collapses to the nearest member DELIBERATELY — but warn,
   // so a genuinely unsupported host (win32, riscv64, ia32) surfaces rather than silently
@@ -100,5 +127,6 @@ export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<
     arch: a === 'arm64' ? 'arm64' : 'x64',
     // podiumVersion stays undefined until #221 lands `podium --version`.
     agents,
+    tools,
   }
 }

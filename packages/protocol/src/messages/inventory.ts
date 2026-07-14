@@ -22,6 +22,18 @@ export const AgentInventory = z.object({
 })
 export type AgentInventory = z.infer<typeof AgentInventory>
 
+/** A non-harness CLI the host may carry. `gh` (#214) is the first consumer:
+ *  its credential-propagation form needs to know a machine has gh on PATH. */
+export const ToolInventory = z.object({
+  name: z.string(),
+  installed: z.boolean(),
+  /** Parsed from `<name> --version`; absent when not installed / parse failed. */
+  version: z.string().optional(),
+  /** Resolved binary path when installed (may be a bare PATH name). */
+  path: z.string().optional(),
+})
+export type ToolInventory = z.infer<typeof ToolInventory>
+
 export const Inventory = z.object({
   os: z.enum(['linux', 'darwin']),
   arch: z.enum(['x64', 'arm64']),
@@ -29,6 +41,9 @@ export const Inventory = z.object({
   podiumVersion: z.string().optional(),
   /** All 5 HarnessAgent kinds, present or not. */
   agents: z.array(AgentInventory),
+  /** Non-harness CLIs (currently just `gh` for #214). Defaulted so an
+   *  inventory_json blob persisted before this field parses back cleanly. */
+  tools: z.array(ToolInventory).default([]),
 })
 export type Inventory = z.infer<typeof Inventory>
 
