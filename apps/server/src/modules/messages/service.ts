@@ -360,8 +360,11 @@ export class MessageDeliveryService {
 
     // Legacy mailbox mirror (same id, so `podium issue mail claim <id>` works
     // on either surface).
+    // Belt-and-braces (#463): only mirror when toId is a REAL issue id — an
+    // unresolved ref must surface as an undeliverable message, never as a raw
+    // SQLite FOREIGN KEY error out of the mirror insert.
     let legacy: IssueMessageRow | undefined
-    if (message.toKind === 'issue' && toId) {
+    if (message.toKind === 'issue' && toId && issues.get(toId)) {
       legacy = {
         id,
         issueId: toId,
@@ -594,10 +597,30 @@ export class MessageDeliveryService {
       ) {
         return { kind: 'session', id: original.fromSession }
       }
-      if (original.fromIssue) return { kind: 'issue', id: original.fromIssue }
+      // Harden against legacy ref-string senders (#463): rows migrated by 016
+      // held `issue:#N` in from_issue; anything that doesn't resolve to a real
+      // issue must NOT reach the issue_messages mirror's FK — fall through.
+      if (original.fromIssue) {
+        const id = this.resolveIssueIdSafe(original.fromIssue)
+        if (id) return { kind: 'issue', id }
+      }
       if (original.fromSession) return { kind: 'session', id: original.fromSession }
     }
     return { kind: 'operator' }
+  }
+
+  /** Resolve an issue ref/id to a VERIFIED existing issue id, or null. Accepts
+   *  a legacy `issue:#N` sender ref (#463) as well as `#N` / `iss_…`; an
+   *  ambiguous or unknown ref returns null instead of throwing. */
+  private resolveIssueIdSafe(ref: string): string | null {
+    const issues = this.deps.issues()
+    const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
+    try {
+      const id = issues.resolveRef(bare)
+      return issues.get(id) ? id : null
+    } catch {
+      return null
+    }
   }
 
   /** Reply to a message: the recipient is computed server-side from the

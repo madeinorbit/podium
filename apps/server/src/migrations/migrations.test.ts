@@ -88,6 +88,44 @@ describe('runMigrations', () => {
     expect(() => MIGRATIONS.find((m) => m.version === 14)!.up(db)).not.toThrow()
   })
 
+  it('021 resolves legacy issue:#seq senders to real issue ids, scoped to the recipient repo (#463)', () => {
+    const db = openMemory()
+    // Bring the schema to just before 016, seed the LEGACY shape: two repos
+    // each holding an issue with the SAME seq (7), plus a recipient per repo.
+    runMigrations(
+      db,
+      MIGRATIONS.filter((m) => m.version <= 15),
+    )
+    db.exec(
+      `INSERT INTO issues (id, repo_path, repo_id, seq, title, stage, default_agent, created_at, updated_at)
+       VALUES ('iss_a7', '/repo/a', 'repo-a', 7, 'a sender', 'backlog', 'claude-code', 't', 't'),
+              ('iss_a9', '/repo/a', 'repo-a', 9, 'a recipient', 'backlog', 'claude-code', 't', 't'),
+              ('iss_b7', '/repo/b', 'repo-b', 7, 'b sender', 'backlog', 'claude-code', 't', 't'),
+              ('iss_b9', '/repo/b', 'repo-b', 9, 'b recipient', 'backlog', 'claude-code', 't', 't')`,
+    )
+    db.exec(
+      `INSERT INTO issue_messages (id, issue_id, from_author, body, created_at, status)
+       VALUES ('msg_a', 'iss_a9', 'issue:#7', 'from a', 't', 'unread'),
+              ('msg_b', 'iss_b9', 'issue:#7', 'from b', 't', 'unread'),
+              ('msg_x', 'iss_a9', 'issue:#404', 'ghost sender', 't', 'unread')`,
+    )
+    // 016 copies the raw refs in; 021 must repair them.
+    runMigrations(db)
+    const rows = db.prepare('SELECT id, from_issue FROM messages ORDER BY id').all() as {
+      id: string
+      from_issue: string | null
+    }[]
+    expect(rows).toEqual([
+      { id: 'msg_a', from_issue: 'iss_a7' }, // repo a's #7, NOT repo b's
+      { id: 'msg_b', from_issue: 'iss_b7' }, // repo b's #7, NOT repo a's
+      { id: 'msg_x', from_issue: null }, // unresolvable → unattributed, never wrong
+    ])
+    // Idempotent: a second pass leaves the repaired/NULLed values untouched.
+    const m021 = MIGRATIONS.find((m) => m.version === 21)!
+    m021.up(db)
+    expect(db.prepare('SELECT id, from_issue FROM messages ORDER BY id').all()).toEqual(rows)
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)

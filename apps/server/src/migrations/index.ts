@@ -47,6 +47,7 @@ import { up as messagesAxes } from './017-messages-axes'
 import { up as messagesReminded } from './018-messages-reminded'
 import { up as sessionsWorkflowMetadata } from './019-sessions-workflow-metadata'
 import { up as recapWatermarks } from './020-recap-watermarks'
+import { up as messagesRepairFromIssue } from './021-messages-repair-from-issue'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -88,6 +89,8 @@ export const MIGRATIONS: Migration[] = [
   { version: 19, name: 'sessions-workflow-metadata', up: sessionsWorkflowMetadata },
   // Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: recap watermarks.
   { version: 20, name: 'recap-watermarks', up: recapWatermarks },
+  // Repair legacy ref-string senders 016 copied verbatim (#463) [spec:SP-34d7].
+  { version: 21, name: 'messages-repair-from-issue', up: messagesRepairFromIssue },
 ]
 
 /** Highest schema version the running code knows about. */
@@ -151,7 +154,8 @@ export function backupBeforeMigration(
   const backupPath = `${dbPath}.backup-v${fromVersion}-${toVersion}-${stamp}`
   copyFileSync(dbPath, backupPath)
   for (const suffix of ['-wal', '-shm']) {
-    if (existsSync(`${dbPath}${suffix}`)) copyFileSync(`${dbPath}${suffix}`, `${backupPath}${suffix}`)
+    if (existsSync(`${dbPath}${suffix}`))
+      copyFileSync(`${dbPath}${suffix}`, `${backupPath}${suffix}`)
   }
   pruneBackups(dbPath)
   return backupPath

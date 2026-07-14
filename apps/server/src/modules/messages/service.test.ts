@@ -758,7 +758,9 @@ describe('migration 015 (issue_messages → messages one-shot copy)', () => {
     expect(rows[1]).toMatchObject({
       id: 'm2',
       from_kind: 'agent',
-      from_issue: 'issue:#7',
+      // 016 copies the raw ref; 021 repairs it — here #7 has no matching issue
+      // in the recipient's repo, so the sender ends up unattributed (#463).
+      from_issue: null,
       status: 'delivered',
       delivered_at: 'tr',
     })
@@ -854,6 +856,51 @@ describe('acks', () => {
       },
     )
     expect(r3.message.toKind).toBe('operator')
+  })
+
+  it('sendReply to a 016-migrated row (legacy issue:#seq in from_issue) resolves the ref and never FK-throws (#463)', () => {
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const migrated: MessageRow = {
+      id: 'msg_legacy',
+      threadId: 'msg_legacy',
+      inReplyTo: null,
+      fromKind: 'agent',
+      fromSession: null, // 016 never had a sender session
+      fromIssue: `issue:#${ISSUE.seq}`, // the raw ref 016 copied verbatim
+      toKind: 'issue',
+      toId: SENDER_ISSUE.id,
+      kind: 'message',
+      urgency: 'fyi',
+      lifecycle: 'wait',
+      body: 'pre-#237 mail',
+      expiresAt: null,
+      createdAt: 't0',
+      status: 'delivered',
+      deliveredAt: 't1',
+      deliveredTo: 's1',
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+    }
+    store.messages.addMessage(migrated)
+    // Must not throw (previously: raw SQLite FOREIGN KEY constraint failed) and
+    // must land in the SENDER's issue, resolved to the real id.
+    const r = svc.sendReply(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 's1' },
+      { inReplyTo: 'msg_legacy', body: 'finally replyable' },
+    )
+    expect(r.message).toMatchObject({ toKind: 'issue', toId: ISSUE.id })
+    expect(r.legacy).toMatchObject({ issueId: ISSUE.id }) // mirror row holds the real id
+
+    // An UNRESOLVABLE legacy sender degrades to an operator row, never an error.
+    store.messages.addMessage({ ...migrated, id: 'msg_ghost', fromIssue: 'issue:#404' })
+    const r2 = svc.sendReply(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 's1' },
+      { inReplyTo: 'msg_ghost', body: 'who were you?' },
+    )
+    expect(r2.message.toKind).toBe('operator')
+    expect(r2.legacy).toBeUndefined()
   })
 })
 
