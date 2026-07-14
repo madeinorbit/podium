@@ -646,7 +646,7 @@ export function AgentPanel({
       {session && !hibernated && !exited && effectiveMode === 'native' && (
         <div className="flex h-[37px] flex-none items-center gap-2.5 overflow-hidden border-b border-border px-3 font-mono text-[11px] text-[#6c6c78]">
           <span className="inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-muted-foreground">
-            <span className="size-[6px] flex-none rounded-full bg-[#D97757]" aria-hidden="true" />
+            <span className="size-[6px] flex-none rounded-full bg-claude" aria-hidden="true" />
             {panelLabel(session.agentKind).toLowerCase()}
           </span>
           {resumeCmd && (

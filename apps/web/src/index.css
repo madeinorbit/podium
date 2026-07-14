@@ -39,6 +39,47 @@
   --color-live: var(--live);
   --color-info: var(--info);
 
+  /* ── Redesign surface tiers (handoff v2) ─────────────────────────────────
+     --engraved: recessed middle column (Tray + Super agent) — pairs with
+       shadow-engraved and the issue-glow radial.
+     --bar:      compact section bars (Tray/Super-agent headers, key-bar strip).
+     --tabstrip: native tab-strip base (before the issue-colour mix).
+     --rail:     icon-rail base.
+     --chip:     raised button chips / popover surface. */
+  --color-engraved: var(--engraved);
+  --color-bar: var(--bar);
+  --color-tabstrip: var(--tabstrip);
+  --color-rail: var(--rail);
+  --color-chip: var(--chip);
+
+  /* Hairline tiers: --border (#2a2a34 in podium-dark) stays the panel seam;
+     -soft = inner dividers / section rules; -bar = hairlines on --bar surfaces;
+     --border-strong = chip borders, neutral action buttons, composer idle. */
+  --color-hairline-soft: var(--hairline-soft);
+  --color-hairline-bar: var(--hairline-bar);
+  --color-border-strong: var(--border-strong);
+
+  /* Text ramp beyond foreground/muted-foreground:
+     strong (selected titles, headers) > foreground (body) > muted-foreground
+     (secondary) > dim (status sub-lines, timestamps, placeholders) > faint
+     (micro labels, hints); --label is the mono section-label grey. */
+  --color-text-strong: var(--text-strong);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+  --color-label: var(--label);
+
+  /* Semantic accents. --attention = "waiting on you" amber (alias of podium's
+     primary, but its own channel so presets can split them); --claude = the
+     Claude brand terracotta (agent icons, cursor block, ⏺ glyphs); --flow = the
+     neutral slate that colours the whole context flow when an issue has no
+     assigned colour. Reserved: none of these three hues may ever be used as an
+     issue palette colour (see lib/issueColors.ts). */
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-claude: var(--claude);
+  --color-flow: var(--flow);
+  --color-flow-foreground: var(--flow-foreground);
+
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -60,6 +101,30 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Named redesign radii — the handoff's workhorse values (7/9/10px) never fall
+     out of the derived --radius scale, so they're explicit. row: ID squares,
+     sidebar rows, rail cells, tabs; composer: the super-agent composer field;
+     tray: tray cards. */
+  --radius-row: 7px;
+  --radius-composer: 9px;
+  --radius-tray: 10px;
+
+  /* Engraved / elevation shadows (constant across presets — pure black insets).
+     engraved: the recessed middle column; engraved-bar: the folded 44px vertical
+     bar; bar-drop: drop below compact section bars; popover: colour-picker /
+     panel-menu overlays. */
+  --shadow-engraved:
+    inset 3px 0 6px -3px rgb(0 0 0 / 0.85),
+    inset -3px 0 6px -3px rgb(0 0 0 / 0.85),
+    inset 0 3px 6px -3px rgb(0 0 0 / 0.85);
+  --shadow-engraved-bar:
+    inset 2px 0 5px -2px rgb(0 0 0 / 0.85),
+    inset -2px 0 5px -2px rgb(0 0 0 / 0.85);
+  --shadow-bar-drop: 0 5px 10px -5px rgb(0 0 0 / 0.9);
+  --shadow-popover:
+    0 14px 34px rgb(0 0 0 / 0.65),
+    0 2px 8px rgb(0 0 0 / 0.5);
 }
 
 /* ── shadcn (Nova) preset — light (default: no data-theme + no .dark) ───────────── */
@@ -100,6 +165,29 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Redesign tokens — derived light equivalents (the handoff is dark-only;
+     podium-dark is the only first-class preset, these are non-breaking). */
+  --engraved: oklch(0.965 0 0);
+  --bar: oklch(0.94 0 0);
+  --tabstrip: oklch(0.975 0 0);
+  --rail: oklch(0.97 0 0);
+  --chip: oklch(1 0 0);
+  --hairline-soft: oklch(0.935 0 0);
+  --hairline-bar: oklch(0.9 0 0);
+  --border-strong: oklch(0.845 0 0);
+  --text-strong: oklch(0.1 0 0);
+  --text-dim: oklch(0.6 0 0);
+  --text-faint: oklch(0.68 0 0);
+  --label: oklch(0.55 0 0);
+  --attention: #d97706;
+  --attention-foreground: #ffffff;
+  --claude: #d97757;
+  --flow: #64748b;
+  --flow-foreground: #ffffff;
+  /* Issue-accent channel: components override --issue per shell subtree
+     (style={{ '--issue': hex }}); default is the neutral slate flow. */
+  --issue: var(--flow);
 }
 
 /* ── shadcn (Nova) preset — dark ────────────────────────────────────────────────── */
@@ -139,6 +227,25 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Redesign tokens — derived dark-neutral equivalents (non-breaking). */
+  --engraved: oklch(0.12 0 0);
+  --bar: oklch(0.1 0 0);
+  --tabstrip: oklch(0.16 0 0);
+  --rail: oklch(0.17 0 0);
+  --chip: oklch(0.24 0 0);
+  --hairline-soft: oklch(1 0 0 / 8%);
+  --hairline-bar: oklch(1 0 0 / 12%);
+  --border-strong: oklch(1 0 0 / 20%);
+  --text-strong: oklch(0.985 0 0);
+  --text-dim: oklch(0.55 0 0);
+  --text-faint: oklch(0.45 0 0);
+  --label: oklch(0.6 0 0);
+  --attention: #f59e0b;
+  --attention-foreground: #161006;
+  --claude: #d97757;
+  --flow: #94a3b8;
+  --flow-foreground: #141a24;
 }
 
 /* ── Podium preset — light (derived from the brand palette) ─────────────────────── */
@@ -174,6 +281,25 @@
   --sidebar-accent-foreground: #1a1a22;
   --sidebar-border: #e2e2e8;
   --sidebar-ring: #d97706;
+
+  /* Redesign tokens — derived light equivalents (non-breaking). */
+  --engraved: #efeff2;
+  --bar: #e9e9ee;
+  --tabstrip: #f2f2f5;
+  --rail: #f0f0f3;
+  --chip: #ffffff;
+  --hairline-soft: #e8e8ee;
+  --hairline-bar: #dcdce4;
+  --border-strong: #c4c4ce;
+  --text-strong: #0e0e14;
+  --text-dim: #8a8a96;
+  --text-faint: #a0a0ac;
+  --label: #7a7a86;
+  --attention: #d97706;
+  --attention-foreground: #ffffff;
+  --claude: #d97757;
+  --flow: #64748b;
+  --flow-foreground: #ffffff;
 }
 
 /* ── Podium preset — dark = the brand's signature look (amber on near-black) ─────── */
@@ -202,17 +328,37 @@
   /* Mock activity hues: live/working dots are emerald-500, user/ready is blue-500. */
   --live: #10b981;
   --info: #3b82f6;
-  /* Mock sidebar surface: #141419 panel with a #22222b right border (the
-     'Podium copy copy copy' design mock) — themed here rather than hardcoded
-     in SIDEBAR_ASIDE_CLASS so other presets keep their own sidebar. */
-  --sidebar: #141419;
+  /* Handoff v2 sidebar is the plain panel surface (#16161c / #2a2a34) — the old
+     mock's distinct #141419/#22222b tint is gone; sidebar tokens collapse onto
+     card/border so the sidebar and panels read as one chrome. */
+  --sidebar: #16161c;
   --sidebar-foreground: #d7d7e0;
   --sidebar-primary: #f59e0b;
   --sidebar-primary-foreground: #0e0e12;
   --sidebar-accent: #25252f;
   --sidebar-accent-foreground: #f3f3f8;
-  --sidebar-border: #22222b;
+  --sidebar-border: #2a2a34;
   --sidebar-ring: #f59e0b;
+
+  /* Redesign tokens — canonical handoff v2 values (this preset is the design's
+     source of truth; every other preset derives). */
+  --engraved: #0a0a0e;
+  --bar: #08080c;
+  --tabstrip: #101016;
+  --rail: #131318;
+  --chip: #1b1b22;
+  --hairline-soft: #25252f;
+  --hairline-bar: #2e2e38;
+  --border-strong: #3a3a46;
+  --text-strong: #f3f3f8;
+  --text-dim: #6c6c78;
+  --text-faint: #5a5a66;
+  --label: #7a7a86;
+  --attention: #f59e0b;
+  --attention-foreground: #161006;
+  --claude: #d97757;
+  --flow: #94a3b8;
+  --flow-foreground: #141a24;
 }
 
 /* ── Superade preset — light (derived companion; the mock is dark-only) ──────────── */
@@ -248,6 +394,25 @@
   --sidebar-accent-foreground: #17203a;
   --sidebar-border: #d9e0ef;
   --sidebar-ring: #1d4ed8;
+
+  /* Redesign tokens — derived light equivalents (non-breaking). */
+  --engraved: #e9edf7;
+  --bar: #dfe5f2;
+  --tabstrip: #eef1f9;
+  --rail: #ebeff8;
+  --chip: #ffffff;
+  --hairline-soft: #e2e8f4;
+  --hairline-bar: #cfd8ec;
+  --border-strong: #b9c5e2;
+  --text-strong: #0d1530;
+  --text-dim: #7c86a0;
+  --text-faint: #98a1b8;
+  --label: #6a7490;
+  --attention: #b45309;
+  --attention-foreground: #ffffff;
+  --claude: #d97757;
+  --flow: #64748b;
+  --flow-foreground: #ffffff;
 }
 
 /* ── Superade preset — dark (from the "Podium Superman" design mock: deep navy,
@@ -286,6 +451,118 @@
   --sidebar-accent-foreground: #f3f3f8;
   --sidebar-border: #1e2a4c;
   --sidebar-ring: #f5c518;
+
+  /* Redesign tokens — derived navy equivalents (non-breaking). */
+  --engraved: #070b16;
+  --bar: #050912;
+  --tabstrip: #0c1322;
+  --rail: #0e1626;
+  --chip: #16223c;
+  --hairline-soft: #1e2a4c;
+  --hairline-bar: #283a66;
+  --border-strong: #364a78;
+  --text-strong: #f3f3f8;
+  --text-dim: #6c7690;
+  --text-faint: #525c78;
+  --label: #7a84a0;
+  --attention: #f5c518;
+  --attention-foreground: #161006;
+  --claude: #d97757;
+  --flow: #94a3b8;
+  --flow-foreground: #141a24;
+}
+
+/* ── Issue-accent channel [spec:SP-b4d1] ─────────────────────────────────────
+   Every issue-coloured surface is a color-mix TINT over a base surface — never
+   a flat fill. A shell subtree sets `--issue` (style={{ '--issue': hex }}) from
+   the issue's palette colour (lib/issueColors.ts); unset, it inherits the
+   neutral slate --flow. The percentages come straight from the handoff:
+     selected sidebar row 28 (over card) · pane header 24 (over background) ·
+     tray card 20/10 · tab strip 18 (over tabstrip) · rail fade 16 · folded
+     engraved bar 14 · attention rows 11–13 · workspace pane 10–12 ·
+     hairlines 30–50 · selection rings 35 · glow 8–10.
+   The base defaults to --background; put issue-base-{card,engraved,tabstrip,
+   rail} alongside a mix utility to tint over a different surface. */
+@utility issue-mix-* {
+  background-color: color-mix(
+    in srgb,
+    var(--issue) calc(--value(integer) * 1%),
+    var(--issue-base, var(--background))
+  );
+}
+@utility issue-base-card {
+  --issue-base: var(--card);
+}
+@utility issue-base-engraved {
+  --issue-base: var(--engraved);
+}
+@utility issue-base-tabstrip {
+  --issue-base: var(--tabstrip);
+}
+@utility issue-base-rail {
+  --issue-base: var(--rail);
+}
+/* Issue-tinted hairline: border-color at N% opacity of the issue colour. */
+@utility issue-hairline-* {
+  border-color: color-mix(in srgb, var(--issue) calc(--value(integer) * 1%), transparent);
+}
+/* Selection ring around the active ID square / swatch (2px at 35%). */
+@utility issue-ring {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--issue) 35%, transparent);
+}
+/* Engraved-column glow: soft radial of the issue colour over the engraved
+   surface (compose with shadow-engraved for the full recessed treatment). */
+@utility issue-glow {
+  background:
+    radial-gradient(
+      560px 300px at 50% 12%,
+      color-mix(in srgb, var(--issue) 10%, transparent),
+      transparent 72%
+    ),
+    var(--issue-base, var(--engraved));
+}
+/* Rail fade: issue tint at the top of the icon rail, flat by 240px. */
+@utility issue-fade {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--issue) 16%, var(--issue-base, var(--card))),
+    var(--issue-base, var(--card)) 240px
+  );
+}
+/* Folded engraved bar (collapse state 3d): 14% tint fading out by 300px. */
+@utility issue-fade-bar {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--issue) 14%, var(--engraved)),
+    var(--engraved) 300px
+  );
+}
+
+/* ── Mono micro-typography ────────────────────────────────────────────────────
+   The handoff's letter-spaced mono label style (section labels like WORK /
+   TRAY, micro labels like ISSUE SCOPE) — tokenized so components stop
+   re-inventing it. Type scale reference (from the mocks): shell base 12px ·
+   row titles 11.5–12px/500 (selected 600) · section headers 12px/600 strong ·
+   sub-lines 10px · chat body 11.5px/1.5 · role labels 9px/600/.07em · timers
+   Geist Mono 9px · terminal Geist Mono 10.5px/1.7 · badge counts 9px/700. */
+@utility label-mono {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--label);
+}
+@utility label-mono-micro {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+/* Timers / counters: mono digits that never shift width as they tick. */
+@utility mono-timer {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 @layer base {
