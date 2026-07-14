@@ -128,9 +128,18 @@ export const MIGRATIONS: Migration[] = [
   { version: 23, name: 'accounts', up: accounts },
 ]
 
-/** Highest schema version the running code knows about. */
+/** Highest schema version the running code knows about.
+ *
+ *  MAX, not "the last array entry": the registry is not required to be sorted (#485).
+ *  Two branches each append a timestamped migration, and whoever merges second lands
+ *  their entry last even if their timestamp is older. */
 export function codeSchemaVersion(migrations: Migration[] = MIGRATIONS): number {
-  return migrations[migrations.length - 1]?.version ?? 0
+  return migrations.reduce((max, m) => (m.version > max ? m.version : max), 0)
+}
+
+/** The registry in version order. The array itself may be unsorted — see `validate`. */
+function inVersionOrder(migrations: Migration[]): Migration[] {
+  return [...migrations].sort((a, b) => a.version - b.version)
 }
 
 /**
@@ -201,14 +210,32 @@ export function isTimestampVersion(version: number): boolean {
   )
 }
 
+/**
+ * Versions must be positive integers, UNIQUE, and (for new ones) timestamps.
+ *
+ * Deliberately NOT "strictly increasing across the array". The registry is a
+ * hand-maintained list that both branches append to, so the branch that merges
+ * SECOND lands its entry last — even when its timestamp is older. Requiring the
+ * array to be sorted would turn that ordinary merge into a failure the author has
+ * to fix by hand-reordering, for no benefit: the runner sorts by version anyway,
+ * and an older-timestamped migration simply back-fills (#472 already applies any
+ * version absent from schema_version). Rails has no such constraint either — it
+ * globs the migration files and sorts them.
+ */
 function validate(migrations: Migration[]): void {
-  let prev = 0
+  const seen = new Map<number, string>()
   for (const m of migrations) {
-    if (!Number.isInteger(m.version) || m.version <= prev) {
+    if (!Number.isInteger(m.version) || m.version <= 0) {
+      throw new Error(`migration version must be a positive integer (got ${m.version})`)
+    }
+    const clash = seen.get(m.version)
+    if (clash !== undefined) {
       throw new Error(
-        `migrations must have positive, strictly increasing integer versions (got ${m.version} after ${prev})`,
+        `duplicate migration version ${m.version}: defined twice, as '${clash}' and '${m.name}'. ` +
+          `Versions are unique — generate one with \`bun run migration:new <name>\`.`,
       )
     }
+    seen.set(m.version, m.name)
     // Anything NEW must be a timestamp. Enforcing it here means a hand-typed MAX+1
     // fails on the author's very first test run — not at someone else's merge, and
     // never at a user's boot.
@@ -220,7 +247,6 @@ function validate(migrations: Migration[]): void {
           `(${LAST_SEQUENTIAL_VERSION} was the last hand-numbered migration.)`,
       )
     }
-    prev = m.version
   }
 }
 
@@ -323,7 +349,10 @@ export function runMigrations(
     }
   }
 
-  const pending = migrations.filter((m) => !alreadyApplied.has(m.version))
+  // Apply in VERSION order, not array order — the registry may be unsorted after two
+  // branches each appended (#485). An older-timestamped migration that lands later
+  // simply back-fills, which is exactly the case #472 made safe.
+  const pending = inVersionOrder(migrations).filter((m) => !alreadyApplied.has(m.version))
 
   // #43: snapshot the database before applying anything — but only when it already
   // holds real tables (schema_version alone is a brand-new file).

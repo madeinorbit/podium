@@ -82,6 +82,57 @@ describe('migration versioning policy (#485)', () => {
     expect(() => runMigrations(openMemory(), MIGRATIONS)).not.toThrow()
   })
 
+  it('accepts an OLDER timestamp merging after a newer one — the second-to-merge case', () => {
+    // Agent A generates at 10:00, agent B at 10:05. B merges first. A then rebases and
+    // its registry entry lands LAST, even though its version is OLDER. That is an
+    // ordinary merge, not a mistake: both branches append to the same list.
+    // It must just work — no error, no hand-reordering — and both migrations must run.
+    const db = openMemory()
+    const ran: string[] = []
+    const merged: Migration[] = [
+      ...base,
+      { version: 20_260_714_100_500, name: 'agent-b', up: () => ran.push('b') }, // merged first
+      { version: 20_260_714_100_000, name: 'agent-a', up: () => ran.push('a') }, // older, appended after
+    ]
+
+    const applied = runMigrations(db, merged)
+
+    // Applied in VERSION order, not array order (base contributes version 1).
+    expect(applied).toEqual([1, 20_260_714_100_000, 20_260_714_100_500])
+    expect(ran).toEqual(['a', 'b'])
+    expect(appliedMigrations(db).get(20_260_714_100_000)).toBe('agent-a')
+    expect(appliedMigrations(db).get(20_260_714_100_500)).toBe('agent-b')
+  })
+
+  it("back-fills agent A's older migration onto a DB that already ran agent B's", () => {
+    // The real sequence: B merges and deploys, so the live DB is stamped at B's version.
+    // A then merges. A's version is LOWER than the DB's high-water mark — the exact
+    // silent-skip shape from #472, now arriving by an ordinary route.
+    const db = openMemory()
+    const b: Migration = { version: 20_260_714_100_500, name: 'agent-b', up: () => {} }
+    const a: Migration = {
+      version: 20_260_714_100_000,
+      name: 'agent-a',
+      up: (d) => d.exec('CREATE TABLE agent_a_table (id TEXT)'),
+    }
+    runMigrations(db, [...base, b]) // B deployed alone
+    expect(hasTable(db, 'agent_a_table')).toBe(false)
+
+    const applied = runMigrations(db, [...base, b, a]) // now A lands
+
+    expect(applied).toEqual([20_260_714_100_000]) // back-filled, NOT skipped
+    expect(hasTable(db, 'agent_a_table')).toBe(true)
+  })
+
+  it('still rejects two migrations claiming the SAME version', () => {
+    const dup: Migration[] = [
+      ...base,
+      { version: 20_260_714_100_000, name: 'agent-a', up: () => {} },
+      { version: 20_260_714_100_000, name: 'agent-b', up: () => {} },
+    ]
+    expect(() => runMigrations(openMemory(), dup)).toThrow(/duplicate migration version/i)
+  })
+
   it('rejects a number that merely looks like a timestamp', () => {
     expect(isTimestampVersion(20_261_314_132_200)).toBe(false) // month 13
     expect(isTimestampVersion(20_260_714_992_200)).toBe(false) // hour 99
@@ -389,13 +440,20 @@ describe('runMigrations', () => {
     expect(table).toBeUndefined()
   })
 
-  it('rejects non-increasing version lists', () => {
+  it('ACCEPTS an unsorted registry, applying in version order (#485)', () => {
+    // This used to throw (/strictly increasing/). It no longer does, deliberately:
+    // two branches both append to the registry, so whoever merges second lands their
+    // entry last even when its version is older. Demanding a sorted ARRAY would turn
+    // an ordinary merge into a hand-fix, for nothing — the runner sorts by version.
+    // What must still be rejected is a DUPLICATE version, which is tested above.
     const db = openMemory()
-    expect(() =>
+    const ran: string[] = []
+    expect(
       runMigrations(db, [
-        { version: 2, name: 'b', up: () => {} },
-        { version: 1, name: 'a', up: () => {} },
+        { version: 2, name: 'b', up: () => ran.push('b') },
+        { version: 1, name: 'a', up: () => ran.push('a') },
       ]),
-    ).toThrowError(/strictly increasing/)
+    ).toEqual([1, 2])
+    expect(ran).toEqual(['a', 'b'])
   })
 })
