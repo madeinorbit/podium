@@ -13,7 +13,7 @@ import {
 } from '@podium/runtime/setup'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { accountViews, maskCredential } from './accounts'
+import { AccountConnectInput, accountViews, maskCredential } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
 import {
   type CloudAgentKind,
@@ -742,13 +742,8 @@ export const appRouter = t.router({
       accountViews(mods(ctx).settings.getSettings(), ctx.registry.sessionStore.accounts),
     ),
     connect: t.procedure
-      .input(
-        z.object({
-          provider: z.enum(['anthropic', 'openai', 'openrouter']),
-          kind: z.enum(['api-key', 'oauth']),
-          credential: z.string().min(1),
-        }),
-      )
+      // Rejects kind 'oauth' for non-anthropic providers — see AccountConnectInput.
+      .input(AccountConnectInput)
       .mutation(({ ctx, input }) => {
         // A Claude setup-token is its own account, distinct from an Anthropic API key.
         const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`

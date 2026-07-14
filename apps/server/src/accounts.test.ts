@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { accountViews } from './accounts'
+import { AccountConnectInput, accountViews } from './accounts'
 import { MIGRATIONS, runMigrations } from './migrations'
 import { AccountsRepository } from './store/accounts'
 
@@ -139,5 +139,25 @@ describe('accountViews', () => {
     const openai = views.find((v) => v.id === 'managed:openai')!
     expect(openai.identity).toBe('sk-s…9999')
     expect(JSON.stringify(views)).not.toContain('sk-stored-9999')
+  })
+})
+
+describe('AccountConnectInput', () => {
+  it('rejects oauth for non-anthropic providers', () => {
+    const res = AccountConnectInput.safeParse({ provider: 'openai', kind: 'oauth', credential: 'x' })
+    expect(res.success).toBe(false)
+    if (!res.success) expect(res.error.issues[0]!.message).toContain('OAuth accounts are only supported for Anthropic')
+  })
+
+  it('accepts oauth for anthropic', () => {
+    expect(
+      AccountConnectInput.safeParse({ provider: 'anthropic', kind: 'oauth', credential: 'x' }).success,
+    ).toBe(true)
+  })
+
+  it('accepts api-key for other providers', () => {
+    expect(
+      AccountConnectInput.safeParse({ provider: 'openai', kind: 'api-key', credential: 'x' }).success,
+    ).toBe(true)
   })
 })

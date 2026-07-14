@@ -12,7 +12,30 @@
 import { homedir } from 'node:os'
 import { detectClaudeLogin, detectCodexLogin, detectGrokLogin } from '@podium/agent-bridge'
 import type { PodiumSettings } from '@podium/runtime'
+import { z } from 'zod'
 import type { AccountsRepository } from './store/accounts'
+
+/** Input for `accounts.connect`. OAuth is Anthropic-only: `claude setup-token`
+ *  yields the sole long-lived, env-consumable OAuth credential — for any other
+ *  provider an oauth row would persist fine but inject NOTHING at spawn time
+ *  (credentialEnv maps oauth → CLAUDE_CODE_OAUTH_TOKEN only for anthropic), a
+ *  silently dead credential. Reject it loudly at the boundary instead. */
+export const AccountConnectInput = z
+  .object({
+    provider: z.enum(['anthropic', 'openai', 'openrouter']),
+    kind: z.enum(['api-key', 'oauth']),
+    credential: z.string().min(1),
+  })
+  .superRefine((input, ctx) => {
+    if (input.kind === 'oauth' && input.provider !== 'anthropic') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['kind'],
+        message:
+          "OAuth accounts are only supported for Anthropic (claude setup-token); use kind 'api-key' for other providers.",
+      })
+    }
+  })
 
 /** A row in the Accounts hub. Native rows are observed at read-time (identity +
  *  status can drift); managed rows reflect what Podium stores. */
