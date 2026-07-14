@@ -6,6 +6,7 @@
  * phase mapping (`motionPhase`) and `formatClock` are shared via
  * @podium/client-core viewmodels.
  */
+export { AgentStatusGlyph } from './AgentStatusGlyph'
 export { BrailleSpinner } from './BrailleSpinner'
 export { PhaseTimer } from './PhaseTimer'
 export { StatusBadge, type StatusBadgeKind } from './StatusBadge'

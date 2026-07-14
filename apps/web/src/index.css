@@ -566,6 +566,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Native agents pane (.design/specs/native-pane.md) ───────────────────────
+   The pane's chrome is tinted by the selected issue via the --issue channel
+   (slate --flow when uncoloured). Derived text shades approximate the
+   handoff's per-colour ctx ramp with color-mix over the neutral text tokens;
+   the colour-flow dimension (#44) owns centralizing/refining these. */
+.native-agents-pane {
+  background-color: color-mix(in srgb, var(--issue) 10%, var(--background));
+  /* Tinted text ramp (handoff refs, violet/slate): text #f6f3ff/#f2f5fa ·
+     bright #c5bede/#c3cddb · muted-bright #a89fc2/#9aa3b2 · muted
+     #8d84a6/#8b93a2 · dim #4d4466/#4a5261. */
+  --issue-text: color-mix(in srgb, var(--issue) 10%, var(--text-strong));
+  --issue-bright: color-mix(in srgb, var(--issue) 25%, var(--foreground));
+  --issue-muted-bright: color-mix(in srgb, var(--issue) 28%, var(--muted-foreground));
+  --issue-muted: color-mix(in srgb, var(--issue) 22%, var(--label));
+  --issue-dim: color-mix(in srgb, var(--issue) 30%, var(--text-faint));
+}
+/* Tab leading square: the 7×7 issue-colour dot (radius 2.5px). Beats the
+   unlayered `.dot` circle rule in styles.css by specificity while keeping the
+   `.dot.parked + .worker-label` hibernated-row hook intact. */
+.native-agents-pane .tab-issue-dot {
+  border-radius: 2.5px;
+  background: var(--issue);
+}
+/* Active tab's 2px issue-colour top inset line. */
+@utility native-tab-active {
+  box-shadow: inset 0 2px 0 var(--issue);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

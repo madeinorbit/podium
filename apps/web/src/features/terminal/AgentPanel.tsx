@@ -22,7 +22,7 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
@@ -46,13 +46,14 @@ import {
 } from '@/lib/derive'
 import { attentionGroup } from '@/lib/home'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { issueColorHex } from '@/lib/issueColors'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
-import { TERMINAL_DEFAULTS } from './appearance'
+import { paneTintedBackground, withBackground } from './appearance'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
@@ -140,6 +141,8 @@ export function AgentPanel({
     setPanelMode,
     setPanelRenderMode,
     uiState,
+    selectedIssueId,
+    issues,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -157,6 +160,8 @@ export function AgentPanel({
       setPanelMode: s.setPanelMode,
       setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
+      selectedIssueId: s.selectedIssueId,
+      issues: s.issues,
     }),
     shallowEqual,
   )
@@ -275,7 +280,19 @@ export function AgentPanel({
   // `appearance` is memoized on the stored blob, so a settings change applies to
   // the LIVE terminal via useTerminalSession's setAppearance effect — no remount.
   const { settings: termSettings, appearance: termAppearance } = useTerminalAppearance()
-  const termBg = termSettings.background ?? TERMINAL_DEFAULTS.background
+  // The terminal floats on the pane's issue-tinted surface (native-pane spec
+  // §2.5): the selected issue's colour (slate flow when uncoloured) mixed over
+  // the terminal base, mirrored into the xterm theme via setAppearance — no
+  // remount. A user-set custom background wins over the tint (Q6).
+  const selectedIssue = selectedIssueId
+    ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
+    : undefined
+  const issueHex = issueColorHex(selectedIssue?.color)
+  const termBg = termSettings.background ?? paneTintedBackground(issueHex)
+  const appearance = useMemo(
+    () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
+    [termSettings.background, termAppearance, termBg],
+  )
 
   const {
     containerRef: termRef,
@@ -298,7 +315,7 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
-    appearance: termAppearance,
+    appearance,
     onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
       // Seed the file-link provider immediately after mount with whatever paths
@@ -494,24 +511,28 @@ export function AgentPanel({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex h-[49px] flex-none items-center gap-[9px] border-b border-border bg-card px-2.5">
-        {/* Agent-kind chip (Claude Code / Codex / …) + surface label + session name,
-            mirroring the native pane header in the design. */}
+      {/* Session header (native-pane spec §2.3): 42px, issue-tinted surface +
+          hairline; agent identity chip, NATIVE/CHAT eyebrow, name, cwd, then
+          the 26px control row. */}
+      <div
+        data-testid="agent-panel-header"
+        className="flex h-[42px] flex-none items-center gap-2 border-b issue-hairline-45 issue-mix-24 px-[10px]"
+      >
         {session && (
           <>
-            <span className="inline-flex flex-none items-center gap-[5px] rounded-md border border-border bg-secondary px-[7px] py-[3px]">
+            <span className="inline-flex flex-none items-center gap-[5px] rounded-[6px] border issue-hairline-35 bg-background/50 px-[7px] py-[3px]">
               <KindIcon kind={session.agentKind} />
-              <span className="whitespace-nowrap text-xs font-semibold text-secondary-foreground">
+              <span className="whitespace-nowrap text-[11px] font-semibold text-text-strong">
                 {panelLabel(session.agentKind)}
               </span>
             </span>
-            <span className="flex-none text-[10px] font-semibold tracking-[0.06em] text-[#6c6c78]">
+            <span className="flex-none text-[9px] font-semibold tracking-[0.06em] text-(--issue-muted)">
               {effectiveMode === 'chat' ? 'CHAT' : 'NATIVE'}
             </span>
             <span className="inline-flex min-w-0 items-center gap-[5px]">
               <span className="h-4 w-px flex-none bg-border" aria-hidden="true" />
               <span
-                className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-foreground"
+                className="overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] text-(--issue-text)"
                 title={sessionDisplayName(session)}
               >
                 {sessionDisplayName(session)}
@@ -534,130 +555,135 @@ export function AgentPanel({
             session runs in. Truncates; full path on hover. */}
         {session?.cwd && (
           <span
-            className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate text-[11px] text-muted-foreground sm:inline-flex"
+            className="hidden min-w-0 max-w-[34%] items-center gap-1 truncate text-[10.5px] text-(--issue-muted-bright) sm:inline-flex"
             title={session.cwd}
           >
             <Folder size={11} aria-hidden="true" className="flex-none" />
             <span className="truncate">{prettyCwd(session.cwd)}</span>
           </span>
         )}
-        {/* Chat/native view toggle, restored per #20 [spec:SP-9e10]. A single
-            icon button showing the view a click switches TO (the header's
-            CHAT/NATIVE eyebrow states the current one). SquareTerminal, not the
-            plain Terminal glyph — the resume-command menu in this same row
-            already uses that one. Only offered with a live PTY behind it — a
-            hibernated/exited session has no terminal to switch to, so hide it
-            rather than render a control that visibly does nothing. */}
-        {chatCapable && !hibernated && !exited && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 flex-none text-muted-foreground"
-            aria-label={
-              effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'
-            }
-            title={effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'}
-            onClick={() => pickMode(effectiveMode === 'chat' ? 'native' : 'chat')}
-          >
-            {effectiveMode === 'chat' ? (
-              <SquareTerminal size={13} aria-hidden="true" />
-            ) : (
-              <MessageSquareText size={13} aria-hidden="true" />
-            )}
-          </Button>
-        )}
-        {/* Native resume command (#119): the literal `claude --resume <id>` etc.
-            so you can pick the conversation back up in your own terminal. Shown
-            whenever the harness has handed us a resume ref. As the first
-            right-aligned control it carries `ml-auto`; the snooze/BTW controls
-            only take it when the controls before them are absent. */}
-        {resumeCmd && (
-          <ResumeCommandMenu command={resumeCmd} className="ml-auto size-7 text-muted-foreground" />
-        )}
-        {showSnooze && session && (
-          <SnoozeControl
-            session={session}
-            iconSize={15}
-            dimmed={false}
-            className={cn(!resumeCmd && 'ml-auto')}
-          />
-        )}
-        {chatCapable && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn('size-7 text-muted-foreground', !resumeCmd && !showSnooze && 'ml-auto')}
-            title="Ask the superagent about this session (BTW)"
-            onClick={() => void startBtw(sessionId)}
-          >
-            <Sparkles size={13} aria-hidden="true" />
-          </Button>
-        )}
-        {canHibernate && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            disabled={agentWorking}
-            title={
-              agentWorking
-                ? 'Agent is working — hibernate once it reaches idle'
-                : 'Hibernate — stop the process to free memory, keep the conversation'
-            }
-            onClick={() => void hibernateSession(sessionId)}
-          >
-            <Moon size={13} aria-hidden="true" />
-          </Button>
-        )}
-        {/* Archive stays available in every read-only state — both hibernated
-            (process paused to free memory) and exited (process gone, transcript
-            read-only). You can read the transcript and file it under Done without
-            waking/resuming first. Only hidden when there's no session at all. */}
-        {session && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn('size-7 text-muted-foreground', !chatCapable && !resumeCmd && 'ml-auto')}
-            title="Archive session — files it under Done"
-            onClick={() => void guardedArchive(sessionId, true)}
-          >
-            <Archive size={13} aria-hidden="true" />
-          </Button>
-        )}
-        {effectiveMode === 'native' && !hibernated && !exited && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={cn('size-7 text-muted-foreground', !chatCapable && !resumeCmd && 'ml-auto')}
-            title="Take control of the terminal"
-            onClick={() => mountedRef.current?.connection.requestControl()}
-          >
-            <Keyboard size={13} aria-hidden="true" />
-          </Button>
-        )}
+        {/* Right control row (§2.3): 26×26 controls; the chat/native switch is
+            the emphasized one (tinted border + dark fill), everything else is a
+            borderless quiet glyph. Snooze and take-control aren't in the mock
+            but keep their inline homes, restyled to match (Q4). */}
+        <span className="ml-auto inline-flex flex-none items-center gap-[3px]">
+          {/* Chat/native view toggle, restored per #20 [spec:SP-9e10]. A single
+              icon button showing the view a click switches TO (the header's
+              CHAT/NATIVE eyebrow states the current one). Only offered with a
+              live PTY behind it — a hibernated/exited session has no terminal
+              to switch to, so hide it rather than render a control that
+              visibly does nothing. */}
+          {chatCapable && !hibernated && !exited && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-[26px] rounded-[6px] border issue-hairline-30 bg-background/45 text-(--issue-bright)"
+              aria-label={
+                effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'
+              }
+              title={effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'}
+              onClick={() => pickMode(effectiveMode === 'chat' ? 'native' : 'chat')}
+            >
+              {effectiveMode === 'chat' ? (
+                <SquareTerminal size={13} aria-hidden="true" />
+              ) : (
+                <MessageSquareText size={13} aria-hidden="true" />
+              )}
+            </Button>
+          )}
+          {/* Native resume command (#119): the literal `claude --resume <id>` etc.
+              so you can pick the conversation back up in your own terminal. */}
+          {resumeCmd && (
+            <ResumeCommandMenu
+              command={resumeCmd}
+              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+            />
+          )}
+          {showSnooze && session && (
+            <SnoozeControl session={session} iconSize={15} dimmed={false} />
+          )}
+          {chatCapable && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+              title="Ask the superagent about this session (BTW)"
+              onClick={() => void startBtw(sessionId)}
+            >
+              <Sparkles size={13} aria-hidden="true" />
+            </Button>
+          )}
+          {canHibernate && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+              disabled={agentWorking}
+              title={
+                agentWorking
+                  ? 'Agent is working — hibernate once it reaches idle'
+                  : 'Hibernate — stop the process to free memory, keep the conversation'
+              }
+              onClick={() => void hibernateSession(sessionId)}
+            >
+              <Moon size={13} aria-hidden="true" />
+            </Button>
+          )}
+          {/* Archive stays available in every read-only state — both hibernated
+              (process paused to free memory) and exited (process gone, transcript
+              read-only). You can read the transcript and file it under Done without
+              waking/resuming first. Only hidden when there's no session at all. */}
+          {session && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+              title="Archive session — files it under Done"
+              onClick={() => void guardedArchive(sessionId, true)}
+            >
+              <Archive size={13} aria-hidden="true" />
+            </Button>
+          )}
+          {effectiveMode === 'native' && !hibernated && !exited && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+              title="Take control of the terminal"
+              onClick={() => mountedRef.current?.connection.requestControl()}
+            >
+              <Keyboard size={13} aria-hidden="true" />
+            </Button>
+          )}
+        </span>
       </div>
-      {/* Native session status line: agent dot + kind, the literal resume command
-          as a copy pill, and the CLI hint — mono, like the design's sub-bar. */}
+      {/* Model / command strip (§2.4): 32px issue-tinted mono strip — Claude
+          dot + agent kind (the session's model name once the server reports
+          one, Q5), the literal resume command as a copy pill, and the CLI
+          hint. */}
       {session && !hibernated && !exited && effectiveMode === 'native' && (
-        <div className="flex h-[37px] flex-none items-center gap-2.5 overflow-hidden border-b border-border px-3 font-mono text-[11px] text-[#6c6c78]">
-          <span className="inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-muted-foreground">
+        <div
+          data-testid="agent-model-strip"
+          className="flex h-8 flex-none items-center gap-[9px] overflow-hidden border-b issue-hairline-30 px-[11px] font-mono text-[10px] text-(--issue-muted)"
+        >
+          <span className="inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-(--issue-bright)">
             <span className="size-[6px] flex-none rounded-full bg-claude" aria-hidden="true" />
             {panelLabel(session.agentKind).toLowerCase()}
           </span>
           {resumeCmd && (
             <>
-              <span className="flex-none text-[#3a3a46]" aria-hidden="true">
+              <span className="flex-none text-(--issue-dim)" aria-hidden="true">
                 │
               </span>
               <button
                 type="button"
                 title="Copy resume command"
-                className="inline-flex min-w-0 flex-none items-center gap-1.5 overflow-hidden rounded-[5px] border border-border bg-background px-[7px] py-0.5 whitespace-nowrap text-muted-foreground transition-colors hover:border-muted-foreground hover:text-foreground"
+                className="inline-flex min-w-0 flex-none items-center gap-1.5 overflow-hidden rounded-[5px] border issue-hairline-30 bg-background/50 px-[7px] py-px whitespace-nowrap text-(--issue-muted-bright) transition-colors hover:text-(--issue-text)"
                 onClick={() => {
                   void navigator.clipboard
                     ?.writeText(resumeCmd)
@@ -670,9 +696,7 @@ export function AgentPanel({
               </button>
             </>
           )}
-          <span className="ml-auto flex-none truncate text-[#6c6c78]">
-            esc to interrupt · / for commands
-          </span>
+          <span className="ml-auto flex-none truncate text-text-dim">esc to interrupt</span>
         </div>
       )}
       {hibernated ? (
@@ -720,18 +744,20 @@ export function AgentPanel({
         // rendered as a sibling overlay on top when in chat mode.
         <>
           {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
-          {/* The container is pinned to the TERMINAL's background (the default dark,
-              or the user's custom color from the appearance settings) regardless of
-              the app theme — otherwise a light theme shows a white container edge
-              around the terminal, and a custom background a dark one. */}
+          {/* The container is pinned to the TERMINAL's background — the pane's
+              issue tint (§2.5), or the user's custom color from the appearance
+              settings — regardless of the app theme: otherwise a light theme
+              shows a white container edge around the terminal, and a custom
+              background a dark one. */}
           <div
+            data-testid="terminal-surface"
             className={cn(
               'relative flex min-h-0 flex-1 flex-col',
               effectiveMode === 'chat' && 'hidden',
             )}
             style={{ backgroundColor: termBg }}
           >
-            <div ref={termRef} className="term min-h-0 flex-1 px-3 py-2" />
+            <div ref={termRef} className="term min-h-0 flex-1 px-[13px] py-3" />
             {!ready && (
               <div
                 className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-zinc-400"
@@ -759,6 +785,26 @@ export function AgentPanel({
             )}
             {echoHudEnabled() && <EchoHud hub={hub} mountedRef={mountedRef} />}
           </div>
+          {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
+              row hugging the PTY's bottom edge — the composer itself is the
+              CLI's own pixels, never re-drawn here. Only hints the CLI really
+              honours are shown (Q2): Claude Code's shift+tab mode cycle and
+              `?` shortcut help; other agents get the rule alone. */}
+          {ready && (
+            <div
+              data-testid="prompt-chrome"
+              className={cn('flex-none px-[13px] font-mono', effectiveMode === 'chat' && 'hidden')}
+              style={{ backgroundColor: termBg }}
+            >
+              <div className="border-t issue-hairline-35" aria-hidden="true" />
+              {session?.agentKind === 'claude-code' && (
+                <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] text-[9.5px] text-text-dim">
+                  <span>(shift+tab to cycle modes)</span>
+                  <span className="ml-auto">? for shortcuts</span>
+                </div>
+              )}
+            </div>
+          )}
           {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the
               Blink-style arrow D-pad, then voice. D-pad left of the mic so the right
               arrow isn't flush with the screen edge. preventDefault on pointerdown
