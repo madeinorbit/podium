@@ -46,6 +46,8 @@ import {
 } from '@/lib/derive'
 import { attentionGroup } from '@/lib/home'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { isKnownRefPrefix } from '@/lib/markdown'
+import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
@@ -308,6 +310,12 @@ export function AgentPanel({
         cwd: session?.cwd ?? '/',
         knownPaths: knownPathsRef.current,
         onOpen: (abs) => openFile(sessionId, abs),
+      })
+      // Human-facing ref links (#474): PREFIX-N tokens in agent output become
+      // clickable — plain opens the miniview, Cmd/Ctrl jumps to the full view.
+      mounted.view.setRefLinks({
+        isKnownPrefix: (p) => isKnownRefPrefix(p),
+        onActivate: (ref, event) => activateRef(ref, event),
       })
       // Mirror the in-progress native prompt into the shared chat draft (Claude and
       // Codex). Best-effort + clobber-safe: only the controlling client publishes

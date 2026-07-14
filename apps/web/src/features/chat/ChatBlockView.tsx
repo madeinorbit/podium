@@ -5,6 +5,7 @@ import { memo, useMemo } from 'react'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { renderMarkdown } from '@/lib/markdown'
+import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
@@ -242,6 +243,17 @@ export const ChatBlockView = memo(function ChatBlockView({
           className="chat-md"
           onClick={(e) => {
             if (handleCodeCopyClick(e)) return
+            // Human-facing ref links (#474): plain click opens the floating
+            // miniview, Cmd/Ctrl-click jumps to the full issue/session view.
+            const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
+            if (refA) {
+              const ref = refA.getAttribute('data-ref')
+              if (ref) {
+                e.preventDefault()
+                activateRef(ref, e)
+              }
+              return
+            }
             const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
             if (!a) return
             e.preventDefault()

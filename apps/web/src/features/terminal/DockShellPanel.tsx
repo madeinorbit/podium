@@ -3,6 +3,8 @@ import { useTerminalSession } from '@podium/terminal-client-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { isKnownRefPrefix } from '@/lib/markdown'
+import { activateRef } from '@/lib/ref-activation'
 import { prettyCwd } from './AgentPanel'
 import { TERMINAL_DEFAULTS } from './appearance'
 import { useTerminalAppearance } from './use-terminal-appearance'
@@ -40,7 +42,8 @@ export function DockShellPanel({
   // transients — treating them as dead made this effect archive a spawning
   // shell and replace it, looping until the panel closed.
   const dead =
-    !!session && (session.archived || session.status === 'exited' || session.status === 'hibernated')
+    !!session &&
+    (session.archived || session.status === 'exited' || session.status === 'hibernated')
   const alive = !!session && !dead
 
   // The id we created and whose broadcast hasn't landed yet. While set, NEVER
@@ -58,10 +61,7 @@ export function DockShellPanel({
   // A mapped id with no session rows at all means the boot sync hasn't landed —
   // render the connecting state and wait, don't spawn a duplicate.
   const needsCreate =
-    !alive &&
-    reposLoaded &&
-    pendingId.current === null &&
-    (!mapped || dead || sessions.length > 0)
+    !alive && reposLoaded && pendingId.current === null && (!mapped || dead || sessions.length > 0)
 
   const creating = useRef(false)
   useEffect(() => {
@@ -138,6 +138,13 @@ function DockShellTerminal({
     sessionId,
     appearance,
     focusWhenReady: true,
+    // Human-facing ref links (#474): clickable PREFIX-N tokens in shell output.
+    onMounted: (mounted) => {
+      mounted.view.setRefLinks({
+        isKnownPrefix: (p) => isKnownRefPrefix(p),
+        onActivate: (ref, event) => activateRef(ref, event),
+      })
+    },
   })
   return (
     <div

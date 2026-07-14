@@ -37,6 +37,7 @@ const mountSessionMock = vi.fn((el: unknown, _opts: { active?: boolean }) => {
     connection: { state: () => ({ role: 'controller' }), sendInput, requestControl: vi.fn() },
     view: {
       setFileLinks: vi.fn(),
+      setRefLinks: vi.fn(),
       onScroll: () => () => {},
       atBottom: () => true,
       focus: vi.fn(),

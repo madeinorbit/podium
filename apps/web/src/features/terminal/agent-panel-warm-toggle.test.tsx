@@ -21,6 +21,7 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   },
   view: {
     setFileLinks: vi.fn(),
+    setRefLinks: vi.fn(),
     onScroll: () => () => {},
     atBottom: () => true,
     focus: vi.fn(),
