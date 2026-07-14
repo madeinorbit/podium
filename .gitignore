@@ -40,3 +40,6 @@ podium-headless-*.tar.gz.sig
 # Local profiling/diagnostic clutter
 report.*.json
 mon.pid
+
+# Agent-local test tempdirs (never commit)
+.tmp-claude/
