@@ -966,15 +966,46 @@ export class SessionsService {
       sessionId,
       data: Buffer.from('\x1b').toString('base64'),
     })
-    return this.queueText({ sessionId, text })
+    // The ESC has cancelled any on-screen menu; type the text after a short beat
+    // so it lands in a separate PTY read. afterEsc bypasses the needs_user guard
+    // (this is the one legitimate write into a menu-waiting session) and jumps
+    // the queue — an interrupt is meant to.
+    setTimeout(
+      () => this.typeText({ sessionId, text, afterEsc: true }),
+      SUBMIT_CR_DELAY_MS,
+    )
+    return { ok: true }
   }
 
   /** The raw typing primitive (bracketed paste + separated CR). Only sendText and
    *  the queue drain call this — everything else must go through them so queued
    *  messages keep their FIFO order. */
-  private typeText({ sessionId, text }: { sessionId: string; text: string }): { ok: boolean } {
+  private typeText({
+    sessionId,
+    text,
+    afterEsc,
+  }: {
+    sessionId: string
+    text: string
+    /** Set ONLY by interruptText, which just sent an ESC that cancels an
+     *  on-screen menu — its follow-up text is the one legitimate write into a
+     *  needs_user session. */
+    afterEsc?: boolean
+  }): { ok: boolean } {
     const session = this.sessions.get(sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false }
+    }
+    // #473: NEVER paste+CR into a session waiting on an AskUserQuestion menu —
+    // the submitting CR answers the highlighted default (making the user's
+    // decision for them). This is the airtight backstop: the delivery-layer
+    // guard (attemptDelivery/stateOf) reads a phase SNAPSHOT and races the
+    // boundary path (onSessionIdle -> deliverBatch -> sendText) and the sweep;
+    // the primitive is the only place that can't be raced. A human answering
+    // their OWN menu presses keys via handleInput -> toDaemon (raw 'input'),
+    // never through here, so this does not block them. interruptText's ESC
+    // cancels the menu first, so its follow-up is allowed (afterEsc).
+    if (!afterEsc && session.agentState?.phase === 'needs_user') {
       return { ok: false }
     }
     // A submitted message re-engages the session — drop any snooze so it returns

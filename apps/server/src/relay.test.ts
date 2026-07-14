@@ -1703,6 +1703,12 @@ describe('sendText (chat send path)', () => {
     daemon
       .filter((m) => m.type === 'input')
       .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+  const agentStateMsg = (sessionId: string, phase: AgentPhase, extra: Record<string, unknown> = {}) =>
+    ({
+      type: 'agentState',
+      sessionId,
+      state: { phase, since: '2026-01-01T00:00:00.000Z', openTaskCount: 0, ...extra },
+    }) as const
 
   it('wraps single-line text in bracketed paste, then submits with a DELAYED CR', () => {
     vi.useFakeTimers()
@@ -1735,6 +1741,87 @@ describe('sendText (chat send path)', () => {
       reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('#473: NEVER types into a session waiting on a menu (needs_user) — no paste, no CR', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      // An AskUserQuestion menu is on screen.
+      reg.modules.sessions.onDaemonMessageFrom(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      const before = daemon.length
+      const r = reg.modules.sessions.sendText({ sessionId, text: 'this must NOT submit the menu' })
+      vi.advanceTimersByTime(100)
+      // The submitting CR would answer the highlighted default — so nothing at all
+      // reaches the PTY. The primitive is the airtight backstop.
+      expect(r.ok).toBe(false)
+      expect(daemon.slice(before).filter((m) => m.type === 'input')).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('#473: once the menu resolves (phase leaves needs_user), a fresh sendText types normally', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.onDaemonMessageFrom(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'held' }).ok).toBe(false)
+      // Human answers the menu → phase → idle.
+      reg.modules.sessions.onDaemonMessageFrom('local', agentStateMsg(sessionId, 'idle'))
+      const before = daemon.length
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'now ok' }).ok).toBe(true)
+      vi.advanceTimersByTime(100)
+      const inputs = daemon
+        .slice(before)
+        .filter((m) => m.type === 'input')
+        .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+      expect(inputs).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('#473: interrupt DOES reach a needs_user session — ESC (cancels the menu) then the text', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.onDaemonMessageFrom(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      const before = daemon.length
+      expect(reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' }).ok).toBe(true)
+      vi.advanceTimersByTime(200)
+      const inputs = daemon
+        .slice(before)
+        .filter((m) => m.type === 'input')
+        .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+      // ESC first (cancels the menu), then the bracketed-paste text + CR.
+      expect(inputs[0]).toBe('\x1b')
+      expect(inputs).toContain('\x1b[200~stop and read this\x1b[201~')
+      expect(inputs).toContain('\r')
     } finally {
       vi.useRealTimers()
     }
