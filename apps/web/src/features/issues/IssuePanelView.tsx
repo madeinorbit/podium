@@ -380,17 +380,19 @@ function PanelSections({
                   className="h-auto w-full justify-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-left font-normal hover:bg-accent/60"
                   disabled={!root && !a.artifactId}
                   onClick={() => {
-                    // Live worktree files open in a file tab; a snapshot without a
-                    // worktree ([spec:SP-0fc9]) opens its stored bytes directly.
-                    if (root) {
+                    // Snapshotted artifacts ([spec:SP-0fc9]) open their stored bytes —
+                    // the source file may be gone, and openFileInWorktree re-homes the
+                    // sidebar to root's containing workspace (#441). Only legacy
+                    // path-only entries open as live worktree file tabs.
+                    if (a.artifactId && src) {
+                      window.open(src, '_blank', 'noopener')
+                    } else if (root) {
                       // Artifact paths may be worktree-relative; file tabs need absolute.
                       openFileInWorktree({
                         machineId,
                         root,
                         path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
                       })
-                    } else if (src) {
-                      window.open(src, '_blank', 'noopener')
                     }
                   }}
                 >
