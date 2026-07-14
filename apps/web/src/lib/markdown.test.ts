@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { linkifyCodePaths, renderMarkdown } from './markdown'
+import { afterEach, describe, expect, it } from 'vitest'
+import { linkifyCodePaths, linkifyRefs, renderMarkdown, setKnownRefPrefixes } from './markdown'
 
 describe('renderMarkdown', () => {
   it('colourizes add/del/hunk lines in a diff code block', () => {
@@ -67,5 +67,41 @@ describe('linkifyCodePaths', () => {
   it('does not touch text outside code spans', () => {
     const out = linkifyCodePaths('apps/web/src/derive.ts')
     expect(out).not.toContain('file-link')
+  })
+})
+
+describe('linkifyRefs (#474)', () => {
+  afterEach(() => setKnownRefPrefixes([]))
+
+  it('is a no-op with no registered prefixes', () => {
+    setKnownRefPrefixes([])
+    expect(linkifyRefs('see POD-13')).toBe('see POD-13')
+  })
+
+  it('linkifies issue, session and draft refs for registered prefixes', () => {
+    setKnownRefPrefixes(['POD'])
+    const out = linkifyRefs('POD-13 and POD-13-A and POD-DRAFT-3')
+    expect(out).toContain('<a class="ref-link" data-ref="POD-13">POD-13</a>')
+    expect(out).toContain('data-ref="POD-13-A"')
+    expect(out).toContain('data-ref="POD-DRAFT-3"')
+  })
+
+  it('leaves unknown prefixes as plain text (avoids UTF-8 false positives)', () => {
+    setKnownRefPrefixes(['POD'])
+    expect(linkifyRefs('encoded as UTF-8 here')).toBe('encoded as UTF-8 here')
+    expect(linkifyRefs('ZZZ-9 unknown')).toBe('ZZZ-9 unknown')
+  })
+
+  it('never links inside an existing anchor or code span', () => {
+    setKnownRefPrefixes(['POD'])
+    expect(linkifyRefs('<a href="x">POD-13</a>')).toBe('<a href="x">POD-13</a>')
+    expect(linkifyRefs('<code>POD-13</code>')).toBe('<code>POD-13</code>')
+  })
+
+  it('renderMarkdown wires the ref pass end-to-end', () => {
+    setKnownRefPrefixes(['POD'])
+    const html = renderMarkdown('fixed in POD-13')
+    expect(html).toContain('class="ref-link"')
+    expect(html).toContain('data-ref="POD-13"')
   })
 })

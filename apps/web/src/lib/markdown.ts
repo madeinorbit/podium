@@ -1,3 +1,4 @@
+import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import DOMPurify from 'dompurify'
 import { marked, type Tokens } from 'marked'
 
@@ -80,7 +81,53 @@ export function linkifyCodePaths(html: string): string {
   })
 }
 
+// The set of registered repo prefixes (#474). Only tokens whose prefix matches
+// one of these are linkified — this is what keeps `UTF-8` and other real hyphens
+// from turning into dead ref links. The app updates it whenever the repo list
+// loads; empty (the default) disables ref linkification entirely.
+let knownRefPrefixes = new Set<string>()
+
+/** Update the registered repo prefixes the ref linkifier recognises (#474). */
+export function setKnownRefPrefixes(prefixes: Iterable<string>): void {
+  knownRefPrefixes = new Set(prefixes)
+}
+
+/**
+ * Turn `PREFIX-N` / `PREFIX-N-LETTER` / `PREFIX-DRAFT-N` tokens into ref anchors
+ * (#474), analogous to {@link linkifyCodePaths}. Runs on sanitized HTML and only
+ * rewrites TEXT nodes — never inside an existing `<a>` or `<code>`, and never a
+ * tag's own attributes — so it can't double-link or corrupt markup. Only tokens
+ * whose prefix is a registered repo prefix become links.
+ *
+ * Emits `<a class="ref-link" data-ref="POD-13">POD-13</a>` (no href, so
+ * externalizeLinks leaves it in-window); the click handler reads data-ref.
+ */
+export function linkifyRefs(html: string): string {
+  if (knownRefPrefixes.size === 0) return html
+  const parts = html.split(/(<[^>]+>)/)
+  let inAnchor = 0
+  let inCode = 0
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i]!
+    if (p.startsWith('<')) {
+      if (/^<a\b/i.test(p)) inAnchor++
+      else if (/^<\/a>/i.test(p)) inAnchor = Math.max(0, inAnchor - 1)
+      else if (/^<code\b/i.test(p)) inCode++
+      else if (/^<\/code>/i.test(p)) inCode = Math.max(0, inCode - 1)
+      continue
+    }
+    if (inAnchor > 0 || inCode > 0 || p === '') continue
+    parts[i] = p.replace(anyRefMatcher(), (tok) => {
+      const ref = parseAnyRef(tok)
+      if (!ref || !knownRefPrefixes.has(ref.prefix)) return tok
+      return `<a class="ref-link" data-ref="${tok}">${tok}</a>`
+    })
+  }
+  return parts.join('')
+}
+
 /** Markdown → sanitized HTML. The single render path for all chat surfaces. */
 export function renderMarkdown(text: string): string {
-  return externalizeLinks(DOMPurify.sanitize(linkifyCodePaths(marked.parse(text, { async: false }))))
+  const rendered = linkifyCodePaths(marked.parse(text, { async: false }))
+  return externalizeLinks(linkifyRefs(DOMPurify.sanitize(rendered)))
 }
