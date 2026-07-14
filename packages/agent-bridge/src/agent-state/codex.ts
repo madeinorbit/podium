@@ -404,8 +404,16 @@ export const codexStateProvider: AgentStateProvider = {
   // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
   // spawn — see the daemon's ensurePodiumCodexHooks); the per-session ingest URL
   // rides the spawn env instead, so no argv or settings-file injection is needed.
-  instrumentation({ endpointUrl }) {
-    return { args: [], env: { [PODIUM_CODEX_HOOK_URL_ENV]: endpointUrl } }
+  // Theme seeding is the exception: `-c tui.theme=ansi` is codex's official
+  // per-invocation config override, pointing its syntax theme at the terminal's
+  // ANSI palette (the chrome is ANSI-16 already) so an xterm palette/background
+  // change recolours it. Off = no flag, the user's own config.toml theme rules
+  // [spec:SP-a04d].
+  instrumentation({ endpointUrl, seedTheme }) {
+    return {
+      args: seedTheme ? ['-c', 'tui.theme=ansi'] : [],
+      env: { [PODIUM_CODEX_HOOK_URL_ENV]: endpointUrl },
+    }
   },
   translate: translateCodexEvent,
   bootEvents: codexBootEvents,

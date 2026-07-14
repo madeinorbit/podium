@@ -303,6 +303,10 @@ export const SpawnMessage = z.object({
   // credential, a GitHub token (#214) and machine-level pins (#234) all ride here.
   // Additive + optional: an older daemon ignores it, an older server omits it.
   env: z.record(z.string(), z.string()).optional(),
+  // Seed the CLI's theme with per-session official flags so it follows the
+  // terminal's issue-tinted colours (roles.coding.seedCliTheme, [spec:SP-a04d]).
+  // Absent = the setting's default (on) — older servers simply get the default.
+  seedCliTheme: z.boolean().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),

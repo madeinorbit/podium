@@ -154,6 +154,9 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       const instr = provider.instrumentation({
         endpointUrl: ctx.hookEndpointFor(msg.sessionId),
         settingsPath: join(ctx.settingsDir, `${msg.sessionId}.json`),
+        // Absent = the setting's default (on) — an older server that doesn't
+        // send the field still gets the product default [spec:SP-a04d].
+        seedTheme: msg.seedCliTheme ?? true,
       })
       if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
       extraArgs = instr.args

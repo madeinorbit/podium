@@ -17,10 +17,15 @@ function httpHook(url: string): { hooks: { type: 'http'; url: string }[] } {
   return { hooks: [{ type: 'http', url }] }
 }
 
-export function claudeHookSettings(endpointUrl: string): string {
+export function claudeHookSettings(endpointUrl: string, opts?: { seedTheme?: boolean }): string {
   const h = httpHook(endpointUrl)
   return JSON.stringify(
     {
+      // theme:auto makes Claude Code query the terminal background (OSC 11 —
+      // xterm answers from its live, issue-tinted theme) instead of assuming a
+      // scheme. Per-session --settings only; the user's global config is never
+      // touched, and with seeding off the key is absent entirely [spec:SP-a04d].
+      ...(opts?.seedTheme ? { theme: 'auto' } : {}),
       hooks: {
         SessionStart: [h],
         UserPromptSubmit: [h],
@@ -49,10 +54,13 @@ export function claudeHookSettings(endpointUrl: string): string {
 }
 
 export const claudeCodeStateProvider: AgentStateProvider = {
-  instrumentation({ endpointUrl, settingsPath }): AgentInstrumentation {
+  instrumentation({ endpointUrl, settingsPath, seedTheme }): AgentInstrumentation {
     return {
       args: ['--settings', settingsPath],
-      file: { path: settingsPath, contents: claudeHookSettings(endpointUrl) },
+      file: {
+        path: settingsPath,
+        contents: claudeHookSettings(endpointUrl, seedTheme !== undefined ? { seedTheme } : {}),
+      },
     }
   },
   translate: translateClaudeHookPayload,

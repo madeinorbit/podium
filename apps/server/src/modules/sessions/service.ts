@@ -2074,7 +2074,7 @@ export class SessionsService {
   private modelDefaults(
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
-  ): { model?: string; subagentModel?: string; effort?: string } {
+  ): { model?: string; subagentModel?: string; effort?: string; seedCliTheme?: boolean } {
     const coding = this.store.settings.getSettings().roles.coding
     const model = override?.model ?? coding.model
     const effort = override?.effort ?? coding.effort
@@ -2087,6 +2087,9 @@ export class SessionsService {
       // Cursor + shell have no effort flag; agentLaunchCommand also drops it, but
       // gating here keeps the spawn message clean (capability lookup, #158).
       ...(effort !== 'auto' && agentSupportsEffort(agentKind) ? { effort } : {}),
+      // Per-session CLI theme seeding rides every (re)spawn so a resurrected
+      // session keeps the configured behaviour too [spec:SP-a04d].
+      ...(agentKind !== 'shell' ? { seedCliTheme: coding.seedCliTheme } : {}),
     }
   }
 

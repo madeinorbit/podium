@@ -25,6 +25,23 @@ describe('claude-code instrumentation', () => {
     expect(instr.file?.path).toBe('/tmp/podium/hooks/s1.json')
   })
 
+  it('seedTheme writes theme:auto into the per-session settings; off/absent leaves the key out [spec:SP-a04d]', () => {
+    const parse = (seedTheme?: boolean) =>
+      JSON.parse(
+        claudeCodeStateProvider.instrumentation({
+          endpointUrl: URL,
+          settingsPath: '/x.json',
+          ...(seedTheme === undefined ? {} : { seedTheme }),
+        }).file?.contents ?? '',
+      ) as { theme?: string; hooks: unknown }
+    expect(parse(true).theme).toBe('auto')
+    // Off or absent = the user's native theme behaviour, untouched.
+    expect(parse(false).theme).toBeUndefined()
+    expect(parse().theme).toBeUndefined()
+    // Hooks wiring is identical in both modes.
+    expect(parse(true).hooks).toEqual(parse(false).hooks)
+  })
+
   it('settings file is valid JSON wiring every lifecycle event to the http endpoint', () => {
     const instr = claudeCodeStateProvider.instrumentation({
       endpointUrl: URL,

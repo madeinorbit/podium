@@ -113,6 +113,26 @@ export function SessionsSection({
             </SelectContent>
           </Select>
         </Row>
+        <Row label="Match agent theme to Podium">
+          <Switch
+            checked={settings.roles.coding.seedCliTheme}
+            onCheckedChange={(checked) =>
+              patch({
+                roles: {
+                  ...settings.roles,
+                  coding: { ...settings.roles.coding, seedCliTheme: checked },
+                },
+              })
+            }
+          />
+        </Row>
+        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
+          Seeds each spawned CLI with its official per-session theme flag (Claude Code{' '}
+          <span className="font-mono">theme: auto</span>, Codex{' '}
+          <span className="font-mono">tui.theme=ansi</span>) so the agent&apos;s colours follow the
+          issue-tinted terminal. Off = the CLI&apos;s own theme settings apply untouched; your
+          global agent config is never modified either way.
+        </p>
       </Section>
       <Section
         title="Auto-continue on errors"

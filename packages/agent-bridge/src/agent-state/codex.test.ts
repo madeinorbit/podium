@@ -315,6 +315,23 @@ describe('codexStateProvider', () => {
       env: { PODIUM_CODEX_HOOK_URL: 'http://x' },
     })
   })
+
+  it('seedTheme adds the official per-invocation tui.theme=ansi override; off adds nothing [spec:SP-a04d]', () => {
+    expect(
+      codexStateProvider.instrumentation({
+        endpointUrl: 'http://x',
+        settingsPath: '/tmp/s',
+        seedTheme: true,
+      }),
+    ).toEqual({ args: ['-c', 'tui.theme=ansi'] })
+    expect(
+      codexStateProvider.instrumentation({
+        endpointUrl: 'http://x',
+        settingsPath: '/tmp/s',
+        seedTheme: false,
+      }),
+    ).toEqual({ args: [] })
+  })
 })
 
 describe('findLiveCodexRollout', () => {
