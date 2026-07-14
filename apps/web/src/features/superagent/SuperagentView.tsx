@@ -314,7 +314,7 @@ export function SuperagentView({ onClose }: { onClose?: () => void } = {}): JSX.
           <span
             className={cn(
               'dot size-[7px] rounded-full',
-              workingCount > 0 ? 'bg-live dot-working' : 'bg-muted-foreground/50',
+              workingCount > 0 ? 'bg-live' : 'bg-muted-foreground/50',
             )}
             aria-hidden="true"
           />
