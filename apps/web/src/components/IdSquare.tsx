@@ -125,14 +125,24 @@ export function IdSquare({
       }
     }
     const dismissLayoutChange = (): void => setOpen(false)
+    // Only a scroll that can MOVE the anchor square dismisses — a scrolling
+    // terminal or list elsewhere must not blink the popover away (#41).
+    const dismissAnchorScroll = (event: Event): void => {
+      const target = event.target
+      const trigger = triggerRef.current
+      if (!trigger) return
+      if (target === document || (target instanceof Node && target.contains(trigger))) {
+        setOpen(false)
+      }
+    }
     window.addEventListener('mousedown', dismissOutside, true)
     window.addEventListener('keydown', dismissKey, true)
-    window.addEventListener('scroll', dismissLayoutChange, true)
+    window.addEventListener('scroll', dismissAnchorScroll, true)
     window.addEventListener('resize', dismissLayoutChange)
     return () => {
       window.removeEventListener('mousedown', dismissOutside, true)
       window.removeEventListener('keydown', dismissKey, true)
-      window.removeEventListener('scroll', dismissLayoutChange, true)
+      window.removeEventListener('scroll', dismissAnchorScroll, true)
       window.removeEventListener('resize', dismissLayoutChange)
     }
   }, [open])

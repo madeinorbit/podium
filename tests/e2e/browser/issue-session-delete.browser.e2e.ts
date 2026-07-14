@@ -30,6 +30,9 @@ test('sidebar issue delete removes its sessions and the tracker can restore the 
   await expect(rows.first()).toBeVisible({ timeout: 30_000 })
   const before = await rows.count()
   const target = rows.first()
+  // The row's hover title (`#seq · title`) uniquely identifies the issue — used
+  // to re-find THIS row after restore even when other specs seeded more rows.
+  const targetTitle = await target.locator('button.flex-1').getAttribute('title')
 
   await target.locator('button.flex-1').click({ button: 'right' })
   const issueMenu = page.locator('[role="menu"][aria-label="Issue actions"]')
@@ -43,9 +46,13 @@ test('sidebar issue delete removes its sessions and the tracker can restore the 
 
   await expect.poll(async () => rows.count(), { timeout: 20_000 }).toBe(before - 1)
   await expect(aside.getByTestId('unified-worktree-row')).toHaveCount(0)
-  await expect(
-    aside.getByText('Nothing yet — start an agent or create an issue above.'),
-  ).toBeVisible()
+  // The empty state only shows when the deleted row was the LAST one — earlier
+  // specs sharing the harness may have seeded other rows.
+  if (before === 1) {
+    await expect(
+      aside.getByText('Nothing yet — start an agent or create an issue above.'),
+    ).toBeVisible()
+  }
 
   // The app nav lives in the top bar since the shell relayout (#40/#41).
   await page.getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
@@ -68,7 +75,7 @@ test('sidebar issue delete removes its sessions and the tracker can restore the 
 
   await expect(deletedCard).toHaveCount(0, { timeout: 15_000 })
   await expect(aside.getByTestId('unified-issue-row')).toHaveCount(before)
-  await aside.getByTestId('unified-issue-row').first().locator('button.flex-1').click()
+  await aside.locator(`button[title="${targetTitle}"]`).first().click()
   await expect(
     page.getByText('The agent process is no longer running. Transcript is read-only.', {
       exact: true,
