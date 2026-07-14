@@ -166,6 +166,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
 
 const IDLE = { phase: 'idle', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
 const WORKING = { phase: 'working', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
+const NEEDS_USER = { phase: 'needs_user', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
 
 describe('MessagesRepository (store CRUD)', () => {
   it('round-trips a row and walks the ledger', () => {
@@ -321,7 +322,8 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.status).toBe('delivered')
     expect(r.message.deliveredTo).toBe('s1')
 
-    // Busy live agents → most recently active one, queued path.
+    // Busy live agents → holds for the turn boundary; the first member to go
+    // idle picks it up.
     const busy = [
       session({
         sessionId: 'sOld',
@@ -339,8 +341,11 @@ describe('MessageDeliveryService.send', () => {
       { kind: 'superagent' },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'x', urgency: 'next-turn' },
     )
-    expect(h2.queued[0]!.sessionId).toBe('sNew')
-    expect(r2.message.status).toBe('delivered')
+    expect(h2.queued).toHaveLength(0)
+    expect(r2.message.status).toBe('queued')
+    h2.svc.onSessionIdle(session({ sessionId: 'sNew', lastActiveAt: 't9', issueId: ISSUE.id }))
+    expect(h2.sent[0]!.sessionId).toBe('sNew')
+    expect(h2.store.messages.getMessage(r2.message.id)!.status).toBe('delivered')
 
     // No live member → stays queued (durable; prime/stop-hook surfaces it).
     const h3 = harness([])
@@ -405,18 +410,25 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
-  it('running target: next-turn queues as the immediate next turn (queueText FIFO)', () => {
-    const { svc, queued } = harness([session({ sessionId: 's1', agentState: WORKING })])
+  it('running target: next-turn HOLDS for the turn boundary — no PTY write mid-turn (#471)', () => {
+    const s = session({ sessionId: 's1', agentState: WORKING })
+    const { svc, sent, queued, interrupted, store } = harness([s])
     const r = svc.send(
       { kind: 'superagent' },
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
     )
-    expect(queued).toHaveLength(1)
-    expect(r.message.status).toBe('delivered')
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(0)
+    expect(interrupted).toHaveLength(0)
+    expect(r.message.status).toBe('queued')
+    // ... and the turn ending (phase → idle) delivers it inline.
+    svc.onSessionIdle(session({ sessionId: 's1' }))
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
   it('attributes a named system sender in the delivered envelope', () => {
-    const { svc, queued } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    const { svc, sent } = harness([session({ sessionId: 's1', agentState: IDLE })])
     const r = svc.send(
       { kind: 'system', name: 'workflow' },
       {
@@ -427,9 +439,9 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
 
     expect(r.message).toMatchObject({ fromKind: 'system', fromName: 'workflow' })
-    expect(queued).toHaveLength(1)
-    expect(queued[0]?.text).toContain('from system:workflow')
-    expect(queued[0]?.text).toContain('Continue with the next workflow step.')
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.text).toContain('from system:workflow')
+    expect(sent[0]?.text).toContain('Continue with the next workflow step.')
   })
 
   it('running target: interrupt (allowed sender) goes through interruptText (ESC + inject)', () => {
@@ -444,6 +456,56 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(queued).toHaveLength(0)
     expect(r.message.status).toBe('delivered')
     expect(r.message.clampedFrom).toBeNull()
+  })
+
+  it('needs_user target: next-turn NEVER types — no PTY write that could submit the menu (#473)', () => {
+    const s = session({ sessionId: 's1', agentState: NEEDS_USER })
+    const { svc, sent, queued, interrupted, store } = harness([s])
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'settle notice', urgency: 'next-turn' },
+    )
+    // Regression pin for #473: while an AskUserQuestion menu is on screen,
+    // NOTHING may reach the PTY (queueText's trailing CR submits the menu).
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(0)
+    expect(interrupted).toHaveLength(0)
+    expect(r.message.status).toBe('queued')
+    // The sweep must not deliver it either while the menu is still up.
+    svc.sweep()
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(0)
+    // Only after the human answers (phase → idle) does it deliver.
+    svc.onSessionIdle(session({ sessionId: 's1' }))
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('needs_user target: interrupt goes through interruptText (real ESC cancels the menu first)', () => {
+    const { svc, interrupted, sent, queued } = harness([
+      session({ sessionId: 's1', agentState: NEEDS_USER }),
+    ])
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'urgent', urgency: 'interrupt' },
+    )
+    expect(interrupted).toHaveLength(1)
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(0)
+    expect(r.message.status).toBe('delivered')
+  })
+
+  it('starting target (no daemon bound yet): next-turn rides the durable boot queue', () => {
+    const { svc, queued, sent } = harness([
+      session({ sessionId: 's1', status: 'starting', agentState: undefined, busy: true }),
+    ])
+    const r = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body: 'queued while offline', urgency: 'next-turn' },
+    )
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(1)
+    expect(r.message.status).toBe('delivered')
   })
 
   it('parked target + wait: stays queued (durable)', () => {
@@ -499,7 +561,8 @@ describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () =>
       { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'interrupt' },
     )
     expect(interrupted).toHaveLength(0)
-    expect(queued).toHaveLength(1) // delivered anyway, at next-turn
+    expect(queued).toHaveLength(0) // clamped to next-turn → holds for the boundary
+    expect(r.message.status).toBe('queued')
     expect(r.message.urgency).toBe('next-turn')
     const clamp = JSON.parse(r.message.clampedFrom!)
     expect(clamp.urgency).toBe('interrupt')

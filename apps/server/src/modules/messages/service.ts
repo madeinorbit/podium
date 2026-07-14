@@ -438,13 +438,31 @@ export class MessageDeliveryService {
         // Surfaces at the next pause: stop-hook / prime pending query.
         return { ok: true, queued: true }
       }
-      const text = this.renderFor(message)
-      const r =
-        message.urgency === 'interrupt'
-          ? sessions.interruptText({ sessionId: target.sessionId, text })
-          : sessions.queueText({ sessionId: target.sessionId, text })
-      if (r.ok) this.markDelivered(message, target.sessionId)
-      return r
+      if (message.urgency === 'interrupt') {
+        // The intended mid-turn path. interruptText sends ESC first, which
+        // visibly cancels an open AskUserQuestion menu before the text lands.
+        const r = sessions.interruptText({
+          sessionId: target.sessionId,
+          text: this.renderFor(message),
+        })
+        if (r.ok) this.markDelivered(message, target.sessionId)
+        return r
+      }
+      // next-turn. A 'starting' session has no turn in flight and nothing on
+      // screen — ride the durable boot queue; it types once the agent binds.
+      if (target.status === 'starting') {
+        const r = sessions.queueText({
+          sessionId: target.sessionId,
+          text: this.renderFor(message),
+        })
+        if (r.ok) this.markDelivered(message, target.sessionId)
+        return r
+      }
+      // Busy live agent: HOLD for the turn boundary. queueText's immediate
+      // drain types mid-turn (#471), and its submitting CR auto-answers an
+      // on-screen AskUserQuestion menu (#473 P0). onSessionIdle delivers when
+      // the phase reaches idle; sweep() is the backstop.
+      return { ok: true, queued: true }
     }
     // parked (hibernated/exited)
     if (message.lifecycle === 'wait') {
