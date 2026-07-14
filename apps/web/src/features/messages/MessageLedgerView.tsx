@@ -138,12 +138,12 @@ export function MessageLedgerView({
       data-testid="message-ledger"
     >
       <div className="flex items-center gap-1.5 pb-1.5 text-[10.5px] font-semibold tracking-[0.09em] uppercase text-muted-foreground">
-        <MailIcon size={12} aria-hidden="true" />
-        Message ledger
+        <MailIcon size={12} className="flex-none" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">Message ledger</span>
         <Button
           variant="ghost"
           size="icon-sm"
-          className="ml-auto size-6 text-muted-foreground"
+          className="size-6 flex-none text-muted-foreground"
           title="Refresh ledger"
           onClick={refresh}
         >

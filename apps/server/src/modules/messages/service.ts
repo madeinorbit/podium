@@ -44,7 +44,7 @@ export const HOP_LIMIT = 5
 /** One wake per (sender, target-issue) per this window (brake 1). */
 export const WAKE_COOLDOWN_MS = 10 * 60_000
 /** Message-triggered spawns per issue per UTC day (brake 2). */
-export const SPAWN_BUDGET_PER_DAY = 3
+export const SPAWN_BUDGET_PER_DAY = 10
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000

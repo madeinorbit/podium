@@ -494,7 +494,10 @@ export function AgentPanel({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex h-[49px] flex-none items-center gap-[9px] border-b border-border bg-card px-2.5">
+      {/* overflow-hidden: the header's flex-none controls must CLIP at the pane
+          edge. Without it a pane squeezed narrow (e.g. by an open right dock)
+          spills its toolbar over the neighbouring panel. */}
+      <div className="flex h-[49px] flex-none items-center gap-[9px] overflow-hidden border-b border-border bg-card px-2.5">
         {/* Agent-kind chip (Claude Code / Codex / …) + surface label + session name,
             mirroring the native pane header in the design. */}
         {session && (
