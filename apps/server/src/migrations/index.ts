@@ -49,6 +49,7 @@ import { up as sessionsWorkflowMetadata } from './019-sessions-workflow-metadata
 import { up as recapWatermarks } from './020-recap-watermarks'
 import { up as messagesRepairFromIssue } from './021-messages-repair-from-issue'
 import { up as agentWorkflows } from './022-agent-workflows'
+import { up as accounts } from './023-accounts'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -93,6 +94,9 @@ export const MIGRATIONS: Migration[] = [
   // Repair legacy ref-string senders 016 copied verbatim (#463) [spec:SP-34d7].
   { version: 21, name: 'messages-repair-from-issue', up: messagesRepairFromIssue },
   { version: 22, name: 'agent-workflows', up: agentWorkflows },
+  // Managed accounts [spec:SP-6454] — credentials Podium holds and injects at
+  // spawn. 023, not 016: the runner skips any version <= MAX(applied) (#472).
+  { version: 23, name: 'accounts', up: accounts },
 ]
 
 /** Highest schema version the running code knows about. */
