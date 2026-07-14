@@ -10,7 +10,9 @@ import { RELAY } from './_harness'
  *     to the selected issue's subtree, widening to all issues unscoped.
  *   - Empty tray: the quiet "Nothing waiting on you" line.
  *   - Super agent: single overarching chat, event feed rows (click = select
- *     that issue), CTX badge, Discuss ↓ prefills the composer.
+ *     that issue), Discuss ↓ prefills the composer. NO legacy chrome (#66):
+ *     no CTX badge above the composer, no transcript search, no "Earlier
+ *     conversation" block.
  *   - Collapse: each section folds to its bar (amber count pill / no composer),
  *     persisted across reload; whole-column fold to the 44px bar keeps the
  *     count pill + expands landing on the clicked half.
@@ -139,9 +141,11 @@ test('tray filtering, scope, collapse states, resize, fold/reopen, and persisten
   ).toBeVisible()
   await page.screenshot({ path: 'test-results/engraved-column-scoped-tray.png', fullPage: false })
 
-  // ---- CTX badge rides the composer while an issue is selected ----
-  await expect(page.getByTestId('ctx-badge')).toBeVisible()
-  await expect(page.getByTestId('ctx-badge')).toContainText(`#${parent.seq} context`)
+  // ---- Legacy chrome stays gone (#66): no CTX badge even with an issue
+  // selected, no transcript search input, no "Earlier conversation" block ----
+  await expect(page.getByTestId('ctx-badge')).toHaveCount(0)
+  await expect(column.getByPlaceholder('Search transcript…')).toHaveCount(0)
+  await expect(column.getByText('Earlier conversation')).toHaveCount(0)
 
   // ---- Discuss ↓ prefills + focuses the chat composer ----
   await reviewCard.getByRole('button', { name: 'Discuss ↓' }).click()
