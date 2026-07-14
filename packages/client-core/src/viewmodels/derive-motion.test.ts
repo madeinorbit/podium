@@ -1,6 +1,6 @@
 import type { AgentRuntimeState, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { formatClock, motionPhase } from './derive'
+import { formatClock, motionPhase, motionTiming } from './derive'
 
 const NOW = Date.parse('2026-07-06T12:00:00.000Z')
 
@@ -68,6 +68,46 @@ describe('motionPhase — the four phases of the motion grammar', () => {
     expect(motionPhase(sess({ status: 'starting' }))).toBe('queued')
     expect(motionPhase(sess({ status: 'exited' }))).toBe('queued')
     expect(motionPhase(sess())).toBe('queued') // live but no agentState yet
+  })
+})
+describe('motionTiming — canonical PhaseTimer inputs', () => {
+  it('exposes the persisted base for a live working stretch', () => {
+    const since = NOW - 10_000
+    expect(
+      motionTiming(
+        sess({
+          agentState: agentState({
+            phase: 'working',
+            since: new Date(since).toISOString(),
+            workingMsTotal: 330_000,
+          }),
+        }),
+      ),
+    ).toEqual({ phase: 'working', sinceMs: since, baseMs: 330_000 })
+  })
+
+  it('exposes the persisted total only when the run is done', () => {
+    const timing = motionTiming(
+      sess({
+        agentState: agentState({
+          phase: 'idle',
+          idle: { kind: 'done' },
+          workingMsTotal: 340_000,
+        }),
+      }),
+    )
+    expect(timing).toEqual({
+      phase: 'done',
+      sinceMs: NOW - 60_000,
+      totalMs: 340_000,
+    })
+  })
+
+  it('keeps timing fields absent for legacy runtime state', () => {
+    expect(motionTiming(sess({ agentState: agentState({ phase: 'working' }) }))).toEqual({
+      phase: 'working',
+      sinceMs: NOW - 60_000,
+    })
   })
 })
 

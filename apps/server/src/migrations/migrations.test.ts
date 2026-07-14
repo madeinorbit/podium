@@ -108,6 +108,29 @@ describe('runMigrations', () => {
     expect(() => colorMigration?.up(db)).not.toThrow()
   })
 
+  it('017 adds nullable sessions.working_ms_total and is idempotent', () => {
+    const db = openMemory()
+    runMigrations(
+      db,
+      MIGRATIONS.filter((m) => m.version <= 16),
+    )
+    runMigrations(db)
+
+    const column = (
+      db.prepare('PRAGMA table_info(sessions)').all() as {
+        name: string
+        type: string
+        notnull: number
+        dflt_value: unknown
+      }[]
+    ).find((c) => c.name === 'working_ms_total')
+    expect(column).toMatchObject({ type: 'INTEGER', notnull: 0, dflt_value: null })
+
+    const migration = MIGRATIONS.find((m) => m.version === 17)
+    expect(migration).toBeDefined()
+    expect(() => migration?.up(db)).not.toThrow()
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)

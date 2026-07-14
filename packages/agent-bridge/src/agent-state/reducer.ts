@@ -2,7 +2,16 @@ import type { AgentRuntimeState } from '@podium/protocol'
 import type { AgentStateEvent } from './types.js'
 
 export function initialAgentState(now: string): AgentRuntimeState {
-  return { phase: 'unknown', since: now, openTaskCount: 0 }
+  return { phase: 'unknown', since: now, workingMsTotal: 0, openTaskCount: 0 }
+}
+
+function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
+  const total = prev.workingMsTotal ?? 0
+  if (prev.phase !== 'working' && prev.phase !== 'compacting') return total
+  const from = Date.parse(prev.since)
+  const to = Date.parse(nextSince)
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return total
+  return total + Math.max(0, to - from)
 }
 
 /**
@@ -32,7 +41,12 @@ export function reduceAgentState(
   event: AgentStateEvent,
   now: string,
 ): AgentRuntimeState {
-  const base = { since: event.at ?? now, openTaskCount: prev.openTaskCount }
+  const since = event.at ?? now
+  const base = {
+    since,
+    workingMsTotal: workingMsAt(prev, since),
+    openTaskCount: prev.openTaskCount,
+  }
   switch (event.kind) {
     case 'session_started':
       return { phase: 'idle', ...base }

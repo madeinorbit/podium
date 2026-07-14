@@ -1418,6 +1418,26 @@ export function motionPhase(s: SessionMeta): MotionPhase {
   return 'queued'
 }
 
+/** Canonical timer inputs derived from one session's persisted runtime state.
+ *  `baseMs` feeds a live working counter; `totalMs` feeds the stopped ∑ stamp.
+ *  Both stay absent for legacy sessions that do not carry cumulative timing data. */
+export interface MotionTiming {
+  phase: MotionPhase
+  sinceMs: number
+  baseMs?: number
+  totalMs?: number
+}
+
+export function motionTiming(s: SessionMeta): MotionTiming {
+  const phase = motionPhase(s)
+  const sinceMs = Date.parse(s.agentState?.since ?? s.lastActiveAt)
+  const total = s.agentState?.workingMsTotal
+  if (total === undefined) return { phase, sinceMs }
+  if (phase === 'working') return { phase, sinceMs, baseMs: total }
+  if (phase === 'done') return { phase, sinceMs, totalMs: total }
+  return { phase, sinceMs }
+}
+
 /**
  * Compact clock for the motion timer/∑ stamps: `6:30`, `0:07`, `72:15` —
  * minutes never roll into hours (matches the handoff's `m:ss` format).

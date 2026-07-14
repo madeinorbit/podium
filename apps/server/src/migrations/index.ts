@@ -43,6 +43,7 @@ import { up as locks } from './013-locks'
 import { up as machinesInventory } from './014-machines-inventory'
 import { up as superagentPendingTurns } from './015-superagent-pending-turns'
 import { up as issuesColor } from './016-issues-color'
+import { up as sessionWorkingMsTotal } from './017-session-working-ms-total'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -79,6 +80,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 15, name: 'superagent-pending-turns', up: superagentPendingTurns },
   // Issue colour slot [spec:SP-b4d1] — NULL = no colour (neutral slate flow).
   { version: 16, name: 'issues-color', up: issuesColor },
+  { version: 17, name: 'session-working-ms-total', up: sessionWorkingMsTotal },
 ]
 
 /** Highest schema version the running code knows about. */

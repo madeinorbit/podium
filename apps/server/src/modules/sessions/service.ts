@@ -360,6 +360,7 @@ export class SessionsService {
       },
       durableLabel: r.durableLabel,
       lastActiveAt: r.lastActiveAt,
+      ...(r.workingMsTotal != null ? { workingMsTotal: r.workingMsTotal } : {}),
       lastOutputAt: r.lastOutputAt,
       lastInputAt: r.lastInputAt,
       lastResumedAt: r.lastResumedAt,
@@ -1881,7 +1882,8 @@ export class SessionsService {
         if (!session) break
         const prev = session.agentState
         session.setAgentState(msg.state)
-        this.autoContinue.onStateChange(msg.sessionId, msg.state)
+        const next = session.agentState ?? msg.state
+        this.autoContinue.onStateChange(msg.sessionId, next)
         // Persist so the advanced recency (lastActiveAt) is durable across a server
         // restart — otherwise the row keeps its stale last-persisted time and the
         // ordering jumps backward on every redeploy until events re-arrive.
@@ -1893,22 +1895,22 @@ export class SessionsService {
         this.broadcastToClients({
           type: 'sessionAgentStateChanged',
           sessionId: msg.sessionId,
-          state: msg.state,
+          state: next,
         })
         this.issues().onSessionActivity(msg.sessionId)
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
-        this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next: msg.state })
+        this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next })
         if (
           session.snoozedUntil !== undefined &&
           SessionsService.isAttentionPhase(prev) &&
-          !SessionsService.isAttentionPhase(msg.state)
+          !SessionsService.isAttentionPhase(next)
         ) {
           this.clearSnooze(msg.sessionId)
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
-        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(msg.state)) {
+        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
           this.issues().onSessionAttention(msg.sessionId)
         }
         break

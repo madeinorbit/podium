@@ -43,6 +43,7 @@ export class SessionsRepository {
       .prepare(
         `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
+                working_ms_total,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
                 deleted_by_issue_id
@@ -68,6 +69,7 @@ export class SessionsRepository {
       durableLabel: r.durable_label as string,
       createdAt: r.created_at as string,
       lastActiveAt: r.last_active_at as string,
+      ...(r.working_ms_total != null ? { workingMsTotal: r.working_ms_total as number } : {}),
       archived: r.archived === 1,
       workState: (r.work_state as string | null) ?? null,
       machineId: (r.machine_id as string | null) ?? '__local__',
@@ -98,10 +100,11 @@ export class SessionsRepository {
         `INSERT INTO sessions
            (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
+            working_ms_total,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
             deleted_by_issue_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
@@ -113,6 +116,7 @@ export class SessionsRepository {
            exit_code = excluded.exit_code,
            durable_label = excluded.durable_label,
            last_active_at = excluded.last_active_at,
+           working_ms_total = excluded.working_ms_total,
            archived = excluded.archived,
            work_state = excluded.work_state,
            machine_id = excluded.machine_id,
@@ -141,6 +145,7 @@ export class SessionsRepository {
         row.durableLabel,
         row.createdAt,
         row.lastActiveAt,
+        row.workingMsTotal ?? null,
         row.archived ? 1 : 0,
         row.workState,
         row.machineId ?? '__local__',

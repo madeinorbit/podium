@@ -56,6 +56,8 @@ export interface SessionInit {
   resume?: ResumeRef
   durableLabel?: string
   lastActiveAt?: string
+  /** Persisted completed working/compacting time; absent for legacy sessions. */
+  workingMsTotal?: number
   lastOutputAt?: string | null
   lastInputAt?: string | null
   lastResumedAt?: string | null
@@ -153,6 +155,8 @@ export class Session {
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   agentState: AgentRuntimeState | undefined
+  private workingMsTotal: number | undefined
+  private incomingWorkingMsTotal: number | undefined
   /** The agent's `/color` identity accent (a named colour), learned from the
    *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
   agentColor: string | undefined
@@ -231,6 +235,7 @@ export class Session {
     this.durableLabel = init.durableLabel ?? `podium-${init.sessionId}`
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
+    this.workingMsTotal = init.workingMsTotal
     // A malformed stored ISO string parses to NaN, and Math.max(..., NaN) is NaN —
     // which makes the session never hibernation-eligible (stuck awake forever). Fall
     // back to 0 so a bad value behaves like "no activity yet".
@@ -614,9 +619,25 @@ export class Session {
   }
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
-  /** Harness-observed runtime state (hooks-driven). Not persisted — it's live-only. */
+  /** Harness-observed runtime state (hooks-driven). The cumulative compute base is persisted. */
   setAgentState(state: AgentRuntimeState): void {
-    this.agentState = state
+    // The daemon reducer's total restarts at zero with each tracker. Persist only
+    // positive deltas within one tracker epoch on top of our durable total; a
+    // lower/reset incoming value becomes the next epoch's baseline.
+    const incomingTotal = state.workingMsTotal
+    if (incomingTotal !== undefined) {
+      if (this.workingMsTotal === undefined) {
+        this.workingMsTotal = incomingTotal
+      } else if (
+        this.incomingWorkingMsTotal !== undefined &&
+        incomingTotal >= this.incomingWorkingMsTotal
+      ) {
+        this.workingMsTotal += incomingTotal - this.incomingWorkingMsTotal
+      }
+      this.incomingWorkingMsTotal = incomingTotal
+    }
+    this.agentState =
+      this.workingMsTotal === undefined ? state : { ...state, workingMsTotal: this.workingMsTotal }
     // Recency = the phase event-time (state.since), which is the real source-record
     // time (transcript timestamp), never "now" — but MONOTONIC: a boot re-seed that
     // read the wrong transcript (a subagent jsonl registered under the parent's
@@ -705,6 +726,7 @@ export class Session {
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
+      ...(this.workingMsTotal !== undefined ? { workingMsTotal: this.workingMsTotal } : {}),
       lastOutputAt: Session.msToIso(this.outputAtMs),
       lastInputAt: Session.msToIso(this.inputAtMs),
       lastResumedAt: Session.msToIso(this.resumedAtMs),

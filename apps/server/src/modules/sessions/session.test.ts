@@ -466,6 +466,39 @@ describe('Session', () => {
     expect(s.agentState?.since).toBe('2026-06-04T00:00:00.000Z')
   })
 
+  it('preserves a persisted compute total when a reloaded old daemon omits it', () => {
+    const s = new Session({
+      sessionId: 's1',
+      agentKind: 'claude-code',
+      cwd: '/w',
+      title: 'w',
+      origin: { kind: 'spawn' },
+      createdAt: CREATED,
+      lastActiveAt: '2026-06-10T00:00:00.000Z',
+      workingMsTotal: 42_000,
+      geometry: geo,
+      toDaemon: vi.fn(),
+      status: 'reconnecting',
+    })
+
+    s.setAgentState(state('idle', '2026-06-10T00:01:00.000Z'))
+    expect(s.agentState?.workingMsTotal).toBe(42_000)
+    expect(s.toRow().workingMsTotal).toBe(42_000)
+
+    s.setAgentState({
+      ...state('working', '2026-06-10T00:02:00.000Z'),
+      workingMsTotal: 50_000,
+    })
+    expect(s.agentState?.workingMsTotal).toBe(42_000)
+
+    s.setAgentState({
+      ...state('idle', '2026-06-10T00:03:00.000Z'),
+      workingMsTotal: 55_000,
+    })
+    expect(s.agentState?.workingMsTotal).toBe(47_000)
+    expect(s.toRow().workingMsTotal).toBe(47_000)
+  })
+
   it('markLive (daemon reattach/bind) does NOT restamp lastActiveAt', () => {
     const s = new Session({
       sessionId: 's1',

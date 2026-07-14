@@ -36,6 +36,8 @@ export interface SessionRow {
   durableLabel: string
   createdAt: string
   lastActiveAt: string
+  /** Completed working/compacting time in milliseconds; absent for legacy rows. */
+  workingMsTotal?: number | null
   /** Last PTY output frame (ISO); null = none recorded. Hibernation signal only — not recency. */
   lastOutputAt: string | null
   /** Last controller input — any keys/mouse/paste (ISO); null = none. Hibernation signal only. */
