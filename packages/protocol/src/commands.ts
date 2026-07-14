@@ -84,6 +84,7 @@ export const ISSUE_COMMAND_NAMES = [
   'addComment',
   'addSession',
   'addShell',
+  'answerQuestion',
   'applySuggestion',
   'archive',
   'attachSession',

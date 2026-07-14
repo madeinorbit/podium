@@ -138,6 +138,15 @@ export const IssueWire = z.object({
   estimateMin: z.number().int().optional(),
   needsHuman: z.boolean(),
   humanQuestion: z.string().optional(),
+  /** Structured suggested answers for `humanQuestion` (issue #53) — the Tray's
+   *  answer chips. Absent = free-form question. Tolerant so a malformed value
+   *  from a newer peer parses as unset rather than failing the whole issue. */
+  humanQuestionOptions: z.array(z.string()).optional().catch(undefined),
+  /** sessionId of the agent session that asked (issue #53); absent = unattributed
+   *  (legacy flag or a caller with no session identity). */
+  humanQuestionAskedBy: z.string().optional(),
+  /** ISO time the needs-human flag was raised (issue #53). */
+  humanQuestionAskedAt: z.string().optional(),
   /** Agent-published human-facing panel; absent = nothing published yet. */
   panel: IssuePanel.optional(),
   labels: z.array(z.string()),

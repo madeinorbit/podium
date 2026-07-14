@@ -173,6 +173,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       estimateMin: null,
       needsHuman: false,
       humanQuestion: null,
+      humanQuestionOptions: null,
+      humanQuestionAskedBy: null,
+      humanQuestionAskedAt: null,
       panel: null,
       createdAt: ts,
       updatedAt: ts,
@@ -490,14 +493,30 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return wire
   }
 
-  setNeedsHuman(id: string, question?: string | null): IssueWire {
+  setNeedsHuman(
+    id: string,
+    question?: string | null,
+    /** Structured question metadata (issue #53): suggested answers for the Tray's
+     *  answer chips + the asking session. askedAt is stamped here (now()) — a
+     *  re-flag replaces the WHOLE pending question, metadata included. */
+    meta?: { options?: string[]; askedBy?: string },
+  ): IssueWire {
     const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
-    const wire = this.update(id, { needsHuman: true, humanQuestion: question ?? null })
+    const options = meta?.options?.map((o) => o.trim()).filter(Boolean) ?? []
+    const wire = this.update(id, {
+      needsHuman: true,
+      humanQuestion: question ?? null,
+      humanQuestionOptions: options.length > 0 ? options : null,
+      humanQuestionAskedBy: meta?.askedBy ?? null,
+      humanQuestionAskedAt: this.now(),
+    })
     // Emit only on the false→true flip — a re-flag must not duplicate the event.
     if (!wasFlagged) {
       this.emitEvent('issue.needs_human', wire.id, {
         seq: wire.seq,
         question: question ?? null,
+        ...(options.length > 0 ? { options } : {}),
+        ...(meta?.askedBy ? { askedBy: meta.askedBy } : {}),
         // Carried so a child needing a human can notify its parent's sessions.
         ...(this.rows.get(wire.id)?.parentId ? { parentId: this.rows.get(wire.id)!.parentId } : {}),
       })
@@ -507,7 +526,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   clearNeedsHuman(id: string): IssueWire {
     const wasFlagged = this.rows.get(this.resolveRef(id))?.needsHuman === true
-    const wire = this.update(id, { needsHuman: false, humanQuestion: null })
+    const wire = this.update(id, {
+      needsHuman: false,
+      humanQuestion: null,
+      humanQuestionOptions: null,
+      humanQuestionAskedBy: null,
+      humanQuestionAskedAt: null,
+    })
     if (wasFlagged) this.emitEvent('issue.needs_human_cleared', wire.id, { seq: wire.seq })
     return wire
   }

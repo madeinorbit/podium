@@ -46,9 +46,10 @@ export class IssuesRepository {
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, color, estimate_min,
-            needs_human, human_question, panel,
+            needs_human, human_question, human_question_options,
+            human_question_asked_by, human_question_asked_at, panel,
             created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
@@ -69,6 +70,9 @@ export class IssuesRepository {
            pinned = excluded.pinned, color = excluded.color,
            estimate_min = excluded.estimate_min,
            needs_human = excluded.needs_human, human_question = excluded.human_question,
+           human_question_options = excluded.human_question_options,
+           human_question_asked_by = excluded.human_question_asked_by,
+           human_question_asked_at = excluded.human_question_asked_at,
            panel = excluded.panel,
            updated_at = excluded.updated_at, archived = excluded.archived,
            origin = excluded.origin, audience = excluded.audience,
@@ -117,6 +121,9 @@ export class IssuesRepository {
         row.estimateMin,
         row.needsHuman ? 1 : 0,
         row.humanQuestion,
+        row.humanQuestionOptions?.length ? JSON.stringify(row.humanQuestionOptions) : null,
+        row.humanQuestionAskedBy ?? null,
+        row.humanQuestionAskedAt ?? null,
         row.panel ?? null,
         row.createdAt,
         row.updatedAt,
@@ -172,6 +179,19 @@ export class IssuesRepository {
       estimateMin: (r.estimate_min as number | null) ?? null,
       needsHuman: r.needs_human === 1,
       humanQuestion: (r.human_question as string | null) ?? null,
+      // Options self-quarantine like blocked_by, but to null (= no chips) so a
+      // corrupt blob degrades to the free-form question rather than [] chips.
+      humanQuestionOptions: r.human_question_options
+        ? (() => {
+            const v = parseStringArray(
+              r.human_question_options,
+              `issue ${String(r.id)} human_question_options`,
+            )
+            return v.length > 0 ? v : null
+          })()
+        : null,
+      humanQuestionAskedBy: (r.human_question_asked_by as string | null) ?? null,
+      humanQuestionAskedAt: (r.human_question_asked_at as string | null) ?? null,
       panel: (r.panel as string | null) ?? null,
       createdAt: r.created_at as string,
       updatedAt: r.updated_at as string,

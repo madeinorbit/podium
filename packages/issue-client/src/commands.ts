@@ -791,15 +791,48 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'needs-human',
-    summary: 'Flag an issue as needing a human decision: needs-human <id> [--question "…"].',
-    args: z.strictObject({ id: idArg, question: z.string().optional() }),
+    summary:
+      'Flag an issue as needing a human decision: needs-human <id> [--question "…"] ' +
+      '[--options "Yes|No|Later"] [--asked-by <sessionId>]. Options are |-separated ' +
+      'suggested answers the web tray renders as chips; asked-by defaults to your own session.',
+    args: z.strictObject({
+      id: idArg,
+      question: z.string().optional(),
+      options: z.string().optional(),
+      'asked-by': z.string().optional(),
+    }),
     positionals: ['id'],
     async run(c, a) {
+      const options = a.options
+        ? String(a.options)
+            .split('|')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : []
       const i = (await c.issues.setNeedsHuman.mutate({
         id: a.id as string,
         ...(a.question ? { question: a.question as string } : {}),
+        ...(options.length > 0 ? { options } : {}),
+        ...(a['asked-by'] ? { askedBy: a['asked-by'] as string } : {}),
       })) as unknown
       return { text: `flagged ${a.id} for human`, data: i }
+    },
+  },
+  {
+    name: 'answer-question',
+    summary:
+      "Answer an issue's pending needs-human question and clear the flag: " +
+      'answer-question <id> <answer>. Delivered to the asking session (menu digits ' +
+      'when a native menu is up, chat message otherwise); fails without clearing ' +
+      'when it cannot be delivered.',
+    args: z.strictObject({ id: idArg, answer: z.string() }),
+    positionals: ['id', 'answer'],
+    async run(c, a) {
+      const r = (await c.issues.answerQuestion.mutate({
+        id: a.id as string,
+        answer: a.answer as string,
+      })) as { deliveredVia?: string }
+      return { text: `answered ${a.id} (via ${r.deliveredVia ?? 'unknown'})`, data: r }
     },
   },
   {
