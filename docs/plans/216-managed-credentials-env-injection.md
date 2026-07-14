@@ -30,7 +30,11 @@ daemon merges it into the existing spawn env overlay. The env map is generic
   zod objects are non-strict, so no `WIRE_VERSION` bump.
 - Next migration number is **016** (current schema version is 15).
 - `packages/core` no longer exists — settings live in `packages/runtime`.
-- Tests: Vitest (`bun run test` at repo root, or `vitest run` in a workspace).
+- **Run every test command from the REPO ROOT**, e.g.
+  `bunx vitest run apps/server/src/store/accounts.test.ts`. Vitest uses a
+  root-level `projects` config — `cd apps/server && bunx vitest` FAILS with
+  "Projects definition references a non-existing file". Verified 2026-07-14.
+- A fresh worktree needs `bun install` before any test will run.
 - Commit after every task.
 
 ---
@@ -147,7 +151,7 @@ it('remove deletes the row', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/server && bunx vitest run src/store/accounts.test.ts`
+Run: `bunx vitest run apps/server/src/store/accounts.test.ts`
 Expected: FAIL — cannot resolve `./accounts`.
 
 - [ ] **Step 3: Write the migration**
@@ -297,7 +301,7 @@ export class AccountsRepository {
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `cd apps/server && bunx vitest run src/store/accounts.test.ts`
+Run: `bunx vitest run apps/server/src/store/accounts.test.ts`
 Expected: PASS (3 tests).
 
 - [ ] **Step 7: Commit**
@@ -368,7 +372,7 @@ it('yields nothing for an empty credential rather than exporting a blank var', (
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd packages/runtime && bunx vitest run src/settings-credential.test.ts`
+Run: `bunx vitest run packages/runtime/src/settings-credential.test.ts`
 Expected: FAIL — `credentialEnv` is not exported.
 
 - [ ] **Step 3: Implement**
@@ -407,7 +411,7 @@ export function credentialEnv(c: ManagedCredential): Record<string, string> {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd packages/runtime && bunx vitest run src/settings-credential.test.ts`
+Run: `bunx vitest run packages/runtime/src/settings-credential.test.ts`
 Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
@@ -461,7 +465,7 @@ it('rejects a non-string env value', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd packages/protocol && bunx vitest run src/messages/terminal-env.test.ts`
+Run: `bunx vitest run packages/protocol/src/messages/terminal-env.test.ts`
 Expected: FAIL — the first test fails (`env` is stripped, so `parsed.env` is `undefined`).
 
 - [ ] **Step 3: Add the field**
@@ -479,7 +483,7 @@ add after `initialPrompt`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd packages/protocol && bunx vitest run src/messages/terminal-env.test.ts`
+Run: `bunx vitest run packages/protocol/src/messages/terminal-env.test.ts`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
@@ -539,7 +543,7 @@ it("podium's own bindings win a collision — a credential cannot shadow the rel
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/daemon && bunx vitest run src/control/session-env.test.ts`
+Run: `bunx vitest run apps/daemon/src/control/session-env.test.ts`
 Expected: FAIL — `spawnEnv` is not exported from `./session`.
 
 - [ ] **Step 3: Extract + implement `spawnEnv`**
@@ -584,7 +588,7 @@ Then replace the `env: {…}` block inside `spawnOpts` (currently lines 118-131)
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd apps/daemon && bunx vitest run src/control/session-env.test.ts`
+Run: `bunx vitest run apps/daemon/src/control/session-env.test.ts`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
@@ -684,7 +688,7 @@ it('yields no env key when the account id has no stored credential', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/server && bunx vitest run src/modules/sessions/account-env.test.ts`
+Run: `bunx vitest run apps/server/src/modules/sessions/account-env.test.ts`
 Expected: FAIL — cannot resolve `./account-env`.
 
 - [ ] **Step 3: Implement the resolver**
@@ -721,7 +725,7 @@ export function resolveAccountEnv(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd apps/server && bunx vitest run src/modules/sessions/account-env.test.ts`
+Run: `bunx vitest run apps/server/src/modules/sessions/account-env.test.ts`
 Expected: PASS (4 tests).
 
 - [ ] **Step 5: Wire it into both spawn sites**
@@ -767,7 +771,7 @@ import { AccountsRepository } from './store/accounts'
 
 - [ ] **Step 6: Typecheck + run the sessions tests**
 
-Run: `bun run typecheck && cd apps/server && bunx vitest run src/modules/sessions`
+Run: `bun run typecheck && bunx vitest run apps/server/src/modules/sessions`
 Expected: PASS, no type errors.
 
 - [ ] **Step 7: Commit**
@@ -955,7 +959,7 @@ and import `maskCredential` + `z` in `router.ts` if not already imported.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd apps/server && bunx vitest run src/accounts.test.ts && bun run typecheck`
+Run: `bunx vitest run apps/server/src/accounts.test.ts && bun run typecheck`
 Expected: PASS; no type errors. Fix any other `accountViews(` call sites the
 typecheck flags (the new required `accounts` argument).
 
