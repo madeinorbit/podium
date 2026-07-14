@@ -6,6 +6,8 @@ import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelProbe } from './model-catalog'
 import { ApprovalService } from './modules/approvals/service'
+import { AutomationScheduler } from './modules/automations/scheduler'
+import { AutomationsService } from './modules/automations/service'
 import { EventBus } from './modules/bus'
 import { ConversationsService } from './modules/conversations/service'
 import { EventLogRetention } from './modules/events/retention'
@@ -110,6 +112,8 @@ export interface RegistryModules {
   /** Advisory named lease locks [spec:SP-85d1]. */
   locks: LockService
   lockCommands: LockCommandDispatcher
+  /** Scheduled automations (#470) [spec:SP-17db] — the Automations tab's cron half. */
+  automations: AutomationsService
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
   messages: MessageDeliveryService
   /** `podium mail` command surface over the substrate (#237) [spec:SP-34d7]. */
@@ -178,6 +182,8 @@ export class SessionRegistry {
   private readonly messageSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
+  /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
+  private readonly automationScheduler: AutomationScheduler
   private readonly now: () => number
 
   constructor(
@@ -844,6 +850,9 @@ export class SessionRegistry {
       listSessions: () => sessionsSvc.listSessions(),
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
       sendTextWhenReady: (sessionId, text) => void sessionsSvc.queueText({ sessionId, text }),
+      // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
+      // imported, so the steward's unit tests never touch ntfy/Telegram.
+      notify: (notice) => notify.notifyExternal(notice),
       getSettings: () => this.store.settings.getSettings(),
       // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: stitch issue
       // stage + last commit (best-effort daemon git) into the system notice.
@@ -887,6 +896,27 @@ export class SessionRegistry {
     this.eventRetention.start()
     this.issueAutoArchive = new IssueAutoArchive(issues)
     this.issueAutoArchive.start()
+    // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
+    // SessionsService.createSession with its own provenance tag (the tRPC
+    // `sessions.create` proc stamps spawnedBy 'user'), and the prompt rides the
+    // durable outbox — see AutomationsService.spawn for why not initialPrompt.
+    // A session still occupying the machine (anything but exited/hibernated)
+    // makes the next occurrence a skipped_overlap rather than a pile-up.
+    const automations = new AutomationsService({
+      store: this.store.automations,
+      createSession: (o) => sessionsSvc.createSession(o),
+      queueText: (o) => sessionsSvc.queueText(o),
+      liveSessionIds: () =>
+        new Set(
+          sessionsSvc
+            .listSessions()
+            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
+            .map((s) => s.sessionId),
+        ),
+      now: () => new Date(this.now()),
+    })
+    this.automationScheduler = new AutomationScheduler(automations)
+    this.automationScheduler.start()
 
     this.issues = issues
     this.issueCommands = issueCommands
@@ -915,6 +945,7 @@ export class SessionRegistry {
       messageGate,
       readToolkit,
       issueArtifacts,
+      automations,
     }
   }
 
@@ -938,6 +969,7 @@ export class SessionRegistry {
     this.eventRetention.dispose()
     clearInterval(this.messageSweep)
     this.issueAutoArchive.dispose()
+    this.automationScheduler.dispose()
     // Also drains any coalesced session broadcast + pending delta batch (the
     // durable change log is already complete — commits happen at persist time).
     this.modules.sessions.dispose()

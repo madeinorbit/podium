@@ -23,6 +23,7 @@ import {
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
 import { buildJoinCommand } from './hub/machines-join'
+import { isValidCron } from './modules/automations/cron'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { lockRegistry } from './modules/lock/registry'
@@ -82,6 +83,23 @@ const cloudMoveSessionInput = z.object({
   hibernateLocal: z.boolean().optional(),
 })
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
+
+/** Scheduled-automation composer input (#470) [spec:SP-17db]. The cron is validated
+ *  HERE (not only in the service) so an unparseable expression comes back as a
+ *  BAD_REQUEST the composer can render, never a 500. `repoPath: null` = a GLOBAL
+ *  automation: it runs in the home directory, for cross-repo chores. */
+const automationInput = z.object({
+  name: z.string().min(1),
+  repoPath: z.string().min(1).nullable().optional(),
+  cron: z
+    .string()
+    .refine(isValidCron, 'invalid cron expression — 5 fields: minute hour day month weekday'),
+  agentKind: AgentKind,
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  prompt: z.string().min(1),
+  enabled: z.boolean().optional(),
+})
 
 /** Hub-role gate (roles.ts): fleet admin + pairing procs exist on the wire only
  *  when this process runs the hub role. NOT_FOUND (→ HTTP 404), not FORBIDDEN —
@@ -1222,6 +1240,27 @@ export const appRouter = t.router({
     adopt: t.procedure
       .input(workflowInputs.adopt)
       .mutation(({ ctx, input }) => mods(ctx).workflows.adopt(input, workflowCaller(ctx))),
+  }),
+  // Scheduled automations (#470) [spec:SP-17db]: the cron half of the Automations
+  // tab. Operator-only, like the rest of this router — an automation spawns agent
+  // sessions, so it is not an agent-reachable surface.
+  automations: t.router({
+    list: t.procedure.query(({ ctx }) => mods(ctx).automations.list()),
+    create: t.procedure
+      .input(automationInput)
+      .mutation(({ ctx, input }) => mods(ctx).automations.create(input)),
+    update: t.procedure
+      .input(z.object({ id: z.string().min(1), patch: automationInput.partial() }))
+      .mutation(({ ctx, input }) => mods(ctx).automations.update(input.id, input.patch)),
+    setEnabled: t.procedure
+      .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
+      .mutation(({ ctx, input }) => mods(ctx).automations.setEnabled(input.id, input.enabled)),
+    remove: t.procedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(({ ctx, input }) => mods(ctx).automations.remove(input.id)),
+    runs: t.procedure
+      .input(z.object({ automationId: z.string().min(1), limit: z.number().int().optional() }))
+      .query(({ ctx, input }) => mods(ctx).automations.runs(input.automationId, input.limit)),
   }),
   // Approval broker [spec:SP-edbb] (#410): the operator decision surface. The
   // agent side (request/get) rides the issue relay, never this router.

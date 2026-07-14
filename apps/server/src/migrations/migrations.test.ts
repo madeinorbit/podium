@@ -361,10 +361,54 @@ describe('runMigrations', () => {
     const columnsOf = (table: string) =>
       (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
-    // 021 (repair) ran before this DB was stamped — 022 and 023 are the pending ones.
+    // 021 (repair) ran before this DB was stamped — 022, 023 and the timestamped
+    // automations migration are the pending ones.
     expect(columnsOf('messages')).toContain('from_name') // 022 agent-workflows
     expect(hasTable('workflows')).toBe(true) // 022 agent-workflows
     expect(hasTable('accounts')).toBe(true) // 023 accounts (#216)
+    expect(hasTable('automations')).toBe(true) // automations (#470)
+    expect(hasTable('automation_runs')).toBe(true) // automations (#470)
+  })
+
+  // #470 [spec:SP-17db]: automations is the first TIMESTAMP-versioned migration (#485).
+  // It was hand-numbered 022, then 023, while in flight — and main took BOTH numbers out
+  // from under it (agent-workflows, then accounts). That is exactly the collision
+  // timestamps abolish. What must hold regardless of the number it carries: it BUILDS ITS
+  // SCHEMA on a database that already ran the whole sequential tail — i.e. every real one.
+  it('applies automations onto a database that already ran every sequential migration', () => {
+    const db = openMemory()
+    runMigrations(
+      db,
+      MIGRATIONS.filter((migration) => migration.version <= LAST_SEQUENTIAL_VERSION),
+    )
+    expect(dbSchemaVersion(db)).toBe(LAST_SEQUENTIAL_VERSION)
+
+    const automations = MIGRATIONS.find((migration) => migration.name === 'automations')
+    expect(automations).toBeDefined()
+    // Not 24: a hand-picked MAX+1 is precisely what validate() now rejects (#485).
+    expect(isTimestampVersion(automations!.version)).toBe(true)
+
+    // `toContain`, not `toEqual`: appending another timestamped migration later must not
+    // break this test — the schema assertions below are the real check.
+    expect(runMigrations(db, MIGRATIONS)).toContain(automations!.version)
+    expect(dbSchemaVersion(db)).toBe(codeSchemaVersion())
+    const tables = (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('automations','automation_runs')",
+        )
+        .all() as { name: string }[]
+    ).map((row) => row.name)
+    expect(tables.sort()).toEqual(['automation_runs', 'automations'])
+    // The earlier migrations' tables survive untouched alongside them.
+    expect(
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'workflows'")
+        .get(),
+    ).toBeDefined()
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'accounts'").get(),
+    ).toBeDefined()
   })
 
   it('is idempotent on re-run', () => {

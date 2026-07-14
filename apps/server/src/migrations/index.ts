@@ -79,6 +79,7 @@ import { up as recapWatermarks } from './020-recap-watermarks'
 import { up as messagesRepairFromIssue } from './021-messages-repair-from-issue'
 import { up as agentWorkflows } from './022-agent-workflows'
 import { up as accounts } from './023-accounts'
+import { up as automations } from './20260714142927-automations'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -126,6 +127,11 @@ export const MIGRATIONS: Migration[] = [
   // Managed accounts [spec:SP-6454] — credentials Podium holds and injects at
   // spawn. 023, not 016: the runner skips any version <= MAX(applied) (#472).
   { version: 23, name: 'accounts', up: accounts },
+  // Scheduled automations + their run history (#470) [spec:SP-17db]. The first
+  // timestamp-versioned migration (#485): this branch hand-numbered it twice while
+  // in flight — 022, then 023 — and main took both numbers out from under it, which
+  // is precisely the collision timestamps abolish.
+  { version: 20_260_714_142_927, name: 'automations', up: automations },
 ]
 
 /** Highest schema version the running code knows about.

@@ -25,6 +25,7 @@
  *  - machines                                            → store/machines.ts
  *  - events/steward (podium_events/steward_state/subscriptions)
  *                                                        → store/events.ts
+ *  - automations (automations/automation_runs)           → store/automations.ts
  */
 
 import { mkdirSync } from 'node:fs'
@@ -36,6 +37,7 @@ import { dbSchemaVersion, MIGRATIONS, runMigrations } from './migrations/index'
 import { ApprovalsRepository } from './store/approvals'
 import { AccountsRepository } from './store/accounts'
 import { AuthRepository } from './store/auth'
+import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
@@ -81,6 +83,8 @@ export class SessionStore {
   readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
+  /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
+  readonly automations: AutomationsRepository
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -132,6 +136,7 @@ export class SessionStore {
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)
     this.locks = new LocksRepository(this.db)
+    this.automations = new AutomationsRepository(this.db)
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.
