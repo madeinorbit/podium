@@ -33,21 +33,207 @@ body {
 /* ---- shells ---- */
 .desktop-shell {
   display: flex;
-  /* Column: the 3-pane row on top, the full-width host status bar pinned below. */
   flex-direction: column;
+  overflow: hidden;
+  background: var(--background);
   /* Use dvh so the desktop shell fills the dynamic viewport height in standalone
      PWA mode. 100% of the html/body/#root chain can leave dead space at the
      bottom in installed-PWA standalone on iOS/Android because the layout viewport
      doesn't shrink to exclude the home-indicator area the way dvh does. */
   height: 100dvh;
 }
-/* The 3-column pane row: sidebar | superagent | workspace. */
+/* The desktop shell is a 44px command header over independently folding columns. */
+.desktop-topbar {
+  display: flex;
+  flex: 0 0 44px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+.desktop-topbar nav {
+  border-left: 1px solid var(--border);
+}
+.header-host-indicators {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  overflow: hidden;
+}
+.header-machine-chip,
+.header-quota-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.header-quota-chip {
+  color: var(--text-dim);
+}
+.header-meter {
+  display: inline-block;
+  width: 34px;
+  height: 3.5px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--secondary);
+}
+
+/* The column row: sidebar | engraved | native | dock | rail. */
 .desktop-shell-row {
   display: flex;
   flex: 1;
   min-height: 0;
   width: 100%;
+  overflow: hidden;
 }
+.sidebar-collapse-control {
+  position: absolute;
+  z-index: 20;
+  top: 12px;
+  right: 0;
+  display: flex;
+  width: 18px;
+  height: 24px;
+  transform: translateX(50%);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text-dim);
+}
+.sidebar-collapse-control:hover,
+.collapsed-sidebar-expand:hover,
+.folded-superagent-control:hover,
+.folded-superagent-cell:hover,
+.right-rail-cell:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+.collapsed-sidebar {
+  display: flex;
+  flex: 0 0 52px;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-right: 1px solid var(--border);
+  background: var(--card);
+}
+.collapsed-sidebar-expand,
+.folded-superagent-control {
+  display: flex;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+}
+.collapsed-sidebar-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  writing-mode: vertical-rl;
+}
+.engraved-column {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow-engraved);
+}
+.folded-superagent {
+  display: flex;
+  flex: 0 0 44px;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-right: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
+  box-shadow: var(--shadow-engraved-bar);
+}
+.folded-superagent-cell {
+  position: relative;
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--hairline-bar);
+  border-radius: var(--radius-row);
+  background: var(--card);
+  color: var(--muted-foreground);
+}
+.folded-superagent-label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  writing-mode: vertical-rl;
+}
+.native-agents-pane {
+  min-width: 360px;
+  background: color-mix(in srgb, var(--issue) 10%, var(--background));
+}
+.right-dock-shell {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  border-left: 1px solid color-mix(in srgb, var(--issue) 30%, transparent);
+  background: var(--card);
+}
+.right-rail {
+  display: flex;
+  flex: 0 0 44px;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border-left: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
+}
+.right-rail-cell {
+  display: flex;
+  width: 30px;
+  min-height: 30px;
+  flex: 0 0 30px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-row);
+  background: transparent;
+  color: color-mix(in srgb, var(--issue) 45%, var(--muted-foreground));
+}
+
 /* Scrollable region with no visible scrollbar (sidebar work list, transcripts). */
 .scroll-none {
   scrollbar-width: none;

@@ -6,7 +6,12 @@
  */
 import type { SessionMeta } from '@podium/protocol'
 import { ChevronDown, ChevronRight, Pin, X } from 'lucide-react'
-import type { JSX, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  JSX,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -31,10 +36,10 @@ import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/Worker
 export const SIDEBAR_ASIDE_CLASS =
   'flex w-full min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground'
 
-const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
-const SIDEBAR_WIDTH_MIN = 200
-const SIDEBAR_WIDTH_MAX = 520
-const SIDEBAR_WIDTH_DEFAULT = 280
+export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
+export const SIDEBAR_WIDTH_MIN = 200
+export const SIDEBAR_WIDTH_MAX = 520
+export const SIDEBAR_WIDTH_DEFAULT = 262
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —
@@ -92,18 +97,43 @@ export function ResizableColumn({
     handle.addEventListener('pointerup', up, { once: true })
     handle.addEventListener('pointercancel', up, { once: true })
   }
+  const onHandleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+    e.preventDefault()
+    setWidth((current) => {
+      const next =
+        e.key === 'Home'
+          ? min
+          : e.key === 'End'
+            ? max
+            : Math.min(max, Math.max(min, current + (e.key === 'ArrowLeft' ? -10 : 10)))
+      ui.set(storageKey, String(next))
+      return next
+    })
+  }
   return (
-    <div className={cn('relative flex flex-none', className)} style={{ width }}>
+    <div
+      className={cn('relative flex flex-none', className)}
+      style={{ width }}
+      data-resizable-column={storageKey}
+      data-width={width}
+    >
       {children}
+      {/* biome-ignore lint/a11y/useSemanticElements: the drag handle is an interactive, keyboard-operable separator */}
       <div
         role="separator"
         aria-orientation="vertical"
         aria-label={handleLabel}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-valuenow={width}
+        tabIndex={0}
         className={cn(
           'absolute inset-y-0 z-10 w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60',
           handleSide === 'right' ? '-right-0.5' : '-left-0.5',
         )}
         onPointerDown={onHandlePointerDown}
+        onKeyDown={onHandleKeyDown}
       />
     </div>
   )

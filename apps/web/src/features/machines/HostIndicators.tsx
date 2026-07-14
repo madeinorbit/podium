@@ -4,7 +4,7 @@ import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { hostMemoryView, isSessionWorking } from '@/lib/derive'
+import { hostMemoryView } from '@/lib/derive'
 import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
@@ -164,105 +164,104 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
 }
 
 /**
- * Full-width host status bar pinned under the 3-column shell (desktop only):
- * per-host chip (connection dot + hostname + memory meter) │ agent quota with an
- * inline worst-window readout · right-aligned live "N agents active" counter.
- * The sidebar variant above stays for mobile (`compact`).
+ * Machine health in the 44px desktop header. This is the same host-memory data
+ * and HostInfoView used by the retired footer, only compressed into dot/name/meter
+ * chips. Multiple hosts remain individually inspectable.
  */
-export function HostStatusBar(): JSX.Element {
-  const { hostMetrics, outboxSize, sessions } = useStoreSelector(
-    (s) => ({ hostMetrics: s.hostMetrics, outboxSize: s.outboxSize, sessions: s.sessions }),
-    shallowEqual,
-  )
-  const { health, visible: connVisible } = useStableConnection()
+export function HeaderHostIndicators(): JSX.Element {
+  const hostMetrics = useStoreSelector((s) => s.hostMetrics)
+  const { health } = useStableConnection()
   const hibernation = useHibernationSetting()
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: string } | null>(null)
-  const activeCount = sessions.filter(isSessionWorking).length
   const announce =
     health.status === 'ok'
       ? ''
       : (() => {
-          const d = describeHealth(health, Date.now())
-          return `${d.headline}. ${d.detail}`
+          const description = describeHealth(health, Date.now())
+          return `${description.headline}. ${description.detail}`
         })()
+
   return (
-    <div className="flex flex-none items-center gap-4 border-t border-border bg-card px-3.5 py-1.5 text-[11px] text-muted-foreground">
+    <div className="header-host-indicators">
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
+      {hostMetrics.length === 0 && (
+        <button
+          type="button"
+          className="header-machine-chip"
+          aria-label="Host connection — click for details"
+          onClick={() => setInfo({ tab: 'connection' })}
+        >
+          <span
+            className={cn(
+              'size-1.5 flex-none rounded-full',
+              health.status === 'ok'
+                ? 'bg-success'
+                : health.status === 'degraded'
+                  ? 'bg-warning'
+                  : 'bg-destructive',
+            )}
+            aria-hidden="true"
+          />
+          <span>host</span>
+        </button>
+      )}
       {hostMetrics.map((host) => {
-        const mem = hostMemoryView(host)
-        const tone = SEVERITY[mem.severity]
-        const summary = `${mem.label} (${mem.pct}%)`
-        const hibNote = hibernation?.enabled
-          ? mem.pct >= hibernation.memoryPct
+        const memory = hostMemoryView(host)
+        const tone = SEVERITY[memory.severity]
+        const hibernationNote = hibernation?.enabled
+          ? memory.pct >= hibernation.memoryPct
             ? 'Hibernating stale agents to free memory'
-            : 'Auto-hibernation on — idle agents park if memory runs high'
+            : 'Auto-hibernation on'
           : null
         return (
-          <Tooltip key={host.hostname}>
+          <Tooltip key={host.machineId}>
             <TooltipTrigger
               render={
                 <button
                   type="button"
-                  className="group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground"
-                  aria-label={`${mem.title} — click for the breakdown`}
-                  onClick={() => setInfo({ tab: 'memory', machineId: host.machineId })}
+                  className="header-machine-chip"
+                  aria-label={`${host.hostname}: ${memory.title} — click for the breakdown`}
+                  onClick={() =>
+                    setInfo({
+                      tab: health.status === 'ok' ? 'memory' : 'connection',
+                      machineId: host.machineId,
+                    })
+                  }
                 >
                   <span
                     className={cn(
-                      'size-[7px] flex-none rounded-full',
-                      health.status === 'ok' ? 'bg-success' : 'bg-warning',
+                      'size-1.5 flex-none rounded-full',
+                      health.status === 'ok'
+                        ? 'bg-success'
+                        : health.status === 'degraded'
+                          ? 'bg-warning'
+                          : 'bg-destructive',
                     )}
                     aria-hidden="true"
                   />
-                  <span className="max-w-[14ch] overflow-hidden text-ellipsis">
-                    {host.hostname}
-                  </span>
-                  <MemoryStick size={14} aria-hidden="true" className={tone.icon} />
-                  <span
-                    className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
-                    role="presentation"
-                  >
+                  <span className="max-w-[12ch] truncate">{host.hostname}</span>
+                  <span className="header-meter" role="presentation">
                     <span
                       className={cn('block h-full', tone.fill)}
-                      style={{ width: `${mem.pct}%` }}
+                      style={{ width: `${memory.pct}%` }}
                     />
                   </span>
                 </button>
               }
             />
             <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
-              <strong>{hostMetrics.length > 1 ? `${host.hostname} — ${summary}` : summary}</strong>
-              {hibNote && <span className="text-background/70">{hibNote}</span>}
+              <strong>
+                {memory.label} ({memory.pct}%)
+              </strong>
+              {hibernationNote && <span className="text-background/70">{hibernationNote}</span>}
               <span className="text-background/70">Click for the breakdown</span>
             </TooltipContent>
           </Tooltip>
         )
       })}
-      {connVisible && (
-        <ConnectionIndicator health={health} onOpen={() => setInfo({ tab: 'connection' })} />
-      )}
-      <span className="flex-none text-[#3a3a46]" aria-hidden="true">
-        │
-      </span>
-      {outboxSize > 0 && (
-        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground">
-          <CloudUpload size={14} aria-hidden="true" />
-          <span>{outboxSize} pending</span>
-        </span>
-      )}
-      <QuotaIndicator detail />
-      <span className="ml-auto inline-flex items-center gap-1.5 whitespace-nowrap">
-        <span
-          className={cn(
-            'dot size-[7px] rounded-full',
-            activeCount > 0 ? 'bg-live' : 'bg-muted-foreground/50',
-          )}
-          aria-hidden="true"
-        />
-        {activeCount} agent{activeCount === 1 ? '' : 's'} active
-      </span>
+      <QuotaIndicator header />
       {info && (
         <HostInfoView
           initialTab={info.tab}

@@ -7,15 +7,16 @@ import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import { resolveActiveWorktree } from '@/lib/dock-panel'
+import type { RightPanelTab } from './shell-state'
 import { useStoreSelector } from './store'
 
 /** The right-panel surfaces (the superagent lives in its own center column). */
-export type RightPanelTab = 'files' | 'git' | 'issue' | 'shell'
+export type { RightPanelTab } from './shell-state'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
   { id: 'issue', label: 'Issue', icon: CircleDot },
-  { id: 'files', label: 'Files', icon: FolderTree },
   { id: 'git', label: 'Git', icon: GitBranch },
+  { id: 'files', label: 'Files', icon: FolderTree },
   // The dock is where shells LIVE (#23) [spec:SP-75b1] — one per worktree, never
   // a workspace agent tab.
   { id: 'shell', label: 'Shell', icon: SquareTerminal },
@@ -58,8 +59,8 @@ export function RightDock({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-[49px] flex-none items-center gap-2.5 border-b border-border px-3.5">
+    <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
+      <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">
         <span className="flex min-w-0 flex-1 items-center gap-[7px]">
           <panel.icon size={16} className="flex-none text-primary" aria-hidden="true" />
           <span className="truncate text-[15px] font-semibold text-secondary-foreground">
