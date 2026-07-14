@@ -49,11 +49,12 @@ export function parseMessageEnvelope(text: string): ParsedEnvelope | null {
   return { id, from, to, body: body.replace(/\n$/, ''), question }
 }
 
-/** Human label for a server-rendered principal label: `issue:#212` →
- *  "issue #212 · agent", `session:s1` → "session s1 · agent", the bare kinds
- *  pass through. */
+/** Human label for a server-rendered principal label: `issue:#212` or the
+ *  nice-id form `issue:POD-13` → "issue POD-13 · agent", `session:s1` →
+ *  "session s1 · agent", the bare kinds pass through. Nice-id refs inside message
+ *  bodies are linkified separately by the markdown ref pass (#474). */
 export function envelopePrincipalLabel(label: string): string {
-  const issue = /^issue:(#\d+)$/.exec(label)
+  const issue = /^issue:(.+)$/.exec(label)
   if (issue) return `issue ${issue[1]} · agent`
   const session = /^session:(\S+)$/.exec(label)
   if (session) return `session ${session[1]} · agent`

@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { describeApprovalOp } from '@podium/protocol'
+import { describeApprovalOp, issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -40,7 +40,9 @@ export function ApprovalDialog(): JSX.Element | null {
 
   const from = [
     current.machineName ?? current.machineId,
-    current.issueSeq != null ? `#${current.issueSeq} ${current.issueTitle ?? ''}`.trim() : null,
+    current.issueSeq != null
+      ? `${issueDisplayRef({ seq: current.issueSeq })} ${current.issueTitle ?? ''}`.trim()
+      : null,
   ]
     .filter(Boolean)
     .join(' · ')

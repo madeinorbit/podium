@@ -5,7 +5,7 @@
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
  */
 import { shallowEqual } from '@podium/client-core'
-import type { IssueWire } from '@podium/protocol'
+import { type IssueWire, issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
@@ -197,7 +197,7 @@ export function repoMatesOf(issues: IssueWire[], issue: IssueWire): IssueWire[] 
 }
 
 export function mateOptionsOf(repoMates: IssueWire[]): PropertyOption[] {
-  return repoMates.map((i) => ({ value: i.id, label: `#${i.seq} ${i.title}` }))
+  return repoMates.map((i) => ({ value: i.id, label: `${issueDisplayRef(i)} ${i.title}` }))
 }
 
 /** Sentinel option value for "no assignee" in the assignee menu. */

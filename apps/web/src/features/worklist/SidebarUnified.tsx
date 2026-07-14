@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
+import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
@@ -1062,7 +1062,7 @@ function UnifiedIssueRow({
             {/* The seq agents cite ("#15") — small and muted, purely for
                 orientation when matching chat/CLI references to rows (#21). */}
             <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
-              #{issue.seq}
+              {issueDisplayRef(issue)}
             </span>
             {issue.pinned && (
               <Pin size={11} className="flex-none text-muted-foreground" aria-hidden="true" />

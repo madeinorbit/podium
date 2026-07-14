@@ -1,6 +1,6 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueStage, IssueWire } from '@podium/protocol'
-import { ISSUE_STAGES } from '@podium/protocol'
+import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
   AlarmClockOff,
@@ -263,7 +263,7 @@ export function IssueContextMenu({
               className={itemCls}
               onClick={() => duplicateOf(i.id)}
             >
-              <span className="text-muted-foreground tabular-nums">#{i.seq}</span>
+              <span className="text-muted-foreground tabular-nums">{issueDisplayRef(i)}</span>
               <span className="min-w-0 flex-1 truncate">{i.title}</span>
             </button>
           )),

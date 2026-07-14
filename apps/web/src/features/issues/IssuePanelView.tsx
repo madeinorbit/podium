@@ -1,5 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueComment, IssueStage, IssueWire } from '@podium/protocol'
+import {
+  type IssueComment,
+  type IssueStage,
+  type IssueWire,
+  issueDisplayRef,
+} from '@podium/protocol'
 import { CircleAlert, CircleCheck, FileText, Play, User } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
@@ -121,10 +126,12 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
             <button
               type="button"
               className="cursor-pointer hover:text-foreground"
-              title={`${issue.id} — click to copy "#${issue.seq}"`}
-              onClick={() => copyToClipboard(`#${issue.seq}`, `Copied #${issue.seq}`)}
+              title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
+              onClick={() =>
+                copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
+              }
             >
-              #{issue.seq}
+              {issueDisplayRef(issue)}
             </button>
             <button
               type="button"
@@ -193,7 +200,7 @@ function SubissueRow({ sub, onOpen }: { sub: IssueWire; onOpen: () => void }): J
     <button
       type="button"
       onClick={onOpen}
-      title={`Open #${sub.seq} ${sub.title}`}
+      title={`Open ${issueDisplayRef(sub)} ${sub.title}`}
       className={cn(
         'flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[13px] hover:bg-accent/40',
         sub.archived && 'opacity-60',
@@ -201,7 +208,7 @@ function SubissueRow({ sub, onOpen }: { sub: IssueWire; onOpen: () => void }): J
     >
       <span className={cn('size-2 flex-none rounded-full', a.dot)} aria-hidden="true" />
       <span className="font-mono text-[11px] text-muted-foreground/70" title={issueIdTitle(sub)}>
-        #{sub.seq}
+        {issueDisplayRef(sub)}
       </span>
       <span
         className={cn(
@@ -499,7 +506,7 @@ export function IssuePanelView({
         <DockSection
           key={sub.id}
           storageKey={`sub.${sub.seq}`}
-          title={`#${sub.seq} ${sub.title}`}
+          title={`${issueDisplayRef(sub)} ${sub.title}`}
           accent={STAGE_ACCENT[sub.stage].dot}
           defaultOpen={false}
         >

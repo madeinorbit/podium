@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import { type IssueWire, issueDisplayRef } from '@podium/protocol'
 import {
   ArchiveRestore,
   ArrowLeft,
@@ -145,10 +145,12 @@ export function IssuePage({
         <button
           type="button"
           className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
-          title={`${issue.id} — click to copy "#${issue.seq}"`}
-          onClick={() => copyToClipboard(`#${issue.seq}`, `Copied #${issue.seq}`)}
+          title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
+          onClick={() =>
+            copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
+          }
         >
-          #{issue.seq}
+          {issueDisplayRef(issue)}
         </button>
         {/* The internal id agents quote in transcripts/CLI output — shown so it can
             be matched by eye, click-to-copy for pasting into commands (#21). */}
@@ -333,7 +335,7 @@ export function IssuePage({
                 onClick={() => onNavigate(c.id)}
               >
                 <StageGlyph stage={c.stage} />
-                <span className="text-[11px] text-muted-foreground">#{c.seq}</span>
+                <span className="text-[11px] text-muted-foreground">{issueDisplayRef(c)}</span>
                 <span className="min-w-0 flex-1 truncate">{c.title}</span>
                 {c.archived && (
                   <span className="flex-none rounded border px-1 text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -575,7 +577,7 @@ function IssueOverflowMenu({
 
   const handleDelete = (): void => {
     const sessionCount = issue.sessions.length
-    const message = `Delete "#${issue.seq} ${issue.title}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The issue and sessions can be restored; running processes will be stopped.`
+    const message = `Delete "${issueDisplayRef(issue)} ${issue.title}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The issue and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
     commands.deleteIssue(onDeleted)
   }
@@ -618,7 +620,7 @@ function IssueOverflowMenu({
               <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
                 {targetIssues.map((t) => (
                   <DropdownMenuItem key={t.id} onClick={() => commands.supersedeWith(t.id)}>
-                    #{t.seq} {t.title}
+                    {issueDisplayRef(t)} {t.title}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>
@@ -628,7 +630,7 @@ function IssueOverflowMenu({
               <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
                 {targetIssues.map((t) => (
                   <DropdownMenuItem key={t.id} onClick={() => commands.duplicateOf(t.id)}>
-                    #{t.seq} {t.title}
+                    {issueDisplayRef(t)} {t.title}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>

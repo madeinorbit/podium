@@ -1,4 +1,4 @@
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import { formatLong, type IssueStage, type IssueWire, issueDisplayRef } from '@podium/protocol'
 
 export const STAGE_LABELS: Record<IssueStage, string> = {
   backlog: 'Backlog',
@@ -8,10 +8,21 @@ export const STAGE_LABELS: Record<IssueStage, string> = {
   done: 'Done',
 }
 
-/** Hover text for any issue row/reference: both the display seq and the
+/** The short human-facing ref for an issue row/label (#474): `POD-13` (falls
+ *  back to `#13` for legacy payloads). The single accessor every render site uses. */
+export function issueRefLabel(issue: Pick<IssueWire, 'seq' | 'displayRef'>): string {
+  return issueDisplayRef(issue)
+}
+
+/** The long form for a hover/label: `POD-13 · <title>` (title truncated ~40). */
+export function issueRefLong(issue: Pick<IssueWire, 'seq' | 'displayRef' | 'title'>): string {
+  return formatLong(issueDisplayRef(issue), issue.title)
+}
+
+/** Hover text for any issue row/reference: both the human-facing ref and the
  *  internal id, so agents' `iss_…` references can be matched by eye (#21). */
-export function issueIdTitle(issue: Pick<IssueWire, 'seq' | 'id'>): string {
-  return `#${issue.seq} · ${issue.id}`
+export function issueIdTitle(issue: Pick<IssueWire, 'seq' | 'id' | 'displayRef'>): string {
+  return `${issueDisplayRef(issue)} · ${issue.id}`
 }
 
 export function issueCardModel(issue: IssueWire): {
@@ -36,7 +47,7 @@ export function issueCardModel(issue: IssueWire): {
     typeLabel: issue.type,
     labels: issue.labels,
     needsHuman: issue.needsHuman,
-    seqLabel: `#${issue.seq}`,
+    seqLabel: issueDisplayRef(issue),
     ...(issue.assignee ? { assignee: issue.assignee } : {}),
     ...(issue.childCount > 0
       ? { subProgress: { done: issue.childDoneCount, total: issue.childCount } }

@@ -7,7 +7,13 @@
  * ./issue-page-model.ts. No behavior change.
  */
 import { shallowEqual } from '@podium/client-core'
-import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, type IssueWire } from '@podium/protocol'
+import {
+  ISSUE_DEP_TYPES,
+  ISSUE_STAGES,
+  IssueType,
+  type IssueWire,
+  issueDisplayRef,
+} from '@podium/protocol'
 import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useState } from 'react'
@@ -184,7 +190,7 @@ export function IssueProperties({
   const byId = new Map(issues.map((i) => [i.id, i]))
   const issueLabel = (id: string): string => {
     const m = byId.get(id)
-    return m ? `#${m.seq} ${m.title}` : id
+    return m ? `${issueDisplayRef(m)} ${m.title}` : id
   }
   const mateOptions = mateOptionsOf(repoMates)
   const assigneeOptions = assigneeOptionsOf(issues)
@@ -416,9 +422,9 @@ export function IssueProperties({
                 type="button"
                 className="min-w-0 flex-1 truncate text-left text-[13px] text-primary hover:underline"
                 onClick={() => onNavigate(parent.id)}
-                title={`#${parent.seq} ${parent.title}`}
+                title={`${issueDisplayRef(parent)} ${parent.title}`}
               >
-                #{parent.seq} {parent.title}
+                {issueDisplayRef(parent)} {parent.title}
               </button>
             )}
             <PropertyMenu
