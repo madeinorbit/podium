@@ -4,9 +4,18 @@ import type { CSSProperties, JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import { StatusBadge } from '@/lib/motion'
 
 const PANEL_WIDTH = 196
 const PANEL_GUTTER = 8
+
+export type IdSquareState = 'working' | 'queued' | 'idle'
+
+export type IdSquareLabel = {
+  prefix: string
+  number: string
+  full: string
+}
 
 function colorName(slot: IssueColorSlot): string {
   return slot.charAt(0).toUpperCase() + slot.slice(1)
@@ -16,24 +25,35 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max))
 }
 
+/** Split the current display identifier into the square's two fixed lines. */
+export function idSquareLabel(issue: Pick<IssueWire, 'linearIdentifier' | 'seq'>): IdSquareLabel {
+  const identifier = issue.linearIdentifier?.trim()
+  const match = identifier?.match(/^(.+?)[-_\s]+(\d+)$/)
+  if (identifier && match?.[1] && match[2]) {
+    return { prefix: match[1].toUpperCase(), number: match[2], full: identifier }
+  }
+  return { prefix: '#', number: String(issue.seq), full: `#${issue.seq}` }
+}
+
 /**
- * The issue ID square's colour assignment control [spec:SP-b4d1].
+ * The issue identity square shared by every shell surface.
  *
- * #39 will generalise the square language across every shell surface. This
- * component owns #38's durable interaction boundary: the current issue ID,
- * canonical ten-slot picker, optimistic feedback, clear-to-neutral action, and
- * accessible dismissal behaviour.
+ * Geometry and type are deliberately fixed: all desktop locations render this
+ * exact 26px component. It also owns the #38 colour-picker interaction so a new
+ * location cannot accidentally copy either the square language or the picker.
  */
-export function IssueColorPickerButton({
+export function IdSquare({
   issue,
-  active,
-  queued = false,
-  onChange,
+  state,
+  selected = false,
+  showSpinner = false,
+  onColorChange,
 }: {
   issue: IssueWire
-  active: boolean
-  queued?: boolean
-  onChange: (color: IssueColorSlot | null) => unknown
+  state: IdSquareState
+  selected?: boolean
+  showSpinner?: boolean
+  onColorChange: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -41,10 +61,12 @@ export function IssueColorPickerButton({
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [displayColor, setDisplayColor] = useState<IssueColorSlot | undefined>(issue.color)
-  const [position, setPosition] = useState({ left: 8, top: 8 })
+  const [position, setPosition] = useState({ left: PANEL_GUTTER, top: PANEL_GUTTER })
+  const [panelSide, setPanelSide] = useState<'left' | 'right'>('right')
+  const label = idSquareLabel(issue)
 
   // Server broadcasts are the durable truth. Between click and broadcast the
-  // local value keeps the square optimistic, as required by the picker design.
+  // local value keeps every appearance of the square optimistic.
   useEffect(() => {
     setDisplayColor(issue.color)
   }, [issue.color])
@@ -56,13 +78,12 @@ export function IssueColorPickerButton({
     if (!trigger || !panel) return
     const anchor = trigger.getBoundingClientRect()
     const panelHeight = panel.getBoundingClientRect().height
-    const right = anchor.right + PANEL_GUTTER
-    const left =
-      right + PANEL_WIDTH <= window.innerWidth - PANEL_GUTTER
-        ? right
-        : Math.max(PANEL_GUTTER, anchor.left - PANEL_WIDTH - PANEL_GUTTER)
+    const fitsRight = anchor.right + PANEL_GUTTER + PANEL_WIDTH <= window.innerWidth - PANEL_GUTTER
+    setPanelSide(fitsRight ? 'right' : 'left')
     setPosition({
-      left,
+      left: fitsRight
+        ? anchor.right + PANEL_GUTTER
+        : Math.max(PANEL_GUTTER, anchor.left - PANEL_WIDTH - PANEL_GUTTER),
       top: clamp(anchor.top - 8, PANEL_GUTTER, window.innerHeight - panelHeight - PANEL_GUTTER),
     })
   }, [open])
@@ -102,7 +123,7 @@ export function IssueColorPickerButton({
     setSaving(true)
     setOpen(false)
     void Promise.resolve()
-      .then(() => onChange(next))
+      .then(() => onColorChange(next))
       .then(() => {
         if (request === requestRef.current) setSaving(false)
       })
@@ -116,11 +137,12 @@ export function IssueColorPickerButton({
   }
 
   const hex = displayColor ? ISSUE_COLOR_HEX[displayColor] : undefined
+  const resting = state !== 'working'
   const border = hex
     ? '1px solid transparent'
-    : active
+    : selected
       ? '1px solid #c8d2e0'
-      : queued
+      : resting
         ? '1px dashed #6c6c78'
         : '1px solid #8d8d9a'
   const squareStyle: CSSProperties = {
@@ -129,13 +151,19 @@ export function IssueColorPickerButton({
     borderRadius: 7,
     border,
     background: hex ?? '#25252f',
-    color: hex ? `color-mix(in srgb, ${hex} 30%, #000)` : active ? '#e8edf5' : '#c5c5d0',
+    color: hex
+      ? `color-mix(in srgb, ${hex} 30%, #000)`
+      : selected
+        ? '#e8edf5'
+        : resting
+          ? '#8d8d9a'
+          : '#c5c5d0',
     boxShadow: open
       ? '0 0 0 2px #f3f3f8'
-      : active
+      : selected
         ? `0 0 0 2px ${hex ? `color-mix(in srgb, ${hex} 35%, transparent)` : 'rgba(148,163,184,.3)'}`
         : undefined,
-    opacity: queued && !active ? 0.65 : 1,
+    opacity: resting && !selected ? 0.65 : 1,
   }
 
   return (
@@ -145,37 +173,47 @@ export function IssueColorPickerButton({
         type="button"
         data-testid="issue-id-square"
         data-color={displayColor ?? 'none'}
-        className="flex flex-none cursor-pointer flex-col items-center justify-center font-mono text-[6.5px] leading-[1.3] font-semibold transition-[background,border-color,opacity,box-shadow] duration-400"
+        data-state={state}
+        data-selected={selected ? 'true' : 'false'}
+        data-spinner={showSpinner ? 'true' : 'false'}
+        data-prefix={label.prefix}
+        data-number={label.number}
+        className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[6.5px] leading-[1.3] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
         style={squareStyle}
-        aria-label={`Set colour for issue #${issue.seq}`}
+        aria-label={`Set colour for issue ${label.full}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-busy={saving}
-        title={`#${issue.seq} · ${issue.title} · ${displayColor ? colorName(displayColor) : 'No colour'}`}
+        title={`${label.full} · ${issue.title} · ${displayColor ? colorName(displayColor) : 'No colour'}`}
         onClick={(event) => {
           event.stopPropagation()
           setOpen((value) => !value)
         }}
       >
-        <span>#</span>
-        <span>{issue.seq}</span>
+        <span>{label.prefix}</span>
+        <span>{label.number}</span>
+        <StatusBadge kind={showSpinner ? 'spinner' : null} ringColor="#16161c" />
       </button>
       {open &&
         createPortal(
           <div
             ref={panelRef}
             role="dialog"
-            aria-label={`Issue colour for #${issue.seq}`}
+            aria-label={`Issue colour for ${label.full}`}
             className="fixed z-[70] w-[196px] rounded-[10px] border border-[#3a3a46] bg-[#1b1b22] px-[11px] py-[10px] text-[#d7d7e0] shadow-[0_14px_34px_rgba(0,0,0,.65),0_2px_8px_rgba(0,0,0,.5)]"
             style={position}
           >
             <span
-              className="absolute top-[14px] left-[-5px] size-2 rotate-45 border-b border-l border-[#3a3a46] bg-[#1b1b22]"
+              className={
+                panelSide === 'right'
+                  ? 'absolute top-[14px] left-[-5px] size-2 rotate-45 border-b border-l border-[#3a3a46] bg-[#1b1b22]'
+                  : 'absolute top-[14px] right-[-5px] size-2 rotate-45 border-t border-r border-[#3a3a46] bg-[#1b1b22]'
+              }
               aria-hidden="true"
             />
             <div className="mb-[9px] flex items-center gap-1.5 font-mono text-[8px]">
               <span className="tracking-[.12em] text-[#8d8d9a]">ISSUE COLOUR</span>
-              <span className="ml-auto text-[#5a5a66]">#{issue.seq}</span>
+              <span className="ml-auto text-[#5a5a66]">{label.full}</span>
             </div>
             <div className="grid grid-cols-5 gap-2">
               {ISSUE_COLOR_SLOTS.map((slot) => {
