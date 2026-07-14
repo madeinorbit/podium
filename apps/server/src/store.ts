@@ -34,6 +34,7 @@ import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sql
 import { SyncRepository } from '@podium/sync'
 import { MIGRATIONS, runMigrations } from './migrations/index'
 import { ApprovalsRepository } from './store/approvals'
+import { AccountsRepository } from './store/accounts'
 import { AuthRepository } from './store/auth'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
@@ -67,6 +68,9 @@ export class SessionStore {
   readonly auth: AuthRepository
   readonly superagent: SuperagentRepository
   readonly settings: SettingsRepository
+  /** Managed LLM credentials [spec:SP-6454] — server-held, injected at spawn.
+   *  Deliberately NOT in the settings blob, which round-trips to the browser. */
+  readonly accounts: AccountsRepository
   readonly machines: MachinesRepository
   readonly events: EventsRepository
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
@@ -111,6 +115,7 @@ export class SessionStore {
     this.auth = new AuthRepository(this.db)
     this.superagent = new SuperagentRepository(this.db)
     this.settings = new SettingsRepository(this.db)
+    this.accounts = new AccountsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.events = new EventsRepository(this.db)
     this.messages = new MessagesRepository(this.db)

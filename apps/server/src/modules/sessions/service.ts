@@ -44,6 +44,7 @@ import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { HeadlessService } from '../superagent/headless'
+import { resolveAccountEnv } from './account-env'
 import { type ClientConn, type Send, Session } from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
@@ -1465,6 +1466,7 @@ export class SessionsService {
       ...(session.resume ? { resume: session.resume } : {}),
       geometry: session.geometry,
       ...this.modelDefaults(session.agentKind),
+      ...this.accountEnv(),
     })
     this.broadcastSessions()
     return { ok: true }
@@ -1665,6 +1667,7 @@ export class SessionsService {
           ? { model: input.model, effort: input.effort }
           : undefined,
       ),
+      ...this.accountEnv(),
     })
     this.broadcastSessions()
     return { sessionId }
@@ -1695,6 +1698,14 @@ export class SessionsService {
       // gating here keeps the spawn message clean (capability lookup, #158).
       ...(effort !== 'auto' && agentSupportsEffort(agentKind) ? { effort } : {}),
     }
+  }
+
+  /** The managed credential (if any) for the coding role, as spawn env (#216).
+   *  Native accounts yield {} — the CLI uses its own login and the frame is
+   *  unchanged. Read live at spawn, like modelDefaults. */
+  private accountEnv(): { env?: Record<string, string> } {
+    const role = resolveRole(this.store.settings.getSettings(), 'coding')
+    return resolveAccountEnv(this.store.accounts, role.accountId)
   }
 
   // ---- ws data plane: clients ----
