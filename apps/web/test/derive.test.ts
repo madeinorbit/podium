@@ -667,11 +667,11 @@ describe('sessionDotTone', () => {
 })
 
 describe('sessionDotClass', () => {
-  it('adds the breathing-glow class for a live working dot only (#102)', () => {
+  it('keeps a live working dot static with the live tone', () => {
     const working = sessionDotClass(
       base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
     )
-    expect(working).toContain('dot-working')
+    expect(working).not.toContain('dot-working')
     expect(working).toContain('bg-live')
   })
 
