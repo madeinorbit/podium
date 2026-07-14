@@ -2,6 +2,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
+import type { TerminalDiagnosticData } from './terminal-diagnostics'
 import { makeUrlLinkProvider } from './url-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
 // helper-textarea elements relative to styles in this sheet. Without it the measure
@@ -24,6 +25,8 @@ export interface TerminalAppearance {
 export interface TerminalViewOptions extends TerminalAppearance {
   cols?: number
   rows?: number
+  /** Lifecycle/layout facts only; never terminal content or input. */
+  diagnostics?: (event: string, data?: TerminalDiagnosticData) => void
 }
 
 export const DEFAULT_FONT_SIZE = 13
@@ -99,11 +102,13 @@ export class TerminalView {
   private dataSink: ((data: string) => void) | undefined
   private fileLinkConfig: FileLinkConfig | null = null
   // The live WebGL renderer addon (undefined when GPU is off, WebGL is unavailable, or
-  // after a context loss dropped us to the DOM renderer). Kept so reloadWebgl() can
-  // recreate it to recover a discarded canvas.
+  // after a context loss dropped us to the DOM renderer). Kept so repaintRecover() can
+  // recover a discarded canvas in place.
+  private readonly diagnostics: TerminalViewOptions['diagnostics']
   private webgl: WebglAddon | undefined
 
   constructor(opts: TerminalViewOptions = {}) {
+    this.diagnostics = opts.diagnostics
     this.term = new Terminal({
       cols: opts.cols ?? 80,
       rows: opts.rows ?? 24,
@@ -159,6 +164,51 @@ export class TerminalView {
     this.term.parser.registerOscHandler(52, (data) => handleOsc52(data))
   }
 
+  private emitDiagnostic(event: string, data: TerminalDiagnosticData = {}): void {
+    this.diagnostics?.(event, { ...data, view: this.diagnosticSnapshot() })
+  }
+
+  /** Layout/renderer facts for post-failure diagnosis. Never includes buffer text or input. */
+  diagnosticSnapshot(): TerminalDiagnosticData {
+    const hostRect = this.host?.getBoundingClientRect()
+    const screen = this.host?.querySelector('.xterm-screen') as HTMLElement | null | undefined
+    const screenRect = screen?.getBoundingClientRect()
+    const canvases = this.host?.querySelectorAll('.xterm-screen canvas') ?? []
+    const canvas = canvases[0] as HTMLCanvasElement | undefined
+    return {
+      renderer: this.webgl ? 'webgl' : 'dom',
+      grid: { cols: this.term.cols, rows: this.term.rows },
+      host: this.host
+        ? {
+            connected: this.host.isConnected,
+            visible: this.host.offsetParent !== null,
+            clientWidth: this.host.clientWidth,
+            clientHeight: this.host.clientHeight,
+            rectWidth: hostRect?.width ?? 0,
+            rectHeight: hostRect?.height ?? 0,
+          }
+        : null,
+      screen: screen
+        ? {
+            clientWidth: screen.clientWidth,
+            clientHeight: screen.clientHeight,
+            rectWidth: screenRect?.width ?? 0,
+            rectHeight: screenRect?.height ?? 0,
+          }
+        : null,
+      canvas: canvas
+        ? {
+            count: canvases.length,
+            width: canvas.width,
+            height: canvas.height,
+            clientWidth: canvas.clientWidth,
+            clientHeight: canvas.clientHeight,
+          }
+        : { count: 0 },
+      dpr: globalThis.devicePixelRatio ?? 1,
+    }
+  }
+
   /** Configure (or clear) clickable file-path links. Highlighted, path-like runs
    *  that resolve to a known path or a path under cwd become clickable. */
   setFileLinks(cfg: FileLinkConfig | null): void {
@@ -198,10 +248,14 @@ export class TerminalView {
     // atlas without color — output renders monochrome even though the data and theme
     // carry color. The DOM renderer always colors correctly, so offer an escape hatch:
     // `?gpu=off` (or localStorage['podium:gpu']='off') skips WebGL and keeps DOM.
-    if (!gpuEnabled()) return
+    if (!gpuEnabled()) {
+      this.emitDiagnostic('renderer:dom', { reason: 'gpu-disabled' })
+      return
+    }
     try {
       const webgl = new WebglAddon()
       webgl.onContextLoss(() => {
+        this.emitDiagnostic('anomaly:webgl-context-loss')
         webgl.dispose() // drop back to the DOM renderer
         if (this.webgl === webgl) this.webgl = undefined
         // The lost GL canvas is blank. The DOM renderer that takes over is damage-based
@@ -211,35 +265,36 @@ export class TerminalView {
       })
       this.term.loadAddon(webgl)
       this.webgl = webgl
-    } catch {
+      this.emitDiagnostic('renderer:webgl-loaded')
+    } catch (error) {
       // WebGL unavailable; the DOM renderer stays active
       this.webgl = undefined
+      this.emitDiagnostic('renderer:dom', { reason: 'webgl-load-failed', error: String(error) })
     }
   }
 
   /**
-   * Recover the screen after the panel was hidden with `display:none`: the browser
-   * frees the WebGL canvas's backing store, so on reveal only damage-painted cells show
-   * and the rest is black. A plain refresh can't repaint a discarded GL surface — recreate
-   * the renderer instead. Disposing + reloading the WebGL addon gives a fresh GL context +
-   * glyph atlas and a full render of xterm's buffer. Call this AFTER the panel is visible
-   * and laid out (e.g. on the next animation frame) so the new renderer measures the real
-   * canvas size. Falls back to a plain repaint when GPU rendering is off / unavailable.
+   * Recover a hidden WebGL canvas without replacing its renderer. Swapping the addon
+   * does repaint, but xterm does not re-broadcast dimensions to its Viewport, leaving
+   * wheel scrolling dead until a real resize. Repeated swaps also churn the browser's
+   * limited WebGL contexts and can leave a warm pane blank. Clearing the live addon's
+   * atlas drops its render model and redraws the SAME canvas/context, preserving both
+   * viewport measurements and context capacity. DOM rendering falls back to refresh().
    */
-  reloadWebgl(): void {
+  repaintRecover(): void {
     if (this.disposed) return
-    if (!gpuEnabled()) {
-      this.forceRepaint()
-      return
+    if (this.webgl) {
+      try {
+        this.webgl.clearTextureAtlas()
+        this.emitDiagnostic('renderer:recovered', { method: 'clear-texture-atlas' })
+        return
+      } catch (error) {
+        // GL gone / mid-teardown — fall through to the DOM-level repaint.
+        this.emitDiagnostic('renderer:recover-fallback', { error: String(error) })
+      }
     }
-    try {
-      this.webgl?.dispose()
-    } catch {
-      // already disposed / mid-teardown
-    }
-    this.webgl = undefined
-    this.tryLoadWebgl() // creates + loads a fresh WebglAddon (or stays DOM if unavailable)
-    this.forceRepaint() // ensure a full redraw via whichever renderer is now active
+    this.emitDiagnostic('renderer:recovered', { method: 'refresh' })
+    this.forceRepaint()
   }
 
   write(text: string): void {
@@ -257,8 +312,9 @@ export class TerminalView {
     // undefined dimension; ignore it rather than break the caller's state handler.
     try {
       this.term.resize(cols, rows)
-    } catch {
+    } catch (error) {
       // renderer not ready; the next fit/resize will reconcile geometry
+      this.emitDiagnostic('anomaly:resize-failed', { cols, rows, error: String(error) })
     }
   }
 
@@ -276,8 +332,9 @@ export class TerminalView {
     if (this.disposed) return
     try {
       this.term.refresh(0, this.term.rows - 1)
-    } catch {
+    } catch (error) {
       // renderer not ready; the next frame will paint
+      this.emitDiagnostic('anomaly:repaint-failed', { error: String(error) })
     }
   }
 
@@ -293,14 +350,19 @@ export class TerminalView {
     let dims: { cols: number; rows: number } | undefined
     try {
       dims = this.fitAddon.proposeDimensions()
-    } catch {
+    } catch (error) {
       // FitAddon threw — container not ready
+      this.emitDiagnostic('fit:unavailable', { reason: 'propose-threw', error: String(error) })
       return undefined
     }
-    if (!dims || dims.cols < 2 || dims.rows < 2) return undefined
+    if (!dims || dims.cols < 2 || dims.rows < 2) {
+      this.emitDiagnostic('fit:unavailable', { reason: 'invalid-dimensions', dims })
+      return undefined
+    }
     try {
       this.fitAddon.fit()
-    } catch {
+    } catch (error) {
+      this.emitDiagnostic('fit:unavailable', { reason: 'fit-threw', error: String(error), dims })
       return undefined
     }
     return { cols: this.term.cols, rows: this.term.rows }

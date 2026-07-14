@@ -1703,7 +1703,7 @@ export class SessionsService {
     this.clients.set(id, {
       id,
       send,
-      viewport: { ...DEFAULT_GEOMETRY },
+      viewports: new Map(),
       attached: new Set(),
       // No caps until hello — the bootstrap snapshots below are sent to everyone
       // (a delta client uses them as its initial paint, then takes a cursor via
@@ -1780,7 +1780,9 @@ export class SessionsService {
     if (!client) return
     switch (msg.type) {
       case 'hello':
-        client.viewport = { cols: msg.viewport.cols, rows: msg.viewport.rows }
+        // `hello.viewport` is a connection bootstrap hint, not a measured grid
+        // for every attached terminal. Session-specific grids arrive through
+        // `resize`; using the 80x24 hint for reconciliation can shrink a pane.
         // Feature negotiation (spec §2.3): from here on this client gets metadata
         // deltas instead of full-list snapshot rebroadcasts.
         if (msg.caps) client.caps = new Set(msg.caps)

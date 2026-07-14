@@ -24,6 +24,23 @@ Append `&e2e=1` to the URL. `AgentPanel` then exposes `window.__podium`:
 
 **These methods do not survive `page.evaluate(() => window.__podium)`** (functions don't serialize). Call them *inside* `evaluate`: `page.evaluate(() => window.__podium.screenText())`.
 
+### Native-terminal lifecycle diagnostics
+
+The web client always retains the newest 500 privacy-safe terminal lifecycle events (no
+buffer text or keystrokes). After a blank or wrongly-sized pane, inspect them before
+resizing the browser:
+
+```js
+window.__podiumTerminalDiagnostics.snapshot()          // every recent mount
+window.__podiumTerminalDiagnostics.snapshot(sessionId) // one session
+```
+
+Events include panel/page visibility, fit attempts and exhaustion, local/server grids,
+DOM/canvas dimensions, renderer selection/context loss/recovery, attach/reconnect, and
+epoch clears. Add `?terminalDebug=1` (or set `localStorage['podium.terminalDebug']='1'`)
+to mirror non-anomalous events to the console; anomalies warn automatically. Under
+`?e2e=1`, `window.__podium.diagnostics()` returns the current session's history.
+
 ## Setup gotchas
 
 - **Force the native terminal**: `await page.addInitScript(() => localStorage.setItem('podium.panelMode','native'))` **before** `goto` — else you land in chat view and `__podium`/the xterm isn't mounted.

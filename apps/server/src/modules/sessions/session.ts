@@ -18,7 +18,11 @@ export type Send<T> = (msg: T) => void
 export interface ClientConn {
   id: string
   send: Send<ServerMessage>
-  viewport: Geometry
+  /** Last grid this client measured for each terminal it mounted. Geometry is
+   * session-specific: split panes can have different widths, and the 80x24
+   * viewport in `hello` is only a transport bootstrap default. Sharing one
+   * viewport across sessions can resize the foreground PTY from another pane. */
+  viewports: Map<string, Geometry>
   attached: Set<string>
   /** Feature caps from the client's `hello` (e.g. CAP_METADATA_DELTA). Empty until
    *  hello arrives, so a pre-hello client is treated as legacy — it receives
@@ -411,6 +415,8 @@ export class Session {
   }
 
   detachClient(clientId: string): void {
+    const client = this.clients.get(clientId)
+    client?.viewports.delete(this.sessionId)
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     if (this.controllerId === clientId) {
@@ -430,6 +436,7 @@ export class Session {
   }
 
   detachAll(): void {
+    for (const client of this.clients.values()) client.viewports.delete(this.sessionId)
     this.clients.clear()
     this.controllerId = null
   }
@@ -452,7 +459,7 @@ export class Session {
 
   handleResize(clientId: string, cols: number, rows: number): void {
     const client = this.clients.get(clientId)
-    if (client) client.viewport = { cols, rows }
+    if (client) client.viewports.set(this.sessionId, { cols, rows })
     // Only apply a resize from a client that is actually RENDERING this session on
     // screen (per-session viewState). A backgrounded tab/page reports an empty
     // viewVisible, so its stale grid can never move the shared PTY.
@@ -481,13 +488,14 @@ export class Session {
     const client = this.clients.get(clientId)
     if (!client) return
     if (clientId !== this.controllerId || !client.viewVisible.has(this.sessionId)) return
-    if (
-      this.geometry.cols === client.viewport.cols &&
-      this.geometry.rows === client.viewport.rows
-    ) {
+    // Only an explicit resize for THIS session can heal the resize/viewState
+    // race. A hello/default viewport or another pane's last resize must not.
+    const viewport = client.viewports.get(this.sessionId)
+    if (!viewport) return
+    if (this.geometry.cols === viewport.cols && this.geometry.rows === viewport.rows) {
       return
     }
-    this.geometry = { ...client.viewport }
+    this.geometry = { ...viewport }
     this.toDaemon({
       type: 'resize',
       sessionId: this.sessionId,
@@ -519,8 +527,9 @@ export class Session {
     // (e.g. a viewState update hasn't landed yet), transfer control without sizing;
     // {@link reconcileGeometry} re-applies it when viewState lands (the panel's fit
     // may also re-drive it through handleResize once viewVisible is populated).
-    if (client.viewVisible.has(this.sessionId)) {
-      this.geometry = { ...(client.viewport ?? this.geometry) }
+    const viewport = client.viewports.get(this.sessionId)
+    if (client.viewVisible.has(this.sessionId) && viewport) {
+      this.geometry = { ...viewport }
       this.toDaemon({
         type: 'resize',
         sessionId: this.sessionId,

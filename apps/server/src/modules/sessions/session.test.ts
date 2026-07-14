@@ -26,7 +26,7 @@ function makeClient(id: string): ClientConn & { sent: ServerMessage[] } {
   return {
     id,
     send: (m) => sent.push(m),
-    viewport: { ...geo },
+    viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
     transcriptSubs: new Set(),
@@ -187,7 +187,7 @@ describe('Session', () => {
     const s = makeSession()
     const a = makeClient('a')
     s.attachClient(a)
-    a.viewport = { cols: 200, rows: 50 } // last fitted size (handleResize stored it, then dropped)
+    a.viewports.set('s1', { cols: 200, rows: 50 }) // resize arrived before viewState
     a.viewVisible = new Set(['s1']) // viewState now confirms it renders s1
     a.sent.length = 0
     s.reconcileGeometry('a')
@@ -245,7 +245,7 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
-    b.viewport = { cols: 50, rows: 60 } // a stale viewport we must NOT snap to
+    b.viewports.set('s1', { cols: 50, rows: 60 }) // a stale viewport we must NOT snap to
     b.viewVisible = new Set() // requester isn't rendering s1 yet (viewState not landed)
     toDaemon.mockClear()
     s.requestControl('b')
@@ -289,12 +289,12 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a) // controller
     s.attachClient(b) // spectator
-    b.viewport = { cols: 200, rows: 50 }
+    b.viewports.set('s1', { cols: 200, rows: 50 })
     b.viewVisible = new Set(['s1'])
     toDaemon.mockClear()
     s.reconcileGeometry('b') // not the controller → nothing
     expect(s.geometry).toEqual(geo)
-    a.viewport = { cols: 200, rows: 50 }
+    a.viewports.set('s1', { cols: 200, rows: 50 })
     a.viewVisible = new Set() // controller but not rendering → nothing
     s.reconcileGeometry('a')
     expect(s.geometry).toEqual(geo)
@@ -379,23 +379,43 @@ describe('Session', () => {
     const b = makeClient('b')
     s.attachClient(a)
     s.attachClient(b)
+    a.viewports.set('s1', { cols: 100, rows: 30 })
+    a.viewports.set('other-session', { cols: 40, rows: 12 })
     s.detachClient('a')
     expect(s.controllerId).toBe('b')
+    expect(a.viewports.has('s1')).toBe(false)
+    expect(a.viewports.has('other-session')).toBe(true)
     expect(b.sent).toContainEqual(
       expect.objectContaining({ type: 'controllerChanged', controllerId: 'b' }),
     )
   })
 
-  it('takeover uses the new controller current viewport (e.g. updated via hello after attach)', () => {
+  it('takeover uses the new controller viewport measured for this session', () => {
     const s = makeSession()
     const a = makeClient('a')
     const b = makeClient('b')
     s.attachClient(a) // a is the initial controller
     s.attachClient(b)
     b.viewVisible = new Set(['s1']) // b renders the session → snap to its viewport on takeover
-    b.viewport = { cols: 33, rows: 21 } // registry updates ClientConn.viewport on hello
+    b.viewports.set('s1', { cols: 33, rows: 21 })
     s.requestControl('b') // genuine takeover (b was NOT the controller)
     expect(s.geometry).toEqual({ cols: 33, rows: 21 })
+  })
+
+  it('never reconciles another session viewport into this session', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const a = makeClient('a')
+    s.attachClient(a)
+    a.viewVisible = new Set(['s1'])
+    // Another split/warm pane measured a small grid, but s1 has not sent a
+    // resize. The old single ClientConn.viewport applied this value to s1.
+    a.viewports.set('other-session', { cols: 40, rows: 12 })
+
+    s.reconcileGeometry('a')
+
+    expect(s.geometry).toEqual(geo)
+    expect(toDaemon).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }))
   })
 
   it('marks exited and broadcasts agentExit', () => {

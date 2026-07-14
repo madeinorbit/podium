@@ -1,6 +1,10 @@
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
 import { decideResizeAction, type Grid } from './session-viewport'
+import {
+  createTerminalDiagnosticRecorder,
+  terminalDiagnosticsSnapshot,
+} from './terminal-diagnostics'
 import { type TerminalAppearance, TerminalView } from './terminal-view'
 import { mountKeyToolbar } from './toolbar'
 
@@ -74,7 +78,11 @@ export const READY_TIMEOUT_MS = 2000
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
-  const view = new TerminalView(opts.appearance ?? {})
+  const diagnostics = createTerminalDiagnosticRecorder(sessionId)
+  const view = new TerminalView({
+    ...(opts.appearance ?? {}),
+    diagnostics: (event, data) => diagnostics.record(event, data),
+  })
   view.mount(el)
 
   let active = opts.active ?? true
@@ -82,6 +90,17 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const pageVisible = (): boolean =>
     typeof document === 'undefined' || document.visibilityState === 'visible'
   const eligible = (): boolean => active && pageVisible()
+  const trace = (event: string, data: Record<string, unknown> = {}): void => {
+    diagnostics.record(event, {
+      active,
+      pageVisible: pageVisible(),
+      eligible: eligible(),
+      serverGrid: { ...serverGrid },
+      ...data,
+      view: view.diagnosticSnapshot(),
+    })
+  }
+  trace('mount')
 
   // fit-with-retry: a measurable container fits immediately; an unmeasurable one
   // (just-revealed, layout not settled) retries across rAFs, then falls back to a
@@ -114,12 +133,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     // size. The next reveal/viewport change schedules a fresh fit.
     if (!eligible()) {
       onFitMeasured = null
+      trace('fit:cancelled', { attempt: fitAttempt, reason: 'ineligible' })
       return
     }
     const grid = view.fit()
     if (grid) {
       const cb = onFitMeasured
       onFitMeasured = null
+      trace('fit:measured', {
+        phase: fitAttempt === 0 ? 'immediate' : 'retry',
+        attempts: fitAttempt,
+        grid,
+      })
       cb?.(grid)
       return
     }
@@ -130,26 +155,42 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     }
     const delay = SLOW_FIT_DELAYS_MS[fitAttempt - RAF_FIT_RETRIES - 1]
     if (delay !== undefined) fitTimer = setTimeout(tryScheduledFit, delay)
-    else onFitMeasured = null
+    else {
+      onFitMeasured = null
+      trace('anomaly:fit-retries-exhausted', { attempts: fitAttempt })
+    }
   }
   function fitWithRetry(onMeasured: (grid: Grid) => void): void {
+    if (onFitMeasured) trace('fit:superseded', { attempt: fitAttempt })
     cancelScheduledFit()
     fitAttempt = 0
     onFitMeasured = onMeasured
+    trace('fit:retry-start')
     tryScheduledFit()
   }
 
   function applyFit(forceRedrawIfSame: boolean): void {
-    if (!eligible()) return
+    if (!eligible()) {
+      trace('fit:skipped', { reason: 'ineligible', forceRedrawIfSame })
+      return
+    }
     fitWithRetry((grid) => {
       const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
-      if (action.kind === 'resize') connection.sendResize(action.cols, action.rows)
-      else if (action.kind === 'redraw') connection.redraw()
+      trace('fit:action', { grid, action, forceRedrawIfSame })
+      if (action.kind === 'resize') {
+        connection.sendResize(action.cols, action.rows)
+      } else if (action.kind === 'redraw') {
+        connection.redraw()
+      }
     })
   }
 
   function becomeEligible(): void {
-    if (!eligible()) return
+    if (!eligible()) {
+      trace('eligible:skipped')
+      return
+    }
+    trace('eligible:became')
     connection.requestControl() // last-foregrounded-wins
     applyFit(true) // force a repaint on reveal even when the size is unchanged
     view.forceRepaint()
@@ -165,14 +206,22 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const MAX_REVEAL_FIT_RETRIES = 60
   function whenMeasurable(onMeasured: (grid: Grid, gridChanged: boolean) => void): void {
     const tryFit = (attempt: number): void => {
-      if (!eligible()) return // hidden again before layout settled
+      if (!eligible()) {
+        trace('reveal:cancelled', { attempt })
+        return // hidden again before layout settled
+      }
       const before = { cols: view.cols(), rows: view.rows() }
       const grid = view.fit()
       if (grid) {
-        onMeasured(grid, grid.cols !== before.cols || grid.rows !== before.rows)
+        const gridChanged = grid.cols !== before.cols || grid.rows !== before.rows
+        trace('reveal:measured', { attempt, before, grid, gridChanged })
+        onMeasured(grid, gridChanged)
         return
       }
       if (attempt < MAX_REVEAL_FIT_RETRIES) requestAnimationFrame(() => tryFit(attempt + 1))
+      else {
+        trace('anomaly:reveal-fit-retries-exhausted', { attempts: attempt + 1 })
+      }
     }
     tryFit(0)
   }
@@ -185,19 +234,30 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   //     is exactly what recovers a freed canvas. Nothing more to do (and we inform the server when
   //     our viewport differs from its authoritative grid).
   //   - If the grid is UNCHANGED, a same-size resize is a no-op that won't repaint the freed
-  //     canvas, so recreate the WebGL renderer for a fresh context + full render. This works even
-  //     though the old GL context is gone — we never relied on keeping it warm.
+  //     canvas, so clear the live renderer's atlas/model and repaint it in place. Swapping the
+  //     renderer would stale xterm's wheel-scroll dimensions and churn limited WebGL contexts.
   // Sizing waits for real layout (no fixed-frame guess), so the recompute can't run against a
   // still-hidden/zero-size canvas; whenMeasurable re-checks eligibility each frame.
   function reveal(): void {
-    if (!eligible()) return
+    if (!eligible()) {
+      trace('reveal:skipped')
+      return
+    }
+    trace('reveal:start')
     connection.requestControl() // last-foregrounded-wins
     whenMeasurable((grid, gridChanged) => {
-      if (!eligible()) return
+      if (!eligible()) {
+        trace('reveal:cancelled', { phase: 'measured-callback' })
+        return
+      }
       if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
+        trace('reveal:resize-send', { grid, gridChanged })
         connection.sendResize(grid.cols, grid.rows)
       }
-      if (!gridChanged) view.reloadWebgl()
+      if (!gridChanged) {
+        trace('reveal:recover-renderer', { grid })
+        view.repaintRecover()
+      }
     })
   }
 
@@ -207,23 +267,26 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // (sizing already driven by the mount/setActive path) from a RECONNECT (where we must
   // re-assert the size — see the onAttached handler).
   let everAttached = false
+  let lastTracedState = ''
 
   // Ready = "usable, drop the Starting… overlay". Fires on the FIRST of: the server
   // confirming the attach (onAttached), the first real frame, or the timeout backstop
   // — so an idle child with an empty replay buffer is never mistaken for still booting.
   let ready = false
   let readyTimer: ReturnType<typeof setTimeout> | undefined
-  const markReady = (): void => {
+  const markReady = (source: 'attach' | 'frame' | 'timeout'): void => {
     if (ready) return
     ready = true
     if (readyTimer !== undefined) clearTimeout(readyTimer)
+    trace('ready', { source })
     opts.onReady?.()
   }
-  readyTimer = setTimeout(markReady, opts.readyTimeoutMs ?? READY_TIMEOUT_MS)
+  readyTimer = setTimeout(() => markReady('timeout'), opts.readyTimeoutMs ?? READY_TIMEOUT_MS)
 
   const connection = hub.attach(sessionId, {
     onAttached: () => {
-      markReady()
+      trace('connection:attached', { reconnect: everAttached, connection: connection.state() })
+      markReady('attach')
       // RECONNECT re-fit. A server reload rebuilds the session at the 80×24 default and
       // the 'attached' message carries that grid; _ingest emits onState (serverGrid →
       // 80×24, the view shrinks) BEFORE this callback, so re-fitting here sees the
@@ -239,7 +302,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (!firstFrameSeen && text.length > 0) {
         firstFrameSeen = true
         opts.onFirstFrame?.()
-        markReady()
+        markReady('frame')
       }
       opts.onFrame?.()
     },
@@ -248,11 +311,25 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     // resuming reconnect does NOT fire this — it keeps the screen and appends only
     // what it missed, so a network blip no longer flashes the whole terminal.
     onReset: () => {
+      trace('connection:reset', { connection: connection.state() })
       lastEpoch = connection.state().epoch
       view.clear()
     },
     onState: (state) => {
+      const signature = JSON.stringify([
+        state.connected,
+        state.role,
+        state.cols,
+        state.rows,
+        state.epoch,
+        state.controllerId,
+      ])
+      if (signature !== lastTracedState) {
+        lastTracedState = signature
+        trace('connection:state', { state })
+      }
       if (view.cols() !== state.cols || view.rows() !== state.rows) {
+        trace('connection:apply-server-grid', { state })
         view.resize(state.cols, state.rows)
         // A resize/reflow can leave the GPU canvas showing only the cells that moved or
         // changed (the "caret at top, my text at bottom, rest black" symptom). Force a
@@ -266,6 +343,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (state.connected) {
         if (lastEpoch === -1) lastEpoch = state.epoch
         else if (state.epoch !== lastEpoch) {
+          trace('connection:epoch-clear', { from: lastEpoch, to: state.epoch })
           lastEpoch = state.epoch
           view.clear()
         }
@@ -299,7 +377,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const VIEWPORT_FIT_DEBOUNCE_MS = 60
   let viewportFitTimer: ReturnType<typeof setTimeout> | undefined
   const viewport = new DomViewportSource(el)
-  const offViewport = viewport.onChange(() => {
+  const offViewport = viewport.onChange((size) => {
+    trace('viewport:changed', { viewport: size })
     if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
     viewportFitTimer = setTimeout(() => {
       viewportFitTimer = undefined
@@ -308,6 +387,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   })
 
   const onVisibility = (): void => {
+    trace('page:visibility-change')
     if (eligible()) reveal() // page returning to the foreground is a reveal (canvas was freed)
   }
   if (typeof document !== 'undefined') {
@@ -320,6 +400,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     ;(globalThis as unknown as { __podium?: unknown }).__podium = {
       state: () => connection.state(),
       echoLatency: () => connection.echoLatency(),
+      diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
       screenHash: () => view.screenHash(),
       screenText: () => view.screenText(),
       sendInput: (s: string) => connection.sendInput(s),
@@ -360,13 +441,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     setActive(next: boolean): void {
       if (next === active) return
       active = next
+      trace('panel:active-change', { next })
       // Becoming active = a reveal: the panel was display:none (its WebGL canvas freed),
-      // so recreate the renderer after layout, not just refresh.
+      // so recover the renderer after layout, not just refresh immediately.
       if (active) reveal()
       // going inactive: do nothing — never resize a hidden panel
     },
     setAppearance(appearance: TerminalAppearance): void {
       view.setAppearance(appearance)
+      trace('appearance:change')
       // A font-metric change altered the cell size — reconcile the grid to the
       // container and inform the server (eligibility-gated inside applyFit, so
       // a hidden panel never drives the shared PTY). A theme-only change leaves
@@ -374,6 +457,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       applyFit(false)
     },
     dispose() {
+      trace('dispose')
       if (readyTimer !== undefined) clearTimeout(readyTimer)
       if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
       cancelScheduledFit()

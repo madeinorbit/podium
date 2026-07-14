@@ -591,6 +591,27 @@ describe('SessionRegistry', () => {
     expect(daemon).toContainEqual({ type: 'resize', sessionId: s1, cols: 200, rows: 50 })
   })
 
+  it('never reconciles one session viewport into another visible session', () => {
+    const reg = new SessionRegistry()
+    const daemon: ControlMessage[] = []
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
+    const s2 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/b' }).sessionId
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
+    reg.modules.sessions.onDaemonMessageFrom('local', bind(s2))
+    const c = sink()
+    const id = reg.modules.sessions.attachClient(c.send)
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
+    reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s2 })
+
+    // A resize for hidden s2 is remembered for s2 only. When viewState later says
+    // s1 is visible, reconciliation must not apply s2's small grid to s1.
+    reg.modules.sessions.onClientMessage(id, { type: 'resize', sessionId: s2, cols: 40, rows: 12 })
+    reg.modules.sessions.onClientMessage(id, { type: 'viewState', visible: [s1], focused: s1 })
+
+    expect(daemon).not.toContainEqual({ type: 'resize', sessionId: s1, cols: 40, rows: 12 })
+  })
+
   it('kill removes the session and tells the daemon', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

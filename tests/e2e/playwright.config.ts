@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const PORT = Number(process.env.PORT ?? 8799)
+const ORIGIN = `http://localhost:${PORT}`
+
 export default defineConfig({
   testDir: './browser',
   testMatch: '**/*.browser.e2e.ts',
@@ -9,7 +12,7 @@ export default defineConfig({
   // Playwright SIGKILLs the webServer tree; the harness can't reap its own durable
   // sessions on the way out, so the teardown sweeps the isolated socket dirs.
   globalTeardown: './global-teardown.ts',
-  use: { baseURL: 'http://localhost:8799' },
+  use: { baseURL: ORIGIN },
   projects: [
     {
       name: 'chromium-desktop',
@@ -37,7 +40,7 @@ export default defineConfig({
       // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
       command:
         'bun run --filter @podium/protocol build && bun run --filter @podium/web build && node --conditions=@podium/source --import tsx serve-harness.ts',
-      url: 'http://localhost:8799/health',
+      url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       timeout: 180_000,
     },

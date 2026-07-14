@@ -8,8 +8,9 @@
  */
 import type { Page } from '@playwright/test'
 
-/** ws:// origin of the harness relay; the playwright.config webServer binds 8799. */
-export const RELAY = process.env.PODIUM_RELAY ?? 'ws://localhost:8799'
+/** ws:// origin of the harness relay; PORT lets concurrent harness runs stay isolated. */
+export const RELAY =
+  process.env.PODIUM_RELAY ?? `ws://localhost:${Number(process.env.PORT ?? 8799)}`
 
 interface PodiumTestApi {
   screenText(): string
@@ -65,12 +66,13 @@ export async function gotoWorkspace(page: Page): Promise<void> {
 
   // Desktop layout renders an <aside> sidebar. Mobile renders MobileApp without
   // one; there the work list is the home view, so navigate to it first.
-  const sidebar = page.locator('aside').first()
-  const onDesktop = await sidebar
-    .waitFor({ state: 'visible', timeout: 10_000 })
-    .then(() => true)
-    .catch(() => false)
-  const list = onDesktop ? sidebar : page.locator('.mobile-shell')
+  const sidebar = page.getByRole('complementary').first()
+  const mobileShell = page.locator('.mobile-shell')
+  // The loading element can disappear before the React shell mounts. Wait for
+  // either real layout instead of guessing mobile when desktop is merely slow.
+  await sidebar.or(mobileShell).first().waitFor({ state: 'visible', timeout: 60_000 })
+  const onDesktop = await sidebar.isVisible()
+  const list = onDesktop ? sidebar : mobileShell
   if (!onDesktop) await page.locator('button[title="Work"]').click({ timeout: 15_000 })
 
   // Work rows load with the repos/sessions feeds — give the top row a short
@@ -103,8 +105,26 @@ export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell')
   await page.evaluate(() => {
     delete (window as unknown as TestWindow).__podium
   })
-  await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
-  await page.getByRole('menuitem', { name: `New ${kind}` }).click({ timeout: 10_000 })
+  if (kind === 'Shell') {
+    const direct = page.getByRole('button', { name: /^New Shell in / })
+    if (await direct.isVisible().catch(() => false)) {
+      await direct.click({ timeout: 15_000 })
+    } else {
+      // Workspace '+' intentionally offers agents only. Shells otherwise live
+      // in the sidebar's New-work dropdown.
+      await page.getByRole('button', { name: 'Choose agent and repo' }).click({ timeout: 15_000 })
+    }
+  } else {
+    await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
+  }
+  const item = page.getByRole('menuitem', { name: `New ${kind}` })
+  if (kind === 'Shell' && (await item.isVisible().catch(() => false))) {
+    // Persisting Shell as the default immediately re-renders the sidebar. Fire
+    // the click before Playwright's stability wait observes the detached trigger.
+    await item.dispatchEvent('click')
+  } else if (kind !== 'Shell') {
+    await item.click({ timeout: 10_000 })
+  }
   await page.waitForFunction(() => !!(window as unknown as TestWindow).__podium, undefined, {
     timeout: 20_000,
   })
