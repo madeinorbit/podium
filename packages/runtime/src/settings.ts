@@ -183,6 +183,34 @@ export function managedAccountId(provider: ApiProvider): string {
   return `${MANAGED_ACCOUNT}${provider}`
 }
 
+/** A credential Podium holds and injects (SP-6454, managed accounts). Only
+ *  long-lived, non-CLI-refreshed credentials ride here: a provider API key, or a
+ *  Claude `setup-token` OAuth token. The refreshing OAuth blobs (claudeAiOauth,
+ *  codex auth.json) are credential FILES, not env, and are out of scope. */
+export interface ManagedCredential {
+  provider: string
+  kind: 'api-key' | 'oauth'
+  credential: string
+}
+
+/** Which env var a managed credential becomes on an agent spawn. An unmapped
+ *  provider or an empty secret yields {} — never a blank env var, which some CLIs
+ *  treat as "configured but broken" rather than "absent". */
+export function credentialEnv(c: ManagedCredential): Record<string, string> {
+  if (!c.credential) return {}
+  if (c.kind === 'oauth') {
+    // Only Claude has a long-lived, env-consumable OAuth token (`claude setup-token`).
+    return c.provider === 'anthropic' ? { CLAUDE_CODE_OAUTH_TOKEN: c.credential } : {}
+  }
+  const KEY_ENV: Record<string, string> = {
+    anthropic: 'ANTHROPIC_API_KEY',
+    openai: 'OPENAI_API_KEY',
+    openrouter: 'OPENROUTER_API_KEY',
+  }
+  const name = KEY_ENV[c.provider]
+  return name ? { [name]: c.credential } : {}
+}
+
 export const Sidebar = z.object({
   repoSort: z.enum(['alphabetical', 'lastUsed', 'custom']).default('lastUsed'),
   repoOrder: z.array(z.string()).default([]),
