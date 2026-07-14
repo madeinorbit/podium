@@ -56,10 +56,11 @@ describe('web shell structure', () => {
     expect(src).toContain('pins.list')
     expect(src).toContain('pins.set')
   })
-  it('sidebar renders pin-aware sections and pin controls', () => {
+  it('sidebar renders always-on project groups and pin controls (#41)', () => {
     const src = read('features/worklist/SidebarUnified.tsx')
     expect(src).toContain('sidebarSections')
-    expect(src).toContain('"PINNED"')
+    expect(src).toContain('groupUnifiedWorkRows')
+    expect(src).toContain('ProjectGroupLabel')
     expect(src).toContain('setPinned')
   })
   it('workspace and mobile tabs use the persisted manual order (pins as fallback)', () => {

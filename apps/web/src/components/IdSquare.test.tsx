@@ -123,13 +123,65 @@ describe('IdSquare square language', () => {
     expect(square().style.opacity).toBe('1')
   })
 
-  it('optionally composes the shared corner spinner badge', () => {
-    const { container } = render(
-      <IdSquare issue={issue()} state="working" showSpinner onColorChange={vi.fn()} />,
+  it('keeps the solid live look for waiting and done rows', () => {
+    const onColorChange = vi.fn()
+    const { rerender } = render(
+      <IdSquare issue={issue()} state="waiting" onColorChange={onColorChange} />,
     )
-    expect(square().getAttribute('data-spinner')).toBe('true')
+    expect(square().getAttribute('style')).toContain('border: 1px solid #8d8d9a')
+    expect(square().style.opacity).toBe('1')
+
+    rerender(<IdSquare issue={issue()} state="done" onColorChange={onColorChange} />)
+    expect(square().getAttribute('style')).toContain('border: 1px solid #8d8d9a')
+    expect(square().style.opacity).toBe('1')
+  })
+
+  it('optionally composes the shared corner badges', () => {
+    const { container, rerender } = render(
+      <IdSquare
+        issue={issue()}
+        state="working"
+        badge={{ kind: 'spinner' }}
+        onColorChange={vi.fn()}
+      />,
+    )
+    expect(square().getAttribute('data-badge')).toBe('spinner')
     expect(container.querySelector('.spb')).toBeTruthy()
     expect(screen.getByRole('img', { name: 'working' })).toBeTruthy()
+
+    rerender(
+      <IdSquare
+        issue={issue()}
+        state="waiting"
+        badge={{ kind: 'count', count: 2 }}
+        onColorChange={vi.fn()}
+      />,
+    )
+    expect(square().getAttribute('data-badge')).toBe('count')
+    expect(screen.getByRole('img', { name: '2 waiting on you' }).textContent).toBe('2')
+  })
+
+  it('selects first on rail squares and only opens the picker once selected', () => {
+    const onPrimary = vi.fn()
+    const { rerender } = render(
+      <IdSquare issue={issue()} state="queued" onPrimary={onPrimary} onColorChange={vi.fn()} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Open issue #39' }))
+    expect(onPrimary).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    rerender(
+      <IdSquare
+        issue={issue()}
+        state="queued"
+        selected
+        onPrimary={onPrimary}
+        onColorChange={vi.fn()}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Set colour for issue #39' }))
+    expect(onPrimary).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog', { name: 'Issue colour for #39' })).toBeTruthy()
   })
 })
 

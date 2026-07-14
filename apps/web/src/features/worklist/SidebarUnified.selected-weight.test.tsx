@@ -125,23 +125,27 @@ function rowButton(label: string): HTMLElement {
 
 afterEach(cleanup)
 
-describe('SidebarUnified selection weight (#170 Fix 1)', () => {
-  it('a selected-but-read row is NOT bold — selection is background-only', () => {
+describe('SidebarUnified selection weight (#41 redesign)', () => {
+  it('a selected row wears the colour-mixed background, semibold title and the bridge notch', () => {
     render(<SidebarUnified />)
     const active = rowButton('Read selected issue')
-    // Selection reads as a background (on the row wrapper) plus a brighter label
-    // tint — never a heavier font. Hex tokens per the Claude Design shell restyle
-    // (30c8be0a replaced bg-accent/text-accent-foreground).
+    // Selection reads as the slate colour-mixed background + border on the row
+    // wrapper (handoff §2.5) — inline style, colour-flowed from the issue colour
+    // (slate for uncoloured issues).
     const row = active.closest('[class*="group/row"]') as HTMLElement
-    expect(row.className).toContain('bg-[#232330]')
-    expect(active.className).toContain('text-[#f3f3f8]')
-    // NEITHER weight class may appear on the selected read row.
-    expect(active.className).not.toContain('font-medium')
-    expect(active.className).not.toContain('font-semibold')
-    // The label span itself is normal weight too.
+    expect(row.getAttribute('data-selected')).toBe('true')
+    // (The colour-mixed background itself is inline style — happy-dom drops
+    // color-mix() values, so the paint is asserted in the Chromium probe.)
+    // The selected title lifts to semibold (handoff), distinct from UNREAD's medium.
     const label = screen.getByText('Read selected issue')
-    expect(label.className).not.toContain('font-semibold')
+    expect(label.className).toContain('font-semibold')
     expect(label.className).not.toContain('font-medium')
+    // The bridge notch grows out of the selected row toward the engraved column.
+    expect(row.querySelector('[data-testid="bridge-notch"]')).toBeTruthy()
+    // Unselected rows carry neither the notch nor the selected background.
+    const other = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    expect(other.getAttribute('data-selected')).toBe('false')
+    expect(other.querySelector('[data-testid="bridge-notch"]')).toBeNull()
   })
 
   it('unread remains the sole weight signal', () => {

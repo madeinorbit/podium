@@ -22,7 +22,8 @@ test('mobile home is the work list, and the header dropdown lists issue panels',
 
   // Home: the sidebar's work list, not the Command center board.
   await page.locator('button[title="Work"]').click()
-  await expect(page.getByText('WORK', { exact: true })).toBeVisible({ timeout: 15_000 })
+  // #41: the WORK header gave way to always-on project group labels.
+  await expect(page.getByTestId('project-group-label').first()).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-testid="unified-issue-row"]').first()).toBeVisible()
   await expect(page.getByRole('button', { name: /^New .+ in .+/ })).toBeVisible()
   await expect(page.getByLabel('Add repo')).toBeVisible()

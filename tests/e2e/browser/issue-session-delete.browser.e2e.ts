@@ -47,7 +47,8 @@ test('sidebar issue delete removes its sessions and the tracker can restore the 
     aside.getByText('Nothing yet — start an agent or create an issue above.'),
   ).toBeVisible()
 
-  await aside.getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  // The app nav lives in the top bar since the shell relayout (#40/#41).
+  await page.getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
   await board.getByRole('button', { name: 'Filter', exact: true }).click()

@@ -1522,6 +1522,90 @@ export function formatClock(ms: number): string {
 }
 
 /**
+ * Aggregate motion phase for one unified WORK row (#41): the row wears the most
+ * human-relevant of its member sessions' phases. `waiting` dominates (stillness
+ * is the signal — a row that needs you must read amber even while other agents
+ * grind on), then `working`, then `done` when every member finished; a row
+ * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
+ */
+export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
+  const sessions = rowSessions(row)
+  const phases = sessions.map(motionPhase)
+  if (phases.includes('waiting')) return 'waiting'
+  if (phases.includes('working')) return 'working'
+  if (phases.length > 0 && phases.every((p) => p === 'done')) return 'done'
+  return 'queued'
+}
+
+/** How many member sessions are waiting on the human — drives the amber count
+ *  pill on wide rows and the numbered corner badge on rail squares (#41). */
+export function rowWaitingCount(row: UnifiedWorkRow): number {
+  return rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
+}
+
+/**
+ * The row's second line (#41): a compact status phrase in the handoff's copy
+ * grammar. Waiting rows surface WHAT is being waited for (the most urgent
+ * session's badge label — "needs answer", "plan ready"); working/queued/done
+ * rows read as their phase; multi-agent rows carry the head-count.
+ */
+export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): string {
+  const sessions = rowSessions(row)
+  const phase = rowMotionPhase(row)
+  const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
+  if (phase === 'waiting') {
+    const urgent = mostUrgentSession(
+      sessions.filter((s) => motionPhase(s) === 'waiting'),
+      now,
+    )
+    const label = urgent ? (agentBadge(urgent)?.label ?? 'needs you') : 'needs you'
+    return head + label
+  }
+  if (phase === 'working') return head + 'working'
+  if (phase === 'done') return head + 'done'
+  return head + 'queued'
+}
+
+/**
+ * Timer inputs for a row's line-2 meta (#41): the member session whose clock
+ * the row shows. Working rows count from the EARLIEST working start (same rule
+ * as the old WORKING timer); waiting rows freeze at the longest wait; done rows
+ * sum every member's cumulative compute for the `∑` stamp.
+ */
+export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
+  const sessions = rowSessions(row)
+  const phase = rowMotionPhase(row)
+  const since = (s: SessionMeta): number => Date.parse(s.agentState?.since ?? s.lastActiveAt)
+  const earliest = (list: SessionMeta[]): SessionMeta | undefined =>
+    list.reduce<SessionMeta | undefined>(
+      (best, s) => (best === undefined || since(s) < since(best) ? s : best),
+      undefined,
+    )
+  if (phase === 'working') {
+    const anchor = earliest(sessions.filter(isSessionWorking))
+    if (anchor) {
+      const base = anchor.agentState?.workingMsTotal
+      return { phase, sinceMs: since(anchor), ...(base !== undefined ? { baseMs: base } : {}) }
+    }
+  }
+  if (phase === 'waiting') {
+    const anchor = earliest(sessions.filter((s) => motionPhase(s) === 'waiting'))
+    if (anchor) return { phase, sinceMs: since(anchor) }
+  }
+  if (phase === 'done') {
+    const totals = sessions
+      .map((s) => s.agentState?.workingMsTotal)
+      .filter((t): t is number => t !== undefined)
+    const sinceMs = sessions.reduce((max, s) => Math.max(max, since(s) || 0), 0)
+    if (totals.length > 0) {
+      return { phase, sinceMs, totalMs: totals.reduce((a, b) => a + b, 0) }
+    }
+    return { phase, sinceMs }
+  }
+  return { phase, sinceMs: row.activityAt }
+}
+
+/**
  * The native CLI command that resumes this session's conversation, for #119
  * (show + copy). Mirrors the canonical builder in
  * `@podium/agent-bridge`'s `agentLaunchCommand` (the single place the daemon

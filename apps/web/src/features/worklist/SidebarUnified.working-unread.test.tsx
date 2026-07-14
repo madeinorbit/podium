@@ -166,10 +166,10 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
 
   it('a currently-working session kept in WORK (pinned issue) is not emphasized', () => {
     render(<SidebarUnified />)
-    // A working pinned issue renders in BOTH WORKING and WORK — neither copy of
-    // its row label is emphasized…
+    // #41: the WORKING mirror is gone — the pinned working issue renders exactly
+    // once, inside its project group, and its label is not emphasized…
     const labels = screen.getAllByText('Pinned working')
-    expect(labels).toHaveLength(2)
+    expect(labels).toHaveLength(1)
     for (const l of labels) expect(l.className).not.toContain('font-medium')
     // …and its working child sessions are muted by the isSessionWorking gate,
     // even though suppressUnread is false on the WORK copy.

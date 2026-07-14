@@ -29,14 +29,13 @@ test('unified sidebar: split-button spawn creates a draft row, wider + dialog', 
   const aside = page.locator('aside').first()
 
   // Unified is THE sidebar now: no layout switcher, no classic Superagent row —
-  // the New-agent split button is the one top action row, and the app nav
-  // (Command center, Issues, Automations) lives right under it.
+  // and since the shell relayout (#40) + sidebar redesign (#41) the app nav
+  // lives in the top bar, NOT the sidebar: the aside is the work list only.
   await expect(aside.getByRole('button', { name: 'unified', exact: true })).toHaveCount(0)
   await expect(aside.getByRole('button', { name: 'classic', exact: true })).toHaveCount(0)
   await expect(aside.getByRole('button', { name: /Superagent/ })).toHaveCount(0)
-  await expect(aside.getByRole('button', { name: /Command center/ })).toBeVisible({
-    timeout: 10_000,
-  })
+  await expect(aside.getByRole('button', { name: /Command center/ })).toHaveCount(0)
+  await expect(aside.getByRole('button', { name: 'Issues', exact: true })).toHaveCount(0)
 
   // ---- The button renders `New <Agent> in <Repo>` once repos load ----
   const splitMain = aside.getByRole('button', { name: /^New .+ in .+/ })
@@ -82,8 +81,9 @@ test('unified sidebar: split-button spawn creates a draft row, wider + dialog', 
     await aside.screenshot({ path: process.env.SIDEBAR_SHOT })
   }
 
-  // ---- `+` opens the (widened) New Issue dialog ----
-  await aside.getByRole('button', { name: 'New issue', exact: true }).click()
+  // ---- "New issue…" (inside the agent/repo menu) opens the widened dialog ----
+  await aside.getByRole('button', { name: 'Choose agent and repo' }).click()
+  await page.getByRole('menuitem', { name: /New issue/ }).click({ timeout: 10_000 })
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'New Issue' })).toBeVisible({
     timeout: 10_000,

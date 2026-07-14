@@ -3,8 +3,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
-// A minimal session shaped like the wire; `phase` drives isSessionWorking.
-function sess(id: string, issueId: string, phase: 'working' | 'idle') {
+// A minimal session shaped like the wire; `phase` drives the row's motion phase.
+function sess(id: string, issueId: string, phase: 'working' | 'idle' | 'question') {
   return {
     sessionId: id,
     agentKind: 'claude-code',
@@ -22,7 +22,11 @@ function sess(id: string, issueId: string, phase: 'working' | 'idle') {
     issueId,
     busy: false,
     agentState:
-      phase === 'working' ? { phase: 'working' } : { phase: 'idle', idle: { kind: 'done' } },
+      phase === 'working'
+        ? { phase: 'working', since: '2026-07-06T12:00:00.000Z' }
+        : phase === 'question'
+          ? { phase: 'idle', idle: { kind: 'question' }, since: '2026-07-06T12:00:00.000Z' }
+          : { phase: 'idle', idle: { kind: 'done' } },
   }
 }
 
@@ -70,9 +74,9 @@ vi.mock('@/app/store', () => {
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [
-      sess('s-work', 'fully', 'working'), // fully-working issue → WORKING
-      sess('s-run', 'partial', 'working'), // partial: lifted to WORKING
-      sess('s-idle', 'partial', 'idle'), // partial: stays in WORK
+      sess('s-work', 'fully', 'working'), // fully-working issue → spinner row
+      sess('s-run', 'partial', 'working'), // partial: working…
+      sess('s-ask', 'partial', 'question'), // …but a question waits → amber row
     ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
@@ -113,23 +117,34 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 
 afterEach(cleanup)
 
-describe('SidebarUnified WORKING move-out', () => {
-  it('renders a WORKING section holding the fully-working issue and the lifted session', () => {
+describe('SidebarUnified per-row working grammar (#41)', () => {
+  it('replaces the WORKING section with project groups carrying per-row state', () => {
     render(<SidebarUnified />)
-    // The WORKING section header renders (a fully-working issue + a lifted session).
-    const workingHeader = screen.getByRole('button', { name: /Collapse WORKING|Expand WORKING/ })
-    expect(workingHeader).toBeTruthy()
-    // The fully-working issue moved into the sidebar; the partial one stays too.
-    expect(screen.getByText('Fully working issue')).toBeTruthy()
-    expect(screen.getByText('Partly working issue')).toBeTruthy()
+    // No WORKING/WORK section headers — one project group holds every row.
+    expect(screen.queryByText('WORKING')).toBeNull()
+    expect(screen.queryByText('WORK')).toBeNull()
+    const groups = screen.getAllByTestId('project-group-label')
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.textContent).toBe('repo')
+    // Both issues render exactly once, inside the group.
+    expect(screen.getAllByText('Fully working issue')).toHaveLength(1)
+    expect(screen.getAllByText('Partly working issue')).toHaveLength(1)
   })
 
-  it('keeps the partially-working issue in WORK, not WORKING', () => {
+  it('working rows show the braille spinner + timer; waiting rows the amber pill', () => {
     render(<SidebarUnified />)
-    // WORK header is present alongside WORKING (partial issue lives there).
-    expect(screen.getByText('WORK')).toBeTruthy()
-    // The idle child session of the partial issue is what keeps it in WORK — the
-    // partial issue title renders exactly once (one row, not duplicated).
-    expect(screen.getAllByText('Partly working issue')).toHaveLength(1)
+    const workingRow = screen
+      .getByText('Fully working issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    // The fully-working issue wears the working phase: spinner + counting timer.
+    expect(workingRow.querySelector('[data-phase="working"]')).toBeTruthy()
+    expect(workingRow.querySelector('.spb')).toBeTruthy()
+    // The partially-working issue has a question waiting → the row reads
+    // waiting (stillness) with the amber count pill, working elsewhere or not.
+    const waitingRow = screen
+      .getByText('Partly working issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    expect(waitingRow.querySelector('[data-phase="waiting"]')).toBeTruthy()
+    expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
   })
 })

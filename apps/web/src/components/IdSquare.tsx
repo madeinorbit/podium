@@ -4,12 +4,21 @@ import type { CSSProperties, JSX } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { StatusBadge } from '@/lib/motion'
+import { StatusBadge, type StatusBadgeKind } from '@/lib/motion'
 
 const PANEL_WIDTH = 196
 const PANEL_GUTTER = 8
 
-export type IdSquareState = 'working' | 'queued' | 'idle'
+/** The square language's states: `working`/`waiting`/`done` wear the solid
+ *  grey border (live work), `queued`/`idle` the dashed dimmed resting look. */
+export type IdSquareState = 'working' | 'waiting' | 'done' | 'queued' | 'idle'
+
+/** Corner badge composed onto the square (rail + selected rows): the motion
+ *  grammar's StatusBadge. `count` is required for the amber numbered pill. */
+export interface IdSquareBadge {
+  kind: StatusBadgeKind
+  count?: number
+}
 
 export type IdSquareLabel = {
   prefix: string
@@ -46,13 +55,25 @@ export function IdSquare({
   issue,
   state,
   selected = false,
-  showSpinner = false,
+  badge = null,
+  ringColor = '#16161c',
+  titleHint,
+  onPrimary,
   onColorChange,
 }: {
   issue: IssueWire
   state: IdSquareState
   selected?: boolean
-  showSpinner?: boolean
+  /** Corner status badge (waiting dot/count, working spinner, done check). */
+  badge?: IdSquareBadge | null
+  /** The surface the corner badge punches out of (sidebar vs rail background). */
+  ringColor?: string
+  /** Tooltip override — the rail packs the row's lost text in here. */
+  titleHint?: string
+  /** Rail semantics (#41): when set, clicking an UNSELECTED square calls this
+   *  (select the issue) and only a click on the already-selected square opens
+   *  the colour picker. Without it every click opens the picker (wide rows). */
+  onPrimary?: () => void
   onColorChange: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -137,7 +158,7 @@ export function IdSquare({
   }
 
   const hex = displayColor ? ISSUE_COLOR_HEX[displayColor] : undefined
-  const resting = state !== 'working'
+  const resting = state === 'queued' || state === 'idle'
   const border = hex
     ? '1px solid transparent'
     : selected
@@ -175,24 +196,33 @@ export function IdSquare({
         data-color={displayColor ?? 'none'}
         data-state={state}
         data-selected={selected ? 'true' : 'false'}
-        data-spinner={showSpinner ? 'true' : 'false'}
+        data-badge={badge?.kind ?? 'none'}
         data-prefix={label.prefix}
         data-number={label.number}
         className="phase-surface relative flex flex-none cursor-pointer flex-col items-center justify-center rounded-[7px] font-mono text-[6.5px] leading-[1.3] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[#f3f3f8]"
         style={squareStyle}
-        aria-label={`Set colour for issue ${label.full}`}
+        aria-label={
+          onPrimary && !selected ? `Open issue ${label.full}` : `Set colour for issue ${label.full}`
+        }
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-busy={saving}
-        title={`${label.full} · ${issue.title} · ${displayColor ? colorName(displayColor) : 'No colour'}`}
+        title={
+          titleHint ??
+          `${label.full} · ${issue.title} · ${displayColor ? colorName(displayColor) : 'No colour'}`
+        }
         onClick={(event) => {
           event.stopPropagation()
+          if (onPrimary && !selected) {
+            onPrimary()
+            return
+          }
           setOpen((value) => !value)
         }}
       >
         <span>{label.prefix}</span>
         <span>{label.number}</span>
-        <StatusBadge kind={showSpinner ? 'spinner' : null} ringColor="#16161c" />
+        {badge && <StatusBadge kind={badge.kind} count={badge.count} ringColor={ringColor} />}
       </button>
       {open &&
         createPortal(
