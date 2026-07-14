@@ -115,9 +115,14 @@ describe('issues.* subtree scope (P1a)', () => {
     )
   })
 
-  it('setNeedsHuman accepts structured options + askedBy (issue #53)', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
-    const w = (await c.issues.setNeedsHuman({
+  it('setNeedsHuman accepts structured options; operator may attribute askedBy (issue #53)', async () => {
+    const op = appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+    })
+    const w = (await op.issues.setNeedsHuman({
       id: A.id,
       question: 'merge?',
       options: ['Yes', 'No'],
@@ -127,12 +132,44 @@ describe('issues.* subtree scope (P1a)', () => {
     expect(w.humanQuestionAskedBy).toBe('sess_asker')
   })
 
+  it('askedBy is server-authoritative for agents: own session only (issue #53 review)', async () => {
+    const worker = (actorSessionId: string) =>
+      callerWith({
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: A.id },
+        actorSessionId,
+      })
+    // Spoof: a subtree worker pointing askedBy at an unrelated session is refused
+    // outright — otherwise the human's later chip answer would be injected there.
+    await expect(
+      worker('sess_me').issues.setNeedsHuman({ id: A.id, question: 'q', askedBy: 'sess_victim' }),
+    ).rejects.toThrow(/askedBy is server-authoritative/)
+    // Legit: explicit own session, or omitted (defaults to the actor session).
+    const own = (await worker('sess_me').issues.setNeedsHuman({
+      id: A.id,
+      question: 'q',
+      askedBy: 'sess_me',
+    })) as { humanQuestionAskedBy?: string }
+    expect(own.humanQuestionAskedBy).toBe('sess_me')
+    const defaulted = (await worker('sess_me').issues.setNeedsHuman({
+      id: A.id,
+      question: 'q2',
+    })) as { humanQuestionAskedBy?: string }
+    expect(defaulted.humanQuestionAskedBy).toBe('sess_me')
+  })
+
   it('answerQuestion is scope-gated and never clears on failed delivery (issue #53)', async () => {
-    const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: A.id } })
+    const c = callerWith({
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: A.id },
+      actorSessionId: 'sess_gone',
+    })
     await expect(c.issues.answerQuestion({ id: B.id, answer: 'Yes' })).rejects.toThrow(
       /outside your subtree/,
     )
-    await c.issues.setNeedsHuman({ id: A.id, question: 'merge?', askedBy: 'sess_gone' })
+    // Asks as itself (server-authoritative default); that session isn't live in
+    // this registry, so delivery below must fail and preserve the flag.
+    await c.issues.setNeedsHuman({ id: A.id, question: 'merge?' })
     // The asking session doesn't exist in this registry → delivery fails →
     // the pending question must survive.
     await expect(c.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(

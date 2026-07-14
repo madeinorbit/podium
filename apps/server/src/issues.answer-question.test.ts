@@ -55,8 +55,8 @@ function harness(
       ...(opts.actorSessionId ? { actorSessionId: opts.actorSessionId } : {}),
     },
   }
-  const call = (proc: string, input: unknown) => {
-    const p = dispatcher.dispatch(caller, 'issues', proc, input)
+  const call = (proc: string, input: unknown, asCaller = caller) => {
+    const p = dispatcher.dispatch(asCaller, 'issues', proc, input)
     if (!p) throw new Error(`no such proc ${proc}`)
     return p
   }
@@ -127,8 +127,39 @@ describe('issues.answerQuestion (issue #53)', () => {
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?' })
     expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_self')
-    // An explicit askedBy wins over the caller's own session.
+    // The OPERATOR may attribute explicitly (superagent-on-behalf, hub-side
+    // execution of node-forwarded mutations) — see the deputy gate below for
+    // why constrained agents may not.
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_other' })
     expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_other')
+  })
+
+  it('rejects a spoofed askedBy from a constrained agent (issue #53 review)', async () => {
+    const { svc, call } = harness(undefined)
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const worker = {
+      capability: {
+        role: 'worker' as const,
+        scope: { kind: 'subtree' as const, rootId: a.id },
+        actorSessionId: 'sess_me',
+      },
+    }
+    // Pointing askedBy at another session (in-subtree write, so the scope gate
+    // alone would allow it) is refused: answerQuestion would later deliver the
+    // human's answer INTO that session.
+    await expect(
+      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: 'sess_victim' }, worker),
+    ).rejects.toThrow(/askedBy is server-authoritative/)
+    expect(svc.get(a.id)!.needsHuman).toBe(false) // nothing was flagged
+    // Own session passes, explicitly or by default.
+    await call('setNeedsHuman', { id: a.id, question: 'q', askedBy: 'sess_me' }, worker)
+    expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_me')
+    // A session-less constrained caller cannot smuggle an attribution either.
+    const sessionless = {
+      capability: { role: 'worker' as const, scope: { kind: 'subtree' as const, rootId: a.id } },
+    }
+    await expect(
+      call('setNeedsHuman', { id: a.id, question: 'q', askedBy: 'sess_victim' }, sessionless),
+    ).rejects.toThrow(/askedBy is server-authoritative/)
   })
 })

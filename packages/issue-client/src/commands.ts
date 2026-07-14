@@ -803,7 +803,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     summary:
       'Flag an issue as needing a human decision: needs-human <id> [--question "…"] ' +
       '[--options "Yes|No|Later"] [--asked-by <sessionId>]. Options are |-separated ' +
-      'suggested answers the web tray renders as chips; asked-by defaults to your own session.',
+      'suggested answers the web tray renders as chips. asked-by defaults to your own ' +
+      'session and is server-authoritative: agents may not attribute to another session ' +
+      '(operator-only).',
     args: z.strictObject({
       id: idArg,
       question: z.string().optional(),
