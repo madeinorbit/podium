@@ -1,30 +1,16 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { AgentKind, TranscriptItem } from '@podium/protocol'
-import {
-  ArrowUpRight,
-  ChevronDown,
-  Eraser,
-  Mic,
-  PanelRightClose,
-  Send,
-  SquareTerminal,
-} from 'lucide-react'
+import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CardBoundary } from '@/app/CardBoundary'
-import { type Store, useStoreSelector } from '@/app/store'
-import { IdSquare } from '@/components/IdSquare'
+import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
-import { mergeByCursor } from '@/features/chat/chat'
 import { BlockCaret } from '@/lib/BlockCaret'
-import { agentBadge, panelLabel, reposToViews, sessionDotClass } from '@/lib/derive'
-import { renderMarkdown } from '@/lib/markdown'
+import { reposToViews } from '@/lib/derive'
 import { useConversationSearch } from '@/lib/useConversationSearch'
 import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
-import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   readSectionOpen,
   readTrayHeight,
@@ -41,16 +27,6 @@ import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'
 import { useIssueEvents } from './useIssueEvents'
-
-interface SuperMessage {
-  id: number
-  role: 'user' | 'assistant' | 'tool' | 'system'
-  content: string
-  toolCalls?: { id: string; name: string; arguments: string }[]
-  toolCallId?: string
-  toolName?: string
-  createdAt: string
-}
 
 interface SuperThread {
   id: string
@@ -124,8 +100,6 @@ export function SuperagentView({
     shallowEqual,
   )
   const [threads, setThreads] = useState<SuperThread[]>([])
-  const [legacy, setLegacy] = useState<SuperMessage[]>([])
-  const [legacyOpen, setLegacyOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pendingDraft, setPendingDraft] = useState('')
   const thread = threads.find((t) => t.id === THREAD_ID)
@@ -181,19 +155,6 @@ export function SuperagentView({
       .then((t) => setThreads(t as SuperThread[]))
       .catch(() => {})
 
-  // Legacy buffered history (read-only): pre-headless SuperMessage[] rows on the
-  // global thread keep rendering as a collapsed block.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch after seeding/clear
-  useEffect(() => {
-    setLegacy([])
-    setLegacyOpen(false)
-    setError(null)
-    trpc.superagent.history
-      .query({ threadId: THREAD_ID })
-      .then((h) => setLegacy(h as SuperMessage[]))
-      .catch(() => {})
-  }, [trpc, superRefreshKey])
-
   // biome-ignore lint/correctness/useExhaustiveDependencies: refetch after seeding
   useEffect(() => {
     void refreshThreads()
@@ -248,7 +209,6 @@ export function SuperagentView({
       setError(e instanceof Error ? e.message : String(e))
       return
     }
-    setLegacy([])
     void refreshThreads()
   }
 
@@ -309,23 +269,6 @@ export function SuperagentView({
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
     },
   }
-
-  const ctxBadge = selectedIssue ? (
-    <div
-      data-testid="ctx-badge"
-      className="flex items-center gap-2 pb-1.5 font-mono text-[9.5px] text-text-dim"
-    >
-      <span className="tracking-[.12em] text-text-faint">CTX</span>
-      <IdSquare
-        issue={selectedIssue}
-        state="idle"
-        onColorChange={(color) =>
-          trpc.issues.update.mutate({ id: selectedIssue.id, patch: { color } })
-        }
-      />
-      <span className="truncate">answering with #{selectedIssue.seq} context</span>
-    </div>
-  ) : null
 
   return (
     <section ref={sectionRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -435,33 +378,6 @@ export function SuperagentView({
             dividerTs={feed.dividerTs}
             onSelectIssue={(issueId) => setSelectedIssueId(issueId)}
           />
-          {legacy.length > 0 && (
-            <div className="flex-none border-b border-hairline-soft px-[18px] py-2">
-              <button
-                type="button"
-                className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setLegacyOpen((v) => !v)}
-                aria-expanded={legacyOpen}
-              >
-                <span className="flex-none text-[10px] text-muted-foreground/70">
-                  {legacyOpen ? '▾' : '▸'}
-                </span>
-                <span className="flex-none text-xs font-semibold">Earlier conversation</span>
-                <span className="text-[11px] text-muted-foreground/70">
-                  {legacy.length} message{legacy.length === 1 ? '' : 's'}
-                </span>
-              </button>
-              {legacyOpen && (
-                <div className="mt-2 flex max-h-[40vh] flex-col gap-2.5 overflow-y-auto">
-                  {legacy.map((m) => (
-                    <CardBoundary key={m.id} resetKey={String(m.id)} label="superagent message">
-                      <SuperMessageView message={m} />
-                    </CardBoundary>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
           {podiumSessionId ? (
             <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
               <ChatView
@@ -469,7 +385,6 @@ export function SuperagentView({
                 active
                 superThread={{ threadId: THREAD_ID, kind: 'global' }}
                 compact
-                ctxBadge={ctxBadge}
               />
             </div>
           ) : (
@@ -478,7 +393,6 @@ export function SuperagentView({
                 key={pendingDraft || THREAD_ID}
                 threadId={THREAD_ID}
                 initialDraft={pendingDraft}
-                ctxBadge={ctxBadge}
                 onError={setError}
                 onSent={() => void refreshThreads()}
               />
@@ -500,13 +414,11 @@ export function SuperagentView({
 function FreshThreadComposer({
   threadId,
   initialDraft = '',
-  ctxBadge,
   onError,
   onSent,
 }: {
   threadId: string
   initialDraft?: string
-  ctxBadge?: JSX.Element | null
   onError: (message: string | null) => void
   onSent: () => void
 }): JSX.Element {
@@ -630,7 +542,6 @@ function FreshThreadComposer({
         )}
       </div>
       <div className="flex-none border-t border-hairline-soft px-3.5 pt-2.5 pb-[calc(10px+env(safe-area-inset-bottom,0px))] font-mono">
-        {ctxBadge}
         <div className="relative flex items-end gap-2 rounded-lg border border-[#3a3a46] bg-[rgba(8,8,12,.7)] px-3 py-1.5 transition-colors focus-within:border-primary">
           {atQuery !== null && atHits.length > 0 && (
             <div
@@ -742,237 +653,5 @@ function FreshThreadComposer({
         </div>
       </div>
     </>
-  )
-}
-
-/** A worker session the superagent spawned (`start_agent` result): a live,
- *  clickable card — one click opens it in the workspace, and "Follow" expands a
- *  live transcript tail so you can watch progress without leaving the chat.
- *  Retained for LEGACY history rendering; new-path start_agent results render
- *  through ChatView's normal tool rendering. */
-function SpawnedAgentCard({
-  sessionId,
-  cwd,
-  agentKind,
-}: {
-  sessionId: string
-  cwd: string
-  agentKind: AgentKind
-}): JSX.Element {
-  const { sessions, setPane, setSelectedWorktree, setView, hub } = useStoreSelector(
-    (s) => ({
-      sessions: s.sessions,
-      setPane: s.setPane,
-      setSelectedWorktree: s.setSelectedWorktree,
-      setView: s.setView,
-      hub: s.hub,
-    }),
-    shallowEqual,
-  )
-  const [following, setFollowing] = useState(false)
-  const session = sessions.find((s) => s.sessionId === sessionId)
-  const status = session ? (agentBadge(session)?.label ?? session.status) : 'starting…'
-  const open = () => {
-    setSelectedWorktree(cwd)
-    setPane('A', sessionId)
-    setView('workspace')
-  }
-  return (
-    <div className="mx-auto w-full max-w-[960px] overflow-hidden rounded-[10px] border border-border bg-background">
-      <div className="flex items-center gap-2 px-3 py-2">
-        {session ? (
-          <span className={sessionDotClass(session)} />
-        ) : (
-          <span className="inline-block size-2 min-w-2 flex-none animate-pulse rounded-full bg-blue-500" />
-        )}
-        <KindIcon
-          kind={agentKind}
-          dimmed={session?.status === 'hibernated' || session?.status === 'exited'}
-        />
-        <button
-          type="button"
-          onClick={open}
-          className="min-w-0 flex-1 truncate text-left text-[13px] font-medium text-foreground hover:text-primary"
-          title={session ? sessionDisplayName(session) : sessionId}
-        >
-          {session ? sessionDisplayName(session) : `${panelLabel(agentKind)} agent`}
-        </button>
-        <span className="flex-none text-[11px] text-muted-foreground">{status}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="flex-none"
-          onClick={() => setFollowing((v) => !v)}
-        >
-          {following ? 'Hide' : 'Follow'}
-        </Button>
-        <Button type="button" variant="outline" size="sm" className="flex-none" onClick={open}>
-          Open <ArrowUpRight size={12} aria-hidden="true" />
-        </Button>
-      </div>
-      {following && <SpawnedFollow sessionId={sessionId} hub={hub} />}
-    </div>
-  )
-}
-
-/** Inline live transcript tail for a spawned worker — the last few items, kept
- *  scrolled to the newest, so you can follow what it's doing within the chat. */
-export function SpawnedFollow({
-  sessionId,
-  hub,
-}: {
-  sessionId: string
-  hub: Store['hub']
-}): JSX.Element {
-  const [items, setItems] = useState<TranscriptItem[]>([])
-  const endRef = useRef<HTMLDivElement | null>(null)
-  // Live tail only (no initial read — this inline follow just shows the last few
-  // items as they stream). The hub now forwards per-frame DELTAS, so accumulate
-  // them; a reset (file roll / reattach re-seed) clears the local buffer.
-  useEffect(() => {
-    setItems([])
-    return hub.subscribeTranscript(sessionId, undefined, (delta, meta) => {
-      setItems((prev) => (meta.reset ? delta : mergeByCursor(prev, delta)))
-    })
-  }, [hub, sessionId])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the tail
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [items.length])
-  const tail = items.slice(-8)
-  return (
-    <div className="max-h-[220px] overflow-auto border-t border-border bg-card/40 px-3 py-2 text-[11px] leading-relaxed">
-      {tail.length === 0 ? (
-        <span className="text-muted-foreground/70">No transcript yet…</span>
-      ) : (
-        tail.map((it) => (
-          <div key={it.id} className="min-w-0 truncate">
-            <span className="text-muted-foreground/60">
-              {it.role === 'tool' ? '⚙' : it.role === 'user' ? '›' : '·'}{' '}
-            </span>
-            <span className={it.role === 'user' ? 'text-foreground' : 'text-muted-foreground'}>
-              {it.text?.slice(0, 160) || it.toolName || ''}
-            </span>
-          </div>
-        ))
-      )}
-      <div ref={endRef} />
-    </div>
-  )
-}
-
-/** Read-only renderer for one LEGACY buffered message (the pre-headless
- *  SuperMessage rows). New turns render through the embedded ChatView. */
-function SuperMessageView({ message }: { message: SuperMessage }): JSX.Element | null {
-  const [open, setOpen] = useState(false)
-  // A spawned worker session — render it as a live, openable card instead of a
-  // raw JSON tool result.
-  if (message.role === 'tool' && message.toolName === 'start_agent') {
-    try {
-      const parsed = JSON.parse(message.content) as {
-        sessionId?: string
-        cwd?: string
-        agentKind?: string
-      }
-      if (parsed.sessionId) {
-        return (
-          <SpawnedAgentCard
-            sessionId={parsed.sessionId}
-            cwd={parsed.cwd ?? ''}
-            agentKind={(parsed.agentKind as AgentKind) ?? 'claude-code'}
-          />
-        )
-      }
-    } catch {
-      // malformed result — fall through to the generic tool row
-    }
-  }
-  if (message.role === 'tool') {
-    return (
-      <div className="mx-auto w-full max-w-[960px]">
-        <button
-          type="button"
-          className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span className="flex-none text-[10px] text-muted-foreground/70">{open ? '▾' : '▸'}</span>
-          <span className="flex-none text-xs font-semibold text-foreground">
-            {message.toolName ?? 'tool'}
-          </span>
-          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] text-muted-foreground/70">
-            result
-          </span>
-        </button>
-        {open && (
-          <pre className="mt-1 mr-0 mb-1 ml-[17px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
-            {message.content}
-          </pre>
-        )}
-      </div>
-    )
-  }
-  if (message.role === 'system') return null
-  // The btw/concierge seed / re-open delta are persisted as user messages so the
-  // agent sees them, but they're machine-authored context — collapse them instead
-  // of showing a giant "You" bubble.
-  if (message.role === 'user' && /^\[(BTW|CONCIERGE) (CONTEXT|UPDATE)/.test(message.content)) {
-    const label = /^\[(BTW|CONCIERGE) UPDATE/.test(message.content)
-      ? message.content.startsWith('[CONCIERGE')
-        ? 'repo update'
-        : 'session update'
-      : message.content.startsWith('[CONCIERGE')
-        ? 'repo context'
-        : 'session context'
-    return (
-      <div className="mx-auto w-full max-w-[960px]">
-        <button
-          type="button"
-          className="flex w-full min-w-0 cursor-pointer items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span className="flex-none text-[10px] text-muted-foreground/70">{open ? '▾' : '▸'}</span>
-          <span className="flex-none text-xs font-semibold text-foreground">{label}</span>
-        </button>
-        {open && (
-          <pre className="mt-1 mr-0 mb-1 ml-[17px] max-h-[280px] overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
-            {message.content}
-          </pre>
-        )}
-      </div>
-    )
-  }
-  return (
-    <div
-      className={cn(
-        'mx-auto w-full max-w-[960px]',
-        message.role === 'user' && 'rounded-[10px] border border-border bg-secondary px-3.5 py-2.5',
-      )}
-    >
-      {message.role === 'user' && (
-        <div className="mb-[3px] text-[10px] uppercase tracking-[0.07em] text-muted-foreground/70">
-          You
-        </div>
-      )}
-      {message.content && (
-        <div
-          className="chat-md"
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-        />
-      )}
-      {message.toolCalls && message.toolCalls.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {message.toolCalls.map((c) => (
-            <span
-              key={c.id}
-              className="rounded-sm border border-input px-[7px] py-px text-[11px] text-muted-foreground"
-            >
-              ⚙ {c.name}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
   )
 }

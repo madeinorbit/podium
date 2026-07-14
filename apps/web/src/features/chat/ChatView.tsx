@@ -16,7 +16,7 @@ import {
   Square,
   X,
 } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import type { JSX } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -75,7 +75,6 @@ export function ChatView({
   active = true,
   superThread,
   compact = false,
-  ctxBadge,
 }: {
   sessionId: string
   /** False when this panel is mounted but hidden (keep-mounted deck). On
@@ -84,11 +83,9 @@ export function ChatView({
   /** Present when this ChatView is embedded in the superagent panel over a
    *  HEADLESS session — routes sends through the superagent turn mutations. */
   superThread?: SuperThreadRef
-  /** Narrow-dock mode (the superagent side panel): hides the minimap + tl;dr. */
+  /** Narrow-dock mode (the superagent side panel): hides the search header,
+   *  minimap + tl;dr. */
   compact?: boolean
-  /** Superagent CTX row (issue #42): rendered above the composer so the sender
-   *  sees which issue context rides the next turn's focus payload. */
-  ctxBadge?: ReactNode
 }): JSX.Element {
   const {
     hub,
@@ -736,50 +733,51 @@ export function ChatView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
-        <Input
-          type="text"
-          placeholder="Search transcript…"
-          className="h-auto flex-1 rounded-md bg-background px-2.5 py-1 text-xs text-foreground"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value)
-            setMatchCursor(0)
-          }}
-        />
-        {query && (
-          <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] text-muted-foreground">
-            {matches.length === 0
-              ? '0'
-              : `${(matchCursor % Math.max(1, matches.length)) + 1}/${matches.length}`}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              title="Previous match"
-              className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
-              onClick={() =>
-                setMatchCursor((c) => (c - 1 + matches.length) % Math.max(1, matches.length))
-              }
-            >
-              <ChevronUp size={13} aria-hidden="true" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              title="Next match"
-              className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
-              onClick={() => setMatchCursor((c) => (c + 1) % Math.max(1, matches.length))}
-            >
-              <ChevronDown size={13} aria-hidden="true" />
-            </Button>
-          </span>
-        )}
-        {/* tl;dr — open this session's BTW superagent thread and ask for a concise
-            summary of the agent's last answer (seeded with the answer + context).
-            Hidden in the compact superagent dock (that IS the superagent). */}
-        {!compact && (
+      {/* Search + tl;dr header — hidden in the compact superagent dock
+          (engraved-column.md §2.5: bar → feed → composer, no extra chrome). */}
+      {!compact && (
+        <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5">
+          <Input
+            type="text"
+            placeholder="Search transcript…"
+            className="h-auto flex-1 rounded-md bg-background px-2.5 py-1 text-xs text-foreground"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setMatchCursor(0)
+            }}
+          />
+          {query && (
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap text-[11px] text-muted-foreground">
+              {matches.length === 0
+                ? '0'
+                : `${(matchCursor % Math.max(1, matches.length)) + 1}/${matches.length}`}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                title="Previous match"
+                className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                onClick={() =>
+                  setMatchCursor((c) => (c - 1 + matches.length) % Math.max(1, matches.length))
+                }
+              >
+                <ChevronUp size={13} aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                title="Next match"
+                className="size-auto rounded-none p-0.5 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                onClick={() => setMatchCursor((c) => (c + 1) % Math.max(1, matches.length))}
+              >
+                <ChevronDown size={13} aria-hidden="true" />
+              </Button>
+            </span>
+          )}
+          {/* tl;dr — open this session's BTW superagent thread and ask for a concise
+            summary of the agent's last answer (seeded with the answer + context). */}
           <Button
             type="button"
             variant="ghost"
@@ -791,8 +789,8 @@ export function ChatView({
           >
             <ScrollText size={13} aria-hidden="true" /> tl;dr
           </Button>
-        )}
-      </div>
+        </div>
+      )}
       <div className="relative flex min-h-0 flex-1">
         {/* Sticky last-user prompt: stays pinned at the top while reading the
             answer once it has scrolled out the top of the view. Click to jump. */}
@@ -1046,7 +1044,6 @@ export function ChatView({
             offline copy — as of {new Date(offlineAsOf).toLocaleString()}
           </div>
         )}
-        {ctxBadge}
         <div
           className={cn(
             'relative flex flex-col gap-0.5 border bg-background focus-within:border-primary',

@@ -1,4 +1,3 @@
-import type { TranscriptItem } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,20 +6,17 @@ import { makeIssue } from '@/lib/test-issue'
 // ---------------------------------------------------------------------------
 // The engraved column's content contract (issue #42): Tray (ONLY items needing
 // a human) above the single overarching Super agent chat, each section
-// collapsing to its bar with persisted state. Plus the delta-accumulation pin
-// of <SpawnedFollow> (the inline live-tail for spawned workers).
+// collapsing to its bar with persisted state. Preview correction #66: the
+// legacy transcript chrome (Search transcript / Earlier conversation) and the
+// CTX badge above the composer must never render.
 //
 // markdown/voice touch browser APIs that are flaky under happy-dom, and store
 // has module-load deps — stub them the same way ChatView.test.tsx does so the
 // import of ./SuperagentView is side-effect-free.
 // ---------------------------------------------------------------------------
 
-type DeltaCb = (items: TranscriptItem[], meta: { reset: boolean }) => void
-
 const fakeHub = {
-  subscribes: [] as Array<{ sessionId: string; since: string | undefined; cb: DeltaCb }>,
-  subscribeTranscript(sessionId: string, since: string | undefined, cb: DeltaCb): () => void {
-    this.subscribes.push({ sessionId, since, cb })
+  subscribeTranscript(): () => void {
     return () => {}
   },
   subscribeHeadless(): () => void {
@@ -48,7 +44,6 @@ const setView = vi.fn()
 const setSessionDraft = vi.fn()
 const fakeTrpc = {
   superagent: {
-    history: { query: vi.fn(async () => []) },
     listThreads: { query: vi.fn(async () => superagentThreads) },
     sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
@@ -92,17 +87,12 @@ vi.mock('@/lib/voice', () => ({
 }))
 vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
 
-const { SpawnedFollow, SuperagentView } = await import('./SuperagentView')
-
-function item(id: string, cursor: string, text: string): TranscriptItem {
-  return { id, cursor, role: 'assistant', text }
-}
+const { SuperagentView } = await import('./SuperagentView')
 
 let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  fakeHub.subscribes.length = 0
   isMobile = false
   storeSessions = []
   storeIssues = []
@@ -282,59 +272,39 @@ describe('Open in terminal', () => {
   })
 })
 
-describe('SpawnedFollow delta accumulation', () => {
-  it('ACCUMULATES items across two non-reset delta frames (second does not replace first)', () => {
-    act(() => {
-      root.render(<SpawnedFollow sessionId="s1" hub={fakeHub as never} />)
+describe('legacy chrome stays gone (#66 preview correction)', () => {
+  it('renders NO CTX badge above the composer even with an issue selected — the focus payload still rides the turn', async () => {
+    storeIssues = [makeIssue({ id: 'p', seq: 35, title: 'Parent epic' })]
+    storeSelectedIssueId = 'p'
+    await mount()
+    expect(container.querySelector('[data-testid="ctx-badge"]')).toBeNull()
+    expect(container.textContent).not.toContain('CTX')
+    expect(container.textContent).not.toContain('answering with')
+    // The context CAPABILITY is intact: sending a turn still carries the focus payload.
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    await act(async () => {
+      if (!textarea) return
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )?.set
+      setter?.call(textarea, 'hello')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    expect(fakeHub.subscribes).toHaveLength(1)
-    expect(fakeHub.subscribes[0]).toMatchObject({ sessionId: 's1' })
-    const cb = fakeHub.subscribes[0]?.cb
-    // Frame 1: one item.
-    act(() => {
-      cb?.([item('a', 'c1', 'first frame line')], { reset: false })
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    await act(async () => {
+      container.querySelector('textarea')?.dispatchEvent(enter)
+      await Promise.resolve()
     })
-    expect(container.textContent).toContain('first frame line')
-    // Frame 2: a SECOND delta. The regression ("delta = full list") would render
-    // only this frame and drop the first — assert BOTH are present.
-    act(() => {
-      cb?.([item('b', 'c2', 'second frame line')], { reset: false })
-    })
-    expect(container.textContent).toContain('first frame line')
-    expect(container.textContent).toContain('second frame line')
+    expect(fakeTrpc.superagent.sendTurn.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'hello', focus: { view: 'workspace' } }),
+    )
   })
 
-  it('a reset frame REPLACES the buffer — only the reset frame content remains', () => {
-    act(() => {
-      root.render(<SpawnedFollow sessionId="s1" hub={fakeHub as never} />)
-    })
-    const cb = fakeHub.subscribes[0]?.cb
-    act(() => {
-      cb?.([item('a', 'c1', 'old content')], { reset: false })
-    })
-    expect(container.textContent).toContain('old content')
-    // A reset (file roll / reattach re-seed) clears the local buffer.
-    act(() => {
-      cb?.([item('z', 'c9', 'fresh content')], { reset: true })
-    })
-    expect(container.textContent).toContain('fresh content')
-    expect(container.textContent).not.toContain('old content')
-  })
-
-  it('dedupes a delta item already held (live repeats the tail) — no duplicate row', () => {
-    act(() => {
-      root.render(<SpawnedFollow sessionId="s1" hub={fakeHub as never} />)
-    })
-    const cb = fakeHub.subscribes[0]?.cb
-    act(() => {
-      cb?.([item('a', 'c1', 'alpha')], { reset: false })
-    })
-    // Overlapping delta: repeats c1 plus a genuinely new c2.
-    act(() => {
-      cb?.([item('a', 'c1', 'alpha'), item('b', 'c2', 'bravo')], { reset: false })
-    })
-    expect(container.textContent).toContain('bravo')
-    const occurrences = (container.textContent?.split('alpha').length ?? 0) - 1
-    expect(occurrences).toBe(1)
+  it('renders NO "Earlier conversation" block and NO transcript search input', async () => {
+    await mount()
+    expect(container.textContent).not.toContain('Earlier conversation')
+    expect(container.querySelector('input[placeholder="Search transcript…"]')).toBeNull()
   })
 })
