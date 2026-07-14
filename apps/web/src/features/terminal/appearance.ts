@@ -7,6 +7,7 @@ import {
   DEFAULT_THEME,
   type TerminalAppearance,
 } from '@podium/terminal-client/terminal-view'
+import { FLOW_SLATE } from '@/lib/issueColors'
 /**
  * Per-device terminal appearance (font size/family, line height, background)
  * for native agent/shell panels. Persisted as ONE JSON blob in the ui-state
@@ -73,6 +74,36 @@ export function parseTerminalAppearance(raw: string | null): TerminalAppearanceS
  * A custom background merges over the full default palette (cursorAccent tracks
  * the background — it's the "knockout" color drawn inside the bar cursor).
  */
+/** Flat sRGB mix of `color` into `base` at pct% — the JS twin of the CSS
+ *  `color-mix(in srgb, C pct%, base)` the pane chrome uses, for surfaces that
+ *  need a literal colour (the xterm theme can't evaluate color-mix()). */
+export function mixHex(color: string, base: string, pct: number): string {
+  const ch = (hex: string, i: number) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16)
+  const mix = (i: number) =>
+    Math.round((ch(color, i) * pct + ch(base, i) * (100 - pct)) / 100)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${mix(0)}${mix(1)}${mix(2)}`
+}
+
+/**
+ * The issue-tinted terminal background (native-pane spec §2.5): the terminal
+ * floats on the pane's tinted surface instead of a flat black box. 12% of the
+ * issue colour over the terminal base for a coloured issue, 9% slate for the
+ * neutral flow. A user-set custom background wins over the tint (Q6) — callers
+ * skip this entirely when `settings.background` is set.
+ */
+export function paneTintedBackground(issueHex: string | undefined): string {
+  return mixHex(issueHex ?? FLOW_SLATE, TERMINAL_DEFAULTS.background, issueHex ? 12 : 9)
+}
+
+/** Merge a computed background (the pane tint) into an appearance that has no
+ *  user-set background of its own. cursorAccent tracks the background — it's
+ *  the knockout colour inside the bar cursor. */
+export function withBackground(a: TerminalAppearance, background: string): TerminalAppearance {
+  return { ...a, theme: { ...DEFAULT_THEME, ...a.theme, background, cursorAccent: background } }
+}
+
 export function toTerminalAppearance(s: TerminalAppearanceSettings): TerminalAppearance {
   const a: TerminalAppearance = {}
   if (s.fontSize !== undefined) a.fontSize = s.fontSize

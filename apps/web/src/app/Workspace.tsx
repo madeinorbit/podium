@@ -16,23 +16,22 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { shallowEqual } from '@podium/client-core/store'
 import type { SessionMeta } from '@podium/protocol'
-import { Archive, Columns2, FileText, Pin, X } from 'lucide-react'
+import { Archive, Columns2, FileText, Pin, Plus, X } from 'lucide-react'
 import { type JSX, lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import {
-  agentColorHex,
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
   orderTabs,
   orphanSessionFor,
   reposToViews,
-  sessionDotClass,
   sessionsForIssueNav,
   sessionsForWorktree,
 } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { AgentStatusGlyph } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
@@ -269,7 +268,13 @@ export function Workspace(): JSX.Element {
 
   return (
     <section className="native-agents-pane relative flex min-w-0 flex-1 flex-col">
-      <div className="relative flex items-stretch gap-2 border-b border-border bg-background px-2 pt-1.5">
+      {/* Tab strip (native-pane spec §2.2): 34px, issue-tinted over the tabstrip
+          surface, tinted bottom hairline; tabs are stretched to the strip's
+          bottom edge (pt only, no pb). */}
+      <div
+        data-testid="native-tab-strip"
+        className="relative flex h-[34px] flex-none items-stretch gap-[2px] border-b issue-hairline-50 issue-mix-18 issue-base-tabstrip px-[6px] pt-[4px]"
+      >
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -282,7 +287,7 @@ export function Workspace(): JSX.Element {
             items={allTabs.map((t) => t.id)}
             strategy={horizontalListSortingStrategy}
           >
-            <div className="flex min-w-0 flex-1 items-stretch gap-[3px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex min-w-0 flex-1 items-stretch gap-[2px] overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {allTabs.map((t) => (
                 <SortableTab
                   key={t.id}
@@ -310,22 +315,22 @@ export function Workspace(): JSX.Element {
               {archivedMembers.length > 0 && (
                 <button
                   type="button"
-                  className="my-1 flex flex-none items-center gap-1 self-center rounded px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="flex flex-none cursor-pointer items-center gap-1 self-center rounded px-2 py-0.5 text-[10.5px] text-text-dim hover:text-(--issue-muted-bright)"
                   aria-pressed={showArchived}
                   title={showArchived ? 'Hide archived sessions' : 'Show archived sessions'}
                   onClick={() => setShowArchived((v) => !v)}
                 >
-                  <Archive size={12} aria-hidden="true" />
+                  <Archive size={11} aria-hidden="true" />
                   {showArchived ? 'Hide archived' : `${archivedMembers.length} archived`}
                 </button>
               )}
             </div>
           </SortableContext>
         </DndContext>
-        <div className="flex flex-none items-center gap-1 pb-1.5">
-          {/* NewPanelMenu owns its own "+" trigger button and a portalled,
-              auto-positioned dropdown (Base UI Positioner handles collision/
-              clamping), so the parent no longer renders/positions the menu. */}
+        <div className="flex flex-none items-center gap-0.5">
+          {/* NewPanelMenu owns the portalled dropdown; the strip supplies a
+              quiet inline "+" trigger (untinted per §2.2). Split keeps its
+              behaviour as an equally quiet neutral glyph (Q4). */}
           <NewPanelMenu
             // biome-ignore lint/style/noNonNullAssertion: the early return above guarantees worktree or issue (which makes panelTarget defined)
             worktree={panelTarget!}
@@ -334,16 +339,26 @@ export function Workspace(): JSX.Element {
               justOpened.current = sid
               setPane('A', sid)
             }}
+            trigger={
+              <button
+                type="button"
+                className="flex cursor-pointer items-center self-stretch rounded px-[9px] text-[13px] text-text-dim hover:text-foreground"
+                title="New panel"
+                aria-label="New panel"
+              >
+                <Plus size={13} aria-hidden="true" />
+              </button>
+            }
           />
-          <Button
-            variant="ghost"
-            size="icon"
+          <button
+            type="button"
+            className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
             title="Split"
             aria-label="Split"
             onClick={toggleSplit}
           >
-            <Columns2 size={16} aria-hidden="true" />
-          </Button>
+            <Columns2 size={13} aria-hidden="true" />
+          </button>
         </div>
       </div>
       {/* Keep every tab's panel mounted; show only the active pane(s) and hide the
@@ -432,7 +447,20 @@ function SortableTab({
   useEffect(() => {
     if (active) node.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [active])
-  const accent = tab.kind === 'session' ? agentColorHex(tab.session.agentColor) : undefined
+  // The 7×7px leading square is the ISSUE colour (via --issue / .tab-issue-dot)
+  // — full strength on the active tab, faded on the rest. The agent's identity
+  // accent left the tab (spec G2); agent identity lives in the panel header
+  // chip. `parked` keeps the hibernated grayed/italic label hook.
+  const issueDot = (
+    <span
+      className={cn(
+        'dot tab-issue-dot size-[7px] min-w-[7px]',
+        tab.kind === 'session' && tab.session.status === 'hibernated' && 'parked',
+        !active && 'opacity-55',
+      )}
+      aria-hidden="true"
+    />
+  )
   return (
     <div
       ref={(el) => {
@@ -441,11 +469,16 @@ function SortableTab({
       }}
       // Chrome-like tab sizing: tabs share the strip evenly, shrink as more open, stop at
       // a minimum (then the strip scrolls), and never balloon when alone. `group` drives
-      // the hover-reveal of the pin/close controls.
+      // the hover-reveal of the pin/close controls. Active tab (spec §2.2): tinted fill,
+      // tinted hairline (no bottom edge), the 2px issue-colour inset top line.
       className={cn(
-        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-md border border-b-0 border-transparent px-0.5',
+        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[7px] border border-b-0 border-transparent px-0.5',
         isDragging ? 'z-[2] cursor-grabbing opacity-90' : 'cursor-grab',
-        active ? 'border-border bg-card' : isDragging ? 'bg-muted' : 'hover:bg-muted',
+        active
+          ? 'native-tab-active issue-hairline-50 issue-mix-28'
+          : isDragging
+            ? 'issue-mix-14'
+            : 'hover:issue-mix-14',
       )}
       data-session={tab.id}
       title={tab.kind === 'file' ? tab.file.path : undefined}
@@ -453,16 +486,9 @@ function SortableTab({
       {...attributes}
       {...listeners}
     >
-      {accent && (
-        <span
-          className="pointer-events-none absolute inset-x-1 top-0 h-[2px] rounded-full"
-          style={{ background: accent }}
-          aria-hidden="true"
-        />
-      )}
       {tab.kind === 'session' && editing ? (
-        <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2.5 py-1">
-          <span className={sessionDotClass(tab.session)} />
+        <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1">
+          {issueDot}
           <SessionNameEditor
             value={sessionDisplayName(tab.session)}
             onCommit={(name) => {
@@ -476,8 +502,8 @@ function SortableTab({
         <button
           type="button"
           className={cn(
-            'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2.5 py-1 text-[13px] whitespace-nowrap',
-            active ? 'font-medium text-foreground' : 'text-muted-foreground',
+            'inline-flex min-w-0 flex-1 cursor-[inherit] items-center gap-1.5 rounded-none px-2 py-1 text-[10.5px] whitespace-nowrap',
+            active ? 'font-semibold text-(--issue-text)' : 'text-(--issue-muted-bright)',
           )}
           onClick={onSelect}
           onDoubleClick={tab.kind === 'session' ? () => setEditing(true) : undefined}
@@ -492,45 +518,50 @@ function SortableTab({
         >
           {tab.kind === 'session' ? (
             <>
-              <span className={sessionDotClass(tab.session)} />{' '}
-              <WorkerLabel session={tab.session} />
+              {issueDot} <WorkerLabel session={tab.session} />
+              {/* Status grammar (§2.8): braille spinner while working, still
+                  amber dot when waiting on you, nothing otherwise. Semantic
+                  colours — never the issue colour. */}
+              <AgentStatusGlyph session={tab.session} variant="tab" />
             </>
           ) : (
             <>
               <FileText
                 size={12}
                 aria-hidden="true"
-                className="flex-none text-muted-foreground/70"
+                className="flex-none text-(--issue-muted-bright)"
               />
               <span className="truncate">{tabName(tab)}</span>
             </>
           )}
         </button>
       )}
+      {/* Pin (Q3): kept as a hover-reveal affordance, restyled to a quiet
+          ctx-muted glyph; always visible while pinned. */}
       {tab.kind === 'session' && onTogglePin && (
         <button
           type="button"
           className={cn(
-            'h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-primary',
-            pinned ? 'inline-flex text-primary' : 'hidden group-hover:inline-flex',
+            'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-(--issue-text)',
+            pinned ? 'inline-flex text-(--issue-text)' : 'hidden group-hover:inline-flex',
           )}
           aria-pressed={pinned}
           title={pinned ? 'Unpin panel' : 'Pin panel'}
           onClick={onTogglePin}
         >
-          <Pin size={12} aria-hidden="true" />
+          <Pin size={11} aria-hidden="true" />
         </button>
       )}
       <button
         type="button"
         className={cn(
-          'h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-destructive',
+          'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-destructive',
           active ? 'inline-flex' : 'hidden group-hover:inline-flex',
         )}
         title={tab.kind === 'session' ? 'Kill session' : 'Close file'}
         onClick={onClose}
       >
-        <X size={12} aria-hidden="true" />
+        <X size={11} aria-hidden="true" />
       </button>
       {tab.kind === 'session' && menuAnchor && (
         <SessionContextMenu
