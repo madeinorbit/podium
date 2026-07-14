@@ -844,7 +844,7 @@ import { AccountsRepository } from './store/accounts'
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/server && bunx vitest run src/accounts.test.ts`
+Run: `bunx vitest run apps/server/src/accounts.test.ts`
 Expected: FAIL — `accountViews` does not take an accounts repository.
 
 - [ ] **Step 3: Read managed rows from the repo**
