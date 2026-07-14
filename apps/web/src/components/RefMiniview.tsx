@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { issueDisplayRef, truncateTitle } from '@podium/protocol'
+import { formatLong, issueDisplayRef, truncateTitle } from '@podium/protocol'
 import { ExternalLink, GripVertical, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -124,6 +124,12 @@ function RefCard({
   }))
   const drag = useRef<{ dx: number; dy: number } | null>(null)
   const cardEl = useRef<HTMLDivElement | null>(null)
+  const targetTitle =
+    target?.kind === 'issue'
+      ? target.issue.title
+      : target?.kind === 'session'
+        ? target.session.name || target.session.title || ''
+        : ''
 
   // Escape closes — but never at the expense of surfaces with their own Escape
   // semantics: keys headed into a terminal or another open dialog pass through
@@ -176,7 +182,14 @@ function RefCard({
         }}
       >
         <GripVertical size={13} className="flex-none text-muted-foreground/60" aria-hidden="true" />
-        <span className="flex-1 truncate font-mono text-[12px] font-medium">{refToken}</span>
+        {/* Canonical long form (#474 spec §display): `POD-13 · title` truncated,
+            with the FULL title on hover. Falls back to the bare ref while unresolved. */}
+        <span
+          className="flex-1 truncate font-mono text-[12px] font-medium"
+          title={targetTitle ? `${refToken} · ${targetTitle}` : refToken}
+        >
+          {targetTitle ? formatLong(refToken, targetTitle) : refToken}
+        </span>
         {target && (
           <button
             type="button"

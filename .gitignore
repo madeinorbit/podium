@@ -43,3 +43,6 @@ mon.pid
 
 # Agent-local test tempdirs (never commit)
 .tmp-claude/
+
+# One-off runtime-verification screenshot dumps
+verify-artifacts/

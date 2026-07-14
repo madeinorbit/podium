@@ -19,10 +19,13 @@ export function issueRefLong(issue: Pick<IssueWire, 'seq' | 'displayRef' | 'titl
   return formatLong(issueDisplayRef(issue), issue.title)
 }
 
-/** Hover text for any issue row/reference: both the human-facing ref and the
- *  internal id, so agents' `iss_…` references can be matched by eye (#21). */
-export function issueIdTitle(issue: Pick<IssueWire, 'seq' | 'id' | 'displayRef'>): string {
-  return `${issueDisplayRef(issue)} · ${issue.id}`
+/** Hover text for any issue row/reference — the canonical long form with the
+ *  FULL title (#474 spec §display), plus the internal id on a second line so
+ *  agents' `iss_…` references can still be matched by eye (#21). */
+export function issueIdTitle(
+  issue: Pick<IssueWire, 'seq' | 'id' | 'displayRef' | 'title'>,
+): string {
+  return `${issueDisplayRef(issue)} · ${issue.title}\n${issue.id}`
 }
 
 export function issueCardModel(issue: IssueWire): {

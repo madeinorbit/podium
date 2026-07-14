@@ -40,7 +40,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { copyToClipboard } from '@/lib/clipboard'
 import { cn } from '@/lib/utils'
-import { issueIdTitle, STAGE_LABELS } from './issue-card'
+import { issueIdTitle, issueRefLong, STAGE_LABELS } from './issue-card'
 import type { IssueEventIcon } from './issue-events'
 import { AssigneeAvatar, StageGlyph } from './issue-glyphs'
 import { type IssuePageCommands, issuePageCommands } from './issue-page-commands'
@@ -145,7 +145,8 @@ export function IssuePage({
         <button
           type="button"
           className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
-          title={`${issue.id} — click to copy "${issueDisplayRef(issue)}"`}
+          // Long form on hover (#474 spec §display): the FULL title, not the internal id.
+          title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
           onClick={() =>
             copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
           }
@@ -619,8 +620,12 @@ function IssueOverflowMenu({
               <DropdownMenuSubTrigger>Supersede with…</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
                 {targetIssues.map((t) => (
-                  <DropdownMenuItem key={t.id} onClick={() => commands.supersedeWith(t.id)}>
-                    {issueDisplayRef(t)} {t.title}
+                  <DropdownMenuItem
+                    key={t.id}
+                    title={issueIdTitle(t)}
+                    onClick={() => commands.supersedeWith(t.id)}
+                  >
+                    {issueRefLong(t)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>
@@ -629,8 +634,12 @@ function IssueOverflowMenu({
               <DropdownMenuSubTrigger>Duplicate of…</DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
                 {targetIssues.map((t) => (
-                  <DropdownMenuItem key={t.id} onClick={() => commands.duplicateOf(t.id)}>
-                    {issueDisplayRef(t)} {t.title}
+                  <DropdownMenuItem
+                    key={t.id}
+                    title={issueIdTitle(t)}
+                    onClick={() => commands.duplicateOf(t.id)}
+                  >
+                    {issueRefLong(t)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>

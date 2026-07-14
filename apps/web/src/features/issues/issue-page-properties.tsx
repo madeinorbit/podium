@@ -39,7 +39,7 @@ import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
-import { STAGE_LABELS } from './issue-card'
+import { issueRefLong, STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import type { IssuePageCommands } from './issue-page-commands'
 import {
@@ -190,7 +190,7 @@ export function IssueProperties({
   const byId = new Map(issues.map((i) => [i.id, i]))
   const issueLabel = (id: string): string => {
     const m = byId.get(id)
-    return m ? `${issueDisplayRef(m)} ${m.title}` : id
+    return m ? issueRefLong(m) : id
   }
   const mateOptions = mateOptionsOf(repoMates)
   const assigneeOptions = assigneeOptionsOf(issues)
@@ -422,9 +422,10 @@ export function IssueProperties({
                 type="button"
                 className="min-w-0 flex-1 truncate text-left text-[13px] text-primary hover:underline"
                 onClick={() => onNavigate(parent.id)}
-                title={`${issueDisplayRef(parent)} ${parent.title}`}
+                // Long form, full title on hover (#474 spec §display).
+                title={`${issueDisplayRef(parent)} · ${parent.title}`}
               >
-                {issueDisplayRef(parent)} {parent.title}
+                {issueRefLong(parent)}
               </button>
             )}
             <PropertyMenu

@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { describeApprovalOp, issueDisplayRef } from '@podium/protocol'
+import { describeApprovalOp, formatLong, issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -43,9 +43,9 @@ export function ApprovalDialog(): JSX.Element | null {
     // Prefer the server-stamped nice id (#474); fall back to `#seq` for rows
     // from a server that predates the field.
     current.issueDisplayRef != null
-      ? `${current.issueDisplayRef} ${current.issueTitle ?? ''}`.trim()
+      ? formatLong(current.issueDisplayRef, current.issueTitle ?? '')
       : current.issueSeq != null
-        ? `${issueDisplayRef({ seq: current.issueSeq })} ${current.issueTitle ?? ''}`.trim()
+        ? formatLong(issueDisplayRef({ seq: current.issueSeq }), current.issueTitle ?? '')
         : null,
   ]
     .filter(Boolean)
