@@ -7,7 +7,7 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
-import { IssueStage } from '@podium/protocol'
+import { IssueStage, letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray } from './helpers'
 import type { IssueCommentRow, IssueMessageRow, IssueRow } from './types'
@@ -358,6 +358,29 @@ export class IssuesRepository {
       }
       upd.run(repoId, seq, r.id)
     }
+  }
+
+  /**
+   * Allocate the next session column letter for an issue (`A`, `B`, … `Z`, `AA`,
+   * #474). Backed by the `issue_ref_letters` high-water counter so a letter is
+   * NEVER reused within an issue — even after the session that held it is deleted.
+   * Transactional: the read-increment-return is atomic, so two concurrent
+   * allocations can never mint the same `POD-13-A`.
+   */
+  allocateSessionLetter(issueId: string): string {
+    return transaction(this.db, () => {
+      const row = this.db
+        .prepare('SELECT next_index FROM issue_ref_letters WHERE issue_id = ?')
+        .get(issueId) as { next_index: number } | undefined
+      const index = row?.next_index ?? 0
+      this.db
+        .prepare(
+          `INSERT INTO issue_ref_letters (issue_id, next_index) VALUES (?, ?)
+           ON CONFLICT(issue_id) DO UPDATE SET next_index = ?`,
+        )
+        .run(issueId, index + 1, index + 1)
+      return letterForIndex(index)
+    })
   }
 
   /** Per-boot heal: fill NULL repo_id via the injected resolver (idempotent). */

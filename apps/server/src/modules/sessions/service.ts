@@ -11,6 +11,7 @@ import {
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
+  formatSessionRef,
   type ControlMessage,
   type DaemonMessage,
   type Geometry,
@@ -319,7 +320,67 @@ export class SessionsService {
    *  legacy snapshot rows must agree byte-for-byte or the ledger's dedup and
    *  the clients' replicas would diverge. */
   private sessionWire(session: Session): SessionMeta {
-    return { ...session.toMeta(), machineName: this.machines.machineName(session.machineId) }
+    return this.stampRef(session, {
+      ...session.toMeta(),
+      machineName: this.machines.machineName(session.machineId),
+    })
+  }
+
+  /**
+   * Allocate this session's PERMANENT human-facing nice name at naming time
+   * (#474), then stamp the derived `displayRef` onto its wire meta. Idempotent:
+   * once a session has a ref it is never reallocated (birth name is permanent).
+   * Upstream/mirrored sessions have no local Session and keep their own ref.
+   */
+  private stampRef(session: Session, meta: SessionMeta): SessionMeta {
+    this.ensureSessionRef(session)
+    const displayRef = this.computeSessionDisplayRef(session)
+    return {
+      ...meta,
+      ...(session.refIssueId ? { refIssueId: session.refIssueId } : {}),
+      ...(session.refLetter ? { refLetter: session.refLetter } : {}),
+      ...(session.refDraft != null ? { refDraft: session.refDraft } : {}),
+      ...(displayRef ? { displayRef } : {}),
+    }
+  }
+
+  /** Assign the birth-issue letter (or DRAFT ordinal) if this session has no ref
+   *  yet. The birth issue is the session's issue at naming time; a session with
+   *  no issue is named in the per-repo DRAFT namespace. Never reallocates. */
+  private ensureSessionRef(session: Session): void {
+    if (session.refIssueId || session.refDraft != null) return
+    const birthIssueId = session.issueId ?? null
+    if (birthIssueId) {
+      const issue = this.store.issues.getIssue(birthIssueId)
+      if (issue) {
+        session.refLetter = this.store.issues.allocateSessionLetter(birthIssueId)
+        session.refIssueId = birthIssueId
+        this.persist(session)
+        return
+      }
+    }
+    // Truly issueless → per-repo DRAFT counter (`POD-DRAFT-3`).
+    const repoId = this.store.repos.resolveRepoIdForPath(session.cwd)
+    session.refDraft = this.store.repos.nextDraftSeq(repoId)
+    this.persist(session)
+  }
+
+  /** The permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`), or undefined
+   *  when its repo prefix / birth issue can't be resolved. Pure. */
+  private computeSessionDisplayRef(session: Session): string | undefined {
+    if (session.refIssueId && session.refLetter) {
+      const issue = this.store.issues.getIssue(session.refIssueId)
+      if (!issue) return undefined
+      const prefix = this.store.repos.prefixForPath(issue.repoPath)
+      return prefix
+        ? formatSessionRef({ prefix, seq: issue.seq, letter: session.refLetter })
+        : undefined
+    }
+    if (session.refDraft != null) {
+      const prefix = this.store.repos.prefixForPath(session.cwd)
+      return prefix ? formatSessionRef({ prefix, draft: session.refDraft }) : undefined
+    }
+    return undefined
   }
 
   /** Persist every session whose activity counters advanced since the last flush.
@@ -390,6 +451,9 @@ export class SessionsService {
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
       ...(r.headless ? { headless: true } : {}),
       ...(r.issueId ? { issueId: r.issueId } : {}),
+      ...(r.refIssueId ? { refIssueId: r.refIssueId } : {}),
+      ...(r.refLetter ? { refLetter: r.refLetter } : {}),
+      ...(r.refDraft != null ? { refDraft: r.refDraft } : {}),
       ...(r.workflowRunId ? { workflowRunId: r.workflowRunId } : {}),
       ...(r.workflowStepId ? { workflowStepId: r.workflowStepId } : {}),
       ...(r.executionProfileId ? { executionProfileId: r.executionProfileId } : {}),
@@ -618,10 +682,9 @@ export class SessionsService {
 
   // ---- tRPC control plane ----
   listSessions(): SessionMeta[] {
-    const local: SessionMeta[] = [...this.sessions.values()].map((s) => ({
-      ...s.toMeta(),
-      machineName: this.machines.machineName(s.machineId),
-    }))
+    const local: SessionMeta[] = [...this.sessions.values()].map((s) =>
+      this.stampRef(s, { ...s.toMeta(), machineName: this.machines.machineName(s.machineId) }),
+    )
     if (this.upstreamSessions.size === 0) return local
     // Local ∪ upstream (docs/spec/node-hub-sync.md §2.3). Upstream entries carry
     // viaHub (set at ingest) and, while the hub link is down, upstreamStale —

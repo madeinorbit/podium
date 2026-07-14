@@ -60,6 +60,14 @@ export interface SessionRow {
   /** Explicit issue attachment (issue-as-workspace). null/absent = unattached
    *  (legacy / shells) — cwd-derived worktree grouping applies. */
   issueId?: string | null
+  /** BIRTH issue for the permanent human-facing nice name (#474). Set once at
+   *  naming time and never changed — re-attaching to a different issue does NOT
+   *  rename. null/absent = named in the DRAFT namespace (see refDraft). */
+  refIssueId?: string | null
+  /** Column letter allocated within refIssueId (`A`, `B`, … `POD-13-A`). */
+  refLetter?: string | null
+  /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
+  refDraft?: number | null
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null

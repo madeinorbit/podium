@@ -11,7 +11,7 @@ import type {
   LintFinding,
   OrphanIssue,
 } from '@podium/protocol'
-import { TITLE_RULE } from '@podium/protocol'
+import { TITLE_RULE, formatIssueRef } from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd } from '../../../issue-util'
@@ -453,8 +453,17 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   /** The agent-facing context string injected at session start / on demand. Bound = the agent's
    *  issue + its open children + blockers; unbound = a lobby of ready work. Ends with the rules. */
+  /** The human-facing nice id for an issue row (`POD-13`, or `#13` before a
+   *  prefix exists) — the form agents should use when referencing issues (#474). */
+  private niceRef(row: { repoPath: string; seq: number }): string {
+    const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+    return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
+  }
+
   prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {
     const rules = [
+      // Human-facing ids (#474): agents should name issues/sessions by their nice id.
+      'Reference issues and sessions by their human-facing id and name (e.g. `POD-13 (Fix session naming)`), not the internal `iss_…`/UUID — those nice ids resolve in every `podium` command, mail, and the UI.',
       'Workflow: pull `ready` → move it out of `backlog` → work → file discovered work (`discovered-from`) → checkpoint notes → close.',
       'Nothing advances an issue for you: set the stage yourself as the work moves — `podium issue update --id <id> --stage planning|in_progress|review` — and `podium issue close <id>` when it is done. An issue you are actively working must never sit in `backlog`.',
       'Track durable/discovered/cross-session work as issues, not markdown TODO files.',
@@ -505,7 +514,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
           this.deps.store.issues.countUnreadIssueMessages(me.id),
         )
         return [
-          `You are working on #${me.seq}: ${me.title}`,
+          `You are working on ${this.niceRef(me)}: ${me.title}`,
           me.stage === 'backlog'
             ? `This issue is still in \`backlog\` but you are working it — fix that now: \`podium issue update --id ${me.seq} --stage planning\` (designing/investigating) or \`--stage in_progress\` (changing code).`
             : null,
@@ -513,7 +522,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
           me.parentId ? `Parent epic: #${parent?.seq ?? me.parentId}` : null,
           kids.length
-            ? `Open children:\n${kids.map((k) => `  - #${k.seq} ${k.title}`).join('\n')}`
+            ? `Open children:\n${kids.map((k) => `  - ${this.niceRef(k)} ${k.title}`).join('\n')}`
             : null,
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           unreadMail > 0
@@ -536,7 +545,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return [
       'No issue bound to this session.',
       ready.length
-        ? `Ready work:\n${ready.map((i) => `  - #${i.seq} ${i.title}`).join('\n')}`
+        ? `Ready work:\n${ready.map((i) => `  - ${this.niceRef(i)} ${i.title}`).join('\n')}`
         : '(no ready issues)',
       'Use `podium issue start <id>` to claim one, or `podium issue create` to file new work.',
       '',

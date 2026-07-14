@@ -77,6 +77,10 @@ export interface SessionInit {
   headless?: boolean
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: string
+  /** Birth-issue nice-name fields (#474). Absent = not yet named. */
+  refIssueId?: string | null
+  refLetter?: string | null
+  refDraft?: number | null
   /** OPTIONAL workflow pass-through metadata (#285 via #237 [spec:SP-34d7
    *  cross-harness]): stamped at spawn, never interpreted here. */
   workflowRunId?: string
@@ -144,6 +148,13 @@ export class Session {
   /** Explicit issue attachment (issue-as-workspace) — mutable: the agent can
    *  re-home itself (attach) and the user can move a session between issues. */
   issueId: string | undefined
+  /** BIRTH issue for the permanent human-facing nice name (#474). Set once at
+   *  naming time; never changes on re-attach. */
+  refIssueId: string | null
+  /** Column letter within refIssueId (`POD-13-A`). */
+  refLetter: string | null
+  /** Per-repo DRAFT ordinal for a truly issueless session (`POD-DRAFT-3`). */
+  refDraft: number | null
   /** The machine (daemon) this session runs on. The registry routes this
    *  session's control messages to it; '__local__' until a real machine adopts
    *  it (see SessionRegistry.ensureLocalMachine), so it is reassignable, not readonly. */
@@ -247,6 +258,9 @@ export class Session {
     this.executionProfileId = init.executionProfileId
     this.headless = init.headless ?? false
     this.issueId = init.issueId
+    this.refIssueId = init.refIssueId ?? null
+    this.refLetter = init.refLetter ?? null
+    this.refDraft = init.refDraft ?? null
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
     this.machineId = init.machineId ?? '__local__'
@@ -741,6 +755,9 @@ export class Session {
       machineId: this.machineId,
       headless: this.headless,
       issueId: this.issueId ?? null,
+      refIssueId: this.refIssueId,
+      refLetter: this.refLetter,
+      refDraft: this.refDraft,
       readAt: this.readAt,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
@@ -793,6 +810,9 @@ export class Session {
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       ...(this.headless ? { headless: true } : {}),
       ...(this.issueId ? { issueId: this.issueId } : {}),
+      ...(this.refIssueId ? { refIssueId: this.refIssueId } : {}),
+      ...(this.refLetter ? { refLetter: this.refLetter } : {}),
+      ...(this.refDraft != null ? { refDraft: this.refDraft } : {}),
       ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),
       ...(this.workflowStepId ? { workflowStepId: this.workflowStepId } : {}),
       ...(this.executionProfileId ? { executionProfileId: this.executionProfileId } : {}),

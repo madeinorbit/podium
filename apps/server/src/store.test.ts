@@ -49,6 +49,7 @@ describe('SessionStore repos', () => {
         path,
         originUrl,
         repoId: deriveRepoId({ originUrl, machineId, path }),
+        prefix: expect.any(String),
       },
     ])
     store.close()
@@ -102,6 +103,10 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     headless: false,
     // And the explicit issue attachment (issue-as-workspace): always present, null = unattached.
     issueId: null,
+    // Human-facing nice-name fields (#474): always projected, null = not yet named.
+    refIssueId: null,
+    refLetter: null,
+    refDraft: null,
     // And email-style read state (issue #124): always present, null = never opened.
     readAt: null,
     // #285 workflow pass-through metadata (#237 [spec:SP-34d7 cross-harness]):
@@ -507,6 +512,7 @@ describe('SessionStore schema migration', () => {
         originUrl: null,
         // v8: path-fallback repo_id backfilled (no origin known for this row)
         repoId: deriveRepoId({ machineId: '__local__', path: '/proj' }),
+        prefix: expect.any(String),
       },
     ])
     // The machines table now exists (listMachines reads it — would throw otherwise).

@@ -145,6 +145,9 @@ export class SessionStore {
     this.superagent.seedGlobalThread()
     this.repos.importReposJson(this.path)
     this.backfillRepoIds()
+    // #474: assign human-facing prefixes to any repos still missing one (heals
+    // rows inserted by importReposJson or before the prefix migration).
+    this.repos.backfillPrefixes()
     // #140 defense in depth (ported from main's boot migrate): renumber any
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.

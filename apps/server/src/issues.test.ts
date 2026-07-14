@@ -1508,6 +1508,17 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     expect(svc.resolveRef(`#${w.seq}`)).toBe(w.id)
   })
 
+  it('resolves a human-facing nice id PREFIX-seq (#474)', () => {
+    const { svc, store } = harness()
+    store.repos.addRepo('/home/u/podium', '__local__', 'git@github.com:o/podium.git')
+    const prefix = store.repos.prefixForPath('/home/u/podium')!
+    const w = svc.create({ repoPath: '/home/u/podium', title: 'A', startNow: false })
+    expect(w.displayRef).toBe(`${prefix}-${w.seq}`)
+    expect(svc.resolveRef(`${prefix}-${w.seq}`)).toBe(w.id)
+    // An unknown prefix falls through unchanged (caller's unknown-issue error fires).
+    expect(svc.resolveRef('ZZZ-1')).toBe('ZZZ-1')
+  })
+
   it('throws on a seq that exists in several repos (per-repo counters collide)', () => {
     const { svc } = harness()
     svc.create({ repoPath: '/r1', title: 'A', startNow: false })

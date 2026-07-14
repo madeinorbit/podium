@@ -86,6 +86,13 @@ export const IssueWire = z.object({
   repoPath: z.string(),
   /** Stable repo identity (#74) — additive; consumers keep keying on repoPath. */
   repoId: z.string().optional(),
+  /** Human-facing repo prefix (#474), e.g. `POD`. Absent until backfilled. */
+  prefix: z.string().optional(),
+  /** Human-facing issue reference (#474): `POD-13` (or `#13` before a prefix
+   *  exists). Derived server-side; the single source for every render site.
+   *  Optional on the wire so legacy/mock payloads still parse — read it through
+   *  `issueDisplayRef()` which falls back to `#seq`. */
+  displayRef: z.string().optional(),
   seq: z.number().int(),
   title: z.string(),
   description: z.string(),

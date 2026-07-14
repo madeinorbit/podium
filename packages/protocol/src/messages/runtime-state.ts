@@ -149,6 +149,16 @@ export const SessionMeta = z.object({
    *  of the freeform `spawnedBy: 'issue:<id>'`. Absent = unattached (legacy /
    *  shells) — cwd fallback applies. */
   issueId: z.string().optional(),
+  /** Human-facing nice-name fields (#474). refIssueId/refLetter identify a
+   *  birth issue (`POD-13-A`); refDraft is the issueless DRAFT ordinal
+   *  (`POD-DRAFT-3`). The birth name is PERMANENT — re-attaching to another
+   *  issue never renames (the current issue shows as secondary context). */
+  refIssueId: z.string().optional(),
+  refLetter: z.string().optional(),
+  refDraft: z.number().int().optional(),
+  /** Server-DERIVED permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`).
+   *  Computed from the repo prefix + ref fields. Absent until named. */
+  displayRef: z.string().optional(),
   /** True for a HEADLESS harness session (concierge unification): a persistent
    *  harness session driven turn-by-turn by the daemon with NO PTY. It renders
    *  via the normal transcript pipeline but has no terminal to attach to; the

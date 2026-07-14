@@ -1,6 +1,6 @@
 import { isIssueBlocked, isIssueClosed, isIssueDeferred } from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
-import { IssuePanel } from '@podium/protocol'
+import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
 import type { IssueDeps } from './types'
@@ -125,10 +125,14 @@ export abstract class IssueServiceCore {
     const blocked = this.computeBlocked(row)
     const deferred = this.isDeferred(row)
     const ready = !this.isClosed(row) && !deferred && !blocked
+    const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
+    const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
     return {
       id: row.id,
       repoPath: row.repoPath,
       ...(row.repoId ? { repoId: row.repoId } : {}),
+      ...(prefix ? { prefix } : {}),
+      displayRef,
       seq: row.seq,
       title: row.title,
       description: row.description,
@@ -235,6 +239,23 @@ export abstract class IssueServiceCore {
    *  the input unchanged so the caller's normal unknown-issue error fires. */
   resolveRef(ref: string, scopeRepoPath?: string): string {
     if (ref.startsWith('iss_') || this.rows.has(ref)) return ref
+    // Human-facing nice id `PREFIX-seq` (#474). The prefix identifies the repo
+    // server-wide, so this resolves without a path qualifier. A prefix that no
+    // repo owns falls through to the other branches (and ultimately returns the
+    // input unchanged so the caller's unknown-issue error fires).
+    const nice = parseIssueRef(ref.trim())
+    if (nice) {
+      const repo = this.deps.store.repos.repoForPrefix(nice.prefix)
+      if (repo) {
+        const repoId = repo.repoId ?? this.deps.store.repos.resolveRepoIdForPath(repo.path)
+        const matches = [...this.rows.values()].filter(
+          (r) =>
+            r.seq === nice.seq &&
+            (r.repoId ?? this.deps.store.repos.resolveRepoIdForPath(r.repoPath)) === repoId,
+        )
+        if (matches.length >= 1) return matches[0]!.id
+      }
+    }
     const qualified = /^(.+)#(\d+)$/.exec(ref.trim())
     if (qualified) {
       const [, repo, seqStr] = qualified
