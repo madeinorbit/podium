@@ -284,6 +284,11 @@ export const SpawnMessage = z.object({
   // A first prompt handed to the agent at launch as a positional argv token
   // (race-free; e.g. an issue's description). Only set for argv-capable agents.
   initialPrompt: z.string().optional(),
+  // Managed-credential + environment vars resolved SERVER-side and merged into the
+  // daemon's spawn env overlay (SP-6454, #216). Generic on purpose — an LLM
+  // credential, a GitHub token (#214) and machine-level pins (#234) all ride here.
+  // Additive + optional: an older daemon ignores it, an older server omits it.
+  env: z.record(z.string(), z.string()).optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
