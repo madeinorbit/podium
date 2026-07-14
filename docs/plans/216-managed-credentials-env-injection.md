@@ -910,7 +910,7 @@ In `apps/server/src/router.ts`, replace the `accounts` router (~line 655):
     // native identity/quota drifts, so it's never cached as truth.
     // NB: never returns a credential — only its masked `identity`.
     list: t.procedure.query(({ ctx }) =>
-      accountViews(mods(ctx).settings.getSettings(), ctx.store.accounts),
+      accountViews(mods(ctx).settings.getSettings(), ctx.registry.sessionStore.accounts),
     ),
     connect: t.procedure
       .input(
@@ -924,7 +924,7 @@ In `apps/server/src/router.ts`, replace the `accounts` router (~line 655):
         // A Claude setup-token is its own account, distinct from an Anthropic API key.
         const id =
           input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
-        ctx.store.accounts.upsert({
+        ctx.registry.sessionStore.accounts.upsert({
           id,
           provider: input.provider,
           kind: input.kind,
@@ -936,7 +936,7 @@ In `apps/server/src/router.ts`, replace the `accounts` router (~line 655):
         return { id }
       }),
     disconnect: t.procedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => {
-      ctx.store.accounts.remove(input.id)
+      ctx.registry.sessionStore.accounts.remove(input.id)
       return { ok: true as const }
     }),
   }),
