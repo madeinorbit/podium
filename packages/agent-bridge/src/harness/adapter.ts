@@ -1,5 +1,11 @@
 import { stat } from 'node:fs/promises'
-import type { AgentCapabilities, HarnessAgent, ResumeRef, TranscriptItem } from '@podium/protocol'
+import type {
+  AgentCapabilities,
+  AgentInstruction,
+  HarnessAgent,
+  ResumeRef,
+  TranscriptItem,
+} from '@podium/protocol'
 import type { TranscriptSource } from '@podium/transcript'
 import type { AgentStateEvent, AgentStateProvider } from '../agent-state/types.js'
 import type { ConversationProvider } from '../discovery/types.js'
@@ -24,12 +30,28 @@ export interface HarnessLaunchOptions {
   /** A first prompt handed as a trailing positional argv token where the CLI
    *  supports it (capabilities.argvPrompt); ignored otherwise. */
   initialPrompt?: string
+  /** Attributed machine-authored context. The adapter must keep this out of the
+   * visible user turn and use its harness-native instruction/rules channel. */
+  instructions?: AgentInstruction[]
+  /** Daemon-local directory available for adapters whose hidden channel is
+   * file-backed (OpenCode inline config and Cursor rule plugins). */
+  runtimeDir?: string
+  /** Effective spawn environment, supplied so file/config transports can merge
+   * with an existing harness-specific inline configuration. */
+  env?: Record<string, string>
+}
+
+export interface LaunchFile {
+  path: string
+  contents: string
 }
 
 export interface LaunchSpec {
   cmd: string
   args: string[]
   cwd: string
+  env?: Record<string, string>
+  files?: LaunchFile[]
 }
 
 // ---------------------------------------------------------------------------

@@ -268,6 +268,15 @@ export const AgentExitMessage = z.object({
 
 // ---- Daemon <-> server: spawn/reattach/kill + PTY relay ----
 // server -> daemon
+/** One machine-authored instruction contribution. Sources stay separate on the
+ * wire so independent server modules can contribute without re-parsing or
+ * impersonating the user's first message; the harness bridge composes them. */
+export const AgentInstruction = z.object({
+  source: z.string().min(1).max(128),
+  content: z.string().min(1),
+})
+export type AgentInstruction = z.infer<typeof AgentInstruction>
+
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: z.string(),
@@ -284,6 +293,10 @@ export const SpawnMessage = z.object({
   // A first prompt handed to the agent at launch as a positional argv token
   // (race-free; e.g. an issue's description). Only set for argv-capable agents.
   initialPrompt: z.string().optional(),
+  // Machine-authored behavioral/context instructions. These are deliberately
+  // distinct from initialPrompt: adapters deliver them through their native
+  // system/developer/rules/config channel, never as a user-authored turn.
+  instructions: z.array(AgentInstruction).optional(),
   // Managed-credential + environment vars resolved SERVER-side and merged into the
   // daemon's spawn env overlay (SP-6454, #216). Generic on purpose — an LLM
   // credential, a GitHub token (#214) and machine-level pins (#234) all ride here.
