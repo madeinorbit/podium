@@ -32,6 +32,11 @@ body {
 
 /* ---- shells ---- */
 .desktop-shell {
+  /* Positioned so overflow:hidden clips EVERY descendant: an absolutely
+     positioned child (e.g. an sr-only label) of a non-positioned clip resolves
+     its containing block outside the shell and extends the DOCUMENT's
+     scrollable overflow — page-level scrollbars on an app shell (#63). */
+  position: relative;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -47,15 +52,12 @@ body {
   display: flex;
   flex: 0 0 44px;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
   height: 44px;
-  padding: 0 10px 0 14px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
-}
-.desktop-topbar nav {
-  border-left: 1px solid var(--border);
 }
 .header-host-indicators {
   display: flex;
