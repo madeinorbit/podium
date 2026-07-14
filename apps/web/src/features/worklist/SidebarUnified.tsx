@@ -24,6 +24,7 @@ import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
+import { IdSquare, type IdSquareState } from '@/components/IdSquare'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
-import { IssueColorPickerButton } from '@/features/issues/IssueColorPicker'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
-import { IssueStatusIcon } from '@/features/issues/IssueStatusIcon'
 import { issueIdTitle } from '@/features/issues/issue-card'
 import { isEpic } from '@/features/issues/issue-hierarchy'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
@@ -71,7 +70,7 @@ import {
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
-import { KindIcon, SessionNameEditor } from '@/lib/WorkerLabel'
+import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { CollapsibleSection, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
 import { AgoStamp, WorkingTimer, workingSinceMs } from './time-indicators'
 
@@ -974,9 +973,23 @@ function UnifiedIssueRow({
   const showChildren = mine.length >= 2
   const { visible, stale } = partitionStaleSessions(mine, now)
   const urgent = mostUrgentSession(mine, now)
+  const squareWorking = mine.some(isSessionWorking)
+  const squareState: IdSquareState = squareWorking
+    ? 'working'
+    : mine.length === 0 && issue.stage === 'backlog'
+      ? 'queued'
+      : 'idle'
+  const square = (
+    <IdSquare
+      issue={issue}
+      state={squareState}
+      selected={active}
+      showSpinner={squareWorking}
+      onColorChange={onColorChange}
+    />
+  )
   // Draft vessel whose only content is agents → a single session-like line.
   const draftAgentOnly = issue.draft && mine.length > 0 && !issue.worktreePath
-  const AgentIcon = draftAgentOnly ? agentIconFor(mine[0]?.agentKind ?? 'claude-code') : undefined
   const label = issue.draft ? draftIssueLabel(issue, _all, allWorktreePaths) : issue.title
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
@@ -1026,13 +1039,8 @@ function UnifiedIssueRow({
       <>
         <UnifiedRowShell
           testId="unified-issue-row"
-          icon={
-            AgentIcon ? (
-              <KindIcon kind={mine[0]?.agentKind ?? 'claude-code'} chip />
-            ) : (
-              <IssueStatusIcon stage={issue.stage} size={15} badge={false} />
-            )
-          }
+          icon={square}
+          iconInteractive
           label={label}
           active={active && paneA === first?.sessionId}
           unread={unread}
@@ -1059,14 +1067,7 @@ function UnifiedIssueRow({
     <>
       <UnifiedRowShell
         testId="unified-issue-row"
-        icon={
-          <IssueColorPickerButton
-            issue={issue}
-            active={active}
-            queued={mine.length === 0 && issue.stage === 'backlog'}
-            onChange={onColorChange}
-          />
-        }
+        icon={square}
         iconInteractive
         label={label}
         active={active}
