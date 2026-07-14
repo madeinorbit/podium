@@ -16,7 +16,7 @@ import {
   Square,
   X,
 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -75,6 +75,7 @@ export function ChatView({
   active = true,
   superThread,
   compact = false,
+  ctxBadge,
 }: {
   sessionId: string
   /** False when this panel is mounted but hidden (keep-mounted deck). On
@@ -85,6 +86,9 @@ export function ChatView({
   superThread?: SuperThreadRef
   /** Narrow-dock mode (the superagent side panel): hides the minimap + tl;dr. */
   compact?: boolean
+  /** Superagent CTX row (issue #42): rendered above the composer so the sender
+   *  sees which issue context rides the next turn's focus payload. */
+  ctxBadge?: ReactNode
 }): JSX.Element {
   const {
     hub,
@@ -1042,6 +1046,7 @@ export function ChatView({
             offline copy — as of {new Date(offlineAsOf).toLocaleString()}
           </div>
         )}
+        {ctxBadge}
         <div
           className={cn(
             'relative flex flex-col gap-0.5 border bg-background focus-within:border-primary',

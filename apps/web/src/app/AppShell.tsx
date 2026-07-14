@@ -5,7 +5,10 @@ import { useEffect, useState } from 'react'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
+import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column-state'
+import { trayCount } from '@/features/superagent/derive-tray'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
+import { useIssueEvents } from '@/features/superagent/useIssueEvents'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -93,6 +96,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     paletteOpen,
     setPaletteOpen,
     uiState,
+    trpc,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -104,6 +108,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
       uiState: s.uiState,
+      trpc: s.trpc,
     }),
     shallowEqual,
   )
@@ -148,6 +153,10 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       uiState.set(SUPERAGENT_MODE_KEY, 'open')
     }
   }, [superOpen, superMode, uiState])
+
+  // The folded 3d bar keeps the ✦ unread dot live — this instance polls only
+  // while folded (the open column's own view polls otherwise).
+  const foldedFeed = useIssueEvents(trpc, uiState, false, superMode === 'folded')
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -233,8 +242,22 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
             {superMode === 'folded' && (
               <FoldedSuperagentBar
                 issue={selectedIssue}
-                onExpand={() => setSuperMode('open')}
+                trayCount={trayCount(issues, selectedIssue?.id ?? null)}
+                unread={foldedFeed.unread}
+                onExpand={(target) => {
+                  // Land on the clicked half (3b/3d): pre-open that section so
+                  // the expanding column mounts with it visible.
+                  if (target === 'tray') uiState.set(TRAY_OPEN_KEY, 'true')
+                  if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
+                  setSuperMode('open')
+                }}
                 onClose={() => setSuperMode('closed')}
+                onColorChange={
+                  selectedIssue
+                    ? (color) =>
+                        trpc.issues.update.mutate({ id: selectedIssue.id, patch: { color } })
+                    : undefined
+                }
               />
             )}
             <MainViewOutlet workspace={<Workspace />} />

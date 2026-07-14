@@ -6,7 +6,7 @@ import {
   issueMenuEligibility,
   toggleLabelAcross,
 } from './issue-context-menu'
-import { makeIssue } from './test-issue'
+import { makeIssue } from '@/lib/test-issue'
 
 describe('issueMenuEligibility', () => {
   it('gates everything off for an empty target set', () => {

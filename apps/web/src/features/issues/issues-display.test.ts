@@ -8,7 +8,7 @@ import {
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
-import { makeIssue as issue } from './test-issue'
+import { makeIssue as issue } from '@/lib/test-issue'
 
 describe('readIssuesDisplay', () => {
   it('defaults on null/garbage/partial input', () => {
