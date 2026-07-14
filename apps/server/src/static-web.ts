@@ -67,35 +67,20 @@ function isBackendRoute(pathname: string): boolean {
   return BACKEND_PREFIXES.some((pre) => pathname === pre || pathname.startsWith(pre + '/'))
 }
 
-function wantsMobile(userAgent: string): boolean {
-  return /Android|iPhone|iPod|Mobile/i.test(userAgent) && !/iPad|Tablet/i.test(userAgent)
-}
-
-function hasDesktopCookie(cookie: string): boolean {
-  return cookie.split(';').some((part) => part.trim() === 'podium_desktop=1')
-}
-
 /**
- * Redirect phone browsers from the desktop root into the dedicated mobile SPA while keeping
- * /desktop as an explicit escape hatch. The cookie only affects the same Podium origin.
+ * Mobile entry routing [spec:SP-902c]: phone browsers get the responsive web shell at /
+ * (no user-agent redirect); the Expo build is opt-in at /mobile. When the Expo build is
+ * absent, /mobile redirects to / instead of falling through to the main SPA under a wrong
+ * base path. /desktop stays as the Expo app's link back to the web shell. Every redirect
+ * preserves the query string (?server, ?e2e).
  */
-export function registerMobileRedirect(app: Hono): void {
-  app.get('/desktop', (c) => {
-    c.header('Set-Cookie', 'podium_desktop=1; Path=/; SameSite=Lax; Max-Age=2592000')
-    return c.redirect('/')
-  })
-
-  app.use('*', async (c, next) => {
-    const pathname = new URL(c.req.url).pathname
-    if (
-      pathname === '/' &&
-      wantsMobile(c.req.header('user-agent') ?? '') &&
-      !hasDesktopCookie(c.req.header('cookie') ?? '')
-    ) {
-      return c.redirect('/mobile')
-    }
-    await next()
-  })
+export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boolean }): void {
+  const toRoot = (c: Context) => c.redirect('/' + new URL(c.req.url).search)
+  app.get('/desktop', toRoot)
+  if (!opts.expoMobileServed) {
+    app.get('/mobile', toRoot)
+    app.get('/mobile/*', toRoot)
+  }
 }
 
 /**

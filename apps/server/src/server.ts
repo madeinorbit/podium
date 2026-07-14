@@ -28,7 +28,7 @@ import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
-import { registerMobileRedirect, registerWebStatic } from './static-web'
+import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { attachWebSockets } from './wsServer'
 
@@ -285,8 +285,6 @@ export async function startServer(
   // and the Expo mobile web build defaults to apps/mobile/dist under /mobile.
   // In a `bun build --compile` binary import.meta.url is not a file:// URL, so guard the
   // defaults — an unset dir there simply means "API only" for that SPA, never a crash.
-  registerMobileRedirect(app)
-
   let mobileWebDir = process.env.PODIUM_MOBILE_WEB_DIR
   if (!mobileWebDir) {
     try {
@@ -295,7 +293,10 @@ export async function startServer(
       mobileWebDir = ''
     }
   }
-  if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile' })
+  const expoMobileServed = mobileWebDir
+    ? registerWebStatic(app, mobileWebDir, { basePath: '/mobile' })
+    : false
+  registerMobileRouting(app, { expoMobileServed })
 
   let webDir = process.env.PODIUM_WEB_DIR
   if (!webDir) {
