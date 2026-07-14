@@ -7,6 +7,7 @@
  * resolved by the repos aggregate; the resolver is injected.
  */
 
+import { isIssueColorSlot } from '@podium/domain'
 import { IssueStage, letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { parseStringArray } from './helpers'
@@ -167,7 +168,7 @@ export class IssuesRepository {
       supersededBy: (r.superseded_by as string | null) ?? null,
       duplicateOf: (r.duplicate_of as string | null) ?? null,
       pinned: r.pinned === 1,
-      color: (r.color as string | null) ?? null,
+      color: isIssueColorSlot(r.color) ? r.color : null,
       estimateMin: (r.estimate_min as number | null) ?? null,
       needsHuman: r.needs_human === 1,
       humanQuestion: (r.human_question as string | null) ?? null,
