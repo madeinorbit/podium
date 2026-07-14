@@ -188,7 +188,11 @@ test('tab strip, chrome and terminal are context-tinted; tabs carry the status g
   const stripBox = await strip.boundingBox()
   expect(Math.round(stripBox?.height ?? 0)).toBe(34)
   const stripBg = await strip.evaluate((el) => getComputedStyle(el).backgroundColor)
-  const wantStripBg = await resolveColor(page, `color-mix(in srgb, ${ctx.hex} 18%, #101016)`)
+  // #44: the slate (no-colour) flow runs the strip quieter — 14% vs 18% (1b).
+  const wantStripBg = await resolveColor(
+    page,
+    `color-mix(in srgb, ${ctx.hex} ${ctx.hex === SLATE ? 14 : 18}%, #101016)`,
+  )
   expect(stripBg).toBe(wantStripBg)
   // Never flat: 18% over #101016 can never equal the raw context colour.
   expect(stripBg).not.toBe(ctx.rgb)

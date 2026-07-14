@@ -194,7 +194,8 @@ body {
 }
 .native-agents-pane {
   min-width: 360px;
-  background: color-mix(in srgb, var(--issue) 10%, var(--background));
+  /* Surface tint lives in index.css (12% coloured / 9% slate, §2.6) — this
+     shorthand would silently reset it. */
 }
 .right-dock-shell {
   display: flex;
@@ -243,7 +244,7 @@ body {
   position: relative;
 }
 .tree-children > :not(.tree-guide)::before {
-  content: '';
+  content: "";
   position: absolute;
   left: 16px;
   top: 50%;
@@ -455,7 +456,6 @@ body:has(.mobile-shell) {
   animation: conn-pulse 1.2s ease-in-out infinite;
 }
 
-
 /* ---- worker label ---- */
 /* Layout lives in Tailwind on the WorkerLabel element now (kind icon + name);
    the `.worker-label` / `.worker-name` class names are kept only as hooks for the
@@ -564,9 +564,15 @@ body:has(.mobile-shell) {
   margin: 16px 0 6px;
   font-weight: 600;
 }
-.chat-md h1 { font-size: 1.2em; }
-.chat-md h2 { font-size: 1.1em; }
-.chat-md h3 { font-size: 1em; }
+.chat-md h1 {
+  font-size: 1.2em;
+}
+.chat-md h2 {
+  font-size: 1.1em;
+}
+.chat-md h3 {
+  font-size: 1em;
+}
 .chat-md ul,
 .chat-md ol {
   padding-left: 1.4em;
@@ -588,7 +594,7 @@ body:has(.mobile-shell) {
 }
 /* Fake three-dot window bar */
 .chat-md pre::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 10px;
   left: 12px;
@@ -654,11 +660,14 @@ body:has(.mobile-shell) {
   color: var(--muted-foreground);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s ease, color 0.12s ease, background-color 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    background-color 0.12s ease;
 }
 .chat-md pre > .code-copy::after,
 .markdown-preview pre > .code-copy::after {
-  content: '';
+  content: "";
   display: block;
   width: 13px;
   height: 13px;
@@ -734,29 +743,77 @@ body:has(.mobile-shell) {
 
 /* Rendered markdown preview (.md panels). Scoped so it never touches chat/markdown
    surfaces. Uses theme tokens from the shadcn/Tailwind v4 setup. */
-.markdown-preview { line-height: 1.6; }
-.markdown-preview h1 { font-size: 1.6em; font-weight: 650; margin: 0.6em 0 0.4em; }
-.markdown-preview h2 { font-size: 1.35em; font-weight: 650; margin: 0.6em 0 0.4em; }
-.markdown-preview h3 { font-size: 1.15em; font-weight: 600; margin: 0.6em 0 0.3em; }
-.markdown-preview p { margin: 0.5em 0; }
-.markdown-preview ul, .markdown-preview ol { margin: 0.5em 0; padding-left: 1.5em; }
-.markdown-preview li { margin: 0.15em 0; }
-.markdown-preview a { color: var(--primary); text-decoration: underline; }
-.markdown-preview code { font-family: var(--font-mono, monospace); font-size: 0.92em; }
-.markdown-preview :not(pre) > code {
-  background: var(--muted); padding: 0.1em 0.3em; border-radius: 4px;
+.markdown-preview {
+  line-height: 1.6;
 }
-.markdown-preview pre {
-  position: relative; background: var(--muted); padding: 0.75em 1em; border-radius: 6px; overflow: auto;
+.markdown-preview h1 {
+  font-size: 1.6em;
+  font-weight: 650;
+  margin: 0.6em 0 0.4em;
 }
-.markdown-preview blockquote {
-  border-left: 3px solid var(--border); padding-left: 1em; color: var(--muted-foreground);
+.markdown-preview h2 {
+  font-size: 1.35em;
+  font-weight: 650;
+  margin: 0.6em 0 0.4em;
+}
+.markdown-preview h3 {
+  font-size: 1.15em;
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+.markdown-preview p {
   margin: 0.5em 0;
 }
-.markdown-preview table { border-collapse: collapse; margin: 0.5em 0; }
-.markdown-preview th, .markdown-preview td {
-  border: 1px solid var(--border); padding: 0.3em 0.6em;
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
 }
-.markdown-preview img { max-width: 100%; height: auto; }
-.markdown-preview .md-block { scroll-margin-top: 0; }
-.markdown-preview input[type='checkbox'] { margin-right: 0.4em; }
+.markdown-preview li {
+  margin: 0.15em 0;
+}
+.markdown-preview a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.markdown-preview code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.92em;
+}
+.markdown-preview :not(pre) > code {
+  background: var(--muted);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.markdown-preview pre {
+  position: relative;
+  background: var(--muted);
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow: auto;
+}
+.markdown-preview blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1em;
+  color: var(--muted-foreground);
+  margin: 0.5em 0;
+}
+.markdown-preview table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+}
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.6em;
+}
+.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+}
+.markdown-preview .md-block {
+  scroll-margin-top: 0;
+}
+.markdown-preview input[type="checkbox"] {
+  margin-right: 0.4em;
+}

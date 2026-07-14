@@ -15,7 +15,7 @@ import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
+import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AutoContinueDialog } from './AutoContinueDialog'
@@ -184,7 +184,15 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const selectedIssue = selectedIssueId
     ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
     : undefined
-  const issueAccent = issueColorHex(selectedIssue?.color) ?? FLOW_SLATE
+  // The one reactive colour source (§4.2): the selected issue's flow colour —
+  // own palette slot, else the nearest coloured ancestor's (an uncoloured
+  // sub-issue runs its parent's context) — scoped as --issue on the shell
+  // root. data-issue-colored drives the quieter slate percentages, and
+  // .issue-scope derives the text ramp and the .4s crossfade (index.css).
+  const effectiveHex = effectiveIssueColorHex(selectedIssue, (id) =>
+    issues.find((issue) => issue.id === id),
+  )
+  const issueAccent = effectiveHex ?? FLOW_SLATE
   const issueStyle = { '--issue': issueAccent } as CSSProperties
 
   return (
@@ -192,7 +200,11 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       {isMobile ? (
         <MobileApp />
       ) : (
-        <div className="desktop-shell" style={issueStyle}>
+        <div
+          className="desktop-shell issue-scope"
+          data-issue-colored={effectiveHex ? 'true' : 'false'}
+          style={issueStyle}
+        >
           <TopBar superMode={superMode} onSuperModeChange={setSuperMode} />
           <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
             {sidebarCollapsed ? (

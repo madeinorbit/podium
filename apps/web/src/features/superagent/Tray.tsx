@@ -60,7 +60,13 @@ export function Tray({
       style={maxHeight !== null ? { maxHeight } : undefined}
     >
       {items.map((item) => (
-        <TrayCard key={`${item.kind}:${item.issue.id}`} item={item} actions={actions} now={now} />
+        <TrayCard
+          key={`${item.kind}:${item.issue.id}`}
+          item={item}
+          issues={issues}
+          actions={actions}
+          now={now}
+        />
       ))}
     </div>
   )

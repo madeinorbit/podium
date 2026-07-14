@@ -484,6 +484,48 @@
      hairlines 30–50 · selection rings 35 · glow 8–10.
    The base defaults to --background; put issue-base-{card,engraved,tabstrip,
    rail} alongside a mix utility to tint over a different surface. */
+
+/* Registering --issue lets the VARIABLE itself transition: reselecting or
+   recolouring an issue crossfades every derived color-mix, gradient and inset
+   shadow together (§2.10's .4s), which per-property transitions cannot do —
+   background-image gradients don't interpolate. Browsers without @property
+   (Safari < 16.4) simply snap. */
+@property --issue {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #94a3b8;
+}
+
+/* An issue-colour scope: every element that (re)sets `--issue` (the desktop
+   shell root, each tray card, the sidebar bridge notches) carries this class,
+   plus data-issue-colored='true'|'false' so the no-colour slate flow can run
+   the same mechanics quieter (the *-slate-* utilities and overrides below).
+   The scope also derives the tinted text ramp, recomputed wherever --issue is
+   re-scoped (handoff refs, violet/slate: text #f6f3ff/#f2f5fa · bright
+   #c5bede/#c3cddb · muted-bright #a89fc2/#9aa3b2 · muted #8d84a6/#8b93a2 ·
+   dim #4d4466/#4a5261). */
+.issue-scope {
+  --issue-text: color-mix(in srgb, var(--issue) 10%, var(--text-strong));
+  --issue-bright: color-mix(in srgb, var(--issue) 25%, var(--foreground));
+  --issue-muted-bright: color-mix(in srgb, var(--issue) 28%, var(--muted-foreground));
+  --issue-muted: color-mix(in srgb, var(--issue) 22%, var(--label));
+  --issue-dim: color-mix(in srgb, var(--issue) 30%, var(--text-faint));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .issue-scope {
+    transition: --issue 0.4s;
+  }
+  /* Rows, ID squares and rail icons transition their solid colours (1d):
+     select/deselect, queued dimming and a fresh colour pick all crossfade.
+     Deliberately no box-shadow here — the picker's open-ring must be instant. */
+  .phase-surface {
+    transition:
+      background-color 0.4s,
+      border-color 0.4s,
+      color 0.4s,
+      opacity 0.4s;
+  }
+}
 @utility issue-mix-* {
   background-color: color-mix(
     in srgb,
@@ -506,6 +548,25 @@
 /* Issue-tinted hairline: border-color at N% opacity of the issue colour. */
 @utility issue-hairline-* {
   border-color: color-mix(in srgb, var(--issue) calc(--value(integer) * 1%), transparent);
+}
+/* Slate (no colour) runs the identical mechanics slightly quieter (handoff 1b).
+   A surface whose percentage differs in the slate flow pairs its coloured
+   utility with a *-slate-* one carrying the 1b value; the slate one wins under
+   a data-issue-colored='false' scope by specificity (0-2-0 over 0-1-0).
+   Surfaces whose percentage is the same in both states need no pair. */
+@utility issue-mix-slate-* {
+  [data-issue-colored='false'] & {
+    background-color: color-mix(
+      in srgb,
+      var(--issue) calc(--value(integer) * 1%),
+      var(--issue-base, var(--background))
+    );
+  }
+}
+@utility issue-hairline-slate-* {
+  [data-issue-colored='false'] & {
+    border-color: color-mix(in srgb, var(--issue) calc(--value(integer) * 1%), transparent);
+  }
 }
 /* Selection ring around the active ID square / swatch (2px at 35%). */
 @utility issue-ring {
@@ -537,6 +598,30 @@
     color-mix(in srgb, var(--issue) 14%, var(--engraved)),
     var(--engraved) 300px
   );
+}
+/* Handoff-1b quiet values for the fixed-percentage surfaces. Plain (unlayered)
+   rules, so they beat the layered utilities regardless of order. */
+[data-issue-colored='false'] .issue-ring {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--issue) 30%, transparent);
+}
+[data-issue-colored='false'] .issue-glow {
+  background:
+    radial-gradient(
+      560px 300px at 50% 12%,
+      color-mix(in srgb, var(--issue) 9%, transparent),
+      transparent 72%
+    ),
+    var(--issue-base, var(--engraved));
+}
+[data-issue-colored='false'] .issue-fade {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--issue) 13%, var(--issue-base, var(--card))),
+    var(--issue-base, var(--card)) 240px
+  );
+}
+[data-issue-colored='false'] .right-rail {
+  border-left-color: color-mix(in srgb, var(--issue) 30%, transparent);
 }
 
 /* ── Mono micro-typography ────────────────────────────────────────────────────
@@ -572,19 +657,14 @@
   }
 /* ── Native agents pane (.design/specs/native-pane.md) ───────────────────────
    The pane's chrome is tinted by the selected issue via the --issue channel
-   (slate --flow when uncoloured). Derived text shades approximate the
-   handoff's per-colour ctx ramp with color-mix over the neutral text tokens;
-   the colour-flow dimension (#44) owns centralizing/refining these. */
+   (slate --flow when uncoloured); its derived text shades come from the
+   .issue-scope ramp above, inherited from the shell root. The pane surface is
+   12% coloured / 9% slate over the app background (§2.6). */
 .native-agents-pane {
-  background-color: color-mix(in srgb, var(--issue) 10%, var(--background));
-  /* Tinted text ramp (handoff refs, violet/slate): text #f6f3ff/#f2f5fa ·
-     bright #c5bede/#c3cddb · muted-bright #a89fc2/#9aa3b2 · muted
-     #8d84a6/#8b93a2 · dim #4d4466/#4a5261. */
-  --issue-text: color-mix(in srgb, var(--issue) 10%, var(--text-strong));
-  --issue-bright: color-mix(in srgb, var(--issue) 25%, var(--foreground));
-  --issue-muted-bright: color-mix(in srgb, var(--issue) 28%, var(--muted-foreground));
-  --issue-muted: color-mix(in srgb, var(--issue) 22%, var(--label));
-  --issue-dim: color-mix(in srgb, var(--issue) 30%, var(--text-faint));
+  background-color: color-mix(in srgb, var(--issue) 12%, var(--background));
+}
+[data-issue-colored='false'] .native-agents-pane {
+  background-color: color-mix(in srgb, var(--issue) 9%, var(--background));
 }
 /* Tab leading square: the 7×7 issue-colour dot (radius 2.5px). Beats the
    unlayered `.dot` circle rule in styles.css by specificity while keeping the

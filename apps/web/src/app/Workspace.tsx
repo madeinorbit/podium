@@ -273,7 +273,7 @@ export function Workspace(): JSX.Element {
           bottom edge (pt only, no pb). */}
       <div
         data-testid="native-tab-strip"
-        className="relative flex h-[34px] flex-none items-stretch gap-[2px] border-b issue-hairline-50 issue-mix-18 issue-base-tabstrip px-[6px] pt-[4px]"
+        className="relative flex h-[34px] flex-none items-stretch gap-[2px] border-b issue-hairline-50 issue-hairline-slate-45 issue-mix-18 issue-mix-slate-14 issue-base-tabstrip px-[6px] pt-[4px]"
       >
         <DndContext
           sensors={sensors}
@@ -475,7 +475,7 @@ function SortableTab({
         'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[7px] border border-b-0 border-transparent px-0.5',
         isDragging ? 'z-[2] cursor-grabbing opacity-90' : 'cursor-grab',
         active
-          ? 'native-tab-active issue-hairline-50 issue-mix-28'
+          ? 'native-tab-active issue-hairline-50 issue-hairline-slate-45 issue-mix-28 issue-mix-slate-22'
           : isDragging
             ? 'issue-mix-14'
             : 'hover:issue-mix-14',
