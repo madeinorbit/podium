@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  knownPrefixesFromIssues,
+  collectRefPrefixes,
   miniviewReducer,
   type RefIssueLike,
   type RefSessionLike,
   resolveRef,
+  sessionWorkingIssueRef,
 } from './ref-miniview'
 
 const issues: RefIssueLike[] = [
@@ -70,18 +71,48 @@ describe('miniviewReducer', () => {
   })
 })
 
-describe('knownPrefixesFromIssues', () => {
+describe('collectRefPrefixes', () => {
   it('derives the unique set of prefixes', () => {
-    expect(knownPrefixesFromIssues(issues)).toEqual(new Set(['POD', 'WEB']))
+    expect(collectRefPrefixes(issues)).toEqual(new Set(['POD', 'WEB']))
   })
 
-  it('skips issues without a prefix', () => {
-    expect(knownPrefixesFromIssues([{ prefix: 'POD' }, {}, { prefix: undefined }])).toEqual(
-      new Set(['POD']),
-    )
+  it('skips rows without a prefix (undefined or null)', () => {
+    expect(collectRefPrefixes([{ prefix: 'POD' }, {}, { prefix: null }])).toEqual(new Set(['POD']))
   })
 
-  it('is empty for no issues', () => {
-    expect(knownPrefixesFromIssues([]).size).toBe(0)
+  it('unions repo rows with issue rows — a repo with zero issues still counts', () => {
+    const repoRows = [{ prefix: 'CLI' }, { prefix: null }]
+    expect(collectRefPrefixes(repoRows, issues)).toEqual(new Set(['CLI', 'POD', 'WEB']))
+  })
+
+  it('is empty for no rows', () => {
+    expect(collectRefPrefixes([]).size).toBe(0)
+  })
+})
+
+describe('sessionWorkingIssueRef', () => {
+  it('returns the current issue ref when the session re-homed off its birth issue', () => {
+    const s = { displayRef: 'POD-13-A', issueId: 'iss_2' } // now working POD-27
+    expect(sessionWorkingIssueRef(s, issues)).toBe('POD-27')
+  })
+
+  it('returns null when the current issue IS the birth issue', () => {
+    const s = { displayRef: 'POD-13-A', issueId: 'iss_1' }
+    expect(sessionWorkingIssueRef(s, issues)).toBeNull()
+  })
+
+  it('returns the current issue ref for a draft-born session', () => {
+    const s = { displayRef: 'POD-DRAFT-3', issueId: 'iss_3' }
+    expect(sessionWorkingIssueRef(s, issues)).toBe('WEB-4')
+  })
+
+  it('returns null without a current issue, an unknown issue, or a ref-less issue', () => {
+    expect(sessionWorkingIssueRef({ displayRef: 'POD-13-A' }, issues)).toBeNull()
+    expect(sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: 'nope' }, issues)).toBeNull()
+    expect(
+      sessionWorkingIssueRef({ displayRef: 'POD-13-A', issueId: 'iss_9' }, [
+        { id: 'iss_9', seq: 9, title: 'legacy, no displayRef' },
+      ]),
+    ).toBeNull()
   })
 })

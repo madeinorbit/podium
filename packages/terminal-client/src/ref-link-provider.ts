@@ -41,14 +41,26 @@ export function findRefMatches(
   cells: Cell[],
   isKnownPrefix: (prefix: string) => boolean,
 ): Array<{ ref: string; cells: Cell[] }> {
-  const text = cells.map((c) => c.char).join('')
+  // A cell's char can hold a whole grapheme cluster (base + combining marks),
+  // so joined-text indices and cell indices diverge. Map every text index back
+  // to its cell so link rectangles don't shift right of the token.
+  let text = ''
+  const cellForTextIndex: number[] = []
+  for (let ci = 0; ci < cells.length; ci++) {
+    const chars = cells[ci]?.char || ' ' // defensive: an empty cell still occupies one column
+    for (let k = 0; k < chars.length; k++) cellForTextIndex.push(ci)
+    text += chars
+  }
   const out: Array<{ ref: string; cells: Cell[] }> = []
   for (const m of text.matchAll(anyRefMatcher())) {
     const tok = m[0]
     const parsed = parseAnyRef(tok)
     if (!parsed || !isKnownPrefix(parsed.prefix)) continue
     const start = m.index ?? 0
-    out.push({ ref: tok, cells: cells.slice(start, start + tok.length) })
+    const firstCell = cellForTextIndex[start]
+    const lastCell = cellForTextIndex[start + tok.length - 1]
+    if (firstCell === undefined || lastCell === undefined) continue
+    out.push({ ref: tok, cells: cells.slice(firstCell, lastCell + 1) })
   }
   return out
 }

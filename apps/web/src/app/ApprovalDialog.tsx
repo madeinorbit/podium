@@ -40,9 +40,13 @@ export function ApprovalDialog(): JSX.Element | null {
 
   const from = [
     current.machineName ?? current.machineId,
-    current.issueSeq != null
-      ? `${issueDisplayRef({ seq: current.issueSeq })} ${current.issueTitle ?? ''}`.trim()
-      : null,
+    // Prefer the server-stamped nice id (#474); fall back to `#seq` for rows
+    // from a server that predates the field.
+    current.issueDisplayRef != null
+      ? `${current.issueDisplayRef} ${current.issueTitle ?? ''}`.trim()
+      : current.issueSeq != null
+        ? `${issueDisplayRef({ seq: current.issueSeq })} ${current.issueTitle ?? ''}`.trim()
+        : null,
   ]
     .filter(Boolean)
     .join(' · ')

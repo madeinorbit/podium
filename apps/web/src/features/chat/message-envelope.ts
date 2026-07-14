@@ -54,7 +54,9 @@ export function parseMessageEnvelope(text: string): ParsedEnvelope | null {
  *  "session s1 · agent", the bare kinds pass through. Nice-id refs inside message
  *  bodies are linkified separately by the markdown ref pass (#474). */
 export function envelopePrincipalLabel(label: string): string {
-  const issue = /^issue:(.+)$/.exec(label)
+  // Only the two shapes the server actually renders (`#seq` or a nice-id ref);
+  // anything else passes through untouched rather than being mislabelled.
+  const issue = /^issue:(#\d+|[A-Z]{2,5}-\d+)$/.exec(label)
   if (issue) return `issue ${issue[1]} · agent`
   const session = /^session:(\S+)$/.exec(label)
   if (session) return `session ${session[1]} · agent`

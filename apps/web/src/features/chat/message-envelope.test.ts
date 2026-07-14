@@ -53,9 +53,16 @@ describe('parseMessageEnvelope', () => {
 describe('envelopePrincipalLabel', () => {
   it('prettifies issue/session labels and passes kinds through', () => {
     expect(envelopePrincipalLabel('issue:#212')).toBe('issue #212 · agent')
+    expect(envelopePrincipalLabel('issue:POD-13')).toBe('issue POD-13 · agent')
     expect(envelopePrincipalLabel('session:s1')).toBe('session s1 · agent')
     expect(envelopePrincipalLabel('superagent')).toBe('superagent')
     expect(envelopePrincipalLabel('system')).toBe('system')
     expect(envelopePrincipalLabel('operator')).toBe('operator')
+  })
+
+  it('passes malformed issue labels through untouched', () => {
+    expect(envelopePrincipalLabel('issue:whatever')).toBe('issue:whatever')
+    expect(envelopePrincipalLabel('issue:pod-13')).toBe('issue:pod-13')
+    expect(envelopePrincipalLabel('issue:TOOLONG-1')).toBe('issue:TOOLONG-1')
   })
 })

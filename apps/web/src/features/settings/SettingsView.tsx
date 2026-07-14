@@ -14,6 +14,7 @@ import { IntegrationsSection } from './sections/integrations'
 import { KeysSection } from './sections/keys'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
+import { ReposSection } from './sections/repos'
 import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
 import type { AccountView } from './sections/shared'
@@ -34,6 +35,7 @@ export type SettingsTab =
   | 'workflow'
   | 'integrations'
   | 'network'
+  | 'repos'
   | 'machines'
   | 'security'
   | 'updates'
@@ -50,6 +52,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'workflow', label: 'Workflow' },
   { key: 'integrations', label: 'Integrations' },
   { key: 'network', label: 'Network' },
+  { key: 'repos', label: 'Repos' },
   { key: 'machines', label: 'Machines' },
   { key: 'security', label: 'Security' },
   { key: 'updates', label: 'Updates' },
@@ -99,6 +102,7 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   workflow: ({ settings, patch }) => <WorkflowSection settings={settings} patch={patch} />,
   integrations: ({ settings, patch }) => <IntegrationsSection settings={settings} patch={patch} />,
   network: () => <NetworkSection />,
+  repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
   updates: () => <UpdatesSection />,

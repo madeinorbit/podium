@@ -82,9 +82,42 @@ export function miniviewReducer(_state: MiniviewState, action: MiniviewAction): 
 // Known-prefix derivation (drives markdown + terminal linkify activation).
 // ---------------------------------------------------------------------------
 
-/** The set of registered repo prefixes present in the issues list (#474). */
-export function knownPrefixesFromIssues(issues: readonly { prefix?: string }[]): Set<string> {
+/**
+ * The set of registered repo prefixes across any prefix-bearing rows (#474).
+ * The canonical source is `repos.listDetailed` (a repo with zero issues must
+ * still linkify); issue rows are unioned in as a cheap freshness fallback —
+ * pass both lists concatenated.
+ */
+export function collectRefPrefixes(
+  ...rowLists: readonly (readonly { prefix?: string | null }[])[]
+): Set<string> {
   const out = new Set<string>()
-  for (const i of issues) if (i.prefix) out.add(i.prefix)
+  for (const rows of rowLists) for (const r of rows) if (r.prefix) out.add(r.prefix)
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Session "working <issue>" context chip (#474 review, finding 9).
+// ---------------------------------------------------------------------------
+
+/**
+ * The display ref of the issue a session is CURRENTLY attached to, when it
+ * differs from the issue baked into the session's birth `displayRef` — e.g. a
+ * `POD-13-A` session re-homed onto POD-27 yields `'POD-27'`. Returns null when
+ * there is no current issue, it has no displayRef, or it is the birth issue
+ * (nothing extra to say).
+ */
+export function sessionWorkingIssueRef(
+  session: Pick<RefSessionLike, 'displayRef' | 'issueId'>,
+  issues: readonly RefIssueLike[],
+): string | null {
+  if (!session.issueId) return null
+  const current = issues.find((i) => i.id === session.issueId)
+  if (!current?.displayRef) return null
+  const birth = session.displayRef ? parseAnyRef(session.displayRef) : null
+  if (birth && birth.kind === 'session' && birth.seq !== undefined) {
+    const birthIssueRef = `${birth.prefix}-${birth.seq}`
+    if (birthIssueRef === current.displayRef) return null
+  }
+  return current.displayRef
 }

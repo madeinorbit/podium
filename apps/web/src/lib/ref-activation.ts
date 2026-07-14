@@ -44,6 +44,12 @@ export function closeMiniview(): void {
   emit()
 }
 
+// --- Prefix-set invalidation ------------------------------------------------
+
+/** Window event dispatched after a repo prefix changes (settings editor), so
+ *  <RefPrefixSync> refetches `repos.listDetailed` without a page reload. */
+export const REF_PREFIXES_CHANGED_EVENT = 'podium:ref-prefixes-changed'
+
 // --- Activator registry ---------------------------------------------------
 
 /** How a click modifier was held when a ref link was activated. */

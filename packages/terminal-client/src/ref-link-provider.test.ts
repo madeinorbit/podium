@@ -34,4 +34,19 @@ describe('findRefMatches', () => {
       'WEB-2',
     ])
   })
+
+  it('keeps link cells aligned past combining-grapheme cells (char length > 1)', () => {
+    // 'é' as base + combining acute lives in ONE cell but is TWO text chars —
+    // without a textIndex→cellIndex map the link rectangle would shift right.
+    const row: Cell[] = [
+      { char: 'é', x: 0, y: 0, styled: false },
+      { char: ' ', x: 1, y: 0, styled: false },
+      ...[...'POD-13'].map((char, i) => ({ char, x: 2 + i, y: 0, styled: false })),
+    ]
+    const m = findRefMatches(row, known)
+    expect(m.map((x) => x.ref)).toEqual(['POD-13'])
+    expect(m[0]?.cells[0]?.x).toBe(2)
+    expect(m[0]?.cells[m[0].cells.length - 1]?.x).toBe(7)
+    expect(m[0]?.cells.map((c) => c.char).join('')).toBe('POD-13')
+  })
 })
