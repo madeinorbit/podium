@@ -19,8 +19,10 @@ import {
 } from './issue-events'
 import { issueNeighbors } from './issue-page'
 import {
+  type IssueMailMessage,
   loadIssueComments,
   loadIssueEventsPage,
+  loadIssueMail,
   loadMergeStyle,
   type MergeStyle,
   type RunMutation,
@@ -39,6 +41,9 @@ export interface IssuePageModel {
   repoName: string
   /** Comments and state-transition events interleaved chronologically. */
   feed: ActivityItem[]
+  /** Agent mail addressed to this issue (issue #103) — operator peek, so
+   *  listing here never consumes the recipient's unread status. */
+  mail: IssueMailMessage[]
   /** Sub-issues (archived children stay visible — issue #133). */
   children: IssueWire[]
   /** Optimistic local append after a posted comment (the commentCount-keyed
@@ -55,6 +60,7 @@ export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): Issue
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
   const [comments, setComments] = useState<ActivityComment[]>([])
+  const [mail, setMail] = useState<IssueMailMessage[]>([])
 
   // Reset the toast on issue switch and seed comments from the (legacy,
   // pre-#175) embedded thread if the wire still carries one; the lazy fetch
@@ -90,6 +96,28 @@ export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): Issue
       cancelled = true
     }
   }, [issue.id, issue.commentCount])
+
+  // Agent mailbox (issue #103): fetched on open and re-fetched when the live
+  // wire row moves (a mailSend bumps nothing on the wire itself, but the
+  // updatedAt tick from the same agent's other writes usually follows; the
+  // fetch is cheap and best-effort either way). The wrapping Promise.resolve()
+  // absorbs a missing proc on the client seam (older servers, test mocks)
+  // instead of crashing the render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / update tick only; trpc is a stable store singleton
+  useEffect(() => {
+    let cancelled = false
+    Promise.resolve()
+      .then(() => loadIssueMail(trpc, issue.id))
+      .then((rows) => {
+        if (!cancelled) setMail(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setMail([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [issue.id, issue.updatedAt])
 
   // Load this issue's state-transition events for the activity feed (interleaved
   // with comments below). The events route is repo-scoped and cursor-paged
@@ -157,6 +185,7 @@ export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): Issue
     next,
     repoName: issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath,
     feed: buildActivityFeed(comments, events),
+    mail,
     children: subIssuesOf(issues, issue.id),
     appendLocalComment: (body) =>
       setComments((cur) => [...cur, { author: 'me', body, createdAt: new Date().toISOString() }]),

@@ -65,6 +65,23 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
       if (value === issue.description) return
       update({ description: value })
     },
+    /** Long-form spec fields agents write via `podium issue update` — same
+     *  inline-editor pattern as the description. */
+    commitLongForm: (field: 'design' | 'acceptance' | 'notes', value: string): void => {
+      if (value === (issue[field] ?? '')) return
+      update({ [field]: value })
+    },
+
+    // ---- agent panel (todos ride issues.panel; 1-based index API) ----
+    toggleTodo: (index1: number, done: boolean): void => {
+      void run(() =>
+        trpc.issues.panelApply.mutate({
+          id,
+          op: done ? 'todo-done' : 'todo-undone',
+          index: index1,
+        }),
+      )
+    },
 
     // ---- sub-issues ----
     createSubIssue: (title: string): void => {
@@ -94,6 +111,9 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
     // ---- overflow menu ----
     flagForHuman: (question: string | undefined): void => {
       void run(() => trpc.issues.setNeedsHuman.mutate({ id, question }))
+    },
+    togglePinned: (): void => {
+      update({ pinned: !issue.pinned })
     },
     deleteIssue: (onDeleted: () => void): void => {
       void run(async () => {
@@ -211,3 +231,22 @@ export const loadIssueEventsPage = (
 /** The configured git merge style (drives which git action is primary). */
 export const loadMergeStyle = async (trpc: Trpc): Promise<MergeStyle> =>
   (await trpc.settings.get.query()).gitWorkflow.mergeStyle
+
+/** A row of an issue's agent mailbox (issue #103). `wasUnread` carries the
+ *  pre-read status; the server never marks mail read for an operator peek. */
+export interface IssueMailMessage {
+  id: string
+  issueId: string
+  fromAuthor: string
+  body: string
+  createdAt: string
+  status: 'unread' | 'read' | 'claimed'
+  claimedBy: string | null
+  wasUnread: boolean
+}
+
+/** The issue's agent mailbox. `mailInbox` is a mutation (recipients consume
+ *  unread status on list), but the web client is an operator peek — the server
+ *  only marks mail read for the recipient issue's own scope. */
+export const loadIssueMail = (trpc: Trpc, id: string): Promise<IssueMailMessage[]> =>
+  trpc.issues.mailInbox.mutate({ id }) as Promise<IssueMailMessage[]>

@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { relativeTime } from '@/lib/home'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
@@ -169,6 +170,7 @@ export function IssueProperties({
     shallowEqual,
   )
   const mergeStyle = useMergeStyle(trpc)
+  const now = Date.now()
   const [deferDate, setDeferDate] = useState('')
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState('blocks')
@@ -226,7 +228,7 @@ export function IssueProperties({
             trigger={
               <TriggerButton disabled={busy} testId="status-trigger">
                 <StageGlyph stage={issue.stage} />
-                {STAGE_LABELS[issue.stage]}
+                {issue.closedReason ? `Closed — ${issue.closedReason}` : STAGE_LABELS[issue.stage]}
               </TriggerButton>
             }
           />
@@ -440,6 +442,24 @@ export function IssueProperties({
             />
           </div>
         </PropertyRow>
+
+        {/* Linear (integration link — identifier + click-through) */}
+        {(issue.linearUrl || issue.linearIdentifier) && (
+          <PropertyRow label="Linear">
+            {issue.linearUrl ? (
+              <a
+                href={issue.linearUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 pt-1 text-[13px] text-primary hover:underline"
+              >
+                {issue.linearIdentifier ?? 'Open'} <ExternalLink size={12} aria-hidden="true" />
+              </a>
+            ) : (
+              <span className="block pt-1 text-[13px]">{issue.linearIdentifier}</span>
+            )}
+          </PropertyRow>
+        )}
       </div>
 
       {/* Relations */}
@@ -477,6 +497,28 @@ export function IssueProperties({
             ))}
           </div>
         ))}
+        {/* Agent-noted soft blockers (issues.blocked_by / dependency_note) —
+            free-text notes, distinct from the real dependency graph above. */}
+        {(issue.blockedBy.length > 0 || issue.dependencyNote) && (
+          <div
+            className="flex flex-col gap-0.5 rounded-md border border-border border-dashed bg-muted/20 px-2 py-1.5"
+            data-testid="agent-blockers"
+          >
+            <span className="text-[11px] text-muted-foreground uppercase tracking-wide">
+              Agent notes
+            </span>
+            {issue.blockedBy.map((b) => (
+              <span key={b} className="break-words text-[12px] text-muted-foreground">
+                blocked by: {b}
+              </span>
+            ))}
+            {issue.dependencyNote && (
+              <span className="break-words text-[12px] text-muted-foreground">
+                {issue.dependencyNote}
+              </span>
+            )}
+          </div>
+        )}
         {repoMates.length > 0 && (
           <div className="flex items-center gap-1.5">
             <PropertyMenu
@@ -676,6 +718,46 @@ export function IssueProperties({
           )}
         </section>
       )}
+
+      {/* About — row-level provenance and freshness stamps. */}
+      <section
+        className="flex flex-col gap-0.5 border-border border-t pt-3"
+        data-testid="issue-about"
+      >
+        <AboutRow
+          label="Created"
+          value={relativeTime(issue.createdAt, now)}
+          title={issue.createdAt}
+        />
+        <AboutRow
+          label="Updated"
+          value={relativeTime(issue.updatedAt, now)}
+          title={issue.updatedAt}
+        />
+        <AboutRow label="Origin" value={issue.origin} />
+        <AboutRow label="Audience" value={issue.audience} />
+      </section>
+    </div>
+  )
+}
+
+/** One muted label/value line in the About block; empty values render nothing. */
+function AboutRow({
+  label,
+  value,
+  title,
+}: {
+  label: string
+  value: string
+  title?: string
+}): JSX.Element | null {
+  if (!value) return null
+  return (
+    <div className="flex items-baseline gap-2 text-[12px]">
+      <span className="w-20 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-muted-foreground/80" title={title}>
+        {value}
+      </span>
     </div>
   )
 }
