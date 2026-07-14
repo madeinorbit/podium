@@ -52,6 +52,21 @@ describe('normalizeSettings — coding.startScreen', () => {
   })
 })
 
+describe('normalizeSettings — coding.seedCliTheme [spec:SP-a04d]', () => {
+  it('defaults ON, including for old blobs without the field', () => {
+    expect(normalizeSettings({}).roles.coding.seedCliTheme).toBe(true)
+    expect(
+      normalizeSettings({ roles: { coding: { startScreen: 'chat' } } }).roles.coding.seedCliTheme,
+    ).toBe(true)
+  })
+
+  it('an explicit opt-out survives normalization', () => {
+    expect(
+      normalizeSettings({ roles: { coding: { seedCliTheme: false } } }).roles.coding.seedCliTheme,
+    ).toBe(false)
+  })
+})
+
 describe('normalizeSettings — legacy → roles migration', () => {
   it('migrates the real live blob shape (superagent+workLlm on codex api, coding claude-code)', () => {
     const s = normalizeSettings({

@@ -29,6 +29,34 @@ export interface TerminalViewOptions extends TerminalAppearance {
 export const DEFAULT_FONT_SIZE = 13
 export const DEFAULT_LINE_HEIGHT = 1.15
 
+/**
+ * True when a CSS colour reads as a LIGHT background. Understands #rgb/#rrggbb
+ * (the only forms Podium produces); anything else — named colours, rgb(),
+ * unset — is treated as dark, matching every built-in surface. Perceived
+ * luminance (ITU-R 601 weights) over 0.5 counts as light.
+ */
+export function isLightBackground(background: string | undefined): boolean {
+  if (!background) return false
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(background.trim())
+  if (!m) return false
+  const hex = m[1] as string
+  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5
+}
+
+/**
+ * The colour-scheme report of contour's mode-2031 extension
+ * (vt-extensions/color-palette-update-notifications): `CSI ? 997 ; 1 n` = dark,
+ * `CSI ? 997 ; 2 n` = light. Sent as PTY *input* so a subscribed TUI (Claude
+ * Code with `theme: auto`) re-queries OSC 11 and repaints in the new colours.
+ */
+export function colorSchemeReport(background: string | undefined): string {
+  return `\x1b[?997;${isLightBackground(background) ? 2 : 1}n`
+}
+
 // A terminal in a proportional font is unreadable and misaligns box-drawing. Pin a
 // monospace stack that resolves to a real mono font on every platform.
 const MONO_STACK =
@@ -102,6 +130,12 @@ export class TerminalView {
   // after a context loss dropped us to the DOM renderer). Kept so reloadWebgl() can
   // recreate it to recover a discarded canvas.
   private webgl: WebglAddon | undefined
+  // True while the running application has DEC private mode 2031 enabled —
+  // it asked to be notified of colour-scheme changes (Claude Code enables it
+  // in every theme). Only TRACKED here; session-mount owns pushing the
+  // CSI ? 997 ; … n report on a live background change, because the report is
+  // PTY input and input is controller-only.
+  private schemeNotify = false
   // An OSC 52 payload whose direct clipboard write FAILED. The sequence arrives
   // asynchronously over the transport — outside any user gesture — and
   // Safari/Firefox reject gesture-less writeText (Chromium too when the
@@ -168,6 +202,23 @@ export class TerminalView {
       if (text) void this.copyText(text)
       return true
     })
+    // DECSET/DECRST ?2031 (contour colour-scheme-update notifications): track
+    // whether the running app wants scheme-change reports. Never consume — a
+    // set/reset can carry other modes xterm must still process.
+    this.term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+      if (params.includes(2031)) this.schemeNotify = true
+      return false
+    })
+    this.term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+      if (params.includes(2031)) this.schemeNotify = false
+      return false
+    })
+  }
+
+  /** True while the running application has mode 2031 enabled (it asked for
+   *  colour-scheme-change reports — see {@link colorSchemeReport}). */
+  colorSchemeNotifyEnabled(): boolean {
+    return this.schemeNotify
   }
 
   /** Configure (or clear) clickable file-path links. Highlighted, path-like runs

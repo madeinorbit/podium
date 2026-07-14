@@ -1671,6 +1671,26 @@ describe('agent state instrumentation', () => {
     expect(url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${daemon.hookPort}/hooks/sA$`))
   })
 
+  it('seedCliTheme rides the spawn into the settings file: absent/true seed theme:auto, false leaves the user theme alone [spec:SP-a04d]', async () => {
+    const themeOf = async (sessionId: string): Promise<string | undefined> => {
+      const raw = await readFile(join(settingsDir, `${sessionId}.json`), 'utf8')
+      return (JSON.parse(raw) as { theme?: string }).theme
+    }
+    send({ type: 'spawn', sessionId: 'sT1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sT1'))
+    expect(await themeOf('sT1')).toBe('auto') // absent = the default (on)
+    send({
+      type: 'spawn',
+      sessionId: 'sT2',
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      geometry: G,
+      seedCliTheme: false,
+    })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sT2'))
+    expect(await themeOf('sT2')).toBeUndefined() // opt-out: no theme key at all
+  })
+
   it('does not instrument shell sessions', async () => {
     send({ type: 'spawn', sessionId: 'sh1', agentKind: 'shell', cwd: '/tmp', geometry: G })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sh1'))

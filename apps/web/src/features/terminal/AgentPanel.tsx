@@ -46,7 +46,7 @@ import {
 } from '@/lib/derive'
 import { attentionGroup } from '@/lib/home'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { issueColorHex } from '@/lib/issueColors'
+import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
@@ -287,7 +287,9 @@ export function AgentPanel({
   const selectedIssue = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
-  const issueHex = issueColorHex(selectedIssue?.color)
+  // Same flow-colour resolution as the shell root (own colour, else nearest
+  // coloured ancestor) so the terminal never disagrees with the pane chrome.
+  const issueHex = effectiveIssueColorHex(selectedIssue, (id) => issues.find((i) => i.id === id))
   const termBg = termSettings.background ?? paneTintedBackground(issueHex)
   const appearance = useMemo(
     () => (termSettings.background ? termAppearance : withBackground(termAppearance, termBg)),
@@ -516,7 +518,7 @@ export function AgentPanel({
           the 26px control row. */}
       <div
         data-testid="agent-panel-header"
-        className="flex h-[42px] flex-none items-center gap-2 border-b issue-hairline-45 issue-mix-24 px-[10px]"
+        className="flex h-[42px] flex-none items-center gap-2 border-b issue-hairline-45 issue-hairline-slate-40 issue-mix-24 issue-mix-slate-18 px-[10px]"
       >
         {session && (
           <>

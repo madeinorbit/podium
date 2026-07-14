@@ -41,8 +41,16 @@ export interface AgentInstrumentation {
 }
 
 export interface AgentStateProvider {
-  /** Spawn-time injection wiring the harness's event bus to `endpointUrl`. */
-  instrumentation(opts: { endpointUrl: string; settingsPath: string }): AgentInstrumentation
+  /** Spawn-time injection wiring the harness's event bus to `endpointUrl`.
+   *  `seedTheme` additionally seeds the CLI's theme with per-session OFFICIAL
+   *  flags so it follows the terminal's issue-tinted colours (Claude Code
+   *  `theme: auto`, Codex `tui.theme=ansi`); false = no theme flags at all,
+   *  preserving the user's native CLI theme behaviour [spec:SP-a04d]. */
+  instrumentation(opts: {
+    endpointUrl: string
+    settingsPath: string
+    seedTheme?: boolean
+  }): AgentInstrumentation
   /** Translate one harness-native payload into zero or more normalized events.
    *  Async because some translations read the transcript (idle classification). */
   translate(payload: unknown): Promise<AgentStateEvent[]>

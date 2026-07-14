@@ -1,7 +1,12 @@
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
 import { decideResizeAction, type Grid } from './session-viewport'
-import { type TerminalAppearance, TerminalView } from './terminal-view'
+import {
+  colorSchemeReport,
+  DEFAULT_THEME,
+  type TerminalAppearance,
+  TerminalView,
+} from './terminal-view'
 import { mountKeyToolbar } from './toolbar'
 
 export interface MountSessionOptions {
@@ -76,6 +81,11 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const { hub, sessionId } = opts
   const view = new TerminalView(opts.appearance ?? {})
   view.mount(el)
+
+  // The background last applied to the view — a later setAppearance compares
+  // against it to detect a real colour change (issue recolour, user theme
+  // edit) worth reporting to a mode-2031 subscriber.
+  let lastBackground = (opts.appearance?.theme ?? DEFAULT_THEME).background
 
   let active = opts.active ?? true
   let serverGrid: Grid = { cols: view.cols(), rows: view.rows() }
@@ -366,6 +376,20 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // going inactive: do nothing — never resize a hidden panel
     },
     setAppearance(appearance: TerminalAppearance): void {
+      // Colour-scheme report (contour mode 2031): when the running app
+      // subscribed and the background genuinely changed, tell it so it can
+      // re-query OSC 11 and repaint (Claude Code's `theme: auto`). The report
+      // is PTY input, so it obeys the controller-only input rule — a
+      // spectator's local appearance never speaks for the session.
+      const nextBackground = (appearance.theme ?? DEFAULT_THEME).background
+      if (
+        nextBackground !== lastBackground &&
+        view.colorSchemeNotifyEnabled() &&
+        connection.state().role === 'controller'
+      ) {
+        connection.sendInput(colorSchemeReport(nextBackground))
+      }
+      lastBackground = nextBackground
       view.setAppearance(appearance)
       // A font-metric change altered the cell size — reconcile the grid to the
       // container and inform the server (eligibility-gated inside applyFit, so

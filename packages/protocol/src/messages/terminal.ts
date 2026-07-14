@@ -284,6 +284,10 @@ export const SpawnMessage = z.object({
   // A first prompt handed to the agent at launch as a positional argv token
   // (race-free; e.g. an issue's description). Only set for argv-capable agents.
   initialPrompt: z.string().optional(),
+  // Seed the CLI's theme with per-session official flags so it follows the
+  // terminal's issue-tinted colours (roles.coding.seedCliTheme, [spec:SP-a04d]).
+  // Absent = the setting's default (on) — older servers simply get the default.
+  seedCliTheme: z.boolean().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
