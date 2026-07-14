@@ -41,6 +41,7 @@ const ASK = {
 function client(
   result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true },
   ask: unknown = ASK,
+  title: { ok: boolean; name?: string; reason?: string } = { ok: true, name: 'Named thing' },
 ) {
   return {
     sessions: {
@@ -51,6 +52,7 @@ function client(
       read: { query: vi.fn(async (): Promise<unknown> => READ) },
       recap: { query: vi.fn(async (): Promise<unknown> => RECAP) },
       ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
+      title: { mutate: vi.fn(async () => title) },
     },
   } satisfies SessionControlClient
 }
@@ -102,6 +104,47 @@ describe('podium session CLI', () => {
     expect(out).toContain('send <session-id>')
     expect(out).toContain('resume-and-send')
     expect(out).toContain('continue <session-id>')
+  })
+})
+
+// #490 — `podium session title "…"`. The one session command with no session id:
+// the server binds the CALLING session from the relay capability.
+describe('podium session title (#490)', () => {
+  it('sends the title with NO session id — it can only ever name the caller', async () => {
+    const c = client()
+    const out = await runSessionCli(['title', 'Session name source column'], c, { hasRelay: true })
+    expect(c.sessions.title.mutate).toHaveBeenCalledWith({ name: 'Session name source column' })
+    expect(out).toContain('Named thing')
+  })
+
+  it('accepts an unquoted multi-word title rather than silently taking the first word', async () => {
+    const c = client({ ok: true }, ASK, { ok: true, name: 'Merge lock lease expiry' })
+    await runSessionCli(['title', 'Merge', 'lock', 'lease', 'expiry'], c, { hasRelay: true })
+    expect(c.sessions.title.mutate).toHaveBeenCalledWith({ name: 'Merge lock lease expiry' })
+  })
+
+  it('PRINTS the refusal when the user already named the session', async () => {
+    const c = client({ ok: true }, ASK, {
+      ok: false,
+      reason:
+        'this session was named by the user ("Mike\'s pet session") — an agent cannot rename it',
+    })
+    await expect(runSessionCli(['title', 'Something else'], c, { hasRelay: true })).rejects.toThrow(
+      /named by the user/,
+    )
+  })
+
+  it('requires the relay — outside an agent session there is no calling session to name', async () => {
+    await expect(runSessionCli(['title', 'X'], client(), { hasRelay: false })).rejects.toThrow(
+      /PODIUM_ISSUE_RELAY is not set/,
+    )
+  })
+
+  it('needs a title, and documents itself in --help', async () => {
+    await expect(runSessionCli(['title'], client(), { hasRelay: true })).rejects.toThrow(
+      /needs a title/,
+    )
+    expect(await runSessionCli(['help'], client())).toContain('title "<title>"')
   })
 })
 

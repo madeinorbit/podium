@@ -1,3 +1,4 @@
+import { TITLE_RULE_TERSE } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 
@@ -249,7 +250,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'create',
     summary:
-      'Create an issue: create --title "…" (see --help for flags). --audience human puts it on the human board; agent-created issues default to internal (audience agent).',
+      `Create an issue: create --title "…" (see --help for flags). --audience human puts it on the human board; agent-created issues default to internal (audience agent). ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),
@@ -318,7 +319,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'update',
-    summary: 'Update fields on an issue: update <id> --<field> <value> … (see --help for flags).',
+    summary: `Update fields on an issue: update <id> --<field> <value> … (see --help for flags). Retitling: ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       id: idArg,
       stage: z.string().optional(),
@@ -382,7 +383,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'attach',
     summary:
-      'Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" (create a child of your current issue and move there). An abandoned empty draft is cleaned up.',
+      `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" (create a child of your current issue and move there). An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       id: idArg.optional(),
       subissue: z.string().min(1).optional(),

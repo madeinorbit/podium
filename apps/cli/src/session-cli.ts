@@ -4,6 +4,10 @@ type SessionResult = { ok: boolean; queued?: boolean; reason?: string }
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
 type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
 
+/** `sessions.title` (#490): the agent names its OWN session — refusal (the user
+ *  already named it) comes back as ok:false + reason, not as a thrown error. */
+type TitleResult = { ok: boolean; name?: string; reason?: string }
+
 export interface SessionControlClient {
   sessions: {
     sendText: SessionProc
@@ -14,6 +18,8 @@ export interface SessionControlClient {
     read: SessionQuery
     recap: SessionQuery
     ask: { mutate(input: Record<string, unknown>): Promise<unknown> }
+    /** Self-titling (#490) — no sessionId: the server binds the CALLING session. */
+    title: { mutate(input: Record<string, unknown>): Promise<TitleResult> }
   }
 }
 
@@ -163,10 +169,20 @@ function helpText(): string {
     '  ask <session-id> --question <text> [--timeout SECONDS] [--outside-scope]',
     "      The seance: send a question message (next-turn + wake — resumes a parked session's",
     '      full context), then wait (bounded) for the ack carrying the answer.',
+    '  title "<title>"',
+    '      Name THIS session (#490) — no session id: it always targets the calling',
+    '      session. 3–5 words naming the thing, not the activity; it must distinguish',
+    '      this session from the others on the same issue. Re-run to retitle as the',
+    '      work becomes clear. A name the USER set always wins and is never overwritten.',
+    '      Only works inside a Podium-managed agent session (PODIUM_ISSUE_RELAY).',
   ].join('\n')
 }
 
-export async function runSessionCli(argv: string[], client: SessionControlClient): Promise<string> {
+export async function runSessionCli(
+  argv: string[],
+  client: SessionControlClient,
+  opts: { hasRelay?: boolean } = {},
+): Promise<string> {
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
   const { command, args, positionals } = parseSessionArgs(argv)
   if (!command || command === 'help') return helpText()
@@ -188,6 +204,25 @@ export async function runSessionCli(argv: string[], client: SessionControlClient
       `unknown flag${unknown.length > 1 ? 's' : ''} ${unknown.map((k) => `--${k}`).join(', ')} (see \`podium session --help\`)`,
     )
   }
+  // `podium session title "<title>"` (#490) — the ONLY session command that takes no
+  // session id: it names the CALLING session, which the server binds from the relay
+  // capability. Accepting an id here would be a lie (the server ignores it) and would
+  // suggest an agent can rename its neighbours, which it cannot.
+  if (command === 'title') {
+    if (opts.hasRelay === false) {
+      throw new SessionCliError(
+        'PODIUM_ISSUE_RELAY is not set — `session title` names the calling session, so it only works inside a Podium-managed agent session.',
+      )
+    }
+    const title = positionals.join(' ').trim()
+    if (!title) throw new SessionCliError('title needs a title: podium session title "…"')
+    const r = await client.sessions.title.mutate({ name: title })
+    if (!r.ok) throw new SessionCliError(r.reason ?? 'the title was not accepted')
+    return args.json === true
+      ? JSON.stringify({ command, ok: true, name: r.name ?? title })
+      : `session titled "${r.name ?? title}"`
+  }
+
   const sessionId = positionals[0]
   if (!sessionId) {
     throw new SessionCliError(
@@ -275,7 +310,7 @@ export async function sessionCliMain(argv: string[]): Promise<void> {
         `http://localhost:${Number(process.env.PODIUM_PORT) || 18787}`,
       )) as unknown as SessionControlClient
   try {
-    console.log(await runSessionCli(argv, client))
+    console.log(await runSessionCli(argv, client, { hasRelay: Boolean(relay) }))
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (argv.includes('--json')) console.log(JSON.stringify({ ok: false, error: message }))

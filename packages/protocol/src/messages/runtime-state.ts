@@ -63,8 +63,11 @@ export const SessionMeta = z.object({
   sessionId: z.string(),
   agentKind: AgentKind,
   title: z.string(),
-  /** User-set name. Wins over `title` (the live terminal title) wherever shown. */
+  /** Curated name. Wins over `title` (the live terminal title) wherever shown. */
   name: z.string().optional(),
+  /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;
+   *  'agent' = the session named itself (it may re-title itself). Absent = unnamed. */
+  nameSource: z.enum(['user', 'agent']).optional(),
   cwd: z.string(),
   status: SessionStatus,
   exitCode: z.number().int().optional(), // present only when status === 'exited'

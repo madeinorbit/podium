@@ -23,8 +23,13 @@ export interface SessionRow {
   agentKind: string
   cwd: string
   title: string
-  /** User-set display name; null = derive from title. */
+  /** Curated display name; null = derive from title. Written by a human OR by the
+   *  agent naming its own session (#490) — `nameSource` says which. */
   name: string | null
+  /** WHO wrote `name` (#490): 'user' = a human (web rename / superagent rename tool)
+   *  — an agent may NEVER overwrite it; 'agent' = self-named (it may re-title itself);
+   *  null/absent = nobody named it (also every row from before the column existed). */
+  nameSource?: 'user' | 'agent' | null
   originKind: 'spawn' | 'resume'
   conversationId: string | null
   resumeKind: string | null

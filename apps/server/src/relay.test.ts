@@ -1655,6 +1655,58 @@ describe('structured transcript channel', () => {
       | undefined
     expect(titled?.title).toContain('Refactor')
   })
+
+  it('a leading slash command never titles the session — the first REAL prompt does', () => {
+    const reg = new SessionRegistry()
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    reg.modules.sessions.attachClient(client.send)
+    // The user opened the session by typing `/model`. Claude records that turn as a
+    // pseudo-XML wrapper, NOT as a prompt — titling from it used to produce the
+    // literal "<command-name>/model</command-name>" and lock it in forever.
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [
+        {
+          id: 'u1',
+          role: 'user',
+          text: '<command-name>/model</command-name>\n<command-message>model</command-message>',
+          cursor: 'c1',
+        },
+      ],
+      tail: 'c1',
+    })
+    expect(client.sent.filter((m) => m.type === 'sessionTitleChanged')).toEqual([])
+
+    // …then they say what they actually want. THAT titles the session.
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'transcriptDelta',
+      sessionId,
+      items: [{ id: 'u2', role: 'user', text: 'Refactor the transcript reader', cursor: 'c2' }],
+      tail: 'c2',
+    })
+    const titled = client.sent.find((m) => m.type === 'sessionTitleChanged') as
+      | { title: string }
+      | undefined
+    expect(titled?.title).toContain('Refactor')
+    expect(titled?.title).not.toContain('command-name')
+  })
+
+  it('refuses a command-wrapper title arriving over the OSC title channel', () => {
+    const reg = new SessionRegistry()
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const client = sink()
+    reg.modules.sessions.attachClient(client.send)
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'title',
+      sessionId,
+      title: '<command-name>/effort</command-name>',
+    })
+    expect(client.sent.filter((m) => m.type === 'sessionTitleChanged')).toEqual([])
+  })
 })
 
 describe('readTranscript (disk read via daemon — no cache short-circuit)', () => {

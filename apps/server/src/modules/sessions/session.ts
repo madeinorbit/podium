@@ -66,6 +66,8 @@ export interface SessionInit {
   status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
   exitCode?: number
   name?: string
+  /** WHO set `name` (#490): 'user' (sovereign) | 'agent' (self-named). */
+  nameSource?: 'user' | 'agent'
   archived?: boolean
   workState?: WorkState
   /** WHO created this session (provenance, issue #60): 'user', 'issue:<id>',
@@ -155,8 +157,12 @@ export class Session {
    *  the first-prompt fallback — has been set, so the generic "Claude Code"
    *  placeholder must not overwrite it and the fallback shouldn't re-fire. */
   titleLocked = false
-  /** User-set name; empty = fall back to the live title. */
+  /** Curated name; empty = fall back to the live title. */
   name = ''
+  /** WHO set `name` (#490). 'user' is sovereign: an agent title is REFUSED against
+   *  it, so a hand-picked name is never silently overwritten. 'agent' = the session
+   *  named itself and may re-title itself. undefined = nobody named it yet. */
+  nameSource: 'user' | 'agent' | undefined = undefined
   archived = false
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null = never opened. Persisted via toRow() (read_at column). */
@@ -260,6 +266,7 @@ export class Session {
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
     if (init.name) this.name = init.name
+    if (init.nameSource) this.nameSource = init.nameSource
     if (init.archived) this.archived = init.archived
     if (init.readAt != null) this.readAt = init.readAt
     if (init.workState) this.workState = init.workState
@@ -715,6 +722,7 @@ export class Session {
       cwd: this.cwd,
       title: this.title,
       name: this.name || null,
+      nameSource: this.nameSource ?? null,
       archived: this.archived,
       workState: this.workState ?? null,
       originKind: this.origin.kind,
@@ -750,6 +758,7 @@ export class Session {
       agentKind: this.agentKind,
       title: this.title,
       ...(this.name ? { name: this.name } : {}),
+      ...(this.name && this.nameSource ? { nameSource: this.nameSource } : {}),
       cwd: this.cwd,
       status: this.status,
       ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),

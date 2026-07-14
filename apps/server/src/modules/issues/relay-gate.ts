@@ -18,7 +18,10 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // status/read = read-toolkit tiers 1–2 (#237) [spec:SP-34d7] — structured
   // status + bounded transcript window, scope-gated like the send ops and
   // event-logged per read.
-  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read']),
+  // title = the agent naming its OWN session (#490): it carries no sessionId, the
+  // target is the CALLING session (bound from the capability), and the user's own
+  // name always wins — so it grants no reach over any other session.
+  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail + the stop-hook's
   // single-reminder query. Sender identity is stamped from the capability.
   messages: new Set(['send', 'inbox', 'show', 'reply', 'pendingReminders']),

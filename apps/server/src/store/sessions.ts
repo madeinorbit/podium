@@ -41,7 +41,8 @@ export class SessionsRepository {
   private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
+        `SELECT id, agent_kind, cwd, title, name, name_source, origin_kind, conversation_id,
+                resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
                 spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
@@ -59,6 +60,9 @@ export class SessionsRepository {
       cwd: r.cwd as string,
       title: r.title as string,
       name: (r.name as string | null) ?? null,
+      // Anything else on disk (an old/rogue value) reads as "nobody named it" rather
+      // than as a source that could out-rank the user (#490).
+      nameSource: r.name_source === 'user' || r.name_source === 'agent' ? r.name_source : null,
       originKind: r.origin_kind as 'spawn' | 'resume',
       conversationId: (r.conversation_id as string | null) ?? null,
       resumeKind: (r.resume_kind as string | null) ?? null,
@@ -99,15 +103,17 @@ export class SessionsRepository {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, agent_kind, cwd, title, name, origin_kind, conversation_id, resume_kind,
+           (id, agent_kind, cwd, title, name, name_source, origin_kind, conversation_id,
+            resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
             spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            name = excluded.name,
+           name_source = excluded.name_source,
            origin_kind = excluded.origin_kind,
            conversation_id = excluded.conversation_id,
            resume_kind = excluded.resume_kind,
@@ -138,6 +144,7 @@ export class SessionsRepository {
         row.cwd,
         row.title,
         row.name,
+        row.nameSource ?? null,
         row.originKind,
         row.conversationId,
         row.resumeKind,

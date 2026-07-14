@@ -17,6 +17,19 @@ export function isGenericClaudeTitle(title: string): boolean {
   return title.trim() === 'Claude Code'
 }
 
+/** Claude Code records a first turn that was a slash command (`/model`, `/effort`)
+ *  as a pseudo-XML wrapper in the transcript — `<command-name>/model</command-name>`,
+ *  `<command-message>…`, `<local-command-stdout>…` — rather than as prose the user
+ *  typed. Titling a session from that wrapper produces the literal
+ *  "<command-name>/model</command-name>" as the session name, and because the
+ *  first-prompt fallback also LOCKS the title, it sticks for the life of the
+ *  session. Such a turn is not a prompt and can never be a title: skip it and wait
+ *  for the first real one. Same rule the discovery providers already apply when
+ *  parsing transcripts from disk (discovery/providers/claude-code.ts). [spec:SP-eb60] */
+export function isCommandWrapperText(text: string): boolean {
+  return text.trim().startsWith('<')
+}
+
 /** A readable one-line title from a user prompt — the fast fallback while the
  *  agent's own title is still the generic placeholder. First non-empty line,
  *  whitespace-collapsed and capped; undefined for empty input. */

@@ -31,6 +31,24 @@ refused once; re-run with `--outside-scope` to confirm. `delete` and `restore` r
 operator-only. Parent-child containment is separate from `blocks` scheduling: dependency
 cycle checks traverse only `blocks` edges.
 
+## Titles
+
+An issue title is 3–5 words naming the thing or the outcome — not the activity. Do not open with a
+generic descriptor such as "Implement", "Complete", "Investigate", "Add" or "Update": the issue already
+implies that someone will do work, so the verb buys nothing and crowds out the words that identify it.
+Only a bug may lead with a `Bug:` prefix.
+
+| Good | Bad |
+| --- | --- |
+| `Merge lock lease expiry` | `Implement merge locking` |
+| `Bug: duplicate session rows` | `Investigate the session duplication issue` |
+| `Artifact permanent storage` | `Complete the artifact storage work` |
+
+Your **session** title follows the same rules, and Podium will ask you to set one
+(`podium session title "…"`) when the user hasn't named the session themselves. A session sits under its
+issue in the sidebar, so name it for what distinguishes *this* session from the others on the same issue
+— don't restate the issue title. A name the user set by hand always wins and is never overwritten.
+
 ## Rules
 
 - Track durable, discovered, or cross-session work as issues — not markdown TODO files or a parallel list.

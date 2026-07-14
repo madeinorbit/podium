@@ -32,6 +32,7 @@ import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { SessionRow, SessionStore } from '../../store'
 import {
+  isCommandWrapperText,
   isGenericClaudeTitle,
   isTransientTitle,
   makeTitleDebouncer,
@@ -73,6 +74,10 @@ const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
 // Idempotency records outlive any sane replay horizon, then get pruned.
 const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+// A self-chosen session title (#490) is a sidebar label, not an essay: 3–5 words.
+// The cap is a sanity bound (an agent pasting a paragraph), not the style rule —
+// the style rule is the prime's, and lives in @podium/protocol's sessionTitleRule.
+const MAX_AGENT_TITLE_LENGTH = 120
 
 /** Rejection every command path returns for a hub-mirrored session (spec §2.3). */
 export const UPSTREAM_COMMAND_REJECTION = 'remote session — managed via the hub'
@@ -379,6 +384,9 @@ export class SessionsService {
       status: reloadStatus,
       exitCode: exitCode ?? undefined,
       ...(r.name ? { name: r.name } : {}),
+      // Survives a restart — otherwise a reboot would forget that the USER named this
+      // session and the next agent title would sail straight through (#490).
+      ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
       ...(r.headless ? { headless: true } : {}),
       ...(r.issueId ? { issueId: r.issueId } : {}),
@@ -1352,11 +1360,62 @@ export class SessionsService {
     this.broadcastSessions()
   }
 
-  /** Set (or clear with '') the user-facing session name. */
+  /**
+   * A HUMAN names the session (web rename, superagent `rename_session`) — the
+   * curated slot, stamped `nameSource = 'user'` (#490). That stamp is sovereign:
+   * setAgentName refuses against it forever after, so an agent can never overwrite
+   * a name the user picked.
+   *
+   * Clearing (name = '') also clears the source — the session is unnamed again, so
+   * an agent may name it (and the prime will ask it to).
+   */
   renameSession({ sessionId, name }: { sessionId: string; name: string }): void {
     this.mutateSessionMeta(sessionId, (session) => {
-      session.name = name.trim()
+      const clean = name.trim()
+      session.name = clean
+      session.nameSource = clean ? 'user' : undefined
     })
+  }
+
+  /**
+   * The AGENT names its own session (#490) — `podium session title "…"`, relayed as
+   * sessions.title and bound to the calling session by the capability.
+   *
+   * Writes the same curated `name` slot the user writes, so it wins in the UI over
+   * the derived `title` — but stamped 'agent', and REFUSED when the user already
+   * named it. An agent may overwrite its OWN earlier agent-set name (retitling as
+   * the work becomes clear) and may name a session whose name nobody set.
+   *
+   * Refusal is a returned reason, not a throw: the CLI prints it and the agent
+   * carries on. Same persist + broadcast path as renameSession.
+   */
+  setAgentName({ sessionId, name }: { sessionId: string; name: string }): {
+    ok: boolean
+    name?: string
+    reason?: string
+  } {
+    const session = this.sessions.get(sessionId)
+    if (!session) return { ok: false, reason: 'session not found' }
+    const clean = name.trim().replace(/\s+/g, ' ')
+    if (!clean) return { ok: false, reason: 'title is empty' }
+    if (clean.length > MAX_AGENT_TITLE_LENGTH) {
+      return {
+        ok: false,
+        reason: `title exceeds ${MAX_AGENT_TITLE_LENGTH} characters — a session title is 3–5 words`,
+      }
+    }
+    if (session.nameSource === 'user') {
+      return {
+        ok: false,
+        name: session.name,
+        reason: `this session was named by the user ("${session.name}") — an agent cannot rename it`,
+      }
+    }
+    this.mutateSessionMeta(sessionId, (s) => {
+      s.name = clean
+      s.nameSource = 'agent'
+    })
+    return { ok: true, name: clean }
   }
 
   setArchived({ sessionId, archived }: { sessionId: string; archived: boolean }): void {
@@ -2077,6 +2136,10 @@ export class SessionsService {
       case 'title': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        // A `<command-name>/model</command-name>` wrapper is never a title, whichever
+        // way it arrives. Refuse it outright rather than letting it be applied and
+        // locked in — the real title is still coming.
+        if (isCommandWrapperText(msg.title)) break
         // Claude Code's OSC title sits at the generic "Claude Code" placeholder for
         // a while after start. Don't let it overwrite a real title we already have
         // (its own later summary, or the first-prompt fallback below) — that's the
@@ -2222,9 +2285,15 @@ export class SessionsService {
         // doesn't sit on the cwd/"Claude Code" placeholder for the long stretch
         // before Claude generates its own title.
         if (session && session.agentKind === 'claude-code' && !session.titleLocked) {
-          const firstUser = session
-            .transcriptItems()
-            .find((it) => it.role === 'user' && it.text.trim().length > 0)
+          const firstUser = session.transcriptItems().find(
+            (it) =>
+              it.role === 'user' &&
+              it.text.trim().length > 0 &&
+              // A slash command the user typed first (`/model`) reaches the
+              // transcript as a `<command-name>…` wrapper, not as a prompt.
+              // Skipping it lets the first REAL prompt title the session.
+              !isCommandWrapperText(it.text),
+          )
           const derived = firstUser ? titleFromPrompt(firstUser.text) : undefined
           if (derived) {
             session.setTitle(derived)

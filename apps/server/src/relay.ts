@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/agent-bridge'
 import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
+import { sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
@@ -46,6 +47,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { StewardService } from './steward'
 import { SessionStore } from './store'
+import { isGenericClaudeTitle, isTransientTitle } from './title-filter'
 
 // Re-exported so server.ts/tests keep importing the forwarder seam from './relay'.
 export type { IssueUpstreamForwarder } from './modules/issues/upstream'
@@ -143,6 +145,21 @@ export function upstreamMirrorFor(modules: RegistryModules) {
       modules.sessions.setUpstreamStale(stale)
     },
   }
+}
+
+/**
+ * The label a session shows in the sidebar, or undefined when it has none worth
+ * showing (#490). Mirrors the client's sessionDisplayName (name beats title) minus
+ * its 'untitled' fallback: a placeholder — an empty/spinner OSC title, or Claude's
+ * generic "Claude Code" — is NOT a label, and listing it as a sibling would tell an
+ * agent to distinguish itself from nothing.
+ */
+function sessionLabel(session: SessionMeta): string | undefined {
+  const name = session.name?.trim()
+  if (name) return name
+  const title = session.title.trim()
+  if (!title || isTransientTitle(title) || isGenericClaudeTitle(title)) return undefined
+  return title
 }
 
 /** Projection of a Session to the fields an attention notice needs. */
@@ -584,6 +601,25 @@ export class SessionRegistry {
               )
             })()
           }
+          // The agent names its OWN session (#490) — `podium session title "…"`.
+          // The target is the CALLING session, taken from the capability exactly as
+          // issues.attachSession takes it from the relay context: there is no
+          // sessionId in the input, so an agent CANNOT retitle anyone else's
+          // session, and no scope gate is needed (a session is always in its own
+          // scope). The user's own name is sovereign — the service refuses against
+          // it and hands back a reason instead of throwing.
+          if (proc === 'title') {
+            const actorSessionId = capability.actorSessionId
+            if (!actorSessionId) {
+              throw new Error('sessions.title is only callable by a session (no actor bound)')
+            }
+            const raw = (input ?? {}) as Record<string, unknown>
+            const name = raw.name ?? raw.title
+            if (typeof name !== 'string' || name.trim().length === 0) {
+              throw new Error('name is required')
+            }
+            return Promise.resolve(sessionsSvc.setAgentName({ sessionId: actorSessionId, name }))
+          }
           if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
             return undefined
           }
@@ -685,7 +721,12 @@ export class SessionRegistry {
               {},
               { actor: { kind: 'session', id: actorSessionId }, capability },
             )
-            return `${String(issuePrime)}\n\n${workflowPrime}`
+            // Name-your-own-session (#490): asked for only while the session HAS no
+            // name — a named session (by the user or by an earlier turn of this agent)
+            // never sees the instruction, so the prime doesn't nag an agent into
+            // re-titling something already titled.
+            const titlePrime = this.sessionTitlePrime(sessionsSvc, issues, actorSessionId)
+            return [String(issuePrime), workflowPrime, titlePrime].filter(Boolean).join('\n\n')
           })
         }
         return result
@@ -981,6 +1022,44 @@ export class SessionRegistry {
       issueArtifacts,
       automations,
     }
+  }
+
+  /**
+   * The "name your own session" block appended to an agent's issue prime (#490).
+   *
+   * Returns '' — nothing appended — when the session already HAS a name (the user's
+   * or one this agent set on an earlier turn), or when it has no issue: a session
+   * that doesn't sit under an issue in the sidebar has no siblings to be
+   * distinguished from, and nothing to be named relative to.
+   *
+   * The wording is NOT written here: sessionTitleRule (@podium/protocol) is the one
+   * copy of the titling doctrine every surface reuses. What this adds is the local
+   * facts — the issue's seq, and the display names of the OTHER sessions on it, so
+   * the agent can pick a name that isn't a duplicate of its neighbours'.
+   */
+  private sessionTitlePrime(
+    sessionsSvc: SessionsService,
+    issues: IssueService,
+    actorSessionId: string,
+  ): string {
+    const all = sessionsSvc.listSessions()
+    const actor = all.find((s) => s.sessionId === actorSessionId)
+    if (!actor) return ''
+    if (actor.name?.trim()) return ''
+    const issueId = actor.issueId ?? issues.issueForCwd(actor.cwd)
+    if (!issueId) return ''
+    const seq = issues.get(issueId)?.seq
+    if (seq === undefined) return ''
+    // Siblings = the other sessions on the SAME issue that have a usable label. A
+    // session still showing a placeholder ('Claude Code', a spinner frame, an empty
+    // OSC title) contributes nothing an agent could distinguish itself from, so it
+    // is skipped rather than listed as noise.
+    const siblings = all
+      .filter((s) => s.sessionId !== actorSessionId && !s.archived)
+      .filter((s) => (s.issueId ?? issues.issueForCwd(s.cwd)) === issueId)
+      .map((s) => sessionLabel(s))
+      .filter((label): label is string => label !== undefined)
+    return sessionTitleRule(seq, siblings)
   }
 
   /** The backing store — shared with services that persist their own tables (superagent). */

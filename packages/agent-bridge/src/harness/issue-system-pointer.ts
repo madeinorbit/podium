@@ -6,6 +6,8 @@
  * `claude` CLI supports `--append-system-prompt`); other agents rely on the
  * committed guide + hook-injected prime. See docs/agents/podium-issues.md.
  */
+import { TITLE_RULE_TERSE } from '@podium/protocol'
+
 export const ISSUE_SYSTEM_POINTER =
   "This project uses Podium's issue tracker. You have a `podium issue` CLI. " +
   'Run `podium issue prime` for your current issue, workflow, and ready work. ' +
@@ -24,7 +26,8 @@ export const ISSUE_SYSTEM_POINTER =
   'If this session is on the wrong issue (or a draft), re-home it: `podium issue attach --id <issue>` ' +
   'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
-  'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue.'
+  'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
+  TITLE_RULE_TERSE
 
 /**
  * Companion pointer for the living project spec (pspec, #135). Same delivery as

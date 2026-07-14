@@ -81,6 +81,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     resumeKind: null,
     resumeValue: null,
     name: null,
+    // WHO named the session (#490): always projected; null = nobody named it.
+    nameSource: null,
     archived: false,
     workState: null,
     status: 'starting',
@@ -143,6 +145,23 @@ describe('SessionStore sessions', () => {
     b.sessions.purgeSession('id-1')
     expect(b.sessions.loadSessions()).toEqual([])
     b.close()
+  })
+
+  it('round-trips who named the session (#490) — and reads a rogue source as nobody', () => {
+    const s = new SessionStore(':memory:')
+    // The distinction the agent-title refusal rests on: a name is not enough, the
+    // SOURCE has to survive the write → restart → read cycle.
+    const user = row({ id: 'u', name: 'Merge lock lease expiry', nameSource: 'user' })
+    const agent = row({ id: 'a', name: 'Session title slot', nameSource: 'agent' })
+    s.sessions.upsertSession(user)
+    s.sessions.upsertSession(agent)
+    expect(s.sessions.loadSessions()).toEqual([user, agent])
+
+    // A value that is neither must never read back as one that could out-rank the
+    // user — an unknown source degrades to "nobody named it".
+    s.sessions.upsertSession({ ...user, nameSource: 'root' } as unknown as SessionRow)
+    expect(s.sessions.loadSessions().find((r) => r.id === 'u')?.nameSource).toBeNull()
+    s.close()
   })
 
   it('round-trips #285 workflow pass-through metadata verbatim (never interpreted)', () => {

@@ -1,10 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  isCommandWrapperText,
   isGenericClaudeTitle,
   isTransientTitle,
   makeTitleDebouncer,
   titleFromPrompt,
 } from './title-filter'
+
+describe('isCommandWrapperText', () => {
+  it('flags the slash-command wrappers Claude writes into the transcript', () => {
+    expect(isCommandWrapperText('<command-name>/model</command-name>')).toBe(true)
+    expect(isCommandWrapperText('<command-message>model</command-message>')).toBe(true)
+    expect(isCommandWrapperText('<local-command-stdout>Set model to Opus</local-command-stdout>')).toBe(
+      true,
+    )
+    // The real first turn of a `/model` session: leading newline, then the wrapper.
+    expect(isCommandWrapperText('\n  <command-name>/effort</command-name>\n')).toBe(true)
+  })
+
+  it('leaves a real prompt alone, including one that merely mentions a slash command', () => {
+    expect(isCommandWrapperText('Fix the parser')).toBe(false)
+    expect(isCommandWrapperText('why does /model not persist?')).toBe(false)
+    expect(isCommandWrapperText('a < b in the comparator')).toBe(false)
+  })
+})
 
 describe('isGenericClaudeTitle', () => {
   it('matches the bare placeholder, not a real title', () => {

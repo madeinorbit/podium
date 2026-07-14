@@ -80,6 +80,7 @@ import { up as messagesRepairFromIssue } from './021-messages-repair-from-issue'
 import { up as agentWorkflows } from './022-agent-workflows'
 import { up as accounts } from './023-accounts'
 import { up as automations } from './20260714142927-automations'
+import { up as sessionsNameSource } from './20260714145648-sessions-name-source'
 
 export interface Migration {
   /** Positive, unique, strictly increasing across the list. */
@@ -132,6 +133,9 @@ export const MIGRATIONS: Migration[] = [
   // in flight — 022, then 023 — and main took both numbers out from under it, which
   // is precisely the collision timestamps abolish.
   { version: 20_260_714_142_927, name: 'automations', up: automations },
+  // WHO named the session (#490): 'user' (a human — an agent may never overwrite
+  // it) | 'agent' (self-named; it may re-title itself) | NULL (nobody).
+  { version: 20_260_714_145_648, name: 'sessions-name-source', up: sessionsNameSource },
 ]
 
 /** Highest schema version the running code knows about.
