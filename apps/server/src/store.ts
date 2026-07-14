@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { MIGRATIONS, runMigrations } from './migrations/index'
+import { dbSchemaVersion, MIGRATIONS, runMigrations } from './migrations/index'
 import { ApprovalsRepository } from './store/approvals'
 import { AccountsRepository } from './store/accounts'
 import { AuthRepository } from './store/auth'
@@ -92,7 +92,17 @@ export class SessionStore {
     // src/migrations/. Passing dbPath enables the pre-migration backup (#43):
     // before a version-advancing run the runner checkpoints the WAL and copies
     // podium.db (+ sidecars) to a timestamped sibling, keeping the last 3.
-    runMigrations(this.db, MIGRATIONS, { dbPath: path === ':memory:' ? undefined : path })
+    const appliedNow = runMigrations(this.db, MIGRATIONS, {
+      dbPath: path === ':memory:' ? undefined : path,
+    })
+    // Say what the schema actually did. A silently-skipped migration (#472) survived
+    // for so long precisely because it was invisible: no error, no log, just a table
+    // that never existed. One line makes it observable forever.
+    if (appliedNow.length > 0) {
+      console.log(
+        `[podium:server] applied migrations: ${appliedNow.join(', ')} (schema now ${dbSchemaVersion(this.db)})`,
+      )
+    }
     // Foreign-key enforcement is PER-CONNECTION in SQLite and deliberately
     // enabled only AFTER the migration chain: table rebuilds (the standard
     // 12-step ALTER, e.g. migration 006) must run without FK enforcement, and

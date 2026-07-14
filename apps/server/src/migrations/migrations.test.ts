@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  appliedMigrations,
   codeSchemaVersion,
   dbSchemaVersion,
   MIGRATIONS,
@@ -27,6 +28,100 @@ function openMemory(): SqlDatabase {
   cleanups.push(() => db.close())
   return db
 }
+
+function hasTable(db: SqlDatabase, name: string): boolean {
+  return (
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
+    undefined
+  )
+}
+
+/**
+ * The silent-skip class (#472).
+ *
+ * The runner used to decide what to apply by comparing against MAX(applied) — so a
+ * migration numbered at or below the highest applied one was SKIPPED, with no error
+ * and no table. It shipped undetected for a long time for one structural reason:
+ * every other test in this file starts from an EMPTY database, which applies every
+ * migration in order and therefore CANNOT exhibit the bug. Only an already-upgraded
+ * database — which is every real one — can.
+ *
+ * So these tests all start from a partially-migrated database, and assert on the
+ * SCHEMA rather than on runMigrations()'s return value: the bookkeeping and the
+ * schema are precisely the two things that disagree when a migration is skipped.
+ */
+describe('runMigrations — back-filled and colliding versions (#472)', () => {
+  /** A DB that has applied everything EXCEPT `hole` — i.e. stamped past it. */
+  function dbWithHole(hole: number): { db: SqlDatabase; withoutHole: Migration[] } {
+    const withoutHole = MIGRATIONS.filter((m) => m.version !== hole)
+    const db = openMemory()
+    runMigrations(db, withoutHole)
+    return { db, withoutHole }
+  }
+
+  it('APPLIES a migration numbered below the high-water mark instead of skipping it', () => {
+    // The hole is 022, and 023 IS applied — so the DB's high-water mark is 23 while
+    // 022 is missing. That is the shape of every real database when two branches land
+    // out of order. The old runner asked `version <= MAX(23)` and skipped 022 forever:
+    // no error, `workflows` never created.
+    const { db } = dbWithHole(22)
+    expect(dbSchemaVersion(db)).toBe(23) // stamped PAST the hole
+    expect(hasTable(db, 'workflows')).toBe(false) // ...yet 022's table is missing
+
+    const applied = runMigrations(db, MIGRATIONS)
+
+    expect(applied).toEqual([22]) // back-filled, not skipped
+    expect(hasTable(db, 'workflows')).toBe(true)
+  })
+
+  it('records the back-filled migration so a second run is a no-op', () => {
+    const { db } = dbWithHole(22)
+    runMigrations(db, MIGRATIONS)
+    expect(runMigrations(db, MIGRATIONS)).toEqual([])
+    expect(appliedMigrations(db).get(22)).toBe('agent-workflows')
+  })
+
+  it('REFUSES TO BOOT when two branches claimed the same version number', () => {
+    // Exactly the #216 near-miss: the DB applied 016 'messages'; this build defines
+    // 016 as 'accounts'. Skipping it (version already applied) would silently drop a
+    // migration — the very failure this issue exists to kill. It must be loud.
+    const db = openMemory()
+    runMigrations(db, MIGRATIONS) // DB now has 16 = 'messages'
+
+    // A build in which version 16 is a DIFFERENT migration — precisely #216's near-miss.
+    // Keep every other version so the downgrade guard is not what fires.
+    const collided: Migration[] = MIGRATIONS.map((m) =>
+      m.version === 16 ? { version: 16, name: 'accounts', up: () => {} } : m,
+    )
+
+    expect(() => runMigrations(db, collided)).toThrow(/duplicate migration version 16/i)
+    expect(() => runMigrations(db, collided)).toThrow(/renumber/i)
+    // And it refuses BEFORE touching the schema.
+    expect(appliedMigrations(db).get(16)).toBe('messages')
+  })
+
+  it('BACKS UP before back-filling — the fix must not trade a skip for data loss', () => {
+    // The backup predicate used to ask `version > MAX` too. Had we fixed only the
+    // apply loop, an out-of-order migration would run with NO snapshot.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-mig-'))
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
+    const dbPath = join(dir, 'podium.db')
+
+    const db = openDatabase(dbPath)
+    cleanups.push(() => db.close())
+    runMigrations(
+      db,
+      MIGRATIONS.filter((m) => m.version !== 22),
+      { dbPath },
+    )
+    const before = readdirSync(dir).filter((f) => f.includes('.backup-v')).length
+
+    runMigrations(db, MIGRATIONS, { dbPath })
+
+    const after = readdirSync(dir).filter((f) => f.includes('.backup-v')).length
+    expect(after).toBeGreaterThan(before)
+  })
+})
 
 describe('runMigrations', () => {
   it('stamps a fresh DB with the code schema version', () => {

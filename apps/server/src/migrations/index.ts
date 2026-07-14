@@ -23,6 +23,24 @@
  *    real tables, the DB file (+ -wal/-shm sidecars) is copied to a timestamped
  *    backup next to it; the last 3 backups are kept (#43).
  *  - Re-running is idempotent: already-applied versions are skipped.
+ *  - PENDING IS THE UNAPPLIED SET, NOT "ABOVE THE HIGH-WATER MARK" (#472). A
+ *    migration is applied iff its version is absent from `schema_version`. The
+ *    runner used to compare against MAX(version), so a migration numbered at or
+ *    below the highest applied one was SILENTLY SKIPPED — no error, its tables
+ *    simply never created. That is invisible in tests, because every test starts
+ *    from an EMPTY database (version 0) and therefore applies everything in order;
+ *    only a real, already-upgraded database can exhibit it.
+ *  - CLAIMING A NUMBER TWICE IS FATAL, BY DESIGN. If two branches both author a
+ *    migration N, the database that applied one of them refuses to boot with an
+ *    explicit "duplicate migration version N — renumber" error, rather than
+ *    quietly running without the other's tables.
+ *  - CONSEQUENCE — MIGRATIONS MUST BE ORDER-INDEPENDENT. Because a back-filled
+ *    migration (numbered below the high-water mark) now really does run, a
+ *    migration may execute AFTER ones with higher numbers. Ours are effectively
+ *    independent, so this is safe today. If you write one that depends on a
+ *    lower-numbered migration having already run, that assumption is no longer
+ *    guaranteed — make the dependency explicit inside the migration (defensive
+ *    guards, as 002 does) rather than relying on ordering.
  */
 
 import { copyFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs'
@@ -104,7 +122,30 @@ export function codeSchemaVersion(migrations: Migration[] = MIGRATIONS): number 
   return migrations[migrations.length - 1]?.version ?? 0
 }
 
-/** Current version recorded in the database (0 when never migrated). */
+/**
+ * The migrations this database has ACTUALLY applied, version → name.
+ *
+ * This is the authoritative record and always has been — `schema_version.version`
+ * is a PRIMARY KEY. The runner used to ignore it and compare against
+ * MAX(version) instead, which is what made a mis-numbered migration silently
+ * vanish (#472). Read the set; never infer it from the high-water mark.
+ */
+export function appliedMigrations(db: SqlDatabase): Map<number, string> {
+  const table = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`)
+    .get()
+  if (table === undefined) return new Map()
+  const rows = db.prepare('SELECT version, name FROM schema_version').all() as {
+    version: number
+    name: string
+  }[]
+  return new Map(rows.map((r) => [r.version, r.name]))
+}
+
+/** Current HIGH-WATER version in the database (0 when never migrated).
+ *
+ *  Only meaningful for the downgrade guard (is this DB newer than the build?).
+ *  It is NOT a safe basis for deciding what to apply — see `appliedMigrations`. */
 export function dbSchemaVersion(db: SqlDatabase): number {
   const table = db
     .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`)
@@ -207,9 +248,36 @@ export function runMigrations(
         `Upgrade the Podium server (or restore the matching database) — downgrades are not supported.`,
     )
   }
-  // #43: snapshot the database before a version-advancing run — but only when
-  // it already holds real tables (schema_version alone is a brand-new file).
-  const hasPending = migrations.some((m) => m.version > current)
+  // What this DB has really applied — NOT "everything at or below MAX" (#472).
+  const alreadyApplied = appliedMigrations(db)
+
+  // A version already applied under a DIFFERENT name means two migrations were
+  // authored with the same number on different branches (exactly what #216 did:
+  // its `accounts` was numbered 016 while 016 `messages` was already applied).
+  // Skipping it here would silently drop a migration; applying it would corrupt
+  // the ledger. Refuse to boot, and say precisely what to do about it.
+  for (const m of migrations) {
+    const appliedName = alreadyApplied.get(m.version)
+    if (appliedName !== undefined && appliedName !== m.name) {
+      throw new Error(
+        `duplicate migration version ${m.version}: this database already applied ` +
+          `'${appliedName}', but this build defines '${m.name}' at the same version. ` +
+          `Two branches claimed the same number — renumber '${m.name}' to ` +
+          `${codeSchemaVersion(migrations) + 1} or higher and redeploy.`,
+      )
+    }
+  }
+
+  const pending = migrations.filter((m) => !alreadyApplied.has(m.version))
+
+  // #43: snapshot the database before applying anything — but only when it already
+  // holds real tables (schema_version alone is a brand-new file).
+  //
+  // This predicate MUST use the same pending-set logic as the apply loop below.
+  // It used to ask `m.version > current`, and leaving it that way while fixing only
+  // the loop would let a back-filled (out-of-order) migration run with NO BACKUP —
+  // trading a silent-skip bug for a silent-data-loss one.
+  const hasPending = pending.length > 0
   if (hasPending && opts.dbPath !== undefined && opts.dbPath !== ':memory:') {
     const hasObjects = db
       .prepare(
@@ -223,8 +291,7 @@ export function runMigrations(
   const insert = db.prepare(
     'INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)',
   )
-  for (const m of migrations) {
-    if (m.version <= current) continue
+  for (const m of pending) {
     // Deliberately hand-rolled, NOT @podium/runtime/sqlite `transaction()`
     // [spec:SP-3fe2]: each migration must be its own top-level BEGIN IMMEDIATE
     // with the version stamp committing atomically alongside the schema change.
