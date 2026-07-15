@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { decodeCursor } from '@podium/transcript'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { type ChainEntry, fileChainSource, fileIdFor, stampOpencodeItems } from '@podium/transcript'
 import { opencodeDbSource } from './adapters/opencode.js'
 import { transcriptSourceFor } from './transcript-source.js'
@@ -83,23 +84,6 @@ describe('fileChainSource', () => {
 // opencode DB source fixtures.
 // ---------------------------------------------------------------------------
 
-type TestDatabase = {
-  exec(sql: string): void
-  prepare(sql: string): { run(...args: unknown[]): unknown }
-  close(): void
-}
-type DatabaseSyncConstructor = new (path: string) => TestDatabase
-
-let DatabaseSync: DatabaseSyncConstructor | undefined
-
-beforeAll(async () => {
-  try {
-    DatabaseSync = (await import('node:sqlite')).DatabaseSync as DatabaseSyncConstructor
-  } catch {
-    DatabaseSync = undefined
-  }
-})
-
 const OPENCODE_SCHEMA = {
   session: `CREATE TABLE session (
     id TEXT PRIMARY KEY,
@@ -161,11 +145,10 @@ interface SeedPart {
 /** Build a temp opencode home with one session and a list of parts, in the order
  *  given. Each part rides its own message row (role lives on the message). */
 async function seedOpencode(sessionId: string, parts: SeedPart[]): Promise<{ homeDir: string }> {
-  if (!DatabaseSync) throw new Error('node:sqlite unavailable')
   const homeDir = await mkdtemp(join(tmpdir(), 'src-oc-home-'))
   const root = join(homeDir, '.local', 'share', 'opencode')
   await mkdir(root, { recursive: true })
-  const db = new DatabaseSync(join(root, 'opencode.db'))
+  const db = openDatabase(join(root, 'opencode.db'))
   db.exec(OPENCODE_SCHEMA.session)
   db.exec(OPENCODE_SCHEMA.message)
   db.exec(OPENCODE_SCHEMA.part)
@@ -226,7 +209,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('no-anchor before returns the newest `limit` items with hasMore', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_a'
     // 5 text parts at increasing time_updated.
     const parts = [0, 1, 2, 3, 4].map((i) =>
@@ -240,7 +222,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('cursors decode to {fileId: opencode:<sid>, offset: timeUpdated, uuid: partId, sub}', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_b'
     const parts = [textPart('prt-x', 'msg-x', 'user', 'hello', 555)]
     const { homeDir } = await seedOpencode(sid, parts)
@@ -257,7 +238,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('before-anchor pages the previous window with no gap/overlap', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_c'
     const parts = [0, 1, 2, 3, 4, 5].map((i) =>
       textPart(`prt-${i}`, `msg-${i}`, 'user', `m${i}`, 100 + i),
@@ -272,7 +252,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('after-anchor catches up newer items with correct hasMore', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_d'
     const parts = [0, 1, 2, 3, 4, 5].map((i) =>
       textPart(`prt-${i}`, `msg-${i}`, 'user', `m${i}`, 100 + i),
@@ -294,7 +273,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('hasMore is false at the head of the session', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_e'
     const parts = [0, 1, 2].map((i) => textPart(`prt-${i}`, `msg-${i}`, 'user', `m${i}`, 100 + i))
     const { homeDir } = await seedOpencode(sid, parts)
@@ -305,7 +283,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('a tool part yields 2 items (sub 0=call, 1=result) and pages correctly mid-part', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_f'
     const toolPart: SeedPart = {
       partId: 'prt-tool',
@@ -349,7 +326,6 @@ describe('opencodeDbSource', () => {
   })
 
   it('disambiguates same-timeUpdated parts by partId (full-cursor anchor match)', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_g'
     // Three parts share the SAME time_updated; order is by (time_updated, id).
     const parts = [
@@ -374,7 +350,6 @@ describe('opencodeDbSource', () => {
 
 describe('stampOpencodeItems (shared by live observer + DB read)', () => {
   it('stamps rows with the same cursors opencodeDbSource produces (live↔read interop)', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_stamp'
     const parts = [0, 1, 2].map((i) =>
       textPart(`prt-${i}`, `msg-${i}`, i % 2 === 0 ? 'user' : 'assistant', `m${i}`, 500 + i),
@@ -409,7 +384,6 @@ describe('transcriptSourceFor', () => {
   })
 
   it('routes agentKind opencode to the DB source (reads items through it)', async () => {
-    if (!DatabaseSync) return
     const sid = 'ses_route'
     const parts = [textPart('prt-r', 'msg-r', 'user', 'routed', 400)]
     const { homeDir } = await seedOpencode(sid, parts)

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, test } from 'vitest'
 import { AgentConversationLoadError } from '../types.js'
 import { codexPromptTitle, createCodexConversationProvider } from './codex.js'
@@ -50,7 +50,7 @@ async function writeCodexSession(
 }
 
 function createStateDb(root: string): void {
-  const db = new DatabaseSync(join(root, 'state_5.sqlite'))
+  const db = openDatabase(join(root, 'state_5.sqlite'))
   db.exec(`
     CREATE TABLE threads (
       id TEXT PRIMARY KEY,
@@ -240,7 +240,11 @@ describe('createCodexConversationProvider', () => {
         JSON.stringify({
           timestamp: '2026-06-02T10:00:00.000Z',
           type: 'session_meta',
-          payload: { id: 'untitled-codex', timestamp: '2026-06-02T10:00:00.000Z', cwd: '/repo/untitled' },
+          payload: {
+            id: 'untitled-codex',
+            timestamp: '2026-06-02T10:00:00.000Z',
+            cwd: '/repo/untitled',
+          },
         }),
         // Injected AGENTS.md preamble (a response_item user record) must NOT win the title.
         JSON.stringify({

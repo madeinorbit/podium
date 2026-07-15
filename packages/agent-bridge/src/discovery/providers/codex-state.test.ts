@@ -1,14 +1,14 @@
 import { mkdir, mkdtemp, stat, utimes } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, test, vi } from 'vitest'
 import { createCodexStateMetadataReader, readCodexStateMetadata } from './codex-state.js'
 
 // Rewrite the (single) threads row's title in place so a fresh read returns
 // updated data. Mirrors a `/rename` done inside Codex.
 function setNativeTitle(dbPath: string, title: string): void {
-  const db = new DatabaseSync(dbPath)
+  const db = openDatabase(dbPath)
   db.prepare('UPDATE threads SET title = ? WHERE id = ?').run(title, 'thread-1')
   db.close()
 }
@@ -20,7 +20,7 @@ async function createCodexRoot(): Promise<string> {
 }
 
 function createStateDb(path: string): void {
-  const db = new DatabaseSync(path)
+  const db = openDatabase(path)
   db.exec(`
     CREATE TABLE threads (
       id TEXT PRIMARY KEY,

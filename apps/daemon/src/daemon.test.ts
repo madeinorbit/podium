@@ -19,6 +19,7 @@ import type {
   DaemonHandshakeReply,
 } from '@podium/protocol'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import {
@@ -1966,17 +1967,9 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   })
 
   it('serves an opencode transcriptRead from the DB store', async () => {
-    let DatabaseSync: (new (path: string) => OpencodeTestDb) | undefined
-    try {
-      DatabaseSync = (await import('node:sqlite')).DatabaseSync as unknown as new (
-        path: string,
-      ) => OpencodeTestDb
-    } catch {
-      return // node:sqlite unavailable in this runtime — skip
-    }
     const home = await mkdtemp(join(tmpdir(), 'podium-trx-oc-home-'))
     const sid = 'oc-ses-read'
-    seedOpencodeDb(DatabaseSync, home, sid, ['o0', 'o1', 'o2'])
+    seedOpencodeDb(home, sid, ['o0', 'o1', 'o2'])
 
     const srv = await startServer()
     await startTestDaemon(srv, home)
@@ -2121,23 +2114,11 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   })
 })
 
-// Minimal node:sqlite shape for seeding an opencode store in tests.
-type OpencodeTestDb = {
-  exec(sql: string): void
-  prepare(sql: string): { run(...args: unknown[]): unknown }
-  close(): void
-}
-
 /** Seed a temp opencode store under `home` with one session + N text parts. */
-function seedOpencodeDb(
-  DatabaseSync: new (path: string) => OpencodeTestDb,
-  home: string,
-  sessionId: string,
-  texts: string[],
-): void {
+function seedOpencodeDb(home: string, sessionId: string, texts: string[]): void {
   const root = join(home, '.local', 'share', 'opencode')
   mkdirSync(root, { recursive: true })
-  const db = new DatabaseSync(join(root, 'opencode.db'))
+  const db = openDatabase(join(root, 'opencode.db'))
   db.exec(
     `CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'proj',
       parent_id TEXT, slug TEXT NOT NULL DEFAULT 'slug', directory TEXT NOT NULL,

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import { isOpencodeCliAvailable } from '../../opencode/cli.js'
 import { createOpencodeConversationProvider } from './opencode.js'
@@ -19,7 +19,7 @@ async function seedOpencodeDb(
   },
 ): Promise<void> {
   const dbPath = join(root, 'opencode.db')
-  const db = new DatabaseSync(dbPath)
+  const db = openDatabase(dbPath)
   db.exec(`CREATE TABLE session (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL DEFAULT 'proj',
@@ -93,32 +93,33 @@ describe('opencode discovery provider', () => {
   it.skipIf(!isOpencodeCliAvailable())(
     'summarizes sessions from the opencode sqlite database',
     async () => {
-    home = await mkdtemp(join(tmpdir(), 'podium-opencode-home-'))
-    const root = join(home, '.local', 'share', 'opencode')
-    await mkdir(root, { recursive: true })
-    await seedOpencodeDb(root, {
-      id: 'ses_test123',
-      directory: '/repo/opencode',
-      title: 'Add mobile booking flow',
-    })
+      home = await mkdtemp(join(tmpdir(), 'podium-opencode-home-'))
+      const root = join(home, '.local', 'share', 'opencode')
+      await mkdir(root, { recursive: true })
+      await seedOpencodeDb(root, {
+        id: 'ses_test123',
+        directory: '/repo/opencode',
+        title: 'Add mobile booking flow',
+      })
 
-    const prevHome = process.env.HOME
-    process.env.HOME = home
-    try {
-      const result = await provider.scanRoot(root)
-      expect(result.conversations).toEqual([
-        expect.objectContaining({
-          id: 'ses_test123',
-          agentKind: 'opencode',
-          title: 'Add mobile booking flow',
-          projectPath: '/repo/opencode',
-          resume: { kind: 'opencode-session', value: 'ses_test123' },
-          source: expect.objectContaining({ providerId: 'opencode-sessions', root }),
-        }),
-      ])
-    } finally {
-      if (prevHome === undefined) delete process.env.HOME
-      else process.env.HOME = prevHome
-    }
-  })
+      const prevHome = process.env.HOME
+      process.env.HOME = home
+      try {
+        const result = await provider.scanRoot(root)
+        expect(result.conversations).toEqual([
+          expect.objectContaining({
+            id: 'ses_test123',
+            agentKind: 'opencode',
+            title: 'Add mobile booking flow',
+            projectPath: '/repo/opencode',
+            resume: { kind: 'opencode-session', value: 'ses_test123' },
+            source: expect.objectContaining({ providerId: 'opencode-sessions', root }),
+          }),
+        ])
+      } finally {
+        if (prevHome === undefined) delete process.env.HOME
+        else process.env.HOME = prevHome
+      }
+    },
+  )
 })

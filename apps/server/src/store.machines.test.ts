@@ -6,7 +6,7 @@ import { join } from 'node:path'
 // Fixture-only: hand-build a pre-multi-machine ("v3-shape") db. The store under
 // test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -113,7 +113,7 @@ describe('machines store', () => {
   it('pre-multi-machine repos copy preserves existing rows with machineId=__local__', async () => {
     const file = await tmpDbPath()
     // Hand-build a pre-multi-machine database (old repos schema: path PRIMARY KEY, added_at).
-    const db = new DatabaseSync(file)
+    const db = openDatabase(file)
     db.exec(
       `CREATE TABLE repos (
          path TEXT PRIMARY KEY,

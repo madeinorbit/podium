@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import {
   classifyCodexVerdict,
@@ -671,7 +671,7 @@ describe('observeCodexState native title (live /rename)', () => {
   // `title` column — what a `/rename` inside Codex updates. Minimal schema: only the
   // columns the observer reads (id/rollout_path/title) need to be present.
   function setNativeTitle(home: string, id: string, rolloutRel: string, title: string): void {
-    const db = new DatabaseSync(join(home, '.codex', 'state_5.sqlite'))
+    const db = openDatabase(join(home, '.codex', 'state_5.sqlite'))
     db.exec(
       'CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, rollout_path TEXT, title TEXT)',
     )

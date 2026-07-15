@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
@@ -399,8 +400,7 @@ describe('SessionStore schema migration', () => {
   it('migrates a v1 db (tmux_label column) to durable_label without losing rows', async () => {
     const file = await tmpDbPath()
     // Hand-build a v1 database the way the pre-rename store created it.
-    const { DatabaseSync } = await import('node:sqlite')
-    const db = new DatabaseSync(file)
+    const db = openDatabase(file)
     db.exec(
       `CREATE TABLE sessions (
          id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, cwd TEXT NOT NULL,
@@ -449,8 +449,7 @@ describe('SessionStore schema migration', () => {
     // version-number gate would skip the machine migration; the STRUCTURAL guard must
     // still fire, add the machines table + machine_id columns, and bump the marker to 6.
     const file = await tmpDbPath()
-    const { DatabaseSync } = await import('node:sqlite')
-    const db = new DatabaseSync(file)
+    const db = openDatabase(file)
     // Sessions as main's v5 created them: conversation_id present, machine_id ABSENT.
     db.exec(
       `CREATE TABLE sessions (
@@ -531,7 +530,7 @@ describe('SessionStore schema migration', () => {
     // And the version marker is now at the current schema version (9: email-style
     // read state (#124) bumped the coherence marker 8 -> 9; the structural
     // migrations above still run regardless, the number is just at-a-glance).
-    const reopened = new (await import('node:sqlite')).DatabaseSync(file)
+    const reopened = openDatabase(file)
     const ver = reopened.prepare('SELECT value FROM meta WHERE key = ?').get('schema_version') as
       | { value: string }
       | undefined

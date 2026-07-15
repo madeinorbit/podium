@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { openDatabase } from '@podium/runtime/sqlite'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentStateProviderFor } from '../harness/registry.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 
@@ -54,32 +55,14 @@ async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
   }
 }
 
-type TestDatabase = {
-  exec(sql: string): void
-  prepare(sql: string): { run(...args: unknown[]): unknown }
-  close(): void
-}
-type DatabaseSyncConstructor = new (path: string) => TestDatabase
-
-let DatabaseSync: DatabaseSyncConstructor | undefined
-
-beforeAll(async () => {
-  try {
-    DatabaseSync = (await import('node:sqlite')).DatabaseSync as DatabaseSyncConstructor
-  } catch {
-    DatabaseSync = undefined
-  }
-})
-
 async function seedSessionDb(
   root: string,
   sessionId: string,
   cwd: string,
   assistantText: string,
 ): Promise<void> {
-  if (!DatabaseSync) throw new Error('node:sqlite unavailable')
   const dbPath = join(root, 'opencode.db')
-  const db = new DatabaseSync(dbPath)
+  const db = openDatabase(dbPath)
   db.exec(`CREATE TABLE session (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL DEFAULT 'proj',
@@ -152,18 +135,7 @@ describe('opencode state provider', () => {
     expect(agentStateProviderFor('opencode')).toBe(opencodeStateProvider)
   })
 
-  it('bootEvents classifies a resumed session from sqlite transcript tail when sqlite is available', async () => {
-    if (!DatabaseSync) {
-      await expect(
-        opencodeStateProvider.bootEvents?.({
-          cwd: '/repo/opencode',
-          resumeValue: 'ses_boot',
-          homeDir: '/tmp/does-not-matter',
-        }),
-      ).resolves.toEqual([{ kind: 'session_started' }])
-      return
-    }
-
+  it('bootEvents classifies a resumed session from sqlite transcript tail', async () => {
     home = await mkdtemp(join(tmpdir(), 'podium-opencode-boot-'))
     const root = join(home, '.local', 'share', 'opencode')
     await mkdir(root, { recursive: true })
@@ -187,8 +159,6 @@ describe('opencode state provider', () => {
 
 describe('observeOpencodeState DB handle reuse + mtime gate', () => {
   it('reuses one handle, skips the per-tick query while mtime is unchanged, re-runs when it advances, and closes on stop', async () => {
-    if (!DatabaseSync) return // node:sqlite unavailable in this runtime
-
     const home = await mkdtemp(join(tmpdir(), 'podium-opencode-gate-'))
     const root = join(home, '.local', 'share', 'opencode')
     await mkdir(root, { recursive: true })
