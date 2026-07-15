@@ -218,8 +218,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  or null when the popup is closed. */
   autoContinuePromptSessionId: string | null
   closeAutoContinuePrompt: () => void
-  /** [spec:SP-a1c0] Central navigate-to-session (#411): the ONLY way UI surfaces jump to a session. */
-  navigateToSession: (sessionId: string) => void
+  /** [spec:SP-a1c0] Central navigate-to-session (#411): accepts a UUID or birth ref and is the ONLY way UI surfaces jump to a session. */
+  navigateToSession: (sessionIdOrRef: string) => void
   renameSession: (sessionId: string, name: string) => Promise<void>
   hibernateSession: (sessionId: string) => Promise<void>
   resurrectSession: (sessionId: string) => Promise<void>

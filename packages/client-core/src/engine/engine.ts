@@ -34,6 +34,7 @@ import type {
   SessionMeta,
   WorkState,
 } from '@podium/protocol'
+import { resolveSessionIdentifier } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
@@ -1134,7 +1135,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       // than through setView (which would re-apply the CURRENT route's stale pane).
       navigateToSession: (sessionId: string) => {
         const st = this.state
-        const meta = st.sessions.find((s) => s.sessionId === sessionId)
+        const meta = resolveSessionIdentifier(sessionId, st.sessions)
         if (!meta) return
         // The worktree that contains the session's cwd (deepest match wins — nested
         // worktrees); a session outside every known worktree keeps the selection.
@@ -1147,13 +1148,13 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         this.apply({
           ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
           ...(worktree ? { selectedWorktree: worktree } : {}),
-          paneA: sessionId,
+          paneA: meta.sessionId,
           focusedPane: 'A',
         })
         this.router.navigate({
           ...routeDefaults('workspace'),
           ...(worktree ? { worktree } : {}),
-          pane: sessionId,
+          pane: meta.sessionId,
         })
       },
       setPanelMode: (sessionId: string, mode: 'chat' | 'native') => {

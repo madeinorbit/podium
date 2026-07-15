@@ -12,7 +12,7 @@
  * every cross-session read is event-logged here (transcripts can carry secrets).
  */
 
-import type { SessionMeta, TranscriptItem } from '@podium/protocol'
+import { resolveSessionIdentifier, type SessionMeta, type TranscriptItem } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
 import type { ReadWatermarksRepository } from '../../store/read-watermarks'
@@ -95,11 +95,12 @@ export interface SessionReadToolkitDeps {
 export class SessionReadToolkit {
   constructor(private readonly deps: SessionReadToolkitDeps) {}
 
-  /** Resolve a status ref — a session id, or an issue ref (#N/seq/id) whose
-   *  best member session (live preferred, else most recent agent) is picked. */
+  /** Resolve a status ref — a session id/birth ref, or an issue ref
+   *  (#N/seq/id) whose best member session (live preferred, else most recent
+   *  agent) is picked. */
   resolveTarget(ref: string): SessionMeta | undefined {
     const all = this.deps.listSessions()
-    const direct = all.find((s) => s.sessionId === ref)
+    const direct = resolveSessionIdentifier(ref, all)
     if (direct) return direct
     let issueId: string
     try {
@@ -158,12 +159,12 @@ export class SessionReadToolkit {
     input: { sessionId: string; turns?: number; cursor?: string },
     reader: string,
   ): Promise<SessionReadResult> {
-    const target = this.deps.listSessions().find((s) => s.sessionId === input.sessionId)
+    const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
     this.logRead('session.transcript_read', target.sessionId, reader)
     const limit = Math.min(Math.max(1, input.turns ?? 20), READ_TURN_CAP)
     const slice = await this.deps.readTranscript({
-      sessionId: input.sessionId,
+      sessionId: target.sessionId,
       ...(input.cursor ? { anchor: input.cursor } : {}),
       direction: 'before',
       limit,
@@ -185,7 +186,7 @@ export class SessionReadToolkit {
     }
     if (kept.length < slice.items.length) truncated = true
     return {
-      sessionId: input.sessionId,
+      sessionId: target.sessionId,
       items: kept.map((i) => ({
         role: i.role,
         text: i.text,
@@ -213,7 +214,7 @@ export class SessionReadToolkit {
     input: { sessionId: string; since?: string },
     reader: string,
   ): Promise<SessionRecapResult> {
-    const target = this.deps.listSessions().find((s) => s.sessionId === input.sessionId)
+    const target = resolveSessionIdentifier(input.sessionId, this.deps.listSessions())
     if (!target) throw new Error(`unknown session ${input.sessionId}`)
     this.logRead('session.recap_read', target.sessionId, reader)
     const since =

@@ -114,6 +114,17 @@ describe('session status (tier 1)', () => {
     expect(s.sessionId).toBe('s1')
     await expect(toolkit.status('#999', 'operator')).rejects.toThrow(/no session found/)
   })
+
+  it('resolves a permanent session birth ref before treating it as an issue ref', async () => {
+    const birthRef = 'POD-529-A'
+    const { toolkit } = harness({
+      sessions: [
+        session({ sessionId: 'dc9086cd-8bc9-4eb5-b1da-83094fafa7e4', displayRef: birthRef }),
+      ],
+    })
+    const s = await toolkit.status(birthRef, 'operator')
+    expect(s.sessionId).toBe('dc9086cd-8bc9-4eb5-b1da-83094fafa7e4')
+  })
 })
 
 describe('session read (tier 2)', () => {
@@ -149,6 +160,15 @@ describe('session read (tier 2)', () => {
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
     await expect(toolkit.read({ sessionId: 'nope' }, 'op')).rejects.toThrow(/unknown session/)
+  })
+
+  it('accepts a permanent session birth ref and reads the canonical session id', async () => {
+    const { toolkit, reads } = harness({
+      sessions: [session({ sessionId: 's1', displayRef: 'POD-529-A' })],
+    })
+    const r = await toolkit.read({ sessionId: 'POD-529-A' }, 'op')
+    expect(r.sessionId).toBe('s1')
+    expect(reads).toHaveLength(1)
   })
 })
 
@@ -212,5 +232,15 @@ describe('session recap (tier 3)', () => {
   it('rejects an unknown session', async () => {
     const { toolkit } = harness()
     await expect(toolkit.recap({ sessionId: 'nope' }, 'op')).rejects.toThrow(/unknown session/)
+  })
+
+  it('accepts a permanent session birth ref and keys watermarks by canonical session id', async () => {
+    const { toolkit, watermarks } = harness({
+      sessions: [session({ sessionId: 's1', displayRef: 'POD-529-A' })],
+      items: ITEMS,
+    })
+    const r = await toolkit.recap({ sessionId: 'POD-529-A' }, 'parent-1')
+    expect(r.sessionId).toBe('s1')
+    expect(watermarks.get('parent-1|s1')).toBe('c3')
   })
 })

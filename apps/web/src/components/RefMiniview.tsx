@@ -30,23 +30,13 @@ import {
  *  - rendering the draggable <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
-  const {
-    issues,
-    sessions,
-    setOpenIssueId,
-    setView,
-    setSelectedIssueId,
-    setSelectedWorktree,
-    setPane,
-  } = useStoreSelector(
+  const { issues, sessions, setOpenIssueId, setView, navigateToSession } = useStoreSelector(
     (s) => ({
       issues: s.issues,
       sessions: s.sessions,
       setOpenIssueId: s.setOpenIssueId,
       setView: s.setView,
-      setSelectedIssueId: s.setSelectedIssueId,
-      setSelectedWorktree: s.setSelectedWorktree,
-      setPane: s.setPane,
+      navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
@@ -55,13 +45,6 @@ export function RefMiniviewHost(): JSX.Element | null {
     setOpenIssueId(issueId)
     setView('issues')
   }
-  const openSessionFull = (session: { sessionId: string; cwd: string; issueId?: string }): void => {
-    setSelectedIssueId(session.issueId ?? null)
-    setSelectedWorktree(session.cwd)
-    setPane('A', session.sessionId)
-    setView('workspace')
-  }
-
   // Register the activator: plain click opens the miniview; Cmd/Ctrl-click jumps
   // straight to the full view. Kept fresh so it always sees the latest store data.
   useEffect(() => {
@@ -76,7 +59,7 @@ export function RefMiniviewHost(): JSX.Element | null {
         return
       }
       if (target.kind === 'issue') openIssueFull(target.issue.id)
-      else openSessionFull(target.session)
+      else navigateToSession(ref)
     })
     return () => setRefActivator(null)
   })
@@ -96,7 +79,7 @@ export function RefMiniviewHost(): JSX.Element | null {
         if (!target) return
         closeMiniview()
         if (target.kind === 'issue') openIssueFull(target.issue.id)
-        else openSessionFull(target.session)
+        else navigateToSession(state.ref)
       }}
     />,
     document.body,

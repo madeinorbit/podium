@@ -177,6 +177,25 @@ export function parseSessionRef(s: string): SessionRef | null {
 }
 
 /**
+ * Resolve a session's internal UUID or permanent human-facing birth ref.
+ *
+ * [spec:SP-cdc1] Human-facing session refs are identifiers, not display-only
+ * labels. Keep this lookup shared so server command targets and client
+ * navigation cannot drift into supporting different identifier sets.
+ */
+export function resolveSessionIdentifier<T extends { sessionId: string; displayRef?: string }>(
+  identifier: string,
+  sessions: readonly T[],
+): T | undefined {
+  const direct = sessions.find((session) => session.sessionId === identifier)
+  if (direct) return direct
+
+  const ref = identifier.trim()
+  if (!parseSessionRef(ref)) return undefined
+  return sessions.find((session) => session.displayRef === ref)
+}
+
+/**
  * Any ref token (issue or session). Session forms are tried first so that the
  * `PREFIX-seq-LETTER` and `PREFIX-DRAFT-n` shapes are not misread as an issue.
  */

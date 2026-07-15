@@ -12,6 +12,7 @@ import {
   parseAnyRef,
   parseIssueRef,
   parseSessionRef,
+  resolveSessionIdentifier,
   truncateTitle,
 } from './refs'
 
@@ -106,6 +107,26 @@ describe('ref grammar', () => {
     // rejects it because no registered repo owns the `UTF` prefix.
     expect(parseAnyRef('UTF-8')).toEqual({ kind: 'issue', prefix: 'UTF', seq: 8 })
     expect(parseAnyRef('lowercase-1')).toBeNull()
+  })
+
+  describe('resolveSessionIdentifier', () => {
+    const sessions = [
+      { sessionId: 'uuid-a', displayRef: 'POD-529-A' },
+      { sessionId: 'uuid-draft', displayRef: 'POD-DRAFT-3' },
+    ]
+
+    it('resolves internal ids and both permanent birth-ref forms', () => {
+      expect(resolveSessionIdentifier('uuid-a', sessions)?.sessionId).toBe('uuid-a')
+      expect(resolveSessionIdentifier('POD-529-A', sessions)?.sessionId).toBe('uuid-a')
+      expect(resolveSessionIdentifier('POD-DRAFT-3', sessions)?.sessionId).toBe('uuid-draft')
+    })
+
+    it('trims nice refs but does not mistake issue refs or arbitrary labels for sessions', () => {
+      expect(resolveSessionIdentifier('  POD-529-A  ', sessions)?.sessionId).toBe('uuid-a')
+      expect(resolveSessionIdentifier('POD-529', sessions)).toBeUndefined()
+      expect(resolveSessionIdentifier('uuid-draft ', sessions)).toBeUndefined()
+      expect(resolveSessionIdentifier('not-a-ref', sessions)).toBeUndefined()
+    })
   })
 })
 

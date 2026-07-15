@@ -935,7 +935,7 @@ describe('navigateToSession (#411)', () => {
     h.engine.start()
     await settle()
     h.engine.replica.applySnapshot('sessions', [
-      session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
+      { ...session('s1', '/tmp/known-repo/.worktrees/wt1/sub'), displayRef: 'POD-529-A' },
     ])
     await settle()
     return h
@@ -952,6 +952,14 @@ describe('navigateToSession (#411)', () => {
     expect(st.focusedPane).toBe('A')
     // the URL landed on the session and STAYED there (no flip-back)
     expect(rw.url()).toContain('/workspace')
+    expect(rw.url()).toContain('pane=s1')
+  })
+
+  it('accepts a permanent session birth ref and navigates to its canonical pane id', async () => {
+    const { engine, rw } = await withSession()
+    engine.getSnapshot().navigateToSession('POD-529-A')
+    await settle()
+    expect(engine.getSnapshot().paneA).toBe('s1')
     expect(rw.url()).toContain('pane=s1')
   })
 
