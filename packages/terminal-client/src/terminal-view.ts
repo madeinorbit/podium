@@ -3,6 +3,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import { type FileLinkConfig, makeFileLinkProvider } from './file-link-provider'
 import { makeRefLinkProvider, type RefLinkConfig } from './ref-link-provider'
+import { RefUnderlineOverlay, type ViewportBufferLike } from './ref-underline-overlay'
 import type { TerminalDiagnosticData } from './terminal-diagnostics'
 import { makeUrlLinkProvider } from './url-link-provider'
 // xterm renders its rows, cursor, selection overlay and the hidden char-measure /
@@ -103,6 +104,9 @@ export class TerminalView {
   private dataSink: ((data: string) => void) | undefined
   private fileLinkConfig: FileLinkConfig | null = null
   private refLinkConfig: RefLinkConfig | null = null
+  // Persistent dotted underline under visible ref tokens (#517) — glanceable,
+  // unlike xterm's hover-only link decorations. Created on mount.
+  private refOverlay: RefUnderlineOverlay | undefined
   // The live WebGL renderer addon (undefined when GPU is off, WebGL is unavailable, or
   // after a context loss dropped us to the DOM renderer). Kept so repaintRecover() can
   // recover a discarded canvas in place.
@@ -231,6 +235,7 @@ export class TerminalView {
    *  prefix is registered become clickable; click dispatches onActivate. */
   setRefLinks(cfg: RefLinkConfig | null): void {
     this.refLinkConfig = cfg
+    this.refOverlay?.schedule()
   }
 
   /**
@@ -258,7 +263,34 @@ export class TerminalView {
     // blocklisted GPU) or lose its context (browsers cap live WebGL contexts, which
     // split panes + many tabs can exhaust). Both cases fall back to the DOM renderer.
     this.tryLoadWebgl()
+    this.wireRefOverlay(el)
     this.wireClipboard(el)
+  }
+
+  /** Mount the persistent ref-underline layer (#517) into `.xterm-screen` and
+   *  keep it in step with the viewport. Placed AFTER tryLoadWebgl so the layer
+   *  is a later sibling of the WebGL canvas (and carries a z-index besides). */
+  private wireRefOverlay(el: HTMLElement): void {
+    const screen = el.querySelector('.xterm-screen') as HTMLElement | null
+    if (!screen) return
+    const overlay = new RefUnderlineOverlay({
+      screen,
+      getBuffer: () => this.term.buffer.active as unknown as ViewportBufferLike,
+      getCols: () => this.term.cols,
+      getRows: () => this.term.rows,
+      getIsKnownPrefix: () => this.refLinkConfig?.isKnownPrefix ?? null,
+    })
+    this.refOverlay = overlay
+    const subs = [
+      this.term.onRender(() => overlay.schedule()),
+      this.term.onScroll(() => overlay.schedule()),
+      this.term.onResize(() => overlay.schedule()),
+    ]
+    this.cleanup.push(() => {
+      for (const s of subs) s.dispose()
+      overlay.dispose()
+      this.refOverlay = undefined
+    })
   }
 
   private tryLoadWebgl(): void {

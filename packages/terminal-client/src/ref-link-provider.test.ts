@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import type { Cell } from './buffer-line'
-import { findRefMatches } from './ref-link-provider'
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it } from 'vitest'
+import type { BufferLike, Cell } from './buffer-line'
+import { findRefMatches, makeRefLinkProvider } from './ref-link-provider'
 
 /** Build a row of unstyled cells from a string. */
 function cells(text: string): Cell[] {
@@ -48,5 +49,74 @@ describe('findRefMatches', () => {
     expect(m[0]?.cells[0]?.x).toBe(2)
     expect(m[0]?.cells[m[0].cells.length - 1]?.x).toBe(7)
     expect(m[0]?.cells.map((c) => c.char).join('')).toBe('POD-13')
+  })
+})
+
+// Fake xterm buffer over rows of plain strings (no wraps — refs are single-row).
+function fakeBuf(rows: string[]): BufferLike {
+  return {
+    getLine(y: number) {
+      const s = rows[y]
+      if (s === undefined) return undefined
+      return {
+        length: s.length,
+        isWrapped: false,
+        getCell(x: number) {
+          if (x >= s.length) return undefined
+          return {
+            getChars: () => s[x] ?? ' ',
+            getWidth: () => 1,
+            isBold: () => false,
+            isUnderline: () => false,
+            getFgColor: () => -1,
+            getFgColorMode: () => 0,
+          }
+        },
+      }
+    },
+  }
+}
+
+describe('makeRefLinkProvider', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  const provide = () => {
+    const activated: string[] = []
+    const provider = makeRefLinkProvider(
+      () => fakeBuf(['see POD-13 now']),
+      () => ({ isKnownPrefix: known, onActivate: (ref) => activated.push(ref) }),
+    )
+    let links: import('@xterm/xterm').ILink[] = []
+    provider.provideLinks(1, (l) => {
+      links = l ?? []
+    })
+    return { links, activated }
+  }
+
+  it('links carry pointer + underline hover decorations', () => {
+    const { links } = provide()
+    expect(links).toHaveLength(1)
+    expect(links[0]?.decorations).toEqual({ pointerCursor: true, underline: true })
+  })
+
+  it('hover shows the modifier tooltip; leave removes it', () => {
+    const { links } = provide()
+    const ev = new MouseEvent('mousemove', { clientX: 20, clientY: 20 })
+    links[0]?.hover?.(ev, 'POD-13')
+    const tip = document.body.lastElementChild as HTMLElement
+    expect(tip?.textContent).toMatch(/^Click to preview · (⌘|Ctrl)-click to open$/)
+    links[0]?.leave?.(ev, 'POD-13')
+    expect(document.body.contains(tip)).toBe(false)
+  })
+
+  it('activate hides the tooltip and dispatches the ref', () => {
+    const { links, activated } = provide()
+    const ev = new MouseEvent('mousemove', { clientX: 20, clientY: 20 })
+    links[0]?.hover?.(ev, 'POD-13')
+    links[0]?.activate(new MouseEvent('click'), 'POD-13')
+    expect(activated).toEqual(['POD-13'])
+    expect(document.body.querySelectorAll('div')).toHaveLength(0)
   })
 })

@@ -10,6 +10,9 @@ export interface LineLike {
   length: number
   isWrapped: boolean
   getCell(x: number, cell?: unknown): CellLike | undefined
+  /** xterm's fast row-to-string path; optional so test fakes stay minimal.
+   *  Used as a cheap pre-filter before building per-cell objects. */
+  translateToString?(trimRight?: boolean): string
 }
 export interface BufferLike {
   getLine(y: number): LineLike | undefined

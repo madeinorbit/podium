@@ -1,6 +1,7 @@
 import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
 import type { ILink, ILinkProvider } from '@xterm/xterm'
 import type { BufferLike, Cell } from './buffer-line'
+import { RefHoverTooltip } from './ref-hover-tooltip'
 
 /**
  * Clickable human-facing ref tokens in terminal output (#474, area 6b):
@@ -22,8 +23,9 @@ export interface RefLinkConfig {
 // expensive work in provideLinks (xterm calls it per render on hover).
 const MAX_ROW_CELLS = 2048
 
-/** Visible cells of a row (skips wide-glyph spacer halves). */
-function rowCells(buf: BufferLike, y: number): Cell[] {
+/** Visible cells of a row (skips wide-glyph spacer halves). Exported for the
+ *  persistent underline overlay, which scans the same cells per viewport row. */
+export function rowCells(buf: BufferLike, y: number): Cell[] {
   const line = buf.getLine(y)
   if (!line) return []
   const out: Cell[] = []
@@ -70,6 +72,9 @@ export function makeRefLinkProvider(
   getBuffer: () => BufferLike,
   getConfig: () => RefLinkConfig | null,
 ): ILinkProvider {
+  // One tooltip per provider (= per terminal); xterm guarantees leave fires
+  // before the next hover, so a single element suffices.
+  const tooltip = new RefHoverTooltip()
   return {
     provideLinks(bufferLineNumber: number, callback: (links: ILink[] | undefined) => void): void {
       const cfg = getConfig()
@@ -90,7 +95,13 @@ export function makeRefLinkProvider(
                 start: { x: first.x + 1, y: first.y + 1 },
                 end: { x: last.x + 1, y: last.y + 1 },
               },
-              activate: (event: MouseEvent) => cfg.onActivate(m.ref, event),
+              decorations: { pointerCursor: true, underline: true },
+              activate: (event: MouseEvent) => {
+                tooltip.hide()
+                cfg.onActivate(m.ref, event)
+              },
+              hover: (event: MouseEvent) => tooltip.show(event),
+              leave: () => tooltip.hide(),
             },
           ]
         },
