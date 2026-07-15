@@ -1480,7 +1480,7 @@ export function resumeCommand(s: SessionMeta): string | null {
   const id = shellQuote(ref.value)
   switch (ref.kind) {
     case 'claude-session':
-      return `claude --resume ${id}`
+      return ['claude', '--resume', id].join(' ')
     case 'codex-thread':
       return `codex resume ${id}`
     case 'grok-session':
