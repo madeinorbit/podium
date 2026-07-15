@@ -9,7 +9,7 @@ import { PODIUM_GROK_HOOK_URL_ENV } from '@podium/agent-bridge'
  * Podium installs one env-gated command hook per lifecycle event: Podium-spawned
  * sessions inherit their own callback URL; every other Grok process exits 0
  * before touching the network. The command streams the daemon response back to
- * Grok so supported hook responses (additional context / decisions) remain usable.
+ * Grok so PreToolUse decisions remain usable; passive event responses are ignored.
  */
 export const PODIUM_GROK_HOOK_COMMAND = `bash -c 'u="$${PODIUM_GROK_HOOK_URL_ENV}"; [ -n "$u" ] || exit 0; curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" 2>/dev/null || true'`
 

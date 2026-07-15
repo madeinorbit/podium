@@ -130,7 +130,10 @@ describe('Podium Grok hook command', () => {
     await writeFile(curlPath, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`)
     await chmod(curlPath, 0o755)
 
-    const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH ?? ''}` }
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${dir}${delimiter}${process.env.PATH ?? ''}`,
+    }
     delete env.PODIUM_GROK_HOOK_URL
 
     const child = spawn('sh', ['-c', PODIUM_GROK_HOOK_COMMAND], {
