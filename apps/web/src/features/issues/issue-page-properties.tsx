@@ -163,14 +163,12 @@ export function IssueProperties({
   commands: IssuePageCommands
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues, machines, setSelectedWorktree, setPane, setView } = useStoreSelector(
+  const { trpc, issues, machines, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       issues: s.issues,
       machines: s.machines,
-      setSelectedWorktree: s.setSelectedWorktree,
-      setPane: s.setPane,
-      setView: s.setView,
+      navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
@@ -196,10 +194,10 @@ export function IssueProperties({
   const assigneeOptions = assigneeOptionsOf(issues)
   const labelPool = labelPoolOf(issues, issue)
 
-  const openSession = (session: { sessionId: string; cwd: string }): void => {
-    setSelectedWorktree(session.cwd)
-    setPane('A', session.sessionId)
-    setView('workspace')
+  // [spec:SP-a1c0] (#411) Route through the central action — never roll per-feature
+  // navigation (setPane+setView flips the URL then reverts off the workspace view).
+  const openSession = (session: { sessionId: string }): void => {
+    navigateToSession(session.sessionId)
   }
   const primaryIsPr = mergeStyle === 'pr'
   const mergeLabel = 'FF-only merge'
