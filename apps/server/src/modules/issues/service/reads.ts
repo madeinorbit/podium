@@ -438,14 +438,17 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return best?.id ?? null
   }
 
-  /** Spawn-time attachment derivation (issue-as-workspace): the id of the issue
-   *  whose worktree contains `cwd` — only when exactly ONE non-archived issue
-   *  owns it, else null (ambiguous / unowned cwd stays unattached). */
+  /** Spawn-time attachment derivation (issue-as-workspace): choose the deepest
+   *  containing non-archived worktree. Multiple issues at that same deepest root
+   *  remain ambiguous and leave the session unattached. [spec:SP-ccb2] */
   soleOwnerForCwd(cwd: string): string | null {
     const owners = [...this.rows.values()].filter(
       (r) => !r.deletedAt && !r.archived && isMemberCwd(r.worktreePath, cwd),
     )
-    return owners.length === 1 ? (owners[0]?.id ?? null) : null
+    let deepest = 0
+    for (const owner of owners) deepest = Math.max(deepest, owner.worktreePath?.length ?? 0)
+    const mostSpecific = owners.filter((owner) => owner.worktreePath?.length === deepest)
+    return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
   }
 
   /** Durable event-log read; cursor = the last event id the caller has seen. */

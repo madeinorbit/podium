@@ -644,7 +644,7 @@ describe('IssueService.start', () => {
     })
   })
 
-  it("addSession/addShell tag the spawn with the issue's provenance (issue #60)", async () => {
+  it('addSession/addShell use issue provenance as the direct-service fallback', async () => {
     const { svc, deps } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await svc.start(a.id)
@@ -660,6 +660,23 @@ describe('IssueService.start', () => {
     svc.addShell(a.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ agentKind: 'shell', spawnedBy: `issue:${a.id}` }),
+    )
+  })
+
+  it('preserves explicit initiating-session provenance across workflow spawns', async () => {
+    const { svc, deps } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    await svc.start(a.id, undefined, { spawnedBy: 'session:starter' })
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ spawnedBy: 'session:starter' }),
+    )
+    svc.addSession(a.id, 'codex', { spawnedBy: 'session:adder' })
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ spawnedBy: 'session:adder' }),
+    )
+    svc.addShell(a.id, { spawnedBy: 'session:shell-adder' })
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ spawnedBy: 'session:shell-adder' }),
     )
   })
 })

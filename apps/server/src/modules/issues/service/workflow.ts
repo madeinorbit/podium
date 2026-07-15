@@ -20,7 +20,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return `${repoPath}/.worktrees/${dir}`
   }
 
-  async start(id: string, agentKind?: string): Promise<IssueWire> {
+  async start(id: string, agentKind?: string, opts?: { spawnedBy?: string }): Promise<IssueWire> {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
     if (agentKind) row.defaultAgent = agentKind
@@ -71,15 +71,18 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       model: row.defaultModel,
       effort: row.defaultEffort,
       ...(row.description.trim() ? { initialPrompt: row.description } : {}),
-      spawnedBy: `issue:${row.id}`,
+      spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return wire
   }
 
-  async createAndMaybeStart(input: CreateIssueInput): Promise<IssueWire> {
+  async createAndMaybeStart(
+    input: CreateIssueInput,
+    opts?: { spawnedBy?: string },
+  ): Promise<IssueWire> {
     const created = this.create(input)
-    return input.startNow ? this.start(created.id) : created
+    return input.startNow ? this.start(created.id, undefined, opts) : created
   }
 
   async action(
@@ -489,7 +492,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return branch || null
   }
 
-  addSession(id: string, agentKind?: string): IssueWire {
+  addSession(id: string, agentKind?: string, opts?: { spawnedBy?: string }): IssueWire {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
@@ -499,13 +502,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       agentKind: agentKind ?? row.defaultAgent,
       model: row.defaultModel,
       effort: row.defaultEffort,
-      spawnedBy: `issue:${row.id}`,
+      spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
     return this.toWire(row)
   }
-  addShell(id: string): IssueWire {
-    return this.addSession(id, 'shell')
+  addShell(id: string, opts?: { spawnedBy?: string }): IssueWire {
+    return this.addSession(id, 'shell', opts)
   }
 
   async linearSearch(query: string): Promise<LinearIssue[]> {

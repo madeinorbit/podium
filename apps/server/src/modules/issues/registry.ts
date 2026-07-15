@@ -219,6 +219,20 @@ export class IssueCommandCtx {
     }
   }
 
+  /** Server-derived provenance for a session spawned by an issue command.
+   *  Preserve the exact initiating session when one exists; otherwise distinguish
+   *  the operator from legacy constrained callers. [spec:SP-ccb2] */
+  spawnProvenance(): string {
+    if (this.caller.capability.actorSessionId) {
+      return `session:${this.caller.capability.actorSessionId}`
+    }
+    if (this.caller.capability.scope.kind === 'all') return 'user'
+    if (this.caller.capability.scope.kind === 'subtree') {
+      return `issue:${this.caller.capability.scope.rootId}`
+    }
+    return 'agent'
+  }
+
   /** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */
   mailOwnIssue(id?: string): string {
     if (id) return id
@@ -615,7 +629,10 @@ const defs = {
       // (filterBoardScope). With none it is invisible — warn (don't block) so an
       // unattached agent doesn't silently lose the issue.
       return ctx.withMutation(input.mutationId, async () => {
-        const created = await ctx.issues.createAndMaybeStart({ ...input, origin, audience })
+        const created = await ctx.issues.createAndMaybeStart(
+          { ...input, origin, audience },
+          { spawnedBy: ctx.spawnProvenance() },
+        )
         if (audience === 'agent' && !ctx.hasHumanAudienceAncestor(created)) {
           return {
             ...created,
@@ -636,7 +653,9 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.start(input.id, input.agentKind)),
+      ctx.issueWrite(input, () =>
+        ctx.issues.start(input.id, input.agentKind, { spawnedBy: ctx.spawnProvenance() }),
+      ),
   }),
   update: def({
     kind: 'mutation',
@@ -792,7 +811,11 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.addSession(input.id, input.agentKind)),
+      ctx.issueWrite(input, () =>
+        ctx.issues.addSession(input.id, input.agentKind, {
+          spawnedBy: ctx.spawnProvenance(),
+        }),
+      ),
   }),
   addShell: def({
     kind: 'mutation',
@@ -800,7 +823,10 @@ const defs = {
     action: 'write',
     scope: 'issue',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.addShell(input.id)),
+    handler: (ctx, input) =>
+      ctx.issueWrite(input, () =>
+        ctx.issues.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+      ),
   }),
   applySuggestion: def({
     kind: 'mutation',

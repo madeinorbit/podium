@@ -196,8 +196,8 @@ export function buildSuperagentTools(
             cwd = issue.worktreePath // spawn alongside the issue's work
           } else {
             // Not started yet — issues.start owns the whole flow (worktree, branch,
-            // agent spawn with the description as first prompt, provenance issue:<id>).
-            const started = await issues.start(issue.id, agentKind)
+            // agent spawn with the description as first prompt and caller provenance).
+            const started = await issues.start(issue.id, agentKind, { spawnedBy })
             const spawned = sessions
               .listSessions()
               .find((s) => s.cwd === started.worktreePath && s.status !== 'exited')

@@ -146,7 +146,9 @@ export interface IssueDeps {
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
    *  resolved inside createSession), which is the race-free way to start the work.
-   *  `spawnedBy` records provenance (issue #60) — always `issue:<id>` from here. */
+   *  `spawnedBy` records provenance (issue #60): issue workflow calls preserve
+   *  their exact initiating session/operator when known, with `issue:<id>` as the
+   *  legacy direct-service fallback. [spec:SP-ccb2] */
   spawnSession(o: {
     cwd: string
     /** Explicit issue attachment (POD-529): the workflow knows the issue, so the

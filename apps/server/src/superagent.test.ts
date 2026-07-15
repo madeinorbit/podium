@@ -194,22 +194,26 @@ describe('start_agent tool wiring (issue #60)', () => {
     expect(meta?.spawnedBy).toBe('superagent')
   })
 
-  it('issueId on an unstarted issue starts the issue instead and reports its session', async () => {
+  it('unstarted issue spawn preserves the exact initiating superagent thread', async () => {
     const { registry, sa } = harness()
     const issue = registry.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     const out = JSON.parse(
-      await sa.callMcpTool('start_agent', {
-        agentKind: 'claude-code',
-        cwd: '/ignored',
-        issueId: issue.id,
-        confirmed: true,
-      }),
+      await sa.callMcpTool(
+        'start_agent',
+        {
+          agentKind: 'claude-code',
+          cwd: '/ignored',
+          issueId: issue.id,
+          confirmed: true,
+        },
+        'btw_parent',
+      ),
     ) as { sessionId?: string; cwd: string }
     expect(out.cwd).toBe('/r/.worktrees/issue-1-fix-login')
     expect(out.sessionId).toBeDefined()
     const meta = registry.modules.sessions.listSessions().find((s) => s.sessionId === out.sessionId)
-    // The spawn is owned by issues.start, so provenance is the issue's, not the superagent's.
-    expect(meta?.spawnedBy).toBe(`issue:${issue.id}`)
+    // IssueService owns worktree creation, but the initiating thread remains the parent.
+    expect(meta?.spawnedBy).toBe('superagent:btw_parent')
     expect(registry.issues.get(issue.id)?.stage).toBe('in_progress')
   })
 

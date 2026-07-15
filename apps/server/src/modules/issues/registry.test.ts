@@ -1,5 +1,5 @@
 import { ISSUE_COMMAND_NAMES } from '@podium/protocol'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../issue-authz'
 import { SessionRegistry } from '../../relay'
 import { guardIssueCommand, issueRegistry } from './registry'
@@ -290,5 +290,40 @@ describe('guardIssueCommand authorization matrix', () => {
         id: b.id,
       }),
     ).not.toThrow()
+  })
+})
+
+describe('issue spawn provenance', () => {
+  it('passes the exact initiating session through start and add-session commands', async () => {
+    const registry = new SessionRegistry()
+    try {
+      const issue = registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
+      registry.issues.update(issue.id, {
+        worktreePath: '/r/.worktrees/issue-1-a',
+        stage: 'in_progress',
+      })
+      const caller = {
+        capability: {
+          role: 'worker',
+          scope: { kind: 'subtree', rootId: issue.id },
+          actorSessionId: 'parent-session',
+        },
+      } as const
+      const start = vi.spyOn(registry.issues, 'start').mockResolvedValue(issue)
+      await registry.issueCommands.dispatch(caller, 'issues', 'start', { id: issue.id })
+      expect(start).toHaveBeenCalledWith(issue.id, undefined, {
+        spawnedBy: 'session:parent-session',
+      })
+      const add = vi.spyOn(registry.issues, 'addSession').mockReturnValue(issue)
+      await registry.issueCommands.dispatch(caller, 'issues', 'addSession', { id: issue.id })
+      expect(add).toHaveBeenCalledWith(issue.id, undefined, { spawnedBy: 'session:parent-session' })
+      const shell = vi.spyOn(registry.issues, 'addShell').mockReturnValue(issue)
+      await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addShell', {
+        id: issue.id,
+      })
+      expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user' })
+    } finally {
+      registry.dispose()
+    }
   })
 })
