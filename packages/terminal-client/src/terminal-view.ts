@@ -436,6 +436,11 @@ export class TerminalView {
     return this.term.rows
   }
 
+  /** True after the hosted TUI enables DECSET 2004 (paste-ready transport). */
+  bracketedPasteMode(): boolean {
+    return this.term.modes.bracketedPasteMode
+  }
+
   /**
    * The visible screen as text. With `dropDim`, cells rendered dim (SGR 2 —
    * placeholder/hint text, e.g. Codex's greyed-out composer suggestions) are
@@ -464,8 +469,8 @@ export class TerminalView {
     return text
   }
 
-  screenHash(): string {
-    const text = this.screenText()
+  screenHash(opts?: { dropDim?: boolean }): string {
+    const text = this.screenText(opts)
     let h = 0x811c9dc5
     for (let i = 0; i < text.length; i += 1) {
       h ^= text.charCodeAt(i)

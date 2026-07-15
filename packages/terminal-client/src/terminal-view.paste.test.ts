@@ -55,6 +55,18 @@ afterEach(() => {
 })
 
 describe('TerminalView.pasteText', () => {
+  it('reports DECSET 2004 bracketed-paste readiness', async () => {
+    const view = mounted()
+    expect(view.bracketedPasteMode()).toBe(false)
+    view.write('\x1b[?2004h')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(view.bracketedPasteMode()).toBe(true)
+    view.write('\x1b[?2004l')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(view.bracketedPasteMode()).toBe(false)
+    view.dispose()
+  })
+
   it('emits pasted text through onData, so it reaches the PTY like typed input', () => {
     const view = mounted()
     const seen: string[] = []

@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { newSession, openApp, podium } from './_harness'
+import { newSession, openApp, podium, waitForCodexReady } from './_harness'
 
 /**
  * Real-agent verification — runs ONLY when the harness launches the real claude CLI
@@ -69,15 +69,7 @@ test('real codex: chat send submits and starts a turn', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
   await newSession(page, 'Codex')
-  // Codex's TUI takes a moment to draw its composer; wait for a substantial, settled
-  // screen rather than a specific banner (its layout differs from claude's).
-  await expect
-    .poll(async () => (await podium.screen(page)).replace(/\s/g, '').length, {
-      timeout: 120_000,
-      intervals: [2000],
-    })
-    .toBeGreaterThan(40)
-  await page.waitForTimeout(5000)
+  await waitForCodexReady(page)
   await page.locator('button[aria-label="Switch to chat view"]').click()
   await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
 
@@ -94,13 +86,7 @@ test('real codex: resume-and-send waits for the resumed TUI before delivering (#
   await page.setViewportSize({ width: 1280, height: 900 })
   await openApp(page)
   await newSession(page, 'Codex')
-  await expect
-    .poll(async () => (await podium.screen(page)).replace(/\s/g, '').length, {
-      timeout: 120_000,
-      intervals: [2000],
-    })
-    .toBeGreaterThan(40)
-  await page.waitForTimeout(5000)
+  await waitForCodexReady(page)
   await page.locator('button[aria-label="Switch to chat view"]').click()
   await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
 

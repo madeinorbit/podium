@@ -6,7 +6,7 @@
  * The casts below are type-only and erased at build time, so the functions passed to
  * page.evaluate() run as plain `window.__podium.…()` in the browser.
  */
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 /** ws:// origin of the harness relay; PORT lets concurrent harness runs stay isolated. */
 export const RELAY =
@@ -14,6 +14,8 @@ export const RELAY =
 
 interface PodiumTestApi {
   screenText(): string
+  screenHash(opts?: { dropDim?: boolean }): string
+  codexInputReady(): boolean
   state(): { cols: number; rows: number; role: string }
   sendInput(data: string): void
   simulateKeyboard(inset: number): void
@@ -129,6 +131,44 @@ export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell')
     timeout: 20_000,
   })
   await page.waitForTimeout(800)
+}
+
+const CODEX_READY_QUIET_MS = 1_500
+
+/**
+ * Wait for Codex's real input boundary, not merely a non-empty terminal. A
+ * redraw changes the dim-stripped screen hash and restarts the quiet window, so
+ * MCP startup cannot paint a transient composer and race the synthetic send.
+ */
+export async function waitForCodexReady(page: Page): Promise<void> {
+  let stableHash: string | undefined
+  let stableSince = 0
+  await expect
+    .poll(
+      async () => {
+        const sample = await page.evaluate(() => {
+          const api = (window as unknown as TestWindow).__podium
+          return {
+            ready: api?.codexInputReady() ?? false,
+            hash: api?.screenHash({ dropDim: true }) ?? '',
+          }
+        })
+        const now = Date.now()
+        if (!sample.ready) {
+          stableHash = undefined
+          stableSince = 0
+          return false
+        }
+        if (sample.hash !== stableHash) {
+          stableHash = sample.hash
+          stableSince = now
+          return false
+        }
+        return now - stableSince >= CODEX_READY_QUIET_MS
+      },
+      { timeout: 120_000, intervals: [100, 200, 300] },
+    )
+    .toBe(true)
 }
 
 export const podium = {

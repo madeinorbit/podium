@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionCallbacks, SocketHub } from './connection'
-import { mountSession } from './session-mount'
+import { codexInputReady, mountSession } from './session-mount'
 
 // happy-dom has no ResizeObserver; DomViewportSource needs one to construct.
 function withResizeObserver(): void {
@@ -112,5 +112,19 @@ describe('session-mount onReady', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('codexInputReady', () => {
+  const view = (paste: boolean, screen: string) => ({
+    bracketedPasteMode: () => paste,
+    screenText: (_opts?: { dropDim?: boolean }) => screen,
+  })
+
+  it('requires both bracketed-paste transport and an empty Codex composer', () => {
+    expect(codexInputReady(view(false, '›\n'))).toBe(false)
+    expect(codexInputReady(view(true, 'starting MCP servers…\n'))).toBe(false)
+    expect(codexInputReady(view(true, '› already typed\n'))).toBe(false)
+    expect(codexInputReady(view(true, 'transcript\n  ›\n  gpt-5.6 · /repo\n'))).toBe(true)
   })
 })

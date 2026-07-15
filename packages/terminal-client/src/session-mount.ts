@@ -1,5 +1,6 @@
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
+import { extractCodexPromptDraft } from './prompt-extract'
 import { decideResizeAction, type Grid } from './session-viewport'
 import {
   createTerminalDiagnosticRecorder,
@@ -75,6 +76,20 @@ export interface MountedSession {
 /** Default {@link MountSessionOptions.readyTimeoutMs}: reveal the terminal even if the
  *  attach handshake stalls, so the "Starting…" overlay can never hang permanently. */
 export const READY_TIMEOUT_MS = 2000
+
+/**
+ * Codex can paint a composer before startup work (notably MCP initialization)
+ * redraws it. Its safe synthetic-input boundary is stricter than "some output":
+ * DECSET 2004 must be enabled and the dim-stripped empty composer must be on
+ * screen. The browser harness additionally holds this predicate through a quiet
+ * window so a later redraw resets the wait. [spec:SP-e639]
+ */
+export function codexInputReady(
+  view: Pick<TerminalView, 'bracketedPasteMode' | 'screenText'>,
+): boolean {
+  if (!view.bracketedPasteMode()) return false
+  return extractCodexPromptDraft(view.screenText({ dropDim: true }).split('\n')) === ''
+}
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
@@ -402,8 +417,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       state: () => connection.state(),
       echoLatency: () => connection.echoLatency(),
       diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
-      screenHash: () => view.screenHash(),
+      screenHash: (screenOpts?: { dropDim?: boolean }) => view.screenHash(screenOpts),
       screenText: () => view.screenText(),
+      codexInputReady: () => codexInputReady(view),
       sendInput: (s: string) => connection.sendInput(s),
       takeControl: () => connection.requestControl(),
       sessions: () => hub.sessions(),
