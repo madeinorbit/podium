@@ -92,7 +92,7 @@ function makeHarness(settingsDir: string): Harness {
     sessionCwdTracker: { clear: () => {} },
     primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
-    issueRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   } as unknown as DaemonContext
 
   return {

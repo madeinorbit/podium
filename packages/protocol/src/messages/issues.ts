@@ -285,11 +285,12 @@ export const IssueUpdatedMessage = z.object({
   issue: IssueWire,
 })
 
-// Issue-tracker relay: an agent's daemon forwards an issue op (a tRPC-style
-// router/proc call) up to the server, which runs it against the shared tracker
-// and returns the result. Request is daemon→server; result is server→daemon.
-export const IssueRelayRequestMessage = z.object({
-  type: z.literal('issueRelayRequest'),
+// Agent relay: an agent's daemon forwards a router/proc op (a tRPC-style call for
+// issues, messages, sessions, specs, workflows, locks, approvals, …) up to the
+// server, which runs it against the shared backend and returns the result.
+// Request is daemon→server; result is server→daemon.
+export const AgentRelayRequestMessage = z.object({
+  type: z.literal('agentRelayRequest'),
   requestId: z.string(),
   sessionId: z.string(),
   router: z.string(),
@@ -297,8 +298,8 @@ export const IssueRelayRequestMessage = z.object({
   input: z.unknown().optional(),
   outsideScope: z.boolean().optional(),
 })
-export const IssueRelayResultMessage = z.object({
-  type: z.literal('issueRelayResult'),
+export const AgentRelayResultMessage = z.object({
+  type: z.literal('agentRelayResult'),
   requestId: z.string(),
   ok: z.boolean(),
   result: z.unknown().optional(),

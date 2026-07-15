@@ -458,7 +458,7 @@ export function checkFile(
 
     // Rule 1: no app→app imports (grandfathered: web→server type-only).
     // Test files are exempt: e2e tests legitimately compose several apps
-    // (e.g. apps/server/src/issue-relay-e2e.test.ts drives daemon code) and
+    // (e.g. apps/server/src/agent-relay-e2e.test.ts drives daemon code) and
     // are never shipped, so they don't create a runtime dependency edge.
     if (from.startsWith('apps/') && to.startsWith('apps/') && !isTestFile(file)) {
       const edge = `${from} -> @podium/${to.slice('apps/'.length)}`

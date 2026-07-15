@@ -874,11 +874,11 @@ describe('output-scheduling protocol', () => {
   })
 })
 
-describe('issue relay messages', () => {
-  it('round-trips an issueRelayRequest (daemon→server)', () => {
+describe('agent relay messages', () => {
+  it('round-trips an agentRelayRequest (daemon→server)', () => {
     const m = parseDaemonMessage(
       JSON.stringify({
-        type: 'issueRelayRequest',
+        type: 'agentRelayRequest',
         requestId: 'ir0',
         sessionId: 's1',
         router: 'issues',
@@ -886,14 +886,14 @@ describe('issue relay messages', () => {
         input: { repoPath: '/r' },
       }),
     )
-    expect(m.type).toBe('issueRelayRequest')
+    expect(m.type).toBe('agentRelayRequest')
   })
 
-  it('round-trips an issueRelayResult (server→daemon)', () => {
+  it('round-trips an agentRelayResult (server→daemon)', () => {
     const m = parseControlMessage(
-      JSON.stringify({ type: 'issueRelayResult', requestId: 'ir0', ok: true, result: 'x' }),
+      JSON.stringify({ type: 'agentRelayResult', requestId: 'ir0', ok: true, result: 'x' }),
     )
-    expect(m.type).toBe('issueRelayResult')
+    expect(m.type).toBe('agentRelayResult')
   })
 })
 

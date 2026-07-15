@@ -1,10 +1,12 @@
 import { expect, it } from 'vitest'
-import { issueRelayEnv } from './daemon'
+import { agentRelayEnv } from './daemon'
 
-it('issueRelayEnv binds the session id into env + relay URL', () => {
-  const env = issueRelayEnv('sess-42', 'http://127.0.0.1:45778/issue/sess-42')
+it('agentRelayEnv binds the session id into env + relay URL (new name only)', () => {
+  const env = agentRelayEnv('sess-42', 'http://127.0.0.1:45778/agent/sess-42')
   expect(env).toEqual({
     PODIUM_SESSION_ID: 'sess-42',
-    PODIUM_ISSUE_RELAY: 'http://127.0.0.1:45778/issue/sess-42',
+    PODIUM_AGENT_RELAY: 'http://127.0.0.1:45778/agent/sess-42',
   })
+  // No dual injection: the legacy env name is never written.
+  expect(env).not.toHaveProperty('PODIUM_ISSUE_RELAY')
 })

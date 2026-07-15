@@ -26,7 +26,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...headlessHandlers,
   ...approvalHandlers,
   ...inventoryHandlers,
-  issueRelayResult: (ctx, msg) => ctx.issueRelayHub.onResult(msg),
+  agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
 }
 
 /** Dispatch one parsed control frame to its family handler. */

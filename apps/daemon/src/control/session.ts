@@ -23,22 +23,24 @@ import type { ControlHandlers, DaemonContext } from './context'
 import { sourceForRead } from './transcripts'
 
 /**
- * Env vars bound into EVERY spawned agent so its `podium issue` CLI can reach the
+ * Env vars bound into EVERY spawned agent so its `podium` CLI can reach the
  * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
- * spawn (never a CLI arg the agent could spoof); PODIUM_ISSUE_RELAY is the relay
- * URL with the session id baked into the path (issueRelay.endpointFor(sessionId)).
+ * spawn (never a CLI arg the agent could spoof); PODIUM_AGENT_RELAY is the relay
+ * URL with the session id baked into the path (agentRelay.endpointFor(sessionId)).
+ * Only the new name is written — never the legacy PODIUM_ISSUE_RELAY (read-side
+ * tolerance for in-flight sessions lives in resolveAgentRelay, not here). [spec:SP-b85a]
  * Pure so it's unit-testable without standing up the daemon.
  */
-export function issueRelayEnv(sessionId: string, endpoint: string): Record<string, string> {
-  // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium issue`
-  // CLI reads the session id from PODIUM_ISSUE_RELAY's path, so this isn't consumed
+export function agentRelayEnv(sessionId: string, endpoint: string): Record<string, string> {
+  // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium`
+  // CLI reads the session id from PODIUM_AGENT_RELAY's path, so this isn't consumed
   // by the relay path today — it's exposed for the agent itself and future consumers.
-  return { PODIUM_SESSION_ID: sessionId, PODIUM_ISSUE_RELAY: endpoint }
+  return { PODIUM_SESSION_ID: sessionId, PODIUM_AGENT_RELAY: endpoint }
 }
 
 /** Merge the server-resolved session env (managed credentials, #216) under
  *  Podium's own per-session bindings. Podium's win a collision on purpose: an
- *  injected credential must never be able to shadow the issue-relay wiring.
+ *  injected credential must never be able to shadow the agent-relay wiring.
  *  The result is an OVERLAY — the PTY layer layers it over the full process.env. */
 export function spawnEnv(opts: {
   sessionEnv?: Record<string, string>
@@ -156,9 +158,9 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
         sessionEnv: msg.env,
         harnessEnv: cmd.env,
         podiumEnv: {
-          // Bind the loopback issue-relay + session id into every agent's env so its
-          // `podium issue` CLI can reach the daemon for this exact session.
-          ...issueRelayEnv(msg.sessionId, ctx.issueRelayEndpointFor(msg.sessionId)),
+          // Bind the loopback agent-relay + session id into every agent's env so its
+          // `podium` CLI can reach the daemon for this exact session.
+          ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId)),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
           // Globally-installed hooks are env-gated per session by their adapter.

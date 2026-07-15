@@ -143,8 +143,8 @@ interface SessionsServiceDeps {
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
   automationRunsWire(): AutomationRunWire[]
-  /** Relayed agent issue op (modules/issues/relay-gate). */
-  runIssueRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'issueRelayRequest' }>): void
+  /** Relayed agent op (modules/issues/relay-gate). */
+  runAgentRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>): void
   /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
   onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
   approvalsPending(): ApprovalWire[]
@@ -2119,8 +2119,8 @@ export class SessionsService {
         this.deps.onApprovalExecResult(msg)
         return
       }
-      case 'issueRelayRequest': {
-        this.deps.runIssueRelay(machineId, msg)
+      case 'agentRelayRequest': {
+        this.deps.runAgentRelay(machineId, msg)
         break
       }
       case 'bind': {

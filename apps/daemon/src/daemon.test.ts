@@ -275,7 +275,7 @@ describe('daemon multi-bridge', () => {
   })
 
   it('session.setWorktree on the loopback relay restamps the session worktree locally', async () => {
-    // The agent-initiated channel: `podium worktree <path>` POSTs to the issue-relay
+    // The agent-initiated channel: `podium worktree <path>` POSTs to the agent-relay
     // loopback; the daemon handles session.setWorktree itself (never forwarded to
     // the server's tracker relay) — validate, resolve to git toplevel, sessionCwd.
     const repo = join(mkdtempSync(join(tmpdir(), 'podium-setwt-')), 'repo')
@@ -285,7 +285,7 @@ describe('daemon multi-bridge', () => {
     send({ type: 'spawn', sessionId: 'sWt', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sWt'))
     const post = (input: unknown): Promise<Response> =>
-      fetch(`http://127.0.0.1:${daemon.issueRelayPort}/issue/sWt`, {
+      fetch(`http://127.0.0.1:${daemon.agentRelayPort}/agent/sWt`, {
         method: 'POST',
         body: JSON.stringify({ router: 'session', proc: 'setWorktree', input }),
       })

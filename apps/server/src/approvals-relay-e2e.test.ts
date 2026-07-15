@@ -5,10 +5,10 @@ import { SessionRegistry } from './relay'
 /**
  * Approval broker end-to-end through the real registry [spec:SP-edbb] (#410):
  * agent relay request → gate → service → operator decision → exec frame to the
- * owning daemon → result lands. Mirrors relay-issue-relay.test.ts's harness.
+ * owning daemon → result lands. Mirrors relay-agent-relay.test.ts's harness.
  */
 
-type RelayResult = Extract<ControlMessage, { type: 'issueRelayResult' }>
+type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 
 describe('approval broker relay e2e (#410)', () => {
   const registries: SessionRegistry[] = []
@@ -35,7 +35,7 @@ describe('approval broker relay e2e (#410)', () => {
   const relay = async (proc: string, input: unknown): Promise<RelayResult> => {
     const before = daemonInbox.length
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
-      type: 'issueRelayRequest',
+      type: 'agentRelayRequest',
       requestId: `ir${before}`,
       sessionId: sA,
       router: 'approvals',
@@ -45,13 +45,13 @@ describe('approval broker relay e2e (#410)', () => {
     // the gate replies asynchronously (await inside run()); flush microtasks
     for (
       let i = 0;
-      i < 10 && !daemonInbox.slice(before).some((m) => m.type === 'issueRelayResult');
+      i < 10 && !daemonInbox.slice(before).some((m) => m.type === 'agentRelayResult');
       i++
     ) {
       await new Promise((r) => setTimeout(r, 1))
     }
     const reply = daemonInbox.find(
-      (m): m is RelayResult => m.type === 'issueRelayResult' && m.requestId === `ir${before}`,
+      (m): m is RelayResult => m.type === 'agentRelayResult' && m.requestId === `ir${before}`,
     )
     if (!reply) throw new Error('no relay reply')
     return reply

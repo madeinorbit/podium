@@ -1,7 +1,7 @@
 import type { ControlMessage, DaemonMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
-import { createIssueRelayHub, startIssueRelayServer } from '../../daemon/src/issue-relay'
+import { createAgentRelayHub, startAgentRelayServer } from '../../daemon/src/agent-relay'
 import { OPERATOR } from './issue-authz'
 import type { IssueProc, IssueTrpc } from './issue-client'
 import { makeRelayIssueClient } from './issue-client'
@@ -151,7 +151,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
 
   it('scoped CLI relay executes all five inside the agent subtree', async () => {
     const registry = new SessionRegistry()
-    let relayServer: Awaited<ReturnType<typeof startIssueRelayServer>> | undefined
+    let relayServer: Awaited<ReturnType<typeof startAgentRelayServer>> | undefined
     try {
       const f = fixture(registry)
       registry.issues.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
@@ -160,13 +160,13 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
         agentKind: 'shell',
       }).sessionId
       const machineId = 'lifecycle-machine'
-      const hub = createIssueRelayHub((msg: DaemonMessage) =>
+      const hub = createAgentRelayHub((msg: DaemonMessage) =>
         registry.modules.sessions.onDaemonMessageFrom(machineId, msg),
       )
       registry.modules.sessions.attachDaemon(machineId, (msg: ControlMessage) => {
-        if (msg.type === 'issueRelayResult') hub.onResult(msg)
+        if (msg.type === 'agentRelayResult') hub.onResult(msg)
       })
-      relayServer = await startIssueRelayServer({ port: 0, relay: (req) => hub.relay(req) })
+      relayServer = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
       const client = makeRelayIssueClient(relayServer.endpointFor(sessionId))
 
       await runIssueCli(['reparent', f.moving.id, f.newParent.id], client)

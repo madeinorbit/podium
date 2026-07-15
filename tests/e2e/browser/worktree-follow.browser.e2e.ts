@@ -6,7 +6,7 @@ import { newSession, openApp, podium } from './_harness'
 
 /**
  * Session-follows-view policy, driven through the REAL stack: a shell session
- * reports a worktree move via the daemon's issue-relay loopback (exactly what
+ * reports a worktree move via the daemon's agent-relay loopback (exactly what
  * `podium worktree <path>` does), the daemon resolves + restamps sessionCwd,
  * the server broadcasts, and the web store either FOLLOWS (the moved session
  * is in a visible pane of the selected worktree) or TOASTS (background move).
@@ -45,7 +45,7 @@ async function selectWorktree(page: Page, name: string, path: string): Promise<v
 /** Report a worktree move from INSIDE the session's shell, as an agent would.
  *  `delaySec` queues the report so it can fire after the user looks away. */
 async function reportWorktree(page: Page, path: string, delaySec = 0): Promise<void> {
-  const curl = `curl -s -X POST "$PODIUM_ISSUE_RELAY" -H 'content-type: application/json' -d '{"router":"session","proc":"setWorktree","input":{"path":"${path}"}}'`
+  const curl = `curl -s -X POST "$PODIUM_AGENT_RELAY" -H 'content-type: application/json' -d '{"router":"session","proc":"setWorktree","input":{"path":"${path}"}}'`
   await podium.send(page, delaySec > 0 ? `(sleep ${delaySec} && ${curl}) &\r` : `${curl}\r`)
 }
 

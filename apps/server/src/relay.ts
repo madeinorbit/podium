@@ -20,7 +20,7 @@ import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssuePublisher } from './modules/issues/publish'
 import { IssueCommandDispatcher } from './modules/issues/registry'
-import { IssueRelayGate } from './modules/issues/relay-gate'
+import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { UpstreamIssuesService } from './modules/issues/upstream'
 import { LockCommandDispatcher } from './modules/lock/registry'
@@ -500,7 +500,7 @@ export class SessionRegistry {
         }
       },
     })
-    const issueRelayGate = new IssueRelayGate({
+    const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
       // specs module — same schemas + repo-root gate as the tRPC slice; the
@@ -767,7 +767,7 @@ export class SessionRegistry {
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.safeIssuesList()),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
-      runIssueRelay: (machineId, msg) => void issueRelayGate.run(machineId, msg),
+      runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),

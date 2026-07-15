@@ -35,7 +35,7 @@ import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { createIssueRelayHub, startIssueRelayServer } from './issue-relay'
+import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { countControl, reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
@@ -48,7 +48,7 @@ import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
 export type { DurableBackend } from './control/context'
-export { issueRelayEnv } from './control/session'
+export { agentRelayEnv } from './control/session'
 // Re-exported from their new module homes for the daemon's public surface
 // (index.ts) and the unit tests that exercise them directly.
 export { normalizeAgentKind } from './control/transcripts'
@@ -144,9 +144,9 @@ export interface DaemonOptions {
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
   hooks?: DaemonHooksOptions
-  /** Issue-relay loopback server. Tests pass `port: 0` for an ephemeral port so
-   *  parallel daemons don't contend for DEFAULT_ISSUE_RELAY_PORT. */
-  issueRelay?: { port?: number }
+  /** Agent-relay loopback server. Tests pass `port: 0` for an ephemeral port so
+   *  parallel daemons don't contend for DEFAULT_AGENT_RELAY_PORT. */
+  agentRelay?: { port?: number }
   /**
    * The worker client that runs the /proc memory walk off the interactive loop.
    * Defaults to a real `DiscoveryWorkerClient` (spawns ./discovery-worker.ts).
@@ -229,8 +229,8 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
 export interface DaemonHandle {
   /** Where the hook ingest is actually listening (fixed port unless it was taken). */
   readonly hookPort: number
-  /** Where the issue-relay loopback is actually listening (fixed port unless taken). */
-  readonly issueRelayPort: number
+  /** Where the agent-relay loopback is actually listening (fixed port unless taken). */
+  readonly agentRelayPort: number
   /**
    * Detach from all sessions and close the server connection. Durable sessions
    * (abduco/tmux) keep running — that's the feature. Pass `reapSessions: true` to
@@ -308,27 +308,27 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     cwdTracker: sessionCwdTracker,
   })
 
-  // Correlates daemon-initiated issue-relay requests (the loopback server originates
-  // them) with the server's issueRelayResult. Built here so BOTH the control registry
+  // Correlates daemon-initiated agent-relay requests (the loopback server originates
+  // them) with the server's agentRelayResult. Built here so BOTH the control registry
   // (the result-dispatch handler) and the loopback server reach the one hub; it
   // captures `send` so requests ride the live WS.
-  const issueRelayHub = createIssueRelayHub(send)
+  const agentRelayHub = createAgentRelayHub(send)
   // Injects the session's capability-scoped `prime` as additionalContext on the first
   // SessionStart/UserPromptSubmit after (re)start; re-arms on PreCompact. Driven by
   // startHookIngest's `respondTo`, so it must exist before the ingest starts.
   const primeInjector = createPrimeInjector((sessionId) =>
-    issueRelayHub.relay({ sessionId, router: 'issues', proc: 'prime', input: {} }),
+    agentRelayHub.relay({ sessionId, router: 'issues', proc: 'prime', input: {} }),
   )
   // Blocks the Stop transition (decision:"block") when the session's issue has unread
   // mail, so the agent reads its inbox instead of going idle. Loop-guarded by
   // stop_hook_active and a per-session cooldown inside the injector.
   const mailInjector = createMailInjector((sessionId) =>
-    issueRelayHub.relay({ sessionId, router: 'issues', proc: 'mailPending', input: {} }),
+    agentRelayHub.relay({ sessionId, router: 'issues', proc: 'mailPending', input: {} }),
   )
   // Ack single-reminder (#237) [spec:SP-34d7 acks]: one block per delivered-but-
   // unacked message; the server persists reminded state so it never repeats.
   const ackReminder = createAckReminderInjector((sessionId) =>
-    issueRelayHub.relay({ sessionId, router: 'messages', proc: 'pendingReminders', input: {} }),
+    agentRelayHub.relay({ sessionId, router: 'messages', proc: 'pendingReminders', input: {} }),
   )
   const respondTo = composeResponders(
     (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
@@ -366,11 +366,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       .catch((err) => console.warn('[podium] grok hooks install failed:', err))
   }
 
-  // Loopback HTTP endpoint an agent's `podium issue` CLI posts to. Its port is
+  // Loopback HTTP endpoint an agent's `podium` CLI posts to. Its port is
   // injected into the agent env at spawn; each request rides the hub over the
   // live WS and blocks until the server answers.
-  const issueRelay = await startIssueRelayServer({
-    ...(opts.issueRelay?.port !== undefined ? { port: opts.issueRelay.port } : {}),
+  const agentRelay = await startAgentRelayServer({
+    ...(opts.agentRelay?.port !== undefined ? { port: opts.agentRelay.port } : {}),
     relay: async (req) => {
       // `session.setWorktree` is the agent-initiated worktree report (`podium
       // worktree <path>`). The daemon owns cwd truth, so it's handled here —
@@ -386,7 +386,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         const worktree = await sessionCwdTracker.setExplicit(req.sessionId, path)
         return { ok: true, result: { worktree } }
       }
-      return issueRelayHub.relay(req)
+      return agentRelayHub.relay(req)
     },
   })
 
@@ -431,8 +431,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     reattachGate: createLimiter(REATTACH_CONCURRENCY),
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
-    issueRelayEndpointFor: (sessionId) => issueRelay.endpointFor(sessionId),
-    issueRelayHub,
+    agentRelayEndpointFor: (sessionId) => agentRelay.endpointFor(sessionId),
+    agentRelayHub,
     workerClient,
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     // Per-agent plan-quota reader (live, read-only, TTL-cached). Same homeDir
@@ -508,7 +508,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const handle: DaemonHandle = {
     hookPort: ingest.port,
-    issueRelayPort: issueRelay.port,
+    agentRelayPort: agentRelay.port,
     async close(closeOpts) {
       closing = true // stop the reconnect loop from resurrecting the socket
       if (reconnectTimer) {
@@ -517,7 +517,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       }
       observers.stopAllTails()
       await ingest.close()
-      await issueRelay.close()
+      await agentRelay.close()
       return new Promise<void>((resolve) => {
         disposeAll(closeOpts?.reapSessions ?? false)
         const w = currentWs
@@ -644,7 +644,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // A terminally-blocked daemon must not keep its loopback servers holding the
       // process (and a test's event loop) alive — handle.close() will never run.
       void ingest.close().catch(() => {})
-      void issueRelay.close().catch(() => {})
+      void agentRelay.close().catch(() => {})
       reject(new Error(`daemon handshake rejected: ${reason}`))
       w.close()
       // Give the CLI entrypoint its exit hook (distinct exit code → the systemd unit's

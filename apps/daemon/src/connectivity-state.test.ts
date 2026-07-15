@@ -37,7 +37,7 @@ describe('daemon connectivity state (#19)', () => {
     identityDir: dir,
     tmux: false as const,
     hooks: { port: 0, settingsDir: join(dir, 'hooks') },
-    issueRelay: { port: 0 },
+    agentRelay: { port: 0 },
     discovery: { background: false as const, cachePath: ':memory:' },
     metrics: { background: false as const },
     ...extra,

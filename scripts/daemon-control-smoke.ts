@@ -66,7 +66,7 @@ try {
     serverUrl: `ws://localhost:${port}`,
     bootstrapToken: 'test',
     hooks: { port: 0, settingsDir },
-    issueRelay: { port: 0 },
+    agentRelay: { port: 0 },
     backend: 'none',
     discovery: { background: false, cachePath: ':memory:' },
     metrics: { background: false },

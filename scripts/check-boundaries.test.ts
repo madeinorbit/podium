@@ -87,8 +87,8 @@ describe('checkFile rules', () => {
 
   it('exempts e2e test files from the app→app rule', () => {
     const v = checkFile(
-      'apps/server/src/issue-relay-e2e.test.ts',
-      `import { issueRelay } from '../../daemon/src/issue-relay'`,
+      'apps/server/src/agent-relay-e2e.test.ts',
+      `import { agentRelay } from '../../daemon/src/agent-relay'`,
     )
     expect(v).toEqual([])
   })

@@ -11,7 +11,7 @@ import { HarnessExecResultMessage } from './harness'
 import { HeadlessBindResultMessage, HeadlessTurnEventMessage, HeadlessTurnResultMessage } from './headless'
 import { AgentQuotaResultMessage, HostMetricsMessage, MemoryBreakdownResultMessage, UsageResultMessage } from './host'
 import { InventoryReportMessage } from './inventory'
-import { IssueRelayRequestMessage } from './issues'
+import { AgentRelayRequestMessage } from './issues'
 import { AgentStateMessage } from './runtime-state'
 import {
   AgentColorMessage,
@@ -56,7 +56,7 @@ export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 // ---- Daemon -> server ----
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
-  IssueRelayRequestMessage,
+  AgentRelayRequestMessage,
   ApprovalExecResultMessage,
   HarnessExecResultMessage,
   HeadlessTurnEventMessage,

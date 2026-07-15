@@ -2,7 +2,7 @@ import type { AgentSession, agentLaunchCommand } from '@podium/agent-bridge'
 import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
-import type { IssueRelayHub } from '../issue-relay'
+import type { AgentRelayHub } from '../agent-relay'
 import type { OutputScheduler } from '../output-scheduler'
 import type { SessionObservers } from '../session-observers'
 import type { DiscoveryWorkerClient } from '../worker-client'
@@ -52,9 +52,9 @@ export interface DaemonContext {
   // -- services --------------------------------------------------------------
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
   hookEndpointFor(sessionId: string): string
-  /** Issue-relay loopback endpoint for a session (agent env). */
-  issueRelayEndpointFor(sessionId: string): string
-  issueRelayHub: IssueRelayHub
+  /** Agent-relay loopback endpoint for a session (agent env). */
+  agentRelayEndpointFor(sessionId: string): string
+  agentRelayHub: AgentRelayHub
   /** Runs /proc walks + discovery scans off the interactive loop. */
   workerClient: DiscoveryWorkerClient
   /** Discovery scan + publish; `full` requests the entire conversation list. */

@@ -21,7 +21,7 @@ import {
   UsageRequestMessage,
 } from './host'
 import { InventoryRequestMessage } from './inventory'
-import { IssueRelayResultMessage } from './issues'
+import { AgentRelayResultMessage } from './issues'
 import {
   InputMessage,
   KillMessage,
@@ -37,7 +37,7 @@ import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './tra
 export const ControlMessage = z.discriminatedUnion('type', [
   ApprovalExecRequestMessage,
   RepoOpRequestMessage,
-  IssueRelayResultMessage,
+  AgentRelayResultMessage,
   HarnessExecRequestMessage,
   HeadlessTurnRequestMessage,
   HeadlessInterruptMessage,

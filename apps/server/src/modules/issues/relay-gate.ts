@@ -47,7 +47,7 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   lock: null,
 }
 
-export interface IssueRelayGateDeps {
+export interface AgentRelayGateDeps {
   /** Run one relayed op through the derived command surface (the registry
    *  dispatcher for issues/repos, the specs module for specs) — router-equal
    *  guard + schema, no router involved. Undefined = no such procedure. */
@@ -63,7 +63,7 @@ export interface IssueRelayGateDeps {
 }
 
 /**
- * Run a relayed agent issue op against the shared tracker and reply to its daemon.
+ * Run a relayed agent op against the shared backend and reply to its daemon.
  *
  * TRANSPORT + capability resolution only: the op is dispatched through the command
  * registry's derived surface (modules/issues/registry.ts), whose guard is the SAME
@@ -75,15 +75,15 @@ export interface IssueRelayGateDeps {
  * lifecycle operations; the allowlisted session send ops are additionally scope-gated
  * against the TARGET session's issue by the dispatch arm in the composition root.
  */
-export class IssueRelayGate {
-  constructor(private readonly deps: IssueRelayGateDeps) {}
+export class AgentRelayGate {
+  constructor(private readonly deps: AgentRelayGateDeps) {}
 
   async run(
     machineId: string,
-    msg: Extract<DaemonMessage, { type: 'issueRelayRequest' }>,
+    msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>,
   ): Promise<void> {
     const reply = (r: { ok: boolean; result?: unknown; error?: string }): void =>
-      this.deps.toMachine(machineId, { type: 'issueRelayResult', requestId: msg.requestId, ...r })
+      this.deps.toMachine(machineId, { type: 'agentRelayResult', requestId: msg.requestId, ...r })
     try {
       // RELAY_ALLOWED is a plain object; index it only for OWN keys so a router of
       // 'constructor'/'__proto__'/'toString' can't resolve to an inherited value
@@ -99,7 +99,7 @@ export class IssueRelayGate {
         return
       }
       // attachSession acts on the CALLING session: take its id from the relay
-      // context (the daemon's /issue/<sessionId> path), never from agent input.
+      // context (the daemon's /agent/<sessionId> path), never from agent input.
       const input =
         msg.router === 'issues' && msg.proc === 'attachSession'
           ? { ...(msg.input as Record<string, unknown> | undefined), sessionId: msg.sessionId }
