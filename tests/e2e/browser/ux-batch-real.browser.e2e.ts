@@ -21,8 +21,11 @@ async function waitReady(page: Page): Promise<void> {
     .toMatch(/auto mode|❯ Try|for shortcuts/i)
 }
 
+const chatComposer = (page: Page) =>
+  page.getByPlaceholder('Message the agent…').locator('visible=true')
+
 async function sendChat(page: Page, text: string): Promise<void> {
-  const ta = page.getByPlaceholder('Message the agent…')
+  const ta = chatComposer(page)
   await ta.click()
   await ta.fill(text)
   await ta.press('Control+Enter') // chat composer: ⌘/Ctrl+Enter submits
@@ -43,8 +46,8 @@ test('real claude: chat send submits both a short and a long (paste-sized) messa
   await openApp(page)
   await newSession(page, 'Claude')
   await waitReady(page)
-  await page.locator('button[aria-label="Switch to chat view"]').click()
-  await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
+  await page.locator('button[aria-label="Switch to chat view"]:visible').click()
+  await expect(chatComposer(page)).toBeVisible({ timeout: 30_000 })
 
   // A normal chat message submits and claude replies (137+246=383). Before the fix
   // this sat unsubmitted in the composer.
@@ -70,8 +73,8 @@ test('real codex: chat send submits and starts a turn', async ({ page }) => {
   await openApp(page)
   await newSession(page, 'Codex')
   await waitForCodexReady(page)
-  await page.locator('button[aria-label="Switch to chat view"]').click()
-  await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
+  await page.locator('button[aria-label="Switch to chat view"]:visible').click()
+  await expect(chatComposer(page)).toBeVisible({ timeout: 30_000 })
 
   // The same chat send path (bracketed paste + delayed CR) must submit for codex.
   // 314+159=473 (absent from the prompt).
@@ -87,8 +90,8 @@ test('real codex: resume-and-send waits for the resumed TUI before delivering (#
   await openApp(page)
   await newSession(page, 'Codex')
   await waitForCodexReady(page)
-  await page.locator('button[aria-label="Switch to chat view"]').click()
-  await expect(page.getByPlaceholder('Message the agent…')).toBeVisible({ timeout: 30_000 })
+  await page.locator('button[aria-label="Switch to chat view"]:visible').click()
+  await expect(chatComposer(page)).toBeVisible({ timeout: 30_000 })
 
   // A first turn establishes codex's rollout thread → the session becomes resumable
   // (and idle), so it can be hibernated. 61+12=73.
