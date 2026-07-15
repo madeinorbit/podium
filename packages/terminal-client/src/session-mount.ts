@@ -396,8 +396,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
 
   if (opts.focusOnMount !== false) view.focus()
 
+  let testApi: unknown
   if (opts.test) {
-    ;(globalThis as unknown as { __podium?: unknown }).__podium = {
+    const api = {
       state: () => connection.state(),
       echoLatency: () => connection.echoLatency(),
       diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
@@ -433,6 +434,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         if (grid) connection.sendResize(grid.cols, grid.rows)
       },
     }
+    testApi = api
+    ;(globalThis as unknown as { __podium?: unknown }).__podium = api
   }
 
   return {
@@ -444,7 +447,12 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       trace('panel:active-change', { next })
       // Becoming active = a reveal: the panel was display:none (its WebGL canvas freed),
       // so recover the renderer after layout, not just refresh immediately.
-      if (active) reveal()
+      if (active) {
+        // The E2E API follows the pane a real click activated, even though warm
+        // hidden panes remain mounted and retain their own terminal views.
+        if (testApi) (globalThis as unknown as { __podium?: unknown }).__podium = testApi
+        reveal()
+      }
       // going inactive: do nothing — never resize a hidden panel
     },
     setAppearance(appearance: TerminalAppearance): void {

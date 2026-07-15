@@ -18,4 +18,11 @@ describe('session-mount fit-on-connect', () => {
     // The epoch-bump clear (controller takeover) now only fires while connected.
     expect(src).toContain('if (state.connected)')
   })
+
+  it('retargets the opt-in E2E API when a warm pane becomes active', () => {
+    const src = readFileSync(new URL('./session-mount.ts', import.meta.url), 'utf8')
+    expect(src).toContain(
+      'if (testApi) (globalThis as unknown as { __podium?: unknown }).__podium = testApi',
+    )
+  })
 })
