@@ -66,6 +66,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // startup, no TUI-readiness race) or seeds the composer draft for other agents.
     this.d.spawnSession({
       cwd: path,
+      issueId: row.id,
       agentKind: row.defaultAgent,
       model: row.defaultModel,
       effort: row.defaultEffort,
@@ -494,6 +495,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     this.d.spawnSession({
       cwd: row.worktreePath,
+      issueId: row.id,
       agentKind: agentKind ?? row.defaultAgent,
       model: row.defaultModel,
       effort: row.defaultEffort,

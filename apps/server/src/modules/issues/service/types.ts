@@ -149,6 +149,9 @@ export interface IssueDeps {
    *  `spawnedBy` records provenance (issue #60) — always `issue:<id>` from here. */
   spawnSession(o: {
     cwd: string
+    /** Explicit issue attachment (POD-529): the workflow knows the issue, so the
+     *  session must not fall back to cwd-derived attachment (or a DRAFT birth ref). */
+    issueId?: string
     agentKind?: string
     model?: string
     effort?: string

@@ -815,6 +815,7 @@ export class SessionRegistry {
         sessionsSvc.createSession({
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
+          ...(o.issueId ? { issueId: o.issueId } : {}),
           ...(o.model !== undefined ? { model: o.model } : {}),
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),

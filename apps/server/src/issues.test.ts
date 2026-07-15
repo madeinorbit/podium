@@ -491,6 +491,7 @@ describe('IssueService.start', () => {
     )
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-fix-login',
+      issueId: created.id,
       agentKind: 'claude-code',
       model: 'auto',
       effort: 'auto',
@@ -612,6 +613,7 @@ describe('IssueService.start', () => {
     expect(started.assignee).toBe('agent:codex')
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
+      issueId: a.id,
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
@@ -634,6 +636,7 @@ describe('IssueService.start', () => {
     expect(started.defaultModel).toBe('opus')
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
+      issueId: a.id,
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
@@ -648,6 +651,7 @@ describe('IssueService.start', () => {
     svc.addSession(a.id, 'codex')
     expect(deps.spawnSession).toHaveBeenLastCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
+      issueId: a.id,
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
@@ -1489,6 +1493,31 @@ describe('IssueService.issueForCwd (P1b)', () => {
     expect(svc.issueForCwd(wt)).toBe(i.id)
     expect(svc.issueForCwd(`${wt}/sub/dir`)).toBe(i.id)
     expect(svc.issueForCwd('/somewhere/else')).toBeNull()
+  })
+
+  it('picks the most specific worktree when one contains another (POD-529)', async () => {
+    const { svc } = harness()
+    const broad = svc.create({ repoPath: '/r', title: 'Broad', startNow: false })
+    const narrow = svc.create({ repoPath: '/r', title: 'Narrow', startNow: false })
+    await svc.start(broad.id)
+    await svc.start(narrow.id)
+    const broadWt = svc.get(broad.id)!.worktreePath as string
+    // Simulate a narrow worktree nested under the broad one (row-level, no git).
+    const nested = `${broadWt}/nested/issue-narrow`
+    svc.get(narrow.id) // ensure row exists
+    ;(svc as never as { rows: Map<string, { worktreePath: string | null }> }).rows.get(
+      narrow.id,
+    )!.worktreePath = nested
+    expect(svc.issueForCwd(`${nested}/src`)).toBe(narrow.id)
+    expect(svc.issueForCwd(`${broadWt}/other`)).toBe(broad.id)
+  })
+
+  it('addSession passes the explicit issueId to spawn (POD-529)', async () => {
+    const { svc, deps } = harness()
+    const i = svc.create({ repoPath: '/r', title: 'W', startNow: false })
+    await svc.start(i.id)
+    svc.addSession(i.id)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ issueId: i.id }))
   })
 })
 

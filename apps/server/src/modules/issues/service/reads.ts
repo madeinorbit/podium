@@ -426,11 +426,16 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   /** The id of the issue whose worktree contains `cwd`, or null. Used to mint per-agent scope. */
   issueForCwd(cwd: string): string | null {
+    // Most-specific match (POD-529): with nested worktrees (or a worktree under the
+    // repo root), first-match could attribute a session to the broader owner.
+    let best: { id: string; len: number } | null = null
     for (const r of this.rows.values()) {
       if (r.deletedAt) continue
-      if (isMemberCwd(r.worktreePath, cwd)) return r.id
+      if (!isMemberCwd(r.worktreePath, cwd)) continue
+      const len = r.worktreePath?.length ?? 0
+      if (!best || len > best.len) best = { id: r.id, len }
     }
-    return null
+    return best?.id ?? null
   }
 
   /** Spawn-time attachment derivation (issue-as-workspace): the id of the issue
