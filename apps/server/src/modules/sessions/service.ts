@@ -2300,7 +2300,39 @@ export class SessionsService {
       case 'sessionResumeRef': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
-        if (session.resume?.value !== msg.resume.value) {
+        // [spec:SP-fccf] A native Codex thread belongs to one interactive Podium
+        // pane. Timing-only observers from older daemons are never allowed to
+        // overwrite an established binding. Exact launch-marker/hook evidence wins
+        // and clears stale siblings so the persisted invariant heals in place.
+        const conflicts =
+          session.agentKind === 'codex' && !session.headless
+            ? [...this.sessions.values()].filter(
+                (other) =>
+                  other.sessionId !== session.sessionId &&
+                  !other.headless &&
+                  other.agentKind === 'codex' &&
+                  other.resume?.kind === msg.resume.kind &&
+                  other.resume.value === msg.resume.value,
+              )
+            : []
+        if (conflicts.length > 0) {
+          if (msg.confidence !== 'exact') {
+            console.warn(
+              `[podium] ignored heuristic Codex resume collision ${msg.resume.value} for ${session.sessionId}`,
+            )
+            break
+          }
+          for (const conflict of conflicts) {
+            conflict.resume = undefined
+            conflict.conversationPodiumId = undefined
+            this.persist(conflict)
+          }
+          this.broadcastSessions()
+        }
+        if (
+          session.resume?.kind !== msg.resume.kind ||
+          session.resume?.value !== msg.resume.value
+        ) {
           const prior = session.resume?.value
           session.resume = msg.resume
           // Conversation registry: this seam is where lineage is OBSERVED. A prior

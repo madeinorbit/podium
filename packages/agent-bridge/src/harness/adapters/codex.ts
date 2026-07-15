@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import {
+  codexPodiumSessionMarker,
   codexStateProvider,
   findCodexRolloutPath,
   observeCodexState,
@@ -121,7 +122,20 @@ export const codexAdapter: HarnessAdapter = {
   },
 
   launch(opts) {
-    const instructions = composeAgentInstructions(opts.instructions)
+    // [spec:SP-fccf] Codex mints its native thread lazily. Put the already-stable
+    // Podium row id in the native developer context so rollout discovery can
+    // match the exact pane instead of guessing from cwd/timestamps.
+    const instructions = composeAgentInstructions([
+      ...(opts.instructions ?? []),
+      ...(opts.podiumSessionId
+        ? [
+            {
+              source: 'podium:session-identity',
+              content: codexPodiumSessionMarker(opts.podiumSessionId),
+            },
+          ]
+        : []),
+    ])
     return {
       cmd: 'codex',
       args: [
@@ -217,12 +231,13 @@ export const codexAdapter: HarnessAdapter = {
     ): { stop(): void } =>
       observeCodexState({
         cwd: input.cwd,
+        ...(input.podiumSessionId ? { podiumSessionId: input.podiumSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
-        onSession: (rolloutId, rolloutPath) => {
+        onSession: (rolloutId, rolloutPath, confidence) => {
           boundThread = rolloutId
-          host.onResumeValue(rolloutId)
+          host.onResumeValue(rolloutId, confidence)
           // Codex's rollout file carries both the conversation and state — the
           // same path the observer found feeds the chat tail.
           host.tailFile(rolloutPath)

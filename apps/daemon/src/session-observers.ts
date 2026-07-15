@@ -129,8 +129,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Recording a resume ref marks the session resumable (→ hibernate button);
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
-    onResumeValue: (value) =>
-      send({ type: 'sessionResumeRef', sessionId, resume: { kind: adapter.resumeKind, value } }),
+    onResumeValue: (value, confidence) =>
+      send({
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: adapter.resumeKind, value },
+        ...(confidence ? { confidence } : {}),
+      }),
     onTitle: (title) => send({ type: 'title', sessionId, title }),
     onStateEvents: (events) => applyAgentStateEvents(sessionId, events),
     onTranscriptItems: (items, reset) => {
@@ -224,6 +229,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       const pathHint = pathHintOf(msg)
       startObservation(msg.sessionId, adapter, {
         cwd: msg.cwd,
+        podiumSessionId: msg.sessionId,
         ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
@@ -304,6 +310,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
+        confidence: 'exact',
       })
       // Adapter-owned re-pin policy (codex): the hook names the thread this
       // pane REALLY runs; the observation re-pins only when its binding

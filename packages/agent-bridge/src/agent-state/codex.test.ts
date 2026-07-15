@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyCodexVerdict,
   codexApprovalsReviewerFromTranscript,
+  codexPodiumSessionMarker,
   codexStateProvider,
   findCodexRolloutPath,
   findLiveCodexRollout,
@@ -389,6 +390,62 @@ describe('findLiveCodexRollout', () => {
     const found = await findLiveCodexRollout(sessions, cwd, spawnAt)
     expect(found?.id).toBe('sessB')
     expect(found?.path).toBe(fresh)
+  })
+
+  it('matches an unsettled pane by its exact launch marker, never a sibling by time', async () => {
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-identity-'))
+    const dir = join(sessions, '2026', '07', '15')
+    await mkdir(dir, { recursive: true })
+    const cwd = '/repo/podium'
+    const earlierPane = '11111111-1111-4111-8111-111111111111'
+    const owningPane = '22222222-2222-4222-8222-222222222222'
+    const rollout = join(dir, 'rollout-owner.jsonl')
+    await writeFile(
+      rollout,
+      [
+        JSON.stringify({
+          type: 'session_meta',
+          payload: {
+            id: 'native-owner',
+            cwd,
+            source: 'cli',
+            timestamp: '2026-07-15T09:10:31.000Z',
+          },
+        }),
+        JSON.stringify({
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'developer',
+            content: [{ type: 'input_text', text: codexPodiumSessionMarker(owningPane) }],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    expect(
+      await findLiveCodexRollout(
+        sessions,
+        cwd,
+        Date.parse('2026-07-15T08:11:19.000Z'),
+        earlierPane,
+      ),
+    ).toBeUndefined()
+    const exact = await findLiveCodexRollout(
+      sessions,
+      cwd,
+      Date.parse('2026-07-15T09:10:28.000Z'),
+      owningPane,
+    )
+    expect(exact).toMatchObject({
+      id: 'native-owner',
+      path: rollout,
+      confidence: 'exact',
+    })
+    expect(
+      (await findLiveCodexRollout(sessions, cwd, Date.parse('2026-07-15T08:11:19.000Z')))
+        ?.confidence,
+    ).toBe('heuristic')
   })
 
   it('ignores the newer guardian subagent rollout and returns the interactive cli session', async () => {

@@ -829,6 +829,39 @@ describe('SessionRegistry', () => {
     expect(pushed.at(-1)?.sessions.find((s) => s.sessionId === sessionId)?.resumable).toBe(true)
   })
 
+  it('lets exact Codex identity evidence heal a stale sibling binding', () => {
+    const reg = new SessionRegistry()
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const first = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const second = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    const meta = (sessionId: string) =>
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId: first.sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-collision' },
+      confidence: 'heuristic',
+    })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId: second.sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-collision' },
+      confidence: 'heuristic',
+    })
+    expect(meta(first.sessionId)?.resume?.value).toBe('thread-collision')
+    expect(meta(second.sessionId)?.resume).toBeUndefined()
+
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId: second.sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-collision' },
+      confidence: 'exact',
+    })
+    expect(meta(first.sessionId)?.resume).toBeUndefined()
+    expect(meta(second.sessionId)?.resume?.value).toBe('thread-collision')
+  })
+
   it('broadcasts daemon conversation changes to current clients', () => {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})

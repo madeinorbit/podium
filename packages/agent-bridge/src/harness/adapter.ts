@@ -21,6 +21,9 @@ export type HarnessKind = HarnessAgent
 export interface HarnessLaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
   cwd: string
+  /** Stable Podium row identity for this interactive launch. Harnesses may use
+   *  it only as runtime correlation metadata; it is not a native resume id. */
+  podiumSessionId?: string
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
   /** Model override from settings; absent (or 'auto') = the CLI's own default. */
@@ -156,6 +159,8 @@ export interface HarnessHeadless {
 
 export interface HarnessObserveInput {
   cwd: string
+  /** Stable Podium row identity whose native session this observer must find. */
+  podiumSessionId?: string
   /** The known harness conversation id (resume / reattach / headless bind);
    *  absent on a fresh spawn — the observer discovers the session the CLI
    *  creates. */
@@ -191,7 +196,7 @@ export interface HarnessObserverHost {
    *  stamped with this adapter's `resumeKind`. Recording a resume ref marks
    *  the session resumable (→ hibernate button); the first transcript frame
    *  marks it chat-capable (→ chat switcher + BTW button). */
-  onResumeValue(value: string): void
+  onResumeValue(value: string, confidence?: 'exact' | 'heuristic'): void
   /** A derived human-readable title (codex: its OSC terminal title is just the
    *  cwd basename and is suppressed — the observer-derived title replaces it). */
   onTitle(title: string): void

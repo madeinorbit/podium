@@ -199,6 +199,14 @@ describe('agentLaunchCommand', () => {
       ])
     })
 
+    it('stamps the stable Podium row id into Codex developer context', () => {
+      const sessionId = 'f439e012-7cd1-4d39-a07e-5843caf35f0c'
+      expect(agentLaunchCommand('codex', { cwd: '/w', podiumSessionId: sessionId }).args).toEqual([
+        '-c',
+        `developer_instructions="<podium-session-id>${sessionId}</podium-session-id>"`,
+      ])
+    })
+
     it('uses Grok rules', () => {
       expect(agentLaunchCommand('grok', { cwd: '/w', instructions }).args).toEqual([
         '--rules',

@@ -461,6 +461,12 @@ describe('DaemonMessage (daemon -> server)', () => {
     { type: 'bind', sessionId: 's-grok', cmd: 'grok', cwd: '/w', agentKind: 'grok', geometry },
     { type: 'agentFrame', sessionId: 's1', seq: 0, data: 'eA==' },
     { type: 'agentExit', sessionId: 's1', code: 0 },
+    {
+      type: 'sessionResumeRef',
+      sessionId: 's1',
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+      confidence: 'exact',
+    },
     { type: 'spawnError', sessionId: 's1', message: 'enoent' },
     { type: 'title', sessionId: 's1', title: '⠹ podium' },
     { type: 'scanResult', requestId: 'r1', conversations: [], diagnostics: [] },

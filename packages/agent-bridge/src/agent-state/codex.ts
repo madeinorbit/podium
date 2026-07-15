@@ -26,6 +26,14 @@ const TAIL_BYTES = 128 * 1024
 // Bound the one-off prefix + tail reads so a long-running session never gets
 // slurped just to classify an approval.
 const SESSION_CONTEXT_BYTES = 1024 * 1024
+const PODIUM_SESSION_MARKER_RE = /<podium-session-id>([0-9a-f-]{36})<\/podium-session-id>/i
+
+/** Correlation metadata persisted in Codex's developer-context record. It is
+ *  deliberately not a resume id: the Podium row exists before Codex creates a
+ *  native thread. [spec:SP-fccf] */
+export function codexPodiumSessionMarker(sessionId: string): string {
+  return `<podium-session-id>${sessionId}</podium-session-id>`
+}
 
 type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
 
@@ -413,10 +421,11 @@ export const codexStateProvider: AgentStateProvider = {
 export function observeCodexState(opts: {
   cwd: string
   resumeValue?: string
+  podiumSessionId?: string
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
-  onSession?: (sessionId: string, rolloutPath: string) => void
+  onSession?: (sessionId: string, rolloutPath: string, confidence: 'exact' | 'heuristic') => void
   // Fires with a human-readable title whenever it changes (deduped on the last
   // value, never re-emitting an unchanged one). Codex's own OSC terminal title is
   // just the cwd basename (+ spinner glyph), so the daemon suppresses it for Codex
@@ -514,7 +523,7 @@ export function observeCodexState(opts: {
         const found = opts.resumeValue
           ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir)
           : canDiscoverByCwd
-            ? await findLiveCodexRollout(root, opts.cwd, startedAtMs)
+            ? await findLiveCodexRollout(root, opts.cwd, startedAtMs, opts.podiumSessionId)
             : undefined
         if (!found) {
           unboundTicks++
@@ -532,7 +541,7 @@ export function observeCodexState(opts: {
         if (!announced && found.id) {
           announced = true
           threadId = found.id
-          opts.onSession?.(found.id, found.path)
+          opts.onSession?.(found.id, found.path, found.confidence)
         }
       }
       // Re-read the native (state-DB) title every tick so an in-session `/rename`
@@ -642,8 +651,16 @@ export async function findLiveCodexRollout(
   sessionsRoot: string,
   cwd: string,
   startedAtMs: number,
-): Promise<{ path: string; id: string | undefined } | undefined> {
-  const candidates: { path: string; sortMs: number; id: string | undefined }[] = []
+  podiumSessionId?: string,
+): Promise<
+  { path: string; id: string | undefined; confidence: 'exact' | 'heuristic' } | undefined
+> {
+  const candidates: {
+    path: string
+    sortMs: number
+    id: string | undefined
+    podiumSessionId: string | undefined
+  }[] = []
   const walk = async (dir: string): Promise<void> => {
     let entries: Dirent<string>[]
     try {
@@ -656,7 +673,9 @@ export async function findLiveCodexRollout(
       if (e.isDirectory()) await walk(full)
       else if (e.name.endsWith('.jsonl')) {
         try {
-          const head = await readFirstLine(full)
+          const prefix = await readPrefix(full)
+          const nl = prefix?.indexOf('\n') ?? -1
+          const head = prefix ? (nl >= 0 ? prefix.slice(0, nl) : prefix) : undefined
           const meta = head ? JSON.parse(head) : undefined
           const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
           if (
@@ -674,6 +693,7 @@ export async function findLiveCodexRollout(
             path: full,
             sortMs: createdMs,
             id: strField(payload, 'id'),
+            podiumSessionId: prefix?.match(PODIUM_SESSION_MARKER_RE)?.[1],
           })
         } catch {
           // skip unreadable / non-matching candidate
@@ -682,15 +702,28 @@ export async function findLiveCodexRollout(
     }
   }
   await walk(sessionsRoot)
+  // A launch marker is exact evidence and therefore mandatory when the daemon
+  // supplied a Podium session id. Returning no result is safer than wiring this
+  // pane to a sibling; native hooks or a later poll can still settle it.
+  const eligible = podiumSessionId
+    ? candidates.filter((candidate) => candidate.podiumSessionId === podiumSessionId)
+    : candidates
+
   // Nearest-after the floor, not newest: Codex creates the rollout file LAZILY
   // (often at the first prompt, minutes after boot), so several sessions' rollouts
   // can all sit past the floor by the time a reattached observer discovers by cwd.
   // Each rollout's session_meta timestamp is its BOOT time, which tracks its own
   // pane's spawn — so the candidate closest after this session's floor is its own;
   // a sibling pane spawned later boots later. Newest-first cross-wired panes.
-  candidates.sort((a, b) => a.sortMs - b.sortMs)
-  const best = candidates[0]
-  return best ? { path: best.path, id: best.id } : undefined
+  eligible.sort((a, b) => a.sortMs - b.sortMs)
+  const best = eligible[0]
+  return best
+    ? {
+        path: best.path,
+        id: best.id,
+        confidence: podiumSessionId ? 'exact' : 'heuristic',
+      }
+    : undefined
 }
 
 /**
@@ -703,9 +736,9 @@ export async function findLiveCodexRollout(
 async function resolvePinnedCodexRollout(
   resumeValue: string,
   homeDir: string | undefined,
-): Promise<{ path: string; id: string } | undefined> {
+): Promise<{ path: string; id: string; confidence: 'exact' } | undefined> {
   const path = await findCodexRolloutPath({ resumeValue, ...(homeDir ? { homeDir } : {}) })
-  return path ? { path, id: resumeValue } : undefined
+  return path ? { path, id: resumeValue, confidence: 'exact' } : undefined
 }
 
 /**
@@ -745,16 +778,14 @@ export async function findCodexRolloutPath(opts: {
   return match
 }
 
-/** Read just the first line (the session_meta header) without slurping the whole
- *  rollout — the header carries `base_instructions`, so bound it generously. */
-async function readFirstLine(path: string): Promise<string | undefined> {
+/** Read a bounded rollout prefix. Besides session_meta, a fresh Codex rollout
+ *  stores Podium's developer context here; that carries the exact launch marker. */
+async function readPrefix(path: string): Promise<string | undefined> {
   const handle = await open(path, 'r')
   try {
-    const buf = Buffer.alloc(64 * 1024)
+    const buf = Buffer.alloc(256 * 1024)
     const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
-    const text = buf.toString('utf8', 0, bytesRead)
-    const nl = text.indexOf('\n')
-    return nl >= 0 ? text.slice(0, nl) : text
+    return buf.toString('utf8', 0, bytesRead)
   } finally {
     await handle.close()
   }

@@ -32,6 +32,10 @@ export const SessionResumeRefMessage = z.object({
   type: z.literal('sessionResumeRef'),
   sessionId: z.string(),
   resume: ResumeRef,
+  // Exact = native hook, known resume, or an embedded Podium launch marker.
+  // Heuristic/absent = cwd/time inference from an older daemon. Optional keeps
+  // rolling upgrades wire-compatible.
+  confidence: z.enum(['exact', 'heuristic']).optional(),
 })
 
 // daemon -> server: the agent's live working directory changed (read from the

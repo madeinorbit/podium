@@ -121,6 +121,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
     const runtimeDir = instructionRuntimeDir(ctx, msg.sessionId)
     const cmd = ctx.launch(msg.agentKind, {
       cwd: msg.cwd,
+      podiumSessionId: msg.sessionId,
       ...(msg.resume ? { resume: msg.resume } : {}),
       ...(msg.model ? { model: msg.model } : {}),
       ...(msg.effort ? { effort: msg.effort } : {}),
