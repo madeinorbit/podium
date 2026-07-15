@@ -1,9 +1,10 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { formatLong, issueDisplayRef, truncateTitle } from '@podium/protocol'
-import { ExternalLink, GripVertical, X } from 'lucide-react'
+import { CircleAlert, CircleCheck, ExternalLink, GripVertical, User, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
+import { StageChip } from '@/features/issues/IssuePanelView'
 import { setKnownRefPrefixes } from '@/lib/markdown'
 import {
   closeMiniview,
@@ -102,8 +103,8 @@ export function RefMiniviewHost(): JSX.Element | null {
   )
 }
 
-/** The draggable, fixed-position miniview card. Drag by its header. */
-function RefCard({
+/** The draggable, fixed-position miniview card. Drag by its header. Exported for tests. */
+export function RefCard({
   refToken,
   target,
   issues,
@@ -215,7 +216,7 @@ function RefCard({
         {!target ? (
           <p className="text-muted-foreground">Reference not found.</p>
         ) : target.kind === 'issue' ? (
-          <IssueSummary issue={target.issue} />
+          <IssueSummary issue={target.issue} issues={issues} />
         ) : (
           <SessionSummary session={target.session} issues={issues} />
         )}
@@ -274,11 +275,84 @@ export function RefPrefixSync(): null {
   return null
 }
 
-function IssueSummary({ issue }: { issue: RefIssueLike }): JSX.Element {
+/** At-a-glance issue body (#517) — mirrors the docked panel's SummaryHeader,
+ *  compacted to the card's ~340px. Every enrichment row degrades to nothing
+ *  when the field is absent (lean/legacy rows). */
+function IssueSummary({
+  issue,
+  issues,
+}: {
+  issue: RefIssueLike
+  issues: readonly RefIssueLike[]
+}): JSX.Element {
+  const todos = issue.panel?.todos ?? []
+  const todosDone = todos.filter((t) => t.done).length
+  // Parent chip only when the parent is resolvable to a displayRef.
+  const parentRef = issue.parentId
+    ? issues.find((i) => i.id === issue.parentId)?.displayRef
+    : undefined
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <div className="font-mono text-[11px] text-muted-foreground">{issueDisplayRef(issue)}</div>
       <div className="text-[13px] font-medium leading-snug">{truncateTitle(issue.title, 120)}</div>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+        {issue.stage && <StageChip stage={issue.stage} />}
+        {issue.priority !== undefined && <span className="font-mono">P{issue.priority}</span>}
+        {issue.blocked ? (
+          <span className="inline-flex items-center gap-1 text-red-400">
+            <CircleAlert size={11} aria-hidden="true" /> blocked
+            {issue.blockedBy?.length ? ` (${issue.blockedBy.length})` : null}
+          </span>
+        ) : issue.ready ? (
+          <span className="inline-flex items-center gap-1 text-success">
+            <CircleCheck size={11} aria-hidden="true" /> ready
+          </span>
+        ) : null}
+      </div>
+      {(issue.assignee || (issue.childCount ?? 0) > 0 || parentRef) && (
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+          {issue.assignee && (
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <User size={11} className="flex-none" aria-hidden="true" />
+              <span className="truncate">{issue.assignee}</span>
+            </span>
+          )}
+          {(issue.childCount ?? 0) > 0 && (
+            <span className="font-mono tabular-nums">
+              {issue.childDoneCount ?? 0}/{issue.childCount} subissues done
+            </span>
+          )}
+          {parentRef && (
+            <span className="rounded border border-border/60 bg-muted/60 px-1 py-px font-mono text-[10px]">
+              in {parentRef}
+            </span>
+          )}
+        </div>
+      )}
+      {todos.length > 0 && (
+        <div className="flex items-center gap-2">
+          {/* Same bar as the docked panel's Todo section, inlined (that one is
+              built into a larger interactive block). */}
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-success/80"
+              style={{ width: `${(todosDone / todos.length) * 100}%` }}
+            />
+          </div>
+          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+            {todosDone}/{todos.length} todos
+          </span>
+        </div>
+      )}
+      {issue.activityNotes && (
+        <div
+          className="overflow-hidden text-[12px] leading-snug text-muted-foreground"
+          style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
+          title={issue.activityNotes}
+        >
+          {issue.activityNotes}
+        </div>
+      )}
     </div>
   )
 }

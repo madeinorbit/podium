@@ -29,7 +29,7 @@ const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
   done: { dot: 'bg-success', chip: 'bg-success/15 text-success' },
 }
 
-function StageChip({ stage }: { stage: IssueStage }): JSX.Element {
+export function StageChip({ stage }: { stage: IssueStage }): JSX.Element {
   const a = STAGE_ACCENT[stage]
   return (
     <span

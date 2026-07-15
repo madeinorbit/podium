@@ -10,15 +10,30 @@
  * without React or the store.
  */
 
-import { type AnyRef, parseAnyRef } from '@podium/protocol'
+import { type AnyRef, type IssueStage, parseAnyRef } from '@podium/protocol'
 
-/** The minimal issue shape the resolver needs (a structural subset of IssueWire). */
+/**
+ * The issue shape the resolver needs and the miniview card renders (a
+ * structural subset of IssueWire, #517). Identity fields are required; the
+ * at-a-glance fields are optional so lean fixtures/legacy rows still fit.
+ */
 export interface RefIssueLike {
   id: string
   prefix?: string
   seq: number
   displayRef?: string
   title: string
+  stage?: IssueStage
+  priority?: number
+  assignee?: string
+  ready?: boolean
+  blocked?: boolean
+  blockedBy?: readonly string[]
+  childCount?: number
+  childDoneCount?: number
+  parentId?: string
+  activityNotes?: string
+  panel?: { todos?: readonly { text: string; done: boolean }[] }
 }
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
