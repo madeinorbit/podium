@@ -1,0 +1,4 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-1a0b] -->
+<section data-spec="SP-1a0b" data-title="Terminal reconnect continuity" data-parent="SP-root" data-order="16" data-status="draft" data-updated="1784108770665">
+<p>During a server restart, an active native terminal keeps its last rendered screen visible while the connection is unavailable. Reconnect must not clear that surviving browser buffer merely because the restarted server lost its in-memory output cursor/log.</p><p>The server persists each session’s last known terminal columns and rows. Boot hydration and daemon reattachment use that geometry, avoiding an intermediate 80×24/default-size repaint before the browser reasserts its measured viewport.</p>
+</section>

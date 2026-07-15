@@ -228,10 +228,10 @@ export class Session {
   private shellCommandRunning = false
   private readonly onActivity: (() => void) | undefined
   // Server-assigned, monotonic per-session output sequence. The PTY bridge's own
-  // seq resets to 0 on every daemon reattach, so it can't be a stable client
+  // seq resets to 0 on every daemon reattach, so it cannot be a stable client
   // cursor; the server owns the numbering instead. It survives daemon restarts
-  // (the Session object outlives the bridge) and only resets on a server restart,
-  // where the client's stale-high cursor simply falls back to a full replay.
+  // (the Session object outlives the bridge) and only resets on a server restart.
+  // A stale-high browser cursor identifies that generation reset in attachClient.
   private nextSeq = 0
   private readonly toDaemon: Send<ControlMessage>
   private readonly clients = new Map<string, ClientConn>()
@@ -334,20 +334,25 @@ export class Session {
     // kept (no flicker). A fresh mount (no sinceSeq) or a gap larger than the buffer
     // falls back to a full replay, which the client clears the screen for. The
     // `oldest - 1` floor lets a client that was exactly caught up resume with zero
-    // frames instead of needlessly wiping.
+    // frames instead of needlessly wiping. A restarted server has an empty log or
+    // a new low sequence generation; a stale-high cursor in those cases keeps the
+    // browser's surviving xterm intact and appends every new-generation frame
+    // instead of clearing it [spec:SP-1a0b].
     const oldest = this.outputLog[0]?.seq
     const newest = this.outputLog.at(-1)?.seq
     let frames = this.outputLog
     let resumed = false
-    if (
-      sinceSeq !== undefined &&
-      oldest !== undefined &&
-      newest !== undefined &&
-      sinceSeq >= oldest - 1 &&
-      sinceSeq <= newest
-    ) {
-      resumed = true
-      frames = this.outputLog.filter((f) => f.seq > sinceSeq)
+    if (sinceSeq !== undefined) {
+      if (oldest === undefined || newest === undefined) {
+        resumed = true
+        frames = []
+      } else if (sinceSeq > newest) {
+        resumed = true
+        frames = this.outputLog
+      } else if (sinceSeq >= oldest - 1) {
+        resumed = true
+        frames = this.outputLog.filter((f) => f.seq > sinceSeq)
+      }
     }
     client.send({
       type: 'attached',
@@ -485,7 +490,7 @@ export class Session {
     // screen (per-session viewState). A backgrounded tab/page reports an empty
     // viewVisible, so its stale grid can never move the shared PTY.
     if (clientId === this.controllerId && client?.viewVisible.has(this.sessionId)) {
-      this.geometry = { cols, rows }
+      this.setGeometry(cols, rows)
       this.toDaemon({ type: 'resize', sessionId: this.sessionId, cols, rows })
       // Tell every client the new authoritative size. Without this broadcast a
       // client only has its own optimistic sendResize value, which requestControl's
@@ -516,7 +521,7 @@ export class Session {
     if (this.geometry.cols === viewport.cols && this.geometry.rows === viewport.rows) {
       return
     }
-    this.geometry = { ...viewport }
+    this.setGeometry(viewport.cols, viewport.rows)
     this.toDaemon({
       type: 'resize',
       sessionId: this.sessionId,
@@ -550,7 +555,7 @@ export class Session {
     // may also re-drive it through handleResize once viewVisible is populated).
     const viewport = client.viewports.get(this.sessionId)
     if (client.viewVisible.has(this.sessionId) && viewport) {
-      this.geometry = { ...viewport }
+      this.setGeometry(viewport.cols, viewport.rows)
       this.toDaemon({
         type: 'resize',
         sessionId: this.sessionId,
@@ -712,7 +717,7 @@ export class Session {
       this.exitCode = undefined
     }
     // Adopt the daemon's geometry only if no controller has resized us yet.
-    if (this.controllerId === null) this.geometry = { ...geometry }
+    if (this.controllerId === null) this.setGeometry(geometry.cols, geometry.rows)
   }
 
   /**
@@ -748,6 +753,7 @@ export class Session {
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
+      geometry: { ...this.geometry },
       lastOutputAt: Session.msToIso(this.outputAtMs),
       lastInputAt: Session.msToIso(this.inputAtMs),
       lastResumedAt: Session.msToIso(this.resumedAtMs),
@@ -763,6 +769,15 @@ export class Session {
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
     }
+  }
+
+  /** Install an authoritative grid and enqueue its durable row update. Geometry
+   * changes are coalesced with activity writes so pane-drag resize bursts do not
+   * turn into a database write per SIGWINCH [spec:SP-1a0b]. */
+  private setGeometry(cols: number, rows: number): void {
+    if (this.geometry.cols === cols && this.geometry.rows === rows) return
+    this.geometry = { cols, rows }
+    this.activityDirty_ = true
   }
 
   private static msToIso(ms: number): string | null {

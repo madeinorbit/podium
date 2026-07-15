@@ -91,6 +91,7 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     durableLabel: 'podium-id-1',
     createdAt: '2026-06-09T00:00:00.000Z',
     lastActiveAt: '2026-06-09T00:00:00.000Z',
+    geometry: { cols: 80, rows: 24 },
     lastOutputAt: null,
     lastInputAt: null,
     lastResumedAt: null,
@@ -150,6 +151,14 @@ describe('SessionStore sessions', () => {
     b.sessions.purgeSession('id-1')
     expect(b.sessions.loadSessions()).toEqual([])
     b.close()
+  })
+
+  it('round-trips the last authoritative terminal geometry', () => {
+    const s = new SessionStore(':memory:')
+    const resized = row({ geometry: { cols: 173, rows: 47 } })
+    s.sessions.upsertSession(resized)
+    expect(s.sessions.loadSessions()).toEqual([resized])
+    s.close()
   })
 
   it('round-trips who named the session (#490) — and reads a rogue source as nobody', () => {

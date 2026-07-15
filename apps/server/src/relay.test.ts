@@ -1016,7 +1016,7 @@ describe('SessionRegistry', () => {
     expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
   })
 
-  it('boot reconcile: persisted live sessions reload as reconnecting and trigger reattach', () => {
+  it('boot reconcile: persisted live sessions retain geometry and trigger a same-size reattach', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
@@ -1029,6 +1029,20 @@ describe('SessionRegistry', () => {
       title: 'old',
     })
     reg1.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+    const clientId = reg1.modules.sessions.attachClient(sink().send)
+    reg1.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    reg1.modules.sessions.onClientMessage(clientId, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+    })
+    reg1.modules.sessions.onClientMessage(clientId, {
+      type: 'resize',
+      sessionId,
+      cols: 173,
+      rows: 47,
+    })
+    reg1.dispose() // flushes the coalesced geometry before the graceful restart
     store1.close()
 
     // Restart: fresh registry over the same db.
@@ -1038,12 +1052,18 @@ describe('SessionRegistry', () => {
       status: 'reconnecting',
       title: 'old',
       origin: { kind: 'resume', conversationId: 'c9' },
+      geometry: { cols: 173, rows: 47 },
     })
     // Attaching the daemon fires a reattach for the reconnecting session.
     const control: import('@podium/protocol').ControlMessage[] = []
     reg2.modules.sessions.attachDaemon('local', (m) => control.push(m))
     expect(control).toContainEqual(
-      expect.objectContaining({ type: 'reattach', sessionId, durableLabel: `podium-${sessionId}` }),
+      expect.objectContaining({
+        type: 'reattach',
+        sessionId,
+        durableLabel: `podium-${sessionId}`,
+        geometry: { cols: 173, rows: 47 },
+      }),
     )
     store2.close()
   })

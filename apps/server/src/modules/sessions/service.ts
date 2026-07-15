@@ -11,9 +11,9 @@ import {
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
   type ClientMessage,
-  formatSessionRef,
   type ControlMessage,
   type DaemonMessage,
+  formatSessionRef,
   type Geometry,
   type IssueWire,
   type LiveServerMessage,
@@ -277,6 +277,9 @@ export class SessionsService {
 
   dispose(): void {
     clearInterval(this.activityFlushTimer)
+    // Graceful server restarts must not lose a resize that landed inside the
+    // coalescing window; persist dirty geometry/activity before closing [spec:SP-1a0b].
+    this.flushActivity()
     // Run any coalesced session broadcast + pending delta batch. The durable
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
@@ -440,7 +443,7 @@ export class SessionsService {
           ? { kind: 'resume', conversationId: r.conversationId ?? '' }
           : { kind: 'spawn' },
       createdAt: r.createdAt,
-      geometry: { ...DEFAULT_GEOMETRY },
+      geometry: { ...(r.geometry ?? DEFAULT_GEOMETRY) },
       machineId,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
       onActivity: () => {

@@ -3,6 +3,8 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
+import type { Geometry } from '@podium/protocol'
+
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
 export interface PinState {
@@ -37,6 +39,9 @@ export interface SessionRow {
   status: SessionStatusPersisted
   exitCode: number | null
   durableLabel: string
+  /** Last authoritative PTY grid. Optional only for legacy/test callers; repository
+   * reads always materialize the migration defaults when no valid values exist. */
+  geometry?: Geometry
   createdAt: string
   lastActiveAt: string
   /** Last PTY output frame (ISO); null = none recorded. Hibernation signal only — not recency. */

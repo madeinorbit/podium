@@ -161,6 +161,7 @@ describe('Session', () => {
     a.viewVisible = new Set(['s1']) // rendering s1 on screen
     s.handleResize('a', 200, 50)
     expect(s.geometry).toEqual({ cols: 200, rows: 50 })
+    expect(s.activityDirty).toBe(true)
     expect(toDaemon).toHaveBeenCalledWith({ type: 'resize', sessionId: 's1', cols: 200, rows: 50 })
   })
 
@@ -340,16 +341,36 @@ describe('Session', () => {
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
   })
 
-  it('falls back to a full replay (resumed:false) when the cursor outran the buffer', () => {
+  it('preserves the surviving screen and replays the new generation after a server restart', () => {
     const s = makeSession()
     s.onFrame('YQ==') // seq 0
     s.onFrame('Yg==') // seq 1
     const a = makeClient('a')
-    // Cursor 99 is beyond anything we hold (e.g. after a server restart reset seq):
-    // replay everything and tell the client to clear.
+    // Cursor 99 came from the prior server generation; the restarted server's new
+    // sequence is only at 1. Keep xterm intact and append this generation repaint.
     s.attachClient(a, 99)
-    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
     expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(2)
+  })
+
+  it('preserves the surviving screen when a restarted server has no frames yet', () => {
+    const s = makeSession()
+    const a = makeClient('a')
+    s.attachClient(a, 99)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: true })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toEqual([])
+  })
+
+  it('still clears for a same-generation cursor older than the replay window', () => {
+    const s = makeSession()
+    const largeFrame = 'eA=='.repeat(70_000)
+    s.onFrame(largeFrame) // seq 0, evicted by later frames
+    s.onFrame(largeFrame) // seq 1, evicted by seq 2
+    s.onFrame(largeFrame) // seq 2
+    const a = makeClient('a')
+    s.attachClient(a, 0)
+    expect(a.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
+    expect(a.sent.filter((m) => m.type === 'outputFrame')).toHaveLength(1)
   })
 
   it('a fresh attach (no cursor) is a full replay', () => {
@@ -461,6 +482,7 @@ describe('Session', () => {
       durableLabel: 'podium-s1',
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
+      geometry: geo,
     })
     s.onExit(3)
     expect(s.toRow()).toMatchObject({ status: 'exited', exitCode: 3 })
