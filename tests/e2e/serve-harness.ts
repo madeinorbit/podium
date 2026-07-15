@@ -29,7 +29,7 @@ import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
-import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
+import { applyHarnessEnv, harnessPidFile, reapHarnessSessions } from './harness-env'
 
 /**
  * This harness runs under `node --import tsx`, where worker threads don't inherit the
@@ -143,16 +143,19 @@ console.log(
 // The serial file is the completion ack; the deliberate offline window gives the
 // browser time to prove its xterm canvas stays untouched while disconnected.
 const restartSerialFile = join(stateDir, 'restart-serial')
+const pidFile = harnessPidFile(PORT)
 let restartSerial = 0
 let restartInFlight = false
-writeFileSync(join(stateDir, 'harness.pid'), String(process.pid))
+let shuttingDown = false
+writeFileSync(pidFile, String(process.pid))
 writeFileSync(restartSerialFile, String(restartSerial))
 const restartServer = async (): Promise<void> => {
-  if (restartInFlight) return
+  if (restartInFlight || shuttingDown) return
   restartInFlight = true
   try {
     await server.close()
     await new Promise((resolve) => setTimeout(resolve, 750))
+    if (shuttingDown) return
     server = await startServer({ port: PORT })
     restartSerial += 1
     writeFileSync(restartSerialFile, String(restartSerial))
@@ -162,13 +165,30 @@ const restartServer = async (): Promise<void> => {
 }
 process.on('SIGUSR1', () => void restartServer())
 
-const shutdown = async (): Promise<void> => {
-  // Full reap: harness sessions are throwaway — without this every e2e run leaks
-  // durable abduco/tmux masters (durability is the feature; the harness opts out).
-  await daemon.close({ reapSessions: true })
-  await server.close()
-  process.exit(0)
+let shutdownPromise: Promise<void> | undefined
+const shutdown = (): Promise<void> => {
+  if (shutdownPromise) return shutdownPromise
+  shuttingDown = true
+  shutdownPromise = (async () => {
+    // Full reap: harness sessions are throwaway — without this every e2e run leaks
+    // durable abduco/tmux masters (durability is the feature; the harness opts out).
+    await daemon.close({ reapSessions: true })
+    await server.close()
+    // globalTeardown treats removal as the acknowledgement that every writer above
+    // is closed. On failure the marker stays until shutdownAndExit kills this process.
+    rmSync(pidFile, { force: true })
+  })()
+  return shutdownPromise
 }
-process.on('SIGINT', () => void shutdown())
-process.on('SIGTERM', () => void shutdown())
+const shutdownAndExit = (): void => {
+  void shutdown().then(
+    () => process.exit(0),
+    (err) => {
+      console.error('[podium:e2e] harness shutdown failed:', err)
+      process.exit(1)
+    },
+  )
+}
+process.on('SIGINT', shutdownAndExit)
+process.on('SIGTERM', shutdownAndExit)
 await new Promise(() => {})

@@ -8,12 +8,80 @@
  * and again from Playwright's globalTeardown.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+const HARNESS_SHUTDOWN_GRACE_MS = 10_000
+const HARNESS_FORCE_KILL_WAIT_MS = 1_000
+const HARNESS_SHUTDOWN_POLL_MS = 50
+
 export function harnessStateBase(port: number): string {
   return join(tmpdir(), `podium-e2e-${port}`)
+}
+export function harnessPidFile(port: number): string {
+  return join(harnessStateBase(port), 'state', 'harness.pid')
+}
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Stop the long-running harness before deleting the state it owns. Playwright runs
+ * globalTeardown while its webServer can still be alive, so deleting first races the
+ * server's asynchronous transcript-lake writer. serve-harness removes its pid file
+ * only after daemon + server close; that removal is the graceful-shutdown ack.
+ *
+ * A wedged harness gets a bounded grace period and then SIGKILL. The durable PTY
+ * masters are separate processes and remain the reaper's responsibility below.
+ */
+export async function stopHarnessProcess(
+  port: number,
+  options: { graceMs?: number; forceKillWaitMs?: number; pollMs?: number } = {},
+): Promise<void> {
+  const pidFile = harnessPidFile(port)
+  let pid: number
+  try {
+    pid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10)
+  } catch {
+    return
+  }
+  // Never turn a corrupt/stale marker into a broad signal (especially pid 0,
+  // which targets the caller's whole process group).
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return
+
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    return // already exited
+  }
+
+  const pollMs = options.pollMs ?? HARNESS_SHUTDOWN_POLL_MS
+  const gracefulDeadline = Date.now() + (options.graceMs ?? HARNESS_SHUTDOWN_GRACE_MS)
+  while (existsSync(pidFile) && processIsAlive(pid) && Date.now() < gracefulDeadline) {
+    await sleep(pollMs)
+  }
+  // Missing marker means serve-harness has closed every writer. A dead process is
+  // equally safe even when a hard exit left the marker behind.
+  if (!existsSync(pidFile) || !processIsAlive(pid)) return
+
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    return // raced to exit after the final liveness check
+  }
+  const killedDeadline = Date.now() + (options.forceKillWaitMs ?? HARNESS_FORCE_KILL_WAIT_MS)
+  while (processIsAlive(pid) && Date.now() < killedDeadline) await sleep(pollMs)
 }
 
 export function harnessEnv(port: number): {
@@ -115,6 +183,13 @@ export function reapHarnessSessions(port: number): void {
           // raced to death
         }
       }
+      // Do not start removing socket/state trees while a just-SIGKILLed master
+      // can still be unwinding its child PTY. This wait is bounded because a
+      // zombie may remain visible to kill(pid, 0) until its parent reaps it.
+      const killedDeadline = Date.now() + 500
+      while (alive.some((t) => processIsAlive(t.pid)) && Date.now() < killedDeadline) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25)
+      }
     }
   } catch {
     // abduco not installed — nothing of ours can be running under it
@@ -136,7 +211,10 @@ export function reapHarnessSessions(port: number): void {
     // tmux not installed
   }
 
-  rmSync(base, { recursive: true, force: true })
+  // Node retries ENOTEMPTY/EBUSY/EPERM only when maxRetries is non-zero. Writers
+  // should already be stopped, but a dying process or filesystem lag can still
+  // leave a short removal race; bound it rather than replacing the test result.
+  rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }
 
 /** Create the isolation dirs and point this process's env at them. */
