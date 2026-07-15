@@ -14,11 +14,36 @@ const okBody = {
   five_hour: { utilization: 42.5, resets_at: '2026-06-19T20:00:00.000Z' },
   seven_day: { utilization: 7, resets_at: '2026-06-24T00:00:00.000Z' },
 }
+const genericBody = {
+  limits: [
+    {
+      kind: 'session',
+      group: 'session',
+      percent: 42.5,
+      resets_at: '2026-06-19T20:00:00.000Z',
+      scope: null,
+    },
+    {
+      kind: 'weekly_all',
+      group: 'weekly',
+      percent: 7,
+      resets_at: '2026-06-24T00:00:00.000Z',
+      scope: null,
+    },
+    {
+      kind: 'weekly_scoped',
+      group: 'weekly',
+      percent: 83,
+      resets_at: '2026-06-24T00:00:00.000Z',
+      scope: { model: { id: null, display_name: 'Fable' }, surface: null },
+    },
+  ],
+}
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 const future = now + 3_600_000
 
 describe('parseClaudeUsage', () => {
-  it('maps percent utilization to 0..100 percent + window minutes', () => {
+  it('maps the legacy fixed fields when the generic limits array is absent', () => {
     expect(parseClaudeUsage(okBody)).toEqual([
       {
         key: '5h',
@@ -35,6 +60,64 @@ describe('parseClaudeUsage', () => {
         windowMinutes: 10080,
       },
     ])
+  })
+
+  it('maps every generic limit and uses the upstream scoped display name', () => {
+    expect(parseClaudeUsage(genericBody)).toEqual([
+      {
+        key: 'session',
+        label: '5-hour',
+        usedPercent: 42.5,
+        resetsAt: '2026-06-19T20:00:00.000Z',
+        windowMinutes: 300,
+      },
+      {
+        key: 'weekly-all',
+        label: 'Weekly',
+        usedPercent: 7,
+        resetsAt: '2026-06-24T00:00:00.000Z',
+        windowMinutes: 10080,
+      },
+      {
+        key: 'weekly-scoped:model:fable',
+        label: 'Fable',
+        usedPercent: 83,
+        resetsAt: '2026-06-24T00:00:00.000Z',
+        windowMinutes: 10080,
+      },
+    ])
+  })
+
+  it('tolerates a removed scoped limit and displays an unknown replacement generically', () => {
+    expect(
+      parseClaudeUsage({
+        limits: [
+          genericBody.limits[0],
+          {
+            kind: 'burst_scoped',
+            group: 'burst',
+            percent: 12.34,
+            resets_at: '2026-06-20T00:00:00.000Z',
+            scope: { model: { id: 'model-7', display_name: 'Quasar' } },
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({ key: 'session', label: '5-hour' }),
+      {
+        key: 'burst-scoped:model:model-7',
+        label: 'Quasar',
+        usedPercent: 12.3,
+        resetsAt: '2026-06-20T00:00:00.000Z',
+        windowMinutes: 0,
+      },
+    ])
+  })
+
+  it('falls back to legacy fields when a malformed limits array has no usable entries', () => {
+    expect(parseClaudeUsage({ ...okBody, limits: [null, { kind: 'weekly_scoped' }] })).toEqual(
+      parseClaudeUsage(okBody),
+    )
   })
 })
 
@@ -66,10 +149,10 @@ describe('fetchClaudeQuota', () => {
       homeDir: home,
       now,
       fetchImpl: (async () =>
-        new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
+        new Response(JSON.stringify(genericBody), { status: 200 })) as typeof fetch,
     })
     expect(r.status).toBe('ok')
-    expect(r.windows.map((w) => w.key)).toEqual(['5h', 'weekly'])
+    expect(r.windows.map((w) => w.label)).toEqual(['5-hour', 'Weekly', 'Fable'])
   })
 
   it('maps 401 to expired and other failures to error', async () => {

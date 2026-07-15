@@ -776,9 +776,9 @@ describe('agent quota messages', () => {
               windowMinutes: 300,
             },
             {
-              key: 'weekly' as const,
-              label: 'Weekly',
-              usedPercent: 7,
+              key: 'weekly-scoped:model:fable',
+              label: 'Fable',
+              usedPercent: 83,
               resetsAt: '2026-06-24T00:00:00.000Z',
               windowMinutes: 10080,
             },

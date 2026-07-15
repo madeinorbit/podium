@@ -129,13 +129,15 @@ export const UsageResultMessage = z.object({
 // ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which
 // is transcript-harvested token-cost analytics. Quota is the share of each rolling
 // plan window consumed + when it resets, read live from each agent's own usage
-// endpoint on the daemon host. Claude: 5h + weekly. Codex: 5h + weekly.
+// endpoint on the daemon host. Providers may add/remove scoped windows over time.
 export const QuotaWindowWire = z.object({
-  key: z.enum(['5h', 'weekly']),
+  key: z.string().min(1),
   label: z.string(),
   usedPercent: z.number(), // 0..100
   resetsAt: z.string(), // ISO 8601 ('' when unknown)
-  windowMinutes: z.number().int().positive(),
+  // 0 when a provider reports a new limit without enough metadata to infer its
+  // rolling duration. The UI still shows it, but omits the pace marker.
+  windowMinutes: z.number().int().nonnegative(),
 })
 export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
 

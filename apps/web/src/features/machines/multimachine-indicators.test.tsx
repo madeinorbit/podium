@@ -160,4 +160,23 @@ describe('quota overlay groups by account', () => {
     await waitFor(() => expect(screen.getByText('solo@example.com')).toBeTruthy())
     expect(screen.getByText('solo')).toBeTruthy()
   })
+
+  it('renders a provider-labeled scoped window without UI-specific mapping', async () => {
+    const quota = machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)
+    quota.agents[0]?.windows.push({
+      key: 'weekly-scoped:model:fable',
+      label: 'Fable',
+      usedPercent: 83,
+      resetsAt: '',
+      windowMinutes: 10080,
+    })
+    quotaSummary.mockResolvedValue([quota])
+
+    render(<QuotaIndicator />)
+    const gauge = await screen.findByRole('button', { name: /agent quota/i })
+    fireEvent.click(gauge)
+
+    await waitFor(() => expect(screen.getByText('Fable')).toBeTruthy())
+    expect(screen.getByText(/83%/)).toBeTruthy()
+  })
 })

@@ -8,13 +8,97 @@ const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 export interface ClaudeUsageResponse {
   five_hour?: { utilization?: number; resets_at?: string }
   seven_day?: { utilization?: number; resets_at?: string }
+  limits?: unknown
 }
 
 // utilization is already a 0..100 percent (verified live 2026-06-19). Round to one decimal.
 const toPct = (u: number | undefined): number =>
   typeof u === 'number' && Number.isFinite(u) ? Math.round(u * 10) / 10 : 0
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function keyPart(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function scopeMetadata(scope: unknown): { labels: string[]; keys: string[] } {
+  const labels: string[] = []
+  const keys: string[] = []
+  if (!isRecord(scope)) return { labels, keys }
+  for (const [scopeKind, rawValue] of Object.entries(scope).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    if (!isRecord(rawValue)) continue
+    const displayName = stringField(rawValue.display_name)
+    const id = stringField(rawValue.id)
+    if (displayName) labels.push(displayName)
+    const identity = id ?? displayName
+    if (identity) keys.push(`${keyPart(scopeKind)}:${keyPart(identity)}`)
+  }
+  return { labels, keys }
+}
+
+function inferredWindowMinutes(kind: string | undefined, group: string | undefined): number {
+  if (group === 'session' || kind === 'session') return 300
+  if (group === 'weekly' || kind?.startsWith('weekly_')) return 10_080
+  // Future kinds still render, but without a pace marker until the endpoint
+  // tells us their duration or we can infer it safely.
+  return 0
+}
+
+function fallbackLimitLabel(kind: string | undefined, group: string | undefined): string {
+  if (group === 'session' || kind === 'session') return '5-hour'
+  if (kind === 'weekly_all' || (group === 'weekly' && !kind)) return 'Weekly'
+  const raw = kind ?? group ?? 'Limit'
+  return raw
+    .split('_')
+    .filter(Boolean)
+    .map((part, index) => (index === 0 ? (part[0]?.toUpperCase() ?? '') + part.slice(1) : part))
+    .join(' ')
+}
+
+/** Parse Claude's current generic limits array. Labels and identities come from
+ * upstream scope metadata, so model limits can appear/disappear without a
+ * model-specific Podium mapping. [spec:SP-0610] */
+function parseGenericLimits(rawLimits: unknown): QuotaWindowWire[] {
+  if (!Array.isArray(rawLimits)) return []
+  const windows: QuotaWindowWire[] = []
+  const keys = new Map<string, number>()
+  for (const rawLimit of rawLimits) {
+    if (!isRecord(rawLimit)) continue
+    const percent = rawLimit.percent
+    if (typeof percent !== 'number' || !Number.isFinite(percent)) continue
+    const kind = stringField(rawLimit.kind)
+    const group = stringField(rawLimit.group)
+    const scope = scopeMetadata(rawLimit.scope)
+    const baseKey = [keyPart(kind ?? group ?? 'limit'), ...scope.keys].filter(Boolean).join(':')
+    const occurrence = (keys.get(baseKey) ?? 0) + 1
+    keys.set(baseKey, occurrence)
+    windows.push({
+      key: occurrence === 1 ? baseKey : `${baseKey}:${occurrence}`,
+      label: scope.labels.join(' · ') || fallbackLimitLabel(kind, group),
+      usedPercent: toPct(percent),
+      resetsAt: stringField(rawLimit.resets_at) ?? '',
+      windowMinutes: inferredWindowMinutes(kind, group),
+    })
+  }
+  return windows
+}
+
 export function parseClaudeUsage(body: ClaudeUsageResponse): QuotaWindowWire[] {
+  const generic = parseGenericLimits(body.limits)
+  if (generic.length > 0) return generic
+
+  // Compatibility with older Claude usage responses that predate the limits array.
   const windows: QuotaWindowWire[] = []
   if (body.five_hour) {
     windows.push({
