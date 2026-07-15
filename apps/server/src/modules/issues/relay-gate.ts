@@ -22,9 +22,19 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // target is the CALLING session (bound from the capability), and the user's own
   // name always wins — so it grants no reach over any other session.
   sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title']),
-  // Unified messaging (#237) [spec:SP-34d7]: podium mail + the stop-hook's
-  // single-reminder query. Sender identity is stamped from the capability.
-  messages: new Set(['send', 'inbox', 'show', 'reply', 'pendingReminders']),
+  // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
+  // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
+  // parent identity are stamped from the capability; MessageGate owns target-
+  // issue authz, spawn budgeting, and parent-only await authority.
+  messages: new Set([
+    'send',
+    'inbox',
+    'show',
+    'reply',
+    'pendingReminders',
+    'spawnAgent',
+    'awaitAgent',
+  ]),
   // Approval broker [spec:SP-edbb]: agents may REQUEST any management op (and
   // poll its status); approve/deny/execution stay operator+daemon-side.
   approvals: new Set(['request', 'get']),

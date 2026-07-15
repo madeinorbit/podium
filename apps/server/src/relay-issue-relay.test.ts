@@ -71,6 +71,57 @@ describe('server issue relay handler (P1b)', () => {
     expect((await reply).ok).toBe(true)
   })
 
+  it('allows a same-issue child spawn and bounded await through the relay (#475)', async () => {
+    const spawnReply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-agent-spawn',
+      sessionId: sA,
+      router: 'messages',
+      proc: 'spawnAgent',
+      input: { issue: A.id, harness: 'shell', prompt: 'check the relay' },
+    })
+    const spawned = await spawnReply
+    expect(spawned.ok).toBe(true)
+    expect(spawned.result).toMatchObject({ ok: true, issueId: A.id })
+    const childId = (spawned.result as { sessionId: string }).sessionId
+    expect(registry.modules.sessions.listSessions()).toContainEqual(
+      expect.objectContaining({
+        sessionId: childId,
+        issueId: A.id,
+        spawnedBy: `session:${sA}`,
+      }),
+    )
+
+    const awaitReply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-agent-await',
+      sessionId: sA,
+      router: 'messages',
+      proc: 'awaitAgent',
+      input: { sessionId: childId, timeoutSeconds: 0 },
+    })
+    const awaited = await awaitReply
+    expect(awaited.ok).toBe(true)
+    expect(awaited.result).toMatchObject({ result: 'working' })
+  })
+
+  it('still scope-gates a relayed child spawn onto another issue (#475)', async () => {
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'issueRelayRequest',
+      requestId: 'ir-agent-spawn-scoped',
+      sessionId: sA,
+      router: 'messages',
+      proc: 'spawnAgent',
+      input: { issue: B.id, harness: 'shell', prompt: 'cross the boundary' },
+    })
+    const r = await reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/outside your subtree/)
+  })
+
   it('rejects a non-allowlisted router', async () => {
     const reply = captureReply(registry, machineId)
     registry.modules.sessions.onDaemonMessageFrom(machineId, {
