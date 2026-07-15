@@ -2,6 +2,7 @@ import type { SessionMeta } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { repoOpCommand } from '../../daemon/src/repo-op'
+import { MODEL_CATALOG_VERSION } from './model-catalog'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionStore } from './store'
@@ -498,6 +499,45 @@ describe('IssueService.start', () => {
       initialPrompt: 'do the thing',
       spawnedBy: `issue:${created.id}`,
     })
+  })
+
+  it('rejects an unavailable model BEFORE mutating start state [spec:SP-cc60]', async () => {
+    const { svc, deps, store } = harness()
+    store.settings.setModelCatalog({
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1_000_000,
+      byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
+    })
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Typo model',
+      startNow: false,
+      defaultModel: 'claude-opus-4.8', // dot, not dash
+    })
+    await expect(svc.start(created.id)).rejects.toThrow(/Did you mean "claude-opus-4-8"/)
+    // No worktree add, no spawn, and the issue stays in backlog (start state untouched).
+    expect(deps.repoOp).not.toHaveBeenCalled()
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+    expect(svc.get(created.id)?.stage).toBe('backlog')
+  })
+
+  it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {
+    const { svc, deps, store } = harness()
+    store.settings.setModelCatalog({
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1_000_000,
+      byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
+    })
+    const created = svc.create({
+      repoPath: '/r',
+      title: 'Forced model',
+      startNow: false,
+      defaultModel: 'claude-opus-5-preview',
+    })
+    await svc.start(created.id, undefined, { forceUnknownModel: true })
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ forceUnknownModel: true, model: 'claude-opus-5-preview' }),
+    )
   })
 
   it('routes worktree creation and the spawn to the issue machine when pinned', async () => {

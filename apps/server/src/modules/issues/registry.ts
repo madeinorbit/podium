@@ -648,13 +648,20 @@ const defs = {
   }),
   start: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), agentKind: z.string().optional() }),
+    input: z.object({
+      id: z.string(),
+      agentKind: z.string().optional(),
+      forceUnknownModel: z.boolean().optional(),
+    }),
     action: 'write',
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
-        ctx.issues.start(input.id, input.agentKind, { spawnedBy: ctx.spawnProvenance() }),
+        ctx.issues.start(input.id, input.agentKind, {
+          spawnedBy: ctx.spawnProvenance(),
+          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+        }),
       ),
   }),
   update: def({
@@ -806,7 +813,11 @@ const defs = {
   }),
   addSession: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), agentKind: z.string().optional() }),
+    input: z.object({
+      id: z.string(),
+      agentKind: z.string().optional(),
+      forceUnknownModel: z.boolean().optional(),
+    }),
     action: 'write',
     scope: 'issue',
     target: targetId,
@@ -814,6 +825,7 @@ const defs = {
       ctx.issueWrite(input, () =>
         ctx.issues.addSession(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
+          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
         }),
       ),
   }),

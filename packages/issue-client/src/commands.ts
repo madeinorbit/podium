@@ -249,8 +249,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary:
-      `Create an issue: create --title "…" (see --help for flags). --audience human puts it on the human board; agent-created issues default to internal (audience agent). ${TITLE_RULE_TERSE}`,
+    summary: `Create an issue: create --title "…" (see --help for flags). --audience human puts it on the human board; agent-created issues default to internal (audience agent). ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),
@@ -302,13 +301,18 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code]. Model/effort come from the issue (set via create/update --model/--effort).',
-    args: z.strictObject({ id: idArg, agent: z.string().min(1).optional() }),
+      'Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--force-unknown-model]. Model/effort come from the issue (set via create/update --model/--effort).',
+    args: z.strictObject({
+      id: idArg,
+      agent: z.string().min(1).optional(),
+      'force-unknown-model': z.boolean().optional(),
+    }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.start.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
+        ...(a['force-unknown-model'] ? { forceUnknownModel: true } : {}),
       })) as {
         seq: number
         worktreePath?: string | null
@@ -382,8 +386,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'attach',
-    summary:
-      `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" (create a child of your current issue and move there). An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
+    summary: `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" (create a child of your current issue and move there). An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       id: idArg.optional(),
       subissue: z.string().min(1).optional(),
@@ -489,13 +492,18 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'add-session',
     summary:
-      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code]. Model/effort follow the issue defaults (update --model/--effort).",
-    args: z.strictObject({ id: idArg, agent: z.string().optional() }),
+      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code] [--force-unknown-model]. Model/effort follow the issue defaults (update --model/--effort).",
+    args: z.strictObject({
+      id: idArg,
+      agent: z.string().optional(),
+      'force-unknown-model': z.boolean().optional(),
+    }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.addSession.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
+        ...(a['force-unknown-model'] ? { forceUnknownModel: true } : {}),
       })) as { seq: number }
       return { text: `session added to #${i.seq}`, data: i }
     },

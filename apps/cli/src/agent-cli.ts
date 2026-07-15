@@ -32,11 +32,13 @@ function helpText(): string {
     '',
     '  spawn --prompt "…" (--issue <ref> | --new "title" [--repo <path>])',
     '        [--harness <claude-code|codex|grok|opencode|cursor>] [--worktree]',
-    '        [--model M] [--effort E]',
+    '        [--model M] [--effort E] [--force-unknown-model]',
     '        [--workflow-run-id X] [--workflow-step-id Y] [--execution-profile-id Z]',
     '      Spawn a full Podium agent session on an issue; the prompt is its first',
     '      turn and you become its parent (interrupt + wake rights). An issue is',
     '      never created implicitly — --new is the explicit create path.',
+    '      --model/--effort are checked against the live model catalog; pass',
+    '      --force-unknown-model to spawn a deliberately unlisted model slug.',
     '  await <sessionId> [--timeout <seconds, default 30, max 300>]',
     '      Bounded wait: returns the child\'s ack or settle state, or "still',
     '      working" plus a status snapshot at the deadline. Never hangs.',
@@ -65,6 +67,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         'worktree',
         'model',
         'effort',
+        'force-unknown-model',
         'workflow-run-id',
         'workflow-step-id',
         'execution-profile-id',
@@ -91,6 +94,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ...(args.worktree === true ? { worktree: true } : {}),
         ...(typeof args.model === 'string' ? { model: args.model } : {}),
         ...(typeof args.effort === 'string' ? { effort: args.effort } : {}),
+        ...(args['force-unknown-model'] === true ? { force: true } : {}),
         ...(typeof args['workflow-run-id'] === 'string'
           ? { workflowRunId: args['workflow-run-id'] }
           : {}),
@@ -124,7 +128,9 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ack?: { id: string; body: string }
         snapshot?: { status?: string; phase?: string } | null
       }
-      const state = r.snapshot ? `${r.snapshot.status}${r.snapshot.phase ? `/${r.snapshot.phase}` : ''}` : ''
+      const state = r.snapshot
+        ? `${r.snapshot.status}${r.snapshot.phase ? `/${r.snapshot.phase}` : ''}`
+        : ''
       if (r.result === 'acked' && r.ack) {
         return done(`acked (${r.ack.id}): ${r.ack.body}`, r)
       }

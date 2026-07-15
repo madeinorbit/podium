@@ -33,6 +33,7 @@ import { AutoContinueController } from '../../auto-continue'
 import type { Capability } from '../../issue-authz'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
+import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionRow, SessionStore } from '../../store'
 import {
   isCommandWrapperText,
@@ -832,6 +833,10 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
+     *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
+     *  takes effect. */
+    forceUnknownModel?: boolean
     /** Creation provenance (issue #60). Deliberately NOT defaulted here — the tRPC
      *  router stamps 'user' (its callers are the human seams); programmatic callers
      *  (issues, superagent) pass their own value. Absent = unknown. */
@@ -864,6 +869,15 @@ export class SessionsService {
     const agentKind = requested.success
       ? requested.data
       : resolveRole(this.store.settings.getSettings(), 'coding').harness
+    // Reject an explicit model/effort the live catalog doesn't list BEFORE any spawn
+    // side effect [spec:SP-cc60]. The last line of defense for the agent-spawn path
+    // (issue start/add-session pre-check earlier, before mutating start state).
+    const { forced } = assertModelSelectionValid(this.store.settings.getModelCatalog(), {
+      agentKind,
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.forceUnknownModel ? { force: true } : {}),
+    })
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
@@ -899,6 +913,23 @@ export class SessionsService {
     preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
+    }
+    // Forcing an unlisted model is a deliberate override — make it durable and
+    // observable across every spawn path [spec:SP-cc60]. Only emitted when the force
+    // actually bypassed an unknown model (a known model needs no force).
+    if (forced) {
+      this.store.events.appendEvent({
+        ts: new Date().toISOString(),
+        kind: 'agent.model_forced',
+        subject: spawned.sessionId,
+        payload: {
+          sessionId: spawned.sessionId,
+          harness: agentKind,
+          ...(input.model !== undefined ? { model: input.model } : {}),
+          ...(issueId ? { issueId } : {}),
+          ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
+        },
+      })
     }
     return spawned
   }

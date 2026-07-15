@@ -4,6 +4,7 @@ import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { completeForRole } from '../../../llm-roles'
+import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { IssueServiceMail } from './mail'
 import type { CreateIssueInput } from './types'
@@ -20,10 +21,22 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return `${repoPath}/.worktrees/${dir}`
   }
 
-  async start(id: string, agentKind?: string, opts?: { spawnedBy?: string }): Promise<IssueWire> {
+  async start(
+    id: string,
+    agentKind?: string,
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+  ): Promise<IssueWire> {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
     if (agentKind) row.defaultAgent = agentKind
+    // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
+    // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
+    assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
+      agentKind: row.defaultAgent,
+      ...(row.defaultModel ? { model: row.defaultModel } : {}),
+      ...(row.defaultEffort ? { effort: row.defaultEffort } : {}),
+      ...(opts?.forceUnknownModel ? { force: true } : {}),
+    })
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     const branch = this.slug(row.seq, row.title)
     const path = this.worktreePathFor(row.repoPath, branch)
@@ -70,6 +83,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       agentKind: row.defaultAgent,
       model: row.defaultModel,
       effort: row.defaultEffort,
+      ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       ...(row.description.trim() ? { initialPrompt: row.description } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
@@ -492,16 +506,30 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return branch || null
   }
 
-  addSession(id: string, agentKind?: string, opts?: { spawnedBy?: string }): IssueWire {
+  addSession(
+    id: string,
+    agentKind?: string,
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+  ): IssueWire {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
+    const kind = agentKind ?? row.defaultAgent
+    // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
+    // session carries no model (addShell), so validation is a no-op there.
+    assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
+      agentKind: kind,
+      ...(row.defaultModel ? { model: row.defaultModel } : {}),
+      ...(row.defaultEffort ? { effort: row.defaultEffort } : {}),
+      ...(opts?.forceUnknownModel ? { force: true } : {}),
+    })
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
     this.d.spawnSession({
       cwd: row.worktreePath,
       issueId: row.id,
-      agentKind: agentKind ?? row.defaultAgent,
+      agentKind: kind,
       model: row.defaultModel,
       effort: row.defaultEffort,
+      ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })

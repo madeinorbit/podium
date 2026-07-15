@@ -48,6 +48,8 @@ const spawnAgentInput = z.object({
   worktree: z.boolean().optional(),
   model: z.string().optional(),
   effort: z.string().optional(),
+  /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
+  force: z.boolean().optional(),
   workflowRunId: z.string().max(256).optional(),
   workflowStepId: z.string().max(256).optional(),
   executionProfileId: z.string().max(256).optional(),
@@ -81,6 +83,7 @@ export interface MessageGateDeps {
     initialPrompt?: string
     model?: string
     effort?: string
+    forceUnknownModel?: boolean
     issueId?: string
     spawnedBy?: string
     machineId?: string
@@ -90,11 +93,7 @@ export interface MessageGateDeps {
   }): { sessionId: string }
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
-  resolveExecutionProfile?(input: {
-    profileId: string
-    runId?: string
-    stepId?: string
-  }): {
+  resolveExecutionProfile?(input: { profileId: string; runId?: string; stepId?: string }): {
     id: string
     accountId: string
     machineId: string | null
@@ -397,6 +396,7 @@ export class MessageGate {
       spawnedBy,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
+      ...(input.force ? { forceUnknownModel: true } : {}),
       ...(machineId ? { machineId } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),

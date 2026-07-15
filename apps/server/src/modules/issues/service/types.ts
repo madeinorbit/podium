@@ -157,6 +157,8 @@ export interface IssueDeps {
     agentKind?: string
     model?: string
     effort?: string
+    /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
+    forceUnknownModel?: boolean
     initialPrompt?: string
     spawnedBy?: string
     machineId?: string
