@@ -1142,26 +1142,42 @@ function unifiedRowBand(row: UnifiedWorkRow, now: number): number {
   return 1
 }
 
-function issueUpdatedAt(row: UnifiedWorkRow): number {
-  return row.kind === 'issue' ? Date.parse(row.issue.updatedAt) || 0 : 0
+/** Immutable creation order, newest first (#64): issue rows key on createdAt
+ *  (seq breaks a same-instant tie, id keeps it deterministic). Worktree rows
+ *  carry no creation stamp, so they sink below every issue row and order among
+ *  themselves by path. Nothing here moves while agents work — the sidebar's
+ *  order may only change when work is created (or the user pins/snoozes). */
+function compareCreationDesc(a: UnifiedWorkRow, b: UnifiedWorkRow): number {
+  if (a.kind !== b.kind) return a.kind === 'issue' ? -1 : 1
+  if (a.kind === 'issue' && b.kind === 'issue') {
+    const dt = (Date.parse(b.issue.createdAt) || 0) - (Date.parse(a.issue.createdAt) || 0)
+    if (dt !== 0) return dt
+    if (a.issue.seq !== b.issue.seq) return b.issue.seq - a.issue.seq
+    return a.issue.id.localeCompare(b.issue.id)
+  }
+  return a.kind === 'worktree' && b.kind === 'worktree'
+    ? a.worktree.path.localeCompare(b.worktree.path)
+    : 0
 }
 
-/** WORK-list order: band asc (pinned/returned top, snoozed bottom), then child
- *  urgency rank asc, then most-recent child activity desc, then issue updatedAt. */
+/** WORK-list order: band asc (pinned/returned top, snoozed bottom — explicit
+ *  user actions only), then newest-first creation order. Urgency, activity and
+ *  updatedAt deliberately do NOT sort — attention is carried per-row by the
+ *  square language / amber pill / motion meta, never by reordering, so rows
+ *  hold still while agents work (#64). */
 function sortUnifiedWorkRows(rows: UnifiedWorkRow[], now: number): UnifiedWorkRow[] {
   return [...rows].sort((a, b) => {
     const db = unifiedRowBand(a, now) - unifiedRowBand(b, now)
     if (db !== 0) return db
-    if (a.rank !== b.rank) return a.rank - b.rank
-    if (a.activityAt !== b.activityAt) return b.activityAt - a.activityAt
-    return issueUpdatedAt(b) - issueUpdatedAt(a)
+    return compareCreationDesc(a, b)
   })
 }
 
 /**
- * The unified WORK LIST — one flat list, ordered by aggregated status. Pinned
- * and just-unsnoozed issues float to the top; still-snoozed issues sink to the
- * bottom; the middle is ordered by aggregated child-session urgency then recency.
+ * The unified WORK LIST — one flat list in fixed newest-first creation order
+ * (#64). Pinned and just-unsnoozed issues float to the top; still-snoozed
+ * issues sink to the bottom; inside each band rows read newest-created first
+ * and never reorder on agent activity or attention.
  * (For the WORKING move-out split, see {@link partitionUnifiedWork}.)
  */
 export function unifiedWorkList(
@@ -1278,8 +1294,8 @@ export interface UnifiedWorkGroup {
 /**
  * Bucket unified WORK rows by repo (stable repoId when known, repoPath
  * otherwise — so the same repo on two machines/paths merges into one group).
- * Row order inside a group and group order both follow the incoming urgency
- * order: a group sits where its most urgent row would.
+ * Row order inside a group and group order both follow the incoming fixed
+ * creation order: a group sits where its first (newest-created) row would.
  */
 export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []

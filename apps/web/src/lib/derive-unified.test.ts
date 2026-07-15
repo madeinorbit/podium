@@ -7,11 +7,11 @@ import {
   isIssueSnoozed,
   isRowUnread,
   issueReturnedFromDefer,
-  rowUnreadEmphasized,
   mostUrgentSession,
   partitionUnifiedWork,
   type RepoNavView,
   repoUsageAt,
+  rowUnreadEmphasized,
   type SidebarSections,
   sessionUrgencyRank,
   spawnTargetForRepo,
@@ -278,38 +278,61 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     ).toEqual(['s2', 's3'])
   })
 
-  it('orders by rank asc (attention incl. finished first, then working)', () => {
-    const iNeeds = issue({ id: 'needs' })
-    const iWork = issue({ id: 'work' })
-    const iIdle = issue({ id: 'idle' })
+  it('orders newest-created first — immutable creation order, not urgency (#64)', () => {
+    // The OLDEST issue carries the most urgent session; the NEWEST is idle.
+    // Creation order must win regardless.
+    const oldest = issue({ id: 'oldest', seq: 1, createdAt: '2026-06-01T00:00:00.000Z' })
+    const middle = issue({ id: 'middle', seq: 2, createdAt: '2026-06-10T00:00:00.000Z' })
+    const newest = issue({ id: 'newest', seq: 3, createdAt: '2026-06-20T00:00:00.000Z' })
     const sessions = [
-      needsYou('sn', '/x', { issueId: 'needs' }),
-      working('sw', '/x'),
-      idle('si', '/x', { issueId: 'idle' }),
+      needsYou('sn', '/x', { issueId: 'oldest' }),
+      { ...working('sw', '/x'), issueId: 'middle' } as SessionMeta,
+      idle('si', '/x', { issueId: 'newest' }),
     ]
-    sessions[1] = { ...sessions[1], issueId: 'work' } as SessionMeta
-    // Finished-idle shares rank 0 with needs-you; recency breaks the tie.
-    sessions[2] = {
-      ...sessions[2],
-      lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
-    } as SessionMeta
-    const rows = unifiedWorkList(emptySections([]), [iIdle, iWork, iNeeds], sessions, [], NOW)
+    const rows = unifiedWorkList(emptySections([]), [oldest, newest, middle], sessions, [], NOW)
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
-      'needs',
-      'idle',
-      'work',
+      'newest',
+      'middle',
+      'oldest',
     ])
   })
 
-  it('within a rank, most-recent child activity wins', () => {
-    const older = issue({ id: 'old' })
-    const newer = issue({ id: 'new' })
-    const sessions = [
-      idle('a', '/x', { issueId: 'old', lastActiveAt: new Date(NOW - 5 * HOUR).toISOString() }),
-      idle('b', '/x', { issueId: 'new', lastActiveAt: new Date(NOW - HOUR).toISOString() }),
+  it('never reorders on activity/attention changes — seq then id break created-at ties', () => {
+    const t = '2026-06-15T00:00:00.000Z'
+    const a = issue({ id: 'a', seq: 5, createdAt: t })
+    const b = issue({ id: 'b', seq: 7, createdAt: t })
+    const quiet = [
+      idle('sa', '/x', { issueId: 'a', lastActiveAt: new Date(NOW - 5 * HOUR).toISOString() }),
+      idle('sb', '/x', { issueId: 'b', lastActiveAt: new Date(NOW - 5 * HOUR).toISOString() }),
     ]
-    const rows = unifiedWorkList(emptySections([]), [older, newer], sessions, [], NOW)
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['new', 'old'])
+    const before = unifiedWorkList(emptySections([]), [a, b], quiet, [], NOW)
+    // Same createdAt → higher seq (created later) first.
+    expect(before.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['b', 'a'])
+    // Agent on the LOWER row starts working and needs the human: order holds.
+    const busy = [
+      needsYou('sa', '/x', { issueId: 'a', lastActiveAt: new Date(NOW).toISOString() }),
+      quiet[1] as SessionMeta,
+    ]
+    const after = unifiedWorkList(emptySections([]), [a, b], busy, [], NOW)
+    expect(after.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['b', 'a'])
+  })
+
+  it('worktree rows sink below issue rows and order deterministically by path', () => {
+    const i = issue({ id: 'i', createdAt: '2026-06-01T00:00:00.000Z' })
+    const wtB = navWt('/r/a/b', { isMain: false, sessions: [idle('w1', '/r/a/b')] })
+    const wtA = navWt('/r/a/a', { isMain: false, sessions: [idle('w2', '/r/a/a')] })
+    const rows = unifiedWorkList(
+      emptySections([wtB, wtA]),
+      [i],
+      [idle('si', '/x', { issueId: 'i' }), idle('w1', '/r/a/b'), idle('w2', '/r/a/a')],
+      ['/r/a/b', '/r/a/a'],
+      NOW,
+    )
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : r.worktree.path))).toEqual([
+      'i',
+      '/r/a/a',
+      '/r/a/b',
+    ])
   })
 
   it('floats pinned & returned-from-defer to the top band, sinks snoozed to the bottom', () => {
@@ -590,32 +613,31 @@ describe('groupUnifiedWorkRows', () => {
     expect(groups.find((g) => g.key === '/r/b')?.label).toBe('b')
   })
 
-  it('preserves incoming row order within groups and orders groups by first row', () => {
+  it('preserves incoming creation order within groups and orders groups by first row (#64)', () => {
+    // Newest issue overall lives in /r/a, so /r/a groups first; inside each
+    // group rows keep the newest-created-first order — urgency never matters.
     const rows = rowsFor(
       [
-        issue({ id: 'a-needs', repoPath: '/r/a' }),
-        issue({ id: 'b-needs', repoPath: '/r/b' }),
-        issue({ id: 'a-work', repoPath: '/r/a' }),
+        issue({ id: 'a-new', repoPath: '/r/a', seq: 3, createdAt: '2026-06-20T00:00:00.000Z' }),
+        issue({ id: 'b-mid', repoPath: '/r/b', seq: 2, createdAt: '2026-06-10T00:00:00.000Z' }),
+        issue({ id: 'a-old', repoPath: '/r/a', seq: 1, createdAt: '2026-06-01T00:00:00.000Z' }),
       ],
       [
-        needsYou('s1', '/x', { issueId: 'a-needs' }),
-        needsYou('s2', '/x', {
-          issueId: 'b-needs',
-          lastActiveAt: new Date(NOW - 2 * HOUR).toISOString(),
-        }),
-        working('s3', '/x'),
-      ].map((s, i) => (i === 2 ? ({ ...s, issueId: 'a-work' } as SessionMeta) : s)),
+        idle('s1', '/x', { issueId: 'a-new' }),
+        needsYou('s2', '/x', { issueId: 'b-mid' }),
+        { ...working('s3', '/x'), issueId: 'a-old' } as SessionMeta,
+      ],
     )
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
-      'a-needs',
-      'b-needs',
-      'a-work',
+      'a-new',
+      'b-mid',
+      'a-old',
     ])
     const groups = groupUnifiedWorkRows(rows)
     expect(groups.map((g) => g.key)).toEqual(['/r/a', '/r/b'])
     expect(groups[0]?.rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual([
-      'a-needs',
-      'a-work',
+      'a-new',
+      'a-old',
     ])
   })
 
