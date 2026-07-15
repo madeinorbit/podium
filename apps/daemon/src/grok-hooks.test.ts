@@ -138,13 +138,12 @@ describe('Podium Grok hook command', () => {
 
     const child = spawn('sh', ['-c', PODIUM_GROK_HOOK_COMMAND], {
       env,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stdout = ''
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8')
     })
-    child.stdin.end(JSON.stringify({ hookEventName: 'SessionStart' }))
     const code = await new Promise<number | null>((resolve, reject) => {
       child.once('error', reject)
       child.once('exit', resolve)
