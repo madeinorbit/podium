@@ -7,6 +7,7 @@
  * page.evaluate() run as plain `window.__podium.…()` in the browser.
  */
 import { expect, type Page } from '@playwright/test'
+import { CodexReadinessBoundary } from '../codex-readiness'
 
 /** ws:// origin of the harness relay; PORT lets concurrent harness runs stay isolated. */
 export const RELAY =
@@ -141,8 +142,7 @@ const CODEX_READY_QUIET_MS = 1_500
  * MCP startup cannot paint a transient composer and race the synthetic send.
  */
 export async function waitForCodexReady(page: Page): Promise<void> {
-  let stableHash: string | undefined
-  let stableSince = 0
+  const boundary = new CodexReadinessBoundary(CODEX_READY_QUIET_MS)
   await expect
     .poll(
       async () => {
@@ -153,18 +153,7 @@ export async function waitForCodexReady(page: Page): Promise<void> {
             hash: api?.screenHash({ dropDim: true }) ?? '',
           }
         })
-        const now = Date.now()
-        if (!sample.ready) {
-          stableHash = undefined
-          stableSince = 0
-          return false
-        }
-        if (sample.hash !== stableHash) {
-          stableHash = sample.hash
-          stableSince = now
-          return false
-        }
-        return now - stableSince >= CODEX_READY_QUIET_MS
+        return boundary.observe(sample, Date.now())
       },
       { timeout: 120_000, intervals: [100, 200, 300] },
     )
