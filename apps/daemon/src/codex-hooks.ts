@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { PODIUM_CODEX_HOOK_URL_ENV } from '@podium/agent-bridge'
 
 /**
  * Install Podium's Codex native-hook instrumentation (Orca-style).
@@ -20,9 +21,6 @@ import { join } from 'node:path'
  * child hook processes inherit; any codex run without the var exits 0 instantly,
  * so the global install never affects sessions Podium didn't spawn.
  */
-
-/** Env var the daemon injects at codex spawn; the hook command posts to it. */
-export const PODIUM_CODEX_HOOK_URL_ENV = 'PODIUM_CODEX_HOOK_URL'
 
 // Single-line, POSIX, no dependencies beyond curl. Fail-open everywhere: no env
 // → exit 0; curl failure swallowed. Bounded (-m 2) so a wedged daemon can't

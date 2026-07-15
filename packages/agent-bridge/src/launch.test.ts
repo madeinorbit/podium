@@ -53,10 +53,13 @@ describe('agentLaunchCommand', () => {
     ).toEqual({ cmd: 'grok', args: ['--resume', 'g9'], cwd: '/w' })
   })
 
-  it('passes model override to grok', () => {
-    expect(agentLaunchCommand('grok', { cwd: '/w', model: 'grok-code-fast-1' })).toEqual({
+  it.each([
+    'grok-4.5',
+    'grok-composer-2.5-fast',
+  ])('passes the supported Grok model override %s', (model) => {
+    expect(agentLaunchCommand('grok', { cwd: '/w', model })).toEqual({
       cmd: 'grok',
-      args: ['--model', 'grok-code-fast-1'],
+      args: ['--model', model],
       cwd: '/w',
     })
   })

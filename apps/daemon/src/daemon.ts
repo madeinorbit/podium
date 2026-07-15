@@ -30,6 +30,7 @@ import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
+import { ensurePodiumGrokHooks } from './grok-hooks'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
@@ -99,6 +100,11 @@ export interface DaemonOptions {
    * can never write to the real ~/.codex; every production entrypoint sets it.
    */
   installCodexHooks?: boolean
+  /**
+   * Install global, env-gated Grok Build hooks in the user's GROK_HOME.
+   * Opt-in for the same reason as Codex: tests must never mutate a real login.
+   */
+  installGrokHooks?: boolean
   /**
    * The in-process bootstrap secret (from the ServerHandle) OR the persistent shared
    * secret read from the state dir. When set, the daemon authenticates as the local
@@ -347,6 +353,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         if (r.changed) console.log('[podium] codex hooks installed/refreshed')
       })
       .catch((err) => console.warn('[podium] codex hooks install failed:', err))
+  }
+  // Grok Build personal hooks need no project trust. The dedicated file is
+  // env-gated per Podium session and the existing file observer is the fallback.
+  if (opts.installGrokHooks) {
+    void ensurePodiumGrokHooks({
+      ...(homeDir ? { homeDir } : {}),
+    })
+      .then((r) => {
+        if (r.changed) console.log('[podium] grok hooks installed/refreshed')
+      })
+      .catch((err) => console.warn('[podium] grok hooks install failed:', err))
   }
 
   // Loopback HTTP endpoint an agent's `podium issue` CLI posts to. Its port is

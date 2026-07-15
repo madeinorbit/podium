@@ -36,6 +36,8 @@ export type AgentStateEvent = (
 export interface AgentInstrumentation {
   /** Extra argv appended to the agent CLI. */
   args: string[]
+  /** Per-session environment for globally-installed, env-gated hooks. */
+  env?: Record<string, string>
   /** File the daemon must write before spawning (hook/settings config). */
   file?: { path: string; contents: string }
 }

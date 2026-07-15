@@ -87,7 +87,7 @@ export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {
     composerScrape: false,
     oscTitle: true,
     subagentModelEnv: false,
-    hookInstall: 'none',
+    hookInstall: 'global-env',
   },
   opencode: {
     argvPrompt: false,

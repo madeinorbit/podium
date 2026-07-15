@@ -439,6 +439,7 @@ describe('daemonOptionsForPlan', () => {
       bootstrapToken: 'local-secret',
       machineId: 'local',
       installCodexHooks: true,
+      installGrokHooks: true,
     })
   })
 
@@ -458,6 +459,7 @@ describe('daemonOptionsForPlan', () => {
       serverUrl: 'wss://relay.example',
       pairCode: 'PAIR1',
       installCodexHooks: true,
+      installGrokHooks: true,
     })
   })
 })

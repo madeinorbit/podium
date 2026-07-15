@@ -12,11 +12,11 @@ import {
 
 const GROK = `You are logged in with grok.com.
 
-Default model: grok-composer-2.5-fast
+Default model: grok-4.5
 
 Available models:
-  * grok-composer-2.5-fast (default)
-  - grok-build
+  * grok-4.5 (default)
+  - grok-composer-2.5-fast
 `
 
 const CURSOR = `Available models
@@ -62,8 +62,8 @@ const CODEX = JSON.stringify({
 describe('model-probe parsers', () => {
   it('grok: reads the marker list under "Available models:", ignores header/default line', () => {
     expect(parseGrokModels(GROK)).toEqual([
+      { value: 'grok-4.5', label: 'grok-4.5' },
       { value: 'grok-composer-2.5-fast', label: 'grok-composer-2.5-fast' },
-      { value: 'grok-build', label: 'grok-build' },
     ])
   })
 
@@ -178,7 +178,7 @@ describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API 
 describe('probe (injected exec — no shelling out)', () => {
   it('returns parsed models on success', async () => {
     const models = await probeAgentModels('grok', { exec: async () => GROK })
-    expect(models.map((m) => m.value)).toEqual(['grok-composer-2.5-fast', 'grok-build'])
+    expect(models.map((m) => m.value)).toEqual(['grok-4.5', 'grok-composer-2.5-fast'])
   })
 
   it('swallows a failing/absent CLI as []', async () => {

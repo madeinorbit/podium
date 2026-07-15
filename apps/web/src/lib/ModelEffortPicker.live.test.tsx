@@ -5,8 +5,8 @@ import { EffortPicker, ModelPicker } from './ModelEffortPicker'
 const catalogQuery = vi.fn(async () => ({
   byAgent: {
     grok: [
+      { value: 'grok-4.5', label: 'grok-4.5' },
       { value: 'grok-composer-2.5-fast', label: 'grok-composer-2.5-fast' },
-      { value: 'grok-build', label: 'grok-build' },
     ],
     'claude-code': [
       { value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high', 'xhigh'] },
@@ -42,8 +42,8 @@ describe('ModelPicker live catalog', () => {
     await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     // Live models from the server, not a static grok fallback entry.
-    expect(await screen.findByRole('menuitem', { name: 'grok-composer-2.5-fast' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'grok-build' })).toBeTruthy()
+    expect(await screen.findByRole('menuitem', { name: 'grok-4.5' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'grok-composer-2.5-fast' })).toBeTruthy()
     // A non-probeable server response for cursor was empty → no refresh needed here.
     expect(refreshMutate).not.toHaveBeenCalled()
   })
@@ -53,8 +53,8 @@ describe('ModelPicker live catalog', () => {
     render(<ModelPicker agentKind="grok" value="auto" onChange={onChange} />)
     await waitFor(() => expect(catalogQuery).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok-build' }))
-    expect(onChange).toHaveBeenCalledWith('grok-build')
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'grok-composer-2.5-fast' }))
+    expect(onChange).toHaveBeenCalledWith('grok-composer-2.5-fast')
   })
 })
 

@@ -1,9 +1,27 @@
-/** Delivers issue mail at the Stop hook: when a session's issue has unread mail, respond
- *  with `decision:"block"` so the agent continues and reads its inbox instead of going idle.
- *  Guards: `stop_hook_active` (Claude Code sets it after a Stop hook already blocked this
- *  turn — blocking again risks an infinite loop) and a per-session 60s rate limit (an agent
- *  may legitimately decline to act; don't nag every Stop while unread persists). */
+import { hookBoolean, hookEventName, isGrokHookPayload } from './hook-payload'
+
+/** Delivers issue mail at each harness's blocking boundary. Claude/Codex block Stop;
+ *  Grok can only deny PreToolUse, so one tool call is denied with the inbox pointer and
+ *  can be retried after the agent reads it. [spec:SP-79c5] The Stop path keeps its
+ *  stop_hook_active loop guard; both modes share the per-session cooldown. */
 export const MAIL_BLOCK_COOLDOWN_MS = 60_000
+
+type MailDeliveryMode = 'stop' | 'grok_pre_tool'
+
+function mailDeliveryMode(payload: unknown): MailDeliveryMode | undefined {
+  const event = hookEventName(payload)
+  if (isGrokHookPayload(payload)) return event === 'PreToolUse' ? 'grok_pre_tool' : undefined
+  return event === 'Stop' ? 'stop' : undefined
+}
+
+function intervention(mode: MailDeliveryMode, reason: string): string {
+  return JSON.stringify({
+    // Grok's only blocking hook is PreToolUse and its native decision is deny.
+    // Claude/Codex Stop hooks use block to continue the turn.
+    decision: mode === 'grok_pre_tool' ? 'deny' : 'block',
+    reason,
+  })
+}
 
 /** Pointer rendering (#237) [spec:SP-34d7]: coalesce N pending messages into one
  *  inbox pointer naming the senders when the server supplies them. */
@@ -22,10 +40,11 @@ export function createMailInjector(
   const lastBlockedAt = new Map<string, number>()
   return {
     async respondTo(sessionId, payload) {
-      const fields = payload as { hook_event_name?: unknown; stop_hook_active?: unknown } | null
-      if (fields?.hook_event_name !== 'Stop') return null
+      const mode = mailDeliveryMode(payload)
+      if (!mode) return null
       // Loop guard: a Stop hook already blocked this turn; blocking again can loop forever.
-      if (fields.stop_hook_active === true) return null
+      if (mode === 'stop' && hookBoolean(payload, 'stop_hook_active', 'stopHookActive') === true)
+        return null
       const at = lastBlockedAt.get(sessionId)
       if (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS) return null
       let unread: unknown
@@ -46,18 +65,16 @@ export function createMailInjector(
       }
       if (typeof unread !== 'number' || unread <= 0) return null
       lastBlockedAt.set(sessionId, now())
-      return JSON.stringify({ decision: 'block', reason: mailBlockReason(unread, senders) })
+      return intervention(mode, mailBlockReason(unread, senders))
     },
   }
 }
 
 /**
- * Ack single-reminder at the Stop hook (#237) [spec:SP-34d7 acks]: a session
- * going idle with delivered-but-unacked non-fyi messages gets ONE
- * block-with-reason per message. The SERVER owns the never-repeats guarantee
- * (messages.pendingReminders marks reminded_at before returning), so this
- * injector is stateless beyond the standard loop guard + per-session cooldown;
- * after the one reminder the steward's deterministic fallback owns the message.
+ * Ack single-reminder (#237) [spec:SP-34d7 acks]: at Stop for Claude/Codex or
+ * PreToolUse for Grok, delivered-but-unacked non-fyi messages get ONE reminder.
+ * The server persists reminded_at before returning, so this stays stateless
+ * beyond the standard loop guard and cooldown; afterward the steward owns it.
  */
 export function createAckReminderInjector(
   relay: (sessionId: string) => Promise<{ ok: boolean; result?: unknown }>,
@@ -66,9 +83,10 @@ export function createAckReminderInjector(
   const lastBlockedAt = new Map<string, number>()
   return {
     async respondTo(sessionId, payload) {
-      const fields = payload as { hook_event_name?: unknown; stop_hook_active?: unknown } | null
-      if (fields?.hook_event_name !== 'Stop') return null
-      if (fields.stop_hook_active === true) return null
+      const mode = mailDeliveryMode(payload)
+      if (!mode) return null
+      if (mode === 'stop' && hookBoolean(payload, 'stop_hook_active', 'stopHookActive') === true)
+        return null
       const at = lastBlockedAt.get(sessionId)
       if (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS) return null
       let reminders: { id: string; from: string }[]
@@ -92,7 +110,7 @@ export function createAckReminderInjector(
             `- ${m.id} (from ${m.from}): reply with what you did — podium mail reply ${m.id} --body "…"`,
         )
       return JSON.stringify({
-        decision: 'block',
+        decision: mode === 'grok_pre_tool' ? 'deny' : 'block',
         reason:
           `You have ${reminders.length} podium message(s) awaiting your reply before you go idle:\n` +
           `${lines.join('\n')}\n` +

@@ -267,7 +267,9 @@ describe('translateCodexEvent — native hook payloads (hook_event_name)', () =>
   it('maps Stop to a classified turn_completed from last_assistant_message', async () => {
     expect(
       await translateCodexEvent(hook('Stop', { last_assistant_message: 'Should I merge?' })),
-    ).toEqual([{ kind: 'turn_completed', verdict: { kind: 'question', summary: 'Should I merge?' } }])
+    ).toEqual([
+      { kind: 'turn_completed', verdict: { kind: 'question', summary: 'Should I merge?' } },
+    ])
   })
 
   it('ignores unknown hook events', async () => {
@@ -305,10 +307,13 @@ describe('codexApprovalsReviewerFromTranscript', () => {
 })
 
 describe('codexStateProvider', () => {
-  it('injects nothing (observer-based, no hooks)', () => {
+  it('injects the per-session callback for the global hook install', () => {
     expect(
       codexStateProvider.instrumentation({ endpointUrl: 'http://x', settingsPath: '/tmp/s' }),
-    ).toEqual({ args: [] })
+    ).toEqual({
+      args: [],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://x' },
+    })
   })
 })
 
@@ -517,9 +522,15 @@ describe('observeCodexState rollout pinning', () => {
     const cwd = '/repo/multi'
 
     const older = join(dir, 'rollout-2026-06-25T10-00-00-sessA.jsonl')
-    await writeFile(older, jsonl([{ type: 'session_meta', payload: { id: 'sessA', cwd, source: 'cli' } }]))
+    await writeFile(
+      older,
+      jsonl([{ type: 'session_meta', payload: { id: 'sessA', cwd, source: 'cli' } }]),
+    )
     const newer = join(dir, 'rollout-2026-06-25T11-00-00-sessB.jsonl')
-    await writeFile(newer, jsonl([{ type: 'session_meta', payload: { id: 'sessB', cwd, source: 'cli' } }]))
+    await writeFile(
+      newer,
+      jsonl([{ type: 'session_meta', payload: { id: 'sessB', cwd, source: 'cli' } }]),
+    )
     await utimes(older, new Date(1000), new Date(1000))
     await utimes(newer, new Date(2000), new Date(2000))
 

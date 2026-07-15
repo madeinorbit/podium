@@ -15,7 +15,6 @@ import {
   tmuxHasSessionAsync,
 } from '@podium/agent-bridge'
 import { AGENT_CAPABILITIES, type AgentKind } from '@podium/protocol'
-import { PODIUM_CODEX_HOOK_URL_ENV } from '../codex-hooks'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import type { ReattachControl, SpawnControl } from '../session-observers'
@@ -134,6 +133,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
     const label = `podium-${msg.sessionId}`
     const provider = agentStateProviderFor(msg.agentKind)
     let extraArgs: string[] = []
+    let instrumentationEnv: Record<string, string> = {}
     if (provider) {
       mkdirSync(ctx.settingsDir, { recursive: true })
       const instr = provider.instrumentation({
@@ -142,6 +142,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       })
       if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
       extraArgs = instr.args
+      instrumentationEnv = instr.env ?? {}
     }
     const spawnOpts = {
       label,
@@ -160,13 +161,9 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
           ...issueRelayEnv(msg.sessionId, ctx.issueRelayEndpointFor(msg.sessionId)),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
-          // 'global-env' hook installs (codex): hooks.json is installed GLOBALLY
-          // (per CODEX_HOME, not per spawn); the per-session ingest URL rides the
-          // env instead. The hook command exits 0 instantly when the var is
-          // absent, so runs outside Podium are unaffected.
-          ...(AGENT_CAPABILITIES[msg.agentKind].hookInstall === 'global-env'
-            ? { [PODIUM_CODEX_HOOK_URL_ENV]: ctx.hookEndpointFor(msg.sessionId) }
-            : {}),
+          // Globally-installed hooks are env-gated per session by their adapter.
+          // Commands exit immediately when absent, so non-Podium runs are untouched.
+          ...instrumentationEnv,
         },
       }),
     }

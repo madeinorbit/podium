@@ -491,6 +491,8 @@ export interface DaemonStartOptions {
   name?: string
   /** Production daemons install the global codex hook instrumentation at boot. */
   installCodexHooks?: boolean
+  /** Production daemons install env-gated Grok Build lifecycle hooks at boot. */
+  installGrokHooks?: boolean
 }
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
@@ -514,6 +516,7 @@ export function daemonOptionsForPlan(
     serverUrl,
     ...localAuth,
     installCodexHooks: true,
+    installGrokHooks: true,
     ...(plan.mode === 'daemon' && plan.pairCode ? { pairCode: plan.pairCode } : {}),
     ...(plan.mode === 'daemon' && plan.name ? { name: plan.name } : {}),
   }
@@ -644,6 +647,7 @@ async function runInProcess(
         bootstrapToken: readOrCreateDaemonSecret(),
         machineId: LOCAL_MACHINE_ID,
         installCodexHooks: true,
+        installGrokHooks: true,
       }
     } else {
       try {

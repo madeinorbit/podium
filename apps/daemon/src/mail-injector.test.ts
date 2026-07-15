@@ -18,6 +18,17 @@ describe('mail injector', () => {
     expect(parsed.reason).toContain('podium issue mail claim')
   })
 
+  it('denies one Grok PreToolUse call with the durable inbox pointer', async () => {
+    const inj = createMailInjector(unreadRelay(1))
+    expect(await inj.respondTo('g1', { hookEventName: 'Stop' })).toBeNull()
+    const body = await inj.respondTo('g1', {
+      hookEventName: 'PreToolUse',
+      toolName: 'Bash',
+    })
+    const parsed = JSON.parse(body ?? 'null')
+    expect(parsed.decision).toBe('deny')
+    expect(parsed.reason).toContain('podium issue mail inbox')
+  })
   it('coalesces senders into the pointer when the server supplies them (#237)', async () => {
     const inj = createMailInjector(async () => ({
       ok: true,
@@ -128,6 +139,18 @@ describe('ack reminder injector (#237) [spec:SP-34d7 acks]', () => {
     expect(await inj2.respondTo('s1', { hook_event_name: 'Stop' })).toBeNull()
   })
 
+  it('uses Grok PreToolUse denial for the one acknowledgement reminder', async () => {
+    const inj = createAckReminderInjector(
+      reminders([{ id: 'msg_grok', from: 'issue:#550', body: 'verify hooks' }]),
+    )
+    const body = await inj.respondTo('g1', {
+      hookEventName: 'PreToolUse',
+      toolName: 'Read',
+    })
+    const parsed = JSON.parse(body ?? 'null')
+    expect(parsed.decision).toBe('deny')
+    expect(parsed.reason).toContain('podium mail reply msg_grok')
+  })
   it('honours the loop guard and cooldown, and fails open', async () => {
     let clock = 1_000_000
     const inj = createAckReminderInjector(

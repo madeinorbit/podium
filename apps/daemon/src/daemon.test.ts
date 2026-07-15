@@ -25,8 +25,8 @@ import {
   controlFrameByteLength,
   createLimiter,
   type DaemonHandle,
-  normalizeAgentKind,
   noDurableBackendWarning,
+  normalizeAgentKind,
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
@@ -1702,6 +1702,32 @@ describe('agent state instrumentation', () => {
     expect(states().length).toBe(count)
   })
 
+  it('native Grok hook POSTs drive normalized live state', async () => {
+    send({ type: 'spawn', sessionId: 'gHook', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'gHook'))
+    const post = (payload: unknown) =>
+      fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/gHook`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+
+    await post({ hookEventName: 'UserPromptSubmit', prompt: 'go' })
+    await waitFor(() =>
+      states().some((state) => state.sessionId === 'gHook' && state.state.phase === 'working'),
+    )
+    await post({
+      hookEventName: 'PreToolUse',
+      toolName: 'AskUserQuestion',
+      toolInput: { questions: [{ question: 'Choose a model?' }] },
+    })
+    await waitFor(() =>
+      states().some((state) => state.sessionId === 'gHook' && state.state.phase === 'needs_user'),
+    )
+    const waiting = states()
+      .filter((state) => state.sessionId === 'gHook')
+      .at(-1)
+    expect(waiting?.state.need).toEqual({ kind: 'question', summary: 'Choose a model?' })
+  })
   it('boot: a spawned claude-code session reports idle once frames flow, with no hook POST', async () => {
     send({ type: 'spawn', sessionId: 'sBoot', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     await waitFor(() => states().some((m) => m.sessionId === 'sBoot' && m.state.phase === 'idle'))

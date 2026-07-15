@@ -13,13 +13,16 @@ import {
 const text = (value: string) => ({ type: 'text', text: value })
 
 describe('grok live state provider', () => {
-  it('does not inject CLI args or project files', () => {
+  it('injects only the per-session callback for the global hook install', () => {
     expect(
       grokStateProvider.instrumentation({
         endpointUrl: 'http://127.0.0.1:1/hooks/s1',
         settingsPath: '/tmp/unused.json',
       }),
-    ).toEqual({ args: [] })
+    ).toEqual({
+      args: [],
+      env: { PODIUM_GROK_HOOK_URL: 'http://127.0.0.1:1/hooks/s1' },
+    })
   })
 
   it('maps Grok update records to normalized state events', async () => {
@@ -44,6 +47,36 @@ describe('grok live state provider', () => {
     await expect(event('hook_execution', { event_name: 'session_end' })).resolves.toEqual([
       { kind: 'session_ended' },
     ])
+  })
+
+  it('maps native camelCase Grok hooks and classifies Stop from chat history', async () => {
+    await expect(
+      translateGrokUpdatePayload({ hookEventName: 'SessionStart', sessionId: 'g-native' }),
+    ).resolves.toEqual([{ kind: 'session_started' }])
+    await expect(
+      translateGrokUpdatePayload({
+        hookEventName: 'PreToolUse',
+        toolName: 'AskUserQuestion',
+        toolInput: { questions: [{ question: 'Which implementation?' }] },
+      }),
+    ).resolves.toEqual([{ kind: 'needs_user', need: 'question', summary: 'Which implementation?' }])
+    await expect(
+      translateGrokUpdatePayload({ hookEventName: 'PermissionDenied', toolName: 'Bash' }),
+    ).resolves.toEqual([{ kind: 'needs_user', need: 'permission', summary: 'Bash' }])
+    await expect(
+      translateGrokUpdatePayload({ hookEventName: 'StopFailure', errorType: 'rate_limit' }),
+    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-hook-'))
+    const paths = grokSessionPaths({ homeDir: home, cwd: '/repo/grok', sessionId: 'g-native' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.chatHistoryPath, JSON.stringify({ type: 'assistant', content: 'Done.' }))
+    await expect(
+      translateGrokUpdatePayload({
+        hookEventName: 'Stop',
+        chatHistoryPath: paths.chatHistoryPath,
+      }),
+    ).resolves.toEqual([{ kind: 'turn_completed', verdict: { kind: 'done' } }])
   })
 
   it('stamps the update timestamp as event-time (at) so reattach replays carry the real time', async () => {

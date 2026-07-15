@@ -41,6 +41,7 @@ await bootProcess({
       bootstrapToken: readOrCreateDaemonSecret(),
       machineId: LOCAL_MACHINE_ID, // attach to the machine the server adopted '__local__' rows onto
       installCodexHooks: true,
+      installGrokHooks: true,
     }),
   readyMessage: () => `podium daemon up: connected to ws://localhost:${port}/daemon`,
 })

@@ -11,6 +11,9 @@ import type { AgentStateEvent, AgentStateProvider } from './types.js'
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
 
+/** Env-gated callback used by the global Grok Build hook install. */
+export const PODIUM_GROK_HOOK_URL_ENV = 'PODIUM_GROK_HOOK_URL'
+
 export interface GrokSessionPaths {
   sessionId: string
   sessionDir: string
@@ -25,10 +28,10 @@ export interface GrokStateObserver {
 }
 
 export const grokStateProvider: AgentStateProvider = {
-  instrumentation() {
-    // Grok has no safe per-process --settings equivalent. State is observed from
-    // its live session files instead, so no argv or project file mutation is needed.
-    return { args: [] }
+  // [spec:SP-79c5] Grok personal hooks are installed globally and gated by this
+  // session-only callback env. The file observer below remains the fallback.
+  instrumentation({ endpointUrl }) {
+    return { args: [], env: { [PODIUM_GROK_HOOK_URL_ENV]: endpointUrl } }
   },
   translate: translateGrokUpdatePayload,
   bootEvents: grokBootEvents,
@@ -56,6 +59,9 @@ export function grokSessionPaths(opts: {
 
 export async function translateGrokUpdatePayload(payload: unknown): Promise<AgentStateEvent[]> {
   if (!isRecord(payload)) return []
+  const directEvent = grokHookEventName(payload)
+  if (directEvent) return grokLifecycleEvents(directEvent, payload, payload)
+
   const method = stringField(payload, 'method')
   if (method !== 'session/update' && method !== '_x.ai/session/update') return []
   const params = recordField(payload, 'params')
@@ -240,23 +246,51 @@ async function grokHookEvents(
   update: Record<string, unknown>,
   payload: Record<string, unknown>,
 ): Promise<AgentStateEvent[]> {
-  switch (
-    normalizeName(stringField(update, 'event_name') ?? stringField(update, 'hook_event_name'))
-  ) {
+  const event = normalizeName(
+    stringField(update, 'event_name') ?? stringField(update, 'hook_event_name'),
+  )
+  return event ? grokLifecycleEvents(event, update, payload) : []
+}
+
+function grokHookEventName(payload: Record<string, unknown>): string | undefined {
+  return normalizeName(
+    stringField(payload, 'hookEventName') ?? stringField(payload, 'hook_event_name'),
+  )
+}
+
+async function grokLifecycleEvents(
+  event: string,
+  fields: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): Promise<AgentStateEvent[]> {
+  switch (event) {
     case 'session_start':
       return [{ kind: 'session_started' }]
     case 'user_prompt_submit':
       return [{ kind: 'prompt_submitted' }]
-    case 'pre_tool_use':
-    case 'post_tool_use':
+    case 'pre_tool_use': {
+      const tool = stringField(fields, 'toolName') ?? stringField(fields, 'tool_name')
+      if (tool && ['ask_user', 'ask_user_question'].includes(normalizeName(tool) ?? '')) {
+        const summary = grokQuestionSummary(fields)
+        return [{ kind: 'needs_user', need: 'question', ...(summary ? { summary } : {}) }]
+      }
       return [{ kind: 'activity' }]
+    }
+    case 'post_tool_use':
+    case 'post_tool_use_failure':
+    case 'notification':
+      return [{ kind: 'activity' }]
+    case 'permission_denied': {
+      const summary = stringField(fields, 'toolName') ?? stringField(fields, 'tool_name')
+      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
+    }
     case 'stop': {
       const verdict = await classifyStopPayload(payload)
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
       const errorClass =
-        stringField(update, 'error_type') ?? stringField(update, 'errorType') ?? 'unknown'
+        stringField(fields, 'error_type') ?? stringField(fields, 'errorType') ?? 'unknown'
       return [{ kind: 'turn_failed', errorClass, retryable: RETRYABLE.has(errorClass) }]
     }
     case 'pre_compact':
@@ -264,14 +298,25 @@ async function grokHookEvents(
     case 'post_compact':
       return [{ kind: 'compaction', phase: 'end' }]
     case 'task_created':
+    case 'subagent_start':
       return [{ kind: 'task_delta', delta: 1 }]
     case 'task_completed':
+    case 'subagent_stop':
       return [{ kind: 'task_delta', delta: -1 }]
     case 'session_end':
       return [{ kind: 'session_ended' }]
     default:
       return []
   }
+}
+
+function grokQuestionSummary(fields: Record<string, unknown>): string | undefined {
+  const input = recordField(fields, 'toolInput') ?? recordField(fields, 'tool_input')
+  const direct = stringField(input, 'question') ?? stringField(input, 'prompt')
+  if (direct) return direct
+  const questions = input?.questions
+  const first = Array.isArray(questions) && isRecord(questions[0]) ? questions[0] : undefined
+  return stringField(first, 'question') ?? stringField(first, 'prompt')
 }
 
 function tailGrokUpdates(
@@ -390,13 +435,26 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
 async function classifyStopPayload(
   payload: Record<string, unknown>,
 ): Promise<{ kind: 'done' | 'question' | 'approval'; summary?: string } | undefined> {
-  const path = stringField(payload, 'chat_history_path')
+  const path =
+    stringField(payload, 'chat_history_path') ??
+    stringField(payload, 'chatHistoryPath') ??
+    grokHookChatHistoryPath(payload)
   if (!path) return undefined
   try {
     return classifyGrokIdleTranscript(await readGrokChatHistoryTail(path))
   } catch {
     return undefined
   }
+}
+
+function grokHookChatHistoryPath(payload: Record<string, unknown>): string | undefined {
+  const sessionId = stringField(payload, 'sessionId') ?? stringField(payload, 'session_id')
+  const cwd =
+    stringField(payload, 'cwd') ??
+    stringField(payload, 'workspaceRoot') ??
+    stringField(payload, 'workspace_root')
+  if (!sessionId || !cwd) return undefined
+  return grokSessionPaths({ cwd, sessionId }).chatHistoryPath
 }
 
 async function readGrokChatHistoryTail(path: string): Promise<unknown[]> {

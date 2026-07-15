@@ -1,0 +1,169 @@
+import { execFile, spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import { describe, expect, it } from 'vitest'
+import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from './grok-hooks'
+
+const execFileAsync = promisify(execFile)
+
+async function home(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'podium-grok-hooks-'))
+  await mkdir(join(dir, '.grok'), { recursive: true })
+  return dir
+}
+
+const events = [
+  'SessionStart',
+  'UserPromptSubmit',
+  'PreToolUse',
+  'PostToolUse',
+  'PostToolUseFailure',
+  'PermissionDenied',
+  'Notification',
+  'SubagentStart',
+  'SubagentStop',
+  'Stop',
+  'StopFailure',
+  'PreCompact',
+  'PostCompact',
+  'SessionEnd',
+]
+
+describe('ensurePodiumGrokHooks', () => {
+  it('skips silently when the Grok home does not exist', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-grok-hooks-'))
+    const result = await ensurePodiumGrokHooks({ homeDir: dir })
+    expect(result.installed).toBe(false)
+    expect(existsSync(join(dir, '.grok', 'hooks', 'podium.json'))).toBe(false)
+  })
+
+  it('creates an env-gated personal hook for every native lifecycle event', async () => {
+    const dir = await home()
+    const result = await ensurePodiumGrokHooks({ homeDir: dir })
+    expect(result).toMatchObject({ installed: true, changed: true })
+
+    const doc = JSON.parse(await readFile(join(dir, '.grok', 'hooks', 'podium.json'), 'utf8'))
+    for (const event of events) {
+      expect(doc.hooks[event]?.[0]?.hooks?.[0]).toEqual({
+        type: 'command',
+        command: PODIUM_GROK_HOOK_COMMAND,
+        timeout: 5,
+      })
+    }
+  })
+
+  it('is idempotent and preserves foreign hook groups', async () => {
+    const dir = await home()
+    const path = join(dir, '.grok', 'hooks', 'podium.json')
+    await mkdir(join(dir, '.grok', 'hooks'), { recursive: true })
+    await writeFile(
+      path,
+      JSON.stringify({
+        hooks: {
+          Stop: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'other-tool' }] }],
+        },
+      }),
+    )
+
+    await ensurePodiumGrokHooks({ homeDir: dir })
+    const second = await ensurePodiumGrokHooks({ homeDir: dir })
+    expect(second).toMatchObject({ installed: true, changed: false })
+    const doc = JSON.parse(await readFile(path, 'utf8'))
+    expect(doc.hooks.Stop[0]).toEqual({
+      matcher: 'Bash',
+      hooks: [{ type: 'command', command: 'other-tool' }],
+    })
+    expect(doc.hooks.Stop[1].hooks[0].command).toBe(PODIUM_GROK_HOOK_COMMAND)
+  })
+
+  it('never overwrites a corrupt dedicated hook file', async () => {
+    const dir = await home()
+    const hooksDir = join(dir, '.grok', 'hooks')
+    const path = join(hooksDir, 'podium.json')
+    await mkdir(hooksDir, { recursive: true })
+    await writeFile(path, '{broken')
+    const result = await ensurePodiumGrokHooks({ homeDir: dir })
+    expect(result).toMatchObject({ installed: false, changed: false })
+    expect(await readFile(path, 'utf8')).toBe('{broken')
+  })
+
+  it('is discovered by the installed Grok CLI in an isolated home', async () => {
+    try {
+      await execFileAsync('grok', ['--version'], { timeout: 10_000 })
+    } catch {
+      return
+    }
+    const dir = await home()
+    const grokHome = join(dir, '.grok')
+    await ensurePodiumGrokHooks({ homeDir: dir })
+    const { stdout } = await execFileAsync('grok', ['inspect', '--json'], {
+      cwd: dir,
+      env: { ...process.env, GROK_HOME: grokHome },
+      timeout: 10_000,
+    })
+    const inspected = JSON.parse(stdout) as {
+      hooks?: Array<{
+        event?: string
+        target?: string
+        source?: { path?: string }
+      }>
+    }
+    expect(inspected.hooks).toContainEqual(
+      expect.objectContaining({
+        event: 'PreToolUse',
+        target: PODIUM_GROK_HOOK_COMMAND,
+        source: expect.objectContaining({ path: join(grokHome, 'hooks') }),
+      }),
+    )
+  })
+})
+
+describe('Podium Grok hook command', () => {
+  it('posts the native stdin payload and relays a blocking response to stdout', async () => {
+    let received: unknown
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        received = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ decision: 'deny', reason: 'read your Podium inbox' }))
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    const port = typeof address === 'object' && address ? address.port : 0
+
+    try {
+      const child = spawn('sh', ['-c', PODIUM_GROK_HOOK_COMMAND], {
+        env: {
+          ...process.env,
+          PODIUM_GROK_HOOK_URL: `http://127.0.0.1:${port}/hooks/grok-test`,
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8')
+      })
+      child.stdin.end(JSON.stringify({ hookEventName: 'PreToolUse', toolName: 'Bash' }))
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.once('error', reject)
+        child.once('exit', resolve)
+      })
+
+      expect(code).toBe(0)
+      expect(received).toEqual({ hookEventName: 'PreToolUse', toolName: 'Bash' })
+      expect(JSON.parse(stdout)).toEqual({
+        decision: 'deny',
+        reason: 'read your Podium inbox',
+      })
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+})

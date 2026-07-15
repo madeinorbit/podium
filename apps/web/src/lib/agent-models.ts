@@ -62,8 +62,8 @@ const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
     { value: 'gpt-5.4', label: 'GPT-5.4', efforts: CODEX_EFFORT.map((o) => o.value) },
   ],
   grok: [
-    { value: 'grok-composer-2.5-fast', label: 'Grok Composer 2.5 Fast' },
-    { value: 'grok-build', label: 'Grok Build' },
+    { value: 'grok-4.5', label: 'Grok 4.5' },
+    { value: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' },
   ],
   opencode: [
     { value: 'openai/gpt-5.5', label: 'OpenAI GPT-5.5' },

@@ -404,12 +404,15 @@ export const codexStateProvider: AgentStateProvider = {
   // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
   // spawn — see the daemon's ensurePodiumCodexHooks); the per-session ingest URL
   // rides the spawn env instead, so no argv or settings-file injection is needed.
-  instrumentation() {
-    return { args: [] }
+  instrumentation({ endpointUrl }) {
+    return { args: [], env: { [PODIUM_CODEX_HOOK_URL_ENV]: endpointUrl } }
   },
   translate: translateCodexEvent,
   bootEvents: codexBootEvents,
 }
+
+/** Env-gated callback used by the global Codex hook install. */
+export const PODIUM_CODEX_HOOK_URL_ENV = 'PODIUM_CODEX_HOOK_URL'
 
 /**
  * Discover the live rollout file for a freshly-spawned (or resumed) Codex session
