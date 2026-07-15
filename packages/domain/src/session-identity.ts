@@ -36,7 +36,8 @@ export interface ResumableSession extends HeadlessFields {
  * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
  * resume. Keeps the most useful row per ref (live > starting/reconnecting >
  * hibernated > exited; ties break to the most-recently-active) and preserves
- * order. Sessions with no resume ref are distinct and never merged.
+ * order. Sessions with no resume ref are distinct and never merged. Multiple
+ * live rows are preserved because hiding them would redirect stable UI identity.
  */
 export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]): S[] {
   const rank = (s: S): number => {
@@ -56,16 +57,26 @@ export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]
     if (rank(a) !== rank(b)) return rank(a) > rank(b) ? a : b
     return a.lastActiveAt >= b.lastActiveAt ? a : b
   }
+  // [spec:SP-fccf] Two simultaneously live rows sharing a native ref signal an
+  // identity-attribution bug, not a harmless duplicate. Keep both visible and
+  // independently clickable; only legacy parked/live twins may collapse.
+  const liveRefCounts = new Map<string, number>()
+  for (const session of sessions) {
+    if (!session.resume || isHeadlessSession(session)) continue
+    if (!['live', 'starting', 'reconnecting'].includes(session.status)) continue
+    const key = `${session.resume.kind}:${session.resume.value}`
+    liveRefCounts.set(key, (liveRefCounts.get(key) ?? 0) + 1)
+  }
   const indexByRef = new Map<string, number>()
   const out: S[] = []
   for (const s of sessions) {
-    // A headless session shares its resume ref with its "open in terminal" PTY
-    // twin by design (same harness conversation) — never collapse the two rows.
-    if (!s.resume || isHeadlessSession(s)) {
+    const key = s.resume && !isHeadlessSession(s) ? `${s.resume.kind}:${s.resume.value}` : undefined
+    // A headless session shares its resume ref with its terminal twin by design.
+    // A live collision stays fail-visible so each stable Podium id remains usable.
+    if (!key || (liveRefCounts.get(key) ?? 0) > 1) {
       out.push(s)
       continue
     }
-    const key = `${s.resume.kind}:${s.resume.value}`
     const at = indexByRef.get(key)
     const existing = at === undefined ? undefined : out[at]
     if (at === undefined || existing === undefined) {

@@ -217,6 +217,14 @@ describe('dedupeSessionsByResume', () => {
     expect(out.map((s) => s.sessionId).sort()).toEqual(['live-one', 'other'])
   })
 
+  it('keeps simultaneous live rows independently visible when a native ref collides', () => {
+    const list = [
+      withResume('pane-a', 'live', 'thread-collision', 2),
+      withResume('pane-b', 'starting', 'thread-collision', 1),
+    ]
+    expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['pane-a', 'pane-b'])
+  })
+
   it('keeps the most-recently-active when statuses tie', () => {
     const list = [
       withResume('old', 'exited', 'thread-9', 10),
