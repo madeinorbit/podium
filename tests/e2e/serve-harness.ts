@@ -16,8 +16,12 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ConversationDiscoveryCache } from '@podium/agent-bridge'
-import { agentLaunchCommand, type LaunchOptions, type LaunchSpec } from '@podium/agent-bridge'
+import {
+  agentLaunchCommand,
+  ConversationDiscoveryCache,
+  type LaunchOptions,
+  type LaunchSpec,
+} from '@podium/agent-bridge'
 import type { AgentKind } from '@podium/protocol'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
@@ -123,7 +127,7 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
         cwd: KEYECHO_PKG,
       }
 
-const server = await startServer({ port: PORT })
+let server = await startServer({ port: PORT })
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
@@ -134,6 +138,29 @@ const daemon = await startDaemon({
 console.log(
   `harness relay on ws://localhost:${server.port} (shell=real, else=keyecho); state=${stateDir}`,
 )
+// Test-only process control: a Playwright spec can restart ONLY the relay while
+// leaving the daemon + durable PTY host alive, matching a production server restart.
+// The serial file is the completion ack; the deliberate offline window gives the
+// browser time to prove its xterm canvas stays untouched while disconnected.
+const restartSerialFile = join(stateDir, 'restart-serial')
+let restartSerial = 0
+let restartInFlight = false
+writeFileSync(join(stateDir, 'harness.pid'), String(process.pid))
+writeFileSync(restartSerialFile, String(restartSerial))
+const restartServer = async (): Promise<void> => {
+  if (restartInFlight) return
+  restartInFlight = true
+  try {
+    await server.close()
+    await new Promise((resolve) => setTimeout(resolve, 750))
+    server = await startServer({ port: PORT })
+    restartSerial += 1
+    writeFileSync(restartSerialFile, String(restartSerial))
+  } finally {
+    restartInFlight = false
+  }
+}
+process.on('SIGUSR1', () => void restartServer())
 
 const shutdown = async (): Promise<void> => {
   // Full reap: harness sessions are throwaway — without this every e2e run leaks
