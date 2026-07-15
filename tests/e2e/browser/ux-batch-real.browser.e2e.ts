@@ -96,14 +96,15 @@ test('real codex: resume-and-send waits for the resumed TUI before delivering (#
   await nativeHasAnswer(page, '73', 180_000)
 
   // Hibernate the (idle, resumable) session — the process goes away, transcript stays.
-  const hibernate = page.locator('button[title^="Hibernate"]:not([disabled])')
+  const hibernate = page.locator('button[title^="Hibernate"]:not([disabled]):visible')
   await hibernate.click({ timeout: 90_000 })
-  await expect(page.getByPlaceholder(/resumes the agent/i)).toBeVisible({ timeout: 30_000 })
+  const resumeComposer = page.getByPlaceholder(/resumes the agent/i).locator('visible=true')
+  await expect(resumeComposer).toBeVisible({ timeout: 30_000 })
 
   // Send a message in the read-only/parked state → resumeAndSend: it must resurrect
   // codex AND wait for its TUI to finish loading before typing, or the message is
   // lost into a half-built UI. 27+15=42 (absent from the prompt).
-  const ta = page.getByPlaceholder(/resumes the agent/i)
+  const ta = resumeComposer
   await ta.click()
   await ta.fill('Compute 27 + 15 and reply with only the number, nothing else.')
   await ta.press('Control+Enter')
