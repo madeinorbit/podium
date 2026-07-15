@@ -311,7 +311,11 @@ export function NewAutomationDialog({
               onValueChange={(value) => setSessionMode(value as AutomationSessionMode)}
             >
               <SelectTrigger id="automation-session-mode" className="w-full">
-                <SelectValue />
+                <SelectValue>
+                  {sessionMode === 'resume'
+                    ? 'Resume the previous session'
+                    : 'Fresh issue and session each run'}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="fresh">Fresh issue and session each run</SelectItem>

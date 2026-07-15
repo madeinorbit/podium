@@ -76,6 +76,21 @@ test('unified sidebar links + a scheduled automation that persists', async ({ pa
   const toggle = view.getByRole('switch', { name: /Nightly test sweep/ })
   await expect(toggle).toBeChecked()
 
+  // Edit through the real action: exact cron prefill is preserved and session mode
+  // changes ride the durable metadata rail back into the card without a refetch.
+  await view.getByRole('button', { name: 'Edit Nightly test sweep' }).click()
+  const editDialog = page.getByRole('dialog')
+  await expect(editDialog.getByText('Edit automation')).toBeVisible()
+  await expect(editDialog.getByLabel('Cron expression')).toHaveValue('0 9 * * 1')
+  await expect(editDialog.getByLabel('Session mode')).toContainText(
+    'Fresh issue and session each run',
+  )
+  await editDialog.getByLabel('Session mode').click()
+  await page.getByRole('option', { name: 'Resume the previous session' }).click()
+  await editDialog.getByRole('button', { name: 'Save changes' }).click()
+  await expect(editDialog).toBeHidden()
+  await expect(view.getByText('Resume previous session', { exact: false })).toBeVisible()
+
   // ── The assertion the mock could never make: it survives a reload ──────────
   await page.reload()
   await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
@@ -83,6 +98,7 @@ test('unified sidebar links + a scheduled automation that persists', async ({ pa
   })
   await sidebar.getByRole('button', { name: 'Automations', exact: true }).click()
   await expect(view.getByText('Nightly test sweep', { exact: true })).toBeVisible()
+  await expect(view.getByText('Resume previous session', { exact: false })).toBeVisible()
 
   // Toggling persists too.
   const persisted = view.getByRole('switch', { name: /Nightly test sweep/ })
