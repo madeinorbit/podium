@@ -259,7 +259,7 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['workflow', '--help'])).toEqual({ kind: 'workflow', args: ['--help'] })
   })
   it('approval broker: agent sessions turn management ops into requests (#410)', () => {
-    const agent = { PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1' }
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
     expect(plan({}, ['update'], agent)).toEqual({
       kind: 'approval-request',
       op: { kind: 'update' },
@@ -290,6 +290,26 @@ describe('resolvePlan — utility subcommands', () => {
       args: ['checkpoint', 'complete'],
     })
     expect(plan({}, ['status'], agent)).toEqual({ kind: 'status' })
+  })
+
+  it('agent-session detection: new name, legacy alias, and PODIUM_NO_RELAY escape hatch', () => {
+    // Detection via the new PODIUM_AGENT_RELAY name.
+    expect(plan({}, ['update'], { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' })).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'update' },
+    })
+    // Legacy PODIUM_ISSUE_RELAY alone still detects an agent session (one-release alias).
+    expect(plan({}, ['update'], { PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1' })).toEqual({
+      kind: 'approval-request',
+      op: { kind: 'update' },
+    })
+    // PODIUM_NO_RELAY sheds the inherited relay → NOT an agent session → runs directly.
+    expect(
+      plan({}, ['update'], {
+        PODIUM_NO_RELAY: '1',
+        PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1',
+      }),
+    ).toMatchObject({ kind: 'update' })
   })
 
   it('version: version/--version/-v', () => {

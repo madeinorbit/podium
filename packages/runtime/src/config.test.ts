@@ -7,8 +7,8 @@ import {
   inspectConfig,
   loadConfig,
   needsSetup,
+  resolveAgentRelay,
   resolveInstallDir,
-  resolveIssueRelay,
   resolvePort,
   resolveRunRecordMode,
   resolveUpdateChannel,
@@ -141,11 +141,33 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     expect(resolveInstallDir({ PODIUM_HOME: '/opt/podium' }, '/usr/bin/podium')).toBe('/opt/podium')
     expect(resolveInstallDir({}, '/usr/bin/podium')).toBe('/usr/bin')
   })
-  it('resolveIssueRelay is env-only', () => {
-    expect(resolveIssueRelay({ PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/x' })).toBe(
+  it('resolveAgentRelay is env-only', () => {
+    expect(resolveAgentRelay({ PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/x' })).toBe(
       'http://127.0.0.1:1/x',
     )
-    expect(resolveIssueRelay({})).toBeUndefined()
+    expect(resolveAgentRelay({})).toBeUndefined()
+  })
+  it('resolveAgentRelay: PODIUM_AGENT_RELAY wins over legacy PODIUM_ISSUE_RELAY', () => {
+    expect(
+      resolveAgentRelay({
+        PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1',
+        PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1',
+      }),
+    ).toBe('http://127.0.0.1:1/agent/s1')
+  })
+  it('resolveAgentRelay: legacy PODIUM_ISSUE_RELAY alone still resolves (one-release alias)', () => {
+    expect(resolveAgentRelay({ PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1' })).toBe(
+      'http://127.0.0.1:1/issue/s1',
+    )
+  })
+  it('resolveAgentRelay: PODIUM_NO_RELAY sheds an inherited relay → undefined', () => {
+    expect(
+      resolveAgentRelay({
+        PODIUM_NO_RELAY: '1',
+        PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1',
+        PODIUM_ISSUE_RELAY: 'http://127.0.0.1:1/issue/s1',
+      }),
+    ).toBeUndefined()
   })
   it('resolveRunRecordMode: NOTIFY_SOCKET > PODIUM_RUN_MODE=detached > foreground', () => {
     expect(resolveRunRecordMode({ NOTIFY_SOCKET: '/run/x' })).toBe('systemd')

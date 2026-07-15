@@ -15,6 +15,7 @@
  */
 
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { resolveAgentRelay } from '@podium/runtime/config'
 import { MailCliError, parseMailArgs } from './mail-cli'
 
 type Proc = { mutate(input?: unknown): Promise<unknown> }
@@ -144,7 +145,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
 }
 
 export async function agentCliMain(argv: string[]): Promise<void> {
-  const relay = process.env.PODIUM_ISSUE_RELAY
+  const relay = resolveAgentRelay()
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })

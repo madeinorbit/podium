@@ -17,6 +17,7 @@ import {
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
+  resolveAgentRelay,
   resolvePort,
   resolveRunRecordMode,
   resolveUpdateChannel,
@@ -215,7 +216,7 @@ export function resolvePlan(
   // Inside a Podium-managed agent session, management ops never execute here:
   // they become approval requests the operator decides in the UI (#410). The
   // daemon executes on approval. Status/logs/work tools stay direct.
-  const agentSession = !!env.PODIUM_ISSUE_RELAY
+  const agentSession = !!resolveAgentRelay(env)
   if (argv[0] === 'approval') {
     if (!agentSession) {
       return {
@@ -711,12 +712,12 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       return
     }
     case 'approval-request': {
-      const { resolveIssueRelay } = await import('@podium/runtime/config')
+      const { resolveAgentRelay } = await import('@podium/runtime/config')
       const { requestApproval } = await import('./approval-cli')
       try {
         // BLOCKS until the operator decides (or the wait budget runs out) — the
         // command finishing IS how the agent learns the answer.
-        const { text, exitCode } = await requestApproval(resolveIssueRelay()!, plan.op)
+        const { text, exitCode } = await requestApproval(resolveAgentRelay()!, plan.op)
         ;(exitCode === 0 ? console.log : console.error)(text)
         if (exitCode !== 0) process.exit(exitCode)
       } catch (e) {
@@ -726,10 +727,10 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       return
     }
     case 'approval-status': {
-      const { resolveIssueRelay } = await import('@podium/runtime/config')
+      const { resolveAgentRelay } = await import('@podium/runtime/config')
       const { approvalStatus } = await import('./approval-cli')
       try {
-        console.log(await approvalStatus(resolveIssueRelay()!, plan.id))
+        console.log(await approvalStatus(resolveAgentRelay()!, plan.id))
       } catch (e) {
         console.error(`podium: ${(e as Error).message}`)
         process.exit(1)

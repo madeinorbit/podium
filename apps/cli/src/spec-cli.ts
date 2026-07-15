@@ -4,7 +4,7 @@ import {
   makeRelayIssueClient,
   SPEC_COMMANDS,
 } from '@podium/issue-client'
-import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
+import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import {
   IssueCliError,
   parseIssueArgs,
@@ -16,7 +16,7 @@ import {
 /**
  * `podium spec` — agent/operator CLI over the living project spec (pspec v1).
  * Same shape and transports as `podium issue` (./issue-cli.ts): relayed
- * through the daemon when PODIUM_ISSUE_RELAY is set (agent path), direct tRPC
+ * through the daemon when PODIUM_AGENT_RELAY is set (agent path), direct tRPC
  * otherwise (operator path). Commands live in @podium/issue-client (spec-commands).
  */
 
@@ -79,7 +79,7 @@ export async function runSpecCli(argv: string[], client: IssueTrpc): Promise<str
 
 /** Entry used by apps/cli/src/cli.ts — same transport selection as issueCliMain. */
 export async function specCliMain(argv: string[]): Promise<void> {
-  const relay = resolveIssueRelay()
+  const relay = resolveAgentRelay()
   const client = relay
     ? makeRelayIssueClient(relay)
     : makeIssueClient(`http://localhost:${resolvePort()}`)

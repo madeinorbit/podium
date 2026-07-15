@@ -4,7 +4,7 @@ import {
   makeIssueClient,
   makeRelayIssueClient,
 } from '@podium/issue-client'
-import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
+import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import type { z } from 'zod'
 
 /** Kebab-case flag → camelCase key, so `--outside-scope` becomes `outsideScope`. */
@@ -230,21 +230,21 @@ export async function runIssueCli(
 }
 
 /** Entry used by scripts/cli.ts: build a client and run, printing the result.
- *  A constrained agent's process gets PODIUM_ISSUE_RELAY (a daemon endpoint bound to its
+ *  A constrained agent's process gets PODIUM_AGENT_RELAY (a daemon endpoint bound to its
  *  session id) — its calls ride the daemon, which applies scope. Otherwise the operator CLI
  *  talks to the local server directly. `--outside-scope` rides through to the daemon; the
  *  session id is bound in the relay URL, so there is deliberately no `--session` flag.
  *  Any failure exits 1; with `--json` the error is a JSON object on stdout. */
 export async function issueCliMain(argv: string[]): Promise<void> {
-  const relay = resolveIssueRelay()
+  const relay = resolveAgentRelay()
   const outsideScope = argv.includes('--outside-scope')
   // The session-injected relay wins over PODIUM_STATE_DIR/PODIUM_PORT targeting.
   // Say so instead of silently routing to the session's server (footgun when
   // driving an isolated instance from inside an agent session); unset
-  // PODIUM_ISSUE_RELAY to talk to the targeted instance directly.
+  // PODIUM_AGENT_RELAY to talk to the targeted instance directly.
   if (relay && process.env.PODIUM_STATE_DIR)
     console.error(
-      'podium issue: routing via this session’s issue relay (PODIUM_STATE_DIR/PODIUM_PORT ignored; unset PODIUM_ISSUE_RELAY to target another instance)',
+      'podium issue: routing via this session’s agent relay (PODIUM_STATE_DIR/PODIUM_PORT ignored; unset PODIUM_AGENT_RELAY to target another instance)',
     )
   const client = relay
     ? makeRelayIssueClient(relay, { outsideScope })

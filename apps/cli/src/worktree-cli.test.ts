@@ -43,10 +43,10 @@ describe('runWorktreeCli', () => {
     ])
   })
 
-  it('fails with guidance when PODIUM_ISSUE_RELAY is not set', async () => {
+  it('fails with guidance when PODIUM_AGENT_RELAY is not set', async () => {
     const out = await runWorktreeCli([], { cwd: '/x' })
     expect(out.exitCode).toBe(1)
-    expect(out.text).toContain('PODIUM_ISSUE_RELAY')
+    expect(out.text).toContain('PODIUM_AGENT_RELAY')
   })
 
   it('surfaces a daemon rejection as a failure', async () => {

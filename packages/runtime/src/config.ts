@@ -23,7 +23,9 @@
  * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
  * | NOTIFY_SOCKET (systemd's)     | — (env-only)            | `resolveRunRecordMode()`, sd-notify                    |
- * | PODIUM_ISSUE_RELAY            | — (env-only)            | `resolveIssueRelay()` (daemon-injected per agent)      |
+ * | PODIUM_AGENT_RELAY            | — (env-only)            | `resolveAgentRelay()` (daemon-injected per agent)      |
+ * | PODIUM_NO_RELAY               | — (env-only flag)       | `resolveAgentRelay()` (shed inherited relay; escape)   |
+ * | PODIUM_ISSUE_RELAY            | — (env-only, LEGACY)    | `resolveAgentRelay()` read-only alias (dual-read, 1 rel)|
  * | PODIUM_SESSION_ID             | — (env-only)            | daemon-injected agent identity (control/session.ts)    |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
  * | PODIUM_LOOP_PROFILE           | — (env-only flag)       | server + daemon event-loop profiling                   |
@@ -222,10 +224,16 @@ export function resolveInstallDir(
   return env.PODIUM_HOME ?? dirname(execPath)
 }
 
-/** Daemon-injected issue-relay endpoint for a constrained agent process (env-only —
- *  set by apps/daemon per session; never configured by the operator). */
-export function resolveIssueRelay(env: EnvSource = process.env): string | undefined {
-  return env.PODIUM_ISSUE_RELAY
+/** Daemon-injected agent-relay endpoint for a constrained agent process (env-only —
+ *  set by apps/daemon per session; never configured by the operator).
+ *  PODIUM_NO_RELAY forces "act as operator / not this session" — the escape hatch used
+ *  by nested subagent contexts and the hermetic test harness to shed an inherited relay
+ *  (so they stop acting as the parent session).
+ *  Reads the new name, falling back to the legacy PODIUM_ISSUE_RELAY for one release
+ *  (in-flight sessions spawned before the cutover still carry it). [spec:SP-b85a] */
+export function resolveAgentRelay(env: EnvSource = process.env): string | undefined {
+  if (env.PODIUM_NO_RELAY) return undefined
+  return env.PODIUM_AGENT_RELAY ?? env.PODIUM_ISSUE_RELAY
 }
 
 /**

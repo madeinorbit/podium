@@ -6,13 +6,14 @@
  *   show <id>
  *   reply <id> --body "…" [--kind ack|message]
  *
- * Speaks to the `messages` relay router (agents, via PODIUM_ISSUE_RELAY) or the
+ * Speaks to the `messages` relay router (agents, via PODIUM_AGENT_RELAY) or the
  * tRPC `messages` sub-router (operator). The legacy `podium issue mail *`
  * aliases keep working over the same substrate (issue-addressed sends
  * dual-write mirror rows with the SAME ids).
  */
 
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { resolveAgentRelay } from '@podium/runtime/config'
 
 type MailProc = {
   mutate(input?: unknown): Promise<unknown>
@@ -201,7 +202,7 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
 }
 
 export async function mailCliMain(argv: string[]): Promise<void> {
-  const relay = process.env.PODIUM_ISSUE_RELAY
+  const relay = resolveAgentRelay()
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })

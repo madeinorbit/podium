@@ -4,7 +4,7 @@ import {
   makeIssueClient,
   makeRelayIssueClient,
 } from '@podium/issue-client'
-import { resolveIssueRelay, resolvePort } from '@podium/runtime/config'
+import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 
 /**
  * `podium lock <command>` / `podium merge-lock <command>` [spec:SP-85d1] —
@@ -212,7 +212,7 @@ export async function runLockCli(
 }
 
 function buildClient(argv: string[]): IssueTrpc {
-  const relay = resolveIssueRelay()
+  const relay = resolveAgentRelay()
   const outsideScope = argv.includes('--outside-scope')
   return relay
     ? makeRelayIssueClient(relay, { outsideScope })

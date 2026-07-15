@@ -9,7 +9,7 @@ import type {
   WorkflowStep,
   WorkflowWire,
 } from '@podium/protocol'
-import { resolvePort } from '@podium/runtime/config'
+import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { requestApproval } from './approval-cli'
 
 type WorkflowClient = Pick<IssueTrpc, 'workflows'>
@@ -457,7 +457,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
 }
 
 export async function workflowCliMain(argv: string[]): Promise<void> {
-  const relayEndpoint = process.env.PODIUM_ISSUE_RELAY
+  const relayEndpoint = resolveAgentRelay()
   const outsideScope = argv.includes('--outside-scope')
   const client = relayEndpoint
     ? makeRelayIssueClient(relayEndpoint, { outsideScope })

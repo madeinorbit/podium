@@ -1,4 +1,5 @@
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
+import { resolveAgentRelay } from '@podium/runtime/config'
 
 type SessionResult = { ok: boolean; queued?: boolean; reason?: string }
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
@@ -174,7 +175,7 @@ function helpText(): string {
     '      session. 3–5 words naming the thing, not the activity; it must distinguish',
     '      this session from the others on the same issue. Re-run to retitle as the',
     '      work becomes clear. A name the USER set always wins and is never overwritten.',
-    '      Only works inside a Podium-managed agent session (PODIUM_ISSUE_RELAY).',
+    '      Only works inside a Podium-managed agent session (PODIUM_AGENT_RELAY).',
   ].join('\n')
 }
 
@@ -211,7 +212,7 @@ export async function runSessionCli(
   if (command === 'title') {
     if (opts.hasRelay === false) {
       throw new SessionCliError(
-        'PODIUM_ISSUE_RELAY is not set — `session title` names the calling session, so it only works inside a Podium-managed agent session.',
+        'PODIUM_AGENT_RELAY is not set — `session title` names the calling session, so it only works inside a Podium-managed agent session.',
       )
     }
     const title = positionals.join(' ').trim()
@@ -302,7 +303,7 @@ export async function runSessionCli(
 }
 
 export async function sessionCliMain(argv: string[]): Promise<void> {
-  const relay = process.env.PODIUM_ISSUE_RELAY
+  const relay = resolveAgentRelay()
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })

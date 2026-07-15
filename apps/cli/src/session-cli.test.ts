@@ -136,7 +136,7 @@ describe('podium session title (#490)', () => {
 
   it('requires the relay — outside an agent session there is no calling session to name', async () => {
     await expect(runSessionCli(['title', 'X'], client(), { hasRelay: false })).rejects.toThrow(
-      /PODIUM_ISSUE_RELAY is not set/,
+      /PODIUM_AGENT_RELAY is not set/,
     )
   })
 

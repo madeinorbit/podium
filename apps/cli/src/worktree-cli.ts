@@ -1,9 +1,9 @@
 import { resolve } from 'node:path'
-import { resolveIssueRelay } from '@podium/runtime/config'
+import { resolveAgentRelay } from '@podium/runtime/config'
 
 /**
  * `podium worktree [path]` — tell Podium which worktree this agent session is
- * working in. Rides the daemon's issue-relay loopback (PODIUM_ISSUE_RELAY, bound
+ * working in. Rides the daemon's agent-relay loopback (PODIUM_AGENT_RELAY, bound
  * to the session at spawn), where the daemon resolves the path to its git
  * toplevel and restamps the session's worktree grouping. Complements the
  * automatic hook-cwd detection: an agent whose harness doesn't report cwd (or
@@ -20,7 +20,7 @@ export async function runWorktreeCli(
         '',
         '  Tell Podium which git worktree this agent session is working in',
         '  (defaults to the current directory; resolved to its git toplevel).',
-        '  Only works inside a Podium-managed agent session (PODIUM_ISSUE_RELAY).',
+        '  Only works inside a Podium-managed agent session (PODIUM_AGENT_RELAY).',
       ].join('\n'),
       exitCode: 0,
     }
@@ -33,7 +33,7 @@ export async function runWorktreeCli(
   }
   if (!opts.relayEndpoint) {
     return {
-      text: 'podium worktree: PODIUM_ISSUE_RELAY is not set — this command only works inside a Podium-managed agent session.',
+      text: 'podium worktree: PODIUM_AGENT_RELAY is not set — this command only works inside a Podium-managed agent session.',
       exitCode: 1,
     }
   }
@@ -64,7 +64,7 @@ export async function runWorktreeCli(
 /** Entry used by scripts/cli.ts. */
 export async function worktreeCliMain(argv: string[]): Promise<void> {
   const out = await runWorktreeCli(argv, {
-    relayEndpoint: resolveIssueRelay(),
+    relayEndpoint: resolveAgentRelay(),
     cwd: process.cwd(),
   })
   ;(out.exitCode === 0 ? console.log : console.error)(out.text)
