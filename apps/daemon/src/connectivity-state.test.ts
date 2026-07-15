@@ -3,6 +3,7 @@
 // dropped from config.json, and a terminal rejection fires onBlocked (the CLI's distinct-exit
 // hook) instead of crash-looping.
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
@@ -16,19 +17,28 @@ import { startDaemon } from './daemon'
 
 describe('daemon connectivity state (#19)', () => {
   let dir: string
+  let httpServer: Server
   let wss: WebSocketServer
   let port: number
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'podium-conn-'))
     process.env.PODIUM_STATE_DIR = dir
-    wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    port = (wss.address() as { port: number }).port
+    // Mount the ws server on an explicit http server so teardown can force lingering
+    // sockets shut (server.closeAllConnections) — a WebSocketServer that owns its own
+    // port hides that server, and under Bun its close() callback waits forever for a
+    // re-dial from the daemon's backoff loop to disconnect on its own.
+    httpServer = createServer()
+    wss = new WebSocketServer({ server: httpServer })
+    await new Promise<void>((r) => httpServer.listen(0, () => r()))
+    port = (httpServer.address() as { port: number }).port
   })
   afterEach(async () => {
     delete process.env.PODIUM_STATE_DIR
+    for (const c of wss.clients) c.terminate()
     await new Promise<void>((r) => wss.close(() => r()))
+    httpServer.closeAllConnections?.()
+    await new Promise<void>((r) => httpServer.close(() => r()))
     rmSync(dir, { recursive: true, force: true })
   })
 

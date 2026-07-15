@@ -7,18 +7,30 @@ afterEach(() => {
   else process.env.PODIUM_PTY_BACKEND = orig
 })
 
+// The suite runs under Bun in CI and prod, but these tests stay correct under
+// Node too: every expectation is derived from the LIVE runtime rather than
+// assuming one. `process.versions.bun` is the independent oracle (set only under
+// Bun) — using it keeps the isUnderBun()/hasBunTerminal() assertions non-circular.
+const reallyUnderBun = !!process.versions.bun
+// Under Bun the auto path takes the terminal PTY; under Node it falls to node-pty.
+const autoBackendName = isUnderBun() && hasBunTerminal() ? 'bun-terminal' : 'node-pty'
+
 describe('defaultPtyBackend', () => {
-  it('defaults to node-pty under Node (no Bun.Terminal)', () => {
+  it('auto-selects the runtime PTY (bun-terminal under Bun, else node-pty)', () => {
     delete process.env.PODIUM_PTY_BACKEND
-    expect(defaultPtyBackend().name).toBe('node-pty')
+    expect(defaultPtyBackend().name).toBe(autoBackendName)
   })
   it('honors PODIUM_PTY_BACKEND=node-pty', () => {
     process.env.PODIUM_PTY_BACKEND = 'node-pty'
     expect(defaultPtyBackend().name).toBe('node-pty')
   })
-  it('throws when bun-terminal is forced but unavailable (under Node)', () => {
+  it('forces bun-terminal when the API is present, else throws', () => {
     process.env.PODIUM_PTY_BACKEND = 'bun-terminal'
-    expect(() => defaultPtyBackend()).toThrow(/Bun\.Terminal/)
+    if (hasBunTerminal()) {
+      expect(defaultPtyBackend().name).toBe('bun-terminal')
+    } else {
+      expect(() => defaultPtyBackend()).toThrow(/Bun\.Terminal/)
+    }
   })
   it('throws on an unknown backend name', () => {
     process.env.PODIUM_PTY_BACKEND = 'nope'
@@ -26,11 +38,12 @@ describe('defaultPtyBackend', () => {
   })
 })
 
-describe('bun terminal feature-detection (under Node)', () => {
-  it('isUnderBun() and hasBunTerminal() are both false without Bun', () => {
-    // vitest runs under Node — the probe must report the terminal PTY API absent
-    // (so the auto path falls to node-pty and a forced bun-terminal fails loud).
-    expect(isUnderBun()).toBe(false)
-    expect(hasBunTerminal()).toBe(false)
+describe('bun terminal feature-detection', () => {
+  it('isUnderBun() matches the runtime and hasBunTerminal() tracks it', () => {
+    // The probes must move together so the auto path picks bun-terminal iff the
+    // terminal PTY API is present: true under Bun (>= our floor, which CI + prod
+    // pin), false under Node.
+    expect(isUnderBun()).toBe(reallyUnderBun)
+    expect(hasBunTerminal()).toBe(reallyUnderBun)
   })
 })

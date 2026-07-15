@@ -12,7 +12,14 @@ let store: SessionStore | undefined
 
 afterEach(async () => {
   await handle?.close()
-  await new Promise<void>((res) => (server ? server.close(() => res()) : res()))
+  await new Promise<void>((res) => {
+    if (!server) return res()
+    // Bun's node:http keeps accepted (upgraded) sockets tracked even after the ws
+    // layer terminate()s them, so server.close() would wait forever for its callback.
+    // Force the lingering sockets shut first — a no-op under Node, where close() drains.
+    server.closeAllConnections?.()
+    server.close(() => res())
+  })
   store?.close()
   server = handle = store = undefined
 })
