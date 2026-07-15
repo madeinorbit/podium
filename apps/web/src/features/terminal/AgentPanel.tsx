@@ -56,7 +56,6 @@ import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
 import { TERMINAL_DEFAULTS } from './appearance'
 import { EchoHud, echoHudEnabled } from './EchoHud'
-import { ResumeCommandDisplay } from './ResumeCommandDisplay'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -678,7 +677,9 @@ export function AgentPanel({
                     .catch(() => toast.error('Could not copy to clipboard'))
                 }}
               >
-                <ResumeCommandDisplay command={resumeCmd} />
+                <span className="truncate" style={{ whiteSpace: 'pre', wordSpacing: '0.5ch' }}>
+                  {resumeCmd}
+                </span>
                 <Copy size={11} aria-hidden="true" className="flex-none" />
               </button>
             </>
