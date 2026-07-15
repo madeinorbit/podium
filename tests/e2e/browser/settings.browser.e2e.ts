@@ -59,6 +59,42 @@ function newSessionsSection(page: Page) {
     .first()
 }
 
+function accountsSection(page: Page) {
+  return page
+    .getByRole('region', { name: 'Settings' })
+    .locator('section')
+    .filter({ has: page.getByRole('heading', { name: 'Accounts & Keys' }) })
+    .first()
+}
+
+test('native account profile labels render when available', async ({ page }) => {
+  const trpc = makeTrpc('http://localhost:8799')
+  const accounts = await trpc.accounts.list.query()
+  const identities = accounts
+    .filter(
+      (account) =>
+        (account.id === 'native:codex' || account.id === 'native:grok') &&
+        account.status === 'connected' &&
+        account.identity?.includes('@'),
+    )
+    .map((account) => account.identity as string)
+  test.skip(identities.length === 0, 'local Codex/Grok profile metadata is unavailable')
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  await page
+    .locator('aside')
+    .getByRole('button', { name: 'Settings', exact: true })
+    .click({ timeout: 15_000 })
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await settings.getByRole('button', { name: 'Accounts', exact: true }).click()
+
+  const section = accountsSection(page)
+  for (const identity of identities) {
+    await expect(section.locator('span').filter({ hasText: identity }).first()).toBeVisible()
+  }
+})
+
 test('new sessions allows effort with automatic model selection', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
   await trpc.settings.set.mutate(

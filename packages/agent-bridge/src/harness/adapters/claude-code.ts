@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
@@ -27,6 +28,21 @@ export const claudeCodeAdapter: HarnessAdapter = {
   kind: 'claude-code',
   capabilities: AGENT_CAPABILITIES['claude-code'],
   resumeKind: 'claude-session',
+
+  inventory: {
+    binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'claude'), 'claude'],
+    detectLogin(homeDir) {
+      try {
+        const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
+          oauthAccount?: { emailAddress?: string }
+        }
+        const email = raw.oauthAccount?.emailAddress?.trim()
+        return email ? { state: 'in', account: email } : { state: 'out' }
+      } catch {
+        return { state: 'out' }
+      }
+    },
+  },
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

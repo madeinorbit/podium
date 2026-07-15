@@ -84,6 +84,32 @@ export interface HarnessBins {
 }
 
 // ---------------------------------------------------------------------------
+// Machine inventory — install and login discovery.
+// ---------------------------------------------------------------------------
+
+/** Best-effort native login state for one harness on one machine. `account` is
+ * a safe, human-facing label only (never a token or raw credential). */
+export interface HarnessLogin {
+  state: 'in' | 'out' | 'unknown'
+  account?: string
+}
+
+export interface HarnessInventory {
+  /** Candidate executable paths in probe order for this machine/home. */
+  binCandidates(homeDir: string): string[]
+  /** Read-only local credential/profile detection. Uneven support is explicit. */
+  detectLogin(homeDir: string): HarnessLogin
+}
+
+/** Prefer a recognizable name + email without duplicating equal values. */
+export function accountIdentity(name: unknown, email: unknown): string | undefined {
+  const cleanName = typeof name === 'string' ? name.trim() : ''
+  const cleanEmail = typeof email === 'string' ? email.trim() : ''
+  if (cleanName && cleanEmail && cleanName !== cleanEmail) return `${cleanName} · ${cleanEmail}`
+  return cleanEmail || cleanName || undefined
+}
+
+// ---------------------------------------------------------------------------
 // Headless sessions (persistent, process-per-turn) — the headless-drivers axis.
 // ---------------------------------------------------------------------------
 
@@ -240,6 +266,8 @@ export interface HarnessAdapter {
   capabilities: AgentCapabilities
   /** The resume.kind stamped on this harness's native conversations. */
   resumeKind: string
+  /** Machine-local installation and account discovery owned by this harness. */
+  inventory: HarnessInventory
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchSpec
   /** One-shot full-harness turn (`claude -p` / `codex exec` …). */

@@ -31,6 +31,8 @@ describe('harness adapter registry', () => {
       // discovery provider, transcript source.
       expect(typeof adapter.launch).toBe('function')
       expect(typeof adapter.exec).toBe('function')
+      expect(typeof adapter.inventory.binCandidates).toBe('function')
+      expect(typeof adapter.inventory.detectLogin).toBe('function')
       expect(adapter.headless.driver).toBeDefined()
       expect(adapter.headless.resumeIdAllocation).toBeDefined()
       expect(adapter.discovery.agentKind).toBe(kind)

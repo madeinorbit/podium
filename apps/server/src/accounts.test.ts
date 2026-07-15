@@ -40,6 +40,10 @@ afterEach(() => {
 const settings = (keys: Partial<PodiumSettings['apiKeys']> = {}): PodiumSettings =>
   normalizeSettings({ apiKeys: { openrouter: '', anthropic: '', openai: '', ...keys } })
 
+function jwt(payload: Record<string, unknown>): string {
+  return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
+}
+
 describe('accountViews', () => {
   it('reports native logins as not-configured when nothing is present', () => {
     const views = accountViews(settings(), accounts, home)
@@ -62,11 +66,41 @@ describe('accountViews', () => {
     expect(claude.source).toBe('native')
   })
 
-  it('detects a Grok login by directory presence', () => {
+  it('surfaces the Codex ID-token profile instead of its account id', () => {
+    writeFileSync(
+      join(codexHome, 'auth.json'),
+      JSON.stringify({
+        tokens: {
+          access_token: 'access',
+          refresh_token: 'refresh',
+          account_id: 'account-id-that-should-not-display',
+          id_token: jwt({ name: 'Mike Example', email: 'mike@example.com' }),
+        },
+      }),
+    )
+    const codex = accountViews(settings(), accounts, home).find(
+      (view) => view.id === 'native:codex',
+    )!
+    expect(codex.identity).toBe('Mike Example · mike@example.com')
+    expect(codex.identity).not.toContain('account-id')
+  })
+
+  it('surfaces the Grok profile from its local auth record', () => {
     mkdirSync(join(home, '.grok'))
-    expect(
-      accountViews(settings(), accounts, home).find((v) => v.id === 'native:grok')!.status,
-    ).toBe('connected')
+    writeFileSync(
+      join(home, '.grok', 'auth.json'),
+      JSON.stringify({
+        'https://auth.x.ai::account': {
+          key: 'credential',
+          first_name: 'Grace',
+          last_name: 'Hopper',
+          email: 'grace@example.com',
+        },
+      }),
+    )
+    const grok = accountViews(settings(), accounts, home).find((view) => view.id === 'native:grok')!
+    expect(grok.status).toBe('connected')
+    expect(grok.identity).toBe('Grace Hopper · grace@example.com')
   })
 
   it('surfaces set API keys as connected managed accounts with a masked identity', () => {

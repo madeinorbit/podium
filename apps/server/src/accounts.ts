@@ -6,11 +6,11 @@
 // a provider API key or a `claude setup-token`. Multi-account oauth ROTATION is
 // still modelled only.
 //
-// The raw login detectors live in @podium/agent-bridge (inventory/detect-login,
-// #222) so the daemon can report about ITS OWN machine; this module keeps the
-// server-side AccountView presentation on top of them.
+// Login/profile detection lives on each @podium/agent-bridge harness adapter so
+// the daemon inventory and this server-side AccountView use the same facts.
 import { homedir } from 'node:os'
-import { detectClaudeLogin, detectCodexLogin, detectGrokLogin } from '@podium/agent-bridge'
+import { HARNESS_ADAPTERS } from '@podium/agent-bridge'
+import type { HarnessAgent } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { z } from 'zod'
 import type { AccountsRepository } from './store/accounts'
@@ -66,49 +66,15 @@ export function maskCredential(secret: string): string {
   return `${secret.slice(0, 4)}…${secret.slice(-4)}`
 }
 
-/** Native Claude Code login: email lives in ~/.claude.json (oauthAccount),
- *  separate from the credential token. Best-effort. */
-function detectClaude(homeDir: string): AccountView {
-  const login = detectClaudeLogin(homeDir)
+function detectNative(homeDir: string, kind: HarnessAgent, provider: string): AccountView {
+  const login = HARNESS_ADAPTERS[kind].inventory.detectLogin(homeDir)
   return {
-    id: 'native:claude-code',
-    provider: 'anthropic',
+    id: `native:${kind}`,
+    provider,
     source: 'native',
-    harness: 'claude-code',
+    harness: kind,
     identity: login.account,
     status: login.state === 'in' ? 'connected' : 'not-configured',
-  }
-}
-
-/** Native Codex / ChatGPT login (~/.codex/auth.json). */
-function detectCodex(homeDir: string): AccountView {
-  const login = detectCodexLogin(homeDir)
-  const present = login.state === 'in'
-  const identity = present
-    ? login.account
-      ? `ChatGPT · ${maskCredential(login.account)}`
-      : 'ChatGPT subscription'
-    : undefined
-  return {
-    id: 'native:codex',
-    provider: 'openai',
-    source: 'native',
-    harness: 'codex',
-    identity,
-    status: present ? 'connected' : 'not-configured',
-  }
-}
-
-/** Native Grok login (~/.grok). Presence-only; the CLI owns the credential. */
-function detectGrok(homeDir: string): AccountView {
-  const present = detectGrokLogin(homeDir).state === 'in'
-  return {
-    id: 'native:grok',
-    provider: 'xai',
-    source: 'native',
-    harness: 'grok',
-    identity: present ? 'Grok login' : undefined,
-    status: present ? 'connected' : 'not-configured',
   }
 }
 
@@ -128,7 +94,11 @@ export function accountViews(
   accounts: AccountsRepository,
   homeDir: string = homedir(),
 ): AccountView[] {
-  const native = [detectClaude(homeDir), detectCodex(homeDir), detectGrok(homeDir)]
+  const native = [
+    detectNative(homeDir, 'claude-code', 'anthropic'),
+    detectNative(homeDir, 'codex', 'openai'),
+    detectNative(homeDir, 'grok', 'xai'),
+  ]
 
   // Managed rows: a stored credential (#216) wins; otherwise fall back to the
   // legacy settings.apiKeys value so an existing key keeps showing as connected.

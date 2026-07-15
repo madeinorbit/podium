@@ -1,14 +1,55 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
 import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
 import {
+  accountIdentity,
   type HarnessAdapter,
   isSet,
   type TranscriptSourceInput,
   transcriptFileExists,
 } from '../adapter.js'
 import { composeAgentInstructions } from '../instructions.js'
+
+interface GrokAuthRecord {
+  key?: unknown
+  refresh_token?: unknown
+  create_time?: unknown
+  email?: unknown
+  first_name?: unknown
+  last_name?: unknown
+}
+
+function grokHome(homeDir: string): string {
+  return process.env.GROK_HOME?.trim() || join(homeDir, '.grok')
+}
+
+function grokProfile(path: string): string | undefined {
+  try {
+    const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
+      string,
+      GrokAuthRecord
+    >
+    const records = Object.values(file)
+      .filter((record) => record && (record.key || record.refresh_token))
+      .sort((left, right) =>
+        String(right.create_time ?? '').localeCompare(String(left.create_time ?? '')),
+      )
+    for (const record of records) {
+      const name = [record.first_name, record.last_name]
+        .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+        .map((part) => part.trim())
+        .join(' ')
+      const account = accountIdentity(name, record.email)
+      if (account) return account
+    }
+  } catch {
+    // Keep the historical presence-only fallback below.
+  }
+  return undefined
+}
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
@@ -24,6 +65,15 @@ export const grokAdapter: HarnessAdapter = {
   kind: 'grok',
   capabilities: AGENT_CAPABILITIES.grok,
   resumeKind: 'grok-session',
+
+  inventory: {
+    binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'grok'), 'grok'],
+    detectLogin(homeDir) {
+      const path = grokHome(homeDir)
+      if (!existsSync(path)) return { state: 'out' }
+      return { state: 'in', account: grokProfile(path) ?? 'Grok login' }
+    },
+  },
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

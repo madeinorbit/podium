@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
-import { resolveCursorBin } from '../../cursor/cli.js'
+import { cursorBinCandidates, resolveCursorBin } from '../../cursor/cli.js'
 import { cursorSessionPaths } from '../../cursor/paths.js'
 import { createCursorConversationProvider } from '../../discovery/providers/cursor.js'
 import {
@@ -27,6 +27,11 @@ export const cursorAdapter: HarnessAdapter = {
   kind: 'cursor',
   capabilities: AGENT_CAPABILITIES.cursor,
   resumeKind: 'cursor-chat',
+
+  inventory: {
+    binCandidates: (homeDir) => [...cursorBinCandidates(homeDir), 'cursor-agent'],
+    detectLogin: () => ({ state: 'unknown' }),
+  },
 
   launch(opts) {
     const args = [

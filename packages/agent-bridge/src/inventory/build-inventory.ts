@@ -9,10 +9,9 @@ import { execFile } from 'node:child_process'
 import { homedir, platform } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentInventory, HarnessAgent, Inventory, ToolInventory } from '@podium/protocol'
-import { cursorBinCandidates } from '../cursor/cli.js'
-import { opencodeBinCandidates } from '../opencode/cli.js'
-import { detectHarnessLogin } from './detect-login.js'
+import type { AgentInventory, Inventory, ToolInventory } from '@podium/protocol'
+import type { HarnessAdapter } from '../harness/adapter.js'
+import { HARNESS_ADAPTERS } from '../harness/registry.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,39 +29,17 @@ const defaultExec: ProbeExec = async (argv, timeoutMs) => {
 
 const VERSION_TIMEOUT_MS = 5000
 
-const ALL_KINDS: HarnessAgent[] = ['claude-code', 'codex', 'grok', 'opencode', 'cursor']
-
-/** Candidate binary locations per kind, in priority order. Known install paths
- *  before the bare PATH name — the daemon's systemd PATH often omits the
- *  per-user bin dirs that interactive shells include. */
-function binCandidates(kind: HarnessAgent, home: string): string[] {
-  switch (kind) {
-    case 'claude-code':
-      return [join(home, '.local', 'bin', 'claude'), 'claude']
-    case 'codex':
-      return [join(home, '.local', 'bin', 'codex'), 'codex']
-    case 'grok':
-      return [join(home, '.local', 'bin', 'grok'), 'grok']
-    case 'opencode':
-      return opencodeBinCandidates(home)
-    case 'cursor':
-      // The Cursor Agent CLI installs as `agent`; some setups expose it as
-      // `cursor-agent` on PATH (the name model-probe.ts shells out to).
-      return [...cursorBinCandidates(home), 'cursor-agent']
-  }
-}
-
 async function probeAgent(
-  kind: HarnessAgent,
+  adapter: HarnessAdapter,
   home: string,
   exec: ProbeExec,
 ): Promise<AgentInventory> {
-  const login = detectHarnessLogin(kind, home)
-  for (const candidate of binCandidates(kind, home)) {
+  const login = adapter.inventory.detectLogin(home)
+  for (const candidate of adapter.inventory.binCandidates(home)) {
     try {
       const version = (await exec([candidate, '--version'], VERSION_TIMEOUT_MS)).trim()
       return {
-        kind,
+        kind: adapter.kind,
         installed: true,
         ...(version ? { version } : {}),
         path: candidate,
@@ -72,7 +49,7 @@ async function probeAgent(
       // absent / not executable / timed out — try the next candidate
     }
   }
-  return { kind, installed: false, login }
+  return { kind: adapter.kind, installed: false, login }
 }
 
 /** Non-harness CLIs to probe. Just `gh` today — #214's credential-propagation
@@ -111,7 +88,7 @@ export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<
   const home = opts.homeDir ?? homedir()
   const exec = opts.exec ?? defaultExec
   const [agents, tools] = await Promise.all([
-    Promise.all(ALL_KINDS.map((kind) => probeAgent(kind, home, exec))),
+    Promise.all(Object.values(HARNESS_ADAPTERS).map((adapter) => probeAgent(adapter, home, exec))),
     Promise.all(ALL_TOOLS.map((name) => probeTool(name, home, exec))),
   ])
   // The wire enums cover the platforms Podium daemons actually run on (linux/darwin,
@@ -120,8 +97,10 @@ export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<
   // reporting false facts a routing consumer would trust.
   const p = platform()
   const a = process.arch
-  if (p !== 'linux' && p !== 'darwin') console.warn(`[podium] inventory: unsupported platform '${p}', reporting 'linux'`)
-  if (a !== 'x64' && a !== 'arm64') console.warn(`[podium] inventory: unsupported arch '${a}', reporting 'x64'`)
+  if (p !== 'linux' && p !== 'darwin')
+    console.warn(`[podium] inventory: unsupported platform '${p}', reporting 'linux'`)
+  if (a !== 'x64' && a !== 'arm64')
+    console.warn(`[podium] inventory: unsupported arch '${a}', reporting 'x64'`)
   return {
     os: p === 'darwin' ? 'darwin' : 'linux',
     arch: a === 'arm64' ? 'arm64' : 'x64',

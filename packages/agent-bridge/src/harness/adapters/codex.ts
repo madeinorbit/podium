@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import {
@@ -6,8 +8,47 @@ import {
   observeCodexState,
 } from '../../agent-state/codex.js'
 import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
-import { type HarnessAdapter, isSet, type TranscriptSourceInput } from '../adapter.js'
+import {
+  accountIdentity,
+  type HarnessAdapter,
+  isSet,
+  type TranscriptSourceInput,
+} from '../adapter.js'
 import { composeAgentInstructions } from '../instructions.js'
+
+interface CodexAuthFile {
+  tokens?: {
+    access_token?: string
+    refresh_token?: string
+    id_token?: string
+    account_id?: string
+  }
+}
+
+function codexAuthPath(homeDir: string): string {
+  const codexHome = process.env.CODEX_HOME?.trim() || join(homeDir, '.codex')
+  return join(codexHome, 'auth.json')
+}
+
+function codexProfile(idToken: string | undefined): string | undefined {
+  const payload = idToken?.split('.')[1]
+  if (!payload) return undefined
+  try {
+    // Display metadata only: authentication still uses the original credential
+    // and never trusts these unverified claims for authorization decisions.
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+      email?: unknown
+      name?: unknown
+    }
+    return accountIdentity(claims.name, claims.email)
+  } catch {
+    return undefined
+  }
+}
+
+function maskedAccountId(accountId: string): string {
+  return accountId.length <= 8 ? '••••' : `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
+}
 
 /**
  * Translate a Claude-shaped MCP config JSON into codex `-c` TOML overrides:
@@ -57,6 +98,27 @@ export const codexAdapter: HarnessAdapter = {
   kind: 'codex',
   capabilities: AGENT_CAPABILITIES.codex,
   resumeKind: 'codex-thread',
+
+  inventory: {
+    binCandidates: (homeDir) => [join(homeDir, '.local', 'bin', 'codex'), 'codex'],
+    detectLogin(homeDir) {
+      try {
+        const path = codexAuthPath(homeDir)
+        if (!existsSync(path)) return { state: 'out' }
+        const file = JSON.parse(readFileSync(path, 'utf8')) as CodexAuthFile
+        const tokens = file.tokens
+        if (!tokens?.access_token || !tokens.refresh_token) return { state: 'out' }
+        const account =
+          codexProfile(tokens.id_token) ??
+          (tokens.account_id
+            ? `ChatGPT · ${maskedAccountId(tokens.account_id)}`
+            : 'ChatGPT subscription')
+        return { state: 'in', account }
+      } catch {
+        return { state: 'out' }
+      }
+    },
+  },
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

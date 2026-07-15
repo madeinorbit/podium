@@ -33,6 +33,10 @@ function fakeExec(versions: Record<string, string>): ProbeExec {
   }
 }
 
+function jwt(payload: Record<string, unknown>): string {
+  return `header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`
+}
+
 describe('buildInventory', () => {
   it('derives os and arch from the host', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
@@ -81,15 +85,39 @@ describe('buildInventory', () => {
     mkdirSync(join(home, '.codex'), { recursive: true })
     writeFileSync(
       join(home, '.codex', 'auth.json'),
-      JSON.stringify({ tokens: { access_token: 'a', refresh_token: 'r', account_id: 'acct-1' } }),
+      JSON.stringify({
+        tokens: {
+          access_token: 'a',
+          refresh_token: 'r',
+          account_id: 'acct-1',
+          id_token: jwt({ name: 'Mike Example', email: 'mike@example.com' }),
+        },
+      }),
     )
     mkdirSync(join(home, '.grok'), { recursive: true })
+    writeFileSync(
+      join(home, '.grok', 'auth.json'),
+      JSON.stringify({
+        'https://auth.x.ai::account': {
+          key: 'credential',
+          first_name: 'Grace',
+          last_name: 'Hopper',
+          email: 'grace@example.com',
+        },
+      }),
+    )
     // No CLI installed anywhere (fake exec always throws) — logins still detected.
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     const byKind = Object.fromEntries(inv.agents.map((a) => [a.kind, a]))
     expect(byKind['claude-code']!.login).toEqual({ state: 'in', account: 'mike@example.com' })
-    expect(byKind['codex']!.login).toEqual({ state: 'in', account: 'acct-1' })
-    expect(byKind['grok']!.login).toEqual({ state: 'in' })
+    expect(byKind['codex']!.login).toEqual({
+      state: 'in',
+      account: 'Mike Example · mike@example.com',
+    })
+    expect(byKind['grok']!.login).toEqual({
+      state: 'in',
+      account: 'Grace Hopper · grace@example.com',
+    })
     // No detector exists for these two — honest 'unknown', not a lying 'out'.
     expect(byKind['opencode']!.login).toEqual({ state: 'unknown' })
     expect(byKind['cursor']!.login).toEqual({ state: 'unknown' })

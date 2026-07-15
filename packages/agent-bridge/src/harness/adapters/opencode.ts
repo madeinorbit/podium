@@ -8,7 +8,7 @@ import {
 } from '@podium/transcript'
 import { observeOpencodeState, opencodeStateProvider } from '../../agent-state/opencode.js'
 import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
-import { resolveOpencodeBin } from '../../opencode/cli.js'
+import { opencodeBinCandidates, resolveOpencodeBin } from '../../opencode/cli.js'
 import { loadOpencodeTranscriptTail, openOpencodeDb } from '../../opencode/db.js'
 import { type HarnessAdapter, isSet } from '../adapter.js'
 import { composeAgentInstructions } from '../instructions.js'
@@ -47,6 +47,11 @@ export const opencodeAdapter: HarnessAdapter = {
   kind: 'opencode',
   capabilities: AGENT_CAPABILITIES.opencode,
   resumeKind: 'opencode-session',
+
+  inventory: {
+    binCandidates: opencodeBinCandidates,
+    detectLogin: () => ({ state: 'unknown' }),
+  },
 
   launch(opts) {
     const base = {
