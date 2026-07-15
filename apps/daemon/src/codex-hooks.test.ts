@@ -1,9 +1,11 @@
 import { execFile, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { finished } from 'node:stream/promises'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,6 +13,8 @@ import {
   ensurePodiumCodexHooks,
   PODIUM_CODEX_HOOK_COMMAND,
 } from './codex-hooks.js'
+
+const LEGACY_PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$PODIUM_CODEX_HOOK_URL"; [ -n "$u" ] || exit 0; curl --data-binary @- "$u"'`
 
 const execFileAsync = promisify(execFile)
 
@@ -56,6 +60,26 @@ describe('ensurePodiumCodexHooks', () => {
     await ensurePodiumCodexHooks({ homeDir: dir })
     const res = await ensurePodiumCodexHooks({ homeDir: dir })
     expect(res).toMatchObject({ installed: true, changed: false })
+  })
+
+  it('refreshes an installed handler that predates stdin draining', async () => {
+    const dir = await home()
+    await writeFile(
+      join(dir, '.codex', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          Stop: [
+            {
+              hooks: [{ type: 'command', command: LEGACY_PODIUM_CODEX_HOOK_COMMAND, timeout: 5 }],
+            },
+          ],
+        },
+      }),
+    )
+
+    await ensurePodiumCodexHooks({ homeDir: dir })
+    const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
+    expect(doc.hooks.Stop[0].hooks[0].command).toBe(PODIUM_CODEX_HOOK_COMMAND)
   })
 
   it('preserves foreign hooks and trust entries, appending podium after them', async () => {
@@ -117,6 +141,22 @@ describe('computeCodexTrustedHash', () => {
       computeCodexTrustedHash({ eventLabel: 'stop', command: 'echo hi', timeoutSec: 5 }),
     )
     expect(h).not.toBe(computeCodexTrustedHash({ eventLabel: 'stop', command: 'echo hi' }))
+  })
+})
+
+describe('PODIUM_CODEX_HOOK_COMMAND', () => {
+  it('drains stdin before exiting when the routing env is absent', async () => {
+    const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
+      env: { ...process.env, PODIUM_CODEX_HOOK_URL: '' },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    })
+    const stdinFinished = finished(child.stdin)
+    child.stdin.end(Buffer.alloc(1024 * 1024, 'x'))
+
+    const [exitCode, signal] = await once(child, 'close')
+    await stdinFinished
+
+    expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
   })
 })
 

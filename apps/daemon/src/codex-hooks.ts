@@ -18,14 +18,16 @@ import { PODIUM_CODEX_HOOK_URL_ENV } from '@podium/agent-bridge'
  *
  * The handler is env-gated fail-open: sessions spawned by Podium carry
  * `PODIUM_CODEX_HOOK_URL` (the per-session ingest endpoint) in their env, which
- * child hook processes inherit; any codex run without the var exits 0 instantly,
- * so the global install never affects sessions Podium didn't spawn.
+ * child hook processes inherit; any codex run without the var consumes its hook
+ * payload and exits 0, so the global install neither affects sessions Podium
+ * didn't spawn nor closes stdin while Codex is still writing it.
  */
 
-// Single-line, POSIX, no dependencies beyond curl. Fail-open everywhere: no env
-// → exit 0; curl failure swallowed. Bounded (-m 2) so a wedged daemon can't
-// stall a codex turn past the hook timeout.
-export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$${PODIUM_CODEX_HOOK_URL_ENV}"; [ -n "$u" ] || exit 0; curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true'`
+// Single-line, POSIX, no dependencies beyond curl. Read stdin BEFORE the env
+// gate so Codex never gets EPIPE from an unrouted global hook. Fail-open
+// everywhere: no env → exit 0; curl failure swallowed. Bounded (-m 2) so a
+// wedged daemon can't stall a codex turn past the hook timeout.
+export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); u="$${PODIUM_CODEX_HOOK_URL_ENV}"; [ -n "$u" ] || exit 0; printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true'`
 
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
 
