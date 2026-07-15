@@ -1,8 +1,9 @@
-import { openBunDatabase } from './bun'
+import { bunSqliteClient, openBunDatabase } from './bun'
 import { openNodeDatabase } from './node'
 import type { OpenOptions, SqlDatabase } from './types'
 
 export { transaction } from './transaction'
+export { bunSqliteClient } from './bun'
 export type { OpenOptions, SqlDatabase, SqlParam, SqlRunResult, SqlStatement } from './types'
 
 /** True when running under the Bun runtime. */

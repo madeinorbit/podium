@@ -33,7 +33,8 @@ import { dirname, join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { dbSchemaVersion, MIGRATIONS, runMigrations } from './migrations/index'
+import { migrateDatabase } from './migrations/index'
+import { BASELINE_MIGRATION, DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -96,26 +97,23 @@ export class SessionStore {
     // parent with enforcement on would cascade-delete child rows. The chain owns
     // this window; enforcement is restored immediately after it succeeds.
     this.db.exec('PRAGMA foreign_keys = OFF')
-    // The versioned migration chain owns the schema (stamps schema_version and
-    // refuses to open a DB newer than the code). Schema DDL lives ONLY in
-    // src/migrations/. Passing dbPath enables the pre-migration backup (#43):
-    // before a version-advancing run the runner checkpoints the WAL and copies
-    // podium.db (+ sidecars) to a timestamped sibling, keeping the last 3.
-    const appliedNow = runMigrations(this.db, MIGRATIONS, {
+    // Schema migration [spec:SP-4428]. drizzle-kit AUTHORS migrations; this boot
+    // APPLIES them with drizzle-orm's own bun:sqlite migrator, on THIS connection
+    // (so the foreign_keys = OFF window covers it). Schema DDL lives ONLY in
+    // src/migrations/. `migrateDatabase` bridges a pre-drizzle database onto the
+    // ledger (stamp the baseline if it is exactly at the adoption version; refuse
+    // loudly if it is behind — the legacy chain that would heal it is gone), a
+    // fresh file is built by the baseline, and pending migrations then apply.
+    const applied = migrateDatabase(this.db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION, {
       dbPath: path === ':memory:' ? undefined : path,
     })
-    // Say what the schema actually did. A silently-skipped migration (#472) survived
-    // for so long precisely because it was invisible: no error, no log, just a table
-    // that never existed. One line makes it observable forever.
-    if (appliedNow.length > 0) {
-      console.log(
-        `[podium:server] applied migrations: ${appliedNow.join(', ')} (schema now ${dbSchemaVersion(this.db)})`,
-      )
+    // Say what the schema actually did — a silently-skipped migration (#472)
+    // survived for so long precisely because it was invisible.
+    if (applied.length > 0) {
+      console.log(`[podium:server] applied migrations: ${applied.join(', ')}`)
     }
-    // Foreign-key enforcement is PER-CONNECTION in SQLite and deliberately
-    // enabled only AFTER the migration chain: table rebuilds (the standard
-    // 12-step ALTER, e.g. migration 006) must run without FK enforcement, and
-    // a PRAGMA inside the runner's transaction would be a no-op anyway.
+    // Foreign-key enforcement is per-connection in SQLite; restored now that the
+    // migrator (which runs table rebuilds with enforcement off) is done.
     this.db.exec('PRAGMA foreign_keys = ON')
 
     // Compose the per-aggregate repositories. The two cross-aggregate edges are

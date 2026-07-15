@@ -1,12 +1,12 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { expect, it } from 'vitest'
-import { MIGRATIONS, runMigrations } from '../../migrations'
+import { applyBaselineSchema } from '../../migrations'
 import { AccountsRepository } from '../../store/accounts'
 import { resolveAccountEnv } from './account-env'
 
 function repoWith(...rows: Array<Parameters<AccountsRepository['upsert']>[0]>) {
   const db = openDatabase(':memory:')
-  runMigrations(db, MIGRATIONS)
+  applyBaselineSchema(db)
   const repo = new AccountsRepository(db)
   for (const r of rows) repo.upsert(r)
   return repo

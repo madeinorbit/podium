@@ -1,417 +1,280 @@
 /**
- * Forward-only schema migration runner.
+ * Schema migration runtime [spec:SP-4428].
  *
- * The migration chain OWNS the schema (Phase 1): a fresh database is built
- * entirely by the numbered migrations below, and an existing database (legacy
- * DDL path, stamped baseline 1) converges onto the identical schema through
- * migration 002's defensive guards. convergence.test.ts pins that both paths
- * produce byte-identical sqlite_master output. The only schema objects NOT
- * versioned here are the environment-conditional FTS5 tables/triggers — the
- * conversations repository (re)ensures those per boot, because their existence
- * depends on the runtime SQLite build.
+ * drizzle-kit AUTHORS migrations (schema-as-code in schema.ts → `drizzle-kit
+ * generate` → the drizzle/ folders, bundled into drizzle-manifest.generated.ts);
+ * this module APPLIES them at boot using drizzle-orm's OWN bun:sqlite migrator on
+ * the store's connection. We adopt drizzle's transaction model (all pending
+ * migrations in one transaction) deliberately — a purpose-built tool's model over
+ * ours. The operational envelope drizzle doesn't provide is kept here: the
+ * pre-migration backup (#43), a downgrade guard, and boot logging.
  *
- * ADDING A MIGRATION — run `bun run migration:new <name>`. Never hand-pick a number.
- *
- * Rules (POLICY — read before adding a migration):
- *  - NEW MIGRATIONS ARE VERSIONED BY UTC TIMESTAMP (YYYYMMDDHHMMSS), not MAX+1
- *    (#485). Hand-assigned sequential numbers GUARANTEE collisions at our
- *    concurrency: agents work on parallel branches, each takes the next integer,
- *    and they only discover the clash at merge. A timestamp cannot collide — there
- *    is nothing to coordinate and no conflict to notice. (Rails made this exact
- *    switch in 2.1, for this exact reason.) Versions 1–23 are the historical
- *    sequential ones and stay as they are; the two kinds coexist fine, since a
- *    timestamp is just a very large integer that sorts after them forever.
- *    `validate()` REJECTS a new sequential version at the first test run.
- *  - Migrations are forward-only and ADDITIVE-ONLY: no destructive
- *    column drops or renames within a single release. When a column/table must
- *    go away, do it two-phase: release N stops reading/writing it, release N+1
- *    drops it — so a rollback of one release never faces a schema it cannot read.
- *  - Each migration runs in its OWN top-level transaction, its schema_version
- *    stamp committing atomically alongside the schema change [spec:SP-3fe2].
- *  - A database whose version is NEWER than the code refuses to open with a
- *    clear error (downgrade protection) — the stored version is authoritative.
- *  - Before a run that advances the version of a database that already holds
- *    real tables, the DB file (+ -wal/-shm sidecars) is copied to a timestamped
- *    backup next to it; the last 3 backups are kept (#43).
- *  - Re-running is idempotent: already-applied versions are skipped.
- *  - PENDING IS THE UNAPPLIED SET, NOT "ABOVE THE HIGH-WATER MARK" (#472). A
- *    migration is applied iff its version is absent from `schema_version`. The
- *    runner used to compare against MAX(version), so a migration numbered at or
- *    below the highest applied one was SILENTLY SKIPPED — no error, its tables
- *    simply never created. That is invisible in tests, because every test starts
- *    from an EMPTY database (version 0) and therefore applies everything in order;
- *    only a real, already-upgraded database can exhibit it.
- *  - CLAIMING A NUMBER TWICE IS FATAL, BY DESIGN. If two branches both author a
- *    migration N, the database that applied one of them refuses to boot with an
- *    explicit "duplicate migration version N — renumber" error, rather than
- *    quietly running without the other's tables.
- *  - CONSEQUENCE — MIGRATIONS MUST BE ORDER-INDEPENDENT. Because a back-filled
- *    migration (numbered below the high-water mark) now really does run, a
- *    migration may execute AFTER ones with higher numbers. Ours are effectively
- *    independent, so this is safe today. If you write one that depends on a
- *    lower-numbered migration having already run, that assumption is no longer
- *    guaranteed — make the dependency explicit inside the migration (defensive
- *    guards, as 002 does) rather than relying on ordering.
+ * The legacy hand-rolled chain (002…session-geometry.ts + its runner) is GONE.
+ * The two founders' databases were the only ones in existence and both were at
+ * the final legacy schema, so instead of healing we STAMP: an existing database
+ * at exactly BASELINE_LEGACY_VERSION has the frozen baseline recorded as applied
+ * (never executed); one behind it is refused (loudly — there is no chain left to
+ * catch it up); a fresh database is built by the baseline. `migrateDatabase` is
+ * the single entry point.
  */
 
-import { copyFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { up as coreSchema } from './002-core-schema'
-import { up as hardeningIndexes } from './003-hardening-indexes'
-import { up as issuesUniqueRepoSeq } from './004-issues-unique-repo-seq'
-import { up as issuesRepoIdIdentity } from './005-issues-repo-id-identity'
-import { up as issuesFksChecks } from './006-issues-fks-checks'
-import { up as issueDepsSingleParent } from './007-issue-deps-single-parent'
-import { up as issuesRepoIdIndex } from './008-issues-repo-id-index'
-import { up as issuesAudience } from './009-issues-audience'
-import { up as issuesDropVerifyingStage } from './010-issues-drop-verifying-stage'
-import { up as issueSessionSoftDelete } from './011-issues-soft-delete'
-import { up as approvalRequests } from './012-approval-requests'
-import { up as locks } from './013-locks'
-import { up as machinesInventory } from './014-machines-inventory'
-import { up as superagentPendingTurns } from './015-superagent-pending-turns'
-import { up as messages } from './016-messages'
-import { up as messagesAxes } from './017-messages-axes'
-import { up as messagesReminded } from './018-messages-reminded'
-import { up as sessionsWorkflowMetadata } from './019-sessions-workflow-metadata'
-import { up as recapWatermarks } from './020-recap-watermarks'
-import { up as messagesRepairFromIssue } from './021-messages-repair-from-issue'
-import { up as agentWorkflows } from './022-agent-workflows'
-import { up as accounts } from './023-accounts'
-import { up as automations } from './20260714142927-automations'
-import { up as sessionsNameSource } from './20260714145648-sessions-name-source'
-import { up as humanFacingIds } from './20260714150855-human-facing-ids'
-import { up as automationRunSessions } from './20260715085920-automation-run-sessions'
-import { up as sessionGeometry } from './20260715094750-session-geometry'
+import { bunSqliteClient, type SqlDatabase } from '@podium/runtime/sqlite'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
+import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
+import { backupDatabase } from './backup'
+import { BASELINE_MIGRATION, DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 
-export interface Migration {
-  /** Positive, unique, strictly increasing across the list. */
-  version: number
-  /** Short human-readable label recorded in schema_version. */
+/**
+ * One drizzle migration, bundled in memory (no disk read at runtime — the
+ * compiled binary carries no drizzle/ folder). `name` is the migration folder
+ * name (e.g. `20260715135845_baseline`); `sql` is the full `migration.sql`
+ * (statements separated by drizzle's `--> statement-breakpoint`).
+ */
+export interface DrizzleMigration {
   name: string
-  /** Applies the schema change. Runs inside a transaction — do not BEGIN/COMMIT. */
-  up: (db: SqlDatabase) => void
+  sql: string
 }
 
-/** The server's migration list. Append only — never renumber or edit applied entries. */
-export const MIGRATIONS: Migration[] = [
-  {
-    version: 1,
-    name: 'baseline',
-    // No-op marker: databases built by the legacy SessionStore.migrate() DDL
-    // stamped version 1 with no structural change; 002 owns the real DDL.
-    up: () => {},
-  },
-  { version: 2, name: 'core-schema', up: coreSchema },
-  { version: 3, name: 'hardening-indexes', up: hardeningIndexes },
-  { version: 4, name: 'issues-unique-repo-seq', up: issuesUniqueRepoSeq },
-  { version: 5, name: 'issues-repo-id-identity', up: issuesRepoIdIdentity },
-  { version: 6, name: 'issues-fks-checks', up: issuesFksChecks },
-  { version: 7, name: 'issue-deps-single-parent', up: issueDepsSingleParent },
-  { version: 8, name: 'issues-repo-id-index', up: issuesRepoIdIndex },
-  { version: 9, name: 'issues-audience', up: issuesAudience },
-  { version: 10, name: 'issues-drop-verifying-stage', up: issuesDropVerifyingStage },
-  { version: 11, name: 'issue-session-soft-delete', up: issueSessionSoftDelete },
-  { version: 12, name: 'approval-requests', up: approvalRequests },
-  // Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock.
-  { version: 13, name: 'locks', up: locks },
-  { version: 14, name: 'machines-inventory', up: machinesInventory },
-  { version: 15, name: 'superagent-pending-turns', up: superagentPendingTurns },
-  // Unified agent messaging (#237) [spec:SP-34d7].
-  { version: 16, name: 'messages', up: messages },
-  { version: 17, name: 'messages-axes', up: messagesAxes },
-  { version: 18, name: 'messages-reminded', up: messagesReminded },
-  { version: 19, name: 'sessions-workflow-metadata', up: sessionsWorkflowMetadata },
-  // Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: recap watermarks.
-  { version: 20, name: 'recap-watermarks', up: recapWatermarks },
-  // Repair legacy ref-string senders 016 copied verbatim (#463) [spec:SP-34d7].
-  { version: 21, name: 'messages-repair-from-issue', up: messagesRepairFromIssue },
-  { version: 22, name: 'agent-workflows', up: agentWorkflows },
-  // Managed accounts [spec:SP-6454] — credentials Podium holds and injects at
-  // spawn. 023, not 016: the runner skips any version <= MAX(applied) (#472).
-  { version: 23, name: 'accounts', up: accounts },
-  // Scheduled automations + their run history (#470) [spec:SP-17db]. The first
-  // timestamp-versioned migration (#485): this branch hand-numbered it twice while
-  // in flight — 022, then 023 — and main took both numbers out from under it, which
-  // is precisely the collision timestamps abolish.
-  { version: 20_260_714_142_927, name: 'automations', up: automations },
-  // WHO named the session (#490): 'user' (a human — an agent may never overwrite
-  // it) | 'agent' (self-named; it may re-title itself) | NULL (nobody).
-  { version: 20_260_714_145_648, name: 'sessions-name-source', up: sessionsNameSource },
-  { version: 20_260_714_150_855, name: 'human-facing-ids', up: humanFacingIds },
-  { version: 20_260_715_085_920, name: 'automation-run-sessions', up: automationRunSessions },
-  { version: 20_260_715_094_750, name: 'session-geometry', up: sessionGeometry },
-]
+/** drizzle's default migrations ledger. */
+const LEDGER = '__drizzle_migrations'
 
-/** Highest schema version the running code knows about.
- *
- *  MAX, not "the last array entry": the registry is not required to be sorted (#485).
- *  Two branches each append a timestamped migration, and whoever merges second lands
- *  their entry last even if their timestamp is older. */
-export function codeSchemaVersion(migrations: Migration[] = MIGRATIONS): number {
-  return migrations.reduce((max, m) => (m.version > max ? m.version : max), 0)
+/**
+ * The final legacy `schema_version` at drizzle adoption — the point the frozen
+ * baseline captures (migration `20260715094750` session-geometry). A pre-drizzle
+ * database MUST be exactly here before the baseline is stamped; behind it we
+ * refuse, because the legacy chain that would heal it no longer exists.
+ */
+export const BASELINE_LEGACY_VERSION = 20_260_715_094_750
+
+function hasTable(db: SqlDatabase, name: string): boolean {
+  return (
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !==
+    undefined
+  )
 }
 
-/** The registry in version order. The array itself may be unsorted — see `validate`. */
-function inVersionOrder(migrations: Migration[]): Migration[] {
-  return [...migrations].sort((a, b) => a.version - b.version)
+/** drizzle's v1 `__drizzle_migrations` shape, created verbatim so its CLI agrees. */
+function ensureLedger(db: SqlDatabase): void {
+  db.exec(
+    `CREATE TABLE IF NOT EXISTS ${LEDGER} (
+       id INTEGER PRIMARY KEY,
+       hash text NOT NULL,
+       created_at numeric,
+       name text,
+       applied_at TEXT
+     )`,
+  )
 }
 
 /**
- * The migrations this database has ACTUALLY applied, version → name.
- *
- * This is the authoritative record and always has been — `schema_version.version`
- * is a PRIMARY KEY. The runner used to ignore it and compare against
- * MAX(version) instead, which is what made a mis-numbered migration silently
- * vanish (#472). Read the set; never infer it from the high-water mark.
+ * The set of migration folder-names this DB has applied. drizzle skips by NAME,
+ * so the apply decision is pure set membership — an out-of-order migration simply
+ * applies, and nothing is skipped because a higher name is present.
  */
-export function appliedMigrations(db: SqlDatabase): Map<number, string> {
-  const table = db
-    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`)
-    .get()
-  if (table === undefined) return new Map()
-  const rows = db.prepare('SELECT version, name FROM schema_version').all() as {
-    version: number
+export function appliedDrizzleNames(db: SqlDatabase): Set<string> {
+  if (!hasTable(db, LEDGER)) return new Set()
+  const rows = db.prepare(`SELECT name FROM ${LEDGER} WHERE name IS NOT NULL`).all() as {
     name: string
   }[]
-  return new Map(rows.map((r) => [r.version, r.name]))
+  return new Set(rows.map((r) => r.name))
 }
 
-/** Current HIGH-WATER version in the database (0 when never migrated).
- *
- *  Only meaningful for the downgrade guard (is this DB newer than the build?).
- *  It is NOT a safe basis for deciding what to apply — see `appliedMigrations`. */
-export function dbSchemaVersion(db: SqlDatabase): number {
-  const table = db
-    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`)
-    .get()
-  if (table === undefined) return 0
+/**
+ * drizzle's `created_at`: the folder-name's 14-digit `YYYYMMDDHHMMSS` UTC prefix
+ * as epoch millis, matching what the bun:sqlite migrator records for the same
+ * migration so a hand-stamped baseline is indistinguishable from an applied one.
+ */
+function folderMillis(name: string): number {
+  const s = name.slice(0, 14)
+  const millis = Date.UTC(
+    Number(s.slice(0, 4)),
+    Number(s.slice(4, 6)) - 1,
+    Number(s.slice(6, 8)),
+    Number(s.slice(8, 10)),
+    Number(s.slice(10, 12)),
+    Number(s.slice(12, 14)),
+  )
+  return Number.isNaN(millis) ? 0 : millis
+}
+
+/**
+ * Records a migration as applied WITHOUT running its SQL — the adoption bridge
+ * for an existing database whose schema the (now-deleted) legacy chain already
+ * built. Matches the bun:sqlite migrator's journal-array row (empty hash,
+ * `created_at` = folder millis). Returns false if it was already recorded.
+ */
+export function stampMigration(db: SqlDatabase, m: DrizzleMigration): boolean {
+  if (appliedDrizzleNames(db).has(m.name)) return false
+  // Atomic: create the ledger AND record the row in one transaction. A crash
+  // between the two would otherwise leave an EMPTY `__drizzle_migrations` table,
+  // which the next boot would read as "drizzle-native", skip the bridge, and try
+  // to RE-RUN the baseline against an already-built schema — an unrecoverable
+  // wedge. `migrateDatabase` also treats an empty ledger as not-yet-adopted, so
+  // even a hand-created empty ledger self-heals; this keeps the transient state
+  // from ever existing.
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    ensureLedger(db)
+    db.prepare(
+      `INSERT INTO ${LEDGER} (hash, created_at, name, applied_at) VALUES (?, ?, ?, ?)`,
+    ).run('', folderMillis(m.name), m.name, new Date().toISOString())
+    db.exec('COMMIT')
+  } catch (err) {
+    // A failed COMMIT may have already auto-rolled-back (e.g. an I/O error), so a
+    // bare ROLLBACK could throw "no transaction is active" and mask the real
+    // cause. Best-effort rollback, then always surface the original error.
+    try {
+      db.exec('ROLLBACK')
+    } catch {}
+    throw err
+  }
+  return true
+}
+
+/** MAX(schema_version) of the legacy ledger, or undefined when it is absent. */
+function legacySchemaVersion(db: SqlDatabase): number | undefined {
+  if (!hasTable(db, 'schema_version')) return undefined
   const row = db.prepare('SELECT MAX(version) AS version FROM schema_version').get() as
     | { version: number | null }
     | undefined
   return row?.version ?? 0
 }
 
-/**
- * The last hand-numbered sequential migration. Everything at or below this is
- * historical and stays exactly as it is; everything ABOVE must be a timestamp.
- * This is a frozen boundary, not a counter — do not raise it.
- */
-export const LAST_SEQUENTIAL_VERSION = 23
-
-/** Smallest accepted timestamp version: 2000-01-01T00:00:00Z. */
-const MIN_TIMESTAMP_VERSION = 20_000_101_000_000
-
-/**
- * A UTC timestamp version, `YYYYMMDDHHMMSS` (e.g. 20260714132200).
- *
- * Sequential numbering GUARANTEES collisions at our concurrency: agents work on
- * parallel branches, each takes MAX+1, and they only discover the clash at merge.
- * A timestamp is collision-free by construction — nothing to coordinate, no
- * conflict to notice. (Rails made this same switch in 2.1, for this same reason.)
- * Generate one with `bun run migration:new <name>`; never hand-type it.
- */
-export function isTimestampVersion(version: number): boolean {
-  if (!Number.isInteger(version) || version < MIN_TIMESTAMP_VERSION) return false
-  const s = String(version)
-  if (s.length !== 14) return false
-  const month = Number(s.slice(4, 6))
-  const day = Number(s.slice(6, 8))
-  const hour = Number(s.slice(8, 10))
-  const minute = Number(s.slice(10, 12))
-  const second = Number(s.slice(12, 14))
+/** True when the DB holds any table other than the two ledgers / sqlite internals. */
+function hasAnyDataTable(db: SqlDatabase): boolean {
   return (
-    month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour < 24 && minute < 60 && second < 60
+    db
+      .prepare(
+        `SELECT name FROM sqlite_master
+           WHERE type = 'table'
+             AND name NOT IN ('${LEDGER}', 'schema_version')
+             AND name NOT LIKE 'sqlite_%'
+           LIMIT 1`,
+      )
+      .get() !== undefined
   )
 }
 
 /**
- * Versions must be positive integers, UNIQUE, and (for new ones) timestamps.
- *
- * Deliberately NOT "strictly increasing across the array". The registry is a
- * hand-maintained list that both branches append to, so the branch that merges
- * SECOND lands its entry last — even when its timestamp is older. Requiring the
- * array to be sorted would turn that ordinary merge into a failure the author has
- * to fix by hand-reordering, for no benefit: the runner sorts by version anyway,
- * and an older-timestamped migration simply back-fills (#472 already applies any
- * version absent from schema_version). Rails has no such constraint either — it
- * globs the migration files and sorts them.
+ * Applies all unapplied migrations via drizzle-orm's bun:sqlite migrator on the
+ * store's own connection (so the boot-time `PRAGMA foreign_keys = OFF` window
+ * covers it). Returns the names applied in this run. Throws — without touching
+ * the schema — when the DB has applied a migration this build does not define
+ * (downgrade protection).
  */
-function validate(migrations: Migration[]): void {
-  const seen = new Map<number, string>()
-  for (const m of migrations) {
-    if (!Number.isInteger(m.version) || m.version <= 0) {
-      throw new Error(`migration version must be a positive integer (got ${m.version})`)
-    }
-    const clash = seen.get(m.version)
-    if (clash !== undefined) {
-      throw new Error(
-        `duplicate migration version ${m.version}: defined twice, as '${clash}' and '${m.name}'. ` +
-          `Versions are unique — generate one with \`bun run migration:new <name>\`.`,
-      )
-    }
-    seen.set(m.version, m.name)
-    // Anything NEW must be a timestamp. Enforcing it here means a hand-typed MAX+1
-    // fails on the author's very first test run — not at someone else's merge, and
-    // never at a user's boot.
-    if (m.version > LAST_SEQUENTIAL_VERSION && !isTimestampVersion(m.version)) {
-      throw new Error(
-        `migration ${m.version} ('${m.name}') uses a sequential version. New migrations must use a ` +
-          `UTC timestamp (YYYYMMDDHHMMSS) so two branches can never claim the same number — run ` +
-          `\`bun run migration:new ${m.name}\` and use the version it prints. ` +
-          `(${LAST_SEQUENTIAL_VERSION} was the last hand-numbered migration.)`,
-      )
-    }
-  }
-}
-
-/** How many pre-migration backups to retain per database file. */
-export const MIGRATION_BACKUPS_TO_KEEP = 3
-
-/** True when the backup file name (not a -wal/-shm sidecar) belongs to `dbFile`. */
-function isBackupMain(name: string, dbFile: string): boolean {
-  return name.startsWith(`${dbFile}.backup-v`) && !name.endsWith('-wal') && !name.endsWith('-shm')
-}
-
-/**
- * Copies the on-disk database (plus -wal/-shm sidecars when present) to a
- * timestamped sibling before a version-advancing run, then prunes to the last
- * MIGRATION_BACKUPS_TO_KEEP backups.
- *
- * Safety: called at startup while this process holds the ONLY connection
- * (Podium's server is the single writer), after `PRAGMA wal_checkpoint(TRUNCATE)`
- * folded the WAL into the main file — so a plain file copy is a consistent
- * snapshot. Returns the backup path, or undefined when nothing was copied.
- */
-export function backupBeforeMigration(
+export function runDrizzleMigrations(
   db: SqlDatabase,
-  dbPath: string,
-  fromVersion: number,
-  toVersion: number,
-): string | undefined {
-  if (!existsSync(dbPath)) return undefined
-  // Fold WAL content into the main DB file so the copy is self-consistent.
-  // Harmless no-op under non-WAL journal modes. Must run outside a transaction.
-  db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const backupPath = `${dbPath}.backup-v${fromVersion}-${toVersion}-${stamp}`
-  copyFileSync(dbPath, backupPath)
-  for (const suffix of ['-wal', '-shm']) {
-    if (existsSync(`${dbPath}${suffix}`))
-      copyFileSync(`${dbPath}${suffix}`, `${backupPath}${suffix}`)
-  }
-  pruneBackups(dbPath)
-  return backupPath
-}
-
-/** Keeps the newest MIGRATION_BACKUPS_TO_KEEP backup sets; deletes the rest. */
-function pruneBackups(dbPath: string): void {
-  const dir = dirname(dbPath)
-  const dbFile = basename(dbPath)
-  const mains = readdirSync(dir)
-    .filter((name) => isBackupMain(name, dbFile))
-    .map((name) => ({ name, mtimeMs: statSync(join(dir, name)).mtimeMs }))
-    .sort((a, b) => b.mtimeMs - a.mtimeMs || b.name.localeCompare(a.name))
-  for (const stale of mains.slice(MIGRATION_BACKUPS_TO_KEEP)) {
-    for (const suffix of ['', '-wal', '-shm']) {
-      rmSync(join(dir, `${stale.name}${suffix}`), { force: true })
-    }
-  }
-}
-
-/**
- * Applies all pending migrations. Returns the versions applied in this run.
- * Throws (without touching the schema) when the DB is newer than the code.
- */
-export function runMigrations(
-  db: SqlDatabase,
-  migrations: Migration[] = MIGRATIONS,
+  migrations: DrizzleMigration[],
   opts: { dbPath?: string } = {},
-): number[] {
-  validate(migrations)
-  db.exec(
-    `CREATE TABLE IF NOT EXISTS schema_version (
-       version INTEGER PRIMARY KEY,
-       name TEXT NOT NULL,
-       applied_at TEXT NOT NULL
-     )`,
-  )
-  const current = dbSchemaVersion(db)
-  const target = codeSchemaVersion(migrations)
-  if (current > target) {
+): string[] {
+  const applied = appliedDrizzleNames(db)
+
+  const known = new Set(migrations.map((m) => m.name))
+  for (const name of applied) {
+    if (!known.has(name)) {
+      throw new Error(
+        `database has applied migration '${name}', which this build does not define. ` +
+          `The database is newer than this build — upgrade the Podium server ` +
+          `(downgrades are not supported).`,
+      )
+    }
+  }
+
+  // Apply in folder-name order, and hand drizzle the SAME order: its array path
+  // applies in array order (it filters by name but never sorts), so a sorted
+  // input keeps the reported/applied order in lockstep even if a caller passes
+  // an unsorted list.
+  const ordered = [...migrations].sort((a, b) => a.name.localeCompare(b.name))
+  const pending = ordered.filter((m) => !applied.has(m.name))
+  if (pending.length === 0) return []
+
+  // #43: snapshot before applying anything, but only when the DB already holds
+  // real tables (a brand-new file is not worth backing up).
+  if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
+    backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
+  }
+
+  const client = bunSqliteClient(db)
+  if (client === undefined) {
     throw new Error(
-      `database schema version ${current} is newer than this build supports (${target}). ` +
-        `Upgrade the Podium server (or restore the matching database) — downgrades are not supported.`,
+      'the drizzle migrator requires the bun:sqlite runtime — Podium runs under Bun ' +
+        '(the production binary and the vitest suite via `bun --bun`).',
     )
   }
-  // What this DB has really applied — NOT "everything at or below MAX" (#472).
-  const alreadyApplied = appliedMigrations(db)
-
-  // A version already applied under a DIFFERENT name means two migrations were
-  // authored with the same number on different branches (exactly what #216 did:
-  // its `accounts` was numbered 016 while 016 `messages` was already applied).
-  // Skipping it here would silently drop a migration; applying it would corrupt
-  // the ledger. Refuse to boot, and say precisely what to do about it.
-  for (const m of migrations) {
-    const appliedName = alreadyApplied.get(m.version)
-    if (appliedName !== undefined && appliedName !== m.name) {
-      throw new Error(
-        `duplicate migration version ${m.version}: this database already applied ` +
-          `'${appliedName}', but this build defines '${m.name}' at the same version. ` +
-          `Two branches claimed the same number — renumber '${m.name}' to ` +
-          `${codeSchemaVersion(migrations) + 1} or higher and redeploy.`,
-      )
-    }
-  }
-
-  // Apply in VERSION order, not array order — the registry may be unsorted after two
-  // branches each appended (#485). An older-timestamped migration that lands later
-  // simply back-fills, which is exactly the case #472 made safe.
-  const pending = inVersionOrder(migrations).filter((m) => !alreadyApplied.has(m.version))
-
-  // #43: snapshot the database before applying anything — but only when it already
-  // holds real tables (schema_version alone is a brand-new file).
-  //
-  // This predicate MUST use the same pending-set logic as the apply loop below.
-  // It used to ask `m.version > current`, and leaving it that way while fixing only
-  // the loop would let a back-filled (out-of-order) migration run with NO BACKUP —
-  // trading a silent-skip bug for a silent-data-loss one.
-  const hasPending = pending.length > 0
-  if (hasPending && opts.dbPath !== undefined && opts.dbPath !== ':memory:') {
-    const hasObjects = db
-      .prepare(
-        `SELECT name FROM sqlite_master WHERE type = 'table' AND name != 'schema_version' LIMIT 1`,
-      )
-      .get()
-    if (hasObjects !== undefined) backupBeforeMigration(db, opts.dbPath, current, target)
-  }
-
-  const applied: number[] = []
-  const insert = db.prepare(
-    'INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)',
+  // drizzle applies the by-name-unapplied set in one transaction and writes the
+  // ledger; it skips already-applied names, so passing the full ordered list is
+  // correct.
+  migrate(
+    drizzle({ client }),
+    ordered.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: m.sql })),
   )
-  for (const m of pending) {
-    // Deliberately hand-rolled, NOT @podium/runtime/sqlite `transaction()`
-    // [spec:SP-3fe2]: each migration must be its own top-level BEGIN IMMEDIATE
-    // with the version stamp committing atomically alongside the schema change.
-    // The nesting-safe helper would degrade this to a SAVEPOINT if a caller ever
-    // wrapped runMigrations in a transaction — then a later migration's failure
-    // could roll back earlier already-stamped migrations, breaking the
-    // one-transaction-per-migration ordering guarantee.
-    db.exec('BEGIN IMMEDIATE')
-    try {
-      m.up(db)
-      insert.run(m.version, m.name, new Date().toISOString())
-      db.exec('COMMIT')
-    } catch (err) {
-      db.exec('ROLLBACK')
+  return pending.map((m) => m.name)
+}
+
+/**
+ * The boot entry point. Bridges a pre-drizzle database onto the ledger, then
+ * applies pending migrations. Keyed on whether the drizzle ledger has any
+ * applied migration (an EMPTY `__drizzle_migrations` — e.g. left by a crashed
+ * first adoption — counts as not-yet-adopted, so it self-heals rather than
+ * skipping the bridge and re-running the baseline):
+ *  - ledger has applied rows → already drizzle-native; just apply pending.
+ *  - `schema_version` at exactly BASELINE_LEGACY_VERSION → stamp the baseline
+ *    (its DDL is already present), then apply anything past it.
+ *  - `schema_version` BEHIND that → refuse: the legacy chain is gone.
+ *  - `schema_version` AHEAD → refuse (downgrade).
+ *  - data tables but no ledger at all → refuse (unrecognized).
+ *  - empty file → the baseline builds the schema.
+ */
+export function migrateDatabase(
+  db: SqlDatabase,
+  migrations: DrizzleMigration[],
+  baseline: DrizzleMigration,
+  opts: { dbPath?: string } = {},
+): string[] {
+  if (appliedDrizzleNames(db).size === 0) {
+    const legacy = legacySchemaVersion(db)
+    if (legacy !== undefined) {
+      if (legacy < BASELINE_LEGACY_VERSION) {
+        throw new Error(
+          `database is at legacy schema_version ${legacy}, but this build adopted drizzle at ` +
+            `${BASELINE_LEGACY_VERSION} and no longer carries the legacy migration chain. ` +
+            `Run the last pre-drizzle Podium build once to migrate this database to ` +
+            `${BASELINE_LEGACY_VERSION}, then upgrade again.`,
+        )
+      }
+      if (legacy > BASELINE_LEGACY_VERSION) {
+        throw new Error(
+          `database schema_version ${legacy} is newer than this build's baseline ` +
+            `(${BASELINE_LEGACY_VERSION}). Upgrade the Podium server — downgrades are not supported.`,
+        )
+      }
+      // Exactly at the baseline: record it as applied without re-running its DDL.
+      // Log it — this one-time adoption stamp is the riskiest schema event, and
+      // an invisible schema change is exactly what #472 taught us to avoid.
+      if (stampMigration(db, baseline)) {
+        console.log(
+          `[podium:server] adopted existing database onto drizzle — stamped baseline ${baseline.name}`,
+        )
+      }
+    } else if (hasAnyDataTable(db)) {
       throw new Error(
-        `migration ${m.version} (${m.name}) failed: ${err instanceof Error ? err.message : String(err)}`,
-        { cause: err },
+        `database has tables but neither a drizzle nor a legacy migration ledger — ` +
+          `unrecognized state, refusing to migrate it automatically.`,
       )
     }
-    applied.push(m.version)
+    // else: empty file → the baseline is applied below and builds the schema.
   }
-  return applied
+  return runDrizzleMigrations(db, migrations, opts)
 }
+
+/**
+ * Builds the full current schema on a fresh database from the bundled baseline —
+ * for tests and tools that need the schema in isolation, without constructing the
+ * whole SessionStore (the drizzle equivalent of the old `runMigrations(db,
+ * MIGRATIONS)`). Requires the bun:sqlite runtime, like the migrator itself.
+ */
+export function applyBaselineSchema(db: SqlDatabase): string[] {
+  return migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)
+}
+
+export { backupDatabase } from './backup'

@@ -35,11 +35,10 @@ describe('repo_id schema (v8, #74)', () => {
       )
       expect(cols.has('repo_id'), `missing repo_id on ${table}`).toBe(true)
     }
-    const v = db(s).prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as {
-      value: string
-    }
-    // Coherence marker: 9 after email-style read state (#124) bumped it 8 -> 9.
-    expect(v.value).toBe('9')
+    // The legacy `meta.schema_version` marker (written by migration 002's DML) is
+    // NOT carried on a fresh drizzle-built DB [spec:SP-4428] — the baseline is
+    // DDL only, and nothing at runtime reads that marker. It still appears on
+    // pre-drizzle databases healed by the legacy chain (see the backfill test).
     s.close()
   })
 

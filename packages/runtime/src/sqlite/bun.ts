@@ -26,12 +26,26 @@ function database(): BunCtor {
   return Ctor
 }
 
+/**
+ * The raw `bun:sqlite` Database behind each `SqlDatabase` we hand out, so a
+ * consumer that needs the native handle (the drizzle migrator, which wants
+ * `drizzle({ client })` on the SAME connection) can retrieve it without widening
+ * the runtime-neutral interface. A WeakMap keeps this off the public shape and
+ * lets the entry drop when the wrapper is GC'd.
+ */
+const rawByWrapper = new WeakMap<SqlDatabase, BunDb>()
+
+/** The native `bun:sqlite` Database backing `db`, or undefined if it isn't bun-backed. */
+export function bunSqliteClient(db: SqlDatabase): BunDb | undefined {
+  return rawByWrapper.get(db)
+}
+
 export function openBunDatabase(path: string, opts?: OpenOptions): SqlDatabase {
   // bun:sqlite: `readonly` (lowercase), and read-write must opt into file creation.
   const db = opts?.readOnly
     ? new (database())(path, { readonly: true })
     : new (database())(path, { create: true })
-  return {
+  const wrapper: SqlDatabase = {
     prepare(sql) {
       const st = db.prepare(sql)
       return {
@@ -47,4 +61,6 @@ export function openBunDatabase(path: string, opts?: OpenOptions): SqlDatabase {
     exec: (sql) => db.exec(sql),
     close: () => db.close(),
   }
+  rawByWrapper.set(wrapper, db)
+  return wrapper
 }

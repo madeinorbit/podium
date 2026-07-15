@@ -1,77 +1,148 @@
 /**
- * Convergence proof (Phase 1, deliverable 1): a database built by the LEGACY
- * SessionStore.migrate() DDL path and then upgraded through the migration
- * chain ends up with a sqlite_master byte-identical to a database built from
- * scratch by the chain alone.
+ * Schema convergence [spec:SP-4428]: a fresh drizzle-built database and an
+ * existing (pre-drizzle) database bridged onto drizzle end up with the same
+ * DATA schema, and the bridge never re-runs the baseline it stamps.
  *
- * The legacy path is simulated by executing the DDL captured verbatim from a
- * legacy-built database's sqlite_master (legacy-schema.fixture.ts) and
- * stamping schema_version = 1 (the no-op baseline every legacy DB adopted).
+ * The comparison excludes the two migration ledgers (`schema_version`,
+ * `__drizzle_migrations`) — a bridged DB keeps the legacy `schema_version`
+ * table (never dropped) and gains the stamped baseline; a fresh DB never has
+ * `schema_version` at all. Those ledgers legitimately differ; the data schema
+ * must not. The bridge comparison additionally excludes the FTS5 objects
+ * (`*_fts`, its shadow tables, and the `conversations_a{i,d,u}` triggers) —
+ * `ConversationsRepository.ensureFts()` creates those idempotently on every
+ * boot, so a pre-boot snapshot never has them yet.
  */
 
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../store'
-import { LEGACY_SCHEMA_SQL } from './legacy-schema.fixture'
-import { codeSchemaVersion, dbSchemaVersion } from './index'
+import { BASELINE_MIGRATION } from './drizzle-manifest.generated'
+import { appliedDrizzleNames, BASELINE_LEGACY_VERSION } from './index'
 
-function schemaOf(file: string): { type: string; name: string; sql: string | null }[] {
+interface SchemaRow {
+  type: string
+  name: string
+  sql: string | null
+}
+
+/** Every schema object except sqlite internals and the two migration ledgers. */
+function schemaOf(file: string): SchemaRow[] {
   const db = openDatabase(file)
   const rows = db
     .prepare(
-      "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+      `SELECT type, name, sql FROM sqlite_master
+         WHERE name NOT LIKE 'sqlite_%'
+           AND name NOT IN ('schema_version', '__drizzle_migrations')
+         ORDER BY type, name`,
     )
-    .all() as { type: string; name: string; sql: string | null }[]
+    .all() as SchemaRow[]
   db.close()
   return rows
 }
 
-function tmpDb(name: string): string {
+/** Boot-created FTS5 objects (virtual tables, their shadow tables, and the
+ *  conversations_a{i,d,u} sync triggers) — created idempotently per boot by
+ *  ConversationsRepository.ensureFts(), never by a migration. */
+function isFtsBootArtifact(name: string): boolean {
+  return /_fts$/.test(name) || /_fts_/.test(name) || /^conversations_a[iud]$/.test(name)
+}
+
+/** {@link schemaOf} minus the per-boot FTS artifacts — the pure DATA schema. */
+function dataSchemaOf(file: string): SchemaRow[] {
+  return schemaOf(file).filter((r) => !isFtsBootArtifact(r.name))
+}
+
+function tmpDbFile(name: string): string {
   return join(mkdtempSync(join(tmpdir(), 'podium-converge-')), name)
 }
 
-describe('schema convergence: legacy-built DB + migration chain == fresh chain', () => {
-  it('produces a byte-identical sqlite_master on both paths', () => {
-    // Path A: a database exactly as the legacy migrate() left it (schema_version
-    // stamped 1), then opened by the current code (runs migrations 002+).
-    const legacyFile = tmpDb('legacy.db')
+describe('fresh drizzle-built database', () => {
+  it('has the expected data tables and the baseline recorded as applied', () => {
+    const file = tmpDbFile('fresh.db')
+    new SessionStore(file).close()
+
+    const tableNames = new Set(
+      schemaOf(file)
+        .filter((r) => r.type === 'table')
+        .map((r) => r.name),
+    )
+    expect(tableNames.size).toBeGreaterThan(40)
+    for (const name of ['sessions', 'issues', 'workflows']) {
+      expect(tableNames.has(name)).toBe(true)
+    }
+
+    const db = openDatabase(file)
+    expect(appliedDrizzleNames(db)).toContain(BASELINE_MIGRATION.name)
+    db.close()
+  })
+
+  it('reopening the same file changes no schema object (idempotent)', () => {
+    const file = tmpDbFile('reopen.db')
+    new SessionStore(file).close()
+    const before = schemaOf(file)
+
+    new SessionStore(file).close()
+
+    expect(schemaOf(file)).toEqual(before)
+  })
+})
+
+describe('bridging an existing (pre-drizzle) database onto drizzle', () => {
+  it('preserves the existing data schema and data, and stamps (never re-executes) the baseline', () => {
+    const file = tmpDbFile('bridge.db')
     {
-      const db = openDatabase(legacyFile)
-      for (const sql of LEGACY_SCHEMA_SQL) db.exec(sql)
+      const db: SqlDatabase = openDatabase(file)
+      for (const stmt of BASELINE_MIGRATION.sql.split('--> statement-breakpoint')) {
+        db.exec(stmt)
+      }
+      db.exec(
+        `CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT)`,
+      )
       db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)').run(
-        1,
-        'baseline',
-        '2026-01-01T00:00:00.000Z',
+        BASELINE_LEGACY_VERSION,
+        'session-geometry',
+        new Date().toISOString(),
+      )
+      db.prepare(
+        `INSERT INTO sessions
+           (id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        'sess_seed',
+        'claude-code',
+        '/tmp/x',
+        'seed session',
+        'spawn',
+        'exited',
+        'seed',
+        't',
+        't',
       )
       db.close()
     }
-    new SessionStore(legacyFile).close()
 
-    // Path B: a fresh database built entirely by the migration chain.
-    const freshFile = tmpDb('fresh.db')
-    new SessionStore(freshFile).close()
+    const before = dataSchemaOf(file)
 
-    const legacySchema = schemaOf(legacyFile)
-    const freshSchema = schemaOf(freshFile)
-    expect(legacySchema.length).toBeGreaterThan(40) // the schema actually exists
-    expect(legacySchema).toEqual(freshSchema)
+    const store = new SessionStore(file)
+    store.close()
 
-    // Both stamped to the full chain.
-    for (const file of [legacyFile, freshFile]) {
-      const db = openDatabase(file)
-      expect(dbSchemaVersion(db)).toBe(codeSchemaVersion())
-      db.close()
-    }
-  })
+    const db = openDatabase(file)
+    const seeded = db.prepare('SELECT title FROM sessions WHERE id = ?').get('sess_seed') as
+      | { title: string }
+      | undefined
+    expect(seeded?.title).toBe('seed session')
+    // The legacy schema_version ledger survives untouched (never dropped)...
+    expect(db.prepare(`SELECT version FROM schema_version`).get()).toEqual({
+      version: BASELINE_LEGACY_VERSION,
+    })
+    // ...and the baseline is now recorded in the drizzle ledger too, by STAMP —
+    // its DDL never re-ran (the seeded row above proves the table wasn't rebuilt).
+    expect(appliedDrizzleNames(db)).toEqual(new Set([BASELINE_MIGRATION.name]))
+    db.close()
 
-  it('reopening either database applies no further schema change (idempotent)', () => {
-    const file = tmpDb('reopen.db')
-    new SessionStore(file).close()
-    const before = schemaOf(file)
-    new SessionStore(file).close()
-    expect(schemaOf(file)).toEqual(before)
+    expect(dataSchemaOf(file)).toEqual(before)
   })
 })

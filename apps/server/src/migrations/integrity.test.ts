@@ -1,22 +1,24 @@
 /**
- * Migration 006 — referential integrity + value constraints on the issue
- * tables (issue #164 step 2): ON DELETE CASCADE onto child tables, ON DELETE
- * SET NULL for scalar back-references, CHECKed stage/type/priority, and the
- * legacy-data sanitation that lets a populated DB converge.
+ * Issue schema integrity [spec:SP-4428] — referential integrity + value
+ * constraints on the issue tables (originally issue #164 step 2), verified
+ * against a FRESH drizzle-built database: ON DELETE CASCADE onto child
+ * tables, ON DELETE SET NULL for scalar back-references, and CHECKed
+ * stage/type/priority.
+ *
+ * The legacy-data sanitation tests that used to live here (coercing
+ * out-of-enum values and dangling references on a populated pre-drizzle DB,
+ * dropping mirrored parent-child dep rows, folding the retired `verifying`
+ * stage back into `review`) tested one-time DATA heals that ran as part of
+ * the now-deleted legacy migration chain. That chain — and the
+ * `legacy-schema.fixture` it seeded — is gone [spec:SP-4428], and the
+ * adoption bridge (`migrateDatabase`) only ever STAMPS an existing database
+ * at the frozen baseline; it never re-heals data. There is no fresh-schema
+ * equivalent for those tests, so they are dropped rather than adapted.
  */
 
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../store'
+import { describe, expect, it } from 'vitest'
 import type { IssueRow } from '../store'
-import { LEGACY_SCHEMA_SQL } from './legacy-schema.fixture'
-
-function tmpDb(name: string): string {
-  return join(mkdtempSync(join(tmpdir(), 'podium-integrity-')), name)
-}
+import { SessionStore } from '../store'
 
 /** White-box seam: the store's own SQLite connection (FKs enabled). */
 function rawDb(s: SessionStore): {
@@ -41,7 +43,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   }
 }
 
-describe('migration 006: FK behavior at runtime', () => {
+describe('issue schema: FK behavior at runtime', () => {
   it('deleting an issue cascades onto labels/deps/comments/messages', () => {
     const s = new SessionStore(':memory:')
     s.issues.upsertIssue(issueRow({ id: 'iss_a', seq: 1 }))
@@ -99,102 +101,6 @@ describe('migration 006: FK behavior at runtime', () => {
     expect(() => upd('priority', 9)).toThrow(/check/i)
     // The legal values still pass.
     expect(() => upd('stage', 'review')).not.toThrow()
-    s.close()
-  })
-})
-
-describe('migration 006: legacy-data sanitation', () => {
-  it('coerces out-of-enum values and clears dangling references on a populated legacy DB', () => {
-    const file = tmpDb('legacy.db')
-    {
-      const db = openDatabase(file)
-      for (const sql of LEGACY_SCHEMA_SQL) db.exec(sql)
-      db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (1, ?, ?)').run(
-        'baseline',
-        't',
-      )
-      db.exec(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, type, priority, parent_id, superseded_by, default_agent, created_at, updated_at)
-         VALUES ('iss_bad', '/r', 1, 'garbage row', 'weird-stage', 'not-a-type', 9, 'iss_gone', 'iss_gone', 'claude-code', 't', 't')`,
-      )
-      db.exec("INSERT INTO issue_labels (issue_id, label) VALUES ('iss_gone', 'orphan')")
-      db.exec("INSERT INTO issue_deps (from_id, to_id) VALUES ('iss_bad', 'iss_gone')")
-      db.exec(
-        `INSERT INTO issue_comments (id, issue_id, author, body, created_at)
-         VALUES ('c1', 'iss_gone', 'a', 'orphan', 't')`,
-      )
-      db.close()
-    }
-
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      const s = new SessionStore(file)
-      const row = s.issues.getIssue('iss_bad')
-      expect(row?.stage).toBe('backlog')
-      expect(row?.type).toBe('task')
-      expect(row?.priority).toBe(2)
-      expect(row?.parentId).toBeNull()
-      expect(row?.supersededBy).toBeNull()
-      expect(s.issues.getIssueLabels('iss_gone')).toEqual([])
-      expect(s.issues.listIssueDeps('iss_bad')).toEqual([])
-      expect(s.issues.listIssueComments('iss_gone')).toEqual([])
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('out-of-range stage'))
-      s.close()
-    } finally {
-      warnSpy.mockRestore()
-    }
-  })
-})
-
-describe('migration 007: single parent storage', () => {
-  it('drops the mirrored parent-child dep rows; real dep types survive', () => {
-    const file = tmpDb('parent.db')
-    {
-      const db = openDatabase(file)
-      for (const sql of LEGACY_SCHEMA_SQL) db.exec(sql)
-      db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (1, ?, ?)').run(
-        'baseline',
-        't',
-      )
-      db.exec(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, parent_id, default_agent, created_at, updated_at)
-         VALUES ('iss_epic', '/r', 1, 'epic', 'backlog', NULL, 'claude-code', 't', 't'),
-                ('iss_kid', '/r', 2, 'kid', 'backlog', 'iss_epic', 'claude-code', 't', 't')`,
-      )
-      db.exec(
-        `INSERT INTO issue_deps (from_id, to_id, type)
-         VALUES ('iss_kid', 'iss_epic', 'parent-child'), ('iss_kid', 'iss_epic', 'blocks')`,
-      )
-      db.close()
-    }
-    const s = new SessionStore(file)
-    expect(s.issues.listIssueDeps('iss_kid')).toEqual([{ toId: 'iss_epic', type: 'blocks' }])
-    expect(s.issues.getIssue('iss_kid')?.parentId).toBe('iss_epic') // the column is the storage
-    s.close()
-  })
-})
-
-describe('migration 010: the verifying stage is gone', () => {
-  it('folds legacy verifying rows (and stale suggestions) back into review', () => {
-    const file = tmpDb('verifying.db')
-    {
-      const db = openDatabase(file)
-      for (const sql of LEGACY_SCHEMA_SQL) db.exec(sql)
-      db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (1, ?, ?)').run(
-        'baseline',
-        't',
-      )
-      db.exec(
-        `INSERT INTO issues (id, repo_path, seq, title, stage, suggested_stage, default_agent, created_at, updated_at)
-         VALUES ('iss_v', '/r', 1, 'mid-verify', 'verifying', NULL, 'claude-code', 't', 't'),
-                ('iss_s', '/r', 2, 'stale-hint', 'review', 'verifying', 'claude-code', 't', 't')`,
-      )
-      db.close()
-    }
-    const s = new SessionStore(file)
-    // Not 'done': verification wasn't finished, so it stays on the board.
-    expect(s.issues.getIssue('iss_v')?.stage).toBe('review')
-    expect(s.issues.getIssue('iss_s')?.suggestedStage).toBe('review')
     s.close()
   })
 })

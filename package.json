@@ -52,12 +52,16 @@
     "release": "bun run build && changeset publish",
     "package:headless": "bun run --filter @podium/web build && bun scripts/build-bun.ts",
     "desktop:build": "bun run --cwd apps/desktop build",
-    "migration:new": "bun run scripts/new-migration.ts"
+    "migration:new": "bun run scripts/new-migration.ts",
+    "migration:check": "drizzle-kit check",
+    "migration:manifest": "bun run scripts/build-drizzle-manifest.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@changesets/cli": "^2.31.0",
     "@playwright/test": "^1.60.0",
+    "drizzle-kit": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.9.1",

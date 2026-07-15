@@ -110,80 +110,9 @@ describe('machines store', () => {
     s.close()
   })
 
-  it('pre-multi-machine repos copy preserves existing rows with machineId=__local__', async () => {
-    const file = await tmpDbPath()
-    // Hand-build a pre-multi-machine database (old repos schema: path PRIMARY KEY, added_at).
-    const db = openDatabase(file)
-    db.exec(
-      `CREATE TABLE repos (
-         path TEXT PRIMARY KEY,
-         added_at TEXT NOT NULL
-       )`,
-    )
-    db.exec(
-      `CREATE TABLE sessions (
-         id TEXT PRIMARY KEY,
-         agent_kind TEXT NOT NULL,
-         cwd TEXT NOT NULL,
-         title TEXT NOT NULL,
-         name TEXT,
-         origin_kind TEXT NOT NULL,
-         conversation_id TEXT,
-         resume_kind TEXT,
-         resume_value TEXT,
-         status TEXT NOT NULL,
-         exit_code INTEGER,
-         durable_label TEXT NOT NULL,
-         created_at TEXT NOT NULL,
-         last_active_at TEXT NOT NULL,
-         archived INTEGER NOT NULL DEFAULT 0,
-         work_state TEXT
-       )`,
-    )
-    db.exec(
-      `CREATE TABLE pins (kind TEXT NOT NULL, id TEXT NOT NULL, pinned_at TEXT NOT NULL, PRIMARY KEY (kind, id))`,
-    )
-    db.exec(
-      `CREATE TABLE tab_order (worktree TEXT PRIMARY KEY, ids TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-    )
-    db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
-    db.exec(
-      `CREATE TABLE conversations (id TEXT PRIMARY KEY, agent_kind TEXT NOT NULL, provider_id TEXT NOT NULL, title TEXT, name TEXT, summary TEXT, project_path TEXT, resume_kind TEXT, resume_value TEXT, created_at TEXT, updated_at TEXT, message_count INTEGER)`,
-    )
-    db.exec(
-      `CREATE TABLE superagent_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, role TEXT NOT NULL, content TEXT NOT NULL, tool_calls TEXT, tool_call_id TEXT, tool_name TEXT, created_at TEXT NOT NULL)`,
-    )
-    db.exec(
-      `CREATE TABLE superagent_threads (id TEXT PRIMARY KEY, kind TEXT NOT NULL, origin_session_id TEXT, title TEXT, watermark_item_id TEXT, watermark_ts TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0)`,
-    )
-    // Insert two old-shape repos with distinct added_at timestamps.
-    db.prepare('INSERT INTO repos (path, added_at) VALUES (?, ?)').run(
-      '/projects/alpha',
-      '2026-01-01T00:00:00.000Z',
-    )
-    db.prepare('INSERT INTO repos (path, added_at) VALUES (?, ?)').run(
-      '/projects/beta',
-      '2026-02-01T00:00:00.000Z',
-    )
-    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '3')
-    db.close()
-
-    // Opening via SessionStore must trigger the repos rebuild + machine attribution.
-    const store = new SessionStore(file)
-    const rows = store.repos.listRepos()
-    expect(rows).toHaveLength(2)
-    const alpha = rows.find((r) => r.path === '/projects/alpha')
-    const beta = rows.find((r) => r.path === '/projects/beta')
-    expect(alpha?.machineId).toBe('__local__')
-    expect(alpha?.originUrl).toBeNull()
-    expect(beta?.machineId).toBe('__local__')
-    // added_at survives the copy (stored internally; verify via a fresh addRepo round-trip
-    // in the same store to confirm the table is live and writable).
-    store.repos.addRepo('/projects/gamma')
-    expect(store.repos.listRepoPaths()).toContain('/projects/gamma')
-    store.close()
-    rmSync(file, { force: true })
-  })
+  // The 'pre-multi-machine repos copy' test (upgrading a pre-schema_version, machine_id-less
+  // database) was removed with the legacy migration chain [spec:SP-4428]; such old formats
+  // are upgraded by running a pre-drizzle Podium build first.
 
   it('multi-machine migration is idempotent — re-opening the same file db is a no-op', async () => {
     const file = await tmpDbPath()

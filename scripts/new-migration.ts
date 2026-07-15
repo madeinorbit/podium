@@ -1,22 +1,30 @@
 #!/usr/bin/env bun
 /**
- * Scaffolds a migration with a UTC timestamp version.
+ * Authors a new migration with drizzle-kit [spec:SP-4428].
  *
- *   bun run migration:new add-widget-table
+ *   1. Edit apps/server/src/migrations/schema.ts — the schema is the source of truth.
+ *   2. bun run migration:new add-widget-table
  *
- * Why a timestamp and not MAX+1: Podium runs many agents on parallel branches by
- * design, and sequential numbering guarantees they collide — two agents both take
- * the next number and only find out at merge. A timestamp is collision-free by
- * construction, so there is nothing to coordinate and no conflict to notice.
- * Rails made this same switch in 2.1. See #485 / #472.
+ * This diffs the schema against the last snapshot (`drizzle-kit generate`),
+ * emitting a timestamped migration folder + snapshot under
+ * apps/server/src/migrations/drizzle/, then regenerates the bundled manifest the
+ * runtime applier reads (drizzle-manifest.generated.ts).
  *
- * This is the ONLY supported way to pick a version. Do not hand-type one.
+ * Why drizzle and not MAX+1: Podium runs many agents on parallel branches by
+ * design. drizzle-kit names each folder with a UTC-timestamp prefix (collision-
+ * free — the same reason #485 switched away from sequential numbers), and its
+ * snapshot `prevIds[]` DAG + `drizzle-kit check` (CI) surface two branches that
+ * touch the same table BEFORE merge — the conflict our old runner could not see.
+ *
+ * For a data backfill or any DDL drizzle can't diff (e.g. an FTS/expression
+ * object), author an empty migration with `drizzle-kit generate --custom` and
+ * hand-write its SQL, then rerun `bun run migration:manifest`.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
-const MIGRATIONS_DIR = join(import.meta.dir, '..', 'apps', 'server', 'src', 'migrations')
-const INDEX = join(MIGRATIONS_DIR, 'index.ts')
+const REPO = join(import.meta.dir, '..')
+const DRIZZLE_KIT = join(REPO, 'node_modules', '.bin', 'drizzle-kit')
 
 const rawName = process.argv[2]
 if (!rawName) {
@@ -24,7 +32,7 @@ if (!rawName) {
   process.exit(1)
 }
 
-/** kebab-case, the convention every existing migration file follows. */
+/** kebab-case — drizzle uses this as the folder-name slug after the timestamp. */
 const name = rawName
   .trim()
   .replace(/[_\s]+/g, '-')
@@ -36,68 +44,20 @@ if (!name) {
   process.exit(1)
 }
 
-const now = new Date()
-const p2 = (n: number) => String(n).padStart(2, '0')
-const version =
-  `${now.getUTCFullYear()}${p2(now.getUTCMonth() + 1)}${p2(now.getUTCDate())}` +
-  `${p2(now.getUTCHours())}${p2(now.getUTCMinutes())}${p2(now.getUTCSeconds())}`
-
-const file = join(MIGRATIONS_DIR, `${version}-${name}.ts`)
-if (existsSync(file)) {
-  console.error(`${file} already exists — wait a second and re-run`)
-  process.exit(1)
+function run(cmd: string, args: string[]): void {
+  const res = spawnSync(cmd, args, { cwd: REPO, stdio: 'inherit' })
+  if (res.status !== 0) {
+    console.error(`\n${cmd} ${args.join(' ')} failed (exit ${res.status ?? 'signal'})`)
+    process.exit(res.status ?? 1)
+  }
 }
 
-// camelCase identifier for the import binding.
-const ident = name.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase())
+// 1. Diff schema → a timestamped migration folder + snapshot.
+run(DRIZZLE_KIT, ['generate', `--name=${name}`])
+// 2. Re-bundle the manifest so the runtime applier sees the new migration.
+run('bun', ['run', 'scripts/build-drizzle-manifest.ts'])
 
-writeFileSync(
-  file,
-  `/**
- * Migration ${version} — ${name}.
- *
- * ADDITIVE ONLY: no destructive drops/renames in a single release (two-phase them).
- * Runs inside a transaction — do NOT BEGIN/COMMIT here.
- * Must be ORDER-INDEPENDENT: a back-filled migration can run after higher-numbered
- * ones, so do not assume a predecessor already ran — guard defensively instead.
- */
-
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-
-export function up(db: SqlDatabase): void {
-  db.exec(\`
-    -- your DDL here
-  \`)
-}
-`,
-)
-
-// Wire it into the registry: the import goes directly after the LAST migration import,
-// and the entry at the end of MIGRATIONS — timestamps always sort last, so appending is
-// always correct and never conflicts with another branch's entry.
-const src = readFileSync(INDEX, 'utf8')
-
-const importLine = `import { up as ${ident} } from './${version}-${name}'\n`
-const lastMigrationImport = src.lastIndexOf('import { up as ')
-const afterLastImport = src.indexOf('\n', lastMigrationImport) + 1
-const withImport = src.slice(0, afterLastImport) + importLine + src.slice(afterLastImport)
-
-const listEnd = withImport.lastIndexOf(']\n\n/** Highest schema version')
-if (lastMigrationImport === -1 || listEnd === -1) {
-  console.error(
-    `could not auto-wire ${INDEX} — its shape changed. Add these two lines by hand:\n` +
-      `  ${importLine.trim()}\n` +
-      `  { version: ${version}, name: '${name}', up: ${ident} },`,
-  )
-  process.exit(1)
-}
-const entry = `  { version: ${version}, name: '${name}', up: ${ident} },\n`
-const wired = withImport.slice(0, listEnd) + entry + withImport.slice(listEnd)
-writeFileSync(INDEX, wired)
-
-console.log(`created ${file}`)
-console.log(`registered { version: ${version}, name: '${name}' } in migrations/index.ts`)
-console.log(`\nVersion ${version} is a UTC timestamp — it cannot collide with another branch.`)
-console.log(`Do not renumber it, and do not hand-pick MAX+1.`)
-// The import placement above is best-effort; typecheck is the backstop.
-console.log(`\nRun \`bun run typecheck\` to confirm the wiring, then write your DDL.`)
+console.log(`\nAuthored migration '${name}'.`)
+console.log(`Review the generated SQL under apps/server/src/migrations/drizzle/, then:`)
+console.log(`  - \`bun run migration:check\` to confirm no cross-branch conflict, and`)
+console.log(`  - \`bun run typecheck\` before committing.`)

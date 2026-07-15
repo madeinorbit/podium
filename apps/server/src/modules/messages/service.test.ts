@@ -4,10 +4,8 @@
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
 import type { SessionMeta } from '@podium/protocol'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
-import { MIGRATIONS, runMigrations } from '../../migrations/index'
 import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
 import type { IssueService } from '../issues/service'
@@ -809,50 +807,10 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
   })
 })
 
-describe('migration 015 (issue_messages → messages one-shot copy)', () => {
-  it('maps authors and statuses best-effort', () => {
-    const db = openDatabase(':memory:')
-    // Prod parity: FK enforcement is enabled only AFTER the migration chain
-    // (see SessionStore constructor), so migration-time copies never FK-check.
-    db.exec('PRAGMA foreign_keys = OFF')
-    runMigrations(
-      db,
-      MIGRATIONS.filter((m) => m.version <= 14),
-    )
-    db.exec(`
-      INSERT INTO issue_messages (id, issue_id, from_author, body, created_at, status, claimed_by, read_at, claimed_at) VALUES
-        ('m1', 'iss_a', 'operator', 'b1', 't1', 'unread', NULL, NULL, NULL),
-        ('m2', 'iss_a', 'issue:#7', 'b2', 't2', 'read', NULL, 'tr', NULL),
-        ('m3', 'iss_a', 'approval-broker', 'b3', 't3', 'claimed', 'issue:#9', 'tr', 'tc')
-    `)
-    runMigrations(db)
-    const rows = db.prepare('SELECT * FROM messages ORDER BY id').all() as Record<string, unknown>[]
-    expect(rows).toHaveLength(3)
-    expect(rows[0]).toMatchObject({
-      id: 'm1',
-      from_kind: 'operator',
-      status: 'queued',
-      to_kind: 'issue',
-      to_id: 'iss_a',
-    })
-    expect(rows[1]).toMatchObject({
-      id: 'm2',
-      from_kind: 'agent',
-      // 016 copies the raw ref; 021 repairs it — here #7 has no matching issue
-      // in the recipient's repo, so the sender ends up unattributed (#463).
-      from_issue: null,
-      status: 'delivered',
-      delivered_at: 'tr',
-    })
-    expect(rows[2]).toMatchObject({
-      id: 'm3',
-      from_kind: 'system',
-      status: 'delivered',
-      delivered_at: 'tc',
-    })
-    db.close()
-  })
-})
+// The "migration 015 (issue_messages → messages one-shot copy)" test was removed
+// with the legacy migration chain [spec:SP-4428]: that one-shot backfill lived in
+// a deleted migration and no longer runs (the drizzle adoption stamps an existing
+// database at the baseline rather than re-applying legacy data migrations).
 
 // ---- phase 3: acks & deterministic fallback [spec:SP-34d7 acks] ----
 

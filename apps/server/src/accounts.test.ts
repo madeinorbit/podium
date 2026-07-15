@@ -5,7 +5,7 @@ import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { AccountConnectInput, accountViews } from './accounts'
-import { MIGRATIONS, runMigrations } from './migrations'
+import { applyBaselineSchema } from './migrations'
 import { AccountsRepository } from './store/accounts'
 
 let home: string
@@ -17,7 +17,7 @@ const prevGrokHome = process.env.GROK_HOME
 /** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
 function emptyAccounts(): AccountsRepository {
   const db = openDatabase(':memory:')
-  runMigrations(db, MIGRATIONS)
+  applyBaselineSchema(db)
   return new AccountsRepository(db)
 }
 

@@ -34,7 +34,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
-import { MIGRATIONS, runMigrations } from '../apps/server/src/migrations'
+import { applyBaselineSchema } from '../apps/server/src/migrations'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
 
@@ -43,7 +43,7 @@ const CREDENTIAL = 'sk-test-xyz'
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
 function managedAccountEnv(): Record<string, string> | undefined {
   const db = openDatabase(':memory:')
-  runMigrations(db, MIGRATIONS)
+  applyBaselineSchema(db)
   const accounts = new AccountsRepository(db)
   accounts.upsert({
     id: 'managed:anthropic',
@@ -233,7 +233,7 @@ describe('managed account -> real spawned process env (#216)', () => {
 
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
     const db = openDatabase(':memory:')
-    runMigrations(db, MIGRATIONS)
+    applyBaselineSchema(db)
     const accounts = new AccountsRepository(db)
     accounts.upsert({
       id: 'managed:claude-oauth',

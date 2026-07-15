@@ -4,12 +4,12 @@ import { SyncRepository } from './sync-repository'
 /**
  * A `SyncRepository` over a fresh in-memory SQLite DB carrying just the four
  * tables it owns (`changes`, `applied_mutations`, `queued_messages`,
- * `upstream_outbox`). Test-only fixture: the real schema DDL lives in
- * apps/server/src/migrations/002-core-schema.ts (schema ownership stays with
- * the app that runs the migration chain) — this mirrors it so this package's
+ * `upstream_outbox`). Test-only fixture: the real schema DDL lives in the
+ * drizzle schema (apps/server/src/migrations/schema.ts) — schema ownership stays
+ * with the app that runs the migrator — and this mirrors it so this package's
  * own unit tests can exercise the real repository/SQL without depending on
- * apps/server's migration runner. Keep in sync with that migration if the
- * sync tables' shape ever changes.
+ * apps/server. Keep in sync with that schema if the sync tables' shape ever
+ * changes.
  */
 export function createTestSyncRepository(): SyncRepository {
   return new SyncRepository(createTestSyncDatabase())

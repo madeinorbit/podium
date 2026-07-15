@@ -3,9 +3,7 @@
  * collision, transactional letter allocation, per-repo DRAFT counter, and the
  * migration backfill over colliding repo names.
  */
-import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { up as humanFacingIds } from './migrations/20260714150855-human-facing-ids'
 import { SessionStore } from './store'
 
 function memStore(): SessionStore {
@@ -87,31 +85,8 @@ describe('per-repo DRAFT counter', () => {
   })
 })
 
-describe('migration backfill', () => {
-  it('assigns unique prefixes to colliding repo names', () => {
-    const db = openDatabase(':memory:')
-    db.exec(`CREATE TABLE repos (
-      machine_id TEXT NOT NULL DEFAULT '__local__', path TEXT NOT NULL, origin_url TEXT,
-      repo_name TEXT, repo_id TEXT, added_at TEXT NOT NULL, PRIMARY KEY (machine_id, path))`)
-    db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY)`)
-    const insert = db.prepare(
-      "INSERT INTO repos (machine_id, path, repo_name, repo_id, added_at) VALUES ('__local__', ?, ?, ?, '')",
-    )
-    insert.run('/a/podium', 'podium', 'repo_a')
-    insert.run('/b/podium', 'podium', 'repo_b')
-    insert.run('/c/podium', 'podium', 'repo_c')
-
-    humanFacingIds(db)
-
-    const prefixes = (
-      db.prepare('SELECT repo_id, prefix FROM repo_prefixes ORDER BY repo_id').all() as {
-        repo_id: string
-        prefix: string
-      }[]
-    ).map((r) => r.prefix)
-    expect(prefixes).toHaveLength(3)
-    expect(new Set(prefixes).size).toBe(3)
-    expect(prefixes).toContain('POD')
-    db.close()
-  })
-})
+// The "migration backfill" test (colliding repo names → unique prefixes) was
+// removed with the legacy migration chain [spec:SP-4428]: it drove the deleted
+// human-facing-ids migration's one-time backfill directly. Runtime prefix
+// assignment on a fresh database is exercised through the SessionStore-based ref
+// tests above.
