@@ -1,5 +1,5 @@
 /**
- * Verifies the Unified-sidebar nav links (Issues / Automations) and the Automations
+ * Verifies the desktop header nav links (Issues / Automations) and the Automations
  * view — now a REAL backend surface (#470) [spec:SP-17db], not the seeded prototype
  * this spec used to assert. The load-bearing assertion is the one the mock could
  * never pass: a created automation SURVIVES A RELOAD.
@@ -7,31 +7,29 @@
 import { expect, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
-test('unified sidebar links + a scheduled automation that persists', async ({ page }) => {
+test.skip(({ isMobile }) => isMobile, 'desktop automation-library test')
+
+test('desktop header links + a scheduled automation that persists', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('podium.view', 'home')
   })
   await page.goto(`/?server=${RELAY}&e2e=1`)
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 20_000,
-  })
+  const header = page.getByTestId('desktop-topbar')
+  await expect(header).toBeVisible({ timeout: 60_000 })
 
-  const sidebar = page.locator('aside').first()
-  await sidebar.waitFor({ state: 'visible', timeout: 60_000 })
-
-  // Both nav links present under the top action row.
-  const issuesLink = sidebar.getByRole('button', { name: 'Issues', exact: true })
-  const automationsLink = sidebar.getByRole('button', { name: 'Automations', exact: true })
+  // Both preserved destinations are present in the redesigned desktop header.
+  const issuesLink = header.getByRole('button', { name: 'Issues', exact: true })
+  const automationsLink = header.getByRole('button', { name: 'Automations', exact: true })
   await expect(issuesLink).toBeVisible()
   await expect(automationsLink).toBeVisible()
 
   // Issues link opens the existing issues view.
   await issuesLink.click()
-  await expect(issuesLink).toHaveAttribute('aria-pressed', 'true')
+  await expect(issuesLink).toHaveAttribute('aria-current', 'page')
 
   // Automations link opens the automations view.
   await automationsLink.click()
-  await expect(automationsLink).toHaveAttribute('aria-pressed', 'true')
+  await expect(automationsLink).toHaveAttribute('aria-current', 'page')
   const view = page.getByRole('region', { name: 'Automations' })
   await expect(view.getByRole('heading', { name: 'Automations' })).toBeVisible()
 
@@ -93,10 +91,8 @@ test('unified sidebar links + a scheduled automation that persists', async ({ pa
 
   // ── The assertion the mock could never make: it survives a reload ──────────
   await page.reload()
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 20_000,
-  })
-  await sidebar.getByRole('button', { name: 'Automations', exact: true }).click()
+  await expect(header).toBeVisible({ timeout: 20_000 })
+  await header.getByRole('button', { name: 'Automations', exact: true }).click()
   await expect(view.getByText('Nightly test sweep', { exact: true })).toBeVisible()
   await expect(view.getByText('Resume previous session', { exact: false })).toBeVisible()
 

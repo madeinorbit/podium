@@ -7,9 +7,7 @@ test('podium dark foundation exposes canonical tokens and semantic styling at ru
   page,
 }) => {
   await page.goto(`/?server=${RELAY}&e2e=1`)
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 45_000,
-  })
+  await expect(page.getByTestId('desktop-topbar')).toBeVisible({ timeout: 45_000 })
 
   const repoDialog = page.getByRole('dialog', { name: 'Find repositories' })
   if (await repoDialog.isVisible().catch(() => false)) {
@@ -104,7 +102,8 @@ test('podium dark foundation exposes canonical tokens and semantic styling at ru
       '--live': '#10b981',
       '--claude': '#d97757',
       '--flow': '#94a3b8',
-      '--issue': '#94a3b8',
+      // --issue is a registered <color>, so computed style returns a normalized RGB value.
+      '--issue': 'rgb(148, 163, 184)',
     },
   })
   expect(foundation.bodyFont).toContain('Geist Variable')

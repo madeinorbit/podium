@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core'
-import type { IssuePanelArtifact, IssueWire } from '@podium/protocol'
+import { type IssuePanelArtifact, type IssueWire, issueDisplayRef } from '@podium/protocol'
 import {
   ArchiveRestore,
   ArrowLeft,
@@ -46,10 +46,10 @@ import {
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { copyToClipboard } from '@/lib/clipboard'
-import { artifactKind, basename, worktreeAssetUrl } from '@/lib/dock-panel'
+import { artifactKind, artifactUrl, basename } from '@/lib/dock-panel'
 import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
-import { issueIdTitle, STAGE_LABELS } from './issue-card'
+import { issueIdTitle, issueRefLong, STAGE_LABELS } from './issue-card'
 import type { IssueEventIcon } from './issue-events'
 import { AssigneeAvatar, StageGlyph } from './issue-glyphs'
 import {
@@ -159,10 +159,12 @@ export function IssuePage({
         <button
           type="button"
           className="cursor-pointer rounded font-medium text-[13px] hover:text-primary"
-          title={`${issue.id} — click to copy "#${issue.seq}"`}
-          onClick={() => copyToClipboard(`#${issue.seq}`, `Copied #${issue.seq}`)}
+          title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
+          onClick={() =>
+            copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
+          }
         >
-          #{issue.seq}
+          {issueDisplayRef(issue)}
         </button>
         {/* The internal id agents quote in transcripts/CLI output — shown so it can
             be matched by eye, click-to-copy for pasting into commands (#21). */}
@@ -368,7 +370,7 @@ export function IssuePage({
                   onClick={() => onNavigate(c.id)}
                 >
                   <StageGlyph stage={c.stage} />
-                  <span className="text-[11px] text-muted-foreground">#{c.seq}</span>
+                  <span className="text-[11px] text-muted-foreground">{issueDisplayRef(c)}</span>
                   <span className="min-w-0 flex-1 truncate">{c.title}</span>
                   {c.archived && (
                     <span className="flex-none rounded border px-1 text-[9px] uppercase tracking-wide text-muted-foreground">
@@ -677,7 +679,7 @@ function LifecycleBanner({
           onClick={() => target && onNavigate(id)}
           title={id}
         >
-          {target ? `#${target.seq} ${target.title}` : id}
+          {target ? issueRefLong(target) : id}
         </button>
       </p>
     )
@@ -818,8 +820,12 @@ function PanelSections({
   busy: boolean
   commands: IssuePageCommands
 }): JSX.Element | null {
-  const { httpOrigin, openFileInWorktree } = useStoreSelector(
-    (s) => ({ httpOrigin: s.httpOrigin, openFileInWorktree: s.openFileInWorktree }),
+  const { httpOrigin, openFileInWorktree, openArtifact } = useStoreSelector(
+    (s) => ({
+      httpOrigin: s.httpOrigin,
+      openFileInWorktree: s.openFileInWorktree,
+      openArtifact: s.openArtifact,
+    }),
     shallowEqual,
   )
   const [lightbox, setLightbox] = useState<{
@@ -838,8 +844,18 @@ function PanelSections({
   // checkout — serve its artifacts from there.
   const root = issue.worktreePath ?? issue.repoPath
 
-  const openArtifact = (a: IssuePanelArtifact): void => {
-    // Artifact paths may be worktree-relative; file tabs need absolute.
+  const openArtifactFile = (a: IssuePanelArtifact): void => {
+    if (a.artifactId) {
+      openArtifact({
+        issueId: issue.id,
+        artifactId: a.artifactId,
+        path: a.entry ?? basename(a.path),
+        ...(root ? { worktreePath: root } : {}),
+      })
+      return
+    }
+    if (!root) return
+    // Legacy path-only artifacts open from the live worktree.
     openFileInWorktree({
       machineId: issue.machineId,
       root,
@@ -892,16 +908,20 @@ function PanelSections({
           <SectionHeading count={String(artifacts.length)}>Artifacts</SectionHeading>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {artifacts.map((a) => {
-              const kind = artifactKind(a.path)
+              const kind = artifactKind(a.entry ?? a.path)
               const label = a.title ?? basename(a.path)
               const added = relativeTime(a.addedAt, Date.now())
-              if (kind === 'image' || kind === 'video') {
-                const src = worktreeAssetUrl({
-                  httpOrigin,
-                  root,
-                  path: a.path,
-                  machineId: issue.machineId,
-                })
+              const src =
+                kind === 'image' || kind === 'video'
+                  ? artifactUrl({
+                      httpOrigin,
+                      issueId: issue.id,
+                      artifact: a,
+                      root,
+                      machineId: issue.machineId,
+                    })
+                  : null
+              if (src && (kind === 'image' || kind === 'video')) {
                 return (
                   <figure key={a.path}>
                     <button
@@ -949,7 +969,8 @@ function PanelSections({
                   variant="ghost"
                   size="sm"
                   className="h-auto w-full justify-start gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 text-left font-normal hover:bg-accent/60 sm:col-span-2"
-                  onClick={() => openArtifact(a)}
+                  disabled={!root && !a.artifactId}
+                  onClick={() => openArtifactFile(a)}
                 >
                   <FileText size={14} aria-hidden="true" className="flex-none text-primary/70" />
                   <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
@@ -1111,7 +1132,7 @@ function IssueOverflowMenu({
 
   const handleDelete = (): void => {
     const sessionCount = issue.sessions.length
-    const message = `Delete "#${issue.seq} ${issue.title}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The issue and sessions can be restored; running processes will be stopped.`
+    const message = `Delete "${issueRefLong(issue)}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The issue and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
     commands.deleteIssue(onDeleted)
   }
@@ -1168,7 +1189,7 @@ function IssueOverflowMenu({
               <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
                 {targetIssues.map((t) => (
                   <DropdownMenuItem key={t.id} onClick={() => commands.supersedeWith(t.id)}>
-                    #{t.seq} {t.title}
+                    {issueRefLong(t)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>
@@ -1178,7 +1199,7 @@ function IssueOverflowMenu({
               <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
                 {targetIssues.map((t) => (
                   <DropdownMenuItem key={t.id} onClick={() => commands.duplicateOf(t.id)}>
-                    #{t.seq} {t.title}
+                    {issueRefLong(t)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuSubContent>

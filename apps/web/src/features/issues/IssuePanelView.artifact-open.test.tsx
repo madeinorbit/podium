@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
-import { makeIssue } from './test-issue'
 
 // Snapshotted artifact ([spec:SP-0fc9]) on an issue whose repoPath exists:
 // clicking must open the permanent snapshot as an in-app artifact file tab,

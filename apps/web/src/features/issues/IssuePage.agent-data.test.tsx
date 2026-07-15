@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IssuePage } from './IssuePage'
 import { makeIssue } from '@/lib/test-issue'
+import { IssuePage } from './IssuePage'
 
 const update = vi.fn(async () => ({}))
 const panelApply = vi.fn(async () => ({}))
 const openFileInWorktree = vi.fn()
+const openArtifact = vi.fn()
 const mailInbox = vi.fn(async () => [
   {
     id: 'msg-1',
@@ -43,6 +44,7 @@ vi.mock('@/app/store', () => {
       machines: [],
       issues: [],
       openFileInWorktree,
+      openArtifact,
       setSelectedWorktree: vi.fn(),
       setPane: vi.fn(),
       setView: vi.fn(),
@@ -59,6 +61,7 @@ afterEach(() => {
   panelApply.mockClear()
   mailInbox.mockClear()
   openFileInWorktree.mockClear()
+  openArtifact.mockClear()
 })
 
 describe('IssuePage agent-saved data', () => {
@@ -91,6 +94,13 @@ describe('IssuePage agent-saved data', () => {
           path: 'docs/agent-data.md',
           title: 'Agent data notes',
           addedAt: '2026-07-14T10:00:00.000Z',
+        },
+        {
+          path: 'snapshots/proof.html',
+          entry: 'proof.html',
+          title: 'Permanent proof',
+          addedAt: '2026-07-14T10:01:00.000Z',
+          artifactId: 'art1',
         },
       ],
       deferred: [
@@ -159,11 +169,19 @@ describe('IssuePage agent-saved data', () => {
       }),
     )
 
-    fireEvent.click(within(screen.getByTestId('issue-artifacts')).getByRole('button'))
+    fireEvent.click(screen.getByText('Agent data notes'))
     expect(openFileInWorktree).toHaveBeenCalledWith({
       machineId: undefined,
       root: '/repo',
       path: '/repo/docs/agent-data.md',
+    })
+
+    fireEvent.click(screen.getByText('Permanent proof'))
+    expect(openArtifact).toHaveBeenCalledWith({
+      issueId: issue.id,
+      artifactId: 'art1',
+      path: 'proof.html',
+      worktreePath: '/repo',
     })
   })
 })

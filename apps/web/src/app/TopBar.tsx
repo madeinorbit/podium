@@ -8,7 +8,7 @@ import { type MainView, useStoreSelector } from './store'
 /**
  * The desktop 44px command header per the handoff v2 desktop anatomy
  * (.design/specs/shell-layout.md §2.1): logo · text nav (Home with the amber
- * waiting badge · Issues · Specs · Automations) · machine + quota chips
+ * waiting badge · Issues · Workflows · Specs · Automations) · machine + quota chips
  * right-aligned. The icon-cell header with issue-context dropdown and “+”
  * belongs to the MOBILE shell (MobileApp.tsx), not here.
  */

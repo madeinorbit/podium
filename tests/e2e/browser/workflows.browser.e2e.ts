@@ -1,13 +1,11 @@
 import { expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
-test.skip(({ isMobile }) => isMobile, 'desktop test (Workflows navigation lives in the sidebar)')
+test.skip(({ isMobile }) => isMobile, 'desktop workflow-library test')
 
 async function openShell(page: Page): Promise<void> {
   await page.goto(`/?server=${RELAY}`)
-  await page.waitForFunction(() => !document.querySelector('.app-loading'), undefined, {
-    timeout: 60_000,
-  })
+  await expect(page.getByTestId('desktop-topbar')).toBeVisible({ timeout: 60_000 })
   const repoDialog = page.getByRole('dialog', { name: 'Find repositories' })
   if (await repoDialog.isVisible().catch(() => false)) {
     await repoDialog.getByRole('button', { name: 'Close' }).click()
@@ -20,8 +18,7 @@ test('workflow library: creates, revises, publishes, and persists a workflow', a
   await openShell(page)
 
   await page
-    .locator('aside')
-    .first()
+    .getByTestId('desktop-topbar')
     .getByRole('button', { name: 'Workflows', exact: true })
     .click({ timeout: 15_000 })
   await expect(page.getByRole('heading', { name: 'Workflows', exact: true })).toBeVisible({

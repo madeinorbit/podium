@@ -372,12 +372,12 @@ export function MobileApp(): JSX.Element {
         <button
           type="button"
           className={cn(
-            "inline-flex items-center border-r border-border px-3 text-muted-foreground",
-            view === "workflows" && "text-primary",
+            'inline-flex items-center border-r border-border px-3 text-muted-foreground',
+            view === 'workflows' && 'text-primary',
           )}
           title="Workflows"
-          aria-pressed={view === "workflows"}
-          onClick={() => setView("workflows")}
+          aria-pressed={view === 'workflows'}
+          onClick={() => setView('workflows')}
         >
           <ListChecks size={15} aria-hidden="true" />
         </button>

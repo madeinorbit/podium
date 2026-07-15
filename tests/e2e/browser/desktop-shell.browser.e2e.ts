@@ -14,7 +14,7 @@ test('desktop shell controls, collapse, dock switching, and widths persist', asy
 
   await page.getByRole('button', { name: 'Issues', exact: true }).click()
   await expect(page).toHaveURL(/\/issues/)
-  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await header.getByRole('button', { name: /^Home/ }).click()
   await expect(page).toHaveURL(/\/$|\/?\?/)
 
   // Handoff v2 desktop header (#63): text nav + host chips only — the

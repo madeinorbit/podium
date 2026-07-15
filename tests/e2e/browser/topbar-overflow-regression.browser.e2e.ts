@@ -54,7 +54,7 @@ test('top bar matches the handoff: 44px bar, ~15px proportional logo, exact cont
   const navLabels = await nav
     .locator('button')
     .evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim().replace(/\d+$/, '')))
-  expect(navLabels).toEqual(['Home', 'Issues', 'Specs', 'Automations'])
+  expect(navLabels).toEqual(['Home', 'Issues', 'Workflows', 'Specs', 'Automations'])
   // The mobile-header anatomy must NOT leak into the desktop bar.
   for (const name of ['Superagent', 'Issue context', 'New agent']) {
     await expect(header.getByRole('button', { name, exact: true })).toHaveCount(0)

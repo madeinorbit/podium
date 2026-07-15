@@ -323,14 +323,20 @@ describe('codexStateProvider', () => {
         settingsPath: '/tmp/s',
         seedTheme: true,
       }),
-    ).toEqual({ args: ['-c', 'tui.theme=ansi'] })
+    ).toEqual({
+      args: ['-c', 'tui.theme=ansi'],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://x' },
+    })
     expect(
       codexStateProvider.instrumentation({
         endpointUrl: 'http://x',
         settingsPath: '/tmp/s',
         seedTheme: false,
       }),
-    ).toEqual({ args: [] })
+    ).toEqual({
+      args: [],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://x' },
+    })
   })
 })
 

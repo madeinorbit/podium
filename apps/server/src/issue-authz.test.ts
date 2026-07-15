@@ -12,13 +12,25 @@ describe('OPERATOR', () => {
 // The old PROC_ACTION string map is gone (#248): the action lives ON each
 // registry definition. These pins keep the classification itself stable.
 describe('registry action classification', () => {
-  it('classifies the structural/destructive commands as manage', () => {
-    for (const p of ['delete', 'archive', 'setLabels', 'reparent', 'supersede'] as const) {
+  it('classifies destructive commands as manage', () => {
+    for (const p of ['delete', 'setLabels'] as const) {
       expect(issueRegistry.defs[p].action).toBe('manage')
     }
   })
   it('classifies the work commands as write (create is additive ⇒ write)', () => {
-    for (const p of ['create', 'update', 'claim', 'addComment', 'close', 'depAdd'] as const) {
+    for (const p of [
+      'create',
+      'update',
+      'claim',
+      'addComment',
+      'close',
+      'depAdd',
+      'archive',
+      'depRemove',
+      'reparent',
+      'supersede',
+      'duplicate',
+    ] as const) {
       expect(issueRegistry.defs[p].action).toBe('write')
     }
   })
