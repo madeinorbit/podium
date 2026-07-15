@@ -30,7 +30,7 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "5.0.0-beta.6"
   },
   "scripts": {
     "dev": "expo start --web --port 8082",

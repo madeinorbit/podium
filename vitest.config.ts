@@ -36,6 +36,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'node',
+          // The suite runs under the Bun runtime (`bun --bun vitest`) so tests exercise
+          // the same bun:sqlite driver the shipped binary does (POD-552 / SP-3f93). Bun's
+          // worker_threads support is incomplete for vitest's `threads` pool, so pin
+          // `forks` (a child process per file) — the default, made explicit as a guard.
+          pool: 'forks',
           // Shared-vCPU hosts make sqlite-heavy tests (migrations) overrun the
           // 5s default; 20s keeps them honest without flaking on CPU steal.
           testTimeout: 20_000,

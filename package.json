@@ -40,8 +40,8 @@
     "host:web": "bun run --filter @podium/web dev",
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "vitest run --passWithNoTests && bun run test:bun",
-    "test:unit": "vitest run --passWithNoTests --config vitest.unit.config.ts",
+    "test": "bun --bun vitest run --passWithNoTests && bun run test:bun",
+    "test:unit": "bun --bun vitest run --passWithNoTests --config vitest.unit.config.ts",
     "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
     "test:bun:unit": "bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",
     "lint": "biome check . && bun run lint:boundaries && bun scripts/render-systemd.ts --check",
@@ -67,7 +67,7 @@
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8"
+    "vitest": "5.0.0-beta.6"
   },
   "patchedDependencies": {
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch"

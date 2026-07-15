@@ -49,7 +49,7 @@
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest --config vitest.config.ts run"
+    "test:unit": "bun --bun vitest --config vitest.config.ts run"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",
