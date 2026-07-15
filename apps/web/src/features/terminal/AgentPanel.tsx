@@ -56,6 +56,7 @@ import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { ArrowSwipeKey } from './ArrowSwipeKey'
 import { TERMINAL_DEFAULTS } from './appearance'
 import { EchoHud, echoHudEnabled } from './EchoHud'
+import { ResumeCommandDisplay } from './ResumeCommandDisplay'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
@@ -668,6 +669,7 @@ export function AgentPanel({
               <button
                 type="button"
                 title="Copy resume command"
+                aria-label={`Copy resume command: ${resumeCmd}`}
                 className="inline-flex min-w-0 flex-none items-center gap-1.5 overflow-hidden rounded-[5px] border border-border bg-background px-[7px] py-0.5 whitespace-nowrap text-muted-foreground transition-colors hover:border-muted-foreground hover:text-foreground"
                 onClick={() => {
                   void navigator.clipboard
@@ -676,7 +678,7 @@ export function AgentPanel({
                     .catch(() => toast.error('Could not copy to clipboard'))
                 }}
               >
-                <span className="truncate">{resumeCmd}</span>
+                <ResumeCommandDisplay command={resumeCmd} />
                 <Copy size={11} aria-hidden="true" className="flex-none" />
               </button>
             </>
