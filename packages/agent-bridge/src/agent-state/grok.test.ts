@@ -9,6 +9,8 @@ import {
   observeGrokState,
   translateGrokUpdatePayload,
 } from './grok'
+import { initialAgentState, reduceAgentState } from './reducer'
+import type { AgentStateEvent } from './types'
 
 const text = (value: string) => ({ type: 'text', text: value })
 
@@ -123,6 +125,57 @@ describe('grok live state provider', () => {
   })
 })
 
+describe('grok turn completion ([spec:SP-8b0e])', () => {
+  const update = (sessionUpdate: string, extra: Record<string, unknown> = {}) => ({
+    method: '_x.ai/session/update',
+    params: { update: { sessionUpdate, ...extra } },
+  })
+
+  const reduceSequence = async (records: unknown[]) => {
+    const at = '2026-07-15T00:00:00.000Z'
+    let state = initialAgentState(at)
+    for (const record of records) {
+      for (const event of await translateGrokUpdatePayload(record)) {
+        state = reduceAgentState(state, event, at)
+      }
+    }
+    return state
+  }
+
+  it('treats the turn_completed sessionUpdate as a turn boundary', async () => {
+    await expect(
+      translateGrokUpdatePayload(update('turn_completed', { stop_reason: 'end_turn' })),
+    ).resolves.toEqual([{ kind: 'turn_completed' }])
+  })
+
+  it('a completed Grok turn ends idle even when a trailing message chunk follows the stop hook', async () => {
+    // Real Grok emits, at every turn boundary:
+    //   hook_execution/stop  →  agent_message_chunk  →  turn_completed(end_turn)
+    // The trailing chunk re-flips the phase to 'working'; the authoritative
+    // turn_completed must land the session back at 'idle'.
+    const state = await reduceSequence([
+      update('user_message_chunk'),
+      update('agent_message_chunk'),
+      update('hook_execution', { event_name: 'stop' }),
+      update('agent_message_chunk'),
+      update('turn_completed', { stop_reason: 'end_turn' }),
+    ])
+    expect(state.phase).toBe('idle')
+  })
+
+  it('a backgrounded task completing after the turn does not resurrect working', async () => {
+    // task_backgrounded / task_completed are the ACP lifecycle of a detached
+    // shell command that runs alongside the turn. Its completion arriving after
+    // turn_completed must NOT flip an idle session back to working.
+    const state = await reduceSequence([
+      update('user_message_chunk'),
+      update('turn_completed', { stop_reason: 'end_turn' }),
+      update('task_completed', { task_snapshot: { task_id: 't1' } }),
+    ])
+    expect(state.phase).toBe('idle')
+  })
+})
+
 describe('observeGrokState', () => {
   it('infers turn completion when Grok returns to available commands without a stop hook', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-observe-'))
@@ -162,6 +215,60 @@ describe('observeGrokState', () => {
         { kind: 'activity' },
         { kind: 'turn_completed' },
       ])
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('settles to idle on the turn_completed sessionUpdate that follows a trailing message chunk', async () => {
+    // The exact terminal sequence real Grok writes at a turn boundary. Reduced
+    // through the daemon's own path (observer → reducer), the session must end
+    // 'idle', not stuck 'working'. [spec:SP-8b0e]
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-turn-'))
+    const cwd = '/repo/grok'
+    const events: AgentStateEvent[] = []
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      pollMs: 10,
+      onEvents: (next) => events.push(...next),
+    })
+    try {
+      const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-turn' })
+      await mkdir(paths.sessionDir, { recursive: true })
+      await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-turn', cwd } }))
+      await writeFile(
+        paths.updatesPath,
+        `${[
+          {
+            method: '_x.ai/session/update',
+            params: { update: { sessionUpdate: 'user_message_chunk' } },
+          },
+          {
+            method: 'session/update',
+            params: { update: { sessionUpdate: 'agent_thought_chunk' } },
+          },
+          {
+            method: '_x.ai/session/update',
+            params: { update: { sessionUpdate: 'hook_execution', event_name: 'stop' } },
+          },
+          {
+            method: 'session/update',
+            params: { update: { sessionUpdate: 'agent_message_chunk' } },
+          },
+          {
+            method: '_x.ai/session/update',
+            params: { update: { sessionUpdate: 'turn_completed', stop_reason: 'end_turn' } },
+          },
+        ]
+          .map((r) => JSON.stringify(r))
+          .join('\n')}\n`,
+      )
+
+      await waitFor(() => events.at(-1)?.kind === 'turn_completed')
+      let state = initialAgentState('2026-07-15T00:00:00.000Z')
+      for (const event of events) state = reduceAgentState(state, event, '2026-07-15T00:00:00.000Z')
+      expect(state.phase).toBe('idle')
     } finally {
       observer.stop()
     }

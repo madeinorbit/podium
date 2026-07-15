@@ -76,11 +76,29 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
   switch (sessionUpdate) {
     case 'user_message_chunk':
       return withEventTime([{ kind: 'prompt_submitted' }], at)
+    case 'tool_call':
     case 'agent_thought_chunk':
     case 'agent_message_chunk':
     case 'tool_call_update':
     case 'tool_result_update':
       return withEventTime([{ kind: 'activity' }], at)
+    case 'turn_completed': {
+      // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
+      // AFTER the Stop hook and the final agent_message_chunk, so it is the record
+      // that must settle the phase — without it that trailing chunk (→ activity →
+      // 'working') leaves the session stuck 'working' once the turn ends. This is
+      // the provider owning its run-state verdict; the reducer only transports it.
+      // [spec:SP-8b0e]
+      const verdict = await classifyStopPayload(payload)
+      return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
+    }
+    case 'task_backgrounded':
+    case 'task_completed':
+      // The lifecycle of a detached shell command that runs alongside the turn.
+      // It has no bearing on the turn's phase: backgrounding must not extend
+      // 'working' past the real turn boundary, and a background task finishing
+      // after turn_completed must not resurrect an idle session.
+      return []
     case 'hook_execution':
       return withEventTime(await grokHookEvents(update, payload), at)
     default:
