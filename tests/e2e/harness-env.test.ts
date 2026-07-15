@@ -1,9 +1,81 @@
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { harnessEnv, harnessPidFile, reapHarnessSessions, stopHarnessProcess } from './harness-env'
+import {
+  applyRealAgentCodexEnv,
+  harnessEnv,
+  harnessPidFile,
+  reapHarnessSessions,
+  stopHarnessProcess,
+} from './harness-env'
+
+describe('applyRealAgentCodexEnv', () => {
+  const PORT = 9912
+  const sourceHome = join(tmpdir(), `podium-real-agent-home-${process.pid}`)
+  const originalCodexHome = process.env.CODEX_HOME
+  const originalRolloutTraceRoot = process.env.CODEX_ROLLOUT_TRACE_ROOT
+
+  afterEach(() => {
+    if (originalCodexHome === undefined) delete process.env.CODEX_HOME
+    else process.env.CODEX_HOME = originalCodexHome
+    if (originalRolloutTraceRoot === undefined) delete process.env.CODEX_ROLLOUT_TRACE_ROOT
+    else process.env.CODEX_ROLLOUT_TRACE_ROOT = originalRolloutTraceRoot
+    rmSync(sourceHome, { recursive: true, force: true })
+    rmSync(harnessEnv(PORT).base, { recursive: true, force: true })
+  })
+
+  it('copies only auth into a private Codex home and leaves historical agent homes absent', () => {
+    const sourceCodexHome = join(sourceHome, 'selected-codex-home')
+    const auth = '{"tokens":{"access_token":"secret"}}\n'
+    mkdirSync(join(sourceCodexHome, 'sessions', '2026', '07', '15'), { recursive: true })
+    writeFileSync(join(sourceCodexHome, 'auth.json'), auth, { mode: 0o644 })
+    writeFileSync(join(sourceCodexHome, 'history.jsonl'), 'private history\n')
+    writeFileSync(join(sourceCodexHome, 'config.toml'), 'model = "live-user-choice"\n')
+    writeFileSync(
+      join(sourceCodexHome, 'sessions', '2026', '07', '15', 'rollout-live.jsonl'),
+      'private rollout\n',
+    )
+    process.env.CODEX_ROLLOUT_TRACE_ROOT = join(sourceHome, 'live-rollout-traces')
+
+    const dirs = applyRealAgentCodexEnv(PORT, {
+      sourceHomeDir: sourceHome,
+      sourceCodexHomeDir: sourceCodexHome,
+    })
+
+    expect(process.env.CODEX_HOME).toBe(dirs.codexHomeDir)
+    expect(process.env.CODEX_ROLLOUT_TRACE_ROOT).toBe(dirs.codexRolloutTraceRoot)
+    expect(readFileSync(join(dirs.codexHomeDir, 'auth.json'), 'utf8')).toBe(auth)
+    expect(() => readFileSync(join(dirs.codexHomeDir, 'history.jsonl'))).toThrow()
+    expect(() => readFileSync(join(dirs.codexHomeDir, 'config.toml'))).toThrow()
+    expect(() =>
+      readFileSync(join(dirs.codexRolloutRoot, '2026', '07', '15', 'rollout-live.jsonl')),
+    ).toThrow()
+    expect(statSync(dirs.base).mode & 0o777).toBe(0o700)
+    expect(statSync(dirs.codexHomeDir).mode & 0o777).toBe(0o700)
+    expect(statSync(join(dirs.codexHomeDir, 'auth.json')).mode & 0o777).toBe(0o600)
+    expect(() => statSync(join(dirs.discoveryHomeDir, '.claude'))).toThrow()
+    expect(() => statSync(join(dirs.discoveryHomeDir, '.claude.json'))).toThrow()
+  })
+
+  it('fails clearly instead of launching real Codex without native auth', () => {
+    expect(() =>
+      applyRealAgentCodexEnv(PORT, {
+        sourceHomeDir: sourceHome,
+        sourceCodexHomeDir: join(sourceHome, 'missing-codex-home'),
+      }),
+    ).toThrow(/requires a native Codex login/)
+  })
+})
 
 /**
  * Regression guard for the 2026-06-13 incident: abduco 0.6 silently falls back

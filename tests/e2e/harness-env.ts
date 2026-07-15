@@ -8,8 +8,17 @@
  * and again from Playwright's globalTeardown.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import {
+  chmodSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const HARNESS_SHUTDOWN_GRACE_MS = 10_000
@@ -89,14 +98,77 @@ export function harnessEnv(port: number): {
   stateDir: string
   abducoSocketDir: string
   tmuxTmpDir: string
+  discoveryHomeDir: string
+  codexHomeDir: string
+  codexRolloutRoot: string
+  codexRolloutTraceRoot: string
 } {
   const base = harnessStateBase(port)
+  const discoveryHomeDir = join(base, 'home')
+  const codexHomeDir = join(discoveryHomeDir, '.codex')
   return {
     base,
     stateDir: join(base, 'state'),
     abducoSocketDir: join(base, 'abduco'),
     tmuxTmpDir: join(base, 'tmux'),
+    discoveryHomeDir,
+    codexHomeDir,
+    codexRolloutRoot: join(codexHomeDir, 'sessions'),
+    codexRolloutTraceRoot: join(codexHomeDir, 'rollout-traces'),
   }
+}
+
+export interface RealAgentCodexEnvOptions {
+  /** Test hook: the native home containing the default .codex/auth.json. */
+  sourceHomeDir?: string
+  /** Test hook: the native Codex home from which auth.json is copied. */
+  sourceCodexHomeDir?: string
+}
+
+/**
+ * Give opt-in real-agent browser runs an empty Codex history while retaining the
+ * native login needed to exercise the real CLI. The daemon's discovery override
+ * points at discoveryHomeDir, so scanner + live observer resolve the same private
+ * `.codex` tree that the spawned CLI sees through CODEX_HOME. [spec:SP-9257]
+ */
+export function applyRealAgentCodexEnv(
+  port: number,
+  options: RealAgentCodexEnvOptions = {},
+): ReturnType<typeof harnessEnv> {
+  const dirs = harnessEnv(port)
+  const sourceHomeDir = options.sourceHomeDir ?? homedir()
+  // Capture the inherited Codex home before replacing it. A developer may already
+  // select a non-default native account with CODEX_HOME; that is the auth to reuse.
+  const sourceCodexHomeDir =
+    options.sourceCodexHomeDir ?? (process.env.CODEX_HOME?.trim() || join(sourceHomeDir, '.codex'))
+  const sourceAuth = join(sourceCodexHomeDir, 'auth.json')
+  const isolatedAuth = join(dirs.codexHomeDir, 'auth.json')
+
+  if (!existsSync(sourceAuth)) {
+    throw new Error(
+      `PODIUM_E2E_REAL_AGENTS=1 requires a native Codex login at ${sourceAuth}; run codex login first`,
+    )
+  }
+
+  // Keep credential-bearing test state private even on a shared /tmp. chmod is
+  // deliberate after recursive mkdir: an existing dir may have been created with
+  // a wider umask before a failed run.
+  for (const dir of [dirs.base, dirs.discoveryHomeDir, dirs.codexHomeDir, dirs.codexRolloutRoot]) {
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    chmodSync(dir, 0o700)
+  }
+  copyFileSync(sourceAuth, isolatedAuth, constants.COPYFILE_EXCL)
+  chmodSync(isolatedAuth, 0o600)
+
+  process.env.CODEX_HOME = dirs.codexHomeDir
+  // This optional Codex diagnostic trace is separate from sessions/. If an outer
+  // Codex process enabled it, keep the child harness from writing into that live root.
+  if (process.env.CODEX_ROLLOUT_TRACE_ROOT?.trim()) {
+    mkdirSync(dirs.codexRolloutTraceRoot, { recursive: true, mode: 0o700 })
+    chmodSync(dirs.codexRolloutTraceRoot, 0o700)
+    process.env.CODEX_ROLLOUT_TRACE_ROOT = dirs.codexRolloutTraceRoot
+  }
+  return dirs
 }
 
 /** SIGTERM every abduco master and tmux server inside the harness dirs, then wipe. */
@@ -221,8 +293,9 @@ export function reapHarnessSessions(port: number): void {
 export function applyHarnessEnv(port: number): ReturnType<typeof harnessEnv> {
   const dirs = harnessEnv(port)
   for (const d of [dirs.stateDir, dirs.abducoSocketDir, dirs.tmuxTmpDir]) {
-    mkdirSync(d, { recursive: true })
+    mkdirSync(d, { recursive: true, mode: 0o700 })
   }
+  chmodSync(dirs.base, 0o700)
   process.env.ABDUCO_SOCKET_DIR = dirs.abducoSocketDir
   process.env.TMUX_TMPDIR = dirs.tmuxTmpDir
   process.env.PODIUM_STATE_DIR = dirs.stateDir

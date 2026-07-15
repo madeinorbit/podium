@@ -29,7 +29,12 @@ import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
-import { applyHarnessEnv, harnessPidFile, reapHarnessSessions } from './harness-env'
+import {
+  applyHarnessEnv,
+  applyRealAgentCodexEnv,
+  harnessPidFile,
+  reapHarnessSessions,
+} from './harness-env'
 
 /**
  * This harness runs under `node --import tsx`, where worker threads don't inherit the
@@ -118,6 +123,11 @@ writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one'
 // uses your account/quota) for specs that need genuine agent behaviour (hooks,
 // transcripts, paste handling). Default stays deterministic.
 const REAL_AGENTS = process.env.PODIUM_E2E_REAL_AGENTS === '1'
+// Real Codex must never see the developer's rollout history: otherwise the
+// connect-time discovery snapshot publishes thousands of unrelated threads and
+// repeatedly stalls this in-process harness. The private home copies only auth.
+const realAgentCodexEnv = REAL_AGENTS ? applyRealAgentCodexEnv(PORT) : undefined
+
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
   kind === 'shell' || REAL_AGENTS
     ? agentLaunchCommand(kind, opts)
@@ -133,6 +143,7 @@ const daemon = await startDaemon({
   bootstrapToken: server.bootstrapToken,
   machineId: LOCAL_MACHINE_ID,
   launch,
+  ...(realAgentCodexEnv ? { discovery: { homeDir: realAgentCodexEnv.discoveryHomeDir } } : {}),
   workerClient: inlineWorkerClient(),
 })
 console.log(
