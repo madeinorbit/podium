@@ -72,9 +72,9 @@ function validField(raw: string, min: number, max: number): boolean {
  * on an empty or malformed box, so the operator sees the problem in the composer
  * instead of a round-trip error.
  *
- * The server stays authoritative: it re-parses, and it owns the 5-minute rate floor
- * (which needs the occurrence walk this presentation module has no business doing).
- * A floor violation comes back as a BAD_REQUEST and renders in the dialog's error row.
+ * The server stays authoritative: it re-parses and owns the explicit one-minute
+ * floor. A floor violation comes back as a BAD_REQUEST and renders in the dialog's
+ * error row.
  */
 export function isValidCronExpression(expr: string): boolean {
   const parts = expr.trim().split(/\s+/)

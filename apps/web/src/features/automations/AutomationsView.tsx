@@ -1,51 +1,29 @@
+import { shallowEqual } from '@podium/client-core/store'
+import type { AutomationRunWire, AutomationWire } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
-import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { NewAutomationDialog } from './NewAutomationDialog'
 import { ScheduledSection } from './ScheduledSection'
 import { TriggersSection } from './TriggersSection'
 
-/** A scheduled automation row, inferred from the tRPC contract so the UI tracks the
- *  server's `AutomationRow` shape without re-declaring it (#470) [spec:SP-17db]. */
-export type Automation = Awaited<ReturnType<Trpc['automations']['list']['query']>>[number]
+export type Automation = AutomationWire
+export type AutomationRun = AutomationRunWire
 
-/** One fire of an automation — the real run history that replaced MOCK_RUNS. */
-export type AutomationRun = Awaited<ReturnType<Trpc['automations']['runs']['query']>>[number]
-
-/**
- * The Automations surface — two real halves (#470) [spec:SP-17db]:
- *  - Notification triggers (TriggersSection): the durable event subscriptions the
- *    steward dispatches, unchanged apart from the `notify` switch now actually
- *    pushing.
- *  - Scheduled (ScheduledSection): cron automations that persist, fire, spawn a
- *    session, and keep an honest run history. The seeded mock cards are gone.
- *
- * The reactive (event-triggered) half survives only inside the composer, with
- * Create disabled and an explicit "not yet wired to a runner" note — the design
- * intent stays visible without pretending to work.
- */
+/** Live, replica-backed automations and honest run history [spec:SP-17db]. */
 export function AutomationsView(): JSX.Element {
-  const trpc = useStoreSelector((s) => s.trpc)
-  const [automations, setAutomations] = useState<Automation[] | null>(null)
+  const { trpc, automations, automationRuns } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      automations: s.automations,
+      automationRuns: s.automationRuns,
+    }),
+    shallowEqual,
+  )
   const [error, setError] = useState('')
-  const [creating, setCreating] = useState(false)
-
-  const reload = useCallback((): void => {
-    trpc.automations.list
-      .query()
-      .then((rows) => {
-        setAutomations(rows)
-        setError('')
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-  }, [trpc])
-
-  useEffect(() => {
-    reload()
-  }, [reload])
+  const [dialogAutomation, setDialogAutomation] = useState<Automation | null | undefined>()
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Automations">
@@ -56,7 +34,7 @@ export function AutomationsView(): JSX.Element {
             Notification triggers and recurring agent tasks for your repos.
           </p>
         </div>
-        <Button type="button" size="sm" onClick={() => setCreating(true)}>
+        <Button type="button" size="sm" onClick={() => setDialogAutomation(null)}>
           <Plus size={14} aria-hidden="true" /> New automation
         </Button>
       </div>
@@ -67,21 +45,20 @@ export function AutomationsView(): JSX.Element {
           <ScheduledSection
             trpc={trpc}
             automations={automations}
+            automationRuns={automationRuns}
             error={error}
-            onChanged={reload}
+            onEdit={setDialogAutomation}
             onError={setError}
           />
         </div>
       </div>
 
-      {creating && (
+      {dialogAutomation !== undefined && (
         <NewAutomationDialog
           trpc={trpc}
-          onClose={() => setCreating(false)}
-          onCreated={() => {
-            setCreating(false)
-            reload()
-          }}
+          automation={dialogAutomation}
+          onClose={() => setDialogAutomation(undefined)}
+          onSaved={() => setDialogAutomation(undefined)}
         />
       )}
     </section>

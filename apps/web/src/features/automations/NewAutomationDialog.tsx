@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { AutomationSessionMode } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -32,6 +33,7 @@ import {
   issueDefaultAgentKind,
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
+import type { Automation } from './AutomationsView'
 import { cronFromFields, type Frequency, isValidCronExpression, WEEKDAYS } from './cron-format'
 
 type TriggerKind = 'schedule' | 'reactive'
@@ -59,38 +61,47 @@ const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop(
  */
 export function NewAutomationDialog({
   trpc,
+  automation,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   trpc: Trpc
+  automation: Automation | null
   onClose: () => void
-  onCreated: () => void
+  onSaved: () => void
 }): JSX.Element {
   const { repos, sessions } = useStoreSelector(
     (s) => ({ repos: s.repos, sessions: s.sessions ?? [] }),
     shallowEqual,
   )
-  const [name, setName] = useState('')
+  const editing = automation !== null
+  const [name, setName] = useState(automation?.name ?? '')
   const [kind, setKind] = useState<TriggerKind>('schedule')
-  // Schedule fields.
-  const [freq, setFreq] = useState<Frequency>('daily')
+  // Existing schedules open as custom cron so their exact expression is preserved.
+  const [freq, setFreq] = useState<Frequency>(automation ? 'cron' : 'daily')
   const [time, setTime] = useState('09:00')
   const [weekday, setWeekday] = useState(1) // Monday
-  const [rawCron, setRawCron] = useState('')
+  const [rawCron, setRawCron] = useState(automation?.cron ?? '')
   // Reactive fields (composed but not creatable — no runner yet).
   const [reactive, setReactive] = useState<ReactiveTrigger>('merge-main')
   const [glob, setGlob] = useState('')
   // Target: the most-recently-used repo, or Global.
   const [target, setTarget] = useState(() => {
+    if (automation) return automation.repoPath ?? GLOBAL_TARGET
     const choices = repos.filter((r) => r.kind !== 'worktree')
     const mru = [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]
     return mru?.path ?? GLOBAL_TARGET
   })
-  const [prompt, setPrompt] = useState('')
-  const [agent, setAgent] = useState<IssueAgentKind>('claude-code')
-  const [model, setModel] = useState(AUTO)
-  const [effort, setEffort] = useState(AUTO)
-  const [enabled, setEnabled] = useState(true)
+  const [prompt, setPrompt] = useState(automation?.prompt ?? '')
+  const [agent, setAgent] = useState<IssueAgentKind>(() =>
+    issueDefaultAgentKind(automation?.agentKind ?? 'claude-code'),
+  )
+  const [model, setModel] = useState(automation?.model ?? AUTO)
+  const [effort, setEffort] = useState(automation?.effort ?? AUTO)
+  const [enabled, setEnabled] = useState(automation?.enabled ?? true)
+  const [sessionMode, setSessionMode] = useState<AutomationSessionMode>(
+    automation?.sessionMode ?? 'fresh',
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -104,30 +115,33 @@ export function NewAutomationDialog({
   // `* * * * *`, which would have spawned an agent session every minute.
   const cronValid = isValidCronExpression(cron)
   const cronInvalid = freq === 'cron' && cron.length > 0 && !cronValid
-  const canCreate =
+  const canSave =
     kind === 'schedule' &&
     name.trim().length > 0 &&
     prompt.trim().length > 0 &&
     cronValid &&
     !saving
 
-  const create = (): void => {
-    if (!canCreate) return
+  const save = (): void => {
+    if (!canSave) return
     setSaving(true)
     setError('')
-    trpc.automations.create
-      .mutate({
-        name: name.trim(),
-        // Global = no repo: the session spawns in the home directory.
-        repoPath: target === GLOBAL_TARGET ? null : target,
-        cron,
-        agentKind: agent,
-        model,
-        effort,
-        prompt: prompt.trim(),
-        enabled,
-      })
-      .then(() => onCreated())
+    const input = {
+      name: name.trim(),
+      repoPath: target === GLOBAL_TARGET ? null : target,
+      cron,
+      agentKind: agent,
+      model,
+      effort,
+      prompt: prompt.trim(),
+      enabled,
+      sessionMode,
+    }
+    const request = automation
+      ? trpc.automations.update.mutate({ id: automation.id, patch: input })
+      : trpc.automations.create.mutate(input)
+    request
+      .then(() => onSaved())
       .catch((e) => {
         setError(e instanceof Error ? e.message : String(e))
         setSaving(false)
@@ -143,7 +157,7 @@ export function NewAutomationDialog({
     >
       <DialogContent className="flex max-h-[min(680px,calc(100dvh-2rem))] w-full max-w-lg flex-col gap-4 overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New automation</DialogTitle>
+          <DialogTitle>{editing ? 'Edit automation' : 'New automation'}</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -227,7 +241,7 @@ export function NewAutomationDialog({
                   <span className="text-[11px] text-muted-foreground">
                     {cronInvalid
                       ? 'Not a valid cron expression — 5 fields: minute hour day month weekday.'
-                      : 'Five fields: minute hour day month weekday. At most one run every 5 minutes.'}
+                      : 'Five fields: minute hour day month weekday. Minimum interval: one minute.'}
                   </span>
                 </div>
               )}
@@ -288,6 +302,26 @@ export function NewAutomationDialog({
                 <SelectItem value={GLOBAL_TARGET}>Global (home directory)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="automation-session-mode">Session mode</Label>
+            <Select
+              value={sessionMode}
+              onValueChange={(value) => setSessionMode(value as AutomationSessionMode)}
+            >
+              <SelectTrigger id="automation-session-mode" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fresh">Fresh issue and session each run</SelectItem>
+                <SelectItem value="resume">Resume the previous session</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-[11px] text-muted-foreground">
+              Resume falls back to a fresh automation issue if the previous session was deleted or
+              never became resumable.
+            </span>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -355,8 +389,8 @@ export function NewAutomationDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" disabled={!canCreate} onClick={create}>
-            {saving ? 'Creating…' : 'Create automation'}
+          <Button type="button" disabled={!canSave} onClick={save}>
+            {saving ? 'Saving…' : editing ? 'Save changes' : 'Create automation'}
           </Button>
         </DialogFooter>
       </DialogContent>

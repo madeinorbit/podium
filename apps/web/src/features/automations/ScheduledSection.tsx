@@ -7,12 +7,12 @@ import {
   Clock,
   FolderGit2,
   Globe,
-  LoaderCircle,
+  Pencil,
   SkipForward,
   Trash2,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
@@ -50,15 +50,16 @@ const OUTCOME_LABELS: Record<AutomationRun['outcome'], string> = {
 export function ScheduledSection({
   trpc,
   automations,
+  automationRuns,
   error,
-  onChanged,
+  onEdit,
   onError,
 }: {
   trpc: Trpc
-  /** null = still loading. */
-  automations: Automation[] | null
+  automations: Automation[]
+  automationRuns: AutomationRun[]
   error: string
-  onChanged: () => void
+  onEdit: (automation: Automation) => void
   onError: (message: string) => void
 }): JSX.Element {
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -66,7 +67,7 @@ export function ScheduledSection({
   const mutate = (id: string, run: () => Promise<unknown>): void => {
     setBusyId(id)
     run()
-      .then(() => onChanged())
+      .then(() => onError(''))
       .catch((e) => onError(e instanceof Error ? e.message : String(e)))
       .finally(() => setBusyId(null))
   }
@@ -78,8 +79,8 @@ export function ScheduledSection({
           <Clock size={14} aria-hidden="true" /> Scheduled
         </h3>
         <p className="text-[12px] text-muted-foreground">
-          Recurring agent tasks. Each run spawns a session in the target repo and hands it the
-          prompt.
+          Recurring agent tasks. Each run starts a fresh session or resumes the previous one,
+          according to its configured session mode.
         </p>
       </div>
 
@@ -89,12 +90,7 @@ export function ScheduledSection({
         </div>
       )}
 
-      {automations === null ? (
-        <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-3 text-[12px] text-muted-foreground">
-          <LoaderCircle size={14} aria-hidden="true" className="animate-spin" /> Loading
-          automations…
-        </div>
-      ) : automations.length === 0 ? (
+      {automations.length === 0 ? (
         <div className="rounded-md border border-border border-dashed bg-card px-3 py-4 text-center text-[12px] text-muted-foreground">
           No scheduled automations yet. Create one with “New automation”.
         </div>
@@ -103,9 +99,12 @@ export function ScheduledSection({
           {automations.map((a) => (
             <AutomationCard
               key={a.id}
-              trpc={trpc}
               automation={a}
+              runs={automationRuns
+                .filter((run) => run.automationId === a.id)
+                .sort((left, right) => right.firedAt.localeCompare(left.firedAt))}
               busy={busyId === a.id}
+              onEdit={() => onEdit(a)}
               onToggle={(enabled) =>
                 mutate(a.id, () => trpc.automations.setEnabled.mutate({ id: a.id, enabled }))
               }
@@ -129,35 +128,22 @@ export function ScheduledSection({
 }
 
 function AutomationCard({
-  trpc,
   automation: a,
+  runs,
   busy,
+  onEdit,
   onToggle,
   onRemove,
 }: {
-  trpc: Trpc
   automation: Automation
+  runs: AutomationRun[]
   busy: boolean
+  onEdit: () => void
   onToggle: (enabled: boolean) => void
   onRemove: () => void
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
-  const [runs, setRuns] = useState<AutomationRun[] | null>(null)
-
-  // Runs are fetched on demand: the list view needs only the automation rows, and a
-  // card that is never expanded should not cost a query.
-  const loadRuns = useCallback((): void => {
-    trpc.automations.runs
-      .query({ automationId: a.id })
-      .then(setRuns)
-      .catch(() => setRuns([]))
-  }, [trpc, a.id])
-
-  useEffect(() => {
-    if (expanded) loadRuns()
-  }, [expanded, loadRuns])
-
-  const lastRun = runs?.[0]
+  const lastRun = runs[0]
   return (
     <div
       className={cn(
@@ -206,9 +192,19 @@ function AutomationCard({
           <div className="truncate text-[11px] text-muted-foreground/70">
             {a.enabled ? `Next run: ${formatTime(a.nextRunAt)}` : 'Disabled'} ·{' '}
             {issueAgentLabel(a.agentKind)}
-            {a.model !== 'auto' ? ` · ${a.model}` : ''}
+            {a.model !== 'auto' ? ` · ${a.model}` : ''} ·{' '}
+            {a.sessionMode === 'resume' ? 'Resume previous session' : 'Fresh session per run'}
           </div>
         </div>
+        <button
+          type="button"
+          className="flex size-7 flex-none items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          aria-label={`Edit ${a.name}`}
+          disabled={busy}
+          onClick={onEdit}
+        >
+          <Pencil size={14} aria-hidden="true" />
+        </button>
         <Switch
           checked={a.enabled}
           disabled={busy}
@@ -230,9 +226,7 @@ function AutomationCard({
           <div className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
             Recent runs
           </div>
-          {runs === null ? (
-            <div className="py-1 text-[12px] text-muted-foreground/70">Loading runs…</div>
-          ) : runs.length === 0 ? (
+          {runs.length === 0 ? (
             <div className="py-1 text-[12px] text-muted-foreground/70">No runs yet</div>
           ) : (
             <ul className="flex flex-col">
@@ -252,13 +246,10 @@ function AutomationCard({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const { sessions, setPane, setSelectedWorktree, setSelectedIssueId, setView } = useStoreSelector(
+  const { sessions, navigateToSession } = useStoreSelector(
     (s) => ({
-      sessions: s.sessions ?? [],
-      setPane: s.setPane,
-      setSelectedWorktree: s.setSelectedWorktree,
-      setSelectedIssueId: s.setSelectedIssueId,
-      setView: s.setView,
+      sessions: s.sessions,
+      navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
@@ -267,11 +258,7 @@ function RunRow({ run }: { run: AutomationRun }): JSX.Element {
   const session = run.sessionId ? sessions.find((s) => s.sessionId === run.sessionId) : undefined
 
   const open = (): void => {
-    if (!session) return
-    setSelectedIssueId(null)
-    setSelectedWorktree(session.cwd)
-    setPane('A', session.sessionId)
-    setView('workspace')
+    if (session) navigateToSession(session.sessionId)
   }
 
   return (
