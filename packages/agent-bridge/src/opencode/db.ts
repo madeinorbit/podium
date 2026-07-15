@@ -35,6 +35,21 @@ export function openOpencodeDb(homeDir?: string): SqlDatabase | undefined {
 }
 
 /**
+ * Open the opencode DB that lives directly under a given data root (i.e.
+ * `<dataRoot>/opencode.db`). Use this when a caller already holds the scan root
+ * and must read exactly that DB — don't re-derive the path from `homedir()`,
+ * which reads the process's home lazily (and, under Bun, is snapshotted at
+ * startup so a runtime `process.env.HOME` override is ignored).
+ */
+export function openOpencodeDbAt(dataRoot: string): SqlDatabase | undefined {
+  try {
+    return openDatabase(join(dataRoot, 'opencode.db'), { readOnly: true })
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Freshest mtime (ms) across the opencode DB and its WAL sidecars, for polling
  * change-detection. opencode.db runs in WAL mode, so a write usually lands in
  * `opencode.db-wal`/`-shm` and bumps THEIR mtime while the main `.db` mtime stays

@@ -7,6 +7,7 @@ import {
   loadOpencodeMessageParts,
   opencodeDataRoot,
   openOpencodeDb,
+  openOpencodeDbAt,
 } from '../../opencode/db.js'
 import { pathExists } from '../paths.js'
 import type {
@@ -68,7 +69,7 @@ async function listRoot(root: string): Promise<ProviderRootListing> {
     return { files: [], diagnostics }
   }
 
-  const db = openOpencodeDb()
+  const db = openOpencodeDbAt(root)
   if (!db) {
     diagnostics.push({
       severity: 'warning',
@@ -112,7 +113,7 @@ async function summarizeFile(
     ?.replace(/\.session$/, '')
   if (!sessionId) return { diagnostics: [] }
 
-  const db = openOpencodeDb()
+  const db = openOpencodeDbAt(root)
   if (!db) {
     return {
       diagnostics: [
