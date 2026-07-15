@@ -29,6 +29,7 @@ import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
 import { DiscoveryWorkerClient, type WorkerLike } from '../../apps/daemon/src/worker-client'
 import { LOCAL_MACHINE_ID } from '../../apps/server/src/local-machine'
 import { startServer } from '../../apps/server/src/server'
+import { writeCodexStartupFixture } from './codex-fixture'
 import {
   applyHarnessEnv,
   applyRealAgentCodexEnv,
@@ -127,6 +128,11 @@ const REAL_AGENTS = process.env.PODIUM_E2E_REAL_AGENTS === '1'
 // connect-time discovery snapshot publishes thousands of unrelated threads and
 // repeatedly stalls this in-process harness. The private home copies only auth.
 const realAgentCodexEnv = REAL_AGENTS ? applyRealAgentCodexEnv(PORT) : undefined
+if (realAgentCodexEnv) {
+  // Seed only non-secret startup state after its private home exists: every
+  // harness worktree is trusted and personality onboarding is already resolved.
+  writeCodexStartupFixture(realAgentCodexEnv.codexHomeDir, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
+}
 
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
   kind === 'shell' || REAL_AGENTS
