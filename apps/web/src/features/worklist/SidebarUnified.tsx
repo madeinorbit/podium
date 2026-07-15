@@ -87,18 +87,28 @@ export function SidebarUnified(): JSX.Element {
   return (
     <>
       <NewWorkRow />
-      <div className="mx-2.5 mb-1.5 mt-1 h-px flex-none bg-[#25252f]" aria-hidden="true" />
-      {/* The scroll container leaves 3px of horizontal head-room past the aside
+      {/* Divider under the spawn row — the handoff's 4px margins plus the
+          column's 3px flex gap on each side land at 11px above / 9px below. */}
+      <div
+        data-testid="sidebar-divider"
+        className="mx-2.5 mt-[11px] mb-[9px] h-px flex-none bg-[#25252f]"
+        aria-hidden="true"
+      />
+      {/* The scroll container leaves 5px of horizontal head-room past the aside
           edge (negative margin + matching padding) so the selected row's bridge
           notch can paint OVER the aside border into the engraved column —
-          overflow clips at the padding box, so the notch survives (#41). */}
+          overflow clips at the padding box, so the notch survives (#41). Rows
+          sit at the column's 8px side inset (13 − 5); the column's 3px rhythm
+          continues between project groups via the flex gap. */}
       <div
-        className="scroll-none min-h-0 flex-1 overflow-y-auto pb-2.5 pl-2"
-        style={{ marginRight: -5, paddingRight: 11 }}
+        data-testid="work-scroll"
+        className="scroll-none flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto pb-2.5 pl-2"
+        style={{ marginRight: -5, paddingRight: 13 }}
       >
         <WorkSections />
       </div>
-      <AppToolsRow className="flex-none border-t border-[#25252f] px-2.5 pt-2 pb-1" />
+      {/* Footer: 8px top / 10px sides, 4px own bottom + the column's 6px. */}
+      <AppToolsRow className="flex-none border-t border-[#25252f] px-2.5 pt-2 pb-2.5" />
     </>
   )
 }
@@ -253,7 +263,7 @@ export function NewWorkRow(): JSX.Element {
             the chevron is a borderless hitbox floating inside the same outline. */}
         <button
           type="button"
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[#3a3a46] bg-[#25252f] px-[10px] py-2 pr-[32px] text-[12px] font-medium text-[#eaeaf0] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
+          className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-[#3a3a46] bg-[#25252f] px-[10px] py-2 pr-[32px] text-[12px] leading-[normal] font-medium text-[#eaeaf0] transition-colors hover:border-[#4a4a56] hover:bg-[#2b2b36] disabled:opacity-50"
           disabled={!defaultRepo}
           title={
             defaultTarget
@@ -443,7 +453,7 @@ function ProjectGroupLabel({ label, first }: { label: string; first: boolean }):
     <div
       data-testid="project-group-label"
       className={cn(
-        'flex items-center gap-1.5 px-1 pb-0.5 font-mono text-[8.5px] tracking-[.12em] uppercase text-[#7a7a86]',
+        'flex items-center gap-1.5 px-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-[#7a7a86]',
         first ? 'pt-1' : 'pt-2',
       )}
     >
@@ -765,13 +775,16 @@ function WorkRowShell({
         borderColor: `color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
       }
     : hex
-      ? { background: `color-mix(in srgb, ${hex} 12%, #16161c)`, borderColor: 'transparent' }
-      : { borderColor: 'transparent' }
+      ? { background: `color-mix(in srgb, ${hex} 12%, #16161c)` }
+      : {}
   return (
     <div className="min-w-0" data-testid={testId}>
       <div
         className={cn(
-          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] border px-2 py-[5px]',
+          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] px-2',
+          // Handoff §2.4/§2.5: plain rows are borderless at 5px 8px; ONLY the
+          // selected row grows its border and 6px vertical padding.
+          active ? 'border py-[6px]' : 'py-[5px]',
           !active && !hex && 'hover:bg-[#20202a]',
           phase === 'queued' && !active && 'opacity-65',
           morph === 'waiting' && 'morph-row-flash',
@@ -804,7 +817,10 @@ function WorkRowShell({
         ) : (
           <button
             type="button"
-            className="flex min-w-0 flex-1 cursor-pointer flex-col gap-px text-left"
+            // leading-[normal]: the handoff rows run the font's natural line
+            // height — the preflight 1.5 would grow the two-line block past
+            // the 26px square and inflate every row (#64).
+            className="flex min-w-0 flex-1 cursor-pointer flex-col gap-px text-left leading-[normal]"
             title={titleHint}
             onClick={onSelect}
             onDoubleClick={onDoubleClick}

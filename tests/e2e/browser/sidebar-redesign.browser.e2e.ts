@@ -122,9 +122,10 @@ test('rows carry the motion grammar, the selected row grows the bridge notch, co
   expect(asideBox).not.toBeNull()
   expect(notchBox).not.toBeNull()
   if (asideBox && notchBox) {
-    // The notch's right edge must reach PAST the aside's right border into the
-    // engraved column — it may not be clipped by the scroll container.
-    expect(notchBox.x + notchBox.width).toBeGreaterThan(asideBox.x + asideBox.width + 0.5)
+    // The notch must fully cover the aside's right border (its tip lands flush
+    // with the aside's OUTER edge from the row's 8px inset, #64) — it may not
+    // be clipped by the scroll container.
+    expect(notchBox.x + notchBox.width).toBeGreaterThan(asideBox.x + asideBox.width - 0.1)
   }
 
   // ---- Colour flows live: pick Violet, the row background re-mixes. ----
