@@ -1,3 +1,5 @@
+import type { JSX } from 'react'
+
 /**
  * Render the executable separator as a fixed-width glyph. The shell command keeps
  * ordinary ASCII spaces for copying, while the visible pill cannot collapse the
