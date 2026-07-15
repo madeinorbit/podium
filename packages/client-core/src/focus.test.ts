@@ -56,6 +56,19 @@ describe('shared focus selectors', () => {
     expect(attentionGroup(meta({ sessionId: 'idle', status: 'exited' }))).toBe('idle')
   })
 
+  it('a process that has exited or hibernated is not working, however stale its last phase', () => {
+    // A harness that emits no terminal event on an abrupt exit (Grok, killed
+    // mid-turn) leaves its last live phase at 'working'. A gone process is not
+    // doing work — the transported status overrides the stale phase verdict.
+    const w = working('2026-07-01T01:00:00.000Z')
+    expect(attentionGroup(meta({ sessionId: 'exited', status: 'exited', agentState: w }))).toBe(
+      'idle',
+    )
+    expect(attentionGroup(meta({ sessionId: 'hib', status: 'hibernated', agentState: w }))).toBe(
+      'idle',
+    )
+  })
+
   it('uses the captured need summary on attention cards', () => {
     const s = meta({
       sessionId: 'need',

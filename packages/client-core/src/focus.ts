@@ -28,7 +28,15 @@ export function attentionGroup(s: SessionMeta): AttentionGroup {
     const kind = s.agentState?.idle?.kind
     return kind && kind !== 'done' ? 'needsYou' : 'idle'
   }
-  if (phase === 'working' || phase === 'compacting') return 'working'
+  if (phase === 'working' || phase === 'compacting') {
+    // A gone or parked process cannot be working, however stale its last phase
+    // verdict. A harness that emits no terminal event on an abrupt exit (Grok,
+    // killed mid-turn) freezes its last live phase at 'working'; the transported
+    // status is the ground truth and overrides it, so the row leaves the working
+    // bucket. [spec:SP-8b0e]
+    if (s.status === 'exited' || s.status === 'hibernated') return 'idle'
+    return 'working'
+  }
   // Shells have no harness instrumentation: a shell sitting at its prompt is idle,
   // not working. The server's debounced `busy` flag (a process writing to the PTY)
   // is the real signal, so a shell only reads as working while a command runs.
