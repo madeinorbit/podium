@@ -129,6 +129,46 @@ test('new sessions allows effort with automatic model selection', async ({ page 
   expect(saved.roles.coding).toMatchObject({ model: 'auto', effort: 'xhigh' })
 })
 
+test('new sessions exposes and persists both Grok implementation models', async ({ page }) => {
+  const trpc = makeTrpc('http://localhost:8799')
+  await trpc.settings.set.mutate(
+    normalizeSettings({
+      roles: {
+        coding: {
+          accountId: nativeAccountId('grok'),
+          model: 'auto',
+          effort: 'auto',
+        },
+      },
+    }),
+  )
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+
+  await page
+    .locator('aside')
+    .getByRole('button', { name: 'Settings', exact: true })
+    .click({ timeout: 15_000 })
+  const section = newSessionsSection(page)
+  const model = section.getByRole('button', { name: 'Model' })
+  await model.click()
+
+  await expect(page.getByRole('menuitem', { name: /^(grok-4\.5|Grok 4\.5)$/ })).toBeVisible()
+  const composer = page.getByRole('menuitem', {
+    name: /^(grok-composer-2\.5-fast|Composer 2\.5 Fast)$/,
+  })
+  await expect(composer).toBeVisible()
+  await composer.click()
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('Saved.')).toBeVisible({ timeout: 10_000 })
+
+  const saved = await trpc.settings.get.query()
+  expect(saved.roles.coding).toMatchObject({
+    accountId: nativeAccountId('grok'),
+    model: 'grok-composer-2.5-fast',
+  })
+})
+
 test('superagent uses shared Codex model and effort dropdowns', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
   await trpc.settings.set.mutate(
