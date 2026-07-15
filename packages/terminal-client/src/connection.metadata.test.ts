@@ -1,4 +1,6 @@
 import type {
+  AutomationRunWire,
+  AutomationWire,
   IssueWire,
   SyncChangesSinceResult,
   SyncChangesSinceResultLenient,
@@ -74,7 +76,39 @@ const issue = (id: string, title: string): IssueWire => ({
   sessionSummary: { total: 0, byPhase: {} },
 })
 
-const snapshot = (cursor: number, issues: IssueWire[] = []): SyncChangesSinceResult => ({
+const automation = (
+  id: string,
+  name: string,
+  sessionMode: AutomationWire['sessionMode'] = 'fresh',
+): AutomationWire => ({
+  id,
+  name,
+  enabled: true,
+  repoPath: '/r',
+  cron: '* * * * *',
+  agentKind: 'codex',
+  model: 'auto',
+  effort: 'auto',
+  prompt: 'Run it.',
+  sessionMode,
+  nextRunAt: '2026-07-01T00:01:00.000Z',
+  lastRunAt: null,
+  createdAt: '2026-07-01T00:00:00.000Z',
+})
+
+const automationRun = (id: string, automationId: string): AutomationRunWire => ({
+  id,
+  automationId,
+  firedAt: '2026-07-01T00:00:00.000Z',
+  sessionId: 'sess_1',
+  outcome: 'spawned',
+  detail: null,
+})
+
+const snapshot = (
+  cursor: number,
+  issues: IssueWire[] = [],
+): Extract<SyncChangesSinceResult, { kind: 'snapshot' }> => ({
   kind: 'snapshot',
   sessions: [],
   issues,
@@ -152,6 +186,44 @@ describe('SocketHub metadata delta mode', () => {
     })
     expect(hub.issues().map((i) => i.title)).toEqual(['one v2'])
     expect(seen.at(-1)).toEqual(['one v2'])
+  })
+
+  it('bootstraps and incrementally updates durable automation definitions and runs', async () => {
+    const initial = automation('aut_1', 'Nightly sweep')
+    const initialRun = automationRun('arun_1', initial.id)
+    const { sock, hub } = setup([
+      {
+        ...snapshot(5),
+        automations: [initial],
+        automationRuns: [initialRun],
+      },
+    ])
+    const seen: string[][] = []
+    hub.on('automations', (rows) => seen.push(rows.map((row) => row.name)))
+    hub.connect()
+    sock.open()
+    await flush()
+
+    expect(hub.automations()).toEqual([initial])
+    expect(hub.automationRuns()).toEqual([initialRun])
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 7,
+      changes: [
+        {
+          seq: 6,
+          entity: 'automation',
+          id: initial.id,
+          op: 'upsert',
+          value: automation(initial.id, 'Nightly sweep v2', 'resume'),
+        },
+        { seq: 7, entity: 'automationRun', id: initialRun.id, op: 'remove' },
+      ],
+    })
+
+    expect(hub.automations()).toEqual([automation(initial.id, 'Nightly sweep v2', 'resume')])
+    expect(hub.automationRuns()).toEqual([])
+    expect(seen.at(-1)).toEqual(['Nightly sweep v2'])
   })
 
   it('ignores stale batches and heals on a seq gap', async () => {

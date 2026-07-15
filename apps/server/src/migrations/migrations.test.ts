@@ -411,6 +411,74 @@ describe('runMigrations', () => {
     ).toBeDefined()
   })
 
+  it('upgrades existing automations to fresh mode and permits automation issues without data loss', () => {
+    const db = openMemory()
+    const sessionModeMigration = MIGRATIONS.find(
+      (migration) => migration.name === 'automation-run-sessions',
+    )
+    if (!sessionModeMigration) throw new Error('missing automation-run-sessions migration')
+    runMigrations(
+      db,
+      MIGRATIONS.filter((migration) => migration.version !== sessionModeMigration.version),
+    )
+    db.exec(`
+      INSERT INTO automations (
+        id, name, enabled, repo_path, cron, agent_kind, model, effort, prompt, created_at
+      ) VALUES (
+        'aut_old', 'Old schedule', 1, '/r', '* * * * *', 'codex', 'auto', 'auto', 'go', 't'
+      );
+      INSERT INTO issues (
+        id, repo_path, repo_id, seq, title, stage, default_agent, created_at, updated_at
+      ) VALUES (
+        'iss_old', '/r', 'repo-r', 1, 'Keep me', 'in_progress', 'codex', 't', 't'
+      );
+    `)
+
+    expect(runMigrations(db, MIGRATIONS)).toEqual([sessionModeMigration.version])
+    expect(db.prepare('SELECT session_mode FROM automations WHERE id = ?').get('aut_old')).toEqual({
+      session_mode: 'fresh',
+    })
+    expect(db.prepare('SELECT title, stage FROM issues WHERE id = ?').get('iss_old')).toEqual({
+      title: 'Keep me',
+      stage: 'in_progress',
+    })
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO issues (
+             id, repo_path, repo_id, seq, title, stage, default_agent, type, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          'iss_automation',
+          '/r',
+          'repo-r',
+          2,
+          'Scheduled sweep',
+          'in_progress',
+          'codex',
+          'automation',
+          't',
+          't',
+        ),
+    ).not.toThrow()
+    const indexes = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'issues'")
+        .all() as {
+        name: string
+      }[]
+    ).map((row) => row.name)
+    expect(indexes).toEqual(
+      expect.arrayContaining([
+        'idx_issues_repo',
+        'idx_issues_parent',
+        'idx_issues_repo_id_seq',
+        'idx_issues_deleted_at',
+      ]),
+    )
+  })
+
   it('is idempotent on re-run', () => {
     const db = openMemory()
     runMigrations(db, MIGRATIONS)

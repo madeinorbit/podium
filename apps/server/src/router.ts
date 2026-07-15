@@ -1,5 +1,6 @@
 import {
   AgentKind,
+  AutomationSessionMode,
   agentSupportsCloud,
   type FileReadResultMessage,
   isAgentKind,
@@ -96,9 +97,9 @@ const cloudMoveSessionInput = z.object({
 const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
 
 /** Scheduled-automation composer input (#470) [spec:SP-17db]. The cron is validated
- *  HERE (not only in the service) so an unparseable expression — or one that fires
- *  more often than the 5-minute rate floor, which would spawn agent sessions in a
- *  runaway loop — comes back as a BAD_REQUEST the composer can render, never a 500.
+ *  HERE (not only in the service) so an unparseable expression — or one below the
+ *  explicit one-minute floor — comes back as a BAD_REQUEST the composer can render,
+ *  never a 500.
  *  `repoPath: null` = a GLOBAL automation: it runs in the home directory, for
  *  cross-repo chores. */
 const automationInput = z.object({
@@ -113,6 +114,7 @@ const automationInput = z.object({
   effort: z.string().optional(),
   prompt: z.string().min(1),
   enabled: z.boolean().optional(),
+  sessionMode: AutomationSessionMode.optional(),
 })
 
 /** Hub-role gate (roles.ts): fleet admin + pairing procs exist on the wire only

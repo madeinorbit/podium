@@ -224,6 +224,7 @@ export class SessionRegistry {
     let issues!: IssueService
     let issueSessionLifecycle!: IssueSessionLifecycle
     let workflows!: WorkflowService
+    let automations!: AutomationsService
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = () => sessionsSvc.sessions
     const clients = () => sessionsSvc.clients
@@ -764,6 +765,8 @@ export class SessionRegistry {
       issues: () => issues,
       publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.safeIssuesList()),
+      automationsWire: () => automations.list(),
+      automationRunsWire: () => automations.allRuns(),
       runIssueRelay: (machineId, msg) => void issueRelayGate.run(machineId, msg),
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
@@ -978,10 +981,23 @@ export class SessionRegistry {
     // durable outbox — see AutomationsService.spawn for why not initialPrompt.
     // A session still occupying the machine (anything but exited/hibernated)
     // makes the next occurrence a skipped_overlap rather than a pile-up.
-    const automations = new AutomationsService({
+    automations = new AutomationsService({
       store: this.store.automations,
+      ledger,
+      funnel,
       createSession: (o) => sessionsSvc.createSession(o),
       queueText: (o) => sessionsSvc.queueText(o),
+      resumeAndSend: (o) => sessionsSvc.resumeAndSend(o),
+      createIssue: (o) => {
+        const issue = issues.create({
+          ...o,
+          startNow: false,
+          origin: 'agent',
+          audience: 'human',
+        })
+        issues.update(issue.id, { stage: 'in_progress' })
+        return { id: issue.id }
+      },
       liveSessionIds: () =>
         new Set(
           sessionsSvc

@@ -8,7 +8,7 @@
  * what yanked the engine's worktree selection (see engine.test.ts).
  */
 
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { AutomationRunWire, AutomationWire, IssueWire, SessionMeta } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { createReplica, memoryStorage } from './replica'
 
@@ -33,6 +33,31 @@ function session(id: string): SessionMeta {
 }
 
 const issue = (id: string): IssueWire => ({ id, title: id }) as unknown as IssueWire
+
+const automation = (id: string, name = id): AutomationWire => ({
+  id,
+  name,
+  enabled: true,
+  repoPath: '/r',
+  cron: '* * * * *',
+  agentKind: 'codex',
+  model: 'auto',
+  effort: 'auto',
+  prompt: 'Run it.',
+  sessionMode: 'fresh',
+  nextRunAt: '2026-07-01T00:01:00.000Z',
+  lastRunAt: null,
+  createdAt: '2026-07-01T00:00:00.000Z',
+})
+
+const automationRun = (id: string, automationId: string): AutomationRunWire => ({
+  id,
+  automationId,
+  firedAt: '2026-07-01T00:00:00.000Z',
+  sessionId: 'sess_1',
+  outcome: 'spawned',
+  detail: null,
+})
 
 describe('replica row-notification coalescing (#262 review)', () => {
   it('applySnapshot (delete + upsert) notifies once, against the final rows', () => {
@@ -82,6 +107,36 @@ describe('replica row-notification coalescing (#262 review)', () => {
       { kind: 'sessions', sessions: ['b'], issues: ['i2'] },
       { kind: 'issues', sessions: ['b'], issues: ['i2'] },
     ])
+  })
+
+  it('mirrors automation definitions and run history as independent durable kinds', () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    const a = automation('aut_1', 'Nightly')
+    const run = automationRun('arun_1', a.id)
+    const observed: Array<{ automations: string[]; runs: string[] }> = []
+    const record = () =>
+      observed.push({
+        automations: replica.rows('automations').map((row) => row.name),
+        runs: replica.rows('automationRuns').map((row) => row.id),
+      })
+    replica.subscribeRows('automations', record)
+    replica.subscribeRows('automationRuns', record)
+
+    replica.batch(() => {
+      replica.applySnapshot('automations', [a])
+      replica.applySnapshot('automationRuns', [run])
+    })
+    expect(observed).toEqual([
+      { automations: ['Nightly'], runs: ['arun_1'] },
+      { automations: ['Nightly'], runs: ['arun_1'] },
+    ])
+
+    replica.batch(() => {
+      replica.applyChanges('automations', [automation(a.id, 'Nightly v2')], [])
+      replica.applyChanges('automationRuns', [], [run.id])
+    })
+    expect(replica.rows('automations').map((row) => row.name)).toEqual(['Nightly v2'])
+    expect(replica.rows('automationRuns')).toEqual([])
   })
 
   it('a listener that writes back into the replica converges iteratively (no recursion, no dropped notification)', () => {

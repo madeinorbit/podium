@@ -26,6 +26,7 @@ export const IssueType = z.enum([
   'spike',
   'story',
   'milestone',
+  'automation',
 ])
 export type IssueType = z.infer<typeof IssueType>
 

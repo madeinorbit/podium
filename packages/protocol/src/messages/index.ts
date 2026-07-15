@@ -4,6 +4,7 @@
  */
 
 export * from './approvals'
+export * from './automations'
 export * from './client'
 export * from './codec'
 export * from './control'

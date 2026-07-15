@@ -1,6 +1,7 @@
 /**
  * Thin-client replica (docs/spec/thin-client-replica.md, P6a): a PERSISTENT
- * local mirror of the durable entities (sessions / issues / conversations),
+ * local mirror of the durable entities (sessions / issues / conversations /
+ * automations / automation runs),
  * the metadata-oplog cursor, and bounded per-conversation transcript windows,
  * so a reload — or opening the PWA offline — paints from local data instead of
  * a blank shell.
@@ -31,6 +32,8 @@
  */
 
 import type {
+  AutomationRunWire,
+  AutomationWire,
   ConversationSummaryWire,
   IssueWire,
   SessionMeta,
@@ -47,6 +50,8 @@ export interface ReplicaRows {
   sessions: SessionMeta
   issues: IssueWire
   conversations: ConversationSummaryWire
+  automations: AutomationWire
+  automationRuns: AutomationRunWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -54,6 +59,8 @@ export interface ReplicaHydrateResult {
   sessions: SessionMeta[]
   issues: IssueWire[]
   conversations: ConversationSummaryWire[]
+  automations: AutomationWire[]
+  automationRuns: AutomationRunWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
 }
@@ -108,7 +115,7 @@ export interface Replica {
    *  `fn` (#262 review, nestable): listeners fire at most once per touched kind,
    *  AFTER the outermost batch completed — i.e. against the FINAL state. Used by
    *  the hub wiring to make a whole metadata application (bootstrap snapshot,
-   *  heal snapshot, live delta — three kinds) atomic from the engine reactions'
+   *  heal snapshot, live delta — all kinds) atomic from the engine reactions'
    *  viewpoint. applySnapshot / applyChanges / hydrate already batch internally. */
   batch<T>(fn: () => T): T
   /** P6b outbox consolidation: an `OutboxStorage` backed by a replica collection
@@ -270,7 +277,14 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 }
 
 /** Entity collection kinds + transcripts — everything the quota guard covers. */
-const ENTITY_STORE_KINDS = ['sessions', 'issues', 'conversations', 'transcripts'] as const
+const ENTITY_STORE_KINDS = [
+  'sessions',
+  'issues',
+  'conversations',
+  'automations',
+  'automationRuns',
+  'transcripts',
+] as const
 
 /** Shared empty-rows identity for `rows()` (see the interface note). */
 const EMPTY_ROWS: never[] = []
@@ -363,6 +377,18 @@ class TanstackReplica implements Replica {
         guarded,
         guardedEvents,
       ),
+      automations: this.makeCollection<AutomationWire>(
+        'automations',
+        (automation) => automation.id,
+        guarded,
+        guardedEvents,
+      ),
+      automationRuns: this.makeCollection<AutomationRunWire>(
+        'automationRuns',
+        (run) => run.id,
+        guarded,
+        guardedEvents,
+      ),
       transcripts: this.makeCollection<TranscriptRow>(
         'transcripts',
         (t) => t.key,
@@ -387,6 +413,8 @@ class TanstackReplica implements Replica {
       sessions: [],
       issues: [],
       conversations: [],
+      automations: [],
+      automationRuns: [],
       cursor: null,
     }
     // Hold the notification batch across the preload (#262 review): a
@@ -400,6 +428,8 @@ class TanstackReplica implements Replica {
         sessions: this.cols.sessions.toArray as SessionMeta[],
         issues: this.cols.issues.toArray as IssueWire[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
+        automations: this.cols.automations.toArray as AutomationWire[],
+        automationRuns: this.cols.automationRuns.toArray as AutomationRunWire[],
         cursor: this.getCursor(),
       }
     } catch (err) {
@@ -1048,7 +1078,8 @@ class TanstackReplica implements Replica {
   private keyFor<K extends ReplicaKind>(kind: K): (row: ReplicaRows[K]) => string {
     return kind === 'sessions'
       ? (row) => (row as SessionMeta).sessionId
-      : (row) => (row as IssueWire | ConversationSummaryWire).id
+      : (row) =>
+          (row as IssueWire | ConversationSummaryWire | AutomationWire | AutomationRunWire).id
   }
 
   /** Insert-new + update-changed (skipping byte-identical rows so a re-applied

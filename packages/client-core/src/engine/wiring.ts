@@ -67,6 +67,8 @@ export function createEngineHub(args: {
         replica.applySnapshot('sessions', state.sessions)
         replica.applySnapshot('issues', state.issues)
         replica.applySnapshot('conversations', state.conversations)
+        replica.applySnapshot('automations', state.automations)
+        replica.applySnapshot('automationRuns', state.automationRuns)
       })
       replica.setCursor(state.cursor)
     },

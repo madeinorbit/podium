@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AutomationRunWire, AutomationWire } from './automations'
 import { ConversationDiagnosticWire, ConversationSummaryWire } from './discovery'
 import { IssueWire } from './issues'
 import { SessionMeta } from './runtime-state'
@@ -33,9 +34,29 @@ export const MetadataChange = z.discriminatedUnion('entity', [
     op: MetadataChangeOp,
     value: ConversationSummaryWire.optional(),
   }),
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('automation'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: AutomationWire.optional(),
+  }),
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('automationRun'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: AutomationRunWire.optional(),
+  }),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
-export const MetadataEntityKind = z.enum(['session', 'issue', 'conversation'])
+export const MetadataEntityKind = z.enum([
+  'session',
+  'issue',
+  'conversation',
+  'automation',
+  'automationRun',
+])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
 // ---- Kind-tolerant (lenient) consumer parsing ([spec:SP-3fe2] #258) ----
@@ -112,6 +133,8 @@ export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
     issues: z.array(IssueWire),
     conversations: z.array(ConversationSummaryWire),
     diagnostics: z.array(ConversationDiagnosticWire),
+    automations: z.array(AutomationWire).optional(),
+    automationRuns: z.array(AutomationRunWire).optional(),
     cursor: z.number().int().nonnegative(),
   }),
 ])
@@ -144,6 +167,8 @@ export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', 
     issues: z.array(IssueWire),
     conversations: z.array(ConversationSummaryWire),
     diagnostics: z.array(ConversationDiagnosticWire),
+    automations: z.array(AutomationWire).optional(),
+    automationRuns: z.array(AutomationRunWire).optional(),
     cursor: z.number().int().nonnegative(),
   }),
 ])

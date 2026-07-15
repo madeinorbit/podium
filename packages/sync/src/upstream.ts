@@ -381,6 +381,12 @@ export class UpstreamSync {
         if (change.op === 'remove') this.issues.delete(change.id)
         else if (change.value !== undefined) this.issues.set(change.id, change.value)
         break
+      // Automations are node-local schedulers, not hub-mirrored server state.
+      // Consume their shared cursor rows explicitly without folding them into
+      // one of the three upstream mirror maps.
+      case 'automation':
+      case 'automationRun':
+        break
       default:
         change satisfies never
     }

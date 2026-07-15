@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { AutomationRunWire, AutomationWire } from './automations'
 import { ClientMessage } from './client'
 import { ControlMessage } from './control'
 import { DaemonMessage } from './daemon'
@@ -47,6 +48,8 @@ const COLLECTION_MESSAGE_ELEMENTS: Record<string, { key: string; element: z.ZodT
   sessionsChanged: { key: 'sessions', element: SessionMeta },
   issuesChanged: { key: 'issues', element: IssueWire },
   conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
+  automationsChanged: { key: 'automations', element: AutomationWire },
+  automationRunsChanged: { key: 'automationRuns', element: AutomationRunWire },
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
 }
 

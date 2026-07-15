@@ -1,3 +1,4 @@
+import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
@@ -134,20 +135,44 @@ describe('decideTick', () => {
 // The service: applies the decisions, spawns, records the runs.
 // ---------------------------------------------------------------------------
 
-function harness(opts: { live?: string[]; spawnThrows?: boolean; queueOk?: boolean } = {}) {
+function harness(
+  opts: {
+    live?: string[]
+    spawnThrows?: boolean
+    queueOk?: boolean
+    resumeOk?: boolean
+    resumeReason?: string
+  } = {},
+) {
   const store = new SessionStore(':memory:')
   let clock = NOW
   let n = 0
+  let issueN = 0
+  const ledger = new Ledger({
+    repo: store.sync,
+    now: () => clock.getTime(),
+    transact: (fn) => store.transact(fn),
+  })
+  const funnel = { publishComputed: vi.fn() }
   const createSession = vi.fn((_input: { cwd: string }) => {
     if (opts.spawnThrows) throw new Error('no daemon for that machine')
     n += 1
     return { sessionId: `sess_${n}` }
   })
   const queueText = vi.fn(() => ({ ok: opts.queueOk ?? true, reason: 'no resume ref' }))
+  const resumeAndSend = vi.fn(() => ({
+    ok: opts.resumeOk ?? true,
+    ...(opts.resumeReason ? { reason: opts.resumeReason } : {}),
+  }))
+  const createIssue = vi.fn(() => ({ id: `iss_${++issueN}` }))
   const service = new AutomationsService({
     store: store.automations,
+    ledger,
+    funnel,
     createSession,
     queueText,
+    resumeAndSend,
+    createIssue,
     liveSessionIds: () => new Set(opts.live ?? []),
     now: () => clock,
     homeDir: () => '/home/tester',
@@ -155,8 +180,12 @@ function harness(opts: { live?: string[]; spawnThrows?: boolean; queueOk?: boole
   return {
     store,
     service,
+    ledger,
+    funnel,
     createSession,
     queueText,
+    resumeAndSend,
+    createIssue,
     setNow: (d: Date) => {
       clock = d
     },
@@ -200,29 +229,26 @@ describe('AutomationsService.create', () => {
     expect(h.service.list()).toEqual([])
   })
 
-  it('rejects a cron below the 5-minute rate floor — every fire is a real session (#470)', () => {
+  it('accepts an every-minute cron and defaults to a fresh session per run', () => {
     const h = harness()
-    expect(() =>
-      h.service.create({ name: 'Runaway', cron: '* * * * *', agentKind: 'codex', prompt: 'x' }),
-    ).toThrow(/too frequent/)
-    expect(h.service.list()).toEqual([])
-    // At the floor exactly: allowed.
-    const ok = h.service.create({
-      name: 'Every five',
-      cron: '*/5 * * * *',
+    const created = h.service.create({
+      name: 'Every minute',
+      cron: '* * * * *',
       agentKind: 'codex',
       prompt: 'x',
     })
-    expect(ok.cron).toBe('*/5 * * * *')
-    expect(h.service.list()).toHaveLength(1)
+    expect(created).toMatchObject({ cron: '* * * * *', sessionMode: 'fresh' })
   })
 
-  it('an update cannot lower an existing automation under the floor', () => {
+  it('an update can change both cron and session mode', () => {
     const h = harness()
     const created = daily(h)
-    expect(() => h.service.update(created.id, { cron: '* * * * *' })).toThrow(/too frequent/)
-    // The stored schedule is untouched — a rejected edit must not half-apply.
-    expect(h.service.list()[0]?.cron).toBe('0 9 * * *')
+    expect(
+      h.service.update(created.id, { cron: '* * * * *', sessionMode: 'resume' }),
+    ).toMatchObject({
+      cron: '* * * * *',
+      sessionMode: 'resume',
+    })
   })
 
   it('setEnabled arms and disarms', () => {
@@ -257,6 +283,17 @@ describe('AutomationsService.tick — spawn', () => {
     expect(spawn.cwd).toBe('/repos/podium')
     expect(spawn.spawnedBy).toBe(`automation:${a.id}`)
     expect(spawn.agentKind).toBe('claude-code')
+    expect(spawn.title).toBe('Nightly sweep')
+    expect(spawn.issueId).toBe('iss_1')
+    expect(h.createIssue).toHaveBeenCalledWith({
+      repoPath: '/repos/podium',
+      title: 'Nightly sweep',
+      description: 'Run the test suite and report.',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      type: 'automation',
+    })
     // The prompt is NEVER handed to createSession: initialPrompt is argv-only and
     // silently becomes a draft on opencode/cursor [spec:SP-17db].
     expect(spawn.initialPrompt).toBeUndefined()
@@ -274,6 +311,77 @@ describe('AutomationsService.tick — spawn', () => {
     const stored = h.store.automations.get(a.id)!
     expect(stored.nextRunAt).toBe(iso(new Date(2026, 6, 16, 9, 0)))
     expect(stored.lastRunAt).toBe(iso(new Date(2026, 6, 15, 9, 0)))
+  })
+
+  it('records the definition, run, and re-arm as ordered durable metadata', () => {
+    const h = harness()
+    const a = daily(h)
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    h.service.tick()
+
+    const changes = h.ledger.changesSince(0)
+    expect(changes?.map((change) => [change.entity, change.id, change.op])).toEqual([
+      ['automation', a.id, 'upsert'],
+      ['automationRun', expect.stringMatching(/^arun_/), 'upsert'],
+      ['automation', a.id, 'upsert'],
+    ])
+    expect(changes?.map((change) => change.seq)).toEqual([1, 2, 3])
+    expect(h.funnel.publishComputed).toHaveBeenCalledWith({
+      type: 'automationRunsChanged',
+      automationRuns: [expect.objectContaining({ automationId: a.id, outcome: 'spawned' })],
+    })
+  })
+
+  it('resume mode reuses the previous successful session on later fires', () => {
+    const h = harness()
+    const a = h.service.create({
+      name: 'Continuing sweep',
+      cron: '0 9 * * *',
+      agentKind: 'codex',
+      prompt: 'Continue the sweep.',
+      enabled: true,
+      repoPath: '/repos/podium',
+      sessionMode: 'resume',
+    })
+
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    h.service.tick()
+    h.setNow(new Date(2026, 6, 16, 9, 0, 10))
+    h.service.tick()
+
+    expect(h.createIssue).toHaveBeenCalledTimes(1)
+    expect(h.createSession).toHaveBeenCalledTimes(1)
+    expect(h.queueText).toHaveBeenCalledTimes(1)
+    expect(h.resumeAndSend).toHaveBeenCalledWith({
+      sessionId: 'sess_1',
+      text: 'Continue the sweep.',
+      mutationId: expect.stringMatching(/^arun_/),
+    })
+    expect(h.service.runs(a.id)).toHaveLength(2)
+    expect(h.service.runs(a.id).every((run) => run.sessionId === 'sess_1')).toBe(true)
+  })
+
+  it('resume mode safely falls back to a fresh issue and session when the ref is gone', () => {
+    const h = harness({ resumeOk: false, resumeReason: 'no resume ref' })
+    const a = h.service.create({
+      name: 'Continuing sweep',
+      cron: '0 9 * * *',
+      agentKind: 'codex',
+      prompt: 'Continue the sweep.',
+      enabled: true,
+      repoPath: '/repos/podium',
+      sessionMode: 'resume',
+    })
+
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    h.service.tick()
+    h.setNow(new Date(2026, 6, 16, 9, 0, 10))
+    h.service.tick()
+
+    expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
+    expect(h.createIssue).toHaveBeenCalledTimes(2)
+    expect(h.createSession).toHaveBeenCalledTimes(2)
+    expect(h.service.runs(a.id).map((run) => run.sessionId)).toEqual(['sess_2', 'sess_1'])
   })
 
   it('a GLOBAL automation (repo_path NULL) runs in the home directory', () => {
@@ -335,8 +443,12 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     const live = harness({ live: ['sess_1'] })
     const service = new AutomationsService({
       store: h.store.automations,
+      ledger: h.ledger,
+      funnel: h.funnel,
       createSession: live.createSession,
       queueText: live.queueText,
+      resumeAndSend: live.resumeAndSend,
+      createIssue: live.createIssue,
       liveSessionIds: () => new Set(['sess_1']),
       now: () => new Date(2026, 6, 16, 9, 0, 10),
     })
@@ -367,8 +479,8 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     h.service.tick()
     const [run] = h.service.runs(a.id)
-    expect(run!.outcome).toBe('error')
-    expect(run!.detail).toContain('sess_1') // names the orphan session
+    expect(run).toMatchObject({ outcome: 'error', sessionId: 'sess_1' })
+    expect(run!.detail).toContain('sess_1')
   })
 })
 

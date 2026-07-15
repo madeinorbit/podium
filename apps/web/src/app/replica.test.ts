@@ -293,7 +293,14 @@ describe('replica adapter', () => {
     // Same seam, in-memory backing: every operation still works for the tab's
     // lifetime — no parallel "inert" path.
     const cold = await r.hydrate()
-    expect(cold).toEqual({ sessions: [], issues: [], conversations: [], cursor: null })
+    expect(cold).toEqual({
+      sessions: [],
+      issues: [],
+      conversations: [],
+      automations: [],
+      automationRuns: [],
+      cursor: null,
+    })
     r.applySnapshot('sessions', [session('s1')])
     r.applyChanges('issues', [issue('i1')], [])
     r.setCursor(1)
@@ -310,6 +317,8 @@ describe('replica adapter', () => {
       sessions: [],
       issues: [],
       conversations: [],
+      automations: [],
+      automationRuns: [],
       cursor: null,
     })
   })

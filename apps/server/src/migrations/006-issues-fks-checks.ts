@@ -25,13 +25,22 @@
  */
 
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { IssueType } from '@podium/protocol'
 
 // Frozen at the value IssueStage held when 006 shipped. An applied migration's
 // DDL must never move with the code — 'verifying' was dropped from the enum in
 // 010, which rebuilds this CHECK; 006 keeps emitting the schema it always did.
 const STAGES = ['backlog', 'planning', 'in_progress', 'review', 'verifying', 'done'] as const
-const TYPES = IssueType.options
+const TYPES = [
+  'task',
+  'bug',
+  'feature',
+  'chore',
+  'epic',
+  'decision',
+  'spike',
+  'story',
+  'milestone',
+] as const
 
 function sqlList(values: readonly string[]): string {
   return values.map((v) => `'${v}'`).join(', ')
@@ -40,9 +49,10 @@ function sqlList(values: readonly string[]): string {
 export function up(db: SqlDatabase): void {
   // ---- sanitize: enum/range coercions (logged per column) ----
   const coerce = (column: string, where: string, fallback: string): void => {
-    const bad = db
-      .prepare(`SELECT id, ${column} AS v FROM issues WHERE ${where}`)
-      .all() as { id: string; v: unknown }[]
+    const bad = db.prepare(`SELECT id, ${column} AS v FROM issues WHERE ${where}`).all() as {
+      id: string
+      v: unknown
+    }[]
     for (const b of bad) {
       console.warn(
         `[podium] migration 006: issue ${b.id} has out-of-range ${column} ` +
@@ -53,11 +63,7 @@ export function up(db: SqlDatabase): void {
   }
   coerce('stage', `stage NOT IN (${sqlList(STAGES)})`, "'backlog'")
   coerce('type', `type NOT IN (${sqlList(TYPES)})`, "'task'")
-  coerce(
-    'priority',
-    'priority NOT BETWEEN 0 AND 4 OR CAST(priority AS INTEGER) != priority',
-    '2',
-  )
+  coerce('priority', 'priority NOT BETWEEN 0 AND 4 OR CAST(priority AS INTEGER) != priority', '2')
 
   // ---- sanitize: dangling references ----
   for (const col of ['parent_id', 'superseded_by', 'duplicate_of']) {
@@ -167,7 +173,9 @@ export function up(db: SqlDatabase): void {
          PRIMARY KEY (from_id, to_id, type)
        )`,
   )
-  db.exec('INSERT INTO issue_deps_v6 (from_id, to_id, type) SELECT from_id, to_id, type FROM issue_deps')
+  db.exec(
+    'INSERT INTO issue_deps_v6 (from_id, to_id, type) SELECT from_id, to_id, type FROM issue_deps',
+  )
   db.exec('DROP TABLE issue_deps')
   db.exec('ALTER TABLE issue_deps_v6 RENAME TO issue_deps')
   db.exec('CREATE INDEX IF NOT EXISTS idx_issue_deps_from ON issue_deps(from_id)')

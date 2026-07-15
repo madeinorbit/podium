@@ -1,10 +1,12 @@
 import { z } from 'zod'
+import { ApprovalsChangedMessage } from './approvals'
+import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
 import { ConversationsChangedMessage } from './discovery'
 import { HeadlessActivityMessage } from './headless'
 import { AttentionEventMessage, HostMetricsChangedMessage, MachinesChangedMessage } from './host'
-import { ApprovalsChangedMessage } from './approvals'
 import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
 import { SessionAgentStateChangedMessage, SessionsChangedMessage } from './runtime-state'
+import { MetadataDeltaMessage } from './sync'
 import {
   AgentExitMessage,
   AttachedMessage,
@@ -15,7 +17,6 @@ import {
   WelcomeMessage,
 } from './terminal'
 import { TranscriptDeltaMessage } from './transcript'
-import { MetadataDeltaMessage } from './sync'
 
 // ---- Server -> browser client ----
 // A single session's live title changed (an agent set its terminal title via OSC).
@@ -56,5 +57,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   IssuesChangedMessage,
   IssueUpdatedMessage,
   MetadataDeltaMessage,
+  AutomationsChangedMessage,
+  AutomationRunsChangedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

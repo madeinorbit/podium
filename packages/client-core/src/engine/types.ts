@@ -9,6 +9,8 @@
 import type {
   AgentKind,
   ApprovalWire,
+  AutomationRunWire,
+  AutomationWire,
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -82,6 +84,9 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   issues: IssueWire[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
+  /** Scheduled definitions and honest run history mirrored live from the replica. */
+  automations: AutomationWire[]
+  automationRuns: AutomationRunWire[]
   /** Session ids painted optimistically that the server hasn't confirmed yet (#119).
    *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
    *  session is dropped and never retried, so it must wait for reconciliation. */

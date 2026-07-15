@@ -170,18 +170,14 @@ export function nextRunAfter(expr: string, after: Date): Date | null {
 }
 
 /**
- * The rate floor (#470) [spec:SP-17db]: an automation may not be scheduled to fire
- * more often than once every 5 minutes.
- *
- * This is a SAFETY limit, not a taste one. Every fire spawns a real agent session
- * that costs real tokens; `* * * * *` is a 1440-sessions-per-day footgun that a
- * single empty cron box used to be able to arm.
+ * The rate floor (#470) [spec:SP-17db]: one minute. Five-field cron has minute
+ * granularity, so every valid expression satisfies this floor; keeping the
+ * invariant explicit protects the boundary if richer schedules arrive later.
  */
-export const MIN_SCHEDULE_INTERVAL_MS = 5 * 60_000
+export const MIN_SCHEDULE_INTERVAL_MS = 60_000
 
-/** Occurrences to walk before giving up — bounds a pathological expression. A dense
- *  legal cron (`*<slash>5 * * * *`) has 288 in the window; the cap is far above it, and the
- *  scan short-circuits the moment it finds a violation. */
+/** Occurrences to walk before giving up — bounds a pathological expression. The
+ *  densest legal cron has 1,500 occurrences in the 25-hour scan window. */
 const MAX_OCCURRENCES_SCANNED = 2000
 
 /** How far past the first occurrence to look for the tightest gap. A cron's
@@ -235,7 +231,7 @@ export function respectsScheduleFloor(expr: string, from: Date = new Date()): bo
 
 /** The human message the composer and the tRPC edge both show for a floor violation. */
 export const SCHEDULE_FLOOR_MESSAGE =
-  'schedule is too frequent — an automation may fire at most once every 5 minutes (each fire spawns a real agent session)'
+  'schedule is too frequent — an automation may fire at most once per minute'
 
 /** Throws when `expr` fires more often than the floor allows. The service's guard:
  *  the zod edge rejects this first for tRPC callers, but the invariant belongs to

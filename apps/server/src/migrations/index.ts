@@ -82,6 +82,7 @@ import { up as accounts } from './023-accounts'
 import { up as automations } from './20260714142927-automations'
 import { up as sessionsNameSource } from './20260714145648-sessions-name-source'
 import { up as humanFacingIds } from './20260714150855-human-facing-ids'
+import { up as automationRunSessions } from './20260715085920-automation-run-sessions'
 import { up as sessionGeometry } from './20260715094750-session-geometry'
 
 export interface Migration {
@@ -139,6 +140,7 @@ export const MIGRATIONS: Migration[] = [
   // it) | 'agent' (self-named; it may re-title itself) | NULL (nobody).
   { version: 20_260_714_145_648, name: 'sessions-name-source', up: sessionsNameSource },
   { version: 20_260_714_150_855, name: 'human-facing-ids', up: humanFacingIds },
+  { version: 20_260_715_085_920, name: 'automation-run-sessions', up: automationRunSessions },
   { version: 20_260_715_094_750, name: 'session-geometry', up: sessionGeometry },
 ]
 

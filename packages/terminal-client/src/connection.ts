@@ -1,4 +1,7 @@
 import {
+  type ApprovalWire,
+  type AutomationRunWire,
+  type AutomationWire,
   CAP_METADATA_DELTA,
   type ConversationSummaryWire,
   createDispatcher,
@@ -7,7 +10,6 @@ import {
   type HostMetricsWire,
   type IssueWire,
   isKnownMetadataChange,
-  type ApprovalWire,
   type MachineWire,
   type MetadataChange,
   type MetadataChangeLenient,
@@ -107,6 +109,8 @@ export interface MetadataAppliedState {
   sessions: SessionMeta[]
   issues: IssueWire[]
   conversations: ConversationSummaryWire[]
+  automations: AutomationWire[]
+  automationRuns: AutomationRunWire[]
 }
 
 function utf8ToBase64(text: string): string {
@@ -201,6 +205,8 @@ export interface HubEvents {
   /** Full session list after any change (snapshot, delta, title/state patch). */
   sessions: [sessions: SessionMeta[]]
   conversations: [conversations: ConversationSummaryWire[]]
+  automations: [automations: AutomationWire[]]
+  automationRuns: [automationRuns: AutomationRunWire[]]
   hostMetrics: [hosts: HostMetricsWire[]]
   machines: [machines: MachineWire[]]
   /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
@@ -235,6 +241,8 @@ export class SocketHub {
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
   private conversationList: ConversationSummaryWire[] = []
+  private automationList: AutomationWire[] = []
+  private automationRunList: AutomationRunWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
   private approvalsList: ApprovalWire[] = []
@@ -585,6 +593,14 @@ export class SocketHub {
     return off
   }
 
+  automations(): AutomationWire[] {
+    return this.automationList
+  }
+
+  automationRuns(): AutomationRunWire[] {
+    return this.automationRunList
+  }
+
   hostMetrics(): HostMetricsWire[] {
     return this.hostMetricsList
   }
@@ -640,14 +656,20 @@ export class SocketHub {
     sessions: SessionMeta[]
     issues: IssueWire[]
     conversations: ConversationSummaryWire[]
+    automations?: AutomationWire[]
+    automationRuns?: AutomationRunWire[]
   }): void {
     if (this.metadataCursor !== null) return
     this.sessionList = seed.sessions
     this.issueList = seed.issues
     this.conversationList = seed.conversations
+    this.automationList = seed.automations ?? []
+    this.automationRunList = seed.automationRuns ?? []
     this.emit('sessions', this.sessionList)
     this.emit('issues', this.issueList)
     this.emit('conversations', this.conversationList)
+    this.emit('automations', this.automationList)
+    this.emit('automationRuns', this.automationRunList)
   }
 
   /**
@@ -916,6 +938,14 @@ export class SocketHub {
       this.conversationList = msg.conversations
       this.emit('conversations', this.conversationList)
     },
+    automationsChanged: (msg) => {
+      this.automationList = msg.automations
+      this.emit('automations', this.automationList)
+    },
+    automationRunsChanged: (msg) => {
+      this.automationRunList = msg.automationRuns
+      this.emit('automationRuns', this.automationRunList)
+    },
     hostMetricsChanged: (msg) => {
       this.hostMetricsList = msg.hosts
       this.emit('hostMetrics', this.hostMetricsList)
@@ -1015,6 +1045,8 @@ export class SocketHub {
       sessions: this.sessionList,
       issues: this.issueList,
       conversations: this.conversationList,
+      automations: this.automationList,
+      automationRuns: this.automationRunList,
     })
   }
 
@@ -1068,6 +1100,22 @@ export class SocketHub {
             (x) => x.id === c.id,
           )
           break
+        case 'automation':
+          this.automationList = applyChange(
+            this.automationList,
+            c.op,
+            c.value,
+            (x) => x.id === c.id,
+          )
+          break
+        case 'automationRun':
+          this.automationRunList = applyChange(
+            this.automationRunList,
+            c.op,
+            c.value,
+            (x) => x.id === c.id,
+          )
+          break
         default:
           c satisfies never
       }
@@ -1075,6 +1123,8 @@ export class SocketHub {
     if (touched.has('session')) this.emit('sessions', this.sessionList)
     if (touched.has('issue')) this.emit('issues', this.issueList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
+    if (touched.has('automation')) this.emit('automations', this.automationList)
+    if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
   }
 
   /**
@@ -1125,9 +1175,13 @@ export class SocketHub {
           this.sessionList = result.sessions
           this.issueList = result.issues
           this.conversationList = result.conversations
+          this.automationList = result.automations ?? []
+          this.automationRunList = result.automationRuns ?? []
           this.emit('sessions', this.sessionList)
           this.emit('issues', this.issueList)
           this.emit('conversations', this.conversationList)
+          this.emit('automations', this.automationList)
+          this.emit('automationRuns', this.automationRunList)
         } else if (result.changes.length > 0) {
           this.applyChanges(result.changes.filter((c) => c.seq > (this.metadataCursor ?? 0)))
         }

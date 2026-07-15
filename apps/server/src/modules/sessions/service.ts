@@ -7,6 +7,8 @@ import {
   AgentKind,
   type AgentRuntimeState,
   type ApprovalWire,
+  type AutomationRunWire,
+  type AutomationWire,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
@@ -137,6 +139,9 @@ interface SessionsServiceDeps {
   publishIssues(): void
   /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
+  /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
+  automationsWire(): AutomationWire[]
+  automationRunsWire(): AutomationRunWire[]
   /** Relayed agent issue op (modules/issues/relay-gate). */
   runIssueRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'issueRelayRequest' }>): void
   /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
@@ -1065,10 +1070,7 @@ export class SessionsService {
     // so it lands in a separate PTY read. afterEsc bypasses the needs_user guard
     // (this is the one legitimate write into a menu-waiting session) and jumps
     // the queue — an interrupt is meant to.
-    setTimeout(
-      () => this.typeText({ sessionId, text, afterEsc: true }),
-      SUBMIT_CR_DELAY_MS,
-    )
+    setTimeout(() => this.typeText({ sessionId, text, afterEsc: true }), SUBMIT_CR_DELAY_MS)
     return { ok: true }
   }
 
@@ -1940,6 +1942,8 @@ export class SessionsService {
     send({ type: 'welcome', clientId: id })
     send({ type: 'sessionsChanged', sessions: this.listSessions() })
     send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
+    send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
+    send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
     for (const [sessionId, text] of this.draftBySession) {
       send({ type: 'sessionDraftChanged', sessionId, text })
     }
@@ -2626,6 +2630,8 @@ export class SessionsService {
       sessions: this.listSessions(),
       issues: this.deps.issuesWire(),
       conversations: this.conversations().allConversations(),
+      automations: this.deps.automationsWire(),
+      automationRuns: this.deps.automationRunsWire(),
       diagnostics: this.conversations().diagnostics(),
       cursor: this.funnel.cursor(),
     }

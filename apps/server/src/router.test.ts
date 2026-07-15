@@ -439,26 +439,20 @@ describe('repos router', () => {
     expect(await call.snoozes.clear({ sessionId })).toEqual({})
   })
 
-  // #470 [spec:SP-17db]: the zod edge owns the rate floor, so a too-frequent schedule
-  // is a BAD_REQUEST the composer renders — never a 500, and never a persisted
-  // automation that spawns an agent session every minute.
-  it('automations.create rejects a cron under the 5-minute floor as BAD_REQUEST', async () => {
+  // #470 [spec:SP-17db]: the minimum interval is one minute, exactly the
+  // granularity of five-field cron.
+  it('automations.create accepts an every-minute cron', async () => {
     const { call } = caller()
-    const input = {
-      name: 'Runaway',
+    const created = await call.automations.create({
+      name: 'Minute sweep',
       repoPath: '/repos/podium',
       cron: '* * * * *',
       agentKind: 'claude-code' as const,
       prompt: 'go',
       enabled: true,
-    }
-    await expect(call.automations.create(input)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
-    await expect(call.automations.create(input)).rejects.toThrow(/too frequent/)
-    expect(await call.automations.list()).toEqual([])
-
-    // `*/5` sits exactly on the floor and is accepted.
-    const created = await call.automations.create({ ...input, cron: '*/5 * * * *' })
-    expect(created.cron).toBe('*/5 * * * *')
+      sessionMode: 'resume',
+    })
+    expect(created).toMatchObject({ cron: '* * * * *', sessionMode: 'resume' })
     expect(await call.automations.list()).toHaveLength(1)
   })
 

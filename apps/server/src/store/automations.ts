@@ -1,47 +1,21 @@
 /**
  * Automations aggregate (#470) [spec:SP-17db] — owns the `automations` and
- * `automation_runs` tables (migration 022). Pure persistence: the schedule
+ * `automation_runs` tables (timestamped automations migrations). Pure persistence: the schedule
  * SEMANTICS (cron parsing, the due/missed/overlap decision, the spawn) live in
  * modules/automations/.
  */
 
+import type {
+  AutomationRunOutcome,
+  AutomationRunWire,
+  AutomationSessionMode,
+  AutomationWire,
+} from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
-/** How a fire ended. `missed` and `skipped_overlap` are recorded WITHOUT a spawn —
- *  the run history is honest about the fires that deliberately did nothing. */
-export type AutomationRunOutcome = 'spawned' | 'missed' | 'skipped_overlap' | 'error'
-
-/** One scheduled automation (camelCase mirror of the `automations` table). */
-export interface AutomationRow {
-  id: string
-  name: string
-  enabled: boolean
-  /** null = GLOBAL: the session spawns in the user's home directory [spec:SP-17db]. */
-  repoPath: string | null
-  /** Standard 5-field cron, evaluated in SERVER-LOCAL time. */
-  cron: string
-  agentKind: string
-  /** 'auto' = inherit the settings default (no per-spawn override). */
-  model: string
-  effort: string
-  prompt: string
-  /** ISO. null = not armed (disabled, or an unparseable cron disarmed it). */
-  nextRunAt: string | null
-  lastRunAt: string | null
-  createdAt: string
-}
-
-/** One fire of an automation — the row behind the tab's "Recent runs" list. */
-export interface AutomationRunRow {
-  id: string
-  automationId: string
-  firedAt: string
-  /** null unless outcome = 'spawned'. */
-  sessionId: string | null
-  outcome: AutomationRunOutcome
-  /** Error message, or why the fire was skipped. */
-  detail: string | null
-}
+export type { AutomationRunOutcome } from '@podium/protocol'
+export type AutomationRow = AutomationWire
+export type AutomationRunRow = AutomationRunWire
 
 function rowToAutomation(r: Record<string, unknown>): AutomationRow {
   return {
@@ -54,6 +28,7 @@ function rowToAutomation(r: Record<string, unknown>): AutomationRow {
     model: r.model as string,
     effort: r.effort as string,
     prompt: r.prompt as string,
+    sessionMode: (r.session_mode as AutomationSessionMode) ?? 'fresh',
     nextRunAt: (r.next_run_at as string | null) ?? null,
     lastRunAt: (r.last_run_at as string | null) ?? null,
     createdAt: r.created_at as string,
@@ -93,8 +68,8 @@ export class AutomationsRepository {
       .prepare(
         `INSERT INTO automations
            (id, name, enabled, repo_path, cron, agent_kind, model, effort, prompt,
-            next_run_at, last_run_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            session_mode, next_run_at, last_run_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         a.id,
@@ -106,6 +81,7 @@ export class AutomationsRepository {
         a.model,
         a.effort,
         a.prompt,
+        a.sessionMode,
         a.nextRunAt,
         a.lastRunAt,
         a.createdAt,
@@ -118,7 +94,7 @@ export class AutomationsRepository {
       .prepare(
         `UPDATE automations SET
            name = ?, enabled = ?, repo_path = ?, cron = ?, agent_kind = ?, model = ?,
-           effort = ?, prompt = ?, next_run_at = ?, last_run_at = ?
+           effort = ?, prompt = ?, session_mode = ?, next_run_at = ?, last_run_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -130,6 +106,7 @@ export class AutomationsRepository {
         a.model,
         a.effort,
         a.prompt,
+        a.sessionMode,
         a.nextRunAt,
         a.lastRunAt,
         a.id,
@@ -159,6 +136,14 @@ export class AutomationsRepository {
         'SELECT * FROM automation_runs WHERE automation_id = ? ORDER BY fired_at DESC, rowid DESC LIMIT ?',
       )
       .all(automationId, limit) as Record<string, unknown>[]
+    return rows.map(rowToRun)
+  }
+
+  /** Full run truth for durable snapshots and boot reconciliation. */
+  listAllRuns(): AutomationRunRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM automation_runs ORDER BY fired_at ASC, rowid ASC')
+      .all() as Record<string, unknown>[]
     return rows.map(rowToRun)
   }
 

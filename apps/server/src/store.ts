@@ -34,8 +34,8 @@ import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
 import { dbSchemaVersion, MIGRATIONS, runMigrations } from './migrations/index'
-import { ApprovalsRepository } from './store/approvals'
 import { AccountsRepository } from './store/accounts'
+import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
@@ -91,6 +91,11 @@ export class SessionStore {
     this.db = openDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
+    // node:sqlite enables foreign keys on a fresh connection. Migrations use
+    // SQLite's table-rebuild pattern (create/copy/drop/rename), where dropping a
+    // parent with enforcement on would cascade-delete child rows. The chain owns
+    // this window; enforcement is restored immediately after it succeeds.
+    this.db.exec('PRAGMA foreign_keys = OFF')
     // The versioned migration chain owns the schema (stamps schema_version and
     // refuses to open a DB newer than the code). Schema DDL lives ONLY in
     // src/migrations/. Passing dbPath enables the pre-migration backup (#43):

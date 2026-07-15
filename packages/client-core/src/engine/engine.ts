@@ -23,6 +23,8 @@
 import type {
   AgentKind,
   ApprovalWire,
+  AutomationRunWire,
+  AutomationWire,
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -143,6 +145,8 @@ interface EngineState {
   sessions: SessionMeta[]
   issues: IssueWire[]
   conversations: ConversationSummaryWire[]
+  automations: AutomationWire[]
+  automationRuns: AutomationRunWire[]
   pendingSpawnIds: ReadonlySet<string>
   hostMetrics: HostMetricsWire[]
   machines: MachineWire[]
@@ -316,6 +320,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
       conversations: this.replica.rows('conversations'),
+      automations: this.replica.rows('automations'),
+      automationRuns: this.replica.rows('automationRuns'),
       pendingSpawnIds: EMPTY_ID_SET,
       hostMetrics: [],
       machines: [],
@@ -401,6 +407,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(this.replica.subscribeRows('sessions', () => this.refreshSessionRows()))
     offs.push(this.replica.subscribeRows('issues', () => this.refreshIssueRows()))
     offs.push(this.replica.subscribeRows('conversations', () => this.refreshConversationRows()))
+    offs.push(this.replica.subscribeRows('automations', () => this.refreshAutomationRows()))
+    offs.push(this.replica.subscribeRows('automationRuns', () => this.refreshAutomationRunRows()))
     this.refreshAllRows()
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
@@ -462,7 +470,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // truth if a heal somehow lands first. `hydrate` never throws (a poisoned
     // replica clears itself and cold-starts).
     void this.replica.hydrate().then((snap) => {
-      if (snap.sessions.length + snap.issues.length + snap.conversations.length > 0) {
+      if (
+        snap.sessions.length +
+          snap.issues.length +
+          snap.conversations.length +
+          snap.automations.length +
+          snap.automationRuns.length >
+        0
+      ) {
         this.hub.seedMetadata(snap)
       }
       // Re-read rows after preload — belt-and-braces for a collection whose
@@ -574,8 +589,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // State→URL mirror — the single URL writer (old lines 1172-1176).
     if (any('selectedWorktree', 'paneA')) this.mirrorUrl()
     // View-state report to the server (old lines 1038-1060).
-    if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession'))
-      this.reportViewState()
+    if (any('paneA', 'paneB', 'split', 'focusedPane', 'dockVisibleSession')) this.reportViewState()
     // Mark-the-viewed-session-read debounce (old useMarkReadOnView call).
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane')) this.updateMarkReadTimer()
   }
@@ -765,6 +779,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.refreshSessionRows()
     this.refreshIssueRows()
     this.refreshConversationRows()
+    this.refreshAutomationRows()
+    this.refreshAutomationRunRows()
   }
 
   private refreshSessionRows(): void {
@@ -782,6 +798,14 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
 
   private refreshConversationRows(): void {
     this.apply({ conversations: this.replica.rows('conversations') })
+  }
+
+  private refreshAutomationRows(): void {
+    this.apply({ automations: this.replica.rows('automations') })
+  }
+
+  private refreshAutomationRunRows(): void {
+    this.apply({ automationRuns: this.replica.rows('automationRuns') })
   }
 
   /** The pending overlays for one entity, in application order: resolved

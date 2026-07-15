@@ -44,6 +44,8 @@ export const SERVER_MESSAGE_CLASS = {
   issuesChanged: 'durable',
   issueUpdated: 'durable',
   conversationsChanged: 'durable',
+  automationsChanged: 'durable',
+  automationRunsChanged: 'durable',
   metadataDelta: 'durable',
 
   // Connection-scoped handshake/keepalive frames (single client, not fan-out).

@@ -259,6 +259,39 @@ describe('ServerMessage', () => {
     { type: 'agentExit', sessionId: 's1', code: 0 },
     { type: 'sessionsChanged', sessions: [sessionMeta] },
     { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
+    {
+      type: 'automationsChanged',
+      automations: [
+        {
+          id: 'aut_1',
+          name: 'Nightly',
+          enabled: true,
+          repoPath: '/w',
+          cron: '* * * * *',
+          agentKind: 'codex',
+          model: 'auto',
+          effort: 'auto',
+          prompt: 'Run it.',
+          sessionMode: 'resume',
+          nextRunAt: '2026-07-01T00:01:00.000Z',
+          lastRunAt: null,
+          createdAt: '2026-07-01T00:00:00.000Z',
+        },
+      ],
+    },
+    {
+      type: 'automationRunsChanged',
+      automationRuns: [
+        {
+          id: 'arun_1',
+          automationId: 'aut_1',
+          firedAt: '2026-07-01T00:00:00.000Z',
+          sessionId: 'sess_1',
+          outcome: 'spawned',
+          detail: null,
+        },
+      ],
+    },
     { type: 'sessionTitleChanged', sessionId: 's1', title: '✳ rename functionality' },
     {
       type: 'sessionAgentStateChanged',
