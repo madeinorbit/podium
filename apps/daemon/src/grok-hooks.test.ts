@@ -1,9 +1,9 @@
 import { execFile, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from './grok-hooks'
@@ -123,6 +123,35 @@ describe('ensurePodiumGrokHooks', () => {
 })
 
 describe('Podium Grok hook command', () => {
+  it('exits successfully and performs no callback when PODIUM_GROK_HOOK_URL is absent', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-grok-hook-cmd-'))
+    const marker = join(dir, 'curl-called')
+    const curlPath = join(dir, 'curl')
+    await writeFile(curlPath, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`)
+    await chmod(curlPath, 0o755)
+
+    const env = { ...process.env, PATH: `${dir}${delimiter}${process.env.PATH ?? ''}` }
+    delete env.PODIUM_GROK_HOOK_URL
+
+    const child = spawn('sh', ['-c', PODIUM_GROK_HOOK_COMMAND], {
+      env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
+    child.stdin.end(JSON.stringify({ hookEventName: 'SessionStart' }))
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('exit', resolve)
+    })
+
+    expect(code).toBe(0)
+    expect(existsSync(marker)).toBe(false)
+    expect(stdout).toBe('')
+  })
+
   it('posts the native stdin payload and relays a blocking response to stdout', async () => {
     let received: unknown
     const server = createServer((req, res) => {
