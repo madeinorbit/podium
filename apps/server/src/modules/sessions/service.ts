@@ -2066,18 +2066,22 @@ export class SessionsService {
   /**
    * Model + effort flags for a spawn message; 'auto' means no override.
    * Shared by every spawn path (fresh spawn AND resurrect) so a resumed session
-   * keeps the configured model instead of silently dropping to the CLI default.
-   * `override` (from an issue's per-ticket model/effort) wins over the settings
-   * defaults — an explicit 'auto' override still means "no flag" (not "fall back
-   * to settings"), so an issue snapshots its own choice at create time.
+   * keeps the configured model when it uses the configured coding harness.
+   * `override` (from an issue's per-ticket model/effort) wins independently over
+   * settings defaults — an explicit 'auto' still means "no flag". Missing values
+   * fall back to settings only for the configured coding harness; selecting a
+   * different harness must not inherit that harness's model or effort
+   * [spec:SP-7ff1].
    */
   private modelDefaults(
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
   ): { model?: string; subagentModel?: string; effort?: string; seedCliTheme?: boolean } {
-    const coding = this.store.settings.getSettings().roles.coding
-    const model = override?.model ?? coding.model
-    const effort = override?.effort ?? coding.effort
+    const settings = this.store.settings.getSettings()
+    const coding = settings.roles.coding
+    const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
+    const model = override?.model ?? (useCodingDefaults ? coding.model : 'auto')
+    const effort = override?.effort ?? (useCodingDefaults ? coding.effort : 'auto')
     const subagentModel = coding.subagentModel
     return {
       ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),

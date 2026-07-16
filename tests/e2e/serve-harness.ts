@@ -12,7 +12,7 @@
  * this automatically; the specs connect via `?server=ws://localhost:8799`.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -140,14 +140,24 @@ if (realAgentCodexEnv) {
   writeCodexStartupFixture(realAgentCodexEnv.codexHomeDir, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
 }
 
-const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
-  kind === 'shell' || REAL_AGENTS
+const launchLogFile = join(stateDir, 'launch-log.jsonl')
+const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
+  appendFileSync(
+    launchLogFile,
+    `${JSON.stringify({
+      agentKind: kind,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.effort ? { effort: opts.effort } : {}),
+    })}\n`,
+  )
+  return kind === 'shell' || REAL_AGENTS
     ? agentLaunchCommand(kind, opts)
     : {
         cmd: process.execPath,
         args: [KEYECHO_CLI, '--mode', 'both'],
         cwd: KEYECHO_PKG,
       }
+}
 
 let server = await startServer({ port: PORT })
 

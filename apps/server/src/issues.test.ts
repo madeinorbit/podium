@@ -141,6 +141,34 @@ describe('IssueService CRUD', () => {
     expect(wire.id).toMatch(/^iss_[0-9a-f-]{36}$/)
   })
 
+  it('scopes configured model and effort defaults to the configured harness', () => {
+    const { svc, deps } = harness()
+    deps.getSettings = () =>
+      normalizeSettings({
+        roles: {
+          coding: {
+            accountId: 'native:claude-code',
+            model: 'opus',
+            effort: 'high',
+          },
+        },
+      })
+
+    const configured = svc.create({ repoPath: '/r', title: 'Claude', startNow: false })
+    expect(configured.defaultAgent).toBe('claude-code')
+    expect(configured.defaultModel).toBe('opus')
+    expect(configured.defaultEffort).toBe('high')
+
+    const alternate = svc.create({
+      repoPath: '/r',
+      title: 'Codex',
+      startNow: false,
+      defaultAgent: 'codex',
+    })
+    expect(alternate.defaultModel).toBe('auto')
+    expect(alternate.defaultEffort).toBe('auto')
+  })
+
   it('createDraftFor threads a client-provided id through to create()', () => {
     const { svc } = harness()
     const wire = svc.createDraftFor('/r', 'claude-code', 'iss_draft-client-id')

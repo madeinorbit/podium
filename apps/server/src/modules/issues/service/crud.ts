@@ -197,6 +197,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const repoId = this.deps.store.repos.resolveRepoIdForPath(input.repoPath)
     const seq = this.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.now()
+    const settings = this.deps.getSettings()
+    const coding = resolveRole(settings, 'coding')
+    const defaultAgent = input.defaultAgent || coding.harness
+    const useCodingDefaults = defaultAgent === coding.harness // [spec:SP-7ff1]
     const row: IssueRow = {
       id: input.id ?? `iss_${randomUUID()}`,
       repoPath: input.repoPath,
@@ -207,11 +211,12 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       stage: 'backlog',
       worktreePath: null,
       branch: null,
-      parentBranch:
-        input.parentBranch || this.deps.getSettings().gitWorkflow.defaultParentBranch || 'main',
-      defaultAgent: input.defaultAgent || resolveRole(this.deps.getSettings(), 'coding').harness,
-      defaultModel: input.defaultModel || this.deps.getSettings().roles.coding.model || 'auto',
-      defaultEffort: input.defaultEffort || this.deps.getSettings().roles.coding.effort || 'auto',
+      parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
+      defaultAgent,
+      defaultModel:
+        input.defaultModel || (useCodingDefaults ? settings.roles.coding.model : 'auto'),
+      defaultEffort:
+        input.defaultEffort || (useCodingDefaults ? settings.roles.coding.effort : 'auto'),
       machineId: input.machineId ?? null,
       linearId: input.linear?.id ?? null,
       linearIdentifier: input.linear?.identifier ?? null,
