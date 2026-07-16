@@ -36,6 +36,10 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'node',
+          // Strip the ambient Podium agent-session env before every test file so a suite
+          // launched from inside a live session can't touch/be hijacked by the live instance
+          // (POD-555 [spec:SP-b85a]). `bun test` gets the same via bunfig.toml [test].preload.
+          setupFiles: ['./test-hermetic-env.ts'],
           // The suite runs under the Bun runtime (`bun --bun vitest`) so tests exercise
           // the same bun:sqlite driver the shipped binary does (POD-552 / SP-3f93). Bun's
           // worker_threads support is incomplete for vitest's `threads` pool, so pin

@@ -1,0 +1,51 @@
+/**
+ * Hermetic test environment [spec:SP-b85a].
+ *
+ * Runs before every test file — wired as vitest `setupFiles` (vitest.config.ts) and as a
+ * `bun test` preload (bunfig.toml `[test].preload`), so BOTH runners get it. Its job: strip
+ * the ambient Podium agent-session env so a suite launched from INSIDE a live agent session
+ * cannot touch, or be hijacked by, the live instance.
+ *
+ * Why this is needed: an agent session carries PODIUM_AGENT_RELAY (+ PODIUM_SESSION_ID,
+ * PODIUM_PORT) in its env, and stateDir() falls back to ~/.podium when PODIUM_STATE_DIR is
+ * unset. Any test that reads process.env without overriding it would otherwise route through
+ * the session relay, dial the live server on :18787, or open the live ~/.podium/podium.db —
+ * i.e. "separate instances can't be tested; they conflict with the main instance" (POD-555).
+ *
+ * The scrub mirrors resolveAgentRelay()'s escape hatch:
+ *  - drop the session-identity + instance-targeting vars, so nothing inherits them;
+ *  - set PODIUM_NO_RELAY=1, so resolveAgentRelay() returns undefined (act as operator, not
+ *    "this session") for any code that reads the live process.env;
+ *  - point PODIUM_STATE_DIR at a per-file throwaway (setupFiles runs once per test file, in
+ *    its own fork) so stateDir() never resolves to ~/.podium. A suite that sets its own
+ *    PODIUM_STATE_DIR keeps it.
+ */
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+// PODIUM_CODEX_HOOK_* (the codex hook ingest locator — PODIUM_CODEX_HOOK_URL today, plus any
+// locator POD-565's official-hooks migration adds) is scrubbed by prefix so a codex session's
+// tests can't POST to the live daemon's hook ingest. It rides its OWN transport, separate from
+// the generic agent relay — PODIUM_NO_RELAY deliberately does NOT gate it (it only shorts
+// resolveAgentRelay()), so we drop it here instead.
+const SCRUB_EXACT = new Set(['PODIUM_AGENT_RELAY', 'PODIUM_ISSUE_RELAY', 'PODIUM_SESSION_ID', 'PODIUM_PORT'])
+for (const key of Object.keys(process.env)) {
+  if (SCRUB_EXACT.has(key) || key.startsWith('PODIUM_CODEX_HOOK_')) {
+    delete process.env[key]
+  }
+}
+process.env.PODIUM_NO_RELAY = '1'
+if (!process.env.PODIUM_STATE_DIR) {
+  // One throwaway per test file (setupFiles/preload run once per fork). Remove it when the
+  // fork exits so a full-suite run doesn't leak hundreds of dirs into /tmp and fill the disk.
+  const dir = mkdtempSync(join(tmpdir(), 'podium-test-'))
+  process.env.PODIUM_STATE_DIR = dir
+  process.on('exit', () => {
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      // best-effort; the OS reaps /tmp eventually
+    }
+  })
+}

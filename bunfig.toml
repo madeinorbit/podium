@@ -2,3 +2,9 @@
 # Workspace packages are symlinked into node_modules automatically.
 [install]
 exact = false
+
+[test]
+# Strip the ambient Podium agent-session env before every `bun test` file so a suite run
+# from inside a live session can't touch/be hijacked by the live instance (POD-555
+# [spec:SP-b85a]). vitest gets the same file via vitest.config.ts `setupFiles`.
+preload = ["./test-hermetic-env.ts"]
