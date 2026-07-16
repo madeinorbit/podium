@@ -24,7 +24,8 @@
     "./boot": "./src/boot.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {

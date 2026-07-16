@@ -13,7 +13,8 @@
   },
   "scripts": {
     "start": "tsx src/cli.tsx",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
