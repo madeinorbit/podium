@@ -36,8 +36,9 @@ export interface ResumableSession extends HeadlessFields {
  * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
  * resume. Keeps the most useful row per ref (live > starting/reconnecting >
  * hibernated > exited; ties break to the most-recently-active) and preserves
- * order. Sessions with no resume ref are distinct and never merged. Multiple
- * live rows are preserved because hiding them would redirect stable UI identity.
+ * order. Sessions with no resume ref are distinct and never merged. Any resume
+ * group containing an active row is preserved in full because native identity
+ * metadata must never hide or redirect a live Podium session identity.
  */
 export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]): S[] {
   const rank = (s: S): number => {
@@ -57,23 +58,24 @@ export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]
     if (rank(a) !== rank(b)) return rank(a) > rank(b) ? a : b
     return a.lastActiveAt >= b.lastActiveAt ? a : b
   }
-  // [spec:SP-fccf] Two simultaneously live rows sharing a native ref signal an
-  // identity-attribution bug, not a harmless duplicate. Keep both visible and
-  // independently clickable; only legacy parked/live twins may collapse.
-  const liveRefCounts = new Map<string, number>()
+  // [spec:SP-fccf] A live row is identified only by its Podium session id. If
+  // ANY active row shares a native ref with another row, keep the whole group
+  // visible: using resume metadata to hide even the parked sibling would make
+  // the active row participate in native-id identity/deduplication.
+  const activeRefs = new Set<string>()
   for (const session of sessions) {
     if (!session.resume || isHeadlessSession(session)) continue
     if (!['live', 'starting', 'reconnecting'].includes(session.status)) continue
-    const key = `${session.resume.kind}:${session.resume.value}`
-    liveRefCounts.set(key, (liveRefCounts.get(key) ?? 0) + 1)
+    activeRefs.add(`${session.resume.kind}:${session.resume.value}`)
   }
   const indexByRef = new Map<string, number>()
   const out: S[] = []
   for (const s of sessions) {
     const key = s.resume && !isHeadlessSession(s) ? `${s.resume.kind}:${s.resume.value}` : undefined
     // A headless session shares its resume ref with its terminal twin by design.
-    // A live collision stays fail-visible so each stable Podium id remains usable.
-    if (!key || (liveRefCounts.get(key) ?? 0) > 1) {
+    // Any group touching a live row stays fail-visible so every stable Podium
+    // id remains independently usable. Only all-parked legacy twins collapse.
+    if (!key || activeRefs.has(key)) {
       out.push(s)
       continue
     }

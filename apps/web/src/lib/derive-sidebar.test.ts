@@ -225,6 +225,17 @@ describe('dedupeSessionsByResume', () => {
     expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['pane-a', 'pane-b'])
   })
 
+  it('does not use a live row native ref to hide a parked Podium session', () => {
+    const list = [
+      withResume('parked-pane', 'hibernated', 'thread-collision', 2),
+      withResume('live-pane', 'live', 'thread-collision', 1),
+    ]
+    expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual([
+      'parked-pane',
+      'live-pane',
+    ])
+  })
+
   it('keeps the most-recently-active when statuses tie', () => {
     const list = [
       withResume('old', 'exited', 'thread-9', 10),
