@@ -31,6 +31,25 @@ interface Emission {
   tail: string | undefined
 }
 
+/** Wait until the tailer's read has actually landed, rather than sleeping a span
+ *  and hoping. Fixed sleeps flaked ~40% of runs with this file ALONE (POD-757):
+ *  a seed/poll read normally lands in ~1-10ms, but measured latency spikes to
+ *  204ms on a seed and 329ms on an append when the event loop or fs threadpool
+ *  stalls, and the assertion then ran before the bytes were consumed. The tailer
+ *  is not at fault — it always caught up; only the fixed wait was unsound.
+ *  Deadline-bounded but SILENT on timeout, so the assertion that follows reports
+ *  the real mismatch instead of a bare timeout.
+ *
+ *  Note this is only for POSITIVE waits ("the read landed"). Proving a read did
+ *  NOT happen (the seedGate hold) still needs a real elapsed sleep — waiting
+ *  longer only makes that assertion stronger. */
+const waitFor = async (done: () => boolean, timeoutMs = 5_000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs
+  while (!done() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 2))
+}
+const itemsOf = (emissions: Emission[]): TranscriptItem[] => emissions.flatMap((e) => e.items)
+const textsOf = (emissions: Emission[]): string[] => itemsOf(emissions).map((i) => i.text)
+
 /** Drive a tailer's poll deterministically: each `tick()` waits a hair longer
  *  than `pollMs` so exactly one `readNew` completes, then returns the emissions
  *  captured since the last tick. Mirrors the existing `opts.pollMs` test seam. */
@@ -191,17 +210,20 @@ describe('tailTranscript — seedGate (POD-612)', () => {
     )
     try {
       // Several poll intervals pass while the gate is held — no read may happen:
-      // neither the seed itself nor a timer tick stealing the big first read.
+      // neither the seed itself nor a timer tick stealing the big first read. This
+      // one stays a real sleep on purpose: it asserts an ABSENCE, so elapsed time
+      // is the point (10 poll intervals at pollMs=5) and a longer wait only makes
+      // it stronger.
       await new Promise((r) => setTimeout(r, 50))
       expect(emissions).toEqual([])
       release()
-      await new Promise((r) => setTimeout(r, 30))
-      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual(['gated'])
+      await waitFor(() => itemsOf(emissions).length >= 1)
+      expect(textsOf(emissions)).toEqual(['gated'])
       expect(emissions[0]?.reset).toBe(true)
       // Post-seed live appends flow through ordinary (ungated) polls.
       appendFileSync(path, `${userRecord('g2', 'after')}\n`)
-      await new Promise((r) => setTimeout(r, 50))
-      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual(['gated', 'after'])
+      await waitFor(() => itemsOf(emissions).length >= 2)
+      expect(textsOf(emissions)).toEqual(['gated', 'after'])
     } finally {
       tailer.stop()
     }
@@ -218,7 +240,6 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
     )
     return { emissions, tailer }
   }
-  const settle = () => new Promise((r) => setTimeout(r, 60))
 
   it('a tiny readChunkBytes yields identical items + exact cursors across chunk boundaries', async () => {
     const path = join(dir, 'tail-chunked.jsonl')
@@ -228,8 +249,8 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
     // carry across chunk reads must keep absolute offsets exact.
     const { emissions, tailer } = collect(path, { readChunkBytes: 64 })
     try {
-      await settle()
-      const items = emissions.flatMap((e) => e.items)
+      await waitFor(() => itemsOf(emissions).length >= records.length)
+      const items = itemsOf(emissions)
       expect(items.map((i) => i.text)).toEqual(records.map((_, i) => `msg-${i}-${'x'.repeat(90)}`))
       // Cursor offsets must match each record's true byte position.
       let expected = 0
@@ -242,8 +263,8 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
       // Appends after the seed keep flowing chunked too.
       const r6 = userRecord('k5', 'appended')
       appendFileSync(path, `${r6}\n`)
-      await settle()
-      const all = emissions.flatMap((e) => e.items)
+      await waitFor(() => itemsOf(emissions).length > items.length)
+      const all = itemsOf(emissions)
       expect(all.at(-1)?.text).toBe('appended')
       expect(decodeCursor(all.at(-1)?.cursor ?? '')?.offset).toBe(expected)
     } finally {
@@ -260,8 +281,8 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
     const lastTwo = Buffer.byteLength(`${records[4]}\n${records[5]}\n`, 'utf8')
     const { emissions, tailer } = collect(path, { initialWindowBytes: lastTwo + 10 })
     try {
-      await settle()
-      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual(['win-4', 'win-5'])
+      await waitFor(() => itemsOf(emissions).length >= 2)
+      expect(textsOf(emissions)).toEqual(['win-4', 'win-5'])
       expect(emissions[0]?.reset).toBe(true)
     } finally {
       tailer.stop()
@@ -276,12 +297,8 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
     // in one final slice.
     const { emissions, tailer } = collect(path, { maxInitialItems: 3, readChunkBytes: 64 })
     try {
-      await settle()
-      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual([
-        'cap-4',
-        'cap-5',
-        'cap-6',
-      ])
+      await waitFor(() => itemsOf(emissions).length >= 3)
+      expect(textsOf(emissions)).toEqual(['cap-4', 'cap-5', 'cap-6'])
     } finally {
       tailer.stop()
     }
