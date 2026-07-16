@@ -63,6 +63,30 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isCompositionRoot, ROLE_RANK, serverRoleOf } from '../apps/server/src/roles'
+import {
+  applyAllowlist,
+  checkManifestEdge,
+  checkManifestRole,
+  clauseIsTypeOnly,
+  extractImports,
+  findHarnessBranching,
+  type ImportRef,
+  isTestFile,
+  loadHarnessLiterals,
+  stripComments,
+  tagsFor,
+  type Violation,
+  workspaceOf,
+} from './architecture-manifest'
+import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
+
+// The import-scanning primitives and the Violation shape live in
+// ./architecture-manifest — both rule families need them, and the dependency
+// runs one way (this file -> the manifest). Re-exported here so existing
+// consumers and scripts/check-boundaries.test.ts keep importing them from the
+// path they always have.
+export type { ImportRef, Violation }
+export { clauseIsTypeOnly, extractImports, stripComments, workspaceOf }
 
 // ---------------------------------------------------------------------------
 // Grandfathered violations. Do NOT add entries — fix the dependency instead.
@@ -131,83 +155,9 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   'packages/telemetry': new Set(['packages/protocol', 'packages/runtime']),
 }
 
-export interface ImportRef {
-  specifier: string
-  /** true when the import is fully erased at build (`import type` / all-`type` specifiers). */
-  typeOnly: boolean
-}
-
-export interface Violation {
-  file: string
-  specifier: string
-  rule: string
-  message: string
-}
-
-// ---------------------------------------------------------------------------
-// Import extraction
-// ---------------------------------------------------------------------------
-
-/** Strip // line comments, block comments, and string-free noise conservatively. */
-export function stripComments(source: string): string {
-  // Good enough for import scanning: template literals containing `import ... from`
-  // are vanishingly rare in this repo, and false negatives only under-report.
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-}
-
-const IMPORT_RE =
-  // import ... from '...'; export ... from '...'; import '...'; require('...'); import('...')
-  // The clause (group 2) may span lines but never contains quotes or semicolons,
-  // so one statement's clause can't swallow a neighbouring statement.
-  /(?:\b(import|export)\s+([^'";]*?)\s+from\s*|\bimport\s*(?=['"])|\b(?:require|import)\s*\(\s*)['"]([^'"]+)['"]/g
-
-/** True when an import/export clause is fully type-only (erased at build). */
-export function clauseIsTypeOnly(clause: string): boolean {
-  const c = clause.trim()
-  if (/^type\s/.test(c) && !/^type\s*\{?\s*,/.test(c)) {
-    // `import type { X }`, `import type X`, `export type { X }` — but a default
-    // import alongside (`import type X, { Y }`) is still fully type-only in TS.
-    return true
-  }
-  // `import { type A, type B } from` — type-only iff every named specifier is
-  // `type`-prefixed and there is no default/namespace import.
-  const named = c.match(/^\{([\s\S]*)\}$/)
-  if (!named) return false
-  const specs = named[1]
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-  return specs.length > 0 && specs.every((s) => /^type\s/.test(s))
-}
-
-/** Extract all module specifiers (with type-only flags) from a TS/TSX source. */
-export function extractImports(source: string): ImportRef[] {
-  const stripped = stripComments(source)
-  const refs: ImportRef[] = []
-  for (const m of stripped.matchAll(IMPORT_RE)) {
-    const clause = m[2]
-    const specifier = m[3]
-    if (!specifier) continue
-    refs.push({ specifier, typeOnly: clause !== undefined ? clauseIsTypeOnly(clause) : false })
-  }
-  return refs
-}
-
 // ---------------------------------------------------------------------------
 // Rules
 // ---------------------------------------------------------------------------
-
-/** Workspace a repo-relative file path belongs to: 'apps/x', 'packages/y' or 'scripts'. */
-export function workspaceOf(file: string): string {
-  const parts = file.split('/')
-  if (parts[0] === 'apps' || parts[0] === 'packages') return `${parts[0]}/${parts[1]}`
-  if (parts[0] === 'scripts') return 'scripts'
-  return parts[0]
-}
-
-function isTestFile(file: string): boolean {
-  return /\.(test|spec)\.tsx?$/.test(file) || /\/(test|tests|__tests__)\//.test(file)
-}
 
 const SERVER_SRC = 'apps/server/src/'
 
@@ -500,6 +450,52 @@ export function checkFile(
 }
 
 // ---------------------------------------------------------------------------
+// Architecture manifest (POD-296) — the tag-derived matrix, run alongside the
+// legacy rules above. See scripts/architecture-manifest.ts for the tags and why
+// the two rule families coexist (POD-335 retires the legacy eight, each only
+// once an equivalent manifest constraint exists).
+// ---------------------------------------------------------------------------
+
+/** Check one file against the MANIFEST rules (layer, platform, role, harness). */
+export function checkManifestFile(
+  file: string,
+  source: string,
+  harnessLiterals: readonly string[] = [],
+): Violation[] {
+  const violations: Violation[] = [...findHarnessBranching(file, source, harnessLiterals)]
+  const from = workspaceOf(file)
+  for (const ref of extractImports(source)) {
+    // Role tiers are same-workspace edges, which the cross-workspace matrix skips.
+    const roleViolation = checkManifestRole(file, ref)
+    if (roleViolation) {
+      violations.push(roleViolation)
+      continue
+    }
+    const to = targetWorkspace(file, ref.specifier)
+    if (to === null || to === from) continue
+    violations.push(...checkManifestEdge(file, from, to, ref))
+  }
+  return violations
+}
+
+/**
+ * Every workspace carrying source must be tagged — otherwise a new package
+ * silently sits outside the matrix, which is exactly the drift the manifest
+ * exists to prevent.
+ */
+function checkManifestCoverage(workspaces: ReadonlySet<string>): Violation[] {
+  return [...workspaces]
+    .filter((w) => tagsFor(w) === null)
+    .sort()
+    .map((w) => ({
+      file: w,
+      specifier: w,
+      rule: 'manifest-untagged',
+      message: `${w}: workspace has source but no entry in MANIFEST — tag it (layer/platform/features) in scripts/architecture-manifest.ts`,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Walker + main
 // ---------------------------------------------------------------------------
 
@@ -521,43 +517,72 @@ function* walk(dir: string): Generator<string> {
 export function runCheck(repoRoot: string): {
   violations: Violation[]
   staleGrandfathers: string[]
+  manifest: Violation[]
 } {
   const violations: Violation[] = []
+  const manifest: Violation[] = []
   const agentBridgeImporters = new Set<string>()
+  const workspaces = new Set<string>()
   const domainExportNames = loadDomainExportNames(repoRoot)
+  const harnessLiterals = loadHarnessLiterals(repoRoot)
   for (const rootDir of ['apps', 'packages', 'scripts']) {
     for (const abs of walk(join(repoRoot, rootDir))) {
       const file = relative(repoRoot, abs).split(sep).join('/')
       const source = readFileSync(abs, 'utf8')
+      workspaces.add(workspaceOf(file))
       violations.push(...checkFile(file, source, domainExportNames))
+      manifest.push(...checkManifestFile(file, source, harnessLiterals))
       if (extractImports(source).some((r) => r.specifier.startsWith('@podium/agent-bridge')))
         agentBridgeImporters.add(file)
     }
   }
   violations.push(...checkRuntimeBarrelPurity(repoRoot))
+  manifest.push(...checkManifestCoverage(workspaces))
   const staleGrandfathers = [...GRANDFATHERED_AGENT_BRIDGE].filter(
     (f) => !agentBridgeImporters.has(f),
   )
-  return { violations, staleGrandfathers }
+  return { violations, staleGrandfathers, manifest }
 }
 
 function main(): void {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
-  const { violations, staleGrandfathers } = runCheck(repoRoot)
+  const { violations, staleGrandfathers, manifest } = runCheck(repoRoot)
+  const { warnings, errors, stale } = applyAllowlist(manifest, BOUNDARY_ALLOWLIST)
   const ms = Math.round(performance.now() - start)
   for (const f of staleGrandfathers) {
     console.warn(
       `warning: grandfathered agent-bridge entry '${f}' no longer imports it — remove it from GRANDFATHERED_AGENT_BRIDGE in scripts/check-boundaries.ts`,
     )
   }
+
+  // Architecture manifest — WARN mode (POD-296). Allowlisted violations are
+  // known debt, each mapped to the phase that removes it; they report but do
+  // not fail. Anything NEW (or over an entry's count) is an error: that is the
+  // ratchet. POD-335 flips this to error level with an empty allowlist.
+  for (const s of stale) console.warn(`warning: ${s}`)
+  if (warnings.length > 0) {
+    console.warn(
+      `\narchitecture manifest — ${warnings.length} allowlisted violation(s) (warn, see scripts/boundary-allowlist.ts):`,
+    )
+    for (const v of warnings) console.warn(`  [${v.rule}] ${v.message}`)
+  }
+  if (errors.length > 0) {
+    console.error(`\nNEW architecture-manifest violations (${errors.length}):\n`)
+    for (const v of errors) console.error(`  [${v.rule}] ${v.message}`)
+    console.error(
+      '\nThese are not in scripts/boundary-allowlist.ts (or exceed the declared count).',
+    )
+    console.error('Fix the dependency — the allowlist is a ratchet, it only goes down.')
+  }
+
   if (violations.length > 0) {
-    console.error(`Dependency-boundary violations (${violations.length}):\n`)
+    console.error(`\nDependency-boundary violations (${violations.length}):\n`)
     for (const v of violations) console.error(`  [${v.rule}] ${v.message}`)
     console.error('\nSee ARCHITECTURE.md "Dependency direction" for the rules.')
-    process.exit(1)
   }
-  console.log(`boundaries OK (${ms}ms)`)
+  if (violations.length > 0 || errors.length > 0) process.exit(1)
+  console.log(`boundaries OK (${ms}ms) — manifest: ${warnings.length} allowlisted, 0 new`)
 }
 
 if (import.meta.main) main()
