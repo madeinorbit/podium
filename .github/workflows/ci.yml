@@ -31,6 +31,12 @@ jobs:
       - name: biome + boundaries (non-blocking)
         continue-on-error: true
         run: bun run lint
+      # BLOCKING, and deliberately its own step: the lint step above is
+      # continue-on-error, so a ratchet folded into `bun run lint` would report
+      # green forever. The v3 rewrite may not grow the debt it is deleting
+      # (POD-297) — see docs/rearch-deletion-audit.md.
+      - name: deletion audit ratchet (rearchitecture v3)
+        run: bun run audit:rearch
 
   typecheck:
     runs-on: ubuntu-latest
