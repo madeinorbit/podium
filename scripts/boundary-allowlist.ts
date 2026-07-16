@@ -29,6 +29,35 @@ const P7 = 'POD-294'
 
 export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   // -------------------------------------------------------------------------
+  // LEGACY rule 2 (agent-bridge-consumers) — POD-740.
+  // -------------------------------------------------------------------------
+  // These two are why `bun run lint:boundaries` has been red on EVERY branch.
+  // Grandfathered here on the coordinator's instruction: restore green lint now,
+  // and leave the real fix (extract HARNESS_ADAPTERS and the SYSTEM_POINTER
+  // constants into an allowed package) to POD-740, rather than restructuring
+  // packages from inside a Phase 0 guardrail issue.
+  //
+  // Deliberately in THIS list rather than check-boundaries' older
+  // GRANDFATHERED_AGENT_BRIDGE set: that set is rule-2-only, uncounted and
+  // unphased, and its own doc says not to add to it. Here the debt is counted,
+  // phase-mapped and ratcheted like everything else — one mechanism, and it can
+  // only shrink.
+  {
+    rule: 'agent-bridge-consumers',
+    file: 'apps/server/src/accounts.ts',
+    count: 1,
+    phase: 'POD-740',
+    note: 'Imports HARNESS_ADAPTERS from @podium/agent-bridge for login/profile detection. POD-740 extracts it to an allowed package (@podium/transcript or protocol).',
+  },
+  {
+    rule: 'agent-bridge-consumers',
+    file: 'apps/server/src/relay.ts',
+    count: 1,
+    phase: 'POD-740',
+    note: 'Imports ISSUE_SYSTEM_POINTER/SPEC_SYSTEM_POINTER from @podium/agent-bridge. POD-740 moves those constants somewhere apps/server may legally reach.',
+  },
+
+  // -------------------------------------------------------------------------
   // Harness axiom — behavioral branching outside packages/agent-bridge.
   // Removed by Phase 5: POD-292 confines agent-CLI variance to the harness
   // layer, and POD-325 (5.3) folds the capability tables into ONE manifest per
