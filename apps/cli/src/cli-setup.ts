@@ -13,11 +13,7 @@ import {
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import {
-  EXAMPLE_USAGE_REPORT_DISPLAY,
-  setConsent,
-  shouldAskForConsent,
-} from '@podium/telemetry'
+import { EXAMPLE_USAGE_REPORT_DISPLAY, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {
