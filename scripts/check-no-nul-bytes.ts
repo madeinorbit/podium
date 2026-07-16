@@ -2,12 +2,15 @@
  * Guard: no TypeScript source under apps/, packages/, or scripts/ may contain
  * a raw NUL byte (0x00). [POD-758]
  *
- * Why: one literal NUL makes `file`, grep and friends classify the whole
- * module as BINARY. Plain grep then reports NOTHING and exits 1 — it does not
- * error, it answers "no match" for code sitting right there (fail-open). That
- * silently blinds every grep-based tool, audit, and codemod. Runtime NULs
- * (e.g. composite map-key separators) are fine; they must be written as an
- * escape (`\u0000`), never as a literal source byte.
+ * Why: one literal NUL makes tools classify the module as BINARY. Real
+ * `/usr/bin/grep` is loud (`-c` still counts; `-n` prints "binary file
+ * matches"), but two hazards remain: (1) line-extracting greps (`-n` / `rg -n`)
+ * suppress matching LINES, so any tool that parses `file:line:` output gets
+ * zero hits even though the match exists; (2) some agent shell wrappers
+ * (Claude Code's ugrep with `-I`) return exit 1 with no output entirely —
+ * "no match" for code that is sitting right there. Runtime NULs (e.g.
+ * composite map-key separators) are fine; write them as an escape (`\u0000`),
+ * never as a literal source byte.
  *
  * Run: `bun run lint:no-nul` (own blocking CI job in .github/workflows/ci.yml —
  * never folded into the continue-on-error lint bundle).
@@ -73,7 +76,8 @@ export function formatNulReport(hits: readonly string[]): string {
   if (hits.length === 0) return 'ok: no raw NUL bytes in TypeScript sources'
   const lines = [
     `ERROR: ${hits.length} TypeScript source file(s) contain a raw NUL byte (0x00).`,
-    'A literal NUL makes the file binary to grep (silent "no match", exit 1).',
+    'A literal NUL makes the file binary: grep -n / rg -n suppress line hits,',
+    'and agent wrappers (ugrep -I) can answer "no match" for code that is there.',
     'Write runtime NUL separators as an escape: \\u0000 — never a literal byte.',
     '',
     ...hits.map((h) => `  BINARY: ${h}`),

@@ -50,8 +50,9 @@ jobs:
         run: bun run lint:architecture
 
   # [POD-758] Own blocking job — never fold into the continue-on-error lint
-  # bundle above. A raw NUL in source makes the file binary to grep (silent
-  # "no match", exit 1); that is a guardrail hole for every grep-based check.
+  # bundle above. A raw NUL makes the file binary: real grep is loud, but
+  # -n/rg line extraction loses parseable hits and agent wrappers (ugrep -I)
+  # can answer "no match" entirely. That is a hole for line-based guardrails.
   no-nul-bytes:
     runs-on: ubuntu-latest
     steps:
