@@ -3261,7 +3261,9 @@ export class SessionsService {
       // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
       // reconcile (publisher.publishIssueList), so the embedded copies heal at
       // the same cadence as before — no extra mechanism needed (#247).
+      const tIssues0 = performance.now()
       this.deps.publishIssues()
+      perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
     } catch (err) {
       // Un-stamp the byte-skip cache on ANY broadcast-body failure (#247): the
       // cache is stamped up front so a reentrant same-bytes broadcast during the
