@@ -60,7 +60,11 @@ export const EXAMPLE_USAGE_REPORT: UsageReport = {
 export const EXAMPLE_USAGE_REPORT_DISPLAY = [
   '{',
   '  "schema":    1,',
-  '  "installId": "3f9c1a2e-…",        // random · reset-id to change',
+  // Gutter kept tight on purpose: this line is the longest, and the web renders
+  // the same string in a narrow <pre> where a wide gutter pushed the comment
+  // off the edge mid-word ("…reset-id to chang"). A trust artifact that appears
+  // truncated undercuts the exact thing it is there to do.
+  '  "installId": "3f9c1a2e-…",  // random · reset-id to change',
   '  "version":   "1.4.2",',
   '  "os": "linux", "arch": "x64",',
   '  "installAge": "1-7d",',
