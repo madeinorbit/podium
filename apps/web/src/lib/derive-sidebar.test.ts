@@ -207,14 +207,14 @@ describe('dedupeSessionsByResume', () => {
     expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['a', 'b'])
   })
 
-  it('collapses two rows sharing a codex thread, keeping the live one', () => {
+  it('does not let a live Codex ref hide an exited Podium row', () => {
     const list = [
       withResume('exited-twin', 'exited', 'thread-1', 5),
       withResume('live-one', 'live', 'thread-1', 1),
       withResume('other', 'live', 'thread-2', 1),
     ]
     const out = dedupeSessionsByResume(list)
-    expect(out.map((s) => s.sessionId).sort()).toEqual(['live-one', 'other'])
+    expect(out.map((s) => s.sessionId).sort()).toEqual(['exited-twin', 'live-one', 'other'])
   })
 
   it('keeps simultaneous live rows independently visible when a native ref collides', () => {
@@ -244,4 +244,3 @@ describe('dedupeSessionsByResume', () => {
     expect(dedupeSessionsByResume(list).map((s) => s.sessionId)).toEqual(['new'])
   })
 })
-

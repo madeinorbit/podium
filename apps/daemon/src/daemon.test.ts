@@ -1652,6 +1652,7 @@ describe('Codex identity receipt recovery', () => {
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         hooks: { port: 0, settingsDir },
+        agentRelay: { port: 0 },
         launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       })
       await connected

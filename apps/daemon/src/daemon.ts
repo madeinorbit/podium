@@ -182,9 +182,9 @@ export interface DaemonHooksOptions {
   port?: number
   /** Where per-session hook settings files are written. Defaults to $PODIUM_STATE_DIR/hooks else ~/.podium/hooks. */
   settingsDir?: string
-  /** Stable, instance-scoped Codex hook socket. Defaults inside settingsDir on POSIX. */
+  /** Stable Codex hook socket. Defaults in the instance runtime dir on POSIX. */
   socketPath?: string
-  /** Pending exact Codex bindings. Defaults inside settingsDir. */
+  /** Pending exact Codex bindings. Defaults in the instance runtime dir. */
   receiptDir?: string
 }
 
@@ -272,10 +272,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   if (opts.backend === undefined && opts.tmux === undefined && backend === 'none') {
     console.warn(noDurableBackendWarning())
   }
-  const settingsDir = opts.hooks?.settingsDir ?? join(stateDir(), 'hooks')
+  const settingsOverride = opts.hooks?.settingsDir
+  const settingsDir = settingsOverride ?? join(stateDir(), 'hooks')
   // [spec:SP-15aa] These durable local endpoints belong to the selected
   // instance's runtime namespace, not the global home or the command relay.
-  const runtimeDir = join(instanceStateDir(instanceId), 'runtime')
+  // An explicit settingsDir is also the isolation root for tests/embedders.
+  const runtimeDir = settingsOverride ?? join(instanceStateDir(instanceId), 'runtime')
   const hookSocketPath =
     opts.hooks?.socketPath ??
     (process.platform === 'win32' ? undefined : join(runtimeDir, 'codex-hooks.sock'))
