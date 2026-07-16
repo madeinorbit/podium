@@ -38,6 +38,17 @@ jobs:
       - name: deletion audit ratchet (rearchitecture v3)
         run: bun run audit:rearch
 
+      # BLOCKING — the architecture-manifest ratchet (POD-296). Deliberately a
+      # separate step from `bun run lint` above: that one is continue-on-error
+      # while its pre-existing reds are burned down (biome #30, POD-740), so a
+      # ratchet living inside it would report a NEW violation and CI would pass
+      # anyway. This runs the manifest alone and fails ONLY on violations that
+      # are not in scripts/boundary-allowlist.ts (or exceed a declared count).
+      # Known debt warns and does not fail. POD-335 removes --manifest-only when
+      # the legacy rules retire and the whole lint goes blocking.
+      - name: architecture manifest ratchet
+        run: bun run lint:architecture
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
