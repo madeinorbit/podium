@@ -13,6 +13,10 @@ import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import { type MessageDeliveryService, SPAWN_BUDGET_PER_DAY, senderFromCapability } from './service'
 
+// Same sanity bound as MAX_AGENT_TITLE_LENGTH in sessions/service (exported) —
+// keep in lockstep (sidebar label, not an essay). createSession re-validates.
+const MAX_AGENT_TITLE_LENGTH = 120
+
 const sendInput = z.object({
   to: z.string().min(1),
   body: z.string().min(1).max(32_768),
@@ -38,6 +42,8 @@ const replyInput = z.object({
 // existing session machinery; `newTitle` is the DELIBERATE `--new` issue-create
 // path — an issue is never auto-created when `issue` is supplied. The workflow
 // fields are #285 metadata; an execution profile is resolved server-side.
+// `title` is the spawner-prescribed child session name [spec:SP-4ef9][spec:SP-eb60]
+// (CLI `--title`); it lands in the curated `name` slot, not the derived title.
 const spawnAgentInput = z.object({
   issue: z.string().optional(),
   newTitle: z.string().min(1).optional(),
@@ -50,6 +56,9 @@ const spawnAgentInput = z.object({
   effort: z.string().optional(),
   /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
   force: z.boolean().optional(),
+  /** Spawner-prescribed child session name (CLI `--title`). Cap matches
+   *  sessions/service MAX_AGENT_TITLE_LENGTH; createSession re-validates. */
+  title: z.string().min(1).max(MAX_AGENT_TITLE_LENGTH).optional(),
   workflowRunId: z.string().max(256).optional(),
   workflowStepId: z.string().max(256).optional(),
   executionProfileId: z.string().max(256).optional(),
@@ -87,6 +96,8 @@ export interface MessageGateDeps {
     issueId?: string
     spawnedBy?: string
     machineId?: string
+    /** Curated child session name (spawner-prescribed) [spec:SP-4ef9][spec:SP-eb60]. */
+    name?: string
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
@@ -398,6 +409,8 @@ export class MessageGate {
       ...(effort ? { effort } : {}),
       ...(input.force ? { forceUnknownModel: true } : {}),
       ...(machineId ? { machineId } : {}),
+      // CLI `--title` → curated name slot (not derived title) [spec:SP-4ef9][spec:SP-eb60].
+      ...(input.title ? { name: input.title } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),

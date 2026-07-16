@@ -271,6 +271,30 @@ describe('agent spawn (gate)', () => {
       }),
     ).rejects.toThrow(/podium issue start/)
   })
+
+  it('maps input.title to spawnSession.name (curated slot, not derived title)', async () => {
+    const { gate, spawns } = harness()
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'implement placement',
+      title: 'Spawn placement worker',
+    })
+    expect(spawns[0]).toMatchObject({
+      name: 'Spawn placement worker',
+      initialPrompt: 'implement placement',
+    })
+    // Must not land in a derived-title field on the spawn seam.
+    expect(spawns[0]).not.toHaveProperty('title')
+  })
+
+  it('omits name on spawnSession when no title is passed (child self-titles)', async () => {
+    const { gate, spawns } = harness()
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'x',
+    })
+    expect(spawns[0]).not.toHaveProperty('name')
+  })
 })
 
 describe('agent await (bounded, never hangs)', () => {

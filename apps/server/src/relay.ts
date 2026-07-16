@@ -946,6 +946,8 @@ export class SessionRegistry {
           ...(o.issueId ? { issueId: o.issueId } : {}),
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
           ...(o.machineId ? { machineId: o.machineId } : {}),
+          // Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60].
+          ...(o.name ? { name: o.name } : {}),
           ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
           ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
           ...(o.executionProfileId ? { executionProfileId: o.executionProfileId } : {}),

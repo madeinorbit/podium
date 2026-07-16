@@ -2,7 +2,7 @@
  * `podium agent` — cross-harness subagent spawn + bounded await (#237)
  * [spec:SP-34d7 cross-harness]:
  *   spawn --harness <claude-code|codex|...> (--issue <ref> | --new "title" [--repo <path>])
- *         --prompt "…" [--worktree] [--model M] [--effort E]
+ *         --prompt "…" [--title "…"] [--worktree] [--model M] [--effort E]
  *         [--workflow-run-id X] [--workflow-step-id Y] [--execution-profile-id Z]
  *   await <sessionId> [--timeout <seconds>]
  *
@@ -12,6 +12,8 @@
  * child with ordinary `podium mail send`; `await` is BOUNDED — it returns the
  * child's ack/settle result or "still working" + a status snapshot, never hangs.
  * The workflow flags are #285 pass-through metadata (uninterpreted).
+ * `--title` is the spawner-prescribed child session name [spec:SP-4ef9][spec:SP-eb60]
+ * (curated name slot); distinct from `--new "title"` which names the ISSUE.
  */
 
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
@@ -32,12 +34,14 @@ function helpText(): string {
     'podium agent <command> [arguments]',
     '',
     '  spawn --prompt "…" (--issue <ref> | --new "title" [--repo <path>])',
-    '        [--harness <claude-code|codex|grok|opencode|cursor>] [--worktree]',
-    '        [--model M] [--effort E] [--force-unknown-model]',
+    '        [--title "…"] [--harness <claude-code|codex|grok|opencode|cursor>]',
+    '        [--worktree] [--model M] [--effort E] [--force-unknown-model]',
     '        [--workflow-run-id X] [--workflow-step-id Y] [--execution-profile-id Z]',
     '      Spawn a full Podium agent session on an issue; the prompt is its first',
     '      turn and you become its parent (interrupt + wake rights). An issue is',
     '      never created implicitly — --new is the explicit create path.',
+    '      --title names the child session (sidebar label) at spawn; omit to let',
+    '      the child self-title. --new names the ISSUE, not the session.',
     '      --model/--effort are checked against the live model catalog; pass',
     '      --force-unknown-model to spawn a deliberately unlisted model slug.',
     '  await <sessionId> [--timeout <seconds, default 30, max 300>]',
@@ -65,6 +69,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         'new',
         'repo',
         'prompt',
+        'title',
         'worktree',
         'model',
         'effort',
@@ -92,6 +97,7 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ...(typeof args.new === 'string' ? { newTitle: args.new } : {}),
         ...(typeof args.repo === 'string' ? { repo: args.repo } : {}),
         ...(typeof args.harness === 'string' ? { harness: args.harness } : {}),
+        ...(typeof args.title === 'string' ? { title: args.title } : {}),
         ...(args.worktree === true ? { worktree: true } : {}),
         ...(typeof args.model === 'string' ? { model: args.model } : {}),
         ...(typeof args.effort === 'string' ? { effort: args.effort } : {}),

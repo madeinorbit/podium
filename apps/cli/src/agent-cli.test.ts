@@ -89,6 +89,19 @@ describe('podium agent spawn', () => {
     })
   })
 
+  it('forwards --title as the spawner-prescribed child session name', async () => {
+    const c = client()
+    await runAgentCli(
+      ['spawn', '--issue', '#228', '--prompt', 'go', '--title', 'Spawn placement worker'],
+      c,
+    )
+    expect(c.messages.spawnAgent.mutate).toHaveBeenCalledWith({
+      issue: '#228',
+      prompt: 'go',
+      title: 'Spawn placement worker',
+    })
+  })
+
   it('rejects unknown flags', async () => {
     await expect(
       runAgentCli(['spawn', '--issue', '#1', '--prompt', 'x', '--sender', 'me'], client()),

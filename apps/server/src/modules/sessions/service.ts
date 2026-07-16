@@ -83,8 +83,24 @@ const QUEUE_MESSAGE_SPACING_MS = 400
 const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 // A self-chosen session title (#490) is a sidebar label, not an essay: 3–5 words.
 // The cap is a sanity bound (an agent pasting a paragraph), not the style rule —
-// the style rule is the prime's, and lives in @podium/protocol's sessionTitleRule.
-const MAX_AGENT_TITLE_LENGTH = 120
+// the style rule is the prime's, and lives in @podium/protocol's sessionTitleRule
+// (TITLE_RULE / sessionTitleRule) [spec:SP-eb60].
+export const MAX_AGENT_TITLE_LENGTH = 120
+
+/** Normalize an agent-set session name the same way setAgentName does — trim,
+ *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
+ *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60]. */
+function normalizeAgentName(name: string): { ok: true; name: string } | { ok: false; reason: string } {
+  const clean = name.trim().replace(/\s+/g, ' ')
+  if (!clean) return { ok: false, reason: 'title is empty' }
+  if (clean.length > MAX_AGENT_TITLE_LENGTH) {
+    return {
+      ok: false,
+      reason: `title exceeds ${MAX_AGENT_TITLE_LENGTH} characters — a session title is 3–5 words`,
+    }
+  }
+  return { ok: true, name: clean }
+}
 
 /** Rejection every command path returns for a hub-mirrored session (spec §2.3). */
 export const UPSTREAM_COMMAND_REJECTION = 'remote session — managed via the hub'
@@ -847,6 +863,11 @@ export class SessionsService {
     agentKind?: AgentKind
     cwd: string
     title?: string
+    /** Spawner-prescribed curated name [spec:SP-4ef9][spec:SP-eb60]. Lands in the
+     *  `name` slot with `nameSource='agent'` (NOT the derived `title` slot). Same
+     *  normalize rules as setAgentName; optional — absent leaves the child unnamed
+     *  so it self-titles as today. */
+    name?: string
     machineId?: string
     initialPrompt?: string
     /** Per-ticket model/effort override; absent = use the settings defaults. */
@@ -897,6 +918,14 @@ export class SessionsService {
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.forceUnknownModel ? { force: true } : {}),
     })
+    // Spawner name is validated before any side effect so a bad title never
+    // leaves a half-spawned session. Fresh sessions have no user name to refuse.
+    let curatedName: string | undefined
+    if (input.name !== undefined) {
+      const norm = normalizeAgentName(input.name)
+      if (!norm.ok) throw new Error(norm.reason)
+      curatedName = norm.name
+    }
     // Explicit attachment wins; otherwise starting in an issue-owned worktree
     // means continuing that issue (spec: issue-as-workspace).
     const issueId = input.issueId ?? this.issues().soleOwnerForCwd(input.cwd) ?? undefined
@@ -914,6 +943,7 @@ export class SessionsService {
       agentKind,
       cwd: input.cwd,
       ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(curatedName ? { name: curatedName, nameSource: 'agent' as const } : {}),
       origin: { kind: 'spawn' },
       machineId: this.machines.resolveMachine(input.machineId, input.cwd),
       ...(useArgv ? { initialPrompt: taskPrompt } : {}),
@@ -1529,14 +1559,9 @@ export class SessionsService {
   } {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'session not found' }
-    const clean = name.trim().replace(/\s+/g, ' ')
-    if (!clean) return { ok: false, reason: 'title is empty' }
-    if (clean.length > MAX_AGENT_TITLE_LENGTH) {
-      return {
-        ok: false,
-        reason: `title exceeds ${MAX_AGENT_TITLE_LENGTH} characters — a session title is 3–5 words`,
-      }
-    }
+    const norm = normalizeAgentName(name)
+    if (!norm.ok) return { ok: false, reason: norm.reason }
+    // User-set names are sovereign [spec:SP-eb60]: refuse, never throw, never overwrite.
     if (session.nameSource === 'user') {
       return {
         ok: false,
@@ -1545,10 +1570,10 @@ export class SessionsService {
       }
     }
     this.mutateSessionMeta(sessionId, (s) => {
-      s.name = clean
+      s.name = norm.name
       s.nameSource = 'agent'
     })
-    return { ok: true, name: clean }
+    return { ok: true, name: norm.name }
   }
 
   setArchived({ sessionId, archived }: { sessionId: string; archived: boolean }): void {
@@ -2004,6 +2029,9 @@ export class SessionsService {
     agentKind: AgentKind
     cwd: string
     title?: string
+    /** Curated name at birth (spawner-prescribed or other); pairs with nameSource. */
+    name?: string
+    nameSource?: 'user' | 'agent'
     origin: SessionMeta['origin']
     resume?: ResumeRef
     machineId?: string
@@ -2052,6 +2080,8 @@ export class SessionsService {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
+      ...(input.name ? { name: input.name } : {}),
+      ...(input.nameSource ? { nameSource: input.nameSource } : {}),
     })
     this.sessions.set(sessionId, session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
