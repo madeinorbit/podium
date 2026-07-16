@@ -52,6 +52,7 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
+import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
@@ -2546,20 +2547,25 @@ export class SessionsService {
         if (msg.clientId && msg.clientId !== id) this.reclaimClient(msg.clientId, client)
         break
       case 'attach': {
+        const t0 = performance.now()
         const session = this.sessions.get(msg.sessionId)
         if (!session) return
         client.attached.add(msg.sessionId)
         session.attachClient(client, msg.sinceSeq)
         this.broadcastSessions()
         this.pushPriorities()
+        perf.record('phase', 'ws.attach', performance.now() - t0)
         break
       }
-      case 'detach':
+      case 'detach': {
+        const t0 = performance.now()
         client.attached.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.detachClient(id)
         this.broadcastSessions()
         this.pushPriorities()
+        perf.record('phase', 'ws.detach', performance.now() - t0)
         break
+      }
       case 'input':
         this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
         break
@@ -3189,7 +3195,13 @@ export class SessionsService {
   }
 
   private runSessionsBroadcast(): void {
+    // Phase timings [POD-701]: each leg of the broadcast pipeline recorded
+    // separately so a slow switch can be attributed (list vs reconcile vs
+    // stringify vs fan-out). performance.now() calls are ~ns; no behavior change.
+    const t0 = performance.now()
     const sessions = this.listSessions()
+    const tList = performance.now()
+    perf.record('phase', 'sessionsBroadcast.list', tList - t0)
     // Reconcile-at-broadcast ([spec:SP-3fe2] #247, on top of the #256 write-seam
     // commits): the ledger re-captures the EXACT union the snapshot below
     // carries — local rows AND the hub-mirrored upstream list, built by the same
@@ -3211,17 +3223,37 @@ export class SessionsService {
       'session',
       sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
+    const tReconcile = performance.now()
+    perf.record('phase', 'sessionsBroadcast.reconcile', tReconcile - tList)
     // Skip a byte-identical re-broadcast (audit P1-8) — every existing client already
     // holds this exact list, and a new client gets it via attachClient, so re-sending
     // it changes nothing and just burns CPU + bandwidth across all clients.
     const key = JSON.stringify(sessions)
-    if (key === this.lastSessionsBroadcast) return
+    const tStringify = performance.now()
+    // bytes ≈ key.length (string length, not UTF-8 bytes — close enough, O(1)).
+    perf.record('phase', 'sessionsBroadcast.stringify', tStringify - tReconcile, key.length)
+    if (key === this.lastSessionsBroadcast) {
+      perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+      return
+    }
     this.lastSessionsBroadcast = key
     try {
       // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
       // captured above (write-seam commit or the reconcile) and ride the funnel's
       // ordered onAppended pipe — recording here again would double-append.
+      const tFanout0 = performance.now()
       this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
+      // Snapshot receivers = the non-delta-cap clients (see fanOutSnapshot).
+      let receivers = 0
+      for (const c of this.clients.values()) {
+        if (!c.caps.has(CAP_METADATA_DELTA)) receivers += 1
+      }
+      perf.record(
+        'phase',
+        'sessionsBroadcast.fanout',
+        performance.now() - tFanout0,
+        key.length * receivers,
+      )
       // Session changes also change issues' DERIVED member data (sessions/summary),
       // so keep issue clients live. The publisher builds the payload ONCE (allWire()
       // is O(issues × sessions)); sessionsChanged was already sent above, so even if
@@ -3242,6 +3274,7 @@ export class SessionsService {
       if (this.lastSessionsBroadcast === key) this.lastSessionsBroadcast = ''
       throw err
     }
+    perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
   }
 
   /**

@@ -29,6 +29,7 @@ import type {
 } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { SessionStore } from '../../store'
+import { perf } from '../perf/registry'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -541,6 +542,11 @@ export class DaemonRpcService {
   }): Promise<TranscriptSlice> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { items: [], hasMore: false }
+    // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record
+    // the leg that actually served the response. Payload bytes aren't cheaply
+    // available (summing item JSON lengths would cost a full pass), so a second
+    // record carries the item count in the ms slot instead: transcriptRead.items.
+    const t0 = performance.now()
     // Daemon-first (docs/spec/search-v1.md §2.2): the native file is fresher than
     // the mirror. But a machine with no live daemon socket can't answer at all —
     // skip straight to the lake rather than stalling the chat view for the full
@@ -569,9 +575,18 @@ export class DaemonRpcService {
           session.machineId, // the transcript file lives on the session's machine
         )
       : undefined
-    if (fromDaemon && fromDaemon.items.length > 0) return fromDaemon
+    if (fromDaemon && fromDaemon.items.length > 0) {
+      perf.record('phase', 'transcriptRead.daemon', performance.now() - t0)
+      perf.record('phase', 'transcriptRead.items', fromDaemon.items.length)
+      return fromDaemon
+    }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
+    const tLake0 = performance.now()
     const fromLake = await this.deps.readTranscriptFromLake(session, input)
+    if (fromLake) {
+      perf.record('phase', 'transcriptRead.lake', performance.now() - tLake0)
+      perf.record('phase', 'transcriptRead.items', fromLake.items.length)
+    }
     return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
   }
 

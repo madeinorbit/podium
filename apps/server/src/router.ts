@@ -3,6 +3,7 @@ import {
   AutomationScheduleKind,
   AutomationSessionMode,
   agentSupportsCloud,
+  clientSwitchTraceSchema,
   type FileReadResultMessage,
   isAgentKind,
   ResumeRef,
@@ -811,6 +812,39 @@ export const appRouter = t.router({
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
+  }),
+  // Switch-latency instrumentation [POD-701]: rolling server-side timings
+  // (every rpc via the trpc.ts middleware + named internal phases) and the
+  // client switch-trace ring. Always on; snapshot/reset are diagnostics.
+  perf: t.router({
+    snapshot: t.procedure.query(({ ctx }) => mods(ctx).perf.snapshot()),
+    report: t.procedure.input(clientSwitchTraceSchema).mutation(({ ctx, input }) => {
+      mods(ctx).perf.pushClientTrace(input)
+      // Live visibility: one compact line per reported switch, with the three
+      // slowest gaps between consecutive marks (offsets are relative to t0).
+      const marks = [...input.marks].sort((a, b) => a.atMs - b.atMs)
+      const gaps: { name: string; ms: number }[] = []
+      let prevAt = 0
+      for (const m of marks) {
+        gaps.push({ name: m.name, ms: m.atMs - prevAt })
+        prevAt = m.atMs
+      }
+      const slowest = gaps
+        .sort((a, b) => b.ms - a.ms)
+        .slice(0, 3)
+        .map((g) => `${g.name}+${Math.round(g.ms)}ms`)
+        .join(' ')
+      console.log(
+        `[perf] switch ${input.sessionId.slice(0, 8)} mode=${input.mode} cold=${input.cold} ` +
+          `total=${Math.round(input.totalMs)}ms${input.timedOut ? ' TIMEOUT' : ''}` +
+          (slowest ? ` slowest: ${slowest}` : ''),
+      )
+      return { ok: true as const }
+    }),
+    reset: t.procedure.mutation(({ ctx }) => {
+      mods(ctx).perf.reset()
+      return { ok: true as const }
+    }),
   }),
   // Experimental feature flags [spec:SP-f4b9] — same auth as settings.get.
   features: t.router({

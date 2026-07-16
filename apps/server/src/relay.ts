@@ -43,6 +43,7 @@ import {
   NotifyService,
   type SessionNoticeInfo,
 } from './modules/notify/service'
+import { type PerfRegistry, perf } from './modules/perf/registry'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
@@ -136,6 +137,9 @@ export interface RegistryModules {
   readToolkit: SessionReadToolkit
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441). */
   issueArtifacts: IssueArtifactStore
+  /** Switch-latency perf registry [POD-701] — the process-level singleton,
+   *  exposed here so router procs reach it through the module seam. */
+  perf: PerfRegistry
 }
 
 /**
@@ -1191,6 +1195,7 @@ export class SessionRegistry {
       readToolkit,
       issueArtifacts,
       automations,
+      perf,
     }
   }
 

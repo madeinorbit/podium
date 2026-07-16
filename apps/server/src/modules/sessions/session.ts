@@ -14,6 +14,7 @@ import type {
 import { WorkState as WorkStateSchema } from '@podium/protocol'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import type { SessionRow } from '../../store'
+import { perf } from '../perf/registry'
 
 export type Send<T> = (msg: T) => void
 
@@ -376,7 +377,12 @@ export class Session {
       epoch: this.epoch,
       resumed,
     })
+    // Replay timing [POD-701]: how long the buffered-output catch-up took and
+    // how many payload chars it pushed (string length ≈ bytes).
+    const t0 = performance.now()
+    let replayBytes = 0
     for (const f of frames) {
+      replayBytes += f.data.length
       client.send({
         type: 'outputFrame',
         sessionId: this.sessionId,
@@ -385,6 +391,7 @@ export class Session {
         data: f.data,
       })
     }
+    perf.record('phase', 'attach.replay', performance.now() - t0, replayBytes)
   }
 
   /**

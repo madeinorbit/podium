@@ -3,6 +3,7 @@ import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { Capability } from './issue-authz'
 import type { IssueCaller } from './modules/issues/registry'
+import { perf } from './modules/perf/registry'
 import type { SuperagentService } from './modules/superagent'
 import type { RegistryModules, SessionRegistry } from './relay'
 import type { RepoRegistry } from './repo-registry'
@@ -57,4 +58,37 @@ export function issueCaller(ctx: Context): IssueCaller {
   }
 }
 
-export const t = initTRPC.context<Context>().create()
+const core = initTRPC.context<Context>().create()
+
+/** Slow-call visibility [POD-701]: one console.warn when a procedure exceeds
+ *  this, throttled per path so a storm can't flood the logs. */
+const SLOW_RPC_WARN_MS = 500
+const SLOW_RPC_WARN_THROTTLE_MS = 10_000
+const lastSlowWarnAt = new Map<string, number>()
+
+/** Times EVERY procedure call into the perf registry [POD-701]. Attached to the
+ *  base procedure below so all routers (hand-written + derived) inherit it. */
+const rpcTiming = core.middleware(async ({ path, next }) => {
+  const start = performance.now()
+  try {
+    return await next()
+  } finally {
+    const ms = performance.now() - start
+    perf.record('rpc', path, ms)
+    if (ms >= SLOW_RPC_WARN_MS) {
+      const now = Date.now()
+      const last = lastSlowWarnAt.get(path) ?? 0
+      if (now - last >= SLOW_RPC_WARN_THROTTLE_MS) {
+        lastSlowWarnAt.set(path, now)
+        console.warn(`[perf] slow rpc ${path} took ${Math.round(ms)}ms`)
+      }
+    }
+  }
+})
+
+/** The shared tRPC core: identical to `initTRPC.create()` except `procedure`
+ *  carries the always-on timing middleware. */
+export const t = {
+  ...core,
+  procedure: core.procedure.use(rpcTiming),
+}
