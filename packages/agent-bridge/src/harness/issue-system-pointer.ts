@@ -30,6 +30,10 @@ export const ISSUE_SYSTEM_POINTER =
   'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
+  // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.
+  'When you finish a turn and there are natural next actions the user might pick, offer them: ' +
+  '`podium offer --message "…" --action "Label::prompt to send when clicked"` (repeat --action, up to 6; ' +
+  '`podium offer clear` to remove). The buttons show under the chat; any user turn clears the offer. ' +
   TITLE_RULE_TERSE
 
 /**
