@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { TranscriptItem } from '@podium/protocol'
 import { EventBus } from '../bus'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './service'
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
+import { TOPIC_INACTIVITY_MS } from './topic-recap'
 import type { ChannelAdapter, InboundChatMessage } from './types'
 
 describe('parseTelegramUpdates', () => {
@@ -101,8 +103,11 @@ interface Harness {
   registerTelegramCommands: ReturnType<typeof vi.fn>
   createForumTopic: ReturnType<typeof vi.fn>
   answerCallback: ReturnType<typeof vi.fn>
+  readTranscript: ReturnType<typeof vi.fn>
+  getSuperagentThread: ReturnType<typeof vi.fn>
   topicRows: MessagingIssueTopicRow[]
   topics: NonNullable<MessagingDeps['topics']>
+  nowMs: { value: number }
 }
 
 function makeTopicsStore(): NonNullable<MessagingDeps['topics']> {
@@ -120,6 +125,74 @@ function makeTopicsStore(): NonNullable<MessagingDeps['topics']> {
   }
 }
 
+const sampleTranscript: TranscriptItem[] = [
+  { id: '1', role: 'user', text: 'fix the race' },
+  { id: '2', role: 'assistant', text: 'Looking at the lock path…' },
+  { id: '3', role: 'tool', text: '', toolName: 'Read' },
+  { id: '4', role: 'assistant', text: 'Root cause is a stale lease.' },
+]
+
+function liveIssue(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'iss_i1',
+    seq: 9,
+    displayRef: 'POD-9',
+    title: 'Slash commands',
+    stage: 'in_progress',
+    description: '',
+    repoPath: '/p',
+    worktreePath: null,
+    branch: null,
+    parentBranch: '',
+    defaultAgent: 'grok',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    blockedBy: [],
+    priority: 2,
+    type: 'task',
+    pinned: false,
+    needsHuman: false,
+    labels: [],
+    deps: [],
+    dependents: [],
+    ready: true,
+    blocked: false,
+    deferred: false,
+    childCount: 0,
+    childDoneCount: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-07-16T00:00:00.000Z',
+    archived: false,
+    readAt: null,
+    unread: false,
+    origin: 'human',
+    audience: 'human',
+    draft: false,
+    sessions: [
+      {
+        sessionId: 'sess_1',
+        agentKind: 'grok',
+        title: 'work',
+        cwd: '/p',
+        status: 'live',
+        controllerId: null,
+        geometry: { cols: 80, rows: 24 },
+        epoch: 0,
+        clientCount: 0,
+        createdAt: '2026-07-16T00:00:00.000Z',
+        lastActiveAt: '2026-07-16T01:00:00.000Z',
+        origin: { kind: 'spawn' },
+        archived: false,
+        readAt: null,
+        unread: false,
+        issueId: 'iss_i1',
+      },
+    ],
+    sessionSummary: { live: 1, total: 1 },
+    ...overrides,
+  }
+}
+
 function makeHarness(
   opts: {
     sendTurnImpl?: () => Promise<unknown>
@@ -127,6 +200,8 @@ function makeHarness(
     sessionIssueId?: MessagingDeps['sessionIssueId']
     interruptTurnImpl?: () => void
     restartThreadImpl?: () => void
+    topicRecap?: boolean
+    transcriptItems?: TranscriptItem[]
   } = {},
 ): Harness {
   const bus = new EventBus()
@@ -136,6 +211,7 @@ function makeHarness(
   const registerTelegramCommands = vi.fn(async () => {})
   const createForumTopic = vi.fn(async () => ({ threadRef: '9001' }))
   const answerCallback = vi.fn(async () => {})
+  const nowMs = { value: 1_000_000 }
   const adapter: ChannelAdapter = {
     channel: 'telegram',
     start: (cb) => {
@@ -175,6 +251,15 @@ function makeHarness(
   }))
   const topicRows: MessagingIssueTopicRow[] = []
   const topics = makeTopicsStore()
+  const getSuperagentThread = vi.fn((threadId: string) => {
+    if (threadId.startsWith('btw_')) {
+      return { originSessionId: threadId.slice(4), podiumSessionId: null }
+    }
+    return { podiumSessionId: 'pod_concierge' }
+  })
+  const readTranscript = vi.fn(async () => ({
+    items: opts.transcriptItems ?? sampleTranscript,
+  }))
   const service = new MessagingService({
     bus,
     getSettings: () =>
@@ -196,6 +281,15 @@ function makeHarness(
     topics,
     ...(opts.issues ? { issues: opts.issues } : {}),
     ...(opts.sessionIssueId ? { sessionIssueId: opts.sessionIssueId } : {}),
+    ...(opts.topicRecap
+      ? {
+          topicRecap: {
+            getSuperagentThread: getSuperagentThread as never,
+            readTranscript: readTranscript as never,
+          },
+          now: () => nowMs.value,
+        }
+      : {}),
     createTelegram: () => adapter,
     registerTelegramCommands,
   })
@@ -213,8 +307,11 @@ function makeHarness(
     registerTelegramCommands,
     createForumTopic,
     answerCallback,
+    readTranscript,
+    getSuperagentThread,
     topicRows,
     topics,
+    nowMs,
     inbound: (text, opts) =>
       onMessage?.({
         source: {
@@ -726,68 +823,7 @@ describe('MessagingService', () => {
 
   it('opens a forum topic and maps threadRef to btw on issue button press', async () => {
     const h = makeHarness({
-      issues: {
-        list: () =>
-          [
-            {
-              id: 'iss_i1',
-              seq: 9,
-              displayRef: 'POD-9',
-              title: 'Slash commands',
-              stage: 'in_progress',
-              description: '',
-              repoPath: '/p',
-              worktreePath: null,
-              branch: null,
-              parentBranch: '',
-              defaultAgent: 'grok',
-              defaultModel: 'auto',
-              defaultEffort: 'auto',
-              blockedBy: [],
-              priority: 2,
-              type: 'task',
-              pinned: false,
-              needsHuman: false,
-              labels: [],
-              deps: [],
-              dependents: [],
-              ready: true,
-              blocked: false,
-              deferred: false,
-              childCount: 0,
-              childDoneCount: 0,
-              createdAt: '2026-01-01T00:00:00.000Z',
-              updatedAt: '2026-07-16T00:00:00.000Z',
-              archived: false,
-              readAt: null,
-              unread: false,
-              origin: 'human',
-              audience: 'human',
-              draft: false,
-              sessions: [
-                {
-                  sessionId: 'sess_1',
-                  agentKind: 'grok',
-                  title: 'work',
-                  cwd: '/p',
-                  status: 'live',
-                  controllerId: null,
-                  geometry: { cols: 80, rows: 24 },
-                  epoch: 0,
-                  clientCount: 0,
-                  createdAt: '2026-07-16T00:00:00.000Z',
-                  lastActiveAt: '2026-07-16T01:00:00.000Z',
-                  origin: { kind: 'spawn' },
-                  archived: false,
-                  readAt: null,
-                  unread: false,
-                  issueId: 'iss_i1',
-                },
-              ],
-              sessionSummary: { live: 1, total: 1 },
-            },
-          ] as never,
-      },
+      issues: { list: () => [liveIssue()] as never },
     })
     h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
     await flush()
@@ -799,6 +835,90 @@ describe('MessagingService', () => {
     await flush()
     expect(h.sendTurn.mock.calls[0]![0]!.threadId).toBe('btw_sess_1')
     expect(h.topics.getByThreadRef('42', '9001')?.superagentThreadId).toBe('btw_sess_1')
+  })
+
+  it('posts a transcript recap when creating an issue topic [spec:SP-62c3]', async () => {
+    const h = makeHarness({
+      topicRecap: true,
+      issues: { list: () => [liveIssue()] as never },
+    })
+    h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
+    await flush()
+    expect(h.createForumTopic).toHaveBeenCalled()
+    expect(h.readTranscript).toHaveBeenCalledWith({
+      sessionId: 'sess_1',
+      direction: 'before',
+      limit: 50,
+    })
+    expect(h.sent).toHaveLength(2)
+    expect(h.sent[0]!.text).toContain('POD-9 Slash commands')
+    expect(h.sent[1]!.threadRef).toBe('9001')
+    expect(h.sent[1]!.text).toContain('Recent in this conversation:')
+    expect(h.sent[1]!.text).toContain('You: fix the race')
+    expect(h.sent[1]!.text).toContain('Agent: Root cause is a stale lease.')
+  })
+
+  it('posts a recap on issue-button re-tap of an existing topic [spec:SP-62c3]', async () => {
+    const h = makeHarness({
+      topicRecap: true,
+      issues: { list: () => [liveIssue()] as never },
+    })
+    h.topics.upsert({
+      issueId: 'iss_i1',
+      chatId: '42',
+      threadRef: '9001',
+      superagentThreadId: 'btw_sess_1',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+    })
+    h.inbound('', { callback: { id: 'cb-re', data: 'i:iss_i1' } })
+    await flush()
+    expect(h.createForumTopic).not.toHaveBeenCalled()
+    expect(h.answerCallback).toHaveBeenCalledWith('cb-re', 'Opened topic')
+    expect(h.sent.some((s) => s.text.includes('Recent in this conversation:'))).toBe(true)
+    expect(h.readTranscript).toHaveBeenCalled()
+  })
+
+  it('posts inactivity recap before dispatching a topic message after 30min [spec:SP-62c3]', async () => {
+    const h = makeHarness({
+      topicRecap: true,
+      issues: { list: () => [liveIssue()] as never },
+    })
+    h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
+    await flush()
+    h.sent.length = 0
+    h.readTranscript.mockClear()
+    h.sendTurn.mockClear()
+
+    // Active again within the window — no recap.
+    h.nowMs.value += 5 * 60 * 1000
+    h.inbound('still here', { threadRef: '9001' })
+    await flush()
+    expect(h.readTranscript).not.toHaveBeenCalled()
+    expect(h.sendTurn).toHaveBeenCalledTimes(1)
+    expect(h.sent).toEqual([])
+
+    // After the inactivity gap, recap lands before the turn is dispatched.
+    h.bus.emit('superagent.turnEnded', {
+      threadId: 'btw_sess_1',
+      podiumSessionId: 'ps1',
+      ok: true,
+      output: 'ack',
+    })
+    await flush()
+    h.sent.length = 0
+    h.readTranscript.mockClear()
+    h.sendTurn.mockClear()
+
+    h.nowMs.value += TOPIC_INACTIVITY_MS + 1
+    h.inbound('what was the lease issue?', { threadRef: '9001' })
+    await flush()
+    expect(h.readTranscript).toHaveBeenCalled()
+    expect(h.sent[0]!.text).toContain('Recent in this conversation:')
+    expect(h.sendTurn).toHaveBeenCalledTimes(1)
+    expect(h.sendTurn.mock.calls[0]![0]!.text).toContain('what was the lease issue?')
+    // Recap is ordered before the turn leaves the bridge.
+    const recapIdx = h.sent.findIndex((s) => s.text.includes('Recent in this conversation:'))
+    expect(recapIdx).toBe(0)
   })
 
   it('binds topics to repo concierge when the issue has no agent session', async () => {

@@ -217,6 +217,12 @@ export async function startServer(
     issues: registry.modules.issues,
     topics: store.messagingTopics,
     sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
+    // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
+    // superagent (or btw origin) session transcript.
+    topicRecap: {
+      getSuperagentThread: (threadId) => store.superagent.getSuperagentThread(threadId),
+      readTranscript: (input) => registry.modules.rpc.readTranscript(input),
+    },
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
   })
   messaging.configure()

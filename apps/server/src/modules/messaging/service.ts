@@ -1,4 +1,9 @@
-import { issueDisplayRef, type AgentRuntimeState, type IssueWire } from '@podium/protocol'
+import {
+  issueDisplayRef,
+  type AgentRuntimeState,
+  type IssueWire,
+  type TranscriptItem,
+} from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'
@@ -11,6 +16,11 @@ import {
   registerTelegramCommands,
 } from './commands'
 import { TelegramChannel } from './telegram'
+import {
+  formatTopicRecap,
+  TOPIC_INACTIVITY_MS,
+  transcriptSessionIdForThread,
+} from './topic-recap'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import type {
   ChannelAdapter,
@@ -41,6 +51,19 @@ export interface MessagingTopicsPort {
   upsert(row: MessagingIssueTopicRow): void
 }
 
+/** Transcript source for issue-topic entry recaps [spec:SP-62c3]. */
+export interface TopicRecapPort {
+  getSuperagentThread(threadId: string): {
+    podiumSessionId?: string | null
+    originSessionId?: string | null
+  } | undefined
+  readTranscript(input: {
+    sessionId: string
+    direction: 'before' | 'after'
+    limit: number
+  }): Promise<{ items: TranscriptItem[] }>
+}
+
 export interface MessagingDeps {
   bus: EventBus
   getSettings(): PodiumSettings
@@ -51,6 +74,10 @@ export interface MessagingDeps {
   topics?: MessagingTopicsPort
   /** Session → explicit issue attachment for notice topic routing. */
   sessionIssueId?: (sessionId: string) => string | null
+  /** Bound-thread transcript for entry recaps [spec:SP-62c3]. */
+  topicRecap?: TopicRecapPort
+  /** Clock for inactivity gating (tests inject a fixed/advanceable now). */
+  now?: () => number
   /** True while the settings telegram-setup pairing window owns getUpdates. */
   telegramSetupPending?: () => boolean
   /** Adapter factory — injected in tests. */
@@ -104,6 +131,11 @@ function conversationKey(ref: ConversationRef): string {
  * Thread mapping: main chat → global; forum topics opened from /issues buttons
  * map to btw_<session> (live agent) or the repo concierge thread. Bindings
  * persist in `messaging_issue_topics`. `resolveThreadId` is the seam.
+ *
+ * Issue-topic entry recap [spec:SP-62c3]: last ~3 bound-agent messages are posted
+ * on topic create, issue-button re-tap, and the first user message after >30min
+ * inactivity (before that message is dispatched). MarkdownV2-safe via the
+ * existing send path. Activity is tracked in-memory by threadRef.
  */
 export class MessagingService implements TelegramNoticePort {
   private adapter: ChannelAdapter | undefined
@@ -127,6 +159,11 @@ export class MessagingService implements TelegramNoticePort {
   private readonly typingLeases = new Map<string, TypingLease>()
   /** Ambient typing owners still held for a session (sessionId → conversation key). */
   private readonly ambientTypingBySession = new Map<string, string>()
+  /**
+   * Last activity (inbound or outbound) per forum threadRef, for entry recaps
+   * [spec:SP-62c3]. In-memory only — recap-on-restart after process bounce is OK.
+   */
+  private readonly lastActivityByThreadRef = new Map<string, number>()
 
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', (ev) => this.onTurnEnded(ev))
@@ -137,6 +174,32 @@ export class MessagingService implements TelegramNoticePort {
     deps.bus.on('session.exited', ({ sessionId }) => {
       this.stopAmbientTyping(sessionId)
     })
+  }
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now()
+  }
+
+  private touchTopicActivity(source: ConversationRef): void {
+    if (source.threadRef) this.lastActivityByThreadRef.set(source.threadRef, this.now())
+  }
+
+  /** Bound issue topics only (main chat / unrecognized topics skip recap). */
+  private isBoundIssueTopic(source: ConversationRef): boolean {
+    const ref = source.threadRef
+    if (!ref) return false
+    if (this.topicThreadByRef.has(ref)) return true
+    return !!this.deps.topics?.getByThreadRef(source.chatId, ref)
+  }
+
+  private shouldPostInactivityRecap(source: ConversationRef): boolean {
+    if (!this.deps.topicRecap) return false
+    if (!this.isBoundIssueTopic(source)) return false
+    const ref = source.threadRef
+    if (!ref) return false
+    const last = this.lastActivityByThreadRef.get(ref)
+    if (last === undefined) return true
+    return this.now() - last >= TOPIC_INACTIVITY_MS
   }
 
   /** (Re)build the adapter from current settings. Safe to call repeatedly. */
@@ -274,10 +337,20 @@ export class MessagingService implements TelegramNoticePort {
       void this.handleSlash(threadId, msg.source, slash)
       return
     }
+    void this.handleChatMessage(msg)
+  }
+
+  /** Plain chat (not slash/callback): optional inactivity recap, then queue. */
+  private async handleChatMessage(msg: InboundChatMessage): Promise<void> {
     const threadId = this.resolveThreadId(msg)
+    // [spec:SP-62c3] First message after >30min idle → recap BEFORE dispatch.
+    if (this.shouldPostInactivityRecap(msg.source)) {
+      await this.postTopicRecap(msg.source, threadId)
+    }
+    this.touchTopicActivity(msg.source)
     const queue = this.queues.get(threadId) ?? []
     if (queue.length >= QUEUE_CAP) {
-      void this.reply(msg.source, '⚠️ Message queue is full — wait for the current replies.')
+      await this.reply(msg.source, '⚠️ Message queue is full — wait for the current replies.')
       return
     }
     queue.push({
@@ -288,6 +361,39 @@ export class MessagingService implements TelegramNoticePort {
     })
     this.queues.set(threadId, queue)
     this.pump(threadId)
+  }
+
+  /**
+   * Last ~3 conversational messages from the bound agent transcript
+   * [spec:SP-62c3]. Best-effort: missing deps/session/transcript → silent skip.
+   */
+  private async buildTopicRecap(superagentThreadId: string): Promise<string | undefined> {
+    const port = this.deps.topicRecap
+    if (!port) return undefined
+    const thread = port.getSuperagentThread(superagentThreadId)
+    const sessionId = transcriptSessionIdForThread(thread, superagentThreadId)
+    if (!sessionId) return undefined
+    try {
+      const { items } = await port.readTranscript({
+        sessionId,
+        direction: 'before',
+        limit: 50,
+      })
+      return formatTopicRecap(items)
+    } catch (err) {
+      console.warn(
+        '[podium:messaging] topic recap failed:',
+        err instanceof Error ? err.message : err,
+      )
+      return undefined
+    }
+  }
+
+  private async postTopicRecap(source: ConversationRef, superagentThreadId: string): Promise<void> {
+    const text = await this.buildTopicRecap(superagentThreadId)
+    if (!text) return
+    await this.reply(source, text)
+    this.touchTopicActivity(source)
   }
 
   private acquireTyping(owner: string, source: ConversationRef): void {
@@ -464,10 +570,14 @@ export class MessagingService implements TelegramNoticePort {
       }
       const opened = await this.openIssueTopic(msg.source.chatId, issue)
       await this.adapter?.answerCallback?.(cb.id, opened.reused ? 'Opened topic' : 'Created topic')
-      await this.reply(
-        { channel: msg.source.channel, chatId: msg.source.chatId, threadRef: opened.threadRef },
-        opened.text,
-      )
+      const topicRef: ConversationRef = {
+        channel: msg.source.channel,
+        chatId: msg.source.chatId,
+        threadRef: opened.threadRef,
+      }
+      await this.reply(topicRef, opened.text)
+      // [spec:SP-62c3] Topic create + issue-button re-tap both post a recap.
+      await this.postTopicRecap(topicRef, opened.superagentThreadId)
     } catch (err) {
       console.warn('[podium:messaging] callback failed:', err)
       try {
@@ -510,7 +620,7 @@ export class MessagingService implements TelegramNoticePort {
   private async openIssueTopic(
     chatId: string,
     issue: IssueWire,
-  ): Promise<{ threadRef: string; text: string; reused: boolean }> {
+  ): Promise<{ threadRef: string; text: string; reused: boolean; superagentThreadId: string }> {
     const threadId = this.resolveIssueThread(issue)
     const ref = issueDisplayRef(issue)
     const sessionNote = this.issueThreadNote(issue)
@@ -523,6 +633,7 @@ export class MessagingService implements TelegramNoticePort {
         threadRef: existing,
         reused: true,
         text: `${ref} ${issue.title}\n${sessionNote}\nReply in this topic to continue.`,
+        superagentThreadId: threadId,
       }
     }
     if (!this.adapter?.createForumTopic) {
@@ -535,6 +646,7 @@ export class MessagingService implements TelegramNoticePort {
       threadRef,
       reused: false,
       text: `${ref} ${issue.title}\n${sessionNote}\nReply in this topic to continue.`,
+      superagentThreadId: threadId,
     }
   }
 
@@ -545,6 +657,7 @@ export class MessagingService implements TelegramNoticePort {
   ): Promise<void> {
     try {
       await this.adapter?.send(target, text, opts)
+      this.touchTopicActivity(target)
     } catch (err) {
       console.warn('[podium:messaging] reply send failed:', err instanceof Error ? err.message : err)
     }
