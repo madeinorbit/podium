@@ -175,15 +175,6 @@ export class MessagingService implements TelegramNoticePort {
     }
   }
 
-  private loadTopicMappings(chatId: string): void {
-    this.topicThreadByRef.clear()
-    this.topicRefByIssue.clear()
-    for (const row of this.deps.topics?.listForChat(chatId) ?? []) {
-      this.topicThreadByRef.set(row.threadRef, row.superagentThreadId)
-      this.topicRefByIssue.set(row.issueId, row.threadRef)
-    }
-  }
-
   /** Map a chat location to a superagent thread. Main chat → global; a forum
    *  topic → the btw/concierge thread bound when the issue button was opened. */
   private resolveThreadId(msg: InboundChatMessage): string {

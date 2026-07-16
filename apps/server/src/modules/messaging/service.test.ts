@@ -590,6 +590,14 @@ describe('MessagingService', () => {
         sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
         interruptTurn: vi.fn(),
         restartThread: vi.fn(),
+        startBtwTurn: vi.fn(({ sessionId }: { sessionId: string }) => ({
+          threadId: `btw_${sessionId}`,
+          isNew: true,
+        })),
+        ensureConciergeThread: vi.fn(({ repoPath }: { repoPath: string }) => ({
+          threadId: `concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`,
+          isNew: true,
+        })),
       },
       createTelegram: () => adapter,
       registerTelegramCommands: vi.fn(async () => {}),
