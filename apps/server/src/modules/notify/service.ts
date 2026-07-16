@@ -7,6 +7,7 @@ import {
   pushTelegram,
   type TelegramConfig,
 } from '../../notify'
+import type { TelegramNoticePort } from '../messaging/types'
 import type { EventBus } from '../bus'
 
 export interface NotificationPushers {
@@ -14,8 +15,6 @@ export interface NotificationPushers {
   telegram(config: TelegramConfig, notice: AttentionNotice): void
 }
 
-/** Test/fallback pushers. Production wires telegram through MessagingService's
- *  ChannelAdapter in server.ts (formatting, chunking, forum-topic threading). */
 export const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
   ntfy: pushNtfy,
   telegram: pushTelegram,
@@ -67,6 +66,8 @@ export interface NotifyDeps {
   /** Runtime state per session — notifyAttentionForNewExternalTargets replays the
    *  current blocked states to a freshly configured external target. */
   sessionStates(): Iterable<{ info: SessionNoticeInfo; state: AgentRuntimeState | undefined }>
+  /** Lazy — production wires MessagingService after registry construction. */
+  telegramNotice?: () => TelegramNoticePort | undefined
 }
 
 /**
@@ -94,6 +95,16 @@ export class NotifyService {
     return info.name || info.title || info.cwd.split('/').pop() || 'agent'
   }
 
+  private sendTelegram(config: TelegramConfig, notice: AttentionNotice): void {
+    const text = `${notice.title}\n\n${notice.body}`
+    const port = this.deps.telegramNotice?.()
+    if (port) {
+      port.sendNotice(text, config)
+      return
+    }
+    this.pushers.telegram(config, notice)
+  }
+
   private notifyAttentionForNewExternalTargets(
     previous: NotificationSettings,
     next: NotificationSettings,
@@ -113,7 +124,7 @@ export class NotifyService {
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
       if (sendNtfy) this.pushers.ntfy(nextNtfy, notice)
-      if (sendTelegram) this.pushers.telegram(telegram, notice)
+      if (sendTelegram) this.sendTelegram(telegram, notice)
     }
   }
 
@@ -134,7 +145,7 @@ export class NotifyService {
   notifyExternal(notice: AttentionNotice): void {
     const settings = this.deps.getSettings().notifications
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-    if (isTelegramEnabled(settings)) this.pushers.telegram(telegramConfig(settings), notice)
+    if (isTelegramEnabled(settings)) this.sendTelegram(telegramConfig(settings), notice)
   }
 
   /**
@@ -186,7 +197,7 @@ export class NotifyService {
       const someoneWatching = [...this.deps.clients()].some((c) => c.visible)
       if (!someoneWatching) {
         if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-        if (telegramEnabled) this.pushers.telegram(telegram, notice)
+        if (telegramEnabled) this.sendTelegram(telegram, notice)
       }
     }
   }

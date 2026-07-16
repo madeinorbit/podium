@@ -329,19 +329,19 @@ describe('MessagingService', () => {
     expect(h.sendTurn.mock.calls[0]![0]!.text).toContain('/model opus')
   })
 
-  it('pushAttentionNotice sends through the adapter with title and body', async () => {
+  it('sendNotice routes through the adapter with formatted text', async () => {
     const h = makeHarness()
-    h.service.pushAttentionNotice(
-      { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
-      { botToken: 'tok', chatId: '42' },
-    )
+    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
+      botToken: 'tok',
+      chatId: '42',
+    })
     await flush()
     expect(h.sent).toEqual([
       { chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' },
     ])
   })
 
-  it('pushAttentionNotice threads into the last inbound forum topic', async () => {
+  it('sendNotice threads into the last inbound forum topic', async () => {
     const h = makeHarness()
     const bus = h.bus
     let onMessage: ((msg: InboundChatMessage) => void) | undefined
@@ -384,10 +384,10 @@ describe('MessagingService', () => {
       source: { channel: 'telegram', chatId: '42', threadRef: '77' },
       text: 'in topic',
     })
-    service.pushAttentionNotice(
-      { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
-      { botToken: 'tok', chatId: '42' },
-    )
+    service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
+      botToken: 'tok',
+      chatId: '42',
+    })
     await flush()
     expect(sent).toEqual([
       {
@@ -398,13 +398,34 @@ describe('MessagingService', () => {
     ])
   })
 
-  it('pushAttentionNotice is a no-op when config does not match the live adapter', async () => {
+  it('sendNotice falls back to direct send when config does not match the live adapter', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    })
+    vi.stubGlobal('fetch', fetch)
     const h = makeHarness()
-    h.service.pushAttentionNotice(
-      { title: 't', body: 'b' },
-      { botToken: 'other', chatId: '42' },
-    )
+    h.service.sendNotice('t\n\nb', { botToken: 'other', chatId: '42' })
     await flush()
     expect(h.sent).toEqual([])
+    expect(fetch).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+
+  it('sendNotice falls back to direct send when the bridge is stopped', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    })
+    vi.stubGlobal('fetch', fetch)
+    const h = makeHarness()
+    h.service.stop()
+    h.service.sendNotice('t\n\nb', { botToken: 'tok', chatId: '42' })
+    await flush()
+    expect(h.sent).toEqual([])
+    expect(fetch).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
   })
 })

@@ -1,3 +1,5 @@
+import type { TelegramConfig } from '../../notify'
+
 /**
  * Messaging-app bridge seam [spec:SP-5d81]. One normalized shape for "a human
  * said something in an external chat app" plus a thin per-platform adapter —
@@ -5,6 +7,12 @@
  * relay) lives in MessagingService, so a new app (Slack, WhatsApp, …) only
  * implements transport.
  */
+
+/** Optional NotifyService injection — attention notices through the live adapter
+ *  with a direct-send fallback when the bridge is stopped. */
+export interface TelegramNoticePort {
+  sendNotice(text: string, config: TelegramConfig): void
+}
 
 /** Normalized address of an external conversation. Different apps have
  *  different conversation models (bot DMs, channels, threads, forum topics) —

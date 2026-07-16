@@ -100,10 +100,10 @@ async function telegramDescription(res: Pick<Response, 'json'>): Promise<string 
   }
 }
 
-/** Fire-and-forget Telegram push. Failures are logged, never thrown. */
-export function pushTelegram(
+/** Fire-and-forget Telegram push (bare sendMessage). Failures are logged, never thrown. */
+export function pushTelegramText(
   config: TelegramConfig,
-  notice: AttentionNotice,
+  text: string,
   opts: PushTelegramOptions = {},
 ): void {
   const botToken = config.botToken.trim()
@@ -117,7 +117,7 @@ export function pushTelegram(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       chat_id: chatId,
-      text: `${notice.title}\n\n${notice.body}`,
+      text,
     }),
   })
     .then(async (res) => {
@@ -131,4 +131,13 @@ export function pushTelegram(
     .catch((err) => {
       console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
     })
+}
+
+/** Fire-and-forget Telegram push. Failures are logged, never thrown. */
+export function pushTelegram(
+  config: TelegramConfig,
+  notice: AttentionNotice,
+  opts: PushTelegramOptions = {},
+): void {
+  pushTelegramText(config, `${notice.title}\n\n${notice.body}`, opts)
 }

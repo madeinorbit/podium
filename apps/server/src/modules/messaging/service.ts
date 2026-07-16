@@ -1,10 +1,10 @@
 import type { IssueWire } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type { AttentionNotice, TelegramConfig } from '../../notify'
+import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'
 import { formatIssues, HELP_TEXT, parseSlashCommand, registerTelegramCommands } from './commands'
 import { TelegramChannel } from './telegram'
-import type { ChannelAdapter, ConversationRef, InboundChatMessage } from './types'
+import type { ChannelAdapter, ConversationRef, InboundChatMessage, TelegramNoticePort } from './types'
 
 /** How a superagent turn is dispatched — the slice of SuperagentService the
  *  bridge needs (kept narrow for tests). */
@@ -49,13 +49,14 @@ const QUEUE_CAP = 20
  * Two-way messaging-app bridge [spec:SP-5d81]. Inbound chat messages become
  * superagent turns; the reply text rides the `superagent.turnEnded` bus event
  * back to the chat. Attention notices ride the same ChannelAdapter (formatting,
- * chunking, forum-topic threading) via {@link pushAttentionNotice}.
+ * chunking, forum-topic threading) via {@link sendNotice}, with a direct-send
+ * fallback when the bridge is stopped.
  *
  * Thread mapping V1: every conversation maps to the GLOBAL superagent thread
  * (`resolveThreadId`) — the seam where messaging-app threads/topics/channels
  * later map to their own superagent threads.
  */
-export class MessagingService {
+export class MessagingService implements TelegramNoticePort {
   private adapter: ChannelAdapter | undefined
   private adapterKey = ''
   /** Last inbound conversation ref from the configured chat — attention notices
@@ -109,27 +110,29 @@ export class MessagingService {
   }
 
   /**
-   * Fire-and-forget attention notice into the configured Telegram chat through
-   * the live ChannelAdapter. Failures are logged, never thrown.
+   * Fire-and-forget attention notice. Uses the live ChannelAdapter when running;
+   * falls back to bare sendMessage when the bridge is stopped or config differs.
    */
-  pushAttentionNotice(notice: AttentionNotice, config: TelegramConfig): void {
+  sendNotice(text: string, config: TelegramConfig): void {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()
-    if (!botToken || !chatId || !this.adapter) return
+    if (!botToken || !chatId) return
     const key = `${botToken}\n${chatId}`
-    if (key !== this.adapterKey) return
 
-    const target: ConversationRef = {
-      channel: 'telegram',
-      chatId,
-      ...(this.lastInboundRef?.chatId === chatId && this.lastInboundRef.threadRef
-        ? { threadRef: this.lastInboundRef.threadRef }
-        : {}),
+    if (this.adapter && key === this.adapterKey) {
+      const target: ConversationRef = {
+        channel: 'telegram',
+        chatId,
+        ...(this.lastInboundRef?.chatId === chatId && this.lastInboundRef.threadRef
+          ? { threadRef: this.lastInboundRef.threadRef }
+          : {}),
+      }
+      void this.adapter.send(target, text).catch((err) => {
+        console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+      })
+      return
     }
-    const text = `${notice.title}\n\n${notice.body}`
-    void this.adapter.send(target, text).catch((err) => {
-      console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
-    })
+    pushTelegramText(config, text)
   }
 
   /** V1: everything converses with the global orchestrator thread. */
@@ -261,11 +264,4 @@ export class MessagingService {
       console.warn('[podium:messaging] reply send failed:', err instanceof Error ? err.message : err)
     }
   }
-}
-
-/** NotifyService pusher seam — routes attention notices through the live adapter. */
-export function telegramAttentionPusher(
-  messaging: Pick<MessagingService, 'pushAttentionNotice'>,
-): (config: TelegramConfig, notice: AttentionNotice) => void {
-  return (config, notice) => messaging.pushAttentionNotice(notice, config)
 }

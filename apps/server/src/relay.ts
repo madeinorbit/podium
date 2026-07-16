@@ -30,6 +30,7 @@ import { MachinesService, type PairingCodes, sha256 } from './modules/machines/s
 import { MessageGate } from './modules/messages/gate'
 import { MessageDeliveryService, senderFromCapability } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
+import type { TelegramNoticePort } from './modules/messaging/types'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -89,6 +90,8 @@ interface SessionRegistryOptions {
    *  assembly (core never imports hub/pairing; see roles.ts). Absent = pairing
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   pairing?: PairingCodes
+  /** Lazy — production wires MessagingService after registry construction. */
+  telegramNotice?: () => TelegramNoticePort | undefined
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -273,6 +276,7 @@ export class SessionRegistry {
         },
         sessionStates: () =>
           [...liveSessions().values()].map((s) => ({ info: noticeInfo(s), state: s.agentState })),
+        ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
       this.bus,

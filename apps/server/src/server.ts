@@ -23,7 +23,6 @@ import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { MessagingService } from './modules/messaging'
-import { pushNtfy } from './notify'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
@@ -123,18 +122,13 @@ export async function startServer(
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
-  // Attention notices route through MessagingService's ChannelAdapter (formatting,
-  // chunking, forum-topic threading). The closure is safe: notifications only fire
-  // after startup, once messaging is assigned below.
+  // Attention notices route through MessagingService.sendNotice (adapter when the
+  // bridge is live, direct sendMessage fallback when stopped). Lazy getter is
+  // safe: notifications only fire after startup, once messaging is assigned.
   let messaging!: MessagingService
-  const registry = new SessionRegistry(
-    store,
-    {
-      ntfy: pushNtfy,
-      telegram: (config, notice) => messaging.pushAttentionNotice(notice, config),
-    },
-    {
+  const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
+    telegramNotice: () => messaging,
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
