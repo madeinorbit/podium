@@ -27,6 +27,8 @@ export interface FeaturesStateSnapshot {
 
 let cache: FeaturesStateSnapshot | null = null
 let inflight: Promise<FeaturesStateSnapshot | null> | null = null
+/** Monotonic epoch so a pre-invalidate response cannot overwrite a fresher one. */
+let fetchEpoch = 0
 const subscribers = new Set<() => void>()
 
 function publish(next: FeaturesStateSnapshot | null): void {
@@ -36,16 +38,19 @@ function publish(next: FeaturesStateSnapshot | null): void {
 
 async function fetchFeatures(trpc: Trpc): Promise<FeaturesStateSnapshot | null> {
   if (inflight) return inflight
+  const epoch = fetchEpoch
   inflight = (async () => {
     try {
       const snap = await trpc.features.state.query()
+      // Drop stale responses that raced past an invalidateFeatures() call.
+      if (epoch !== fetchEpoch) return cache
       publish(snap)
       return snap
     } catch {
       // keep last-good cache; first load stays null → flags off
       return cache
     } finally {
-      inflight = null
+      if (epoch === fetchEpoch) inflight = null
     }
   })()
   return inflight
@@ -53,6 +58,7 @@ async function fetchFeatures(trpc: Trpc): Promise<FeaturesStateSnapshot | null> 
 
 /** Force a re-fetch after settings.set (the only writer of user toggles). */
 export function invalidateFeatures(trpc: Trpc): void {
+  fetchEpoch += 1
   inflight = null
   void fetchFeatures(trpc)
 }

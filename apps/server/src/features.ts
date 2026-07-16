@@ -36,8 +36,12 @@ export function getFeatureStates(
   channel: 'stable' | 'edge'
   flags: FeatureStateWire[]
 } {
-  // Same sentinel as /version — real versions are injected only at build time.
-  const devMode = (env.PODIUM_APP_VERSION ?? 'dev') === 'dev'
+  // env.PODIUM_APP_VERSION is the unit-test override. The second term MUST stay
+  // the literal `process.env.PODIUM_APP_VERSION` — build-bun --define only
+  // textually rewrites that exact expression; dynamic env access is not baked
+  // and would leave production builds as undefined → 'dev' forever.
+  const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
+  const devMode = version === 'dev'
   const channel = resolveUpdateChannel(config, env)
   const overrides = resolveFeatureOverrides(config)
   const user = settings.experimental ?? {}
