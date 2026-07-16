@@ -48,6 +48,8 @@ const daemon = await startDaemon({
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
   machineId: LOCAL_MACHINE_ID,
+  hooks: { port: 0 },
+  agentRelay: { port: 0 },
   launch,
 })
 

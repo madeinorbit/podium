@@ -103,6 +103,7 @@ describe('e2e: split server/daemon local transition', () => {
         discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: tmp },
         metrics: { background: false },
         hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
+        agentRelay: { port: 0 },
       })
       try {
         // The local machine is now online (the daemon attached to it, not a second one).

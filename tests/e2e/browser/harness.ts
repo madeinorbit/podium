@@ -23,6 +23,8 @@ export async function startRelay(): Promise<Relay> {
     serverUrl: `ws://localhost:${server.port}`,
     bootstrapToken: server.bootstrapToken,
     machineId: LOCAL_MACHINE_ID,
+    hooks: { port: 0 },
+    agentRelay: { port: 0 },
     // Spawn the deterministic fixture; label it by its cwd so each session renders distinct content.
     launch: (_kind, opts) => ({
       cmd: process.execPath,

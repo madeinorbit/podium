@@ -68,6 +68,8 @@ describe('e2e: daemon -> server -> client', () => {
       serverUrl: `ws://localhost:${srv.port}`,
       bootstrapToken: srv.bootstrapToken,
       machineId: LOCAL_MACHINE_ID,
+      hooks: { port: 0 },
+      agentRelay: { port: 0 },
       launch: () => ({
         cmd: process.execPath,
         args: [FIXTURE],

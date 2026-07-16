@@ -58,6 +58,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       },
       metrics: { background: false },
       hooks: { port: 0, settingsDir: join(tmp1, 'hooks') },
+      agentRelay: { port: 0 },
     })
 
     // mint a pairing code for daemon2
@@ -77,6 +78,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       },
       metrics: { background: false },
       hooks: { port: 0, settingsDir: join(tmp2, 'hooks') },
+      agentRelay: { port: 0 },
     })
 
     try {
