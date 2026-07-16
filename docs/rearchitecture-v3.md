@@ -156,16 +156,23 @@ bun run audit:rearch --phase POD-309     # the phase-close gate
 - **exit 2** — unknown flag, malformed phase, or a phase with no items mapped. The gate
   **fails closed**: an unrecognised argument never degrades into a passing run.
 
-That exit-2 behavior is load-bearing and was verified by execution, not by reading the
-source (POD-298, 2026-07-16): a well-formed phase id with no items mapped to it, a bare
-`--phase`, a malformed `--phase notaphase`, a typo'd `--phasee`, and the dangerous
-`--updatebaseline` typo (which would otherwise silently run the ratchet and look like it
-worked) each exit 2. A gate that answers "clear to close" for input it did not understand
-would be worse than no gate, and this repo has shipped exactly that bug twice: `git
-rev-parse` ECHOES an unknown flag and exits 0 rather than rejecting it, silently
-defeating a worktree check in both POD-657 and POD-665. **Before any phase leans on a new
-gate, test that it refuses input it does not understand** — the failure mode is not an
-error, it is a plausible pass. Re-test if the CLI's argument handling changes.
+That exit-2 behavior is load-bearing and is verified by EXECUTION, not by reading the
+source — re-executed against POD-297's HEAD 50edbe13 (POD-298, 2026-07-16): a well-formed
+phase id with no items mapped to it, a bare `--phase`, a malformed `--phase notaphase`, a
+typo'd `--phasee`, the dangerous `--updatebaseline` typo (which would otherwise silently
+run the ratchet and look like it worked), and an unknown flag among known ones each exit
+2; `--phase POD-309` exits 1 and names its surviving site. A gate that answers "clear to
+close" for input it did not understand would be worse than no gate, and this repo has
+shipped exactly that bug twice: `git rev-parse` ECHOES an unknown flag and exits 0 rather
+than rejecting it, silently defeating a worktree check in both POD-657 and POD-665.
+**Before any phase leans on a new gate, test that it refuses input it does not
+understand** — the failure mode is not an error, it is a plausible pass.
+
+**Re-test when the CLI's argument handling changes, and hold this paragraph to its own
+rule.** The first run of this evidence was against POD-297's `bddfff78`; the script then
+grew ~193 lines including its argument handling, which by this rule invalidated the
+evidence until it was re-executed at `50edbe13`. Evidence naming a commit is evidence
+about that commit.
 
 ### 3.3 Exit gates are scheduler-enforced leaves
 
@@ -232,15 +239,17 @@ Contested files each have ONE owning phase/issue at any time. Anyone else touchi
 hot file coordinates with the owner (issue mail + `podium lock acquire hotfile:<name>`)
 and merges BEHIND the owner. Merge-order rule per file:
 
-**Parts of this ledger are machine-checked — it is documentation that can fail CI.**
-`scripts/architecture-manifest.test.ts` (POD-296) reads §8's tag table and asserts every
-tagged workspace has a matching ledger row, every declared same-layer edge is listed, and
-no row names an untagged workspace; it matches on `| \`packages/foo\` |` row prefixes and
-the `L0 model` / `L2 kernel` layer labels. `packages/telemetry/src/docs-drift.test.ts` is
-the same shape. So a phase that adds, renames or splits a package updates the manifest AND
-its ledger row in the same commit, and anyone reformatting §8 runs the unit lane before
-assuming a prose change is safe. Prefer adding a drift test to trusting a convention: a
-table that CANNOT silently drift is worth more than a rule saying it must not.
+**Parts of this ledger become machine-checked with POD-296's branch — documentation that
+can fail CI.** That branch adds `scripts/architecture-manifest.test.ts`, which reads the
+§8 tag table it also adds and asserts every tagged workspace has a matching ledger row,
+every declared same-layer edge is listed, and no row names an untagged workspace; it
+matches on `| \`packages/foo\` |` row prefixes and the `L0 model` / `L2 kernel` layer
+labels. (Neither the test nor that table exists on main yet — arriving with POD-296;
+`packages/telemetry/src/docs-drift.test.ts` is the same shape and is live today.) Once it
+lands: a phase that adds, renames or splits a package updates the manifest AND its ledger
+row in the same commit, and anyone reformatting §8 runs the unit lane before assuming a
+prose change is safe. Prefer adding a drift test to trusting a convention — a table that
+CANNOT silently drift is worth more than a rule saying it must not.
 
 | Hot file | Owner (phase/issue) | Merge-order rule |
 |---|---|---|
@@ -335,8 +344,12 @@ moves, no deletions. The audit script REPORTS counts; it does not fail CI on non
 current lane-by-lane state). Typecheck lane green under tsgo; turbo pending POD-715.
 
 **Audit counts:** baseline committed by POD-297 in `scripts/rearch-audit-baseline.json`
-— **21 items / 236 sites at fd4ea76b**. That is the before-count every later phase reads.
+— **21 items / 246 sites at fd4ea76b**. That is the before-count every later phase reads.
 After Phase 0: unchanged by definition (nothing deleted yet).
+
+**`scripts/rearch-audit-baseline.json` on POD-297's branch is the AUTHORITATIVE source;
+the table below is a derived convenience copy.** If they disagree, the JSON wins and this
+table is stale — re-derive it, never hand-edit it to match.
 
 **Where every later phase's before/after evidence comes from (§8 obligation, satisfied
 mechanically):** the ratchet forces the baseline to be EXACT — a regression fails, and an
@@ -352,12 +365,27 @@ machine-readable per-item counts + sites. Baseline at Phase 0 entry, by owning p
 | POD-308 | 1 | 12 | POD-325 | 1 | 4 |
 | POD-309 | 1 | 4 | POD-329 | 2 | 16 |
 | POD-313 | 1 | 1 | POD-332 | 2 | 3 |
-| POD-314 | 1 | 119 | POD-333 | 3 | 14 |
+| POD-314 | 1 | 123 | POD-333 | 3 | 20 |
 | POD-318 | 2 | 21 | POD-334 | 1 | 11 |
 
-(Reproduced independently by POD-298 at fd4ea76b — totals match POD-297's committed
-baseline exactly. POD-314's 119 sites are the hand-written tRPC mutation procedures;
-that single number is the best available proxy for Phase 3's size.)
+(Re-derived by POD-298 from POD-297's committed baseline at their HEAD 50edbe13, by
+joining the JSON counts to each check's declared owning phase — not copied from a
+report. POD-314's 123 sites are the hand-written tRPC mutation procedures; that single
+number is the best available proxy for Phase 3's size.)
+
+**Why this baseline went UP (236 → 246) without any debt being added — the sharpest
+illustration of §4's "grep audits are necessary, never sufficient".** An adversarial
+review of POD-297's detectors found six defects, three of which could let a phase close
+while its debt still stood. `reexport-shims` was line-based, so a re-export wrapped across
+lines carried no single `export … from` line and went uncounted (13 → 19) — and because
+biome wraps a re-export as soon as a name is added, **ADDING code made the count DROP**,
+which the ratchet's improvement path would have written into the baseline as a win.
+`router-triple-access` keyed on a helper name that is itself an alias, missing 4 longhand
+sites (119 → 123). `send-turn-duplicate` did `sites.slice(1)`, so a detector whose anchor
+had moved reported `[]` → 0 and POD-313 read **"clear to close"**. The lesson for every
+phase: **a detector that stops matching is not a deletion.** A count that falls because
+the code moved out from under the pattern looks exactly like a win. Treat a drop you did
+not deliberately cause as a suspected broken detector until proven otherwise.
 
 **Verification steps (gate POD-422):** oracle CI job live (lane-based, incl. the
 typecheck lane under the current orchestrator); deletion audit baseline committed AND
