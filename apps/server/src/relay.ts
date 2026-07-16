@@ -632,6 +632,48 @@ export class SessionRegistry {
             })
           })()
         }
+        // Agent action offer [spec:SP-c7f1]: `podium offer` set/clear. Like
+        // sessions.title, the target is ALWAYS the CALLING session (bound from
+        // the capability, never from input), so no scope gate is needed — a
+        // session is always within its own scope.
+        if (router === 'offer') {
+          const actorSessionId = capability.actorSessionId
+          if (!actorSessionId) {
+            throw new Error('offer is only callable by a session (no actor bound)')
+          }
+          if (proc === 'clear') {
+            sessionsSvc.clearOffer(actorSessionId)
+            return Promise.resolve({ ok: true, cleared: true })
+          }
+          if (proc === 'set') {
+            const raw = (input ?? {}) as Record<string, unknown>
+            const message = typeof raw.message === 'string' ? raw.message.trim() : ''
+            if (!message || message.length > 4_000) {
+              throw new Error('message must contain 1..4000 characters')
+            }
+            if (!Array.isArray(raw.actions)) {
+              throw new Error('actions must be an array')
+            }
+            if (raw.actions.length > 6) {
+              throw new Error('at most 6 actions are allowed')
+            }
+            const actions = raw.actions.map((a, i) => {
+              const rec = (a ?? {}) as Record<string, unknown>
+              const label = typeof rec.label === 'string' ? rec.label.trim() : ''
+              const prompt = typeof rec.prompt === 'string' ? rec.prompt.trim() : ''
+              if (!label || label.length > 80) {
+                throw new Error(`action ${i + 1}: label must contain 1..80 characters`)
+              }
+              if (!prompt || prompt.length > 4_000) {
+                throw new Error(`action ${i + 1}: prompt must contain 1..4000 characters`)
+              }
+              return { label, prompt }
+            })
+            sessionsSvc.setOffer({ sessionId: actorSessionId, message, actions })
+            return Promise.resolve({ ok: true })
+          }
+          return undefined
+        }
         if (router === 'sessions') {
           // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
           // a structured snapshot (no transcript text); read is a bounded

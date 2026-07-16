@@ -49,6 +49,10 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // acquire/release via `podium lock`/`podium merge-lock`; role-gated by the
   // lock registry's guard, caller identity stamped from the relay capability.
   lock: null,
+  // Agent action offer [spec:SP-c7f1] — `podium offer` set/clear. Carries no
+  // sessionId; the target is ALWAYS the CALLING session (bound from the
+  // capability), so it grants no reach over any other session.
+  offer: new Set(['set', 'clear']),
 }
 
 export interface AgentRelayGateDeps {

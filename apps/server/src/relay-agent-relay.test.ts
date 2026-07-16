@@ -374,3 +374,79 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     expect(prime).not.toContain('podium session title')
   })
 })
+
+// Agent action offer [spec:SP-c7f1]: `podium offer` set/clear, relayed from the
+// CALLING session, mirroring the sessions.title target-binding.
+describe('offer.set / offer.clear — an agent offers the user next actions', () => {
+  const registries: SessionRegistry[] = []
+  const machineId = 'm1'
+  let registry: SessionRegistry
+  let sA: string
+  let sB: string
+  let requestSeq = 0
+
+  const relay = async (
+    sessionId: string,
+    router: string,
+    proc: string,
+    input: unknown,
+  ): Promise<RelayResult> => {
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: `o${++requestSeq}`,
+      sessionId,
+      router,
+      proc,
+      input,
+    })
+    return reply
+  }
+
+  const offerOf = (sessionId: string) =>
+    registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.offer
+
+  beforeEach(() => {
+    registry = new SessionRegistry()
+    registries.push(registry)
+    sA = registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' }).sessionId
+    sB = registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' }).sessionId
+  })
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  it('sets an offer on the calling session and clears it', async () => {
+    const set = await relay(sA, 'offer', 'set', {
+      message: 'Tests are red on main',
+      actions: [{ label: 'Fix them', prompt: 'Please fix the failing tests' }],
+    })
+    expect(set.ok).toBe(true)
+    expect(set.result).toMatchObject({ ok: true })
+    expect(offerOf(sA)?.message).toBe('Tests are red on main')
+    expect(offerOf(sB)).toBeUndefined() // never touches a neighbour
+
+    const clear = await relay(sA, 'offer', 'clear', {})
+    expect(clear.ok).toBe(true)
+    expect(offerOf(sA)).toBeUndefined()
+  })
+
+  it('rejects an empty message and an action missing its prompt', async () => {
+    const noMsg = await relay(sA, 'offer', 'set', { message: '  ', actions: [] })
+    expect(noMsg.ok).toBe(false)
+    expect(noMsg.error).toMatch(/message must contain/)
+
+    const badAction = await relay(sA, 'offer', 'set', {
+      message: 'ok',
+      actions: [{ label: 'Go' }],
+    })
+    expect(badAction.ok).toBe(false)
+    expect(badAction.error).toMatch(/prompt must contain/)
+  })
+
+  it('rejects an unknown proc on the offer router', async () => {
+    const r = await relay(sA, 'offer', 'bogus', {})
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/not permitted via relay/)
+  })
+})
