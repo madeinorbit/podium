@@ -61,4 +61,20 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
   })
+
+  it('runs every vitest invocation under the Bun runtime [spec:SP-3f93]', () => {
+    // The suite must exercise bun:sqlite and Bun process semantics, so a bare `vitest run`
+    // (Node runtime) in any script is doctrine drift — POD-622 caught test:multi-instance
+    // regressing this way. Every vitest call must be spelled `bun --bun vitest`.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    for (const [name, script] of Object.entries(pkg.scripts)) {
+      for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
+        expect(match[1].trim(), `script "${name}" must run vitest via bun --bun`).toMatch(
+          /^(?:[A-Z_]+=\S+\s+)*bun --bun vitest\b/,
+        )
+      }
+    }
+  })
 })
