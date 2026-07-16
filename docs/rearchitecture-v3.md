@@ -116,6 +116,17 @@ Build orchestration is part of the oracle environment: typecheck runs under tsgo
 (POD-706, [spec:SP-3b58]), with turbo task orchestration once POD-715 lands — gate
 evidence must cite the orchestrator actually in CI at the time.
 
+**A FLAKY LANE IS NOT AN ORACLE — "lane green" is only evidence if the lane is
+deterministic.** The unit lane runs at `retries: 0` by doctrine (a retry hides the bug it
+retries), which is right, but it means one flaky file makes every gate reading "unit lane
+green" a coin flip — and it reds unrelated PRs, training everyone to re-run rather than
+read. Known open: POD-757 (`packages/transcript/src/tailer.test.ts`, a settle()/await race,
+~40% failure running ALONE), and POD-743, whose two red relay tests assert on a bare
+substring another paragraph may legally contain. **POD-295 owns locking a baseline that is
+green because it is deterministic, not green because it was run twice**; a phase that
+reports "oracle green" over a known-flaky lane has reported nothing. Flakes are gate
+POD-422 blockers, not background noise.
+
 ---
 
 ## 3. Standing conventions
@@ -157,7 +168,7 @@ bun run audit:rearch --phase POD-309     # the phase-close gate
   **fails closed**: an unrecognised argument never degrades into a passing run.
 
 That exit-2 behavior is load-bearing and is verified by EXECUTION, not by reading the
-source — re-executed against POD-297's HEAD 50edbe13 (POD-298, 2026-07-16): a well-formed
+source — re-executed against POD-297's HEAD 44051213 (POD-298, 2026-07-16): a well-formed
 phase id with no items mapped to it, a bare `--phase`, a malformed `--phase notaphase`, a
 typo'd `--phasee`, the dangerous `--updatebaseline` typo (which would otherwise silently
 run the ratchet and look like it worked), and an unknown flag among known ones each exit
@@ -169,10 +180,13 @@ than rejecting it, silently defeating a worktree check in both POD-657 and POD-6
 understand** — the failure mode is not an error, it is a plausible pass.
 
 **Re-test when the CLI's argument handling changes, and hold this paragraph to its own
-rule.** The first run of this evidence was against POD-297's `bddfff78`; the script then
-grew ~193 lines including its argument handling, which by this rule invalidated the
-evidence until it was re-executed at `50edbe13`. Evidence naming a commit is evidence
-about that commit.
+rule.** This evidence has now been re-executed twice for exactly that reason: first at
+`bddfff78`, invalidated when the script grew ~193 lines of argument handling
+(`50edbe13`), then invalidated again when actions were reordered before reports
+(`44051213` — which fixed `--json --update-baseline` exiting 0 having written NOTHING,
+the same fail-open family this paragraph exists to catch). It holds at each. Evidence
+naming a commit is evidence about THAT commit; a gate's argument handling is exactly the
+code that changes without anyone thinking of it as behavior.
 
 ### 3.3 Exit gates are scheduler-enforced leaves
 
@@ -368,10 +382,11 @@ machine-readable per-item counts + sites. Baseline at Phase 0 entry, by owning p
 | POD-314 | 1 | 123 | POD-333 | 3 | 20 |
 | POD-318 | 2 | 21 | POD-334 | 1 | 11 |
 
-(Re-derived by POD-298 from POD-297's committed baseline at their HEAD 50edbe13, by
+(Re-derived by POD-298 from POD-297's committed baseline at their HEAD 44051213, by
 joining the JSON counts to each check's declared owning phase — not copied from a
-report. POD-314's 123 sites are the hand-written tRPC mutation procedures; that single
-number is the best available proxy for Phase 3's size.)
+report; unchanged across 50edbe13→44051213. POD-314's 123 sites are the hand-written
+tRPC mutation procedures; that single number is the best available proxy for Phase 3's
+size.)
 
 **Why this baseline went UP (236 → 246) without any debt being added — the sharpest
 illustration of §4's "grep audits are necessary, never sufficient".** An adversarial
