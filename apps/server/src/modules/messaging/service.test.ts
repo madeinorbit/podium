@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
-import { MessagingService } from './service'
+import { MessagingService, type MessagingDeps } from './service'
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
 import type { ChannelAdapter, InboundChatMessage } from './types'
 
@@ -75,7 +75,7 @@ interface Harness {
 function makeHarness(
   opts: {
     sendTurnImpl?: () => Promise<unknown>
-    issues?: { list(): Array<{ seq: number; title: string; stage: string }> }
+    issues?: MessagingDeps['issues']
     interruptTurnImpl?: () => void
     restartThreadImpl?: () => void
   } = {},

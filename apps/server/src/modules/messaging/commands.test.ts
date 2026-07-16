@@ -41,7 +41,7 @@ function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'tit
     audience: 'human',
     draft: false,
     sessions: [],
-    sessionSummary: { live: 0, total: 0 },
+    sessionSummary: { total: 0, byPhase: {} },
     ...partial,
   }
 }
