@@ -166,7 +166,7 @@ describe('IdSquare square language', () => {
     const { rerender } = render(
       <IdSquare issue={issue()} state="queued" onPrimary={onPrimary} onColorChange={vi.fn()} />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Open issue #39' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open task #39' }))
     expect(onPrimary).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('dialog')).toBeNull()
 
@@ -179,9 +179,9 @@ describe('IdSquare square language', () => {
         onColorChange={vi.fn()}
       />,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Set colour for issue #39' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Set colour for task #39' }))
     expect(onPrimary).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('dialog', { name: 'Issue colour for #39' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: 'Task colour for #39' })).toBeTruthy()
   })
 })
 
@@ -190,10 +190,10 @@ describe('IdSquare colour picker', () => {
     const onColorChange = vi.fn(async () => undefined)
     render(<IdSquare issue={issue()} state="working" onColorChange={onColorChange} />)
 
-    const el = screen.getByRole('button', { name: 'Set colour for issue #39' })
+    const el = screen.getByRole('button', { name: 'Set colour for task #39' })
     fireEvent.click(el)
     expect(el.getAttribute('style')).toContain('0 0 0 2px #f3f3f8')
-    expect(screen.getByRole('dialog', { name: 'Issue colour for #39' })).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: 'Task colour for #39' })).toBeTruthy()
     expect(screen.getAllByRole('button', { pressed: false })).toHaveLength(10)
 
     fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
@@ -208,7 +208,7 @@ describe('IdSquare colour picker', () => {
       <IdSquare issue={issue({ color: 'teal' })} state="working" onColorChange={onColorChange} />,
     )
 
-    const el = screen.getByRole('button', { name: 'Set colour for issue #39' })
+    const el = screen.getByRole('button', { name: 'Set colour for task #39' })
     fireEvent.click(el)
     expect(screen.getByRole('button', { name: 'Teal' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: 'No colour' }))
@@ -220,7 +220,7 @@ describe('IdSquare colour picker', () => {
   it('dismisses on Escape and outside click without mutating', () => {
     const onColorChange = vi.fn()
     render(<IdSquare issue={issue()} state="idle" onColorChange={onColorChange} />)
-    const el = screen.getByRole('button', { name: 'Set colour for issue #39' })
+    const el = screen.getByRole('button', { name: 'Set colour for task #39' })
 
     fireEvent.click(el)
     fireEvent.keyDown(window, { key: 'Escape' })

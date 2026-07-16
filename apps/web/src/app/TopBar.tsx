@@ -34,7 +34,7 @@ export function TopBar(): JSX.Element {
       </span>
       <nav className="ml-[10px] inline-flex flex-none items-center gap-0.5" aria-label="Primary">
         <NavItem label="Home" target="home" view={view} onSelect={setView} badge={waitingCount} />
-        <NavItem label="Issues" target="issues" view={view} onSelect={setView} />
+        <NavItem label="Tasks" target="issues" view={view} onSelect={setView} />
         <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
         <NavItem label="Specs" target="specs" view={view} onSelect={setView} />
         <NavItem label="Automations" target="automations" view={view} onSelect={setView} />

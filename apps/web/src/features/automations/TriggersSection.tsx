@@ -30,9 +30,9 @@ type Subscription = Awaited<ReturnType<Trpc['issues']['subscriptionList']['query
 /** The event-subscription kinds a trigger can match. Mirrors the steward's
  *  subscription-event vocabulary (issue lifecycle + session state). */
 const TRIGGER_EVENTS = [
-  { value: 'issue.closed', label: 'Issue closed' },
-  { value: 'issue.stage_changed:review', label: 'Issue moved to review' },
-  { value: 'issue.needs_human', label: 'Issue needs a human' },
+  { value: 'issue.closed', label: 'Task closed' },
+  { value: 'issue.stage_changed:review', label: 'Task moved to review' },
+  { value: 'issue.needs_human', label: 'Task needs a human' },
   { value: 'session.finished', label: 'Session finished' },
   { value: 'session.errored', label: 'Session errored' },
   { value: 'session.waiting', label: 'Session waiting on input' },
@@ -339,7 +339,7 @@ function NewTriggerDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="relationship">Relationship</SelectItem>
-                  <SelectItem value="issue">Issue</SelectItem>
+                  <SelectItem value="issue">Task</SelectItem>
                   <SelectItem value="session">Session</SelectItem>
                 </SelectContent>
               </Select>
@@ -363,7 +363,7 @@ function NewTriggerDialog({
                 <Input
                   value={sourceRef}
                   onChange={(e) => setSourceRef(e.target.value)}
-                  placeholder={sourceKind === 'issue' ? 'issue id or #seq' : 'session id'}
+                  placeholder={sourceKind === 'issue' ? 'task id or #seq' : 'session id'}
                   className="w-full font-mono"
                   aria-label="Source reference"
                 />
@@ -372,7 +372,7 @@ function NewTriggerDialog({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="trigger-subscriber-id">Notify (issue/session id)</Label>
+            <Label htmlFor="trigger-subscriber-id">Notify (task/session id)</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Select
                 value={subscriberKind}
@@ -382,7 +382,7 @@ function NewTriggerDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="issue">Issue</SelectItem>
+                  <SelectItem value="issue">Task</SelectItem>
                   <SelectItem value="session">Session</SelectItem>
                 </SelectContent>
               </Select>
@@ -390,7 +390,7 @@ function NewTriggerDialog({
                 id="trigger-subscriber-id"
                 value={subscriberId}
                 onChange={(e) => setSubscriberId(e.target.value)}
-                placeholder={subscriberKind === 'issue' ? 'issue id or #seq' : 'session id'}
+                placeholder={subscriberKind === 'issue' ? 'task id or #seq' : 'session id'}
                 className="w-full font-mono"
               />
             </div>

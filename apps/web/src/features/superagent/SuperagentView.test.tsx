@@ -132,7 +132,7 @@ describe('engraved column structure', () => {
       'Nothing waiting on you',
     )
     // No issue selected — the tray is unscoped.
-    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain('ALL ISSUES')
+    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain('ALL TASKS')
   })
 
   it('scopes the bar label to the selected issue', async () => {
@@ -140,7 +140,7 @@ describe('engraved column structure', () => {
     storeSelectedIssueId = 'p'
     await mount()
     expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain(
-      'ISSUE SCOPE',
+      'TASK SCOPE',
     )
   })
 })

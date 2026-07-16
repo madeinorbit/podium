@@ -373,7 +373,7 @@ export function NewWorkRow(): JSX.Element {
             {/* New issue lives in this menu now — the top row is a single control. */}
             <DropdownMenuItem onClick={() => setNewIssueOpen(true)}>
               <Plus size={14} aria-hidden="true" className="text-muted-foreground" />
-              New issue…
+              New task…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

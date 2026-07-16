@@ -172,7 +172,7 @@ export function IssuePage({
           type="button"
           className="max-w-44 cursor-pointer truncate rounded font-mono text-[11px] text-muted-foreground/70 hover:text-foreground"
           title={`${issue.id} — click to copy`}
-          onClick={() => copyToClipboard(issue.id, 'Copied internal issue id')}
+          onClick={() => copyToClipboard(issue.id, 'Copied internal task id')}
         >
           {issue.id}
         </button>
@@ -181,7 +181,7 @@ export function IssuePage({
             type="button"
             variant="ghost"
             size="icon-sm"
-            title="Previous issue"
+            title="Previous task"
             disabled={!prev}
             onClick={() => prev && onNavigate(prev)}
           >
@@ -191,7 +191,7 @@ export function IssuePage({
             type="button"
             variant="ghost"
             size="icon-sm"
-            title="Next issue"
+            title="Next task"
             disabled={!next}
             onClick={() => next && onNavigate(next)}
           >
@@ -217,7 +217,7 @@ export function IssuePage({
                   disabled={busy}
                   onClick={() => commands.restoreIssue(onBack)}
                 >
-                  <ArchiveRestore size={14} aria-hidden="true" /> Restore issue
+                  <ArchiveRestore size={14} aria-hidden="true" /> Restore task
                 </Button>
               </div>
             )}
@@ -275,7 +275,7 @@ export function IssuePage({
               <Input
                 key={`title-${issue.id}`}
                 defaultValue={issue.title}
-                aria-label="Issue title"
+                aria-label="Task title"
                 autoFocus
                 disabled={busy}
                 className="mb-2 h-auto font-semibold text-[22px] tracking-tight"
@@ -309,7 +309,7 @@ export function IssuePage({
                 <Textarea
                   key={`desc-${issue.id}`}
                   defaultValue={issue.description}
-                  aria-label="Issue description"
+                  aria-label="Task description"
                   autoFocus
                   disabled={busy}
                   className="min-h-[120px] text-[13px]"
@@ -356,7 +356,7 @@ export function IssuePage({
                   issue.childCount > 0 ? `${issue.childDoneCount}/${issue.childCount}` : undefined
                 }
               >
-                Sub-issues
+                Sub-tasks
               </SectionHeading>
               {children.map((c) => (
                 <button
@@ -383,8 +383,8 @@ export function IssuePage({
               {addingChild ? (
                 <Input
                   autoFocus
-                  placeholder="Sub-issue title…"
-                  aria-label="Sub-issue title"
+                  placeholder="Sub-task title…"
+                  aria-label="Sub-task title"
                   value={childTitle}
                   onChange={(e) => setChildTitle(e.target.value)}
                   onKeyDown={(e) => {
@@ -410,7 +410,7 @@ export function IssuePage({
                   className="w-fit justify-start text-muted-foreground"
                   onClick={() => setAddingChild(true)}
                 >
-                  <Plus size={13} aria-hidden="true" /> Add sub-issue
+                  <Plus size={13} aria-hidden="true" /> Add sub-task
                 </Button>
               )}
             </section>
@@ -734,7 +734,7 @@ function LongFormFields({
             <Textarea
               key={`${field}-${issue.id}`}
               defaultValue={issue[field] ?? ''}
-              aria-label={`Issue ${field}`}
+              aria-label={`Task ${field}`}
               autoFocus
               disabled={busy}
               className="min-h-[100px] text-[13px]"
@@ -768,7 +768,7 @@ function LongFormFields({
               <Textarea
                 key={`${field}-${issue.id}`}
                 defaultValue=""
-                aria-label={`Issue ${field}`}
+                aria-label={`Task ${field}`}
                 autoFocus
                 disabled={busy}
                 placeholder={`Add ${label.toLowerCase()}…`}
@@ -1132,7 +1132,7 @@ function IssueOverflowMenu({
 
   const handleDelete = (): void => {
     const sessionCount = issue.sessions.length
-    const message = `Delete "${issueRefLong(issue)}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The issue and sessions can be restored; running processes will be stopped.`
+    const message = `Delete "${issueRefLong(issue)}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The task and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
     commands.deleteIssue(onDeleted)
   }
@@ -1209,7 +1209,7 @@ function IssueOverflowMenu({
         <DropdownMenuSeparator />
         {issue.deletedAt ? (
           <DropdownMenuItem onClick={handleRestore}>
-            <ArchiveRestore size={14} aria-hidden="true" /> Restore issue
+            <ArchiveRestore size={14} aria-hidden="true" /> Restore task
           </DropdownMenuItem>
         ) : (
           <DropdownMenuItem

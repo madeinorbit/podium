@@ -23,7 +23,7 @@ import { useStoreSelector } from './store'
 export type { RightPanelTab } from './shell-state'
 
 export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon }[] = [
-  { id: 'issue', label: 'Issue', icon: CircleDot },
+  { id: 'issue', label: 'Task', icon: CircleDot },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'files', label: 'Files', icon: FolderTree },
   // The dock is where shells LIVE (#23) [spec:SP-75b1] — one per worktree, never

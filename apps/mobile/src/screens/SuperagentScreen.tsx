@@ -210,7 +210,7 @@ export function SuperagentScreen() {
             <View style={styles.emptyFlip}>
               <EmptyState
                 title="Hand off some work"
-                body="The superagent can read your repos, file issues, spawn worker sessions and steer them — describe what you want done."
+                body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
               />
             </View>
           ) : null

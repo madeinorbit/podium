@@ -276,7 +276,7 @@ export function SuperagentView({
         testId="tray-bar"
         glyph="▤"
         title="Tray"
-        scope={selectedIssue ? 'ISSUE SCOPE' : 'ALL ISSUES'}
+        scope={selectedIssue ? 'TASK SCOPE' : 'ALL TASKS'}
         open={trayOpen}
         onToggle={() => setTrayOpen(!trayOpen)}
         badge={!trayOpen ? <CountPill count={itemCount} /> : undefined}
@@ -588,7 +588,7 @@ function FreshThreadComposer({
             ref={inputRef}
             className="min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={Math.min(6, Math.max(1, draft.split('\n').length))}
-            placeholder="Ask about anything — @ to pull other issues into context"
+            placeholder="Ask about anything — @ to pull other tasks into context"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value)

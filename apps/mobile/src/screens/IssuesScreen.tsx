@@ -51,18 +51,18 @@ export function IssuesScreen() {
   return (
     <Screen
       large
-      title="Issues"
+      title="Tasks"
       right={
         <>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={showDone ? 'Hide done issues' : 'Show done issues'}
+            accessibilityLabel={showDone ? 'Hide done tasks' : 'Show done tasks'}
             onPress={() => setShowDone((v) => !v)}
             hitSlop={8}
           >
             <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
           </Pressable>
-          <HeaderButton label="New issue" onPress={() => router.push('/new-issue')}>
+          <HeaderButton label="New task" onPress={() => router.push('/new-issue')}>
             <Icon as={Plus} size={19} color={color.text} />
           </HeaderButton>
         </>
@@ -106,7 +106,7 @@ export function IssuesScreen() {
           </Pressable>
         )}
         ListEmptyComponent={
-          <EmptyState title="No issues" body="Issues filed in your repos show up here." />
+          <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
         }
       />
     </Screen>

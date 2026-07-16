@@ -137,7 +137,7 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
               type="button"
               className="min-w-0 max-w-36 cursor-pointer truncate hover:text-foreground"
               title={`${issue.id} — click to copy`}
-              onClick={() => copyToClipboard(issue.id, 'Copied internal issue id')}
+              onClick={() => copyToClipboard(issue.id, 'Copied internal task id')}
             >
               {issue.id}
             </button>
@@ -508,7 +508,7 @@ export function IssuePanelView({
     <div className="min-h-0 flex-1 overflow-y-auto">
       <SummaryHeader issue={issue} />
       {children.length > 0 && (
-        <DockSection storageKey="subissues" title="Subissues" count={children.length}>
+        <DockSection storageKey="subissues" title="Subtasks" count={children.length}>
           <div className="flex flex-col gap-0.5" data-testid="dock-subissues">
             {children.map((sub) => (
               <SubissueRow key={sub.id} sub={sub} onOpen={() => openIssuePage(sub.id)} />

@@ -55,8 +55,8 @@ export function IssueListView({
                 variant="ghost"
                 size="icon-sm"
                 className="ml-auto size-5 opacity-0 group-hover:opacity-100"
-                title={`New issue in ${STAGE_LABELS[stage]}`}
-                aria-label={`New issue in ${STAGE_LABELS[stage]}`}
+                title={`New task in ${STAGE_LABELS[stage]}`}
+                aria-label={`New task in ${STAGE_LABELS[stage]}`}
                 onClick={() => onCreateIn(stage)}
               >
                 <Plus size={13} aria-hidden="true" />

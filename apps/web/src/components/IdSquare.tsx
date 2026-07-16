@@ -218,8 +218,8 @@ export function IdSquare({
         style={squareStyle}
         aria-label={
           onPrimary && (primaryOnly || !selected)
-            ? `Open issue ${label.full}`
-            : `Set colour for issue ${label.full}`
+            ? `Open task ${label.full}`
+            : `Set colour for task ${label.full}`
         }
         aria-haspopup={primaryOnly ? undefined : 'dialog'}
         aria-expanded={primaryOnly ? undefined : open}
@@ -246,7 +246,7 @@ export function IdSquare({
           <div
             ref={panelRef}
             role="dialog"
-            aria-label={`Issue colour for ${label.full}`}
+            aria-label={`Task colour for ${label.full}`}
             className="fixed z-[70] w-[196px] rounded-[10px] border border-[#3a3a46] bg-[#1b1b22] px-[11px] py-[10px] text-[#d7d7e0] shadow-[0_14px_34px_rgba(0,0,0,.65),0_2px_8px_rgba(0,0,0,.5)]"
             style={position}
           >

@@ -144,7 +144,7 @@ export function IssueContextMenu({
       onClose()
       return
     }
-    const next = window.prompt('Rename issue', first.title)?.trim()
+    const next = window.prompt('Rename task', first.title)?.trim()
     if (next && next !== first.title) {
       run(() => trpc.issues.update.mutate({ id: first.id, patch: { title: next } }))
     } else {
@@ -159,7 +159,7 @@ export function IssueContextMenu({
       issues.flatMap((issue) => issue.sessions.map((session) => session.sessionId)),
     )
     const sessionCount = sessions.size
-    const message = `Delete ${n} issue${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Issues and sessions can be restored; running processes will be stopped.`
+    const message = `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
     run(() => Promise.all(ids.map((id) => trpc.issues.delete.mutate({ id }))))
   }
@@ -324,7 +324,7 @@ export function IssueContextMenu({
     <div
       ref={ref}
       role="menu"
-      aria-label="Issue actions"
+      aria-label="Task actions"
       className="fixed z-[60] min-w-[200px] rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
       style={{ left: pos.x, top: pos.y }}
       // The host opens this on contextmenu; suppress a nested browser menu.

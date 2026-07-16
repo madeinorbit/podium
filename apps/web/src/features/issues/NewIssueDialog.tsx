@@ -297,7 +297,7 @@ export function NewIssueDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>New Issue</DialogTitle>
+          <DialogTitle>New Task</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
@@ -306,7 +306,7 @@ export function NewIssueDialog({
             aria-label="Title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Issue title"
+            placeholder="Task title"
             className="border-none px-0 font-medium text-[15px] shadow-none focus-visible:ring-0"
           />
 

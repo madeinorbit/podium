@@ -56,7 +56,7 @@ export function NewIssueScreen() {
   }
 
   return (
-    <Screen title="New issue" onBack={() => router.back()}>
+    <Screen title="New task" onBack={() => router.back()}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <SectionHeader label="Repository" />
         <View style={styles.chipWrap}>
@@ -79,7 +79,7 @@ export function NewIssueScreen() {
 
         <SectionHeader label="Title" />
         <TextInput
-          accessibilityLabel="Issue title"
+          accessibilityLabel="Task title"
           style={styles.input}
           value={title}
           onChangeText={setTitle}
@@ -89,7 +89,7 @@ export function NewIssueScreen() {
 
         <SectionHeader label="Description (optional)" />
         <TextInput
-          accessibilityLabel="Issue description"
+          accessibilityLabel="Task description"
           style={[styles.input, styles.multiline]}
           value={description}
           onChangeText={setDescription}
@@ -144,13 +144,13 @@ export function NewIssueScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Create issue"
+          accessibilityLabel="Create task"
           disabled={!canCreate}
           onPress={() => void create()}
           style={[styles.createBtn, !canCreate && styles.createBtnDisabled]}
         >
           <Text style={styles.createText}>
-            {busy ? 'Creating…' : startNow ? 'Create & start agent' : 'Create issue'}
+            {busy ? 'Creating…' : startNow ? 'Create & start agent' : 'Create task'}
           </Text>
         </Pressable>
       </ScrollView>

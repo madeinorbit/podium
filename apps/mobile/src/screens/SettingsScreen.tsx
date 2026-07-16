@@ -55,7 +55,7 @@ export function SettingsScreen() {
         <SectionHeader label="Data" />
         <View style={styles.panel}>
           <Row label="Sessions" value={String(sessions.length)} />
-          <Row label="Issues" value={String(issues.length)} />
+          <Row label="Tasks" value={String(issues.length)} />
           <Row label="Conversations" value={String(conversations.length)} />
           <Row label="Queued sends" value={String(outboxSize)} />
         </View>

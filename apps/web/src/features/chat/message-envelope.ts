@@ -57,7 +57,7 @@ export function envelopePrincipalLabel(label: string): string {
   // Only the two shapes the server actually renders (`#seq` or a nice-id ref);
   // anything else passes through untouched rather than being mislabelled.
   const issue = /^issue:(#\d+|[A-Z]{2,5}-\d+)$/.exec(label)
-  if (issue) return `issue ${issue[1]} · agent`
+  if (issue) return `task ${issue[1]} · agent`
   const session = /^session:(\S+)$/.exec(label)
   if (session) return `session ${session[1]} · agent`
   return label

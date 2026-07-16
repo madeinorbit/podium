@@ -275,7 +275,7 @@ function PaletteDialog({
     out.push({
       id: 'global:new-issue',
       group: 'global',
-      label: 'New issue',
+      label: 'New task',
       keywords: ['create', 'add'],
       run: onNewIssue,
     })
@@ -294,7 +294,7 @@ function PaletteDialog({
     }
     const views = [
       ['home', 'Go to Home', ['attention', 'board']],
-      ['issues', 'Go to Issues', ['kanban', 'board', 'tracker']],
+      ['issues', 'Go to Tasks', ['kanban', 'board', 'tracker']],
       ['workflows', 'Go to Workflows', ['agent', 'process', 'steps']],
       ['workspace', 'Go to Workspace', ['terminal', 'agents']],
       ['automations', 'Go to Automations', []],

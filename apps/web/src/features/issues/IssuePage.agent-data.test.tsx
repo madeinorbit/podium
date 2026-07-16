@@ -149,7 +149,7 @@ describe('IssuePage agent-saved data', () => {
     )
 
     fireEvent.click(screen.getByText('Architecture details from the implementing agent.'))
-    const design = screen.getByLabelText('Issue design')
+    const design = screen.getByLabelText('Task design')
     fireEvent.change(design, { target: { value: 'Updated architecture details.' } })
     fireEvent.blur(design)
     await waitFor(() =>

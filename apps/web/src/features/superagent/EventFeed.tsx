@@ -15,7 +15,7 @@ const VERBS: Record<string, string> = {
 }
 
 export function feedEventLine(event: FeedEvent, issue: IssueWire | undefined): string {
-  const label = issue ? `#${issue.seq} ${issue.title}` : 'an issue'
+  const label = issue ? `#${issue.seq} ${issue.title}` : 'a task'
   if (event.kind === 'issue.stage_changed') {
     const to = (event.payload as { to?: string } | null)?.to
     return `${label} — moved to ${to ?? 'a new stage'}`

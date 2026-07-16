@@ -52,8 +52,8 @@ describe('parseMessageEnvelope', () => {
 
 describe('envelopePrincipalLabel', () => {
   it('prettifies issue/session labels and passes kinds through', () => {
-    expect(envelopePrincipalLabel('issue:#212')).toBe('issue #212 · agent')
-    expect(envelopePrincipalLabel('issue:POD-13')).toBe('issue POD-13 · agent')
+    expect(envelopePrincipalLabel('issue:#212')).toBe('task #212 · agent')
+    expect(envelopePrincipalLabel('issue:POD-13')).toBe('task POD-13 · agent')
     expect(envelopePrincipalLabel('session:s1')).toBe('session s1 · agent')
     expect(envelopePrincipalLabel('superagent')).toBe('superagent')
     expect(envelopePrincipalLabel('system')).toBe('system')

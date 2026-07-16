@@ -23,7 +23,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="sessions" options={{ title: 'Sessions' }} />
       <Tabs.Screen name="agent" options={{ title: 'Superagent' }} />
-      <Tabs.Screen name="issues" options={{ title: 'Issues' }} />
+      <Tabs.Screen name="issues" options={{ title: 'Tasks' }} />
     </Tabs>
   )
 }

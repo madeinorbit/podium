@@ -62,7 +62,7 @@ export function RightRail({
           selected={rightPanel === 'issue'}
           badge={railBadge(phase, waitingCount)}
           ringColor={RAIL_SURFACE}
-          titleHint={`${idSquareLabel(issue).full} · ${issue.title} — issue panel`}
+          titleHint={`${idSquareLabel(issue).full} · ${issue.title} — task panel`}
           onPrimary={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
           primaryOnly
           onColorChange={onColorChange}
@@ -70,9 +70,9 @@ export function RightRail({
       ) : (
         <button
           type="button"
-          aria-label="Issue"
+          aria-label="Task"
           aria-pressed={rightPanel === 'issue'}
-          title="Issue"
+          title="Task"
           onClick={() => onPanelChange(rightPanel === 'issue' ? null : 'issue')}
           className={cn(
             // No selected issue: the square language's resting (dashed) look.

@@ -32,8 +32,8 @@ export function IssueScreen() {
 
   if (!issue) {
     return (
-      <Screen title="Issue" onBack={() => router.back()}>
-        <EmptyState title="Issue not found." />
+      <Screen title="Task" onBack={() => router.back()}>
+        <EmptyState title="Task not found." />
       </Screen>
     )
   }
@@ -113,7 +113,7 @@ export function IssueScreen() {
 
         <SectionHeader label={`Sessions (${sessions.length})`} />
         {sessions.length === 0 ? (
-          <Text style={styles.noSessions}>No active sessions on this issue.</Text>
+          <Text style={styles.noSessions}>No active sessions on this task.</Text>
         ) : (
           sessions.map((session) => (
             <SessionCard
@@ -125,7 +125,7 @@ export function IssueScreen() {
         )}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Start agent on this issue"
+          accessibilityLabel="Start agent on this task"
           disabled={starting}
           onPress={() => void startAgent()}
           style={({ pressed }) => [
@@ -134,12 +134,12 @@ export function IssueScreen() {
           ]}
         >
           <Text style={styles.startText}>
-            {starting ? 'Starting…' : 'Start agent on this issue'}
+            {starting ? 'Starting…' : 'Start agent on this task'}
           </Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Start a custom session on this issue"
+          accessibilityLabel="Start a custom session on this task"
           onPress={() =>
             router.push(
               `/new-session?issueId=${encodeURIComponent(issue.id)}&cwd=${encodeURIComponent(issue.worktreePath ?? issue.repoPath)}`,
@@ -163,7 +163,7 @@ export function IssueScreen() {
           </View>
         ))}
       </ScrollView>
-      <Composer placeholder="Comment on this issue…" onSend={(text) => void addComment(text)} />
+      <Composer placeholder="Comment on this task…" onSend={(text) => void addComment(text)} />
       <ActionSheet
         visible={stageMenuOpen}
         title="Stage"

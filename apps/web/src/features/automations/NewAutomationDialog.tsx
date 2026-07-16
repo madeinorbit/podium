@@ -41,7 +41,7 @@ type ReactiveTrigger = 'merge-main' | 'new-issue' | 'worktree-idle' | 'file-chan
 
 const REACTIVE_LABELS: Record<ReactiveTrigger, string> = {
   'merge-main': 'Branch merged to main',
-  'new-issue': 'New issue created',
+  'new-issue': 'New task created',
   'worktree-idle': 'Worktree goes idle',
   'file-changed': 'File changed',
 }
@@ -314,11 +314,11 @@ export function NewAutomationDialog({
                 <SelectValue>
                   {sessionMode === 'resume'
                     ? 'Resume the previous session'
-                    : 'Fresh issue and session each run'}
+                    : 'Fresh task and session each run'}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="fresh">Fresh issue and session each run</SelectItem>
+                <SelectItem value="fresh">Fresh task and session each run</SelectItem>
                 <SelectItem value="resume">Resume the previous session</SelectItem>
               </SelectContent>
             </Select>

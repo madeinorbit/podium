@@ -160,7 +160,7 @@ describe('SidebarUnified issue rename (#170 Fix 3)', () => {
 
   it('writes a picked ID-square colour through the existing issues.update path', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByRole('button', { name: 'Set colour for issue #1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Set colour for task #1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Violet' }))
 
     await waitFor(() =>

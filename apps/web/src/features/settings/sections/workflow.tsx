@@ -20,7 +20,7 @@ export function WorkflowSection({
   patch: (p: Partial<PodiumSettings>) => void
 }): JSX.Element {
   return (
-    <Section title="Git workflow" hint="Defaults for issue worktrees and the quick-action buttons.">
+    <Section title="Git workflow" hint="Defaults for task worktrees and the quick-action buttons.">
       <Row label="Default parent branch">
         <Input
           type="text"
@@ -71,7 +71,7 @@ export function WorkflowSection({
           }
         />
       </Row>
-      <Row label="Issue AI assistant enabled">
+      <Row label="Task AI assistant enabled">
         <Switch
           checked={settings.issues.assistantEnabled}
           onCheckedChange={(checked) =>

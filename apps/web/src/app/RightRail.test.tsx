@@ -66,7 +66,7 @@ describe('RightRail', () => {
   it('falls back to a dashed resting square when no issue is selected', () => {
     const onPanelChange = vi.fn()
     render(<RightRail rightPanel={null} lastPanel="issue" onPanelChange={onPanelChange} />)
-    const fallback = screen.getByRole('button', { name: 'Issue' })
+    const fallback = screen.getByRole('button', { name: 'Task' })
     expect(fallback.className).toContain('border-dashed')
     fireEvent.click(fallback)
     expect(onPanelChange).toHaveBeenLastCalledWith('issue')

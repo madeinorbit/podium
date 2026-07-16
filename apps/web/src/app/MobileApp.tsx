@@ -363,7 +363,7 @@ export function MobileApp(): JSX.Element {
             cellBorder,
             view === 'issues' && !superOpen ? 'text-attention' : 'text-muted-foreground',
           )}
-          title="Issues"
+          title="Tasks"
           aria-pressed={view === 'issues'}
           onClick={() => setView('issues')}
         >

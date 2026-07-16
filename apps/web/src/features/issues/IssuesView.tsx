@@ -341,7 +341,7 @@ export function IssuesView(): JSX.Element {
     const sessionText = sessionCount === 1 ? '1 session' : `${sessionCount} sessions`
     if (
       !window.confirm(
-        `Delete ${n} issue${n > 1 ? 's' : ''} and ${sessionText}? Issues and sessions can be restored; running processes will be stopped.`,
+        `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionText}? Tasks and sessions can be restored; running processes will be stopped.`,
       )
     )
       return
@@ -368,14 +368,14 @@ export function IssuesView(): JSX.Element {
   }
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Issues">
+    <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Tasks">
       <div className="flex items-center justify-between border-border border-b px-4 py-3 md:px-[22px] md:py-3.5">
-        <h2 className="font-medium text-base text-foreground">Issues</h2>
+        <h2 className="font-medium text-base text-foreground">Tasks</h2>
         <div className="flex items-center gap-2">
           <FilterMenu filter={filter} onChange={setFilter} labels={labels} assignees={assignees} />
           <DisplayMenu display={display} onChange={updateDisplay} showLayout={!isMobile} />
           <Button type="button" size="sm" onClick={() => setCreating({})}>
-            <Plus size={14} aria-hidden="true" /> New Issue
+            <Plus size={14} aria-hidden="true" /> New Task
           </Button>
         </div>
       </div>
@@ -384,8 +384,8 @@ export function IssuesView(): JSX.Element {
         <Input
           value={filter.text ?? ''}
           onChange={(e) => setFilter({ ...filter, text: e.target.value || undefined })}
-          placeholder="Search issues…"
-          aria-label="Search issues"
+          placeholder="Search tasks…"
+          aria-label="Search tasks"
           className="h-8 w-full max-w-[240px] flex-1"
         />
         <button
@@ -399,8 +399,8 @@ export function IssuesView(): JSX.Element {
           aria-pressed={display.flatten}
           title={
             display.flatten
-              ? 'Showing all issues flat — click to nest sub-issues under parents'
-              : 'Showing top-level issues — click to flatten sub-issues into the list'
+              ? 'Showing all tasks flat — click to nest sub-tasks under parents'
+              : 'Showing top-level tasks — click to flatten sub-tasks into the list'
           }
           onClick={() => updateDisplay({ flatten: !display.flatten })}
         >
@@ -946,8 +946,8 @@ function IssueColumn({
           variant="ghost"
           size="icon-sm"
           className="ml-auto size-5"
-          title={`New issue in ${label}`}
-          aria-label={`New issue in ${label}`}
+          title={`New task in ${label}`}
+          aria-label={`New task in ${label}`}
           onClick={() => onCreateIn(stage)}
         >
           <Plus size={13} aria-hidden="true" />
@@ -955,7 +955,7 @@ function IssueColumn({
       </div>
       <div className="flex flex-col gap-2 overflow-y-auto">
         {issues.length === 0 ? (
-          <p className="px-1 py-2 text-[12px] text-muted-foreground/60">No issues.</p>
+          <p className="px-1 py-2 text-[12px] text-muted-foreground/60">No tasks.</p>
         ) : (
           issues.map((issue) => (
             <CardBoundary key={issue.id} resetKey={issue.id} label="issue card">

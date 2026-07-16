@@ -518,7 +518,7 @@ function AssignmentPanel(props: {
           className="input"
         >
           <option value="session">Session</option>
-          <option value="issue">Issue</option>
+          <option value="issue">Task</option>
           <option value="repository">Repository default</option>
           <option value="global">Global default</option>
         </select>

@@ -76,7 +76,7 @@ export function deriveTrayItems(issues: IssueWire[], selectedIssueId: string | n
 /**
  * The empty state's "N agents working" counter: live agent sessions attached to
  * the tray's scope. Shells and headless (superagent-embedded) sessions are not
- * "agents working on this issue" any more than they are on the board.
+ * "agents working on this task" any more than they are on the board.
  */
 export function workingSessionCount(issues: IssueWire[], selectedIssueId: string | null): number {
   const seen = new Set<string>()
