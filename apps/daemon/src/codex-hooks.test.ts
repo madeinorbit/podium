@@ -160,7 +160,13 @@ describe('computeCodexTrustedHash', () => {
 describe('PODIUM_CODEX_HOOK_COMMAND', () => {
   it('drains stdin before exiting when the routing env is absent', async () => {
     const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
-      env: { ...process.env, PODIUM_CODEX_HOOK_URL: '' },
+      env: {
+        ...process.env,
+        PODIUM_SESSION_ID: '',
+        PODIUM_CODEX_HOOK_URL: '',
+        PODIUM_CODEX_HOOK_SOCKET: '',
+        PODIUM_CODEX_HOOK_RECEIPT_DIR: '',
+      },
       stdio: ['pipe', 'ignore', 'ignore'],
     })
     const stdinFinished = finished(child.stdin)
@@ -171,6 +177,78 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
 
     expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
   })
+
+  it.skipIf(process.platform === 'win32')(
+    'retains the exact official payload when the daemon socket is unavailable',
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'podium-codex-hook-command-'))
+      const receiptDir = join(dir, 'receipts')
+      const payload = JSON.stringify({ session_id: 'thread-a', hook_event_name: 'SessionStart' })
+      const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
+        env: {
+          ...process.env,
+          PODIUM_SESSION_ID: 'pane-a',
+          PODIUM_CODEX_HOOK_URL: '',
+          PODIUM_CODEX_HOOK_SOCKET: join(dir, 'daemon-down.sock'),
+          PODIUM_CODEX_HOOK_RECEIPT_DIR: receiptDir,
+        },
+        stdio: ['pipe', 'ignore', 'ignore'],
+      })
+      child.stdin.end(payload)
+      const [exitCode, signal] = await once(child, 'close')
+
+      expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
+      expect(JSON.parse(await readFile(join(receiptDir, 'pane-a.json'), 'utf8'))).toEqual(
+        JSON.parse(payload),
+      )
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'prefers the stable socket even when the launch-time URL is stale',
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'podium-codex-hook-command-'))
+      const socketPath = join(dir, 'hook.sock')
+      const receiptDir = join(dir, 'receipts')
+      let resolvePayload!: (payload: unknown) => void
+      const received = new Promise<unknown>((resolve) => {
+        resolvePayload = resolve
+      })
+      const server = createServer((req, res) => {
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => {
+          resolvePayload(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+          res.writeHead(200)
+          res.end('{}')
+        })
+      })
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(socketPath, resolve)
+      })
+      try {
+        const payload = { session_id: 'thread-a', hook_event_name: 'SessionStart' }
+        const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
+          env: {
+            ...process.env,
+            PODIUM_SESSION_ID: 'pane-a',
+            PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1/hooks/wrong-pane',
+            PODIUM_CODEX_HOOK_SOCKET: socketPath,
+            PODIUM_CODEX_HOOK_RECEIPT_DIR: receiptDir,
+          },
+          stdio: ['pipe', 'ignore', 'ignore'],
+        })
+        child.stdin.end(JSON.stringify(payload))
+        const [exitCode, signal] = await once(child, 'close')
+        expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
+        expect(await received).toEqual(payload)
+        expect(JSON.parse(await readFile(join(receiptDir, 'pane-a.json'), 'utf8'))).toEqual(payload)
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      }
+    },
+  )
 })
 
 // Real-binary smoke (cli-invocations-need-real-binary-smoke): installs into an

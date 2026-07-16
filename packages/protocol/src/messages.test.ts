@@ -440,6 +440,11 @@ describe('ControlMessage (server -> daemon)', () => {
     { type: 'input', sessionId: 's1', data: 'aGk=' },
     { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'redraw', sessionId: 's1' },
+    {
+      type: 'sessionResumeRefAck',
+      sessionId: 's1',
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+    },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseControlMessage(encode(msg))).toEqual(msg)
@@ -466,6 +471,7 @@ describe('DaemonMessage (daemon -> server)', () => {
       sessionId: 's1',
       resume: { kind: 'codex-thread', value: 'thread-1' },
       confidence: 'exact',
+      ackRequested: true,
     },
     { type: 'spawnError', sessionId: 's1', message: 'enoent' },
     { type: 'title', sessionId: 's1', title: '⠹ podium' },

@@ -309,10 +309,19 @@ describe('codexApprovalsReviewerFromTranscript', () => {
 describe('codexStateProvider', () => {
   it('injects the per-session callback for the global hook install', () => {
     expect(
-      codexStateProvider.instrumentation({ endpointUrl: 'http://x', settingsPath: '/tmp/s' }),
+      codexStateProvider.instrumentation({
+        endpointUrl: 'http://x',
+        settingsPath: '/tmp/s',
+        socketPath: '/run/podium/hooks.sock',
+        receiptDir: '/state/podium/codex-receipts',
+      }),
     ).toEqual({
       args: [],
-      env: { PODIUM_CODEX_HOOK_URL: 'http://x' },
+      env: {
+        PODIUM_CODEX_HOOK_URL: 'http://x',
+        PODIUM_CODEX_HOOK_SOCKET: '/run/podium/hooks.sock',
+        PODIUM_CODEX_HOOK_RECEIPT_DIR: '/state/podium/codex-receipts',
+      },
     })
   })
 

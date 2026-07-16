@@ -3,7 +3,11 @@ import { existsSync, realpathSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { PODIUM_CODEX_HOOK_URL_ENV } from '@podium/agent-bridge'
+import {
+  PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
+} from '@podium/agent-bridge'
 
 /**
  * Install Podium's Codex native-hook instrumentation (Orca-style).
@@ -16,18 +20,19 @@ import { PODIUM_CODEX_HOOK_URL_ENV } from '@podium/agent-bridge'
  * otherwise codex silently drops it. So install = upsert hooks.json + matching
  * trust entries, both idempotent and preserving anything another tool put there.
  *
- * The handler is env-gated fail-open: sessions spawned by Podium carry
- * `PODIUM_CODEX_HOOK_URL` (the per-session ingest endpoint) in their env, which
- * child hook processes inherit; any codex run without the var consumes its hook
- * payload and exits 0, so the global install neither affects sessions Podium
- * didn't spawn nor closes stdin while Codex is still writing it.
+ * The handler is env-gated fail-open: sessions spawned by Podium carry an
+ * instance-scoped socket and receipt directory in their env, which child hook
+ * processes inherit. Any Codex run without Podium's env consumes stdin and exits
+ * 0, so the global install does not affect non-Podium sessions.
  */
 
-// Single-line, POSIX, no dependencies beyond curl. Read stdin BEFORE the env
-// gate so Codex never gets EPIPE from an unrouted global hook. Fail-open
-// everywhere: no env → exit 0; curl failure swallowed. Bounded (-m 2) so a
-// wedged daemon can't stall a codex turn past the hook timeout.
-export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); u="$${PODIUM_CODEX_HOOK_URL_ENV}"; [ -n "$u" ] || exit 0; printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true'`
+// Single-line POSIX handler. It first replaces this pane's owner-only receipt
+// with the latest official Codex payload, then posts over the stable Unix socket.
+// The receipt is removed only after the server acknowledges durable persistence.
+// URL is a one-release fallback for processes running an older hook command.
+// Read stdin before every env gate so Codex never sees EPIPE; every I/O failure
+// remains fail-open and curl is bounded to two seconds.
+export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSION_ID"; d="$${PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV}"; s="$${PODIUM_CODEX_HOOK_SOCKET_ENV}"; u="$${PODIUM_CODEX_HOOK_URL_ENV}"; if [ -n "$sid" ] && [ -n "$d" ]; then umask 077; mkdir -p "$d" >/dev/null 2>&1 || true; t="$d/$sid.$$.tmp"; if printf %s "$p" >"$t" 2>/dev/null; then mv -f "$t" "$d/$sid.json" 2>/dev/null || rm -f "$t"; fi; fi; if [ -n "$s" ] && [ -n "$sid" ]; then printf %s "$p" | curl -fsS -m 2 --unix-socket "$s" -X POST -H "content-type: application/json" --data-binary @- "http://localhost/hooks/$sid" >/dev/null 2>&1 || true; elif [ -n "$u" ]; then printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true; fi'`
 
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
 

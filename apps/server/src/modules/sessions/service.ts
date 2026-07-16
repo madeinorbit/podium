@@ -2497,10 +2497,19 @@ export class SessionsService {
       case 'sessionResumeRef': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        // A daemon may bind only sessions owned by its authenticated machine.
+        // This check is especially important for acknowledgements: never tell a
+        // foreign instance that its claimed mapping was persisted.
+        if (session.machineId !== machineId) {
+          console.warn(
+            `[podium] ignored resume binding for ${msg.sessionId} from non-owner machine ${machineId}`,
+          )
+          break
+        }
         // [spec:SP-fccf] A native Codex thread belongs to one interactive Podium
         // pane. Timing-only observers from older daemons are never allowed to
-        // overwrite an established binding. Exact launch-marker/hook evidence wins
-        // and clears stale siblings so the persisted invariant heals in place.
+        // overwrite an established binding. Exact native-hook or legacy-marker
+        // evidence wins and clears stale siblings so the invariant heals in place.
         const conflicts =
           session.agentKind === 'codex' && !session.headless
             ? [...this.sessions.values()].filter(
@@ -2554,6 +2563,15 @@ export class SessionsService {
           // updated meta so already-connected clients see it live, rather than only
           // when a coincident transcriptAppend happens to broadcast or on reconnect.
           this.broadcastSessions()
+        }
+        // Ack only after the exact mapping is already in durable server state.
+        // Delivery is at-least-once, so an unchanged mapping is also acknowledged.
+        if (msg.ackRequested && msg.confidence === 'exact') {
+          this.toMachine(machineId, {
+            type: 'sessionResumeRefAck',
+            sessionId: msg.sessionId,
+            resume: msg.resume,
+          })
         }
         break
       }

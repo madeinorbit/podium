@@ -28,9 +28,9 @@ const TAIL_BYTES = 128 * 1024
 const SESSION_CONTEXT_BYTES = 1024 * 1024
 const PODIUM_SESSION_MARKER_RE = /<podium-session-id>([0-9a-f-]{36})<\/podium-session-id>/i
 
-/** Correlation metadata persisted in Codex's developer-context record. It is
+/** Legacy correlation metadata persisted in Codex's developer-context record. It is
  *  deliberately not a resume id: the Podium row exists before Codex creates a
- *  native thread. [spec:SP-fccf] */
+ *  native thread. New launches use native hooks and never inject this marker. */
 export function codexPodiumSessionMarker(sessionId: string): string {
   return `<podium-session-id>${sessionId}</podium-session-id>`
 }
@@ -402,25 +402,30 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
 
 export const codexStateProvider: AgentStateProvider = {
   // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
-  // spawn — see the daemon's ensurePodiumCodexHooks); the per-session ingest URL
-  // rides the spawn env instead, so no argv or settings-file injection is needed.
-  // Theme seeding is the exception: `-c tui.theme=ansi` is codex's official
-  // per-invocation config override, pointing its syntax theme at the terminal's
-  // ANSI palette (the chrome is ANSI-16 already) so an xterm palette/background
-  // change recolours it. Off = no flag, the user's own config.toml theme rules
-  // [spec:SP-a04d].
-  instrumentation({ endpointUrl, seedTheme }) {
+  // spawn — see the daemon ensurePodiumCodexHooks. New sessions prefer the
+  // stable, instance-scoped socket; URL remains for one rolling upgrade.
+  // Exact binding receipts survive daemon or server reconnects. Theme seeding
+  // uses the official per-invocation config override [spec:SP-a04d].
+  instrumentation({ endpointUrl, socketPath, receiptDir, seedTheme }) {
     return {
       args: seedTheme ? ['-c', 'tui.theme=ansi'] : [],
-      env: { [PODIUM_CODEX_HOOK_URL_ENV]: endpointUrl },
+      env: {
+        [PODIUM_CODEX_HOOK_URL_ENV]: endpointUrl,
+        ...(socketPath ? { [PODIUM_CODEX_HOOK_SOCKET_ENV]: socketPath } : {}),
+        ...(receiptDir ? { [PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV]: receiptDir } : {}),
+      },
     }
   },
   translate: translateCodexEvent,
   bootEvents: codexBootEvents,
 }
 
-/** Env-gated callback used by the global Codex hook install. */
+/** Legacy rolling-upgrade callback used when no stable socket was injected. */
 export const PODIUM_CODEX_HOOK_URL_ENV = 'PODIUM_CODEX_HOOK_URL'
+/** Stable, instance-scoped Unix socket used by new Codex hook commands. */
+export const PODIUM_CODEX_HOOK_SOCKET_ENV = 'PODIUM_CODEX_HOOK_SOCKET'
+/** Instance-scoped directory containing at most one pending identity receipt per pane. */
+export const PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV = 'PODIUM_CODEX_HOOK_RECEIPT_DIR'
 
 /**
  * Discover the live rollout file for a freshly-spawned (or resumed) Codex session
@@ -694,8 +699,7 @@ export async function findLiveCodexRollout(
       const full = join(dir, e.name)
       if (e.isDirectory()) {
         const childParts = datePathParts(dateParts, e.name)
-        if (pruneBeforeMs > 0 && childParts && datePeriodEndMs(childParts) < pruneBeforeMs)
-          continue
+        if (pruneBeforeMs > 0 && childParts && datePeriodEndMs(childParts) < pruneBeforeMs) continue
         await walk(full, childParts)
       } else if (e.name.endsWith('.jsonl')) {
         try {
@@ -739,9 +743,9 @@ export async function findLiveCodexRollout(
     }
   }
   await walk(sessionsRoot, [])
-  // A launch marker is exact evidence and therefore mandatory when the daemon
-  // supplied a Podium session id. Returning no result is safer than wiring this
-  // pane to a sibling; native hooks or a later poll can still settle it.
+  // A legacy launch marker is exact evidence and therefore mandatory when the
+  // daemon supplied a Podium session id. New unmarked launches wait for their
+  // native hook rather than ever guessing a sibling.
   const eligible = podiumSessionId
     ? candidates.filter((candidate) => candidate.podiumSessionId === podiumSessionId)
     : candidates
@@ -830,10 +834,7 @@ const PRUNE_SLACK_MS = 48 * 60 * 60 * 1000
  * month 1-12, day 1-31), or null for anything off-layout — null disables pruning
  * for that whole subtree, so an unexpected layout is walked, never skipped.
  */
-function datePathParts(
-  parts: readonly number[] | null,
-  name: string,
-): readonly number[] | null {
+function datePathParts(parts: readonly number[] | null, name: string): readonly number[] | null {
   if (parts === null || parts.length >= 3) return null
   if (!/^\d+$/.test(name)) return null
   const n = Number(name)

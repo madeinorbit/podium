@@ -39,6 +39,61 @@ describe('multi-daemon routing', () => {
     expect(meta?.machineName).toBe('two')
   })
 
+  it('acknowledges an exact native binding back to its owner after storing it', () => {
+    const { reg, m1, m2 } = regWithTwoDaemons()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/x',
+      machineId: 'm1',
+    })
+    m1.length = 0
+
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-a' },
+      confidence: 'exact',
+      ackRequested: true,
+    })
+
+    expect(
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+        ?.resume,
+    ).toEqual({ kind: 'codex-thread', value: 'thread-a' })
+    expect(m1).toContainEqual({
+      type: 'sessionResumeRefAck',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-a' },
+    })
+    expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
+  })
+
+  it('rejects a native binding and acknowledgement from a non-owner daemon', () => {
+    const { reg, m1, m2 } = regWithTwoDaemons()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/x',
+      machineId: 'm1',
+    })
+    m1.length = 0
+    m2.length = 0
+
+    reg.modules.sessions.onDaemonMessageFrom('m2', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'foreign-thread' },
+      confidence: 'exact',
+      ackRequested: true,
+    })
+
+    expect(
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+        ?.resume,
+    ).toBeUndefined()
+    expect(m1).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
+    expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
+  })
+
   it('detaching m1 only marks m1 sessions reconnecting', () => {
     const { reg } = regWithTwoDaemons()
     const a = reg.modules.sessions.createSession({

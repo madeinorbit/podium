@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ApprovalExecResultMessage } from './approvals'
 import {
   ConversationsChangedMessage,
   RepoOpResultMessage,
@@ -6,13 +7,12 @@ import {
   ScanResultMessage,
 } from './discovery'
 import {
+  DirListResultMessage,
   FileAssetResultMessage,
   FileReadResultMessage,
   FileWriteResultMessage,
-  DirListResultMessage,
   ImageUploadResultMessage,
 } from './files'
-import { ApprovalExecResultMessage } from './approvals'
 import { HarnessExecResultMessage } from './harness'
 import {
   HandoffChunkReadResultMessage,
@@ -57,10 +57,12 @@ export const SessionResumeRefMessage = z.object({
   type: z.literal('sessionResumeRef'),
   sessionId: z.string(),
   resume: ResumeRef,
-  // Exact = native hook, known resume, or an embedded Podium launch marker.
+  // Exact = native hook, known resume, or a legacy embedded Podium launch marker.
   // Heuristic/absent = cwd/time inference from an older daemon. Optional keeps
   // rolling upgrades wire-compatible.
   confidence: z.enum(['exact', 'heuristic']).optional(),
+  // Retained native-hook evidence is removed only after this is persisted.
+  ackRequested: z.boolean().optional(),
 })
 
 // daemon -> server: the agent's live working directory changed (read from the

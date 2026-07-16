@@ -129,6 +129,7 @@ export const CONTROL_MESSAGE_CLASS = {
   spawn: 'command',
   reattach: 'command',
   kill: 'command',
+  sessionResumeRefAck: 'command',
   transcriptMirrorRead: 'bulk',
   sessionPriority: 'command',
   scanRequest: 'command',

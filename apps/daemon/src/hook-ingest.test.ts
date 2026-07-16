@@ -1,3 +1,7 @@
+import { access, mkdtemp, rm } from 'node:fs/promises'
+import { request } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { HOOK_BODY_MAX_BYTES, type HookIngest, startHookIngest } from './hook-ingest'
 
@@ -76,6 +80,81 @@ describe('hook ingest', () => {
     )
   })
 })
+
+function postSocket(
+  socketPath: string,
+  sessionId: string,
+  body: unknown,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        socketPath,
+        path: `/hooks/${sessionId}`,
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+      },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => chunks.push(chunk))
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            text: Buffer.concat(chunks).toString('utf8'),
+          }),
+        )
+      },
+    )
+    req.on('error', reject)
+    req.end(JSON.stringify(body))
+  })
+}
+
+describe('hook ingest Unix socket', () => {
+  it.skipIf(process.platform === 'win32')(
+    'accepts the same hook route and removes its stable name on close',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'podium-hook-socket-'))
+      const socketPath = join(root, 'ingest.sock')
+      const got: { sessionId: string; payload: unknown }[] = []
+      const ing = await startHookIngest({
+        port: 0,
+        socketPath,
+        onPayload: (sessionId, payload) => got.push({ sessionId, payload }),
+      })
+      try {
+        expect(await postSocket(socketPath, 'pane-a', { session_id: 'thread-a' })).toEqual({
+          status: 200,
+          text: '{}',
+        })
+        expect(got).toEqual([{ sessionId: 'pane-a', payload: { session_id: 'thread-a' } }])
+      } finally {
+        await ing.close()
+      }
+      await expect(access(socketPath)).rejects.toMatchObject({ code: 'ENOENT' })
+      await rm(root, { recursive: true, force: true })
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'never unlinks another live instance socket',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'podium-hook-socket-'))
+      const socketPath = join(root, 'ingest.sock')
+      const first = await startHookIngest({ port: 0, socketPath, onPayload: () => {} })
+      try {
+        await expect(
+          startHookIngest({ port: 0, socketPath, onPayload: () => {} }),
+        ).rejects.toMatchObject({ code: 'EADDRINUSE' })
+        expect((await postSocket(socketPath, 'pane-a', {})).status).toBe(200)
+      } finally {
+        await first.close()
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+  )
+})
+
 async function post(url: string, body: unknown): Promise<{ status: number; text: string }> {
   const res = await fetch(url, {
     method: 'POST',

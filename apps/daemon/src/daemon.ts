@@ -32,6 +32,7 @@ import {
   applyInstanceRuntimeEnv,
   durableSessionLabel,
   ensureInstanceStateIdentity,
+  instanceStateDir,
   resolveInstanceId,
 } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
@@ -39,6 +40,7 @@ import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { ensurePodiumCodexHooks } from './codex-hooks'
+import { CodexIdentityReceipts } from './codex-identity-receipts'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
@@ -180,6 +182,10 @@ export interface DaemonHooksOptions {
   port?: number
   /** Where per-session hook settings files are written. Defaults to $PODIUM_STATE_DIR/hooks else ~/.podium/hooks. */
   settingsDir?: string
+  /** Stable, instance-scoped Codex hook socket. Defaults inside settingsDir on POSIX. */
+  socketPath?: string
+  /** Pending exact Codex bindings. Defaults inside settingsDir. */
+  receiptDir?: string
 }
 
 /**
@@ -241,6 +247,8 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
 export interface DaemonHandle {
   /** Where the hook ingest is actually listening (fixed port unless it was taken). */
   readonly hookPort: number
+  /** Stable Codex hook endpoint; absent on Windows. */
+  readonly hookSocketPath?: string
   /** Where the agent-relay loopback is actually listening (fixed port unless taken). */
   readonly agentRelayPort: number
   /**
@@ -265,6 +273,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     console.warn(noDurableBackendWarning())
   }
   const settingsDir = opts.hooks?.settingsDir ?? join(stateDir(), 'hooks')
+  // [spec:SP-15aa] These durable local endpoints belong to the selected
+  // instance's runtime namespace, not the global home or the command relay.
+  const runtimeDir = join(instanceStateDir(instanceId), 'runtime')
+  const hookSocketPath =
+    opts.hooks?.socketPath ??
+    (process.platform === 'win32' ? undefined : join(runtimeDir, 'codex-hooks.sock'))
+  const codexReceiptDir = opts.hooks?.receiptDir ?? join(runtimeDir, 'codex-identity-receipts')
+  const codexIdentityReceipts = new CodexIdentityReceipts(codexReceiptDir)
   const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
 
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
@@ -353,6 +369,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   )
   const ingest = await startHookIngest({
     port: opts.hooks?.port ?? resolveHookPort(config),
+    ...(hookSocketPath ? { socketPath: hookSocketPath } : {}),
     // Bounded, timeout-safe: prime injection first (SessionStart/UserPromptSubmit),
     // then mail delivery at Stop; first non-null wins.
     respondTo,
@@ -449,6 +466,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     primeInjector,
     reattachGate: createLimiter(REATTACH_CONCURRENCY),
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
+    hookSocketPath,
+    codexReceiptDir,
+    codexIdentityReceipts,
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
     agentRelayEndpointFor: (sessionId) => agentRelay.endpointFor(sessionId),
     agentRelayHub,
@@ -531,6 +551,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const handle: DaemonHandle = {
     hookPort: ingest.port,
+    ...(ingest.socketPath ? { hookSocketPath: ingest.socketPath } : {}),
     agentRelayPort: agentRelay.port,
     async close(closeOpts) {
       closing = true // stop the reconnect loop from resurrecting the socket
@@ -611,6 +632,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // auth (paired AND every reconnect's helloOk) — off the handshake path, so a
       // hung CLI probe can never stall the first frame.
       void reportInventory(ctx)
+      // At-least-once recovery: send every exact native binding still awaiting
+      // a server persistence acknowledgement after each successful reconnect.
+      void codexIdentityReceipts
+        .replay(send)
+        .catch((err) => console.warn('[podium] Codex identity receipt replay failed:', err))
       resolveStart()
     }
     // Send the handshake as the FIRST frame on a socket's open. The server holds the

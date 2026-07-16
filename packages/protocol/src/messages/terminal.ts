@@ -144,6 +144,13 @@ export function agentSupportsCloud(kind: AgentKind): boolean {
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
+/** Server confirms that an exact native resume binding is durably stored. */
+export const SessionResumeRefAckMessage = z.object({
+  type: z.literal('sessionResumeRefAck'),
+  sessionId: z.string(),
+  resume: ResumeRef,
+})
+
 export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 

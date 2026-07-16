@@ -2,6 +2,7 @@ import type { AgentSession, agentLaunchCommand } from '@podium/agent-bridge'
 import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
+import type { CodexIdentityReceipts } from '../codex-identity-receipts'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { SessionObservers } from '../session-observers'
@@ -55,6 +56,12 @@ export interface DaemonContext {
   runningHeadlessTurns: Map<string, HeadlessTurnHandle>
 
   // -- services --------------------------------------------------------------
+  /** Stable instance-scoped Codex hook endpoint; absent on Windows. */
+  hookSocketPath: string | undefined
+  /** Owner-only directory inherited by Codex hook subprocesses. */
+  codexReceiptDir: string
+  /** Pending exact Podium ID -> native Codex ID bindings. */
+  codexIdentityReceipts: CodexIdentityReceipts
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
   hookEndpointFor(sessionId: string): string
   /** Agent-relay loopback endpoint for a session (agent env). */

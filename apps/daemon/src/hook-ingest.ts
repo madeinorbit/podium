@@ -1,4 +1,7 @@
-import { createServer, type Server } from 'node:http'
+import { chmod, mkdir, rm } from 'node:fs/promises'
+import { createServer, type RequestListener, type Server } from 'node:http'
+import { createConnection } from 'node:net'
+import { dirname } from 'node:path'
 
 /**
  * Receives Claude Code `type: "http"` hook POSTs at /hooks/<podiumSessionId>.
@@ -13,6 +16,8 @@ import { createServer, type Server } from 'node:http'
  */
 export interface HookIngest {
   port: number
+  /** Stable, instance-scoped Codex endpoint when configured. */
+  socketPath?: string
   endpointFor(sessionId: string): string
   close(): Promise<void>
 }
@@ -32,10 +37,12 @@ export const DEFAULT_HOOK_PORT = 45777
  */
 export const HOOK_BODY_MAX_BYTES = 2 * 1024 * 1024
 
-export function startHookIngest(opts: {
+export async function startHookIngest(opts: {
   onPayload: (sessionId: string, payload: unknown) => void
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_HOOK_PORT. */
   port?: number
+  /** Stable, instance-scoped Unix socket used by Codex hooks. */
+  socketPath?: string
   /**
    * Optional bounded response. When provided, the resolved JSON string is sent
    * as the hook response body (Claude Code reads it as e.g. additionalContext);
@@ -46,7 +53,7 @@ export function startHookIngest(opts: {
   /** Max time to await `respondTo` before falling back to `'{}'`. Default 3000. */
   respondTimeoutMs?: number
 }): Promise<HookIngest> {
-  const server: Server = createServer((req, res) => {
+  const onRequest: RequestListener = (req, res) => {
     const match = /^\/hooks\/([\w.-]+)$/.exec(req.url ?? '')
     if (!match || req.method !== 'POST') {
       res.writeHead(404)
@@ -89,7 +96,8 @@ export function startHookIngest(opts: {
       } catch {
         // observer must never throw into the response path
       }
-      if (!opts.respondTo) {
+      const respondTo = opts.respondTo
+      if (!respondTo) {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end('{}')
         return
@@ -119,7 +127,7 @@ export function startHookIngest(opts: {
         clearTimeout(timer)
       })
       Promise.resolve()
-        .then(() => opts.respondTo!(sessionId, payload))
+        .then(() => respondTo(sessionId, payload))
         .then((body) => {
           clearTimeout(timer)
           finish(typeof body === 'string' && body.length > 0 ? body : '{}')
@@ -129,23 +137,89 @@ export function startHookIngest(opts: {
           finish('{}')
         })
     })
-  })
+  }
 
+  const server = createServer(onRequest)
   const preferred = opts.port ?? DEFAULT_HOOK_PORT
-  return new Promise((resolve, reject) => {
+  const port = await new Promise<number>((resolve, reject) => {
     const finish = (): void => {
       const addr = server.address()
       if (addr === null || typeof addr === 'string') {
         reject(new Error('hook ingest: no port'))
         return
       }
-      resolve({
-        port: addr.port,
-        endpointFor: (sessionId) => `http://127.0.0.1:${addr.port}/hooks/${sessionId}`,
-        close: () => new Promise<void>((r) => server.close(() => r())),
-      })
+      resolve(addr.port)
     }
     server.once('error', reject)
     server.listen(preferred, '127.0.0.1', finish)
   })
+
+  let socketServer: Server | undefined
+  let socketOwned = false
+  if (opts.socketPath) {
+    try {
+      await prepareSocketPath(opts.socketPath)
+      const unixServer = createServer(onRequest)
+      socketServer = unixServer
+      await new Promise<void>((resolve, reject) => {
+        unixServer.once('error', reject)
+        unixServer.listen(opts.socketPath, () => resolve())
+      })
+      socketOwned = true
+      // Only this user should be able to impersonate a hook payload.
+      await chmod(opts.socketPath, 0o600)
+    } catch (err) {
+      const failedSocketServer = socketServer
+      await Promise.all([
+        new Promise<void>((resolve) => server.close(() => resolve())),
+        failedSocketServer?.listening
+          ? new Promise<void>((resolve) => failedSocketServer.close(() => resolve()))
+          : Promise.resolve(),
+      ])
+      if (socketOwned) await rm(opts.socketPath, { force: true })
+      throw err
+    }
+  }
+
+  return {
+    port,
+    ...(opts.socketPath ? { socketPath: opts.socketPath } : {}),
+    endpointFor: (sessionId) => `http://127.0.0.1:${port}/hooks/${sessionId}`,
+    close: async () => {
+      const openSocketServer = socketServer
+      await Promise.all([
+        new Promise<void>((resolve) => server.close(() => resolve())),
+        openSocketServer
+          ? new Promise<void>((resolve) => openSocketServer.close(() => resolve()))
+          : Promise.resolve(),
+      ])
+      if (opts.socketPath) await rm(opts.socketPath, { force: true })
+    },
+  }
+}
+
+/**
+ * A crashed daemon can leave the filesystem name behind. Remove only a stale
+ * socket; never unlink a listener belonging to another Podium instance.
+ */
+async function prepareSocketPath(path: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  const live = await new Promise<boolean>((resolve, reject) => {
+    const socket = createConnection(path)
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('error', (err: NodeJS.ErrnoException) => {
+      socket.destroy()
+      if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') resolve(false)
+      else reject(err)
+    })
+  })
+  if (live) {
+    const err = new Error(`hook ingest socket already in use: ${path}`) as NodeJS.ErrnoException
+    err.code = 'EADDRINUSE'
+    throw err
+  }
+  await rm(path, { force: true })
 }

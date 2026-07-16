@@ -154,9 +154,10 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       const instr = provider.instrumentation({
         endpointUrl: ctx.hookEndpointFor(msg.sessionId),
         settingsPath: join(ctx.settingsDir, `${msg.sessionId}.json`),
-        // Absent = the setting's default (on) — an older server that doesn't
-        // send the field still gets the product default [spec:SP-a04d].
+        // Absent = the setting default (on); older servers still get [spec:SP-a04d].
         seedTheme: msg.seedCliTheme ?? true,
+        ...(ctx.hookSocketPath ? { socketPath: ctx.hookSocketPath } : {}),
+        receiptDir: ctx.codexReceiptDir,
       })
       if (instr.file) writeFileSync(instr.file.path, instr.file.contents)
       extraArgs = instr.args
@@ -326,7 +327,14 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
 
 export const sessionHandlers: Pick<
   ControlHandlers,
-  'spawn' | 'reattach' | 'kill' | 'input' | 'resize' | 'redraw' | 'sessionPriority'
+  | 'spawn'
+  | 'reattach'
+  | 'kill'
+  | 'input'
+  | 'resize'
+  | 'redraw'
+  | 'sessionResumeRefAck'
+  | 'sessionPriority'
 > = {
   spawn,
   reattach: (ctx, msg) => {
@@ -368,6 +376,11 @@ export const sessionHandlers: Pick<
   },
   redraw: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.redraw()
+  },
+  sessionResumeRefAck: (ctx, msg) => {
+    void ctx.codexIdentityReceipts
+      .acknowledge(msg.sessionId, msg.resume)
+      .catch((err) => console.warn('[podium] could not acknowledge Codex identity receipt:', err))
   },
   sessionPriority: (ctx, msg) => {
     ctx.outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)

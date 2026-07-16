@@ -316,6 +316,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
         confidence: 'exact',
+        ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
       })
       // Adapter-owned re-pin policy (codex): the hook names the thread this
       // pane REALLY runs; the observation re-pins only when its binding

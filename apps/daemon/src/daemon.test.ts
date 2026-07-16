@@ -1624,6 +1624,72 @@ describe('daemon memory breakdown', () => {
   )
 })
 
+describe('Codex identity receipt recovery', () => {
+  it.skipIf(process.platform === 'win32')(
+    'replays after authentication and removes only the server-acknowledged binding',
+    async () => {
+      const settingsDir = await mkdtemp(join(tmpdir(), 'podium-hooks-'))
+      const receiptDir = join(settingsDir, 'codex-identity-receipts')
+      const receiptPath = join(receiptDir, 'pane-a.json')
+      await mkdir(receiptDir, { recursive: true })
+      await writeFile(receiptPath, JSON.stringify({ session_id: 'thread-a' }))
+
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((resolve) => wss.once('listening', resolve))
+      const received: DaemonMessage[] = []
+      let serverSocket!: WS
+      const connected = new Promise<void>((resolve) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          handshakeAndCollect(ws, received)
+          resolve()
+        })
+      })
+      const daemon = await startDaemon({
+        serverUrl: `ws://localhost:${(wss.address() as { port: number }).port}`,
+        bootstrapToken: 'test',
+        tmux: false,
+        discovery: { background: false, cachePath: ':memory:' },
+        metrics: { background: false },
+        hooks: { port: 0, settingsDir },
+        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      })
+      await connected
+      const waitFor = async (predicate: () => boolean): Promise<void> => {
+        const deadline = Date.now() + 5_000
+        while (!predicate()) {
+          if (Date.now() > deadline) throw new Error('waitFor timed out')
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+      }
+      try {
+        await waitFor(() =>
+          received.some(
+            (msg) =>
+              msg.type === 'sessionResumeRef' &&
+              msg.sessionId === 'pane-a' &&
+              msg.resume.value === 'thread-a' &&
+              msg.ackRequested === true,
+          ),
+        )
+        expect(existsSync(receiptPath)).toBe(true)
+
+        serverSocket.send(
+          encode({
+            type: 'sessionResumeRefAck',
+            sessionId: 'pane-a',
+            resume: { kind: 'codex-thread', value: 'thread-a' },
+          }),
+        )
+        await waitFor(() => !existsSync(receiptPath))
+      } finally {
+        await daemon.close()
+        await new Promise<void>((resolve) => wss.close(() => resolve()))
+      }
+    },
+  )
+})
+
 describe('agent state instrumentation', () => {
   let wss: WebSocketServer
   let serverSocket: WS

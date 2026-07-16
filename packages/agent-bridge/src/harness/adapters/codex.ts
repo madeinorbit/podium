@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import { AGENT_CAPABILITIES } from '@podium/protocol'
 import { fileChainSource, fileIdFor, recordToItemsForKind } from '@podium/transcript'
 import {
-  codexPodiumSessionMarker,
   codexStateProvider,
   findCodexRolloutPath,
   observeCodexState,
@@ -122,20 +121,9 @@ export const codexAdapter: HarnessAdapter = {
   },
 
   launch(opts) {
-    // [spec:SP-fccf] Codex mints its native thread lazily. Put the already-stable
-    // Podium row id in the native developer context so rollout discovery can
-    // match the exact pane instead of guessing from cwd/timestamps.
-    const instructions = composeAgentInstructions([
-      ...(opts.instructions ?? []),
-      ...(opts.podiumSessionId
-        ? [
-            {
-              source: 'podium:session-identity',
-              content: codexPodiumSessionMarker(opts.podiumSessionId),
-            },
-          ]
-        : []),
-    ])
+    // [spec:SP-fccf] Session identity never enters model-visible instructions.
+    // Official hooks bind the stable Podium pane id to Codex's native thread id.
+    const instructions = composeAgentInstructions(opts.instructions ?? [])
     return {
       cmd: 'codex',
       args: [
