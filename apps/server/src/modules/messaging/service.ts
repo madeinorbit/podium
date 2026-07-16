@@ -1,5 +1,6 @@
 import type { IssueWire } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
+import type { AttentionNotice, TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'
 import { formatIssues, HELP_TEXT, parseSlashCommand, registerTelegramCommands } from './commands'
 import { TelegramChannel } from './telegram'
@@ -47,8 +48,8 @@ const QUEUE_CAP = 20
 /**
  * Two-way messaging-app bridge [spec:SP-5d81]. Inbound chat messages become
  * superagent turns; the reply text rides the `superagent.turnEnded` bus event
- * back to the chat. Notifications keep their existing pushTelegram path into
- * the same chat — this service only owns the conversational lane.
+ * back to the chat. Attention notices ride the same ChannelAdapter (formatting,
+ * chunking, forum-topic threading) via {@link pushAttentionNotice}.
  *
  * Thread mapping V1: every conversation maps to the GLOBAL superagent thread
  * (`resolveThreadId`) — the seam where messaging-app threads/topics/channels
@@ -57,6 +58,9 @@ const QUEUE_CAP = 20
 export class MessagingService {
   private adapter: ChannelAdapter | undefined
   private adapterKey = ''
+  /** Last inbound conversation ref from the configured chat — attention notices
+   *  thread into the same forum topic when one was active. */
+  private lastInboundRef: ConversationRef | undefined
   /** FIFO of inbound messages not yet dispatched, per superagent thread. */
   private readonly queues = new Map<string, QueuedInbound[]>()
   /** Turns this bridge dispatched and is awaiting, per superagent thread. */
@@ -101,6 +105,31 @@ export class MessagingService {
     this.adapter?.stop()
     this.adapter = undefined
     this.adapterKey = ''
+    this.lastInboundRef = undefined
+  }
+
+  /**
+   * Fire-and-forget attention notice into the configured Telegram chat through
+   * the live ChannelAdapter. Failures are logged, never thrown.
+   */
+  pushAttentionNotice(notice: AttentionNotice, config: TelegramConfig): void {
+    const botToken = config.botToken.trim()
+    const chatId = config.chatId.trim()
+    if (!botToken || !chatId || !this.adapter) return
+    const key = `${botToken}\n${chatId}`
+    if (key !== this.adapterKey) return
+
+    const target: ConversationRef = {
+      channel: 'telegram',
+      chatId,
+      ...(this.lastInboundRef?.chatId === chatId && this.lastInboundRef.threadRef
+        ? { threadRef: this.lastInboundRef.threadRef }
+        : {}),
+    }
+    const text = `${notice.title}\n\n${notice.body}`
+    void this.adapter.send(target, text).catch((err) => {
+      console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
+    })
   }
 
   /** V1: everything converses with the global orchestrator thread. */
@@ -109,6 +138,7 @@ export class MessagingService {
   }
 
   private onInbound(msg: InboundChatMessage): void {
+    this.lastInboundRef = msg.source
     const slash = parseSlashCommand(msg.text)
     if (slash) {
       const threadId = this.resolveThreadId(msg)
@@ -231,4 +261,11 @@ export class MessagingService {
       console.warn('[podium:messaging] reply send failed:', err instanceof Error ? err.message : err)
     }
   }
+}
+
+/** NotifyService pusher seam — routes attention notices through the live adapter. */
+export function telegramAttentionPusher(
+  messaging: Pick<MessagingService, 'pushAttentionNotice'>,
+): (config: TelegramConfig, notice: AttentionNotice) => void {
+  return (config, notice) => messaging.pushAttentionNotice(notice, config)
 }

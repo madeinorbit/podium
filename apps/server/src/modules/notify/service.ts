@@ -14,6 +14,8 @@ export interface NotificationPushers {
   telegram(config: TelegramConfig, notice: AttentionNotice): void
 }
 
+/** Test/fallback pushers. Production wires telegram through MessagingService's
+ *  ChannelAdapter in server.ts (formatting, chunking, forum-topic threading). */
 export const DEFAULT_NOTIFICATION_PUSHERS: NotificationPushers = {
   ntfy: pushNtfy,
   telegram: pushTelegram,

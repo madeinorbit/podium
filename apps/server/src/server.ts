@@ -23,6 +23,7 @@ import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { MessagingService } from './modules/messaging'
+import { pushNtfy } from './notify'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
@@ -122,7 +123,17 @@ export async function startServer(
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
-  const registry = new SessionRegistry(store, undefined, {
+  // Attention notices route through MessagingService's ChannelAdapter (formatting,
+  // chunking, forum-topic threading). The closure is safe: notifications only fire
+  // after startup, once messaging is assigned below.
+  let messaging!: MessagingService
+  const registry = new SessionRegistry(
+    store,
+    {
+      ntfy: pushNtfy,
+      telegram: (config, notice) => messaging.pushAttentionNotice(notice, config),
+    },
+    {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
@@ -200,7 +211,7 @@ export async function startServer(
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.
-  const messaging = new MessagingService({
+  messaging = new MessagingService({
     bus: registry.modules.bus,
     getSettings: () => store.settings.getSettings(),
     superagent,

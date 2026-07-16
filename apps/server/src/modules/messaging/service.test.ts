@@ -328,4 +328,83 @@ describe('MessagingService', () => {
     expect(h.sendTurn).toHaveBeenCalledTimes(1)
     expect(h.sendTurn.mock.calls[0]![0]!.text).toContain('/model opus')
   })
+
+  it('pushAttentionNotice sends through the adapter with title and body', async () => {
+    const h = makeHarness()
+    h.service.pushAttentionNotice(
+      { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
+      { botToken: 'tok', chatId: '42' },
+    )
+    await flush()
+    expect(h.sent).toEqual([
+      { chatId: '42', text: 'keyboard needs you\n\nSQLite or Postgres?' },
+    ])
+  })
+
+  it('pushAttentionNotice threads into the last inbound forum topic', async () => {
+    const h = makeHarness()
+    const bus = h.bus
+    let onMessage: ((msg: InboundChatMessage) => void) | undefined
+    const sent: Array<{ chatId: string; threadRef?: string; text: string }> = []
+    const adapter: ChannelAdapter = {
+      channel: 'telegram',
+      start: (cb) => {
+        onMessage = cb
+      },
+      stop: () => {},
+      send: async (target, text) => {
+        sent.push({
+          chatId: target.chatId,
+          ...(target.threadRef ? { threadRef: target.threadRef } : {}),
+          text,
+        })
+      },
+    }
+    const service = new MessagingService({
+      bus,
+      getSettings: () =>
+        ({
+          notifications: {
+            web: true,
+            ntfyTopic: '',
+            telegramBotToken: 'tok',
+            telegramChatId: '42',
+          },
+        }) as never,
+      superagent: {
+        sendTurn: vi.fn(() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
+        interruptTurn: vi.fn(),
+        restartThread: vi.fn(),
+      },
+      createTelegram: () => adapter,
+      registerTelegramCommands: vi.fn(async () => {}),
+    })
+    service.configure()
+    onMessage?.({
+      source: { channel: 'telegram', chatId: '42', threadRef: '77' },
+      text: 'in topic',
+    })
+    service.pushAttentionNotice(
+      { title: 'keyboard needs you', body: 'SQLite or Postgres?' },
+      { botToken: 'tok', chatId: '42' },
+    )
+    await flush()
+    expect(sent).toEqual([
+      {
+        chatId: '42',
+        threadRef: '77',
+        text: 'keyboard needs you\n\nSQLite or Postgres?',
+      },
+    ])
+  })
+
+  it('pushAttentionNotice is a no-op when config does not match the live adapter', async () => {
+    const h = makeHarness()
+    h.service.pushAttentionNotice(
+      { title: 't', body: 'b' },
+      { botToken: 'other', chatId: '42' },
+    )
+    await flush()
+    expect(h.sent).toEqual([])
+  })
 })
