@@ -470,6 +470,62 @@ step outside the `continue-on-error` one: the deletion audit (POD-297) and the
 architecture-manifest ratchet (`bun run lint:architecture`, POD-296). Known debt warns;
 only NEW violations fail. The two concerns must never share one `continue-on-error`.
 
+#### Architecture manifest — layer/tag assignment (POD-296)
+
+The manifest lives in `scripts/architecture-manifest.ts`; this table is the ledger
+record of it. Every app and package is tagged, and the allowed-dependency matrix is
+DERIVED from the tags plus an explicit same-layer list — a same-layer edge is never
+implicit. A workspace with source and no tags is itself a violation
+(`manifest-untagged`), so a new package cannot silently escape the matrix. **When a
+phase adds, renames or splits a package, it updates this table and the manifest in the
+same commit.**
+
+| Workspace | Layer | Platform | Owns (features) | Transition |
+|---|---|---|---|---|
+| `packages/domain` | L0 model | browser-safe | entity-predicates, issue-stage, issue-authz, session-dedup, git-identity | → **`packages/model`** (Phase 1 POD-299) |
+| `packages/protocol` | L1 wire | browser-safe | wire-schema, titles | Phase 1 POD-300 moves schemas out; Phase 2 POD-308 wire cutover |
+| `packages/issue-client` | L1 wire | node-only | issue-command-table | → folded into the command registry (Phase 3 POD-311) |
+| `packages/transcript` | L2 kernel | node-only | transcript-parsing | package placement settled by ADR 8; POD-398 implements |
+| `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
+| `packages/sync` | L2 kernel | node-only | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306) |
+| `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
+| `packages/agent-bridge` | L2 kernel | node-only | harness-adapters, pty-port | → **split** into `packages/harness` + `packages/pty` (Phase 5 POD-325) |
+| `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
+| `packages/client-core` | L3 feature | browser-safe | viewmodels | → client engine split (Phase 6 POD-331) |
+| `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
+| `apps/cli` | L4 app | node-only | cli-surface | — |
+| `apps/daemon` | L4 app | node-only | daemon-surface | Phase 5 machine-host tightening (POD-292) |
+| `apps/desktop` | L4 app | browser-safe | desktop-shell | — |
+| `apps/mobile` | L4 app | browser-safe | mobile-surface | — |
+| `apps/server` | L4 app | node-only | server-surface | role-tiered (core<hub<cloud, `apps/server/src/roles.ts`); Phase 4 decomposition |
+| `apps/web` | L4 app | browser-safe | web-surface | Phase 6 engine split |
+| `scripts` | L5 compose | node-only | build, lint, compose | composes apps; nothing may import it |
+
+**Declared same-layer edges** (the only legal sideways imports): `issue-client → protocol`;
+`sync → runtime`; `telemetry → runtime`; `agent-bridge → runtime`; `agent-bridge → transcript`.
+
+**Neutral is a real tag, not a dodge.** `runtime` and `telemetry` both have a browser-safe
+barrel with node-only concerns behind explicit subpaths, so neither is honestly
+browser-safe nor node-only. The workspace-granular tag cannot see subpaths: legacy rule
+8a covers `@podium/runtime` only, which is why the identical hole in `@podium/telemetry`
+is filed as POD-745 rather than papered over.
+
+**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 50 known
+violations with per-(rule, file) COUNTS, each mapped to the phase that removes it: 48
+harness-branching → Phase 5 (POD-292/POD-325), 2 `apps/desktop → scripts` → Phase 7
+(POD-294). Allowlisted-and-within-count warns; anything new — or one more in an
+already-listed file — fails. A count that no longer matches reality is reported as
+stale, so the list can only shrink. Phases shrink their own entries (§5); POD-335 flips
+to error level with the list empty.
+
+**Rule → legacy-rule retirement map** (POD-335 retires each legacy rule only once its
+equivalent exists; none is dropped without one): `manifest-layer` + `manifest-platform`
+subsume rules 1/3/4/5 (app→app, leaf/near-leaf allowlists, packages-never-apps,
+cli-no-apps) and rule 2 (agent-bridge consumers); `manifest-role` reuses
+`apps/server/src/roles.ts` and subsumes rule 6; the `features` tag is the intended home
+for rule 7 (domain single-home); rule 8 (runtime browser-safety) needs the subpath
+awareness POD-745 describes before the platform tag can retire it.
+
 ### ADR gate (POD-359) + Walking skeleton (POD-351) — between Phase 0 and Phases 2–3
 
 Not a numbered phase but a scheduling stage: POD-359 (8 ADRs, HUMAN GATE) runs after

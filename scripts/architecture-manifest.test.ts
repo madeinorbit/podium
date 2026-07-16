@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -74,6 +74,55 @@ describe('MANIFEST coverage', () => {
       'packages/b': { layer: 1, platform: 'neutral', features: ['shared', 'own'] },
     }
     expect(duplicateFeatureOwners(clashing)).toEqual(['shared'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Ledger drift guard — same shape and rationale as
+// packages/telemetry/src/docs-drift.test.ts [spec:SP-f933].
+// ---------------------------------------------------------------------------
+
+describe('migration-ledger drift', () => {
+  // The ledger's tag table is a PROMISE: "when a phase adds, renames or splits a
+  // package, it updates this table and the manifest in the same commit". Phases
+  // 1/5/6 rename or split half these packages, so a hand-maintained table is one
+  // that rots on the first split. Checks NAMES and TAG VALUES, never prose — the
+  // section should stay readable and human-written.
+  const LEDGER = readFileSync(join(REPO_ROOT, 'docs/rearchitecture-v3.md'), 'utf8')
+  const LAYER_LABEL: Record<number, string> = {
+    0: 'L0 model',
+    1: 'L1 wire',
+    2: 'L2 kernel',
+    3: 'L3 feature',
+    4: 'L4 app',
+    5: 'L5 compose',
+  }
+  const rowFor = (workspace: string) =>
+    LEDGER.split('\n').find((line) => line.startsWith(`| \`${workspace}\` |`))
+
+  it.each(Object.keys(MANIFEST))('records %s with its real tags', (workspace) => {
+    const tags = MANIFEST[workspace]
+    const row = rowFor(workspace)
+    expect(row, `no ledger row for '${workspace}' — add it to the POD-296 tag table`).toBeDefined()
+    expect(row).toContain(LAYER_LABEL[tags?.layer ?? -1])
+    expect(row).toContain(tags?.platform)
+    for (const feature of tags?.features ?? []) expect(row).toContain(feature)
+  })
+
+  it('records every declared same-layer edge', () => {
+    for (const edge of SAME_LAYER_ALLOWED) {
+      const [from = '', to = ''] = edge.split(' -> ')
+      const short = `${from.replace('packages/', '')} → ${to.replace('packages/', '')}`
+      expect(LEDGER, `same-layer edge '${short}' is not in the ledger`).toContain(short)
+    }
+  })
+
+  it('lists no workspace the manifest does not tag', () => {
+    const listed = [...LEDGER.matchAll(/^\| `((?:apps|packages)\/[a-z-]+|scripts)` \|/gm)].map(
+      (m) => m[1] ?? '',
+    )
+    expect(listed.length).toBeGreaterThan(0)
+    expect(listed.filter((w) => tagsFor(w) === null)).toEqual([])
   })
 })
 
