@@ -17,6 +17,7 @@ import {
   tagsFor,
   type WorkspaceTags,
 } from './architecture-manifest'
+import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -590,5 +591,34 @@ describe('applyAllowlist', () => {
 
   it('is clean for an empty repo and an empty allowlist (the POD-335 end state)', () => {
     expect(applyAllowlist([], [])).toEqual({ warnings: [], errors: [], stale: [] })
+  })
+
+  it('errors on every violation when an entry declares count 0', () => {
+    const r = applyAllowlist(
+      [v('harness-branching', 'a.ts')],
+      [entry('harness-branching', 'a.ts', 0)],
+    )
+    expect(r.warnings).toEqual([])
+    expect(r.errors).toHaveLength(1)
+  })
+})
+
+describe('BOUNDARY_ALLOWLIST integrity', () => {
+  // applyAllowlist keys by (rule, file), so a second entry for the same key
+  // silently WINS and could quietly raise a count past the first. Cheap to
+  // forbid outright; the ratchet is only as honest as this list.
+  it('has no duplicate (rule, file) entry', () => {
+    const keys = BOUNDARY_ALLOWLIST.map((e) => `${e.rule} ${e.file}`)
+    expect(keys).toEqual([...new Set(keys)])
+  })
+
+  it('gives every entry a positive count, a phase and a note', () => {
+    for (const e of BOUNDARY_ALLOWLIST) {
+      expect(e.count, `${e.rule} ${e.file}`).toBeGreaterThan(0)
+      // AC: every entry maps to the phase that removes it — an unmapped entry
+      // is debt with no owner, which is how allowlists become permanent.
+      expect(e.phase, `${e.rule} ${e.file} has no phase`).toMatch(/^POD-\d+$/)
+      expect(e.note.length, `${e.rule} ${e.file} has no note`).toBeGreaterThan(0)
+    }
   })
 })
