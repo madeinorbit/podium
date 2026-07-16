@@ -8,6 +8,7 @@ import {
   createSessionCwdTracker,
   gitBranch,
   gitWorktree,
+  parseWorktreeInfo,
   type SessionCwdUpdate,
   type WorktreeInfo,
 } from './worktree-resolve'
@@ -46,6 +47,41 @@ describe('createCwdResolver', () => {
     await resolver.resolve('/repo/a')
     await resolver.resolve('/repo/b')
     expect(calls).toEqual(['/repo/a', '/repo/b'])
+  })
+})
+
+describe('parseWorktreeInfo', () => {
+  it('reads the three paths, resolving both git dirs before comparing', () => {
+    // From a main SUBDIR git prints an ABSOLUTE --git-dir against a RELATIVE
+    // --git-common-dir: the same directory, spelled two ways. Comparing raw strings
+    // calls every main subdirectory a worktree — the bug this parse exists to avoid.
+    expect(parseWorktreeInfo('/repo/apps', '/repo\n/repo/.git\n../.git')).toEqual({
+      root: '/repo',
+      kind: 'main',
+      repoRoot: '/repo',
+    })
+    expect(parseWorktreeInfo('/repo', '/repo\n.git\n.git')).toEqual({
+      root: '/repo',
+      kind: 'main',
+      repoRoot: '/repo',
+    })
+    expect(
+      parseWorktreeInfo('/repo/.worktrees/feat', '/repo/.worktrees/feat\n/repo/.git/worktrees/feat\n/repo/.git'),
+    ).toEqual({ root: '/repo/.worktrees/feat', kind: 'worktree', repoRoot: '/repo' })
+  })
+
+  it('refuses an answer containing an echoed flag instead of believing a shifted parse', () => {
+    // What a git older than --git-common-dir (2.5) really returns: rev-parse echoes the
+    // option it does not know and exits 0, so this is 3 lines of "success". Believing it
+    // would report the MAIN checkout as a linked worktree — main pinned and adopted.
+    expect(parseWorktreeInfo('/repo', '/repo\n.git\n--git-common-dir')).toBeNull()
+    expect(parseWorktreeInfo('/repo', '--path-format=absolute\n/repo\n.git\n.git')).toBeNull()
+  })
+
+  it('refuses output that is not exactly the three paths asked for', () => {
+    expect(parseWorktreeInfo('/repo', null)).toBeNull()
+    expect(parseWorktreeInfo('/repo', '')).toBeNull()
+    expect(parseWorktreeInfo('/repo', '/repo\n.git')).toBeNull()
   })
 })
 
@@ -202,10 +238,44 @@ describe('createSessionCwdTracker', () => {
     expect(sent).toEqual([])
   })
 
-  it('the launch pin sends nothing: the server chose the cwd, so it already has it', async () => {
+  it('a launch AT the worktree root sends nothing: the server chose it, so it has it', async () => {
     const { sent, tracker } = make(inRepo)
-    await tracker.setLaunchCwd('s1', `${FEAT}/apps`)
+    await tracker.setLaunchCwd('s1', FEAT)
     expect(sent).toEqual([])
+  })
+
+  it('a launch INSIDE a worktree reports the root, which no later hook could correct', async () => {
+    // Handoff import resumes a session at the subpath it was working in (POD-657), so
+    // the server holds a subdirectory while we hold the root — and the pin means no
+    // hook will ever fix it. Without this send the session sits under the subdir forever.
+    const sent: SessionCwdUpdate[] = []
+    const tracker = createSessionCwdTracker({
+      resolver: createCwdResolver({ lookup: inRepo }),
+      branch: async () => 'feat',
+      send: (u) => sent.push(u),
+    })
+    await tracker.setLaunchCwd('s1', `${FEAT}/apps/web`)
+    expect(sent).toEqual([
+      { sessionId: 's1', cwd: FEAT, kind: 'worktree', branch: 'feat', repoRoot: '/repo' },
+    ])
+    // …and it is still born pinned: drift cannot re-home it afterwards.
+    await tracker.onHookCwd('s1', OTHER)
+    expect(sent).toHaveLength(1)
+  })
+
+  it('a launch inside a MAIN checkout names the root, and still does not pin', async () => {
+    // Same normalisation, and it is NOT a capture: the session is already in main —
+    // this only spells its location canonically, and adoption refuses kind 'main'
+    // anyway. It matters because the main-guard means no hook will ever normalise it.
+    const { sent, tracker } = make(inRepo)
+    await tracker.setLaunchCwd('s1', '/repo/apps/web')
+    expect(sent).toEqual([{ sessionId: 's1', cwd: '/repo' }])
+    // Unpinned, so it can still follow its harness into a worktree it makes (POD-664).
+    await tracker.onHookCwd('s1', OTHER)
+    expect(sent).toEqual([
+      { sessionId: 's1', cwd: '/repo' },
+      { sessionId: 's1', cwd: OTHER },
+    ])
   })
 
   it('a session launched in MAIN is not pinned, so it can still adopt a worktree the harness makes', async () => {

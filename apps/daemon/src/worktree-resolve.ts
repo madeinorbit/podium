@@ -45,16 +45,36 @@ function run(args: string[], cwd: string): Promise<string | null> {
  *  a silent misclassification on an older git is worse than resolving them here.) */
 export function gitWorktree(cwd: string): Promise<WorktreeInfo | null> {
   return run(['rev-parse', '--show-toplevel', '--git-dir', '--git-common-dir'], cwd).then(
-    (out) => {
-      const [root, gitDir, commonDir] = (out ?? '').split('\n').map((l) => l.trim())
-      if (!root || !gitDir || !commonDir) return null
-      const common = resolvePath(cwd, commonDir)
-      const kind: WorktreeKind = resolvePath(cwd, gitDir) === common ? 'main' : 'worktree'
-      const repoRoot = basename(common) === '.git' ? dirname(common) : undefined
-      return { root, kind, ...(repoRoot ? { repoRoot } : {}) }
-    },
+    (out) => parseWorktreeInfo(cwd, out),
     () => null,
   )
+}
+
+/** Parse the three paths `gitWorktree` asks for. Exported only so the guard below can
+ *  be tested against fixtures no installed git will produce.
+ *
+ *  `git rev-parse` does NOT reject an option it doesn't understand — it ECHOES it to
+ *  stdout and exits 0 (`git rev-parse --nope` prints `--nope`, exit 0). So on a git
+ *  older than `--git-common-dir` (2.5, 2015) this call answers `<root>`, `<gitdir>`,
+ *  `--git-common-dir`: still three lines, still exit 0, and the parse silently shifts —
+ *  the compare then finds two different strings and reports EVERY MAIN CHECKOUT as a
+ *  linked worktree. Main would be pinned AND adopted as an issue's workspace, which is
+ *  the swallow-everything failure [spec:SP-595b] this whole change exists to prevent.
+ *  A line count cannot catch that (the echo lands in place); no path git prints here can
+ *  begin with '-', so an echoed flag is unambiguous. Refuse the whole answer rather than
+ *  believe a shifted one: null degrades to 'not a worktree', which pins and adopts
+ *  nothing. (POD-657 hit this same trap from its own copy of the classification.) */
+export function parseWorktreeInfo(cwd: string, out: string | null): WorktreeInfo | null {
+  const lines = (out ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+  if (lines.length !== 3 || lines.some((l) => l.startsWith('-'))) return null
+  const [root, gitDir, commonDir] = lines as [string, string, string]
+  const common = resolvePath(cwd, commonDir)
+  const kind: WorktreeKind = resolvePath(cwd, gitDir) === common ? 'main' : 'worktree'
+  const repoRoot = basename(common) === '.git' ? dirname(common) : undefined
+  return { root, kind, ...(repoRoot ? { repoRoot } : {}) }
 }
 
 /** The branch checked out at `cwd` — null when detached, bare, or not a worktree.
@@ -140,7 +160,9 @@ export interface SessionCwdTracker {
    *  to follow its hooks is exactly what lets podium adopt a worktree the harness
    *  later creates for itself (POD-664).
    *
-   *  Never sends: the server picked this cwd, so it already has it. */
+   *  Silent when the launch cwd IS the worktree root, since the server picked it and
+   *  already has it — but a launch into a SUBDIRECTORY of one sends the root, because
+   *  the pin taken here means no later hook can correct the server's view. */
   setLaunchCwd(sessionId: string, cwd: string): Promise<void>
   /** Forget a session (on exit) so a respawn re-reports from scratch. */
   clear(sessionId: string): void
@@ -260,9 +282,24 @@ export function createSessionCwdTracker(opts: {
       // Pin even if a hook raced ahead of this resolution: where podium launched the
       // session outranks whatever directory its first hook happened to observe.
       if (info.kind === 'worktree') pinned.add(sessionId)
-      // Record what the server already knows, so a hook arriving from this same
-      // worktree stays quiet — but never clobber a newer root that won the race.
-      if (seq.get(sessionId) === mySeq) lastSentRoot.set(sessionId, info.root)
+      if (seq.get(sessionId) !== mySeq) return // a newer cwd superseded this one
+      // Launched AT the root (the usual case): silent, because the server picked this
+      // cwd and already has it. Just record it so a hook from here stays quiet.
+      if (info.root === cwd) {
+        lastSentRoot.set(sessionId, info.root)
+        return
+      }
+      // Launched INSIDE a checkout instead: handoff import resumes a session at the
+      // subpath it was working in (POD-657), and a caller may pass any cwd. Now the
+      // server holds a subdirectory while we hold the root, and nothing will correct
+      // it — the pin blocks hooks in a worktree, the main-guard drops them in main —
+      // so the session would sit under the subdirectory forever. Tell it the root once.
+      // Sending a MAIN root here is not the capture SP-4ef9 forbids: the session is
+      // already there, this only spells its cwd canonically, and adoption refuses main.
+      const next = await update(sessionId, info)
+      if (seq.get(sessionId) !== mySeq) return
+      lastSentRoot.set(sessionId, info.root)
+      opts.send(next)
     },
     clear(sessionId) {
       lastRawCwd.delete(sessionId)
