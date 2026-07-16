@@ -1,7 +1,8 @@
+import { execFile } from 'node:child_process'
 import type { Dirent } from 'node:fs'
-import { open, readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import {
   cleanCodexTitle,
   codexPromptTitle,
@@ -17,6 +18,13 @@ import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
+// This is a fallback for disabled/untrusted hooks, not the primary binding path.
+// Share one host scan across all observers and keep it deliberately slow: live
+// pane routing is already P-keyed, so native resumability may safely lag a few
+// seconds without taxing the daemon on a large process table.
+const PROCESS_ROLLOUT_POLL_MS = 10_000
+const PROCESS_SCAN_CACHE_MS = 9_000
+const PROCESS_SCAN_BATCH = 64
 // Bound the polled tail read: a long session's rollout can be many MB, but the
 // state observer only needs the recent tail (the latest event wins). Matches the
 // transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
@@ -430,7 +438,8 @@ export const PODIUM_CODEX_HOOK_RECEIPT_DIR_ENV = 'PODIUM_CODEX_HOOK_RECEIPT_DIR'
 /**
  * Discover the live rollout file for a freshly-spawned (or resumed) Codex session
  * and tail its rollout records into normalized state events. Mirrors
- * `observeGrokState`. `onSession` fires once with the rollout id (the `codex-thread`
+ * `observeGrokState`. `onSession` fires for each exact native-thread binding
+ * (initial startup and a later `/clear`) with the rollout id (the `codex-thread`
  * resume value) and the rollout path, so the daemon can mark the session resumable
  * and start the transcript tail directly — no state-DB round-trip on the hot path.
  */
@@ -441,6 +450,8 @@ export function observeCodexState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  /** Test override for Linux process correlation. */
+  procRoot?: string
   onSession?: (sessionId: string, rolloutPath: string, confidence: 'exact' | 'heuristic') => void
   // Fires with a human-readable title whenever it changes (deduped on the last
   // value, never re-emitting an unchanged one). Codex's own OSC terminal title is
@@ -464,7 +475,10 @@ export function observeCodexState(opts: {
   const canDiscoverByCwd = opts.startedAtMs !== undefined
   let stopped = false
   let rolloutPath: string | undefined
-  let announced = false
+  let rolloutCreatedMs = 0
+  let rolloutConfidence: 'exact' | 'heuristic' | undefined
+  let announcedThreadId: string | undefined
+  let nextProcessRolloutPollAt = 0
   // One-shot diagnostics: an observer that can't bind is a silently dead status
   // pipeline (the exact failure mode that left active sessions shown idle), so
   // say so once instead of polling forever in silence.
@@ -499,6 +513,31 @@ export function observeCodexState(opts: {
   // returning the prior metadata, so an idle session no longer hits sqlite per tick.
   const readState = createCodexStateMetadataReader()
 
+  const bindRollout = (found: {
+    path: string
+    id: string | undefined
+    createdMs: number
+    confidence: 'exact' | 'heuristic'
+  }): void => {
+    const changedPath = rolloutPath !== found.path
+    rolloutPath = found.path
+    rolloutCreatedMs = found.createdMs
+    rolloutConfidence = found.confidence
+    if (changedPath) {
+      offset = 0
+      first = true
+      dropLeadingPartial = false
+      readFromStart = false
+      firstPromptTitled = false
+      decoder.reset()
+    }
+    if (found.id && announcedThreadId !== found.id) {
+      announcedThreadId = found.id
+      threadId = found.id
+      opts.onSession?.(found.id, found.path, found.confidence)
+    }
+  }
+
   // Emit only on an actual change to a non-empty title — dedups identical values
   // (the daemon forwards every `onTitle` call straight to a `title` frame) while
   // still letting a later title (a native `/rename`) supersede an earlier one.
@@ -528,6 +567,29 @@ export function observeCodexState(opts: {
     if (stopped || reading) return
     reading = true
     try {
+      // [spec:SP-fccf] The stable Podium id identifies the live pane. On Linux,
+      // its inherited process environment plus that process's open rollout FD
+      // gives an exact P→T mapping without putting P in a prompt or guessing by
+      // cwd/time. Recheck slowly after binding so an untrusted hook's `/clear`
+      // still advances to the new native thread.
+      const now = Date.now()
+      if (opts.podiumSessionId && now >= nextProcessRolloutPollAt) {
+        nextProcessRolloutPollAt = now + PROCESS_ROLLOUT_POLL_MS
+        const processBound = await cachedProcessBoundCodexRollout(
+          root,
+          opts.podiumSessionId,
+          opts.procRoot ?? '/proc',
+        )
+        if (
+          processBound &&
+          (rolloutPath === undefined ||
+            processBound.path === rolloutPath ||
+            rolloutConfidence === 'heuristic' ||
+            processBound.createdMs > rolloutCreatedMs)
+        ) {
+          bindRollout(processBound)
+        }
+      }
       if (!rolloutPath) {
         // A reattach/resume already knows the session's own thread id — pin the
         // rollout to THAT (state DB → filename), never re-discover by cwd+mtime.
@@ -553,18 +615,18 @@ export function observeCodexState(opts: {
           }
           return
         }
-        rolloutPath = found.path
-        if (!announced && found.id) {
-          announced = true
-          threadId = found.id
-          opts.onSession?.(found.id, found.path, found.confidence)
-        }
+        bindRollout(found)
       }
       // Re-read the native (state-DB) title every tick so an in-session `/rename`
       // propagates; the first read also seeds a resumed session's title. No-op
       // until the thread is known; sendTitle suppresses unchanged values.
       await pollNativeTitle()
-      const handle = await open(rolloutPath, 'r')
+      // Keep the narrowed path across the await above. No other callback clears
+      // a binding, but TypeScript correctly treats the captured variable as
+      // mutable while asynchronous work runs.
+      const activeRolloutPath = rolloutPath
+      if (!activeRolloutPath) return
+      const handle = await open(activeRolloutPath, 'r')
       try {
         const { size } = await handle.stat()
         if (first) {
@@ -649,6 +711,176 @@ function sessionMetaStartedAtMs(
   return Number.isFinite(ms) ? ms : undefined
 }
 
+export interface ProcessBoundCodexRollout {
+  path: string
+  id: string
+  createdMs: number
+  confidence: 'exact'
+}
+
+async function scanProcessBoundCodexRollouts(
+  sessionsRoot: string,
+  procRoot: string,
+): Promise<Map<string, ProcessBoundCodexRollout>> {
+  const root = resolve(sessionsRoot)
+  const byPodiumId = new Map<string, ProcessBoundCodexRollout>()
+  let processes: { pid: string; codexNamed: boolean }[]
+  try {
+    const named = procRoot === '/proc' ? await findNamedCodexProcesses() : undefined
+    processes =
+      named ??
+      (await readdir(procRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+        .map((entry) => ({ pid: entry.name, codexNamed: false }))
+  } catch {
+    return byPodiumId
+  }
+
+  const inspectProcess = async (processEntry: {
+    pid: string
+    codexNamed: boolean
+  }): Promise<void> => {
+    const processDir = join(procRoot, processEntry.pid)
+    try {
+      // Avoid reading every descendant's environment. The exact Podium id is on
+      // the Codex process itself, and only a Codex process owns rollout FDs.
+      if (!processEntry.codexNamed) {
+        const cmdline = await readFile(join(processDir, 'cmdline'), 'utf8')
+        if (!cmdline.toLowerCase().includes('codex')) return
+      }
+      const environ = await readFile(join(processDir, 'environ'), 'utf8')
+      const assignment = environ.split('\0').find((entry) => entry.startsWith('PODIUM_SESSION_ID='))
+      const podiumSessionId = assignment?.slice('PODIUM_SESSION_ID='.length)
+      if (!podiumSessionId) return
+
+      const fdDir = join(processDir, 'fd')
+      const fds = await readdir(fdDir)
+      const seenPaths = new Set<string>()
+      for (const fd of fds) {
+        let target: string
+        try {
+          target = await readlink(join(fdDir, fd))
+        } catch {
+          continue
+        }
+        if (!target.endsWith('.jsonl') || target.endsWith(' (deleted)')) continue
+        const path = resolve(target)
+        const rel = relative(root, path)
+        if (!rel || rel.startsWith('..') || isAbsolute(rel) || seenPaths.has(path)) continue
+        seenPaths.add(path)
+
+        try {
+          const prefix = await readPrefix(path)
+          const nl = prefix?.indexOf('\n') ?? -1
+          const head = prefix ? (nl >= 0 ? prefix.slice(0, nl) : prefix) : undefined
+          const meta = head ? JSON.parse(head) : undefined
+          const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
+          const id = payload ? strField(payload, 'id') : undefined
+          if (
+            !payload ||
+            !id ||
+            strField(meta, 'type') !== 'session_meta' ||
+            !isInteractiveCodexSource(payload.source)
+          ) {
+            continue
+          }
+          const info = await stat(path)
+          const createdMs =
+            sessionMetaStartedAtMs(meta, payload) ||
+            info.birthtimeMs ||
+            info.ctimeMs ||
+            info.mtimeMs
+          const prior = byPodiumId.get(podiumSessionId)
+          if (!prior || createdMs >= prior.createdMs) {
+            byPodiumId.set(podiumSessionId, {
+              path,
+              id,
+              createdMs,
+              confidence: 'exact',
+            })
+          }
+        } catch {
+          // A process can close or rotate an FD while we inspect it. Retry next poll.
+        }
+      }
+    } catch {
+      // Processes exit constantly and other-user /proc entries may be unreadable.
+    }
+  }
+  // Reading thousands of /proc files serially made a fallback scan take hundreds
+  // of milliseconds on busy hosts. A bounded batch keeps scan latency low without
+  // creating enough simultaneous opens to exhaust the daemon's file descriptors.
+  for (let i = 0; i < processes.length; i += PROCESS_SCAN_BATCH) {
+    await Promise.all(processes.slice(i, i + PROCESS_SCAN_BATCH).map(inspectProcess))
+  }
+  return byPodiumId
+}
+
+/** Use procps's native /proc traversal when available so a busy host does not
+ * make the daemon open every process's cmdline on each fallback poll. Exit 1
+ * means there are simply no matching processes; other failures fall back to
+ * the portable directory scan above. */
+async function findNamedCodexProcesses(): Promise<{ pid: string; codexNamed: true }[] | undefined> {
+  return await new Promise((resolveResult) => {
+    execFile(
+      'pgrep',
+      ['-x', 'codex'],
+      { encoding: 'utf8', timeout: 1_000, maxBuffer: 256 * 1024 },
+      (err, stdout) => {
+        if (err && err.code !== 1) {
+          resolveResult(undefined)
+          return
+        }
+        const pids = stdout
+          .split(/\s+/)
+          .filter((pid) => /^\d+$/.test(pid))
+          .map((pid) => ({ pid, codexNamed: true as const }))
+        resolveResult(pids)
+      },
+    )
+  })
+}
+
+/** Exact Linux fallback for an untrusted/disabled native hook. Podium's stable
+ * id is inherited by the Codex process, and that process owns its rollout FD;
+ * joining those two OS facts cannot confuse same-cwd sibling panes. */
+export async function findProcessBoundCodexRollout(
+  sessionsRoot: string,
+  podiumSessionId: string,
+  procRoot = '/proc',
+): Promise<ProcessBoundCodexRollout | undefined> {
+  return (await scanProcessBoundCodexRollouts(sessionsRoot, procRoot)).get(podiumSessionId)
+}
+
+let processScanCache:
+  | {
+      key: string
+      at: number
+      value: Promise<Map<string, ProcessBoundCodexRollout>>
+    }
+  | undefined
+
+function cachedProcessBoundCodexRollout(
+  sessionsRoot: string,
+  podiumSessionId: string,
+  procRoot: string,
+): Promise<ProcessBoundCodexRollout | undefined> {
+  const key = `${sessionsRoot}\0${procRoot}`
+  const now = Date.now()
+  if (
+    !processScanCache ||
+    processScanCache.key !== key ||
+    now - processScanCache.at > PROCESS_SCAN_CACHE_MS
+  ) {
+    processScanCache = {
+      key,
+      at: now,
+      value: scanProcessBoundCodexRollouts(sessionsRoot, procRoot),
+    }
+  }
+  return processScanCache.value.then((bindings) => bindings.get(podiumSessionId))
+}
+
 /**
  * The INTERACTIVE `*.jsonl` under `~/.codex/sessions` whose `session_meta.cwd`
  * matches, booted nearest after `startedAtMs`. For a fresh spawn or a floored
@@ -669,7 +901,13 @@ export async function findLiveCodexRollout(
   startedAtMs: number,
   podiumSessionId?: string,
 ): Promise<
-  { path: string; id: string | undefined; confidence: 'exact' | 'heuristic' } | undefined
+  | {
+      path: string
+      id: string | undefined
+      createdMs: number
+      confidence: 'exact' | 'heuristic'
+    }
+  | undefined
 > {
   const candidates: {
     path: string
@@ -762,6 +1000,7 @@ export async function findLiveCodexRollout(
     ? {
         path: best.path,
         id: best.id,
+        createdMs: best.sortMs,
         confidence: podiumSessionId ? 'exact' : 'heuristic',
       }
     : undefined
@@ -777,9 +1016,15 @@ export async function findLiveCodexRollout(
 export async function resolvePinnedCodexRollout(
   resumeValue: string,
   homeDir: string | undefined,
-): Promise<{ path: string; id: string; confidence: 'exact' } | undefined> {
+): Promise<{ path: string; id: string; createdMs: number; confidence: 'exact' } | undefined> {
   const path = await findCodexRolloutPath({ resumeValue, ...(homeDir ? { homeDir } : {}) })
-  return path ? { path, id: resumeValue, confidence: 'exact' } : undefined
+  if (!path) return undefined
+  try {
+    const info = await stat(path)
+    return { path, id: resumeValue, createdMs: info.birthtimeMs, confidence: 'exact' }
+  } catch {
+    return { path, id: resumeValue, createdMs: 0, confidence: 'exact' }
+  }
 }
 
 /**

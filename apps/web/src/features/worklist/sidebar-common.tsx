@@ -378,6 +378,7 @@ export function PanelRow({
         dotRight ? 'min-h-7' : 'min-h-8',
         active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
       )}
+      data-session={session.sessionId}
     >
       {editing ? (
         <div

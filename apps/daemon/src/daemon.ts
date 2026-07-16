@@ -338,6 +338,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     homeDir,
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
+    onExactCodexBinding: async (sessionId, nativeId) => {
+      if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
+      // Replay sends ackRequested:true. If the socket is offline, the receipt
+      // remains and the authentication path replays it after reconnect.
+      await codexIdentityReceipts.replay(send)
+    },
   })
 
   // Correlates daemon-initiated agent-relay requests (the loopback server originates

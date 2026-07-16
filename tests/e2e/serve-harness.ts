@@ -23,6 +23,7 @@ import {
   type LaunchSpec,
 } from '@podium/agent-bridge'
 import type { AgentKind } from '@podium/protocol'
+import { ensurePodiumCodexHooks } from '../../apps/daemon/src/codex-hooks'
 import { startDaemon } from '../../apps/daemon/src/daemon'
 import { runIndexRefreshJob, runMemoryBreakdownJob } from '../../apps/daemon/src/discovery-jobs'
 import type { WorkerJob } from '../../apps/daemon/src/discovery-worker'
@@ -138,25 +139,33 @@ if (realAgentCodexEnv) {
   // Seed only non-secret startup state after its private home exists: every
   // harness worktree is trusted and personality onboarding is already resolved.
   writeCodexStartupFixture(realAgentCodexEnv.codexHomeDir, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
+  await ensurePodiumCodexHooks({ homeDir: realAgentCodexEnv.discoveryHomeDir })
 }
 
 const launchLogFile = join(stateDir, 'launch-log.jsonl')
 const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
   appendFileSync(
     launchLogFile,
-    `${JSON.stringify({
+    JSON.stringify({
       agentKind: kind,
       ...(opts.model ? { model: opts.model } : {}),
       ...(opts.effort ? { effort: opts.effort } : {}),
-    })}\n`,
+    }) + '\n',
   )
-  return kind === 'shell' || REAL_AGENTS
-    ? agentLaunchCommand(kind, opts)
-    : {
-        cmd: process.execPath,
-        args: [KEYECHO_CLI, '--mode', 'both'],
-        cwd: KEYECHO_PKG,
-      }
+  if (kind === 'shell' || REAL_AGENTS) {
+    const spec = agentLaunchCommand(kind, opts)
+    // The isolated CODEX_HOME contains only the reviewed Podium hook. This
+    // documented automation bypass is test-only and never changes production trust.
+    if (REAL_AGENTS && kind === 'codex') {
+      return { ...spec, args: ['--dangerously-bypass-hook-trust', ...spec.args] }
+    }
+    return spec
+  }
+  return {
+    cmd: process.execPath,
+    args: [KEYECHO_CLI, '--mode', 'both'],
+    cwd: KEYECHO_PKG,
+  }
 }
 
 let server = await startServer({ port: PORT })
@@ -205,14 +214,16 @@ if (process.env.PODIUM_E2E_HANDOFF === '1') {
   })
 }
 
-const daemon = await startDaemon({
+const daemonOptions: Parameters<typeof startDaemon>[0] = {
   serverUrl: `ws://localhost:${server.port}`,
   bootstrapToken: server.bootstrapToken,
   machineId: LOCAL_MACHINE_ID,
+  installCodexHooks: REAL_AGENTS,
   launch,
   ...(realAgentCodexEnv ? { discovery: { homeDir: realAgentCodexEnv.discoveryHomeDir } } : {}),
   workerClient: inlineWorkerClient(),
-})
+}
+let daemon = await startDaemon(daemonOptions)
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   server.registry.modules.sessions.createSession({
     agentKind: 'claude-code',
@@ -228,12 +239,16 @@ console.log(
 // The serial file is the completion ack; the deliberate offline window gives the
 // browser time to prove its xterm canvas stays untouched while disconnected.
 const restartSerialFile = join(stateDir, 'restart-serial')
+const daemonRestartSerialFile = join(stateDir, 'daemon-restart-serial')
 const pidFile = harnessPidFile(PORT)
 let restartSerial = 0
 let restartInFlight = false
+let daemonRestartSerial = 0
+let daemonRestartInFlight = false
 let shuttingDown = false
 writeFileSync(pidFile, String(process.pid))
 writeFileSync(restartSerialFile, String(restartSerial))
+writeFileSync(daemonRestartSerialFile, String(daemonRestartSerial))
 const restartServer = async (): Promise<void> => {
   if (restartInFlight || shuttingDown) return
   restartInFlight = true
@@ -249,6 +264,24 @@ const restartServer = async (): Promise<void> => {
   }
 }
 process.on('SIGUSR1', () => void restartServer())
+
+const restartDaemon = async (): Promise<void> => {
+  if (daemonRestartInFlight || shuttingDown) return
+  daemonRestartInFlight = true
+  try {
+    // Detach only. Durable abduco/tmux masters (and their inherited stable hook
+    // socket path) survive; the replacement daemon reuses that path and reattaches.
+    await daemon.close()
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    if (shuttingDown) return
+    daemon = await startDaemon(daemonOptions)
+    daemonRestartSerial += 1
+    writeFileSync(daemonRestartSerialFile, String(daemonRestartSerial))
+  } finally {
+    daemonRestartInFlight = false
+  }
+}
+process.on('SIGUSR2', () => void restartDaemon())
 
 let shutdownPromise: Promise<void> | undefined
 const shutdown = (): Promise<void> => {

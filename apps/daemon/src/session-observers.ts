@@ -36,6 +36,8 @@ export interface SessionObserversDeps {
   onTranscriptDirty(path: string): void
   /** The hook payload's live cwd — feeds the session cwd tracker. */
   cwdTracker: Pick<SessionCwdTracker, 'onHookCwd'>
+  /** Persist and replay an exact process-derived Codex P→T binding until acked. */
+  onExactCodexBinding?: (sessionId: string, nativeId: string) => Promise<void>
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -134,13 +136,22 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Recording a resume ref marks the session resumable (→ hibernate button);
     // the first transcript frame marks it chat-capable (→ chat switcher + BTW
     // button). The kind comes off the adapter — never a literal.
-    onResumeValue: (value, confidence) =>
+    onResumeValue: (value, confidence) => {
+      if (adapter.kind === 'codex' && confidence === 'exact' && deps.onExactCodexBinding) {
+        void deps
+          .onExactCodexBinding(sessionId, value)
+          .catch((err) =>
+            console.warn(`[podium] codex identity receipt failed for ${sessionId}:`, err),
+          )
+        return
+      }
       send({
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: adapter.resumeKind, value },
         ...(confidence ? { confidence } : {}),
-      }),
+      })
+    },
     onTitle: (title) => send({ type: 'title', sessionId, title }),
     onStateEvents: (events) => applyAgentStateEvents(sessionId, events),
     onTranscriptItems: (items, reset) => {

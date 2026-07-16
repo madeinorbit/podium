@@ -22,6 +22,7 @@ describe('Codex startup fixture', () => {
 
     expect(readFileSync(configPath, 'utf8')).toBe(
       `personality = "none"\n\n` +
+        `[features]\nhooks = true\n\n` +
         `[projects.${JSON.stringify(projectA)}]\ntrust_level = "trusted"\n\n` +
         `[projects.${JSON.stringify(projectB)}]\ntrust_level = "trusted"\n`,
     )
@@ -29,7 +30,7 @@ describe('Codex startup fixture', () => {
     expect(statSync(configPath).mode & 0o777).toBe(0o600)
   })
 
-  it('can configure personality without a project table', () => {
-    expect(codexStartupFixtureConfig([])).toBe('personality = "none"\n')
+  it('enables hooks without a project table', () => {
+    expect(codexStartupFixtureConfig([])).toBe('personality = "none"\n\n[features]\nhooks = true\n')
   })
 })

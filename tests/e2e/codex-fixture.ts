@@ -6,7 +6,7 @@ export function codexStartupFixtureConfig(trustedProjectPaths: readonly string[]
   const tables = projects
     .map((path) => `[projects.${JSON.stringify(path)}]\ntrust_level = "trusted"`)
     .join('\n\n')
-  return `personality = "none"\n${tables ? `\n${tables}\n` : ''}`
+  return `personality = "none"\n\n[features]\nhooks = true\n${tables ? `\n${tables}\n` : ''}`
 }
 
 /**

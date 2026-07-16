@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Dirent } from 'node:fs'
-import { link, readdir, readFile, rename, rm } from 'node:fs/promises'
+import { link, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DaemonMessage, ResumeRef } from '@podium/protocol'
 
@@ -18,6 +18,29 @@ export class CodexIdentityReceipts {
 
   pathFor(sessionId: string): string | undefined {
     return /^[\w.-]+$/.test(sessionId) ? join(this.dir, `${sessionId}.json`) : undefined
+  }
+
+  /** Persist an exact non-hook binding (for example Linux process→rollout
+   * ownership) in the same acked spool the shell hook writes. */
+  async record(sessionId: string, nativeId: string): Promise<boolean> {
+    const path = this.pathFor(sessionId)
+    if (!path || nativeId.length === 0) return false
+    await mkdir(this.dir, { recursive: true, mode: 0o700 })
+    const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`
+    try {
+      await writeFile(
+        tmp,
+        `${JSON.stringify({
+          session_id: nativeId,
+          hook_event_name: 'PodiumProcessBinding',
+        })}\n`,
+        { mode: 0o600 },
+      )
+      await rename(tmp, path)
+      return true
+    } finally {
+      await rm(tmp, { force: true })
+    }
   }
 
   private async read(path: string, sessionId: string): Promise<CodexIdentityBinding | undefined> {

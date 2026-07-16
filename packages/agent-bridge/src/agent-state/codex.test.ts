@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -9,6 +9,7 @@ import {
   codexPodiumSessionMarker,
   codexStateProvider,
   findCodexRolloutPath,
+  findProcessBoundCodexRollout,
   findLiveCodexRollout,
   observeCodexState,
   translateCodexEvent,
@@ -610,6 +611,75 @@ describe('findLiveCodexRollout', () => {
     expect(
       await findLiveCodexRollout(sessions, '/repo/x', Date.parse('2026-06-16T01:00:00.000Z')),
     ).toBeUndefined()
+  })
+})
+
+describe('findProcessBoundCodexRollout', () => {
+  it('maps same-cwd siblings by inherited Podium id and the owning rollout FD', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-codex-process-'))
+    const sessions = join(root, 'home', '.codex', 'sessions')
+    const day = join(sessions, '2026', '07', '16')
+    const proc = join(root, 'proc')
+    await mkdir(day, { recursive: true })
+    const cwd = '/repo/shared'
+    const paneA = '11111111-1111-4111-8111-111111111111'
+    const paneB = '22222222-2222-4222-8222-222222222222'
+    const rolloutA = join(day, 'rollout-a.jsonl')
+    const rolloutB = join(day, 'rollout-b.jsonl')
+    const guardian = join(day, 'rollout-guardian.jsonl')
+    await writeFile(
+      rolloutA,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          id: 'native-a',
+          cwd,
+          source: 'cli',
+          timestamp: '2026-07-16T10:00:00.000Z',
+        },
+      })}\n`,
+    )
+    await writeFile(
+      rolloutB,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: {
+          id: 'native-b',
+          cwd,
+          source: 'cli',
+          timestamp: '2026-07-16T10:00:01.000Z',
+        },
+      })}\n`,
+    )
+    await writeFile(
+      guardian,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'guardian', cwd, source: { subagent: { other: 'guardian' } } },
+      })}\n`,
+    )
+
+    const process = async (pid: number, podiumId: string, paths: string[]): Promise<void> => {
+      const dir = join(proc, String(pid))
+      const fds = join(dir, 'fd')
+      await mkdir(fds, { recursive: true })
+      await writeFile(join(dir, 'cmdline'), 'codex\0')
+      await writeFile(join(dir, 'environ'), `TERM=xterm\0PODIUM_SESSION_ID=${podiumId}\0`)
+      await Promise.all(paths.map((path, i) => symlink(path, join(fds, String(i + 3)))))
+    }
+    await process(101, paneA, [rolloutA, guardian])
+    await process(202, paneB, [rolloutB])
+
+    await expect(findProcessBoundCodexRollout(sessions, paneA, proc)).resolves.toMatchObject({
+      id: 'native-a',
+      path: rolloutA,
+      confidence: 'exact',
+    })
+    await expect(findProcessBoundCodexRollout(sessions, paneB, proc)).resolves.toMatchObject({
+      id: 'native-b',
+      path: rolloutB,
+      confidence: 'exact',
+    })
   })
 })
 

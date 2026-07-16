@@ -26,6 +26,24 @@ afterEach(async () => {
 })
 
 describe('CodexIdentityReceipts', () => {
+  it('atomically records a process-derived exact binding for acknowledged replay', async () => {
+    const store = await makeStore()
+    expect(await store.record('pane-a', 'thread-a')).toBe(true)
+    expect(await store.pending()).toEqual([{ sessionId: 'pane-a', nativeId: 'thread-a' }])
+
+    const sent: DaemonMessage[] = []
+    await store.replay((msg) => sent.push(msg))
+    expect(sent).toEqual([
+      {
+        type: 'sessionResumeRef',
+        sessionId: 'pane-a',
+        resume: { kind: 'codex-thread', value: 'thread-a' },
+        confidence: 'exact',
+        ackRequested: true,
+      },
+    ])
+  })
+
   it('replays only complete valid payloads as exact acknowledged bindings', async () => {
     const store = await makeStore()
     await writeFile(receiptPath(store, 'pane-a'), JSON.stringify({ session_id: 'thread-a' }))
