@@ -11,6 +11,7 @@
     },
     "./sqlite": "./src/sqlite/index.ts",
     "./config": "./src/config.ts",
+    "./instance": "./src/instance.ts",
     "./connectivity": "./src/connectivity.ts",
     "./run-registry": "./src/run-registry.ts",
     "./join": "./src/join.ts",

@@ -18,10 +18,12 @@ import {
   type PodiumConfig,
   type PodiumMode,
   resolveAgentRelay,
+  resolveInstanceId,
   resolvePort,
   resolveRunRecordMode,
   resolveUpdateChannel,
   resolveUpdateFeed,
+  selectInstance,
 } from '@podium/runtime/config'
 import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 
@@ -187,6 +189,19 @@ export function resolvePlan(
   tty: boolean,
 ): LaunchPlan {
   const port = resolvePort(config, env)
+  const relay = resolveAgentRelay(env)
+  const sessionInstance = env.PODIUM_SESSION_INSTANCE
+  if (relay && sessionInstance && sessionInstance !== resolveInstanceId(env)) {
+    return {
+      kind: 'usage-error',
+      message:
+        "podium: this agent session belongs to instance '" +
+        sessionInstance +
+        "', not '" +
+        resolveInstanceId(env) +
+        "'; set PODIUM_NO_RELAY=1 to target another instance explicitly",
+    }
+  }
 
   // ---- help / version (before everything else, so a `--help` tacked onto a launch
   // command can never boot the stack — issue #18) ----
@@ -216,7 +231,7 @@ export function resolvePlan(
   // Inside a Podium-managed agent session, management ops never execute here:
   // they become approval requests the operator decides in the UI (#410). The
   // daemon executes on approval. Status/logs/work tools stay direct.
-  const agentSession = !!resolveAgentRelay(env)
+  const agentSession = !!relay
   if (argv[0] === 'approval') {
     if (!agentSession) {
       return {
@@ -443,6 +458,7 @@ export function helpText(): string {
     '                        Run only the daemon (connects to a server)',
     '  client                Nothing to run locally; points at a remote server',
     '',
+    '  --instance <id>        Select an isolated Podium instance (default: default)',
     '  --takeover            Replace a live instance of the same role; without it,',
     '                        podium refuses to start when one is already running',
     '',
@@ -480,7 +496,8 @@ export function helpText(): string {
     '  version | --version   Print the podium version',
     '  help    | --help      Show this help',
     '',
-    'Environment: PODIUM_PORT overrides the server port (default 18787).',
+    'Environment: PODIUM_INSTANCE selects the isolated instance; PODIUM_PORT overrides',
+    'its server port (default instance: 18787).',
   ].join('\n')
 }
 
@@ -693,7 +710,16 @@ async function runInProcess(
 }
 
 export async function main(loadHost: () => Promise<HostModules>): Promise<void> {
-  const argv = process.argv.slice(2)
+  let selection: ReturnType<typeof selectInstance>
+  try {
+    selection = selectInstance(process.argv.slice(2), process.env)
+  } catch (error) {
+    console.error(`podium: ${(error as Error).message}`)
+    process.exitCode = 2
+    return
+  }
+  process.env.PODIUM_INSTANCE = selection.instanceId
+  const argv = selection.argv
   const config = loadConfig()
 
   // Crash net BEFORE anything else (mirror scripts/daemon.ts, audit P0-1).

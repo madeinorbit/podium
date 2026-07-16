@@ -7,7 +7,10 @@ import {
   inspectConfig,
   loadConfig,
   needsSetup,
+  resolveAgentHomeDir,
   resolveAgentRelay,
+  resolveAgentRelayPort,
+  resolveHookPort,
   resolveInstallDir,
   resolvePort,
   resolveRunRecordMode,
@@ -118,6 +121,26 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     expect(resolvePort({}, {})).toBe(18787)
     expect(resolvePort({ port: 2000 }, { PODIUM_PORT: 'nope' })).toBe(2000)
     expect(resolvePort({}, { PODIUM_PORT: '0' })).toBe(18787)
+  })
+  it('named instances get stable distinct endpoint defaults with env/config overrides', () => {
+    const env = { PODIUM_INSTANCE: 'blue' }
+    const server = resolvePort({}, env)
+    const hook = resolveHookPort({}, env)
+    const relay = resolveAgentRelayPort({}, env)
+    expect(new Set([server, hook, relay]).size).toBe(3)
+    expect(resolvePort({}, { PODIUM_INSTANCE: 'green' })).not.toBe(server)
+    expect(resolveHookPort({ hookPort: 31001 }, env)).toBe(31001)
+    expect(resolveAgentRelayPort({ agentRelayPort: 31002 }, env)).toBe(31002)
+    expect(resolveHookPort({ hookPort: 31001 }, { ...env, PODIUM_HOOK_PORT: '32001' })).toBe(32001)
+  })
+  it('named instances isolate native agent HOME unless sharing is explicit', () => {
+    const env = { PODIUM_INSTANCE: 'blue', HOME: '/home/u' }
+    expect(resolveAgentHomeDir({}, env)).toBe('/home/u/.local/state/podium/blue/agent-home')
+    expect(resolveAgentHomeDir({ agentHome: '/shared/agents' }, env)).toBe('/shared/agents')
+    expect(resolveAgentHomeDir({ agentHome: '/cfg' }, { ...env, PODIUM_AGENT_HOME: '/env' })).toBe(
+      '/env',
+    )
+    expect(resolveAgentHomeDir({}, { HOME: '/home/u' })).toBe('/home/u')
   })
   it('resolveUpdateChannel: env > config > stable', () => {
     expect(resolveUpdateChannel({ updateChannel: 'edge' }, {})).toBe('edge')

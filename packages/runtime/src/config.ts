@@ -13,8 +13,13 @@
  *
  * | Variable                      | Layered over            | Read by / accessor                                     |
  * |-------------------------------|-------------------------|--------------------------------------------------------|
+ * | PODIUM_INSTANCE               | — → default             | global selector; state/ports/runtime/services [spec:SP-15aa] |
  * | PODIUM_STATE_DIR              | — (env-only)            | `stateDir()` (config/run-registry/logs home)           |
- * | PODIUM_PORT                   | config.port → 18787     | `resolvePort()` (cli, scripts entrypoints)             |
+ * | PODIUM_PORT                   | config.port → per-id    | `resolvePort()` (cli, scripts entrypoints)             |
+ * | PODIUM_HOOK_PORT              | config.hookPort → per-id| `resolveHookPort()` (daemon hook ingest)                |
+ * | PODIUM_AGENT_RELAY_PORT       | config.agentRelayPort   | `resolveAgentRelayPort()` (daemon CLI relay)            |
+ * | PODIUM_AGENT_HOME             | config.agentHome        | `resolveAgentHomeDir()` (native runtime/history)       |
+ * | PODIUM_ADOPT_STATE            | — (env-only flag)       | explicit adoption of named non-empty state roots       |
  * | PODIUM_HOST                   | — → 127.0.0.1           | apps/server bindHost (injectable env param)            |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
@@ -49,6 +54,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
+import {
+  assertInstanceStateIdentity,
+  defaultInstancePorts,
+  ensureInstanceStateIdentity,
+  instanceStateDir,
+  resolveInstanceId,
+} from './instance'
+
+export { resolveInstanceId, selectInstance } from './instance'
 
 /** Deployment mode chosen at setup. Unset = not yet configured. */
 export const PodiumMode = z.enum(['all-in-one', 'daemon', 'client', 'server'])
@@ -60,6 +74,12 @@ export const PodiumConfig = z.object({
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
   port: z.number().int().positive().optional(),
+  /** Stable daemon hook-ingest endpoint; env PODIUM_HOOK_PORT wins. */
+  hookPort: z.number().int().positive().optional(),
+  /** Stable per-session CLI relay endpoint; env PODIUM_AGENT_RELAY_PORT wins. */
+  agentRelayPort: z.number().int().positive().optional(),
+  /** Native agent HOME/history root. Explicit values opt into sharing that root. */
+  agentHome: z.string().min(1).optional(),
   /** One-shot pairing code for daemon mode (consumed once → token; a stale value is harmless). */
   pairCode: z.string().optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
@@ -101,7 +121,7 @@ export type PodiumConfig = z.infer<typeof PodiumConfig>
 /** The Podium state directory: $PODIUM_STATE_DIR, else ~/.podium. Home for config.json, the
  *  run registry (run/), logs (logs/), etc. */
 export function stateDir(): string {
-  return process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
+  return instanceStateDir()
 }
 
 /** $PODIUM_STATE_DIR/config.json, else ~/.podium/config.json. */
@@ -123,6 +143,7 @@ export interface ConfigInspection {
  * silently re-setting-up over a corrupt config destroys whatever the operator had.
  */
 export function inspectConfig(path = configPath()): ConfigInspection {
+  assertInstanceStateIdentity(resolveInstanceId(), dirname(path))
   if (!existsSync(path)) return { state: 'missing', config: {} }
   try {
     return { state: 'ok', config: PodiumConfig.parse(JSON.parse(readFileSync(path, 'utf8'))) }
@@ -157,6 +178,7 @@ export function loadConfig(path = configPath()): PodiumConfig {
  *  Restart=always; catch it at SAVE time instead (#21). */
 export function saveConfig(config: PodiumConfig, path = configPath()): void {
   const parsed = PodiumConfig.parse(config)
+  ensureInstanceStateIdentity({ dir: dirname(path) })
   if ((parsed.mode === 'daemon' || parsed.mode === 'client') && !parsed.serverUrl) {
     throw new Error(
       `refusing to save a mode=${parsed.mode} config without a serverUrl — the ${parsed.mode} ` +
@@ -188,7 +210,46 @@ export function resolvePort(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): number {
-  return Number(env.PODIUM_PORT) || config.port || 18787
+  return (
+    Number(env.PODIUM_PORT) || config.port || defaultInstancePorts(resolveInstanceId(env)).server
+  )
+}
+
+export function resolveHookPort(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): number {
+  return (
+    Number(env.PODIUM_HOOK_PORT) ||
+    config.hookPort ||
+    defaultInstancePorts(resolveInstanceId(env)).hook
+  )
+}
+
+export function resolveAgentRelayPort(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): number {
+  return (
+    Number(env.PODIUM_AGENT_RELAY_PORT) ||
+    config.agentRelayPort ||
+    defaultInstancePorts(resolveInstanceId(env)).agentRelay
+  )
+}
+
+/** Native harness HOME/history root. Named instances isolate it unless sharing is explicit. */
+export function resolveAgentHomeDir(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+  home: string = env.HOME || homedir(),
+): string {
+  return (
+    env.PODIUM_AGENT_HOME ||
+    config.agentHome ||
+    (resolveInstanceId(env) === 'default'
+      ? home
+      : join(instanceStateDir(resolveInstanceId(env), env, home), 'agent-home'))
+  )
 }
 
 /** Self-update channel: PODIUM_UPDATE_CHANNEL → config.updateChannel → 'stable'. */
@@ -211,7 +272,10 @@ export function resolveUpdateFeed(
 /** Self-update platform target: PODIUM_UPDATE_TARGET → caller-supplied fallback
  *  (the CLI passes its host-derived os/arch mapping; default keeps the historical
  *  linux-x64 behavior for callers that don't). */
-export function resolveUpdateTarget(env: EnvSource = process.env, fallback = 'linux-x86_64'): string {
+export function resolveUpdateTarget(
+  env: EnvSource = process.env,
+  fallback = 'linux-x86_64',
+): string {
   return env.PODIUM_UPDATE_TARGET ?? fallback
 }
 

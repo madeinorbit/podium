@@ -312,6 +312,22 @@ describe('resolvePlan — utility subcommands', () => {
     ).toMatchObject({ kind: 'update' })
   })
 
+  it('rejects cross-instance inherited relay routing unless explicitly disabled', () => {
+    const inherited = {
+      PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1',
+      PODIUM_SESSION_INSTANCE: 'blue',
+      PODIUM_INSTANCE: 'green',
+    }
+    expect(plan({}, ['issue', 'ready'], inherited)).toMatchObject({
+      kind: 'usage-error',
+      message: expect.stringContaining('PODIUM_NO_RELAY=1'),
+    })
+    expect(plan({}, ['issue', 'ready'], { ...inherited, PODIUM_NO_RELAY: '1' })).toEqual({
+      kind: 'issue',
+      args: ['ready'],
+    })
+  })
+
   it('version: version/--version/-v', () => {
     expect(plan({}, ['version'])).toEqual({ kind: 'version' })
     expect(plan({}, ['--version'])).toEqual({ kind: 'version' })
