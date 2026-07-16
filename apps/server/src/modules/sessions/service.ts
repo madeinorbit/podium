@@ -960,6 +960,11 @@ export class SessionsService {
     if (taskPrompt !== undefined && !useArgv) {
       this.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
     }
+    // Fire-and-forget notification (post-spawn, so subscribers observe the new
+    // world). Its one consumer today is the opt-in telemetry usage counter
+    // [spec:SP-f933], which is why the payload carries the harness kind and
+    // nothing else — no cwd, no prompt, no issue id.
+    this.bus.emit('session.created', { sessionId: spawned.sessionId, agentKind })
     // Forcing an unlisted model is a deliberate override — make it durable and
     // observable across every spawn path [spec:SP-cc60]. Only emitted when the force
     // actually bypassed an unknown model (a known model needs no force).

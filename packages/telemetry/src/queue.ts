@@ -16,9 +16,16 @@
  * never surface to a user, so IO failures are swallowed (the caller has no
  * recovery worth taking, and there is no user-visible feature to degrade).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { type TelemetryReport, TelemetryReport as TelemetryReportSchema } from './schema'
+import { AgentKind } from '@podium/protocol'
+import { z } from 'zod'
+import {
+  type TelemetryFeature,
+  TelemetryFeature as TelemetryFeatureSchema,
+  type TelemetryReport,
+  TelemetryReport as TelemetryReportSchema,
+} from './schema'
 
 /** At one report a day, 32 is a month of offline backlog — far past the point
  *  where old usage counters are worth sending. */
@@ -36,6 +43,69 @@ export function queuePath(stateDir: string): string {
 
 export function lastSentPath(stateDir: string): string {
   return join(telemetryDir(stateDir), 'last-sent.json')
+}
+
+export function windowPath(stateDir: string): string {
+  return join(telemetryDir(stateDir), 'window.json')
+}
+
+/**
+ * The CURRENT counting window, persisted [spec:SP-f933].
+ *
+ * Why this is on disk rather than purely in memory: the design says "one report
+ * per day", and a Podium server restarts often (deploys, reboots, `podium
+ * update`). With the window in memory only, a 24h timer would restart on every
+ * boot and a machine that restarts daily would flush NEVER — the usage tier
+ * would silently report nothing at all, which is the worst kind of bug: one
+ * that looks like it works. Persisting both the counters and `nextFlushAt` is
+ * what makes "one report a day" true rather than "one report per uninterrupted
+ * 24 hours of uptime", and it keeps restarts from each emitting a partial report.
+ *
+ * This is still not collection-before-consent: it is only ever written while a
+ * tier is on, and the flusher clears it when consent goes away.
+ */
+export const TelemetryWindow = z
+  .object({
+    /** Epoch ms of the next due flush; survives restarts so the cadence does. */
+    nextFlushAt: z.number().int().nonnegative(),
+    sessions: z.record(AgentKind, z.number().int().nonnegative()),
+    features: z.array(TelemetryFeatureSchema),
+  })
+  .strict()
+export type TelemetryWindow = z.infer<typeof TelemetryWindow>
+
+export function readWindow(stateDir: string): TelemetryWindow | undefined {
+  try {
+    if (!existsSync(windowPath(stateDir))) return undefined
+    const parsed = TelemetryWindow.safeParse(JSON.parse(readFileSync(windowPath(stateDir), 'utf8')))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function writeWindow(stateDir: string, window: TelemetryWindow): void {
+  try {
+    mkdirSync(telemetryDir(stateDir), { recursive: true })
+    writeFileSync(windowPath(stateDir), `${JSON.stringify(window, null, 2)}\n`)
+  } catch {
+    // best-effort by design
+  }
+}
+
+/** Drop the window entirely — used when consent goes away, so counters
+ *  gathered while a tier was on do not linger after it is off. */
+export function clearWindow(stateDir: string): void {
+  try {
+    rmSync(windowPath(stateDir), { force: true })
+  } catch {
+    // best-effort by design
+  }
+}
+
+/** Convenience for `podium telemetry show`: what the window holds right now. */
+export function windowFeatures(window: TelemetryWindow | undefined): TelemetryFeature[] {
+  return window?.features ?? []
 }
 
 function readLines(path: string): string[] {

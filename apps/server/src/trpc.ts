@@ -1,3 +1,4 @@
+import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { Capability } from './issue-authz'
@@ -34,6 +35,12 @@ export interface Context {
    *  is off. Optional so existing context builders keep the historical shape
    *  (absent = core + hub, exactly as before roles existed). */
   role?: ServerRoleConfig
+  /** The opt-in telemetry emitter [spec:SP-f933], so `telemetry.preview` can
+   *  render the REAL pending report instead of a hand-written sample that could
+   *  drift from what is actually sent. Optional: contexts without one (tests,
+   *  the in-process MCP caller) simply have no preview. Consent state itself is
+   *  read from config.json, never from here — it must work with no server. */
+  telemetry?: { emitter: Pick<TelemetryEmitter, 'buildUsageReport'> }
 }
 
 /** The typed module seam router procs reach services through (ctx.modules when

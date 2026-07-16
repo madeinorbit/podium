@@ -20,11 +20,11 @@ import {
   setUpdateChannel,
   validatePublicUrl,
 } from '@podium/runtime/setup'
+import { readTelemetryState, resetInstallId, setConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AccountConnectInput, accountViews, maskCredential } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
-import { getFeatureStates } from './features'
 import {
   type CloudAgentKind,
   type CloudRepoRequest,
@@ -32,6 +32,7 @@ import {
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
 } from './cloud-runtime'
+import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
 import {
   isValidCron,
@@ -811,6 +812,38 @@ export const appRouter = t.router({
     state: t.procedure.query(({ ctx }) =>
       getFeatureStates(mods(ctx).settings.getSettings(), loadConfig()),
     ),
+  }),
+  /**
+   * Opt-in telemetry [spec:SP-f933] — Settings → Privacy's backing surface.
+   *
+   * Reads/writes config.json (D8), NOT the settings blob, so the web toggles and
+   * `podium telemetry off` are the same switch. Self-persisting: each `set` lands
+   * immediately rather than riding the settings Save button, because "I turned
+   * telemetry off" must never be lost to an unsaved page.
+   *
+   * Same auth as settings.get (the /trpc guard = the operator).
+   */
+  telemetry: t.router({
+    state: t.procedure.query(() => readTelemetryState(loadConfig())),
+    set: t.procedure
+      .input(
+        z
+          .object({
+            usage: z.enum(['on', 'off']).optional(),
+            crash: z.enum(['on', 'off']).optional(),
+          })
+          // At least one tier, so an empty call can't silently no-op.
+          .refine((v) => v.usage !== undefined || v.crash !== undefined, {
+            message: 'specify usage and/or crash',
+          }),
+      )
+      .mutation(({ input }) => setConsent(input)),
+    resetId: t.procedure.mutation(() => resetInstallId()),
+    /** The example report the Privacy page shows. Rendered from the REAL emitter
+     *  where one exists, so what the user is shown cannot drift from what is
+     *  sent; falls back to the illustrative sample before anyone has opted in
+     *  (there is no real report to show until then — by design). */
+    preview: t.procedure.query(({ ctx }) => ctx.telemetry?.emitter.buildUsageReport() ?? null),
   }),
   accounts: t.router({
     // The Accounts & Keys hub (SP-6454): native CLI logins on this machine

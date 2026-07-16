@@ -5,13 +5,13 @@
  * collected before consent, consent is re-read at flush (so `podium telemetry
  * off` lands without a restart), and every failure mode is silent.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TelemetryEmitter } from './emitter'
-import { readLastSent, readQueue } from './queue'
+import { FLUSH_INTERVAL_MS, TelemetryEmitter } from './emitter'
+import { readLastSent, readQueue, readWindow } from './queue'
 
 const INSTALL_ID = '3f9c1a2e-0000-4000-8000-000000000000'
 const INSTALL = '/opt/podium'
@@ -185,6 +185,80 @@ describe('usage report', () => {
     })
     await expect(emitter.flush()).resolves.toBeUndefined()
     void config
+  })
+})
+
+describe('the window survives restarts ("one report a DAY", not per uptime)', () => {
+  /** A fresh emitter over the SAME state dir = a server restart. */
+  const restart = (config: PodiumConfig, now: number, posted: unknown[]) =>
+    new TelemetryEmitter({
+      stateDir: dir,
+      installRoot: INSTALL,
+      version: '1.4.2',
+      gauges: () => ({ machines: 1 }),
+      env: {},
+      loadConfig: () => config,
+      now: () => now,
+      random: () => 0,
+      fetch: (async (_u: unknown, init?: RequestInit) => {
+        posted.push(JSON.parse(String(init?.body)))
+        return new Response('', { status: 200 })
+      }) as unknown as typeof globalThis.fetch,
+      platform: 'linux',
+      arch: 'x64',
+    })
+
+  it('counters accumulate ACROSS restarts instead of being lost', () => {
+    const posted: unknown[] = []
+    restart(onUsage, 1_000, posted).recordSession('claude-code')
+    restart(onUsage, 2_000, posted).recordSession('codex')
+    restart(onUsage, 3_000, posted).recordSession('claude-code')
+    expect(restart(onUsage, 4_000, posted).buildUsageReport()).toMatchObject({
+      sessions: { 'claude-code': 2, codex: 1 },
+    })
+  })
+
+  it('a restart does NOT restart the day — the flush stays due when it was due', async () => {
+    const posted: unknown[] = []
+    const first = restart(onUsage, 1_000, posted)
+    first.recordSession('claude-code')
+    // A server that reboots more often than once a day would never flush if
+    // each boot armed a fresh 24h timer. The due time is persisted, so it does.
+    const dueAt = readWindow(dir)?.nextFlushAt
+    expect(dueAt).toBe(1_000 + FLUSH_INTERVAL_MS)
+    restart(onUsage, 5_000, posted).recordSession('codex')
+    expect(readWindow(dir)?.nextFlushAt).toBe(dueAt)
+  })
+
+  it('the window is cleared after a flush, and the next day is armed', async () => {
+    const posted: unknown[] = []
+    const e = restart(onUsage, 1_000, posted)
+    e.recordSession('claude-code')
+    await e.flush()
+    expect(readWindow(dir)).toMatchObject({
+      sessions: {},
+      features: [],
+      nextFlushAt: 1_000 + FLUSH_INTERVAL_MS,
+    })
+  })
+
+  it('leaves no window behind when usage is off at flush time', async () => {
+    const posted: unknown[] = []
+    const e = restart(onUsage, 1_000, posted)
+    e.recordSession('claude-code')
+    const off = restart({ telemetry: { usage: 'off', installId: INSTALL_ID } }, 2_000, posted)
+    await off.flush()
+    // Counters gathered while it was on do not linger after it is off.
+    expect(readWindow(dir)).toBeUndefined()
+  })
+
+  it('ignores a corrupt window file rather than crashing a boot', () => {
+    mkdirSync(join(dir, 'telemetry'), { recursive: true })
+    writeFileSync(join(dir, 'telemetry', 'window.json'), '{"nextFlushAt": "tomorrow"}')
+    const posted: unknown[] = []
+    const e = restart(onUsage, 1_000, posted)
+    expect(() => e.recordSession('codex')).not.toThrow()
+    expect(readWindow(dir)?.sessions).toEqual({ codex: 1 })
   })
 })
 

@@ -18,11 +18,24 @@
  *  - **Failure is silent and free.** No retry storms against air-gapped
  *    installs, no thrown errors, no user-visible effect. A telemetry problem
  *    the user can see is a worse bug than no telemetry at all.
+ *
+ * The counting WINDOW (counters + when the next flush is due) is persisted, not
+ * held in memory — see `TelemetryWindow` in queue.ts for why "one report a day"
+ * is otherwise false on any machine that restarts.
  */
 import type { AgentKind } from '@podium/protocol'
 import { type EnvSource, loadConfig, type PodiumConfig } from '@podium/runtime/config'
 import { isTierOn, resolveTelemetryEndpoint } from './consent'
-import { dropFromQueue, enqueueReport, readQueue, recordLastSent } from './queue'
+import {
+  clearWindow,
+  dropFromQueue,
+  enqueueReport,
+  readQueue,
+  readWindow,
+  recordLastSent,
+  type TelemetryWindow,
+  writeWindow,
+} from './queue'
 import {
   bucketInstallAge,
   bucketMachines,
@@ -48,6 +61,9 @@ export const CRASH_SIGNATURE_COOLDOWN_MS = 24 * 60 * 60 * 1000
 /** Absolute ceiling on crash reports queued per flush window, whatever their
  *  signatures — the backstop for a process finding many novel ways to die. */
 export const MAX_CRASHES_PER_WINDOW = 5
+/** Floor for the first flush after boot when the window is already due. Boot is
+ *  the busiest moment a server has; telemetry waits its turn. */
+export const BOOT_FLUSH_DELAY_MS = 60_000
 
 /** Gauges the host reads at FLUSH time (never retained between flushes). */
 export interface TelemetryGauges {
@@ -75,8 +91,6 @@ export interface EmitterDeps {
 }
 
 export class TelemetryEmitter {
-  private sessions = new Map<AgentKind, number>()
-  private features = new Set<TelemetryFeature>()
   private crashSignatures = new Map<string, number>()
   private crashesThisWindow = 0
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -110,6 +124,22 @@ export class TelemetryEmitter {
     }
   }
 
+  /** The window, loaded from disk (or a fresh one). Never created while a tier
+   *  is off — callers gate on `tierOn` first. */
+  private window(): TelemetryWindow {
+    return (
+      readWindow(this.deps.stateDir) ?? {
+        nextFlushAt: this.nextFlushAt(),
+        sessions: {},
+        features: [],
+      }
+    )
+  }
+
+  private nextFlushAt(): number {
+    return this.deps.now() + FLUSH_INTERVAL_MS + Math.floor(this.deps.random() * FLUSH_JITTER_MS)
+  }
+
   /**
    * A session was created. Counted only while `usage` is on — the config read
    * per call is deliberate (D4/D9: no cached consent, no collection while off)
@@ -117,18 +147,20 @@ export class TelemetryEmitter {
    */
   recordSession(kind: AgentKind): void {
     if (!this.tierOn('usage')) return
-    this.sessions.set(kind, (this.sessions.get(kind) ?? 0) + 1)
+    const window = this.window()
+    window.sessions[kind] = (window.sessions[kind] ?? 0) + 1
+    writeWindow(this.deps.stateDir, window)
   }
 
-  /**
-   * A feature surface was touched this window. The already-marked short-circuit
-   * runs BEFORE the consent read, so a chatty caller (every issue mutation)
-   * costs one config read per window, not one per event.
-   */
+  /** A feature surface was touched this window. Idempotent per window, so a
+   *  chatty caller (every issue mutation) costs one write per window, not one
+   *  per event — the read short-circuits before any config or disk write. */
   markFeature(feature: TelemetryFeature): void {
-    if (this.features.has(feature)) return
+    const window = this.window()
+    if (window.features.includes(feature)) return
     if (!this.tierOn('usage')) return
-    this.features.add(feature)
+    window.features.push(feature)
+    writeWindow(this.deps.stateDir, window)
   }
 
   /**
@@ -191,10 +223,10 @@ export class TelemetryEmitter {
     if (!identity) return undefined
     const config = this.deps.loadConfig()
     const since = config.telemetry?.since ?? this.deps.now()
-    const sessions: Partial<Record<AgentKind, number>> = {}
-    for (const [kind, count] of this.sessions) sessions[kind] = count
+    const window = this.window()
+    const sessions: Partial<Record<AgentKind, number>> = { ...window.sessions }
     const features: Partial<Record<TelemetryFeature, boolean>> = {}
-    for (const feature of this.features) features[feature] = true
+    for (const feature of window.features) features[feature] = true
     let machines = 1
     try {
       machines = this.deps.gauges().machines
@@ -211,15 +243,23 @@ export class TelemetryEmitter {
     }
   }
 
-  /** Start the daily jittered flush. The timer is unref'd — telemetry must
-   *  never be the reason a process refuses to exit. */
+  /**
+   * Start the daily jittered flush. The timer is unref'd — telemetry must never
+   * be the reason a process refuses to exit.
+   *
+   * The delay honours the PERSISTED `nextFlushAt`, so restarting the server does
+   * not restart the day: a box that reboots (or redeploys) more often than once
+   * a day would otherwise never reach a flush at all. A due-in-the-past window
+   * fires on a short delay rather than immediately — boot is busy, and this is
+   * the least important thing happening.
+   */
   start(): void {
     if (this.timer) return
-    this.scheduleNext()
+    this.scheduleNext(Math.max(this.window().nextFlushAt - this.deps.now(), BOOT_FLUSH_DELAY_MS))
   }
 
-  private scheduleNext(): void {
-    const delay = FLUSH_INTERVAL_MS + Math.floor(this.deps.random() * FLUSH_JITTER_MS)
+  private scheduleNext(delayMs = this.nextFlushAt() - this.deps.now()): void {
+    const delay = Math.max(delayMs, 0)
     this.timer = setTimeout(() => {
       this.timer = undefined
       void this.flush().finally(() => {
@@ -285,10 +325,22 @@ export class TelemetryEmitter {
     dropFromQueue(this.deps.stateDir, settled)
   }
 
+  /**
+   * End the window: drop the persisted counters and start the next day's clock.
+   * Clearing (rather than zeroing in place) is also what reaps counters gathered
+   * while a tier was on after the user turns it off — local data from a decision
+   * they reversed does not get to sit around.
+   */
   private resetWindow(): void {
-    this.sessions.clear()
-    this.features.clear()
+    clearWindow(this.deps.stateDir)
     this.crashesThisWindow = 0
+    if (this.tierOn('usage')) {
+      writeWindow(this.deps.stateDir, {
+        nextFlushAt: this.nextFlushAt(),
+        sessions: {},
+        features: [],
+      })
+    }
   }
 
   /** One POST, one timeout, no retry. Any failure = false, silently. */

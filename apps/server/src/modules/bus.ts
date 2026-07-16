@@ -1,4 +1,5 @@
 import type {
+  AgentKind,
   AgentRuntimeState,
   ConversationSummaryWire,
   HostMetricsWire,
@@ -29,6 +30,9 @@ export interface EventMap {
     prev: AgentRuntimeState | undefined
     next: AgentRuntimeState
   }
+  /** A session was created by an operator/programmatic caller (createSession —
+   *  the one funnel for fresh spawns; resumes and reattaches do not fire it). */
+  'session.created': { sessionId: string; agentKind: AgentKind }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: string; code: number }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */

@@ -16,6 +16,7 @@
     "@podium/issue-client": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/sync": "workspace:*",
+    "@podium/telemetry": "workspace:*",
     "@podium/transcript": "workspace:*",
     "@trpc/client": "^11.0.0",
     "@trpc/server": "^11.0.0",

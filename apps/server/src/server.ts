@@ -34,6 +34,7 @@ import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
 import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
+import { wireTelemetry } from './telemetry'
 import { attachWebSockets } from './wsServer'
 
 /**
@@ -206,6 +207,14 @@ export async function startServer(
     })
     upstreamSync.start()
   }
+  // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
+  // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
+  // so this collects NOTHING until a tier is explicitly on — and takes effect
+  // without a restart when it is.
+  const telemetry = wireTelemetry({
+    bus: registry.modules.bus,
+    machineCount: () => registry.modules.machines.listMachines().length,
+  })
   const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry.modules, repos, store)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
@@ -299,6 +308,9 @@ export async function startServer(
         cloud,
         capability: OPERATOR,
         modules: registry.modules,
+        // Only so telemetry.preview can show the REAL report [spec:SP-f933];
+        // consent lives in config.json and is never read through the context.
+        telemetry,
         // Hub-only procs (machines fleet admin + pairing) 404 when the hub
         // role is off — see the hubProc guard in router.ts.
         role,
@@ -442,6 +454,11 @@ export async function startServer(
               server: server as unknown as Server,
               persist: [
                 ['messaging.stop', () => messaging.stop()],
+                // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
+                // final network flush: shutdown is a user-visible latency path
+                // (POD-611 made it deterministic and fast), and a report is worth
+                // less than a fast stop. The queue is durable — it goes next boot.
+                ['telemetry.stop', () => telemetry.stop()],
                 ['upstreamSync.stop', () => upstreamSync?.stop()],
                 ['upstreamForwarder.stop', () => upstreamForwarder?.stop()],
                 ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
