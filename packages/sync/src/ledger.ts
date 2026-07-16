@@ -225,7 +225,7 @@ export class Ledger {
     type Overlay = { op: 'upsert'; json: string; value: unknown } | { op: 'remove' }
     const overlay = new Map<string, Overlay>()
     for (const spec of specs) {
-      const key = `${spec.entity} ${spec.id}`
+      const key = `${spec.entity}\u0000${spec.id}`
       const prior = overlay.get(key)
       if (spec.op === 'upsert') {
         const json = JSON.stringify(spec.value)
