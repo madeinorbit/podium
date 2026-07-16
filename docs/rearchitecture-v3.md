@@ -152,13 +152,19 @@ red is swallowed is worse than no gate — it launders the failure.**
 
 ### 2.3 Quarantine register (POD-295)
 
-No oracle test is quarantined. AC3 requires that every skip/quarantine carry a linked
-issue and a reason recorded here — this table stays as the single record. Reds are
-tracked as fixes, not skips; a quarantine is a last resort, never a silent skip.
+AC3: every skip/quarantine carries a linked issue and a reason recorded here — this table
+is the single record. Reds are tracked as fixes, not skips; a quarantine is a last resort,
+never a silent skip. **POD-295 added no quarantines**; the one entry below is pre-existing
+and was found by the sweep, already skipped and already invisible.
 
 | Test | Lane | Issue | Reason |
 | --- | --- | --- | --- |
-| _(none)_ | | | |
+| `router.test.ts:369` `discovery.refreshRepos enriches registered roots in place` | unit | POD-759 | The expectation predates registered-root enrichment: discovery now returns the registered root itself as a repository entry even when the daemon scan is empty. Skipped rather than fixed so CI would not silently bless the new shape without review — **that review never happened**. Its original link (`podium #32`) is closed AND was never about this test, so the skip deferred to nothing. POD-759 replaces it. |
+
+Everything else that does not run is **conditional-by-environment, not a quarantine**, and
+needs no entry: the `PODIUM_REAL_CLI` gate on the agent-smoke suites ([spec:SP-0be7] — never
+implicit, bills real quota), abduco/tmux availability guards, and platform guards. Verified
+by sweep: `router.test.ts:369` is the only unconditional `.skip` in the repo.
 
 ### 2.4 Baseline — commit c577009d, 2026-07-16 (POD-295)
 
@@ -174,23 +180,42 @@ reproduce every run, identically); there are **zero flakes** and zero quarantine
 | e2e | **GREEN** | 7 files / 21 tests |
 | multi-instance | **RED** | same file and cause as integration → POD-746 |
 
-The oracle is therefore **not yet locked green**; POD-295's baseline AC stays open until
-POD-743 and POD-746 land. Both were root-caused rather than quarantined, and both turned
+Re-measured on `issue/295` with the POD-743 fix applied: **unit GREEN** — 342 files /
+4078 tests passed, 3 files / 15 tests skipped (all accounted for in §2.3), plus apps/web
+127 files. So the unit lane's red is closed; POD-757's flake did not surface in that run,
+which is precisely the problem with a ~40% flake — one green run proves nothing.
+
+The oracle is therefore **not yet locked green**. Gate POD-422 reads this section, so
+state it plainly: **the green-baseline AC stays open on POD-746 and POD-757** (POD-743 is
+fixed, below). Every red was root-caused rather than quarantined, and the first two turned
 out to be the same failure shape — **a check that reports a plausible cause instead of the
 real one**, which is worth naming here because the rewrite will meet it again:
 
-- **POD-743** (unit): the test pins the bare substring `'podium session title'` to assert
-  an already-named session is not nagged. POD-694's delegation prose legitimately contains
-  that literal, in every prime, so the assertion fires regardless of the behavior it
-  means to check. The product is correct — verified: the actual nudge sentence is absent
-  from the failing prime. This is exactly the "UI copy-string pin" [spec:SP-0be7] warns
-  against, so the fix is a more specific assertion, not a relaxed one.
+- **POD-743** (unit) — **FIXED by POD-295**, no product change: the test pinned the bare
+  substring `'podium session title'` to assert an already-named session is not nagged.
+  POD-694's delegation prose legitimately contains that literal, in every prime, so the
+  assertion fired regardless of the behavior it meant to check; the product was correct
+  all along (verified — the actual nudge sentence is absent from the failing prime). It
+  is exactly the "UI copy-string pin" [spec:SP-0be7] warns against, so the fix derives the
+  marker from `sessionTitleRule()`, the doctrine's single copy, rather than relaxing the
+  test. The same collision had also made a THIRD test — the positive
+  `primes an UNNAMED session to title itself` — pass unconditionally: a false green that
+  could never fail. Two loud reds and one silent pass, one cause. The silent one was worse.
 - **POD-746** (integration + multi-instance): the error says "the drizzle migrator requires
   the bun:sqlite runtime". The runtime is fine (`isBunRuntime()=true`, bun:sqlite present).
   `bunSqliteClient()` is a module-scoped WeakMap lookup, and `@podium/runtime/sqlite` is
   loaded twice across resolution roots, so the migrator holds a different WeakMap than the
   one the db was registered in. Proven by differential: for one db object, the test-side
   lookup FINDS it while the server-side lookup returns undefined.
+
+- **POD-757** (unit) — **the one true flake, and the reason this baseline is not yet
+  lockable even with POD-743 fixed.** `packages/transcript/src/tailer.test.ts` fails ~40%
+  of runs *in isolation* (a `settle()`/await race, measured over 5 consecutive runs on a
+  pristine tree). The unit lane is retry-0 by doctrine, so a green run there is a coin
+  flip: it would red unrelated PRs and, worse, teach agents to re-run until green — which
+  is how a real regression gets waved through. **A baseline locked against a coin-flip
+  lane is not a baseline.** Not quarantined: POD-757 has its own implementor and branch;
+  skipping it would trade a visible flake for invisible lost coverage.
 
 Two lanes report one bug: `managed-account-spawn.integration.test.ts` runs in both
 integration (via the `*.integration.test.ts` glob) and multi-instance (named explicitly in
@@ -438,11 +463,12 @@ moves, no deletions. The audit script REPORTS counts; it does not fail CI on non
 (that ratchet is per-phase). Manifest lint stays in warn mode until Phase 7 (POD-335).
 
 **Oracle status:** baseline MEASURED at c577009d and **RED** — see §2.4 for the lane table.
-typecheck + e2e green; unit red (POD-743), integration + multi-instance red (POD-746, one
-file failing in both). Deterministic, not flaky; zero quarantines. The oracle command
-(`bun run oracle`) and the CI job are in place; the baseline is not yet lockable GREEN and
-gate POD-422 cannot pass until those two land. Typecheck runs under tsgo via turbo
-(POD-715 landed).
+typecheck + e2e green; unit red (POD-743 — since FIXED by POD-295, no product change);
+integration + multi-instance red (POD-746, one file failing in both). Zero quarantines. The
+oracle command (`bun run oracle`) and the CI job are in place. **The baseline is not yet
+lockable GREEN: gate POD-422 stays shut on POD-746 (module duplication) and POD-757 (a ~40%
+flaky unit test — a retry-0 lane that flakes cannot certify anything).** Typecheck runs
+under tsgo via turbo (POD-715 landed).
 
 **Audit counts:** baseline committed by POD-297 in `scripts/rearch-audit-baseline.json`
 — **21 items / 246 sites at fd4ea76b**. That is the before-count every later phase reads.
