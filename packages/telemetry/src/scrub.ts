@@ -128,8 +128,19 @@ export function scrubFrame(
 }
 
 /**
- * Parse + scrub a raw V8 `error.stack`. The first line (`TypeError: <message>`)
- * is never parsed as a frame, so the message cannot survive by accident.
+ * Parse + scrub a raw V8 `error.stack`.
+ *
+ * Note what actually protects the message here, because it is NOT "the first
+ * line is skipped": nothing skips lines. `TypeError: boom` simply fails
+ * STACK_LINE (it does not start with `at`). But a MULTI-LINE message — say a
+ * wrapped error built as `new Error(\`upstream failed:\\n\${err.stack}\`)`, which
+ * is a common shape — puts message bytes on later lines that CAN match. What
+ * stops those is the same thing that stops everything else: the frame must land
+ * inside the install root AND satisfy `PodiumRelativePath` (known source root,
+ * safe segments, a JS/TS extension). Anything else is dropped whole.
+ *
+ * So the guarantee is containment + schema, not line position. Do not "optimize"
+ * this by trusting the shape of a stack.
  */
 export function scrubStack(stack: string | undefined, installRoot: string, max = 20): StackFrame[] {
   if (!stack) return []
@@ -164,9 +175,10 @@ export interface ScrubbedError {
  * parameter, not a return value, and not reachable from here.
  */
 export function scrubError(err: unknown, installRoot: string): ScrubbedError {
-  const errorType = normalizeErrorType(
-    err instanceof Error ? err.constructor?.name : typeof err === 'object' ? undefined : undefined,
-  )
+  // Non-Errors (a thrown string/object) have no constructor name worth trusting:
+  // they fold to 'Other'. Only a real Error's constructor name is offered to the
+  // enum, which rejects anything it does not know.
+  const errorType = normalizeErrorType(err instanceof Error ? err.constructor?.name : undefined)
   const frames = scrubStack(err instanceof Error ? err.stack : undefined, installRoot)
   return { errorType, frames }
 }
