@@ -5,6 +5,12 @@
  * (aggregates request/broadcast timings, ingests client traces). All timing
  * numbers are milliseconds. Client mark offsets are relative to the trace's
  * t0 (the user gesture that initiated the switch).
+ *
+ * STABILITY: metric/phase names and this wire shape are load-bearing beyond
+ * this feature — the architecture-rewrite quantitative gates (POD-736, for
+ * POD-310/POD-337) A/B-compare switch latency across the wire cutover using
+ * these exact names. Rename or reshape only with a migration story for the
+ * recorded baselines.
  */
 
 import { z } from 'zod'
