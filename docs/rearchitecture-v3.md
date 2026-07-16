@@ -148,12 +148,21 @@ instead of greps.
 **A lane that does not run what it claims is not an oracle either.** The lane list above is
 the doctrine's, and it is only as true as the lanes underneath it: POD-295 found that the
 `e2e` lane never ran Playwright at all — `test:e2e` is vitest over `tests/e2e`, while the
-56 browser suites under `tests/e2e/browser/**` sit in no lane, no script and no CI job
+54 browser suites under `tests/e2e/browser/**` sit in no lane, no script and no CI job
 (POD-756; the lane map's claim of "real server + daemon + abduco + Playwright" was false and
 is corrected in `docs/agents/testing.md`). So until POD-756 lands, **"oracle green" asserts
 nothing whatsoever about the UI** — a phase whose cut lines touch the client cannot cite the
 e2e lane as evidence it did not break the app. Verified at c577009d, POD-298: `e2e/browser`
 is referenced 0 times in package.json and 0 times in ci.yml.
+
+And the orphans have an orphan: `tests/e2e/mobile-web-smoke.spec.ts` is collected by NOTHING
+— it sits outside Playwright's `testDir './browser'` AND fails its `testMatch
+'**/*.browser.e2e.ts'` (missing on both counts), it is absent from the integration lane's
+include list, and `grep -rn mobile-web-smoke` finds no script, config or workflow naming it.
+It has run nowhere for as long as anyone can tell. **Count a suite against the glob that
+DEFINES it, never against the directory it lives in** — the 54 above was twice reported as
+56 by two people counting `*.ts` files, which swept in two harness helpers; two commands
+sharing one blind spot are one witness, not two.
 
 ---
 
