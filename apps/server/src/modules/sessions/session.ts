@@ -6,6 +6,7 @@ import type {
   ResumeRef,
   ServerMessage,
   SessionMeta,
+  SessionOffer,
   SessionOrigin,
   TranscriptItem,
   WorkState,
@@ -210,6 +211,11 @@ export class Session {
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
    *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
   draftUpdatedAt: string | undefined = undefined
+  /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
+   *  agent offers the user as next steps. Lives in its own `offers` table (not
+   *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
+   *  Cleared on the next user-submitted turn (a button click counts). */
+  offer: SessionOffer | undefined = undefined
   /** True once a structured transcript has been seen — drives chat capability. */
   transcriptAvailable = false
   geometry: Geometry
@@ -717,6 +723,14 @@ export class Session {
     return true
   }
 
+  /** Clear the agent action offer [spec:SP-c7f1]. Returns true if it actually
+   *  changed (lets the caller skip a redundant broadcast/persist). */
+  clearOffer(): boolean {
+    if (this.offer === undefined) return false
+    this.offer = undefined
+    return true
+  }
+
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
   setTitle(title: string): void {
@@ -845,6 +859,7 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
+      ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),

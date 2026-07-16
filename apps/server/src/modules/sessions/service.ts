@@ -516,10 +516,12 @@ export class SessionsService {
     snoozes: Record<string, string | null>,
     draftTimes: Record<string, string>,
     drafts: Record<string, string>,
+    offers: Record<string, { message: string; actions: { label: string; prompt: string }[]; createdAt: string }>,
   ): void {
     this.sessions.set(session.sessionId, session)
     if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
     if (session.sessionId in draftTimes) session.draftUpdatedAt = draftTimes[session.sessionId]
+    if (session.sessionId in offers) session.offer = offers[session.sessionId] // [spec:SP-c7f1]
     if (session.sessionId in drafts) {
       this.draftBySession.set(session.sessionId, drafts[session.sessionId] ?? '')
     }
@@ -541,10 +543,11 @@ export class SessionsService {
     }
     const draftTimes = this.store.sessions.loadDraftTimes()
     const snoozes = this.store.sessions.listSnoozes()
+    const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
     for (const r of this.store.sessions.loadSessions()) {
       const session = this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
-      this.installStoredSession(session, snoozes, draftTimes, drafts)
+      this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
       if (r.status !== session.status) this.persist(session)
     }
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
@@ -838,6 +841,44 @@ export class SessionsService {
     if (session) {
       session.clearSnooze()
       this.persist(session) // see setSnooze — off-row field, commit the flip
+    }
+    this.broadcastSessions()
+  }
+
+  /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
+   *  offer replaces the previous one. Persisted in the `offers` table (off-row,
+   *  like snooze) and broadcast so every client's chat bar updates. */
+  setOffer({
+    sessionId,
+    message,
+    actions,
+  }: {
+    sessionId: string
+    message: string
+    actions: { label: string; prompt: string }[]
+  }): void {
+    const offer = { message, actions, createdAt: new Date().toISOString() }
+    this.store.sessions.setOffer(sessionId, offer)
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      session.offer = offer
+      this.persist(session) // off-row field — commit the flip to the change log
+    }
+    this.broadcastSessions()
+  }
+
+  /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
+   *  or auto-clear on the next user turn). Skips work when nothing changes. */
+  clearOffer(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    // Persisted rows can outlive the in-memory session; always hit the store.
+    this.store.sessions.clearOffer(sessionId)
+    if (session) {
+      if (!session.clearOffer()) {
+        this.broadcastSessions()
+        return
+      }
+      this.persist(session) // off-row field — commit the flip
     }
     this.broadcastSessions()
   }
@@ -1190,6 +1231,9 @@ export class SessionsService {
     // A submitted message re-engages the session — drop any snooze so it returns
     // to the normal attention flow (covers chat send + resumeAndSend paths).
     if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+    // A user turn consumes any pending agent action offer [spec:SP-c7f1] — a
+    // button click sends its prompt through this same path, so it self-clears.
+    if (session.offer !== undefined) this.clearOffer(sessionId)
     const send = (data: string) =>
       this.toMachine(session.machineId, {
         type: 'input',
@@ -1370,6 +1414,8 @@ export class SessionsService {
       // A queued message is fresh user intent on the session — clear any snooze,
       // mirroring sendText, so it returns to the normal attention flow.
       if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+      // ...and consume any pending agent action offer [spec:SP-c7f1].
+      if (session.offer !== undefined) this.clearOffer(sessionId)
       this.broadcastSessions()
     }
     if (parked) this.resurrectSession({ sessionId })
@@ -2084,8 +2130,9 @@ export class SessionsService {
         const drafts = this.store.sessions.loadDrafts()
         const draftTimes = this.store.sessions.loadDraftTimes()
         const snoozes = this.store.sessions.listSnoozes()
+        const offers = this.store.sessions.listOffers() // [spec:SP-c7f1]
         for (const { session } of restored) {
-          this.installStoredSession(session, snoozes, draftTimes, drafts)
+          this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
         }
       },
     }

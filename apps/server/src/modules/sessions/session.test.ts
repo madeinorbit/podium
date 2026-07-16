@@ -596,6 +596,24 @@ describe('Session', () => {
     expect('snoozedUntil' in s.toMeta()).toBe(false)
   })
 
+  // Agent action offer [spec:SP-c7f1].
+  it('toMeta surfaces offer only when set; clearOffer reports change', () => {
+    const s = makeSession()
+    expect('offer' in s.toMeta()).toBe(false)
+    expect(s.clearOffer()).toBe(false)
+
+    const offer = {
+      message: 'Tests are red on main',
+      actions: [{ label: 'Fix them', prompt: 'Please fix the failing tests' }],
+      createdAt: '2026-07-16T00:00:00.000Z',
+    }
+    s.offer = offer
+    expect(s.toMeta().offer).toEqual(offer)
+
+    expect(s.clearOffer()).toBe(true)
+    expect('offer' in s.toMeta()).toBe(false)
+  })
+
   it('toMeta surfaces draftUpdatedAt only when a draft exists', () => {
     const s = makeSession()
     expect('draftUpdatedAt' in s.toMeta()).toBe(false)
