@@ -219,6 +219,11 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   bootstrapToken: server.bootstrapToken,
   machineId: LOCAL_MACHINE_ID,
   installCodexHooks: REAL_AGENTS,
+  // The fixture is isolated by its per-port state root. TCP callbacks are
+  // ephemeral so it never contends with the live instance; Codex continuity is
+  // exercised through the stable socket derived from this settings root.
+  hooks: { port: 0, settingsDir: join(stateDir, 'hooks') },
+  agentRelay: { port: 0 },
   launch,
   ...(realAgentCodexEnv ? { discovery: { homeDir: realAgentCodexEnv.discoveryHomeDir } } : {}),
   workerClient: inlineWorkerClient(),

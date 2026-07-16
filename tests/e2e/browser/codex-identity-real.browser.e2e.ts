@@ -9,6 +9,21 @@ const PORT = Number(process.env.PORT ?? 8799)
 test.skip(() => process.env.PODIUM_E2E_REAL_AGENTS !== '1', 'real-agent run only')
 test.skip(({ isMobile }) => isMobile, 'desktop only')
 
+async function selectIssueLessWorktree(page: Page): Promise<void> {
+  await page.keyboard.press('Control+K')
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const input = palette.getByRole('combobox')
+  await input.fill('e2e-feat')
+  const option = palette
+    .getByRole('option')
+    .filter({ hasText: `zz-podium-e2e-repo-${PORT}` })
+    .first()
+  await expect(option).toBeVisible({ timeout: 15_000 })
+  await option.click()
+  await expect(palette).toBeHidden({ timeout: 15_000 })
+  await expect(page.locator('button[aria-label="New panel"]:visible').first()).toBeVisible()
+}
+
 async function activeSessionId(page: Page): Promise<string> {
   return page.evaluate(() => {
     const panels = [...document.querySelectorAll<HTMLElement>('[data-session]')]
@@ -38,23 +53,20 @@ async function submitNativeDraft(page: Page): Promise<void> {
   await page.keyboard.press('Enter')
 }
 
-async function expectNativeBinding(page: Page): Promise<void> {
-  await expect(page.locator('button[title^="Hibernate"]:visible')).toBeEnabled({ timeout: 60_000 })
-}
-
-test('real codex: promptless panes keep drafts and bindings through daemon restart', async ({
+test('real codex: promptless panes keep drafts through restart and bind first messages', async ({
   page,
 }) => {
   test.setTimeout(480_000)
   await page.setViewportSize({ width: 1400, height: 900 })
   await openApp(page)
+  await selectIssueLessWorktree(page)
 
   await newSession(page, 'Codex')
   await waitForCodexReady(page)
   const paneA = await activeSessionId(page)
   expect(paneA).not.toBe('')
-  // SessionStart supplies Codex's official thread id before any user prompt.
-  await expectNativeBinding(page)
+  // Codex has not created a native thread id yet. The live pane is identified
+  // solely by its stable Podium id while this first draft remains unsubmitted.
   const draftAKey = 'Compute seventy-three plus eighteen.'
   const draftA = `${draftAKey} Reply with only the decimal digits, nothing else.`
   await typeNativeDraft(page, draftA, draftAKey)
@@ -64,7 +76,6 @@ test('real codex: promptless panes keep drafts and bindings through daemon resta
   const paneB = await activeSessionId(page)
   expect(paneB).not.toBe('')
   expect(paneB).not.toBe(paneA)
-  await expectNativeBinding(page)
   const draftBKey = 'Compute sixty-four plus fifty-seven.'
   const draftB = `${draftBKey} Reply with only the decimal digits, nothing else.`
   await typeNativeDraft(page, draftB, draftBKey)
@@ -91,14 +102,12 @@ test('real codex: promptless panes keep drafts and bindings through daemon resta
 
   // Reattachment must preserve both unsent native drafts under the same Podium IDs.
   await selectSidebarSession(page, paneA)
-  await waitForCodexReady(page)
   expect(await podium.screen(page)).toContain(draftAKey)
   await selectSidebarSession(page, paneB)
-  await waitForCodexReady(page)
   expect(await podium.screen(page)).toContain(draftBKey)
 
-  // Submit both first messages back-to-back. Their native ids are already bound;
-  // answers must remain attached to the originating stable Podium ids.
+  // Submit both first messages back-to-back. Codex creates each native thread id
+  // now; the official hook/fallback attaches it to the originating Podium id.
   await selectSidebarSession(page, paneA)
   await submitNativeDraft(page)
   await selectSidebarSession(page, paneB)

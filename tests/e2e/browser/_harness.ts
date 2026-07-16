@@ -123,12 +123,11 @@ export async function newSession(page: Page, kind: 'Claude' | 'Codex' | 'Shell')
     await page.locator('button[aria-label="New panel"]:visible').first().click({ timeout: 15_000 })
   }
   const item = page.getByRole('menuitem', { name: `New ${kind}` })
-  if (kind === 'Shell' && (await item.isVisible().catch(() => false))) {
-    // Persisting Shell as the default immediately re-renders the sidebar. Fire
-    // the click before Playwright's stability wait observes the detached trigger.
+  if (kind !== 'Shell') await item.waitFor({ state: 'visible', timeout: 10_000 })
+  if (kind !== 'Shell' || (await item.isVisible().catch(() => false))) {
+    // Selecting an agent persists the default and immediately re-renders the sidebar.
+    // Dispatch before Playwright's stability wait observes the detached menu item.
     await item.dispatchEvent('click')
-  } else if (kind !== 'Shell') {
-    await item.click({ timeout: 10_000 })
   }
   await page.waitForFunction(() => !!(window as unknown as TestWindow).__podium, undefined, {
     timeout: 20_000,
