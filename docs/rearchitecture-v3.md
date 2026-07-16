@@ -480,13 +480,26 @@ browser-safe nor node-only. The workspace-granular tag cannot see subpaths: lega
 8a covers `@podium/runtime` only, which is why the identical hole in `@podium/telemetry`
 is filed as POD-745 rather than papered over.
 
-**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 48 known
-violations with per-(rule, file) COUNTS, each mapped to the phase that removes it: 46
+**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 50 known
+violations with per-(rule, file) COUNTS, each mapped to the issue that removes it: 46
 harness-branching → Phase 5 (POD-292/POD-325), 2 `apps/desktop → scripts` → Phase 7
-(POD-294). Allowlisted-and-within-count warns; anything new — or one more in an
-already-listed file — fails. A count that no longer matches reality is reported as
-stale, so the list can only shrink. Phases shrink their own entries (§5); POD-335 flips
-to error level with the list empty.
+(POD-294), 2 legacy `agent-bridge-consumers` → POD-740. Allowlisted-and-within-count
+warns; anything new — or one more in an already-listed file — fails. Slack fails too: a
+count left above reality leaves slots that can be refilled silently, so "the list can
+only shrink" is only true if not shrinking it stops the build. Phases shrink their own
+entries (§5); POD-335 flips to error level with the list empty.
+
+**One allowlist, both rule families.** The legacy eight run through the same ratchet, so
+POD-740's two `apps/server → @podium/agent-bridge` imports are grandfathered rather than
+failing `lint:boundaries` on every branch — while a NEW legacy violation still fails.
+The two families are applied to their own violations separately (`partitionAllowlist`):
+one shared pass would have each declaring the other's entries stale.
+
+**Two lint entrypoints, on purpose.** `bun run lint:boundaries` runs everything and is
+wired into `bun run lint`, which is `continue-on-error: true` in CI while biome's ~249
+pre-existing errors are burned down (podium #30) — anything living only inside it is
+decorative. `bun run lint:architecture` (`--manifest-only`) is therefore a SEPARATE
+BLOCKING CI step. POD-297's deletion audit is wired the same way for the same reason.
 
 **The harness axiom tracks HarnessAgent identity, not the literal.** `ApiProvider`
 (`['openrouter','anthropic','openai','codex']`) is a separate enum sharing the literal

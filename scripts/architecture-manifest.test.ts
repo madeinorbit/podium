@@ -12,6 +12,7 @@ import {
   type ImportRef,
   loadHarnessLiterals,
   MANIFEST,
+  partitionAllowlist,
   SAME_LAYER_ALLOWED,
   stripComments,
   tagsFor,
@@ -703,6 +704,51 @@ describe('applyAllowlist', () => {
     )
     expect(r.warnings).toEqual([])
     expect(r.errors).toHaveLength(1)
+  })
+})
+
+describe('partitionAllowlist', () => {
+  // The two families share one allowlist but must be applied to their OWN
+  // violations: applyAllowlist calls any entry with no matching violation stale,
+  // so a shared pass makes each family declare the other's entries dead and
+  // fails the build. This bit for real when the legacy entries were added.
+  it('splits manifest rules from legacy rules', () => {
+    const [manifest, legacy] = partitionAllowlist([
+      { rule: 'harness-branching', file: 'a.ts', count: 1, phase: 'POD-292', note: 'n' },
+      { rule: 'manifest-layer', file: 'b.ts', count: 1, phase: 'POD-294', note: 'n' },
+      { rule: 'agent-bridge-consumers', file: 'c.ts', count: 1, phase: 'POD-740', note: 'n' },
+    ])
+    expect(manifest.map((e) => e.rule)).toEqual(['harness-branching', 'manifest-layer'])
+    expect(legacy.map((e) => e.rule)).toEqual(['agent-bridge-consumers'])
+  })
+
+  it('partitions the REAL allowlist with no entry lost or duplicated', () => {
+    const [manifest, legacy] = partitionAllowlist(BOUNDARY_ALLOWLIST)
+    expect(manifest.length + legacy.length).toBe(BOUNDARY_ALLOWLIST.length)
+    expect(manifest.length).toBeGreaterThan(0)
+    expect(legacy.length).toBeGreaterThan(0)
+  })
+
+  it('applies each family to its own violations without cross-family staleness', () => {
+    const all = [
+      { rule: 'harness-branching', file: 'a.ts', count: 1, phase: 'POD-292', note: 'n' },
+      { rule: 'agent-bridge-consumers', file: 'c.ts', count: 1, phase: 'POD-740', note: 'n' },
+    ]
+    const [m, l] = partitionAllowlist(all)
+    const manifestOnly = applyAllowlist(
+      [{ rule: 'harness-branching', file: 'a.ts', specifier: 'x', message: 'm' }],
+      m,
+    )
+    expect(manifestOnly.stale).toEqual([])
+    expect(manifestOnly.warnings).toHaveLength(1)
+    // The unpartitioned pass is exactly the bug: the legacy entry reads as dead.
+    const shared = applyAllowlist(
+      [{ rule: 'harness-branching', file: 'a.ts', specifier: 'x', message: 'm' }],
+      all,
+    )
+    expect(shared.stale).toHaveLength(1)
+    expect(shared.stale[0]).toContain('is dead')
+    expect(l).toHaveLength(1)
   })
 })
 

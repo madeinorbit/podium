@@ -54,9 +54,25 @@
  *     barrel re-export widening from type-only to a value). The barrel's own
  *     doc comment still carries the discipline in prose for anyone editing it.
  *
- * Run: `bun run lint:boundaries` (wired into `bun run lint`). Exits non-zero
- * with a readable violation list. Pure matching logic is exported for the
- * vitest suite in `scripts/check-boundaries.test.ts`.
+ * Alongside these eight sits the ARCHITECTURE MANIFEST (POD-296,
+ * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
+ * derived from them. The two families coexist until POD-335 retires each legacy
+ * rule against an equivalent manifest constraint.
+ *
+ * BOTH families are gated by the one phase-mapped allowlist in
+ * scripts/boundary-allowlist.ts: a violation listed there (and within its count)
+ * WARNS; anything new, over count, or left slack after a fix FAILS. So rule 2's
+ * two known server→agent-bridge imports are grandfathered (POD-740) instead of
+ * failing every branch, without opening the door to new ones.
+ *
+ * Run:
+ *  - `bun run lint:boundaries` — everything (wired into `bun run lint`, which is
+ *    `continue-on-error` in CI while biome's backlog is burned down).
+ *  - `bun run lint:architecture` — the manifest alone (`--manifest-only`), the
+ *    BLOCKING CI step. Separate precisely because `bun run lint` cannot block.
+ *
+ * Pure matching logic is exported for the vitest suite in
+ * `scripts/check-boundaries.test.ts`.
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -73,6 +89,7 @@ import {
   type ImportRef,
   isTestFile,
   loadHarnessLiterals,
+  partitionAllowlist,
   stripComments,
   tagsFor,
   type Violation,
@@ -554,7 +571,18 @@ function main(): void {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
   const { violations, staleGrandfathers, manifest } = runCheck(repoRoot)
-  const { warnings, errors, stale } = applyAllowlist(manifest, BOUNDARY_ALLOWLIST)
+  // ONE allowlist, but the two rule families must be applied to their OWN
+  // violations: applyAllowlist calls any entry with no matching violation stale,
+  // so a shared pass would have each family declaring the other's entries dead.
+  const [manifestAllowed, legacyAllowed] = partitionAllowlist(BOUNDARY_ALLOWLIST)
+  const { warnings, errors, stale } = applyAllowlist(manifest, manifestAllowed)
+  // The legacy rules run through the SAME ratchet (POD-740): their two known
+  // violations are grandfathered in the one phase-mapped allowlist, so
+  // lint:boundaries is green while a NEW legacy violation still fails. Before
+  // this, any legacy violation failed outright — which is why the check had been
+  // red on every branch since accounts.ts/relay.ts grew those imports, and a
+  // guardrail everyone has learned to ignore is not a guardrail.
+  const legacy = applyAllowlist(violations, legacyAllowed)
   const ms = Math.round(performance.now() - start)
   if (!manifestOnly) {
     for (const f of staleGrandfathers) {
@@ -590,17 +618,28 @@ function main(): void {
     console.error('Fix the dependency — the allowlist is a ratchet, it only goes down.')
   }
 
-  if (!manifestOnly && violations.length > 0) {
-    console.error(`\nDependency-boundary violations (${violations.length}):\n`)
-    for (const v of violations) console.error(`  [${v.rule}] ${v.message}`)
-    console.error('\nSee ARCHITECTURE.md "Dependency direction" for the rules.')
+  if (!manifestOnly) {
+    if (legacy.warnings.length > 0) {
+      console.warn(
+        `\nlegacy dependency rules — ${legacy.warnings.length} allowlisted violation(s) (warn, see scripts/boundary-allowlist.ts):`,
+      )
+      for (const v of legacy.warnings) console.warn(`  [${v.rule}] ${v.message}`)
+    }
+    for (const s of legacy.stale) console.error(`  ${s}`)
+    if (legacy.errors.length > 0) {
+      console.error(`\nDependency-boundary violations (${legacy.errors.length}):\n`)
+      for (const v of legacy.errors) console.error(`  [${v.rule}] ${v.message}`)
+      console.error('\nSee ARCHITECTURE.md "Dependency direction" for the rules.')
+    }
   }
-  if (errors.length > 0 || stale.length > 0 || (!manifestOnly && violations.length > 0))
-    process.exit(1)
+
+  const legacyFailed = !manifestOnly && (legacy.errors.length > 0 || legacy.stale.length > 0)
+  if (errors.length > 0 || stale.length > 0 || legacyFailed) process.exit(1)
+  const allowlisted = warnings.length + (manifestOnly ? 0 : legacy.warnings.length)
   console.log(
     manifestOnly
       ? `architecture manifest OK (${ms}ms) — ${warnings.length} allowlisted, 0 new`
-      : `boundaries OK (${ms}ms) — manifest: ${warnings.length} allowlisted, 0 new`,
+      : `boundaries OK (${ms}ms) — ${allowlisted} allowlisted, 0 new`,
   )
 }
 

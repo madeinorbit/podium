@@ -561,6 +561,33 @@ export function findHarnessBranching(
 // Allowlist / ratchet
 // ---------------------------------------------------------------------------
 
+/**
+ * Every rule id the MANIFEST can emit. Anything else in the allowlist belongs to
+ * a legacy rule in check-boundaries.ts.
+ *
+ * The two families share one allowlist but must be applied SEPARATELY, each
+ * against its own violations: applyAllowlist reports any entry with no matching
+ * violation as stale, so handing the manifest pass a legacy entry (or vice
+ * versa) makes each family declare the other's entries dead and fails the build.
+ */
+export const MANIFEST_RULES: ReadonlySet<string> = new Set([
+  'manifest-layer',
+  'manifest-platform',
+  'manifest-role',
+  'manifest-untagged',
+  'harness-branching',
+])
+
+/** Split one allowlist into [manifest entries, legacy entries]. */
+export function partitionAllowlist(
+  allowlist: readonly AllowlistEntry[],
+): [manifest: AllowlistEntry[], legacy: AllowlistEntry[]] {
+  return [
+    allowlist.filter((e) => MANIFEST_RULES.has(e.rule)),
+    allowlist.filter((e) => !MANIFEST_RULES.has(e.rule)),
+  ]
+}
+
 export interface AllowlistEntry {
   /** Manifest rule id, e.g. 'manifest-layer'. */
   rule: string
