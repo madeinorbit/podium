@@ -1496,7 +1496,7 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Ready one')
   })
 
-  it('prime renders structural blockers and parent as #seq (open only)', () => {
+  it('prime renders structural blockers and parent as ref (title) (open only)', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const dep = svc.create({ repoPath: '/r', title: 'Dep', startNow: false })
@@ -1508,9 +1508,11 @@ describe('IssueService.prime (P1a)', () => {
     // targets, so prime's "Blocked by:" line must match and drop it too.
     svc.close(closedDep.id)
     const out = svc.prime({ repoPath: '/r', boundIssueId: me.id })
-    expect(out).toContain(`Parent epic: #${epic.seq}`)
+    // No repo prefix in the harness → niceRef falls back to `#seq`; the title
+    // must ride along so agents can use the canonical `REF (Title)` form.
+    expect(out).toContain(`Parent epic: #${epic.seq} (Epic)`)
     const blockedLine = out.split('\n').find((l) => l.startsWith('Blocked by:'))
-    expect(blockedLine).toContain(`#${dep.seq}`)
+    expect(blockedLine).toContain(`#${dep.seq} (Dep)`)
     expect(blockedLine).not.toContain(`#${closedDep.seq}`)
   })
 })

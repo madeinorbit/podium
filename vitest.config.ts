@@ -59,6 +59,7 @@ export default defineConfig({
             ...configDefaults.exclude,
             '**/.claude/**',
             '**/.claire/**',
+            '**/.worktrees/**',
             '**/*.bun.test.ts',
             'apps/web/**',
           ],
