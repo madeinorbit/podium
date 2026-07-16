@@ -39,7 +39,7 @@
     "host": "bun run --filter @podium/web dev & bun --conditions=@podium/source --watch scripts/host.ts",
     "host:web": "bun run --filter @podium/web dev",
     "host:backend": "bun --conditions=@podium/source --watch scripts/host.ts",
-    "typecheck": "bun run --filter '*' typecheck",
+    "typecheck": "turbo run typecheck",
     "test": "bun run test:unit && bun run test:web && bun run test:bun:unit",
     "test:unit": "bun --bun vitest run --passWithNoTests --config vitest.unit.config.ts --project node",
     "test:web": "bun run --cwd apps/web test:unit",
@@ -76,6 +76,7 @@
     "react-dom": "19.2.7",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
+    "turbo": "^2.10.5",
     "typescript": "^6.0.3",
     "vitest": "5.0.0-beta.6"
   },
