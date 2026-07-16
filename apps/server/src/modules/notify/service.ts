@@ -95,11 +95,15 @@ export class NotifyService {
     return info.name || info.title || info.cwd.split('/').pop() || 'agent'
   }
 
-  private sendTelegram(config: TelegramConfig, notice: AttentionNotice): void {
+  private sendTelegram(
+    config: TelegramConfig,
+    notice: AttentionNotice,
+    sessionId?: string,
+  ): void {
     const text = `${notice.title}\n\n${notice.body}`
     const port = this.deps.telegramNotice?.()
     if (port) {
-      port.sendNotice(text, config)
+      port.sendNotice(text, config, sessionId ? { sessionId } : undefined)
       return
     }
     this.pushers.telegram(config, notice)
@@ -124,7 +128,7 @@ export class NotifyService {
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
       if (sendNtfy) this.pushers.ntfy(nextNtfy, notice)
-      if (sendTelegram) this.sendTelegram(telegram, notice)
+      if (sendTelegram) this.sendTelegram(telegram, notice, info.sessionId)
     }
   }
 
@@ -197,7 +201,7 @@ export class NotifyService {
       const someoneWatching = [...this.deps.clients()].some((c) => c.visible)
       if (!someoneWatching) {
         if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
-        if (telegramEnabled) this.sendTelegram(telegram, notice)
+        if (telegramEnabled) this.sendTelegram(telegram, notice, info.sessionId)
       }
     }
   }

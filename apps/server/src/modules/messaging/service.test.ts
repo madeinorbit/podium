@@ -124,6 +124,7 @@ function makeHarness(
   opts: {
     sendTurnImpl?: () => Promise<unknown>
     issues?: MessagingDeps['issues']
+    sessionIssueId?: MessagingDeps['sessionIssueId']
     interruptTurnImpl?: () => void
     restartThreadImpl?: () => void
   } = {},
@@ -194,6 +195,7 @@ function makeHarness(
     },
     topics,
     ...(opts.issues ? { issues: opts.issues } : {}),
+    ...(opts.sessionIssueId ? { sessionIssueId: opts.sessionIssueId } : {}),
     createTelegram: () => adapter,
     registerTelegramCommands,
   })
@@ -706,7 +708,51 @@ describe('MessagingService', () => {
     ])
   })
 
-  it('sendNotice threads into the last inbound forum topic', async () => {
+  it('sendNotice with sessionId routes to the bound issue forum topic', async () => {
+    const h = makeHarness({
+      sessionIssueId: (sessionId) => (sessionId === 's_pod' ? 'iss_pod' : null),
+    })
+    h.topics.upsert({
+      issueId: 'iss_pod',
+      chatId: '42',
+      threadRef: '555',
+      superagentThreadId: 'btw_s_pod',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+    })
+    h.inbound('in another topic', { threadRef: '77' })
+    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
+      botToken: 'tok',
+      chatId: '42',
+    }, { sessionId: 's_pod' })
+    await flush()
+    expect(h.sent).toEqual([
+      {
+        chatId: '42',
+        threadRef: '555',
+        text: 'keyboard needs you\n\nSQLite or Postgres?',
+      },
+    ])
+  })
+
+  it('sendNotice with sessionId falls back to main chat when the issue has no bound topic', async () => {
+    const h = makeHarness({
+      sessionIssueId: () => 'iss_unbound',
+    })
+    h.inbound('in topic', { threadRef: '77' })
+    h.service.sendNotice('keyboard needs you\n\nSQLite or Postgres?', {
+      botToken: 'tok',
+      chatId: '42',
+    }, { sessionId: 's1' })
+    await flush()
+    expect(h.sent).toEqual([
+      {
+        chatId: '42',
+        text: 'keyboard needs you\n\nSQLite or Postgres?',
+      },
+    ])
+  })
+
+  it('sendNotice threads into the last inbound forum topic when no sessionId is given', async () => {
     const h = makeHarness()
     const bus = h.bus
     let onMessage: ((msg: InboundChatMessage) => void) | undefined

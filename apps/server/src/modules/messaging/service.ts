@@ -49,6 +49,8 @@ export interface MessagingDeps {
   issues?: { list(): IssueWire[] }
   /** Forum-topic bindings (SQLite). */
   topics?: MessagingTopicsPort
+  /** Session → explicit issue attachment for notice topic routing. */
+  sessionIssueId?: (sessionId: string) => string | null
   /** True while the settings telegram-setup pairing window owns getUpdates. */
   telegramSetupPending?: () => boolean
   /** Adapter factory — injected in tests. */
@@ -87,8 +89,9 @@ export const TYPING_REFRESH_MS = 4000
 export class MessagingService implements TelegramNoticePort {
   private adapter: ChannelAdapter | undefined
   private adapterKey = ''
-  /** Last inbound conversation ref from the configured chat — attention notices
-   *  thread into the same forum topic when one was active. */
+  /** Last inbound conversation ref from the configured chat — used when a notice
+   *  has no sessionId (e.g. subscription notifyExternal). Session-scoped notices
+   *  route via issue-topic bindings instead. */
   private lastInboundRef: ConversationRef | undefined
   /** FIFO of inbound messages not yet dispatched, per superagent thread. */
   private readonly queues = new Map<string, QueuedInbound[]>()
@@ -145,20 +148,23 @@ export class MessagingService implements TelegramNoticePort {
   /**
    * Fire-and-forget attention notice. Uses the live ChannelAdapter when running;
    * falls back to bare sendMessage when the bridge is stopped or config differs.
+   *
+   * When `sessionId` is set, route to the issue's bound forum topic (if any) and
+   * otherwise the main chat. Without `sessionId`, thread into the last inbound
+   * forum topic (subscription / legacy callers).
    */
-  sendNotice(text: string, config: TelegramConfig): void {
+  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: string }): void {
     const botToken = config.botToken.trim()
     const chatId = config.chatId.trim()
     if (!botToken || !chatId) return
     const key = `${botToken}\n${chatId}`
 
     if (this.adapter && key === this.adapterKey) {
+      const threadRef = this.noticeThreadRef(chatId, opts?.sessionId)
       const target: ConversationRef = {
         channel: 'telegram',
         chatId,
-        ...(this.lastInboundRef?.chatId === chatId && this.lastInboundRef.threadRef
-          ? { threadRef: this.lastInboundRef.threadRef }
-          : {}),
+        ...(threadRef ? { threadRef } : {}),
       }
       void this.adapter.send(target, text).catch((err) => {
         console.warn('[podium] Telegram push failed:', err instanceof Error ? err.message : err)
@@ -166,6 +172,22 @@ export class MessagingService implements TelegramNoticePort {
       return
     }
     pushTelegramText(config, text)
+  }
+
+  /** Resolve the forum topic for an outbound notice. */
+  private noticeThreadRef(chatId: string, sessionId?: string): string | undefined {
+    if (sessionId) {
+      const issueId = this.deps.sessionIssueId?.(sessionId)
+      if (!issueId) return undefined
+      return (
+        this.deps.topics?.getByIssue(chatId, issueId)?.threadRef ??
+        this.topicRefByIssue.get(issueId)
+      )
+    }
+    if (this.lastInboundRef?.chatId === chatId && this.lastInboundRef.threadRef) {
+      return this.lastInboundRef.threadRef
+    }
+    return undefined
   }
 
   private loadTopicMappings(chatId: string): void {

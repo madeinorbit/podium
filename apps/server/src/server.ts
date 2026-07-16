@@ -211,6 +211,7 @@ export async function startServer(
     superagent,
     issues: registry.modules.issues,
     topics: store.messagingTopics,
+    sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
   })
   messaging.configure()

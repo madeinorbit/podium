@@ -11,7 +11,7 @@ import type { TelegramConfig } from '../../notify'
 /** Optional NotifyService injection — attention notices through the live adapter
  *  with a direct-send fallback when the bridge is stopped. */
 export interface TelegramNoticePort {
-  sendNotice(text: string, config: TelegramConfig): void
+  sendNotice(text: string, config: TelegramConfig, opts?: { sessionId?: string }): void
 }
 
 /** Normalized address of an external conversation. Different apps have
