@@ -187,35 +187,33 @@ which is precisely the problem with a ~40% flake — one green run proves nothin
 
 The oracle is therefore **not yet locked green**. Gate POD-422 reads this section, so
 state it plainly: **the green-baseline AC stays open on POD-746 and POD-757** (POD-743 is
-fixed, below). Every red was root-caused rather than quarantined, and the first two turned
-out to be the same failure shape — **a check that reports a plausible cause instead of the
-real one**, which is worth naming here because the rewrite will meet it again:
+fixed, below). Every red was root-caused rather than quarantined. §2's flake doctrine
+governs the dispositions here — a flaky lane is not an oracle, and a flake's FIX belongs
+to the owner of the code under test while POD-295 inherits only the CONSEQUENCE:
 
-- **POD-743** (unit) — **FIXED by POD-295**, no product change: the test pinned the bare
-  substring `'podium session title'` to assert an already-named session is not nagged.
-  POD-694's delegation prose legitimately contains that literal, in every prime, so the
-  assertion fired regardless of the behavior it meant to check; the product was correct
-  all along (verified — the actual nudge sentence is absent from the failing prime). It
-  is exactly the "UI copy-string pin" [spec:SP-0be7] warns against, so the fix derives the
-  marker from `sessionTitleRule()`, the doctrine's single copy, rather than relaxing the
-  test. The same collision had also made a THIRD test — the positive
-  `primes an UNNAMED session to title itself` — pass unconditionally: a false green that
-  could never fail. Two loud reds and one silent pass, one cause. The silent one was worse.
-- **POD-746** (integration + multi-instance): the error says "the drizzle migrator requires
-  the bun:sqlite runtime". The runtime is fine (`isBunRuntime()=true`, bun:sqlite present).
-  `bunSqliteClient()` is a module-scoped WeakMap lookup, and `@podium/runtime/sqlite` is
-  loaded twice across resolution roots, so the migrator holds a different WeakMap than the
-  one the db was registered in. Proven by differential: for one db object, the test-side
-  lookup FINDS it while the server-side lookup returns undefined.
+- **POD-743** (unit) — **FIXED by POD-295**, no product change, no quarantine. §2 already
+  records why the assertion was wrong (a proxy satisfiable by the delegation prose alone,
+  in both directions). The fix keys on the thing itself: the marker derives from
+  `sessionTitleRule()`, the doctrine's single copy, already reused at relay.ts:1190 —
+  [spec:SP-0be7]'s "behavioral assertions over UI copy-string pins". Mutation-tested:
+  deleting the product's already-named guard (relay.ts:1176) turns the file red on exactly
+  `says nothing about titles once the session HAS a name`; the old assertion could not have
+  caught that at the positive site. The unit lane's red is closed outright.
+- **POD-746** (integration + multi-instance) — **not POD-295's to fix**; dedicated
+  implementor assigned. Recorded because the error message misdirects, which is §2's proxy
+  rule showing up in an error string: it says "the drizzle migrator requires the bun:sqlite
+  runtime", but the runtime is fine (`isBunRuntime()=true`, bun:sqlite present, the db IS
+  bun-backed). `bunSqliteClient()` is a module-scoped **WeakMap lookup**, and
+  `@podium/runtime/sqlite` is loaded twice across resolution roots, so the migrator holds a
+  different WeakMap than the one the db was registered in. Proven by differential: for one
+  db object, the test-side lookup FINDS it while the server-side returns undefined.
 
-- **POD-757** (unit) — **the one true flake, and the reason this baseline is not yet
-  lockable even with POD-743 fixed.** `packages/transcript/src/tailer.test.ts` fails ~40%
-  of runs *in isolation* (a `settle()`/await race, measured over 5 consecutive runs on a
-  pristine tree). The unit lane is retry-0 by doctrine, so a green run there is a coin
-  flip: it would red unrelated PRs and, worse, teach agents to re-run until green — which
-  is how a real regression gets waved through. **A baseline locked against a coin-flip
-  lane is not a baseline.** Not quarantined: POD-757 has its own implementor and branch;
-  skipping it would trade a visible flake for invisible lost coverage.
+- **POD-757** (unit) — the one true flake, and the reason this baseline is not lockable
+  even with POD-743 fixed. Owned by `@podium/transcript` per §2's ownership split, with its
+  own implementor and branch; POD-295 carries only the consequence. NOT quarantined: that
+  trades a visible flake for invisible lost coverage on a bug being actively fixed.
+  **Data point for its owner: tailer did NOT flake in POD-295's full-lane run.** That is
+  the ~40% being ~40%, not evidence of a fix — one green run must not close it.
 
 Two lanes report one bug: `managed-account-spawn.integration.test.ts` runs in both
 integration (via the `*.integration.test.ts` glob) and multi-instance (named explicitly in
