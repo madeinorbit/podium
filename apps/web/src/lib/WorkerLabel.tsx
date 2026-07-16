@@ -9,7 +9,7 @@ import {
   OpenAIcon,
   OpenCodeIcon,
 } from '@/lib/icons/AgentIcons'
-import { panelLabel } from './derive'
+import { isUnstartedSession, panelLabel } from './derive'
 
 /**
  * Strip a leading status/spinner glyph from a live terminal title. Claude Code
@@ -22,8 +22,11 @@ export function normalizeTitle(title: string): string {
   return title.replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim()
 }
 
-/** The display name for a session anywhere in the UI: user-set name beats the live title. */
+/** The display name for a session anywhere in the UI: user-set name beats the
+ *  live title; a still-unstarted session reads "New session" (its kind already
+ *  rides on the adjacent icon) rather than echoing the harness's boot title. */
 export function sessionDisplayName(session: SessionMeta): string {
+  if (isUnstartedSession(session)) return 'New session'
   return session.name?.trim() || normalizeTitle(session.title) || 'untitled'
 }
 

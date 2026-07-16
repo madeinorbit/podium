@@ -116,10 +116,15 @@ describe('draftIssueLabel', () => {
     expect(draftIssueLabel(issue({ draft: true }), sessions, ROOTS)).toBe('Fixing the bug')
   })
 
-  it("falls back to 'New agent' when there is no session or no title", () => {
+  it("falls back to 'New agent' when there is no session at all", () => {
     expect(draftIssueLabel(issue({ draft: true }), [], ROOTS)).toBe('New agent')
+  })
+
+  it('labels a still-unstarted session (boot-noise or empty title) by its kind', () => {
     const untitled = [sess('a', WT, { issueId: 'i1', title: '' })]
-    expect(draftIssueLabel(issue({ draft: true }), untitled, ROOTS)).toBe('New agent')
+    expect(draftIssueLabel(issue({ draft: true }), untitled, ROOTS)).toBe('New Claude session')
+    const bootTitle = [sess('a', WT, { issueId: 'i1', title: '✳ Claude Code' })]
+    expect(draftIssueLabel(issue({ draft: true }), bootTitle, ROOTS)).toBe('New Claude session')
   })
 })
 

@@ -855,10 +855,28 @@ export function archivedSessionsForWorktreePath(
   )
 }
 
+/** True while a session is still a blank vessel: no user-set name, and its
+ *  terminal title is only boot noise — empty, the harness's own name ("Claude
+ *  Code", "codex"), or the cwd basename (codex seeds the title with the
+ *  directory). Nothing has been asked of it yet, so surfaces label it as a new
+ *  session instead of parroting the harness name. */
+export function isUnstartedSession(s: SessionMeta): boolean {
+  if (s.name?.trim()) return false
+  const title = s.title
+    .replace(/^[\p{So}\p{Sk}·•\s]+/u, '')
+    .trim()
+    .toLowerCase()
+  if (!title) return true
+  const boot = [panelLabel(s.agentKind).toLowerCase(), s.agentKind, 'claude code']
+  const cwdBase = s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()
+  return boot.includes(title) || title === cwdBase
+}
+
 /** Row label for a DRAFT issue (placeholder-titled vessel): the attached session's
- *  display name, falling back to 'New agent'. Mirrors sessionDisplayName's
- *  name-beats-title rule (WorkerLabel imports from this module, so the tiny
- *  normalize step is inlined here rather than imported — no cycle). */
+ *  display name; a still-unstarted session reads "New <kind> session" so a blank
+ *  vessel is unmistakable. Mirrors sessionDisplayName's name-beats-title rule
+ *  (WorkerLabel imports from this module, so the tiny normalize step is inlined
+ *  here rather than imported — no cycle). */
 export function draftIssueLabel(
   issue: IssueWire,
   sessions: SessionMeta[],
@@ -866,6 +884,7 @@ export function draftIssueLabel(
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
   if (!first) return 'New agent'
+  if (isUnstartedSession(first)) return `New ${panelLabel(first.agentKind)} session`
   const title = first.title.replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim()
   return first.name?.trim() || title || 'New agent'
 }
@@ -1573,6 +1592,17 @@ export function rowWaitingCount(row: UnifiedWorkRow): number {
 export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): string {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
+  // A draft vessel whose sessions were never prompted isn't "queued" work —
+  // nothing was asked yet. Say so instead of the phase word.
+  if (
+    row.kind === 'issue' &&
+    row.issue.draft &&
+    phase === 'queued' &&
+    sessions.length > 0 &&
+    sessions.every(isUnstartedSession)
+  ) {
+    return 'awaiting first prompt'
+  }
   const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
   if (phase === 'waiting') {
     const urgent = mostUrgentSession(

@@ -1,6 +1,7 @@
 import type { AgentRuntimeState, SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  isUnstartedSession,
   rowMotionPhase,
   rowMotionTiming,
   rowStatusLine,
@@ -40,10 +41,10 @@ const waiting = (over: Partial<AgentRuntimeState> = {}) =>
 const done = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' }, ...over }) })
 
-function issueRow(sessions: SessionMeta[]): UnifiedWorkRow {
+function issueRow(sessions: SessionMeta[], draft = false): UnifiedWorkRow {
   return {
     kind: 'issue',
-    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString() },
+    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft },
     sessions,
     activityAt: NOW - 120_000,
     rank: 0,
@@ -83,6 +84,29 @@ describe('rowStatusLine — the second line copy grammar', () => {
     expect(rowStatusLine(issueRow([done()]), NOW)).toBe('done')
     expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('queued')
     expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('2 agents · working')
+  })
+
+  it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "queued"', () => {
+    const fresh = sess({ title: '✳ Claude Code' })
+    expect(rowStatusLine(issueRow([fresh], true), NOW)).toBe('awaiting first prompt')
+    // Same session under a REAL issue keeps the phase grammar.
+    expect(rowStatusLine(issueRow([fresh]), NOW)).toBe('queued')
+    // A draft whose session was actually prompted (meaningful title) stays queued.
+    expect(rowStatusLine(issueRow([sess()], true), NOW)).toBe('queued')
+  })
+})
+
+describe('isUnstartedSession — blank-vessel detection', () => {
+  it('boot-noise titles (harness name, cwd basename, empty) with no user name are unstarted', () => {
+    expect(isUnstartedSession(sess({ title: '✳ Claude Code' }))).toBe(true)
+    expect(isUnstartedSession(sess({ title: 'Claude' }))).toBe(true)
+    expect(isUnstartedSession(sess({ title: '' }))).toBe(true)
+    expect(isUnstartedSession(sess({ title: 'acme', agentKind: 'codex' }))).toBe(true)
+  })
+
+  it('a user-set name or a real title means the session has started', () => {
+    expect(isUnstartedSession(sess({ title: '✳ Claude Code', name: 'My task' }))).toBe(false)
+    expect(isUnstartedSession(sess({ title: '✳ Fix login popup' }))).toBe(false)
   })
 })
 
