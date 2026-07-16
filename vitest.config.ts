@@ -18,34 +18,58 @@ export const nodeTestExclude = [
  * options, spread into every lane config (vitest.unit/integration/agent-smoke). */
 export const sharedVitestConfig = {
   resolve: {
-    alias: {
-      // NOTE: do NOT alias '@podium/runtime' — Vite string aliases match by prefix, which
-      // would rewrite the '@podium/runtime/sqlite' subpath import (in apps/server/store.ts)
-      // to '<index.ts>/sqlite' and break it. Bare '@podium/runtime' resolves fine via the
-      // workspace exports map; scripts/cli.ts imports core by relative path for the
-      // bun-compile, so no alias is needed.
-      '@': fileURLToPath(new URL('./apps/web/src', import.meta.url)),
-      '@podium/agent-bridge': fileURLToPath(
-        new URL('./packages/agent-bridge/src/index.ts', import.meta.url),
-      ),
-      '@podium/composer': fileURLToPath(
-        new URL('./packages/composer/src/index.ts', import.meta.url),
-      ),
-      '@podium/domain': fileURLToPath(new URL('./packages/domain/src/index.ts', import.meta.url)),
-      '@podium/protocol': fileURLToPath(
-        new URL('./packages/protocol/src/index.ts', import.meta.url),
-      ),
-      // NOTE: no '@podium/telemetry' alias, for the same prefix-matching reason as
-      // '@podium/runtime' above — it exposes subpaths ('@podium/telemetry/schema',
-      // …) that a string alias would rewrite into '<index.ts>/schema'. The
-      // workspace exports map resolves it correctly on its own [spec:SP-f933].
-      '@podium/transcript': fileURLToPath(
-        new URL('./packages/transcript/src/index.ts', import.meta.url),
-      ),
-      '@podium/terminal-client': fileURLToPath(
-        new URL('./packages/terminal-client/src/index.ts', import.meta.url),
-      ),
-    },
+    // Array form (not the object map): it takes anchored RegExp `find`s, which is the
+    // only way to alias a package that exposes subpaths. A *string* alias matches by
+    // prefix, so '@podium/runtime' would rewrite the '@podium/runtime/sqlite' subpath
+    // import to '<index.ts>/sqlite' — that hazard is why runtime went unaliased.
+    alias: [
+      { find: '@', replacement: fileURLToPath(new URL('./apps/web/src', import.meta.url)) },
+      {
+        find: '@podium/agent-bridge',
+        replacement: fileURLToPath(
+          new URL('./packages/agent-bridge/src/index.ts', import.meta.url),
+        ),
+      },
+      {
+        find: '@podium/composer',
+        replacement: fileURLToPath(new URL('./packages/composer/src/index.ts', import.meta.url)),
+      },
+      {
+        find: '@podium/domain',
+        replacement: fileURLToPath(new URL('./packages/domain/src/index.ts', import.meta.url)),
+      },
+      {
+        find: '@podium/protocol',
+        replacement: fileURLToPath(new URL('./packages/protocol/src/index.ts', import.meta.url)),
+      },
+      // Leaving runtime to the exports map resolved it by walking *up* the filesystem
+      // out of the checkout: scripts/ is not a workspace package, so it owns no
+      // @podium symlink, and a walk-up can land in a sibling checkout's node_modules.
+      // Two copies of a module = two module-scoped WeakMaps, and bunSqliteClient()
+      // then can't recognise a db the other copy opened — it returns undefined and the
+      // migrator blames the runtime [POD-746]. Anchor every lane to THIS checkout's
+      // source; `$1` keeps the subpath, and vite resolves the dir/index or the .ts file.
+      {
+        find: /^@podium\/runtime$/,
+        replacement: fileURLToPath(new URL('./packages/runtime/src/index.ts', import.meta.url)),
+      },
+      {
+        find: /^@podium\/runtime\/(.*)$/,
+        replacement: `${fileURLToPath(new URL('./packages/runtime/src/', import.meta.url))}$1`,
+      },
+      // NOTE: no '@podium/telemetry' alias — same subpath shape, but it has not been
+      // shown to split, so it stays on the exports map for now [spec:SP-f933].
+      {
+        find: '@podium/transcript',
+        replacement: fileURLToPath(new URL('./packages/transcript/src/index.ts', import.meta.url)),
+      },
+      {
+        find: '@podium/terminal-client',
+        replacement: fileURLToPath(
+          new URL('./packages/terminal-client/src/index.ts', import.meta.url),
+        ),
+      },
+    ],
     conditions: ['@podium/source'],
   },
   test: {
