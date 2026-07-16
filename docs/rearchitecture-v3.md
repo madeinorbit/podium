@@ -225,6 +225,15 @@ suites under `tests/e2e/browser/` run in no lane, no script and no CI; `test:e2e
 browser-free despite what the docs said. Whether the oracle gains a browser lane is open —
 POD-295 locked the existing lane set rather than growing it.
 
+Count it the way the runner resolves it, not by reading the directory —
+`find tests/e2e/browser -name '*.browser.e2e.ts' -type f | wc -l` → 54 (its
+`playwright.config.ts` is `testDir: './browser'` + `testMatch: '**/*.browser.e2e.ts'`).
+An earlier "56" here was a directory listing that counted two helpers as suites, and it had
+already propagated into a second issue before POD-756 caught it. Plus a 55th orphan that is
+outside even the orphaned suite: `tests/e2e/mobile-web-smoke.spec.ts` misses Playwright
+twice (outside `testDir`, and `.spec.ts` ≠ the `testMatch` glob) and misses vitest's globs
+too, so nothing runs it and nothing references it.
+
 ---
 
 ## 3. Standing conventions
