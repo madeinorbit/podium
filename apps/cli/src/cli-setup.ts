@@ -1,12 +1,19 @@
 import { renameSync } from 'node:fs'
 import { setPassword as realSetPassword } from '@podium/runtime/auth-store'
-import { configPath, inspectConfig, loadConfig, saveConfig } from '@podium/runtime/config'
+import {
+  configPath,
+  type EnvSource,
+  inspectConfig,
+  loadConfig,
+  saveConfig,
+} from '@podium/runtime/config'
 import {
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
+import { setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {
@@ -176,6 +183,86 @@ async function passwordStep(
 }
 
 /**
+ * The telemetry prompt's example report [spec:SP-f933]. Shown BY DEFAULT, not
+ * behind a "learn more": the audience is developers, and the JSON documents
+ * itself better than prose describing it (Syncthing showed the exact report and
+ * got ~zero friction; Ubuntu's install-time preview got 67% yes).
+ *
+ * Illustrative values, deliberately: it renders before consent exists, so there
+ * is nothing real to show — `podium telemetry show` prints the real thing once
+ * there is one. The FIELDS here must match @podium/telemetry's UsageReport;
+ * docs/TELEMETRY.md is the drift-tested copy of the same list.
+ */
+export const TELEMETRY_EXAMPLE_REPORT = [
+  '    {',
+  '      "schema":    1,',
+  '      "installId": "3f9c1a2e-…",        // random · reset-id to change',
+  '      "version":   "1.4.2",',
+  '      "os": "linux", "arch": "x64",',
+  '      "installAge": "1-7d",',
+  '      "machines":   "2-5",',
+  '      "sessions":   { "claude": 14, "codex": 2 },',
+  '      "features":   { "issues": true, "spec": true, "handoff": false }',
+  '    }',
+].join('\n')
+
+export const TELEMETRY_PROMPT_HEADER = [
+  '',
+  '── Anonymous telemetry (opt-in) ─────────────────────────────────',
+  '',
+  '  Nothing is collected unless you turn it on. One report a day,',
+  '  and this is exactly what it looks like:',
+  '',
+  TELEMETRY_EXAMPLE_REPORT,
+  '',
+  '  • Never     paths, repo names, prompts, code, any free text',
+  '  • Your IP   dropped at ingest, never reaches analytics',
+  '  • Opt out   anytime in Settings → Privacy, or: podium telemetry off',
+  '  • Details   podium telemetry show · podium.dev/telemetry',
+  '',
+].join('\n')
+
+/** Read one [y/N] answer. Anything that isn't an explicit yes is a NO — the
+ *  default must never drift toward on, and stdin EOF resolves '' forever
+ *  (which lands here as 'no', not as a spin). */
+function yes(answer: string | undefined): boolean {
+  const a = (answer ?? '').trim().toLowerCase()
+  return a === 'y' || a === 'yes'
+}
+
+/**
+ * Telemetry step [spec:SP-f933] — the LAST step of the host flow, after the
+ * machine already works.
+ *
+ * Placement is the whole design: steps 3-7 are all REQUIRED for a working
+ * Podium; this is the only optional question, so it must not be a tollbooth on
+ * the way to a working install. A Ctrl-C here leaves a fully working install
+ * with telemetry absent (= off), which is the best available failure mode. It
+ * also lands at the moment the user has just succeeded, which is when goodwill
+ * is highest.
+ *
+ * Skipped entirely when DO_NOT_TRACK / PODIUM_TELEMETRY=off is set: a box that
+ * has declared it does not want to be tracked must not be asked about tracking.
+ * Only hosts reach here at all (D10) — the join path never calls it.
+ *
+ * Both questions default to N; Enter-Enter opts out of both.
+ */
+export async function telemetryStep(io: SetupIO, env: EnvSource = process.env): Promise<void> {
+  if (!shouldAskForConsent(env)) return
+  io.print(TELEMETRY_PROMPT_HEADER)
+  const usage = yes(await io.prompt('  Send anonymous usage reports?           [y/N] '))
+  const crash = yes(await io.prompt('  Send crash reports (scrubbed traces)?   [y/N] '))
+  // Written even when both are 'no': an explicit 'off' is not the same as
+  // 'absent', and recording the answer is how we know we asked (D11).
+  setConsent({ usage: usage ? 'on' : 'off', crash: crash ? 'on' : 'off' })
+  io.print(
+    usage || crash
+      ? `\n  Thanks — ${[usage ? 'usage' : '', crash ? 'crash' : ''].filter(Boolean).join(' + ')} reporting is on. Turn it off any time: podium telemetry off`
+      : '\n  Telemetry stays off. Nothing will be collected or sent.',
+  )
+}
+
+/**
  * Persistence step: after the host is configured, ask whether to survive reboot (systemd) or
  * run detached, then actually start the backend (server + daemon as two processes) and record
  * the effective persistence in config.
@@ -266,6 +353,11 @@ async function hostStep(
   saveConfig({ ...loadConfig(), mode, publicUrl })
   io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend)
+  // LAST, deliberately (step 8): the backend is already running and the install
+  // already works, so this question can be abandoned at no cost [spec:SP-f933].
+  // The backend being up first is why consent must be read fresh at flush (D9) —
+  // and that is the right behavior independently.
+  await telemetryStep(io)
 }
 
 /** Daemon mode: paste the one-line join code (it carries the server URL + pairing code), then
@@ -351,6 +443,10 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   if (hostsServer) {
     io.print('  4) Change how this machine is reached (its URL)')
     io.print('  5) Change or remove the login password')
+    // Host-only, same condition as 4/5 [spec:SP-f933]: only hosts emit, so only
+    // hosts are asked (D10). This is the entire "ask an existing install" story —
+    // no one-time card, no prompt on a bare `podium` (D11).
+    io.print('  6) Change telemetry')
   }
   const choice = ((await io.prompt('Choose (blank to cancel): ')) ?? '').trim()
 
@@ -364,6 +460,8 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one')
   } else if (choice === '5' && hostsServer) {
     await passwordStep(io, setPassword)
+  } else if (choice === '6' && hostsServer) {
+    await telemetryStep(io)
   } else {
     io.print('Nothing changed.')
   }

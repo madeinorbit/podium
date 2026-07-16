@@ -368,5 +368,188 @@ describe('runCliSetup', () => {
       expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
       expect(loadConfig().mode).toBe('all-in-one')
     })
+
+    it('change telemetry only (option 6), leaving mode/URL/password alone', async () => {
+      const setPw = vi.fn(async () => {})
+      await run(['6', 'y', 'n'], setPw)
+      expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'off' })
+      expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
+      expect(loadConfig().mode).toBe('all-in-one')
+      expect(setPw).not.toHaveBeenCalled()
+    })
+  })
+
+  // ------------------------------------------------------------------
+  // Telemetry step [spec:SP-f933]
+  // ------------------------------------------------------------------
+  describe('telemetry step (the last step of the host flow)', () => {
+    const HOST_ANSWERS = ['1', '1', 'https://box.ts.net', 's3cret', 'n']
+
+    it('is reached only AFTER the install works (step 8)', async () => {
+      const order: string[] = []
+      const answers = [...HOST_ANSWERS, 'y', 'y']
+      let i = 0
+      await runCliSetup(
+        {
+          prompt: async (q) => {
+            if (q.includes('systemd')) order.push('persistence')
+            if (q.includes('usage reports')) order.push('telemetry')
+            return answers[i++] ?? ''
+          },
+          print: () => {},
+        },
+        18787,
+        {
+          setPassword: vi.fn(async () => {}),
+          startBackend: async (o) => {
+            order.push('startBackend')
+            return { effectivePersistence: o.persistence, message: '' }
+          },
+        },
+      )
+      // Telemetry is the last thing asked, and the backend is already up when
+      // it is — which is exactly why consent must be read fresh at flush (D9).
+      expect(order).toEqual(['persistence', 'startBackend', 'telemetry'])
+      expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'on' })
+    })
+
+    it('shows the example report and the opt-out routes in the prompt', async () => {
+      const printed: string[] = []
+      let i = 0
+      const answers = [...HOST_ANSWERS, 'n', 'n']
+      await runCliSetup(
+        {
+          prompt: async () => answers[i++] ?? '',
+          print: (s) => printed.push(s),
+        },
+        18787,
+        {
+          setPassword: vi.fn(async () => {}),
+          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+        },
+      )
+      const out = printed.join('\n')
+      expect(out).toContain('Anonymous telemetry (opt-in)')
+      expect(out).toContain('"installAge": "1-7d"')
+      expect(out).toContain('podium telemetry off')
+      expect(out).toContain('Settings → Privacy')
+    })
+
+    it('defaults to NO — Enter-Enter opts out of both', async () => {
+      await run([...HOST_ANSWERS, '', ''])
+      expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'off' })
+      expect(loadConfig().telemetry?.installId).toBeUndefined()
+    })
+
+    it('records an explicit off (which is not the same as never asked)', async () => {
+      await run([...HOST_ANSWERS, 'n', 'n'])
+      expect(loadConfig().telemetry?.usage).toBe('off')
+    })
+
+    it('each tier is consented independently', async () => {
+      await run([...HOST_ANSWERS, 'n', 'y'])
+      expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'on' })
+    })
+
+    it('Ctrl-C at the telemetry step leaves a WORKING install with telemetry absent', async () => {
+      // The reason this step is last: abandoning it costs the user nothing.
+      // stdin EOF resolves '' forever — the bounded prompt must not spin, and
+      // '' is a NO, so the box ends up configured with telemetry off.
+      await run(HOST_ANSWERS) // nothing left to answer → '' forever
+      expect(loadConfig().mode).toBe('all-in-one')
+      expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+      expect(loadConfig().persistence).toBe('detached')
+      expect(loadConfig().telemetry?.installId).toBeUndefined()
+    })
+
+    it('DO_NOT_TRACK suppresses the PROMPT, not just the sending', async () => {
+      process.env.DO_NOT_TRACK = '1'
+      try {
+        const prompts: string[] = []
+        let i = 0
+        const answers = [...HOST_ANSWERS]
+        await runCliSetup(
+          {
+            prompt: async (q) => {
+              prompts.push(q)
+              return answers[i++] ?? ''
+            },
+            print: () => {},
+          },
+          18787,
+          {
+            setPassword: vi.fn(async () => {}),
+            startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+          },
+        )
+        expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
+        // Not even an 'off' is written: we never asked, so we record nothing.
+        expect(loadConfig().telemetry).toBeUndefined()
+        expect(loadConfig().mode).toBe('all-in-one') // the install still works
+      } finally {
+        delete process.env.DO_NOT_TRACK
+      }
+    })
+
+    it('PODIUM_TELEMETRY=off suppresses the prompt too', async () => {
+      process.env.PODIUM_TELEMETRY = 'off'
+      try {
+        await run([...HOST_ANSWERS, 'y', 'y'])
+        expect(loadConfig().telemetry).toBeUndefined()
+      } finally {
+        delete process.env.PODIUM_TELEMETRY
+      }
+    })
+
+    it('the JOIN path is never prompted (D10 — the hub decided)', async () => {
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'ABCD-1234' })
+      const prompts: string[] = []
+      let i = 0
+      const answers = ['3', token, 'n']
+      await runCliSetup(
+        {
+          prompt: async (q) => {
+            prompts.push(q)
+            return answers[i++] ?? ''
+          },
+          print: () => {},
+        },
+        18787,
+        {
+          setPassword: vi.fn(async () => {}),
+          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+        },
+      )
+      expect(loadConfig().mode).toBe('daemon')
+      expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
+      expect(loadConfig().telemetry).toBeUndefined()
+    })
+
+    it('the non-interactive `podium setup --join` never prompts either', async () => {
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'ABCD-1234' })
+      await runJoinSetup(token, 'systemd', 18787, {
+        startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+      })
+      expect(loadConfig().mode).toBe('daemon')
+      expect(loadConfig().telemetry).toBeUndefined()
+    })
+
+    it('the telemetry menu entry is host-only', async () => {
+      const printed: string[] = []
+      await runCliSetup({ prompt: async () => '', print: (s) => printed.push(s) }, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+      })
+      // Fresh box (no mode): no host-only entries at all.
+      expect(printed.join('\n')).not.toContain('Change telemetry')
+
+      saveConfig({ mode: 'all-in-one', publicUrl: 'https://x.ts.net' })
+      const hostPrinted: string[] = []
+      await runCliSetup({ prompt: async () => '', print: (s) => hostPrinted.push(s) }, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+      })
+      expect(hostPrinted.join('\n')).toContain('6) Change telemetry')
+    })
   })
 })

@@ -130,6 +130,8 @@ export type LaunchPlan =
   | { kind: 'version' }
   | { kind: 'update'; channel: 'stable' | 'edge'; feedOverride: string | undefined }
   | { kind: 'channel'; target: string | undefined }
+  /** `podium telemetry [status|on|off|show|reset-id]` [spec:SP-f933]. */
+  | { kind: 'telemetry'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'repair-config' }
@@ -323,6 +325,9 @@ export function resolvePlan(
     'mail',
     'agent',
     'workflow',
+    // Renders its own usage, and `podium telemetry --help` should answer the
+    // privacy question in front of the user, not bury it in the top-level help.
+    'telemetry',
   ])
   if (
     argv[0] === 'help' ||
@@ -384,6 +389,10 @@ export function resolvePlan(
   }
   // `podium channel [stable|edge]`: show or switch the self-update channel.
   if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
+  // `podium telemetry [...]`: read/change opt-in telemetry consent [spec:SP-f933].
+  // Deliberately NOT an approval-brokered op: it only touches config.json, and a
+  // user (or their agent) must always be able to turn it off without asking anyone.
+  if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -593,6 +602,12 @@ export function helpText(): string {
     'Self-update:',
     '  update                Self-update from the configured channel feed',
     '  channel [stable|edge] Show or switch the update channel',
+    '',
+    'Privacy:',
+    '  telemetry             Show telemetry state (opt-in; off unless you turned it on)',
+    '  telemetry on|off [--usage] [--crash]',
+    '                        Turn anonymous reporting on or off',
+    '  telemetry show        Print the exact pending + last-sent payloads',
     '',
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
@@ -899,6 +914,13 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
         console.error((e as Error).message)
         process.exit(2)
       }
+      return
+    }
+    // `podium telemetry <command>`: opt-in telemetry consent + audit [spec:SP-f933].
+    case 'telemetry': {
+      const { telemetryCliMain } = await import('./telemetry-cli')
+      const code = telemetryCliMain(plan.args)
+      if (code !== 0) process.exit(code)
       return
     }
     case 'join-config': {

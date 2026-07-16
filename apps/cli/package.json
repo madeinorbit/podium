@@ -20,6 +20,7 @@
     "@podium/issue-client": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
+    "@podium/telemetry": "workspace:*",
     "zod": "^3.24.0"
   },
   "devDependencies": {
