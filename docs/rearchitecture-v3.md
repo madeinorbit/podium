@@ -144,6 +144,29 @@ section below is filled in (scope as executed, cut lines, oracle status, audit c
 before/after), and (e) its as-built docs are updated (§9). No phase closes while a
 dual/legacy path it was meant to remove still exists.
 
+**Clause (b) is executable, not a judgement call** (lands with POD-297; rule written up in
+`docs/rearch-deletion-audit.md`):
+
+```
+bun run audit:rearch --phase POD-309     # the phase-close gate
+```
+
+- **exit 0** — every inventory item mapped to that phase is at zero: clear to close.
+- **exit 1** — lists what still stands, with `file:line` per surviving site.
+- **exit 2** — unknown flag, malformed phase, or a phase with no items mapped. The gate
+  **fails closed**: an unrecognised argument never degrades into a passing run.
+
+That exit-2 behavior is load-bearing and was verified by execution, not by reading the
+source (POD-298, 2026-07-16): a well-formed phase id with no items mapped to it, a bare
+`--phase`, a malformed `--phase notaphase`, a typo'd `--phasee`, and the dangerous
+`--updatebaseline` typo (which would otherwise silently run the ratchet and look like it
+worked) each exit 2. A gate that answers "clear to close" for input it did not understand
+would be worse than no gate, and this repo has shipped exactly that bug twice: `git
+rev-parse` ECHOES an unknown flag and exits 0 rather than rejecting it, silently
+defeating a worktree check in both POD-657 and POD-665. **Before any phase leans on a new
+gate, test that it refuses input it does not understand** — the failure mode is not an
+error, it is a plausible pass. Re-test if the CLI's argument handling changes.
+
 ### 3.3 Exit gates are scheduler-enforced leaves
 
 Parents are closable with open children, so **downstream work blocks on the gate LEAF,
@@ -195,7 +218,11 @@ hot file, more than one hop, or cannot state a single named deletion.
 
 **Grep audits are necessary, never sufficient.** Semantic gates (conformance suites,
 manifest lint, runtime verification, human gates) decide; a grep count of zero is
-evidence, not proof.
+evidence, not proof. The deletion audit states this in its own terms
+(`docs/rearch-deletion-audit.md`): a zero means **the named shapes are gone, not that the
+phase's design intent was met** — the exit gates (§3.3) still own that judgement. Treat
+`audit:rearch --phase X` exiting 0 as a NECESSARY condition for closing X, never a
+sufficient one.
 
 ---
 
@@ -279,7 +306,9 @@ code moves. Four children:
   `scripts/check-boundaries.ts`, WARN mode, phase-mapped allowlist. *In progress.*
 - POD-297 — deletion audit script (`scripts/rearch-audit.ts`): the Section-6 "what
   disappears" inventory encoded as grep/AST checks with per-item and total counts,
-  counted in CI, must reach zero by POD-337. *In progress.*
+  counted in CI, must reach zero by POD-337. *Landed on its issue branch (bddfff78);
+  all 21 inventory items encoded and mapped to their owning phase issue, wired as its
+  OWN blocking CI step. Rule + rationale: `docs/rearch-deletion-audit.md`.*
 - POD-298 — this ledger. *This document.*
 
 **Cut lines:** Phase 0 ships guardrails only — no production code moves, no schema
@@ -289,15 +318,52 @@ moves, no deletions. The audit script REPORTS counts; it does not fail CI on non
 **Oracle status:** baseline being locked by POD-295 (lane-based; see its issue for the
 current lane-by-lane state). Typecheck lane green under tsgo; turbo pending POD-715.
 
-**Audit counts:** baseline committed by POD-297 on its close — *pending; the
-before-count for every later phase is read from that committed baseline.* After Phase 0:
-unchanged by definition (nothing deleted yet).
+**Audit counts:** baseline committed by POD-297 in `scripts/rearch-audit-baseline.json`
+— **21 items / 236 sites at fd4ea76b**. That is the before-count every later phase reads.
+After Phase 0: unchanged by definition (nothing deleted yet).
+
+**Where every later phase's before/after evidence comes from (§8 obligation, satisfied
+mechanically):** the ratchet forces the baseline to be EXACT — a regression fails, and an
+improvement *also* fails until it is recorded with `--update-baseline`. So a win cannot
+land unrecorded, and **every deletion PR's baseline diff IS that phase's before/after
+evidence** — no phase agent hand-counts anything. `bun run audit:rearch --json` emits
+machine-readable per-item counts + sites. Baseline at Phase 0 entry, by owning phase:
+
+| Phase issue | Items | Sites | Phase issue | Items | Sites |
+|---|---|---|---|---|---|
+| POD-302 | 3 | 24 | POD-321 | 1 | 1 |
+| POD-303 | 1 | 2 | POD-324 | 1 | 4 |
+| POD-308 | 1 | 12 | POD-325 | 1 | 4 |
+| POD-309 | 1 | 4 | POD-329 | 2 | 16 |
+| POD-313 | 1 | 1 | POD-332 | 2 | 3 |
+| POD-314 | 1 | 119 | POD-333 | 3 | 14 |
+| POD-318 | 2 | 21 | POD-334 | 1 | 11 |
+
+(Reproduced independently by POD-298 at fd4ea76b — totals match POD-297's committed
+baseline exactly. POD-314's 119 sites are the hand-written tRPC mutation procedures;
+that single number is the best available proxy for Phase 3's size.)
 
 **Verification steps (gate POD-422):** oracle CI job live (lane-based, incl. the
-typecheck lane under the current orchestrator); deletion audit baseline committed;
-manifest lint in warn mode with phase-mapped allowlist; ledger conventions complete
-(this document); all four children closed with evidence. Use `podium issue tree 287`,
-not the root tree. Only then does POD-422 close and unblock the ADR pack + Phase 1.
+typecheck lane under the current orchestrator); deletion audit baseline committed AND
+running as its own blocking CI step; manifest lint in warn mode with phase-mapped
+allowlist; ledger conventions complete (this document); all four children closed with
+evidence. Use `podium issue tree 287`, not the root tree. Only then does POD-422 close
+and unblock the ADR pack + Phase 1.
+
+**A guardrail wired into a `continue-on-error` step is not a guardrail.** `.github/workflows/ci.yml`
+bundles biome + `lint:boundaries` into one step marked `continue-on-error: true` (while the
+biome backlog burns down, POD-30). That flag makes the BOUNDARY guardrail non-blocking too,
+so an architectural violation reports green — diagnosed in POD-744. This is not
+hypothetical: `bun run lint:boundaries` **exits 1 on current main** (two
+`agent-bridge-consumers` violations, `apps/server/src/accounts.ts` and `relay.ts`;
+verified 2026-07-16 at c577009d), tracked open as POD-740.
+
+The lesson for Phase 0: **POD-296 shipping the manifest lint is not the same as the
+manifest lint being able to fail a PR.** Gate POD-422 must confirm each Phase 0 guardrail
+is its OWN blocking step and that a deliberate violation actually fails CI — not merely
+that the script exists and is green when run by hand. The deletion audit is deliberately
+wired as its own blocking step for this reason; the two concerns must not share one
+`continue-on-error`.
 
 ### ADR gate (POD-359) + Walking skeleton (POD-351) — between Phase 0 and Phases 2–3
 
