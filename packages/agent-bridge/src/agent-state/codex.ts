@@ -664,7 +664,18 @@ export async function findLiveCodexRollout(
     id: string | undefined
     podiumSessionId: string | undefined
   }[] = []
-  const walk = async (dir: string): Promise<void> => {
+  // Day-directory pruning (POD-601): rollouts live under sessions/YYYY/MM/DD and a
+  // candidate must satisfy `createdMs >= startedAtMs - 2000`, so a date directory
+  // that ENDS more than PRUNE_SLACK_MS before the floor cannot contain one — skip
+  // it without listing. The slack absorbs timezone skew between the dir's (local)
+  // date and the session_meta (UTC) timestamp. This is what keeps an UNBOUND
+  // observer's every-700ms walk from touching months of history.
+  const pruneBeforeMs = startedAtMs > 0 ? startedAtMs - 2000 - PRUNE_SLACK_MS : 0
+  // One reusable probe buffer for the whole walk — the walk previously allocated a
+  // fresh 256 KB buffer PER FILE (~400 MB of churn per tick on a ~1000-rollout
+  // tree; the POD-601 heap oscillation). allocUnsafe is fine: only bytesRead are read.
+  const probe = Buffer.allocUnsafe(HEAD_PROBE_BYTES)
+  const walk = async (dir: string, dateParts: readonly number[] | null): Promise<void> => {
     let entries: Dirent<string>[]
     try {
       entries = await readdir(dir, { withFileTypes: true })
@@ -673,12 +684,26 @@ export async function findLiveCodexRollout(
     }
     for (const e of entries) {
       const full = join(dir, e.name)
-      if (e.isDirectory()) await walk(full)
-      else if (e.name.endsWith('.jsonl')) {
+      if (e.isDirectory()) {
+        const childParts = datePathParts(dateParts, e.name)
+        if (pruneBeforeMs > 0 && childParts && datePeriodEndMs(childParts) < pruneBeforeMs)
+          continue
+        await walk(full, childParts)
+      } else if (e.name.endsWith('.jsonl')) {
         try {
-          const prefix = await readPrefix(full)
-          const nl = prefix?.indexOf('\n') ?? -1
-          const head = prefix ? (nl >= 0 ? prefix.slice(0, nl) : prefix) : undefined
+          // Two-stage read: the session_meta record is the FIRST line and small, so
+          // a 4 KB probe settles cwd/source for almost every file; only survivors
+          // pay the full 256 KB prefix read (needed for the launch-marker scan).
+          const probed = await readHeadProbe(full, probe)
+          let prefix: string | undefined
+          let head: string | undefined
+          if (probed.escalate) {
+            prefix = await readPrefix(full)
+            const nl = prefix?.indexOf('\n') ?? -1
+            head = prefix ? (nl >= 0 ? prefix.slice(0, nl) : prefix) : undefined
+          } else {
+            head = probed.line
+          }
           const meta = head ? JSON.parse(head) : undefined
           const payload = isRecord(meta) && isRecord(meta.payload) ? meta.payload : undefined
           if (
@@ -692,6 +717,7 @@ export async function findLiveCodexRollout(
           const s = await stat(full)
           const createdMs = sessionMetaStartedAtMs(meta, payload) ?? s.birthtimeMs
           if (startedAtMs > 0 && createdMs < startedAtMs - 2000) continue
+          if (prefix === undefined) prefix = await readPrefix(full)
           candidates.push({
             path: full,
             sortMs: createdMs,
@@ -704,7 +730,7 @@ export async function findLiveCodexRollout(
       }
     }
   }
-  await walk(sessionsRoot)
+  await walk(sessionsRoot, [])
   // A launch marker is exact evidence and therefore mandatory when the daemon
   // supplied a Podium session id. Returning no result is safer than wiring this
   // pane to a sibling; native hooks or a later poll can still settle it.
@@ -779,6 +805,64 @@ export async function findCodexRolloutPath(opts: {
   }
   await walk(join(root, 'sessions'))
   return match
+}
+
+/** Stage-1 probe window for the discovery walk: big enough for any real
+ *  session_meta line (id/cwd/source/git — well under 4 KB). */
+const HEAD_PROBE_BYTES = 4 * 1024
+
+/** Date-directory pruning slack: a rollout's session_meta (UTC) timestamp and its
+ *  sessions/YYYY/MM/DD (local-date) directory can disagree by up to a timezone
+ *  offset; 48h covers every offset with a full day to spare. */
+const PRUNE_SLACK_MS = 48 * 60 * 60 * 1000
+
+/**
+ * Fold one directory name into the YYYY/MM/DD date-path context. Returns the
+ * extended parts while the name fits the next expected component (year 2000-9999,
+ * month 1-12, day 1-31), or null for anything off-layout — null disables pruning
+ * for that whole subtree, so an unexpected layout is walked, never skipped.
+ */
+function datePathParts(
+  parts: readonly number[] | null,
+  name: string,
+): readonly number[] | null {
+  if (parts === null || parts.length >= 3) return null
+  if (!/^\d+$/.test(name)) return null
+  const n = Number(name)
+  const [min, max] = parts.length === 0 ? [2000, 9999] : parts.length === 1 ? [1, 12] : [1, 31]
+  return n >= min && n <= max ? [...parts, n] : null
+}
+
+/** The exclusive END (UTC ms) of the period a date path covers: a year dir ends at
+ *  Jan 1 of the next year, a month dir at the 1st of the next month, a day dir at
+ *  the next midnight. Date.UTC normalizes the overflowed month/day arguments. */
+function datePeriodEndMs(parts: readonly number[]): number {
+  const [year, month, day] = [parts[0] as number, parts[1], parts[2]]
+  if (month === undefined) return Date.UTC(year + 1, 0, 1)
+  if (day === undefined) return Date.UTC(year, month, 1)
+  return Date.UTC(year, month - 1, day + 1)
+}
+
+/**
+ * Read the rollout's first line into a caller-owned reusable buffer. `escalate`
+ * means the first line may extend past the probe window (no newline AND the read
+ * filled the buffer) — the caller falls back to the full prefix read, preserving
+ * exact parity with the old single-read behavior.
+ */
+async function readHeadProbe(
+  path: string,
+  probe: Buffer,
+): Promise<{ line?: string; escalate?: boolean }> {
+  const handle = await open(path, 'r')
+  try {
+    const { bytesRead } = await handle.read(probe, 0, probe.length, 0)
+    const nl = probe.subarray(0, bytesRead).indexOf(0x0a)
+    if (nl >= 0) return { line: probe.toString('utf8', 0, nl) }
+    if (bytesRead === probe.length) return { escalate: true }
+    return { line: probe.toString('utf8', 0, bytesRead) }
+  } finally {
+    await handle.close()
+  }
 }
 
 /** Read a bounded rollout prefix. Besides session_meta, a fresh Codex rollout

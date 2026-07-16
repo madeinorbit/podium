@@ -480,6 +480,105 @@ describe('findLiveCodexRollout', () => {
     expect(found?.path).toBe(cli)
     expect(found?.id).toBe('cliid')
   })
+
+  it('matches a rollout whose session_meta line exceeds the 4KB head probe (escalation path)', async () => {
+    // The walk probes only the first 4 KB per file (POD-601: the old 256 KB read
+    // per file was the daemon's dominant heap churn). A first line longer than the
+    // probe must escalate to the full prefix read and still match — including the
+    // launch marker further down the prefix.
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, '2026', '07', '15')
+    await mkdir(dir, { recursive: true })
+    const pane = '33333333-3333-4333-8333-333333333333'
+    const rollout = join(dir, 'rollout-2026-07-15T09-10-31-bigmeta.jsonl')
+    await writeFile(
+      rollout,
+      [
+        JSON.stringify({
+          type: 'session_meta',
+          payload: {
+            id: 'bigmeta',
+            cwd: '/repo/x',
+            source: 'cli',
+            timestamp: '2026-07-15T09:10:31.000Z',
+            pad: 'x'.repeat(8 * 1024),
+          },
+        }),
+        JSON.stringify({
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'developer',
+            content: [{ type: 'input_text', text: codexPodiumSessionMarker(pane) }],
+          },
+        }),
+      ].join('\n'),
+    )
+
+    const found = await findLiveCodexRollout(
+      sessions,
+      '/repo/x',
+      Date.parse('2026-07-15T09:10:30.000Z'),
+      pane,
+    )
+    expect(found).toMatchObject({ id: 'bigmeta', path: rollout, confidence: 'exact' })
+  })
+
+  it('still finds a rollout filed under the PREVIOUS day directory (timezone skew vs the prune)', async () => {
+    // Day-directory pruning must keep enough slack that a rollout whose local-date
+    // directory lags its UTC session_meta timestamp is still walked.
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, '2026', '06', '15') // previous day's directory
+    await mkdir(dir, { recursive: true })
+    const rollout = join(dir, 'rollout-2026-06-15T23-30-00-skew.jsonl')
+    await writeFile(
+      rollout,
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'skew', cwd: '/repo/x', source: 'cli', timestamp: '2026-06-16T01:30:00.000Z' },
+      })}\n`,
+    )
+
+    const found = await findLiveCodexRollout(sessions, '/repo/x', Date.parse('2026-06-16T01:00:00.000Z'))
+    expect(found?.id).toBe('skew')
+  })
+
+  it('walks non-date directory layouts even with a fresh floor (pruning never skips off-layout dirs)', async () => {
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, 'misc', 'nested')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      join(dir, 'rollout-offlayout.jsonl'),
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'offlayout', cwd: '/repo/x', source: 'cli', timestamp: '2026-06-16T02:00:00.000Z' },
+      })}\n`,
+    )
+
+    const found = await findLiveCodexRollout(sessions, '/repo/x', Date.parse('2026-06-16T01:00:00.000Z'))
+    expect(found?.id).toBe('offlayout')
+  })
+
+  it('prunes date directories far older than the floor without listing them', async () => {
+    // Pins the POD-601 walk optimization: with a fresh floor, an ancient
+    // sessions/YYYY/MM/DD subtree is skipped outright. (Codex always files a
+    // rollout under its creation date, so dir date and session_meta timestamp
+    // can only diverge by a timezone offset — covered by the 48h slack above.)
+    const sessions = await mkdtemp(join(tmpdir(), 'podium-codex-obs-'))
+    const dir = join(sessions, '2020', '01', '01')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      join(dir, 'rollout-ancient-dir.jsonl'),
+      `${JSON.stringify({
+        type: 'session_meta',
+        payload: { id: 'ancient', cwd: '/repo/x', source: 'cli', timestamp: '2026-06-16T02:00:00.000Z' },
+      })}\n`,
+    )
+
+    expect(
+      await findLiveCodexRollout(sessions, '/repo/x', Date.parse('2026-06-16T01:00:00.000Z')),
+    ).toBeUndefined()
+  })
 })
 
 describe('observeCodexState rollout pinning', () => {

@@ -147,10 +147,14 @@ export function tailTranscript(
         // `offset + leftover.length` is the byte position we have already consumed
         // off disk. A shrink below that means the file was truncated/replaced.
         if (size < offset + leftover.length) {
-          // Truncated/replaced — re-read from the top and tell consumers to clear.
-          offset = 0
+          // Truncated/replaced — re-read and tell consumers to clear. Seek to the
+          // same bounded tail window the first read uses: the replacement can be
+          // arbitrarily large (a multi-hundred-MB file swap), and an uncapped
+          // from-zero re-read was a one-shot allocation spike of the whole file.
+          const start = Math.max(0, size - TAIL_BYTES)
+          offset = start
           leftover = Buffer.alloc(0)
-          dropLeadingPartial = false
+          dropLeadingPartial = start > 0
           flushedOffset = -1
           reset = true
         }

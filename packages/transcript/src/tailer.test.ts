@@ -121,4 +121,43 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
       tailer.stop()
     }
   })
+
+  it('caps a truncation/replacement re-read at the tail window instead of re-reading the whole file', async () => {
+    // POD-601: the truncation path re-read the REPLACEMENT from byte 0 — an
+    // uncapped one-shot allocation spike when the new file is huge. It must seek
+    // to the same bounded TAIL_BYTES window the first read uses (reset=true, the
+    // leading partial line at the seek point dropped).
+    const path = join(dir, 'tail-truncate-cap.jsonl')
+    // Initial file: ~18MB of blank lines (no items) so the tail is fully consumed
+    // past the replacement's size, which is what makes the swap read as truncation.
+    writeFileSync(path, '\n'.repeat(18 * 1024 * 1024))
+
+    const { tailer, tick } = makeTailHarness(path, 50)
+    try {
+      // Drain the initial (reset) read; retry until the big first scan settles.
+      for (let i = 0; i < 40; i++) {
+        const got = await tick()
+        if (got.some((e) => e.reset)) break
+      }
+
+      // Replace with ~17MB: one HUGE valid record + a tiny one. The capped re-read
+      // seeks past most of the huge record, drops its partial fragment, and emits
+      // only the tiny record; the old uncapped behavior emitted BOTH.
+      const huge = userRecord('t-huge', 'x'.repeat(17 * 1024 * 1024))
+      const tiny = userRecord('t-tiny', 'small-after-truncate')
+      writeFileSync(path, `${huge}\n${tiny}\n`)
+
+      const emissions: Emission[] = []
+      for (let i = 0; i < 40; i++) {
+        emissions.push(...(await tick()))
+        if (emissions.some((e) => e.reset)) break
+      }
+      const reset = emissions.find((e) => e.reset)
+      expect(reset).toBeDefined()
+      const texts = emissions.flatMap((e) => e.items).map((i) => i.text)
+      expect(texts).toEqual(['small-after-truncate'])
+    } finally {
+      tailer.stop()
+    }
+  })
 })
