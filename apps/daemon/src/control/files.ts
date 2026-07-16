@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import type { ControlMessage } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
 import {
   listDirSandboxed,
   readAssetSandboxed,
@@ -22,7 +22,7 @@ async function handleImageUpload(
   // whole daemon loop for the duration of the write (audit P0-4).
   try {
     const id = randomUUID()
-    const filePath = uploadFilePath(homedir(), msg.sessionId, id, msg.mimeType)
+    const filePath = uploadFilePath(stateDir(), msg.sessionId, id, msg.mimeType)
     await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, Buffer.from(msg.dataBase64, 'base64'))
     ctx.send({ type: 'imageUploadResult', requestId: msg.requestId, path: filePath })

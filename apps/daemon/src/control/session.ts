@@ -15,6 +15,7 @@ import {
   tmuxHasSessionAsync,
 } from '@podium/agent-bridge'
 import { AGENT_CAPABILITIES, type AgentKind } from '@podium/protocol'
+import { resolveInstanceId } from '@podium/runtime/config'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import type { ReattachControl, SpawnControl } from '../session-observers'
@@ -31,11 +32,20 @@ import { sourceForRead } from './transcripts'
  * tolerance for in-flight sessions lives in resolveAgentRelay, not here). [spec:SP-b85a]
  * Pure so it's unit-testable without standing up the daemon.
  */
-export function agentRelayEnv(sessionId: string, endpoint: string): Record<string, string> {
+export function agentRelayEnv(
+  sessionId: string,
+  endpoint: string,
+  instanceId: string = resolveInstanceId(),
+): Record<string, string> {
   // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium`
   // CLI reads the session id from PODIUM_AGENT_RELAY's path, so this isn't consumed
   // by the relay path today — it's exposed for the agent itself and future consumers.
-  return { PODIUM_SESSION_ID: sessionId, PODIUM_AGENT_RELAY: endpoint }
+  return {
+    PODIUM_INSTANCE: instanceId,
+    PODIUM_SESSION_INSTANCE: instanceId,
+    PODIUM_SESSION_ID: sessionId,
+    PODIUM_AGENT_RELAY: endpoint,
+  }
 }
 
 /** Merge the server-resolved session env (managed credentials, #216) under
@@ -70,8 +80,10 @@ export function wireBridge(
   sessionId: string,
   session: AgentSession,
   agentKind: AgentKind,
+  durableLabel: string,
 ): void {
   ctx.bridges.set(sessionId, session)
+  ctx.durableLabels.set(sessionId, durableLabel)
   session.onFrame((frame) => {
     countFrame(frame.data.length)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
@@ -85,6 +97,7 @@ export function wireBridge(
   }
   session.onExit((code) => {
     ctx.bridges.delete(sessionId)
+    ctx.durableLabels.delete(sessionId)
     ctx.outputScheduler.remove(sessionId)
     ctx.sessionCwdTracker.clear(sessionId)
     ctx.primeInjector.reset(sessionId)
@@ -99,7 +112,7 @@ export function wireBridge(
     // reattaches an 'exited' row, orphaning a still-running agent. Only a
     // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
     // reaps the socket as it lists, so a just-exited master reads as gone.)
-    const label = `podium-${sessionId}`
+    const label = durableLabel
     void (async () => {
       if (ctx.backend === 'abduco' && (await abducoHasSessionAsync(label))) return
       if (ctx.backend === 'tmux' && (await tmuxHasSessionAsync(label))) return
@@ -132,7 +145,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       ...(msg.env ? { env: msg.env } : {}),
     })
     materializeLaunchFiles(cmd.files)
-    const label = `podium-${msg.sessionId}`
+    const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
     let extraArgs: string[] = []
     let instrumentationEnv: Record<string, string> = {}
@@ -160,7 +173,8 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
         podiumEnv: {
           // Bind the loopback agent-relay + session id into every agent's env so its
           // `podium` CLI can reach the daemon for this exact session.
-          ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId)),
+          ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId), ctx.instanceId),
+          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
           // Globally-installed hooks are env-gated per session by their adapter.
@@ -175,7 +189,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
         : ctx.backend === 'tmux'
           ? spawnTmuxAgent(spawnOpts)
           : spawnAgent(spawnOpts)
-    wireBridge(ctx, msg.sessionId, session, msg.agentKind)
+    wireBridge(ctx, msg.sessionId, session, msg.agentKind, label)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
     // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
     // frame. Same call on reattach keeps the two paths from drifting.
@@ -285,7 +299,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       })
       return
     }
-    wireBridge(ctx, msg.sessionId, found.session, msg.agentKind)
+    wireBridge(ctx, msg.sessionId, found.session, msg.agentKind, msg.durableLabel)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -332,9 +346,14 @@ export const sessionHandlers: Pick<
     // `abduco`/`tmux` on the loop, and kills arrive in bursts (superagent,
     // auto-hibernation) — serializing those would stall every other session.
     if (ctx.backend !== 'none') {
-      void killAbducoSessionAsync(`podium-${msg.sessionId}`)
-      void killTmuxServerAsync(`podium-${msg.sessionId}`)
+      const durableLabel =
+        msg.durableLabel ??
+        ctx.durableLabels.get(msg.sessionId) ??
+        ctx.durableLabelFor(msg.sessionId)
+      void killAbducoSessionAsync(durableLabel)
+      void killTmuxServerAsync(durableLabel)
     }
+    ctx.durableLabels.delete(msg.sessionId)
     removeSessionUploads(msg.sessionId)
     removeSessionInstructions(ctx, msg.sessionId)
   },

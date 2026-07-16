@@ -178,7 +178,7 @@ describe('cloud router', () => {
     })
 
     expect(runtime.id).toBe('cloud-runtime-1')
-    expect(daemon).toContainEqual({ type: 'kill', sessionId })
+    expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
     expect(registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
       'hibernated',
     )

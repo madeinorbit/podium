@@ -34,6 +34,10 @@ export interface HeadlessTurnSpec {
   /** Claude only: mint the first-turn session with this UUID. */
   sessionUuid?: string
   timeoutMs?: number
+  /** Instance-owned child environment (HOME + CLI/session routing). */
+  env?: Record<string, string>
+  /** Exact durable host label for the owning instance/session. */
+  durableLabel?: string
 }
 
 export interface HeadlessTurnOutcome {
@@ -119,9 +123,11 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
     // The CLI refuses --dangerously-skip-permissions as root unless IS_SANDBOX=1;
     // without it every headless turn on a root-run daemon dies with exit code 1.
     // Options.env REPLACES the subprocess env, so process.env must be spread in.
-    ...(mode === 'bypassPermissions' && process.getuid?.() === 0
-      ? { env: { ...process.env, IS_SANDBOX: '1' } as Record<string, string> }
-      : {}),
+    env: {
+      ...process.env,
+      ...spec.env,
+      ...(mode === 'bypassPermissions' && process.getuid?.() === 0 ? { IS_SANDBOX: '1' } : {}),
+    } as Record<string, string>,
     ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
     ...(spec.effort && EFFORT_LEVELS.has(spec.effort)
       ? { effort: spec.effort as Options['effort'] }
@@ -247,9 +253,14 @@ function runChild<T>(
   args: string[],
   cwd: string,
   timeoutMs: number,
+  env: Record<string, string> | undefined,
   consume: (child: ChildProcess) => Promise<T>,
 ): { child: ChildProcess; done: Promise<T> } {
-  const child = spawn(cmd, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+  const child = spawn(cmd, args, {
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ...env },
+  })
   child.stdin?.end()
   let timedOut = false
   const timer = setTimeout(() => {
@@ -320,6 +331,7 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
     args,
     spec.cwd,
     spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
+    spec.env,
     async (child) => {
       const stderrTail = collectStderr(child)
       let threadId = spec.resumeValue ?? ''
@@ -398,7 +410,7 @@ function runResumeExecTurn(
   if (spec.agent === 'opencode') {
     // opencode mints its own ses_… id; captured from the --format json stream.
     const { cmd, args } = buildHeadlessExec('opencode', common, bins)
-    const { child, done } = runChild(cmd, args, spec.cwd, timeoutMs, async (child) => {
+    const { child, done } = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, async (child) => {
       const stderrTail = collectStderr(child)
       let sessionId = spec.resumeValue ?? ''
       let output = ''
@@ -432,7 +444,14 @@ function runResumeExecTurn(
       if (spec.agent === 'grok') {
         sessionId = randomUUID()
       } else {
-        const alloc = runChild(bins.cursor(), ['create-chat'], spec.cwd, 60_000, readAllStdout)
+        const alloc = runChild(
+          bins.cursor(),
+          ['create-chat'],
+          spec.cwd,
+          60_000,
+          spec.env,
+          readAllStdout,
+        )
         interrupt = () => alloc.child.kill('SIGKILL')
         const printed = await alloc.done
         sessionId = printed.split('\n').at(-1)?.trim() ?? ''
@@ -442,7 +461,7 @@ function runResumeExecTurn(
       }
     }
     const { cmd, args } = buildHeadlessExec(spec.agent, { ...common, sessionId }, bins)
-    const turn = runChild(cmd, args, spec.cwd, timeoutMs, readAllStdout)
+    const turn = runChild(cmd, args, spec.cwd, timeoutMs, spec.env, readAllStdout)
     interrupt = () => turn.child.kill('SIGKILL')
     emit({ kind: 'status', status: 'running' })
     const output = await turn.done

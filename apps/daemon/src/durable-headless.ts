@@ -115,9 +115,17 @@ export function buildClaudeDurableExec(
   return { cmd: 'claude', args, stdin: spec.prompt }
 }
 
-function cursorSessionId(paths: DurablePaths, bins: HarnessBins): string {
+function cursorSessionId(
+  paths: DurablePaths,
+  bins: HarnessBins,
+  env?: Record<string, string>,
+): string {
   if (existsSync(paths.cursorSession)) return readFileSync(paths.cursorSession, 'utf8').trim()
-  const output = execFileSync(bins.cursor(), ['create-chat'], { encoding: 'utf8', timeout: 60_000 })
+  const output = execFileSync(bins.cursor(), ['create-chat'], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    env: { ...process.env, ...env },
+  })
   const id = output.split('\n').at(-1)?.trim() ?? ''
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
     throw new Error(`cursor create-chat did not print a chat id: ${output.trim()}`)
@@ -140,7 +148,7 @@ function prepareInvocation(
     }
   }
   let sessionId = spec.resumeValue ?? spec.sessionUuid
-  if (spec.agent === 'cursor' && !sessionId) sessionId = cursorSessionId(paths, bins)
+  if (spec.agent === 'cursor' && !sessionId) sessionId = cursorSessionId(paths, bins, spec.env)
   const exec = buildHeadlessExec(
     spec.agent,
     {
@@ -301,7 +309,7 @@ export function runDurableHeadlessTurn(
   const previous = readResult(paths)
   if (previous) return settledHandle(previous, turnId)
 
-  const label = `podium-${sessionId}`
+  const label = spec.durableLabel ?? `podium-${sessionId}`
   const { knownSessionId } = writeRunner(spec, paths, bins)
   let attachment: AgentSession | undefined
   let settled = false
@@ -378,6 +386,7 @@ export function runDurableHeadlessTurn(
           cwd: spec.cwd,
           cols: 120,
           rows: 40,
+          ...(spec.env ? { env: spec.env } : {}),
         })
       }
       if (disposed) {

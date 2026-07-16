@@ -45,6 +45,17 @@ describe('agent relay hub', () => {
 })
 
 describe('agent relay server', () => {
+  it('rejects startup when the stable preferred port is taken', async () => {
+    const first = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })
+    try {
+      await expect(
+        startAgentRelayServer({ port: first.port, relay: async () => ({ ok: true }) }),
+      ).rejects.toMatchObject({ code: 'EADDRINUSE' })
+    } finally {
+      await first.close()
+    }
+  })
+
   it('POST /agent/<sessionId> relays and returns the result', async () => {
     const seen: any[] = []
     const srv = await startAgentRelayServer({
@@ -142,23 +153,25 @@ describe('agent relay server', () => {
     }
   })
 
-  it.each([['[]'], ['42'], ['"str"'], ['true']])(
-    'returns 400 for a non-object JSON body %s',
-    async (payload) => {
-      const srv = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })
-      try {
-        const res = await fetch(srv.endpointFor('sX'), {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: payload,
-        })
-        expect(res.status).toBe(400)
-        expect(await res.json()).toEqual({ ok: false, error: 'missing proc' })
-      } finally {
-        await srv.close()
-      }
-    },
-  )
+  it.each([
+    ['[]'],
+    ['42'],
+    ['"str"'],
+    ['true'],
+  ])('returns 400 for a non-object JSON body %s', async (payload) => {
+    const srv = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })
+    try {
+      const res = await fetch(srv.endpointFor('sX'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: payload,
+      })
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ ok: false, error: 'missing proc' })
+    } finally {
+      await srv.close()
+    }
+  })
 
   // Contract: a rejected relay is reported as a 200 with {ok:false, error} (not an HTTP 5xx),
   // so the CLI always parses a structured result rather than a transport failure.

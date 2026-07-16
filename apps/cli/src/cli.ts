@@ -25,6 +25,7 @@ import {
   resolveUpdateFeed,
   selectInstance,
 } from '@podium/runtime/config'
+import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { LOCAL_MACHINE_ID } from '@podium/runtime/local-machine'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
@@ -189,16 +190,17 @@ export function resolvePlan(
   tty: boolean,
 ): LaunchPlan {
   const port = resolvePort(config, env)
+  const instanceId = resolveInstanceId(env)
   const relay = resolveAgentRelay(env)
   const sessionInstance = env.PODIUM_SESSION_INSTANCE
-  if (relay && sessionInstance && sessionInstance !== resolveInstanceId(env)) {
+  if (relay && sessionInstance && sessionInstance !== instanceId) {
     return {
       kind: 'usage-error',
       message:
         "podium: this agent session belongs to instance '" +
         sessionInstance +
         "', not '" +
-        resolveInstanceId(env) +
+        instanceId +
         "'; set PODIUM_NO_RELAY=1 to target another instance explicitly",
     }
   }
@@ -395,10 +397,10 @@ export function resolvePlan(
     if (config.persistence === 'systemd') {
       const units =
         modePlan.mode === 'daemon'
-          ? ['podium-daemon.service']
+          ? [instanceServiceName('daemon', instanceId)]
           : modePlan.mode === 'server'
-            ? ['podium-server.service']
-            : ['podium-server.service', 'podium-daemon.service']
+            ? [instanceServiceName('server', instanceId)]
+            : [instanceServiceName('server', instanceId), instanceServiceName('daemon', instanceId)]
       return { kind: 'systemd-managed', units }
     }
     return { kind: 'detached-managed', port }
@@ -596,6 +598,7 @@ async function runInProcess(
   loadHost: () => Promise<HostModules>,
 ): Promise<void> {
   const { port, roles, modePlan } = plan
+  ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
 
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't

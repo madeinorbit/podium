@@ -15,7 +15,7 @@
  */
 
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
-import { resolveAgentRelay } from '@podium/runtime/config'
+import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { MailCliError, parseMailArgs } from './mail-cli'
 
 type Proc = { mutate(input?: unknown): Promise<unknown> }
@@ -149,9 +149,7 @@ export async function agentCliMain(argv: string[]): Promise<void> {
   const outsideScope = argv.includes('--outside-scope')
   const client = (relay
     ? makeRelayIssueClient(relay, { outsideScope })
-    : makeIssueClient(
-        `http://localhost:${Number(process.env.PODIUM_PORT) || 18787}`,
-      )) as unknown as AgentClient
+    : makeIssueClient(`http://localhost:${resolvePort()}`)) as unknown as AgentClient
   try {
     console.log(await runAgentCli(argv, client))
   } catch (error) {

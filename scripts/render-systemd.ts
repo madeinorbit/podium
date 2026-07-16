@@ -29,7 +29,7 @@ const INSTALL_SH = fileURLToPath(new URL('../install.sh', import.meta.url))
 // heredoc opener first (which happens when the daemon block's closer was removed
 // or malformed to e.g. `EOF ` / `EOF\r`), we refuse rather than let a
 // regeneration swallow unrelated installer logic between two heredocs.
-const OPENER = `cat > "$UNIT_DIR/podium-daemon.service" <<'EOF'`
+const OPENER = `cat > "$TMP/podium-daemon.service" <<'EOF'`
 
 const check = process.argv.includes('--check')
 const sh = readFileSync(INSTALL_SH, 'utf8')

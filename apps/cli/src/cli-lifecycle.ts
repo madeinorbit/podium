@@ -5,10 +5,15 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadConfig, type PodiumConfig } from '@podium/runtime/config'
+import {
+  loadConfig,
+  type PodiumConfig,
+  resolveInstanceId,
+  resolvePort,
+} from '@podium/runtime/config'
 import { type ConnectivityStatus, readConnectivity } from '@podium/runtime/connectivity'
+import { instanceServiceName } from '@podium/runtime/instance'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
-
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
   const started = Date.parse(startedAtIso)
@@ -24,6 +29,8 @@ export interface StatusView {
   live: RunRecord[]
   config: Pick<PodiumConfig, 'mode' | 'persistence' | 'publicUrl' | 'port'>
   nowMs: number
+  instanceId?: string
+  port?: number
   /** Daemon⇄server link state written by the daemon itself (issue #19); absent on
    *  boxes that run no remote daemon (or before the daemon's first write). */
   connectivity?: ConnectivityStatus
@@ -57,8 +64,10 @@ export function renderStatus(view: StatusView): string {
   const { live, config, nowMs } = view
   const byRole = new Map(live.map((r) => [r.role, r]))
   const lines: string[] = []
+  const instanceId = view.instanceId ?? 'default'
+  const instanceLabel = instanceId === 'default' ? '' : ` [${instanceId}]`
   lines.push(
-    `Podium — mode: ${config.mode ?? '(unset — run `podium setup`)'}` +
+    `Podium${instanceLabel} — mode: ${config.mode ?? '(unset — run `podium setup`)'}` +
       (config.persistence ? `, persistence: ${config.persistence}` : ''),
   )
   // Which roles are relevant to this deployment mode. A host (`all-in-one`) box runs the split —
@@ -88,13 +97,17 @@ export function renderStatus(view: StatusView): string {
   // daemon has written its link state, report it — including the terminal blocked state,
   // which explains why the unit is down and what to do.
   if (view.connectivity) lines.push(...renderConnectivity(view.connectivity, nowMs))
-  const url = config.publicUrl ?? `http://localhost:${config.port ?? 18787}`
+  const url = config.publicUrl ?? `http://localhost:${view.port ?? config.port ?? 18787}`
   lines.push(`  URL: ${url}`)
   return lines.join('\n')
 }
 
 function systemctlUser(args: string[]): void {
   execFileSync('systemctl', ['--user', ...args], { stdio: 'inherit' })
+}
+
+export function selectedUnits(instanceId: string = resolveInstanceId()): [string, string] {
+  return [instanceServiceName('daemon', instanceId), instanceServiceName('server', instanceId)]
 }
 
 function hasSystemctl(): boolean {
@@ -115,6 +128,8 @@ export function statusCommand(): void {
       live: listLive(),
       config,
       nowMs: Date.now(),
+      instanceId: resolveInstanceId(),
+      port: resolvePort(config),
       ...(connectivity ? { connectivity } : {}),
     }),
   )
@@ -125,8 +140,8 @@ export async function stopCommand(): Promise<void> {
   const config = loadConfig()
   if (config.persistence === 'systemd' && hasSystemctl()) {
     try {
-      systemctlUser(['stop', 'podium-daemon.service', 'podium-server.service'])
-      console.log('Stopped podium-server + podium-daemon (systemd).')
+      systemctlUser(['stop', ...selectedUnits()])
+      console.log(`Stopped ${selectedUnits().join(' + ')} (systemd).`)
     } catch (e) {
       console.error(`podium stop: ${(e as Error).message}`)
       process.exit(1)
@@ -154,11 +169,9 @@ export async function stopCommand(): Promise<void> {
 export async function stopBackend(): Promise<void> {
   if (hasSystemctl()) {
     try {
-      execFileSync(
-        'systemctl',
-        ['--user', 'disable', '--now', 'podium-server.service', 'podium-daemon.service'],
-        { stdio: 'ignore' },
-      )
+      execFileSync('systemctl', ['--user', 'disable', '--now', ...selectedUnits()], {
+        stdio: 'ignore',
+      })
     } catch {
       // units may not exist / already disabled — fine.
     }
@@ -176,9 +189,10 @@ export async function stopBackend(): Promise<void> {
 export function logsCommand(argv: string[]): void {
   const config = loadConfig()
   if (config.persistence === 'systemd') {
+    const [daemonUnit, serverUnit] = selectedUnits()
     console.log(
       'Under systemd — view logs with:\n' +
-        '  journalctl --user -u podium-server -u podium-daemon -f',
+        `  journalctl --user -u ${serverUnit} -u ${daemonUnit} -f`,
     )
     return
   }

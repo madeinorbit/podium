@@ -280,6 +280,7 @@ export type AgentInstruction = z.infer<typeof AgentInstruction>
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: z.string(),
+  durableLabel: z.string().optional(),
   agentKind: AgentKind,
   cwd: z.string(),
   resume: ResumeRef.optional(),
@@ -323,7 +324,11 @@ export const ReattachMessage = z.object({
   // and the session would stay status-blind forever.
   createdAtMs: z.number().optional(),
 })
-export const KillMessage = z.object({ type: z.literal('kill'), sessionId: z.string() })
+export const KillMessage = z.object({
+  type: z.literal('kill'),
+  sessionId: z.string(),
+  durableLabel: z.string().optional(),
+})
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
 // 3=unwatched). Drives the daemon's output scheduler.
 export const SessionPriorityMessage = z.object({

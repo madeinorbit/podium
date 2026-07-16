@@ -69,17 +69,19 @@ describe('hook ingest', () => {
     expect(got).toEqual([{ a: filler }])
   })
 
-  it('falls back to an ephemeral port when the preferred port is taken', async () => {
+  it('rejects startup when the stable preferred port is taken', async () => {
     ingest = await startHookIngest({ port: 0, onPayload: () => {} })
-    const second = await startHookIngest({ port: ingest.port, onPayload: () => {} })
-    expect(second.port).not.toBe(ingest.port)
-    expect(second.port).toBeGreaterThan(0)
-    await second.close()
+    await expect(startHookIngest({ port: ingest.port, onPayload: () => {} })).rejects.toMatchObject(
+      { code: 'EADDRINUSE' },
+    )
   })
 })
-
 async function post(url: string, body: unknown): Promise<{ status: number; text: string }> {
-  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
   return { status: res.status, text: await res.text() }
 }
 
@@ -89,7 +91,8 @@ describe('hook-ingest respondTo', () => {
     const ing = await startHookIngest({
       port: 0,
       onPayload: (_s, p) => seen.push(p),
-      respondTo: async (_s, p) => ((p as any).hook_event_name === 'SessionStart' ? '{"x":1}' : null),
+      respondTo: async (_s, p) =>
+        (p as any).hook_event_name === 'SessionStart' ? '{"x":1}' : null,
     })
     try {
       const r = await post(ing.endpointFor('s1'), { hook_event_name: 'SessionStart' })

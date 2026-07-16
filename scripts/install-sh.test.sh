@@ -13,12 +13,21 @@ REL="$WORK/release"; mkdir -p "$REL/headless"
 # PODIUM_STUB_JOIN_FAIL forces it to fail so the fallback path can be tested.
 cat > "$REL/headless/podium" <<'SH'
 #!/bin/sh
+instance="${PODIUM_INSTANCE:-default}"
+if [ "$instance" = default ]; then
+  daemon_unit=podium-daemon.service
+  state_dir="${PODIUM_STATE_DIR:-$HOME/.podium}"
+else
+  daemon_unit="podium-$instance-daemon.service"
+  state_dir="${PODIUM_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/podium/$instance}"
+fi
+[ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-instance $instance $*" >> "$PODIUM_STUB_LOG"
 case "$1" in
-  channel) mkdir -p "$PODIUM_STATE_DIR"; printf '%s\n' "$2" > "$PODIUM_STATE_DIR/update-channel" ;;
+  channel) mkdir -p "$state_dir"; printf '%s\n' "$2" > "$state_dir/update-channel" ;;
   setup)
     if [ -n "${PODIUM_STUB_JOIN_FAIL:-}" ]; then echo "stub: setup fails" >&2; exit 1; fi
     UD="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"; mkdir -p "$UD"
-    printf '%s\n' "# stub unit written by podium setup --join" > "$UD/podium-daemon.service"
+    printf '%s\n' "# stub unit written by podium setup --join" > "$UD/$daemon_unit"
     [ -n "${PODIUM_STUB_LOG:-}" ] && echo "stub-setup $*" >> "$PODIUM_STUB_LOG"
     ;;
   join-config)
@@ -46,6 +55,20 @@ echo "== plain install =="
 sh "$ROOT/install.sh"
 test -x "$HOME/.local/bin/podium"            || { echo FAIL: no launcher symlink; exit 1; }
 test -f "$HOME/.local/share/podium/VERSION"  || { echo FAIL: bundle not installed; exit 1; }
+
+echo "== named install has an independent root and bound command =="
+printf 'keep\n' > "$HOME/.local/share/podium/DEFAULT-SENTINEL"
+rm -f "$WORK/stub.log"
+env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue
+test -x "$HOME/.local/bin/podium-blue" || { echo FAIL: no named launcher; exit 1; }
+test -f "$HOME/.local/share/podium-instances/blue/VERSION" || { echo FAIL: named bundle not installed; exit 1; }
+test -f "$HOME/.local/share/podium/DEFAULT-SENTINEL" || { echo FAIL: named install replaced default bundle; exit 1; }
+env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" "$HOME/.local/bin/podium-blue" status >/dev/null
+grep -F 'stub-instance blue status' "$WORK/stub.log" >/dev/null || { echo FAIL: named launcher did not bind identity; exit 1; }
+test -f "$HOME/.local/state/podium/blue/update-channel" || { echo FAIL: named command did not use named state; exit 1; }
+
+echo "== invalid instance ids fail before installation =="
+if sh "$ROOT/install.sh" --instance Blue 2>/dev/null; then echo "FAIL: invalid instance accepted"; exit 1; fi
 
 echo "== edge install persists update channel =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$PODIUM_STATE_DIR"
@@ -86,6 +109,22 @@ printf '#!/bin/sh\nexit 0\n' > "$STUB/systemctl"; chmod +x "$STUB/systemctl"
 printf '#!/bin/sh\nexit 0\n' > "$STUB/loginctl"; chmod +x "$STUB/loginctl"
 export PATH="$STUB:$PATH"
 UNIT="$HOME/.config/systemd/user"
+
+echo "== named join owns only named supervision and update units =="
+rm -rf "$HOME/.local/share/podium-instances/blue" "$HOME/.local/bin/podium-blue" "$HOME/.config/systemd" "$WORK/stub.log"
+env -u PODIUM_STATE_DIR PODIUM_STUB_LOG="$WORK/stub.log" sh "$ROOT/install.sh" --instance blue --join TESTTOKEN
+grep -F 'stub-instance blue setup --join TESTTOKEN --persist systemd' "$WORK/stub.log" >/dev/null \
+  || { echo "FAIL: named join did not route through named command"; exit 1; }
+test -f "$UNIT/podium-blue-daemon.service" || { echo FAIL: named join did not write named daemon unit; exit 1; }
+test -f "$UNIT/podium-blue-update.service" || { echo FAIL: named join did not write named update unit; exit 1; }
+test -f "$UNIT/podium-blue-update.timer" || { echo FAIL: named join did not write named update timer; exit 1; }
+grep -F 'Environment=PODIUM_INSTANCE=blue' "$UNIT/podium-blue-update.service" >/dev/null \
+  || { echo "FAIL: named update unit lacks identity"; exit 1; }
+grep -F 'podium-blue update' "$UNIT/podium-blue-update.service" >/dev/null \
+  || { echo "FAIL: named update unit targets another install"; exit 1; }
+grep -F 'try-restart podium-blue-daemon.service' "$UNIT/podium-blue-update.service" >/dev/null \
+  || { echo "FAIL: named update unit restarts another daemon"; exit 1; }
+test ! -e "$UNIT/podium-update-user.timer" || { echo "FAIL: named join wrote default update timer"; exit 1; }
 
 echo "== join delegates to podium setup --join (one engine, one unit source) =="
 rm -rf "$HOME/.local/share/podium" "$HOME/.local/bin/podium" "$HOME/.config/systemd"

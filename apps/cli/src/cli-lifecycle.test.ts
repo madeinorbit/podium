@@ -1,6 +1,6 @@
 import type { RunRecord } from '@podium/runtime/run-registry'
 import { describe, expect, it } from 'vitest'
-import { humanUptime, renderStatus } from './cli-lifecycle'
+import { humanUptime, renderStatus, selectedUnits } from './cli-lifecycle'
 
 const T0 = Date.parse('2026-07-06T12:00:00.000Z')
 
@@ -24,6 +24,21 @@ const rec = (over: Partial<RunRecord>): RunRecord => ({
 })
 
 describe('renderStatus', () => {
+  it('shows a named identity and its derived runtime port', () => {
+    const out = renderStatus({
+      live: [],
+      config: { mode: 'server' },
+      instanceId: 'blue',
+      port: 23000,
+      nowMs: Date.now(),
+    })
+    expect(out).toContain('Podium [blue]')
+    expect(out).toContain('http://localhost:23000')
+    expect(selectedUnits('blue')).toEqual([
+      'podium-blue-daemon.service',
+      'podium-blue-server.service',
+    ])
+  })
   it('a host (all-in-one) box reports the split — server + daemon', () => {
     const out = renderStatus({
       live: [rec({ role: 'server', pid: 42, port: 18787 }), rec({ role: 'daemon', pid: 43 })],

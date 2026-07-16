@@ -1610,7 +1610,11 @@ export class SessionsService {
     session.status = 'hibernated'
     this.autoContinue.onSessionGone(sessionId)
     this.persist(session)
-    this.toMachine(session.machineId, { type: 'kill', sessionId })
+    this.toMachine(session.machineId, {
+      type: 'kill',
+      sessionId,
+      ...(session ? { durableLabel: session.durableLabel } : {}),
+    })
     this.broadcastSessions()
     return { ok: true }
   }
@@ -1681,6 +1685,7 @@ export class SessionsService {
     this.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
+      durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
       ...(session.resume ? { resume: session.resume } : {}),
@@ -1766,7 +1771,11 @@ export class SessionsService {
    *  can batch many rows in one transaction and one sessions broadcast. */
   private removeSessionRuntime(sessionId: string): void {
     const session = this.sessions.get(sessionId)
-    this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, { type: 'kill', sessionId })
+    this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
+      type: 'kill',
+      sessionId,
+      ...(session ? { durableLabel: session.durableLabel } : {}),
+    })
     this.autoContinue.onSessionGone(sessionId)
     session?.detachAll()
     this.sessions.delete(sessionId)
@@ -1868,7 +1877,6 @@ export class SessionsService {
         this.persist(session)
         this.broadcastSessions()
       },
-      durableLabel: `podium-${sessionId}`,
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
@@ -1884,6 +1892,7 @@ export class SessionsService {
     this.toMachine(machineId, {
       type: 'spawn',
       sessionId,
+      durableLabel: session.durableLabel,
       agentKind: input.agentKind,
       cwd: input.cwd,
       ...(input.resume ? { resume: input.resume } : {}),

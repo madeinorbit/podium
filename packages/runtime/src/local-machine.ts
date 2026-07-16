@@ -1,13 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
-
-/** The Podium state directory: $PODIUM_STATE_DIR, else ~/.podium. Mirrors the store's
- *  `defaultDbPath` base so the daemon secret lives next to podium.db. */
-export function stateDir(): string {
-  return process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
-}
+import { stateDir } from './config'
 
 /**
  * Stable id of THE local machine — the host the server runs on. The server adopts every
@@ -17,6 +11,8 @@ export function stateDir(): string {
  * machine per server) — remote daemons use their own UUID + pairing.
  */
 export const LOCAL_MACHINE_ID = 'local'
+
+export { stateDir }
 
 /** Placeholder machineId for sessions/rows created before a real machine adopts
  *  them (single-machine boot, pre-provisioning). `ensureLocalMachine` rewrites these. */

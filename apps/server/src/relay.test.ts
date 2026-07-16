@@ -662,7 +662,7 @@ describe('SessionRegistry', () => {
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }).sessionId
     reg.modules.sessions.killSession({ sessionId: s1 })
-    expect(daemon).toContainEqual({ type: 'kill', sessionId: s1 })
+    expect(daemon).toContainEqual({ type: 'kill', sessionId: s1, durableLabel: 'podium-' + s1 })
     expect(reg.modules.sessions.listSessions()).toHaveLength(0)
   })
 
@@ -2139,7 +2139,7 @@ describe('hibernation', () => {
     const sessionId = liveSession(reg, daemon)
 
     expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-    expect(daemon).toContainEqual({ type: 'kill', sessionId })
+    expect(daemon).toContainEqual({ type: 'kill', sessionId, durableLabel: 'podium-' + sessionId })
     expect(reg.modules.sessions.listSessions()[0]).toMatchObject({ sessionId, status: 'hibernated' })
     // The daemon's kill produces an exit — it must not flip hibernated → exited.
     reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 0 })

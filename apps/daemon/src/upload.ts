@@ -4,19 +4,14 @@ import { join } from 'node:path'
  * Derive the absolute filesystem path for an uploaded image file.
  * Pure / side-effect-free — the caller creates the directory and writes the file.
  *
- * @param home     - The user's home directory (homedir())
+ * @param root     - The selected Podium instance state root
  * @param sessionId - Podium session the upload belongs to
  * @param id       - Unique identifier for this upload (UUID)
  * @param mime     - MIME type used to pick the file extension
  */
-export function uploadFilePath(
-  home: string,
-  sessionId: string,
-  id: string,
-  mime: string,
-): string {
+export function uploadFilePath(root: string, sessionId: string, id: string, mime: string): string {
   const ext = mimeToExt(mime)
-  return join(home, '.podium', 'uploads', sessionId, `${id}${ext}`)
+  return join(root, 'uploads', sessionId, `${id}${ext}`)
 }
 
 function mimeToExt(mime: string): string {

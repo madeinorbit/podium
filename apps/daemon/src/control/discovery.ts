@@ -68,7 +68,7 @@ async function scanRepos(
     addResult(
       await scanGitRepositories({
         roots,
-        homeDir: process.env.HOME || undefined,
+        homeDir: ctx.homeDir ?? process.env.HOME ?? undefined,
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
       }),

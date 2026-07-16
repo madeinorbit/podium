@@ -8,6 +8,7 @@ import {
   runHeadlessTurn,
 } from '../headless-drivers.js'
 import type { ControlHandlers, DaemonContext } from './context'
+import { agentRelayEnv } from './session'
 
 // ---- Headless harness sessions (concierge unification, Phase A) ----
 // One live turn per session (ctx.runningHeadlessTurns); concurrent sends on a
@@ -47,6 +48,11 @@ function runHeadlessTurnRequest(
       ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
       ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
       ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
+      env: {
+        ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId), ctx.instanceId),
+        ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+      },
+      durableLabel: ctx.durableLabelFor(msg.sessionId),
     }
     const emit = (event: HeadlessTurnEvent) =>
       ctx.send({

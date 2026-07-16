@@ -1,8 +1,8 @@
 import type { AgentSession, agentLaunchCommand } from '@podium/agent-bridge'
 import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { ConversationDeltaWire } from '../active-refresh'
-import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { AgentRelayHub } from '../agent-relay'
+import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { SessionObservers } from '../session-observers'
 import type { DiscoveryWorkerClient } from '../worker-client'
@@ -25,6 +25,11 @@ export interface DaemonContext {
   // -- configuration ---------------------------------------------------------
   /** The machine identity this daemon registers as (inventory reports carry it). */
   machineId: string
+  /** Selected Podium instance that owns every runtime/session in this daemon. */
+  instanceId: string
+  /** Exact labels retained for reattached legacy/adopted sessions. */
+  durableLabels: Map<string, string>
+  durableLabelFor(sessionId: string): string
   backend: DurableBackend
   /** Maps an agent kind to a spawn command (tests inject a fixture). */
   launch: typeof agentLaunchCommand

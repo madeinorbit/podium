@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import type { AgentConversationSummary, AgentKind, ConversationFileStat } from './types.js'
 
@@ -12,8 +12,7 @@ export const DISCOVERY_CACHE_SCHEMA_VERSION = 2
 const DB_SCHEMA_VERSION = '1'
 
 export function defaultDiscoveryDbPath(): string {
-  const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
-  return join(base, 'discovery.db')
+  return join(stateDir(), 'discovery.db')
 }
 
 type CacheRow = {

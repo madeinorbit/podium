@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs'
 import { readdir, rm, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { stateDir } from '@podium/runtime/config'
 import { uploadsToGc } from './uploads-gc'
 
 export const UPLOADS_TTL_MS = 24 * 3600_000 // 24 hours
@@ -12,7 +12,7 @@ export const UPLOADS_GC_INTERVAL_MS = 3600_000 // 1 hour
  *  hourly timer, and a sync readdir/stat storm on the daemon loop would stall every
  *  session's I/O for the duration (audit P2-17). */
 export async function sweepUploads(): Promise<void> {
-  const uploadsDir = join(homedir(), '.podium', 'uploads')
+  const uploadsDir = join(stateDir(), 'uploads')
   try {
     const sessionDirs = await readdir(uploadsDir)
     const files: { path: string; mtimeMs: number }[] = []
@@ -48,7 +48,7 @@ export async function sweepUploads(): Promise<void> {
 
 /** Remove a session's upload directory when the session is closed/killed. */
 export function removeSessionUploads(sessionId: string): void {
-  const sessionUploadsDir = join(homedir(), '.podium', 'uploads', sessionId)
+  const sessionUploadsDir = join(stateDir(), 'uploads', sessionId)
   try {
     rmSync(sessionUploadsDir, { recursive: true, force: true })
   } catch {

@@ -11,6 +11,7 @@ import type {
   WorkState,
 } from '@podium/protocol'
 import { WorkState as WorkStateSchema } from '@podium/protocol'
+import { durableSessionLabel } from '@podium/runtime/instance'
 import type { SessionRow } from '../../store'
 
 export type Send<T> = (msg: T) => void
@@ -264,7 +265,7 @@ export class Session {
     this.geometry = { ...init.geometry }
     this.toDaemon = init.toDaemon
     this.machineId = init.machineId ?? '__local__'
-    this.durableLabel = init.durableLabel ?? `podium-${init.sessionId}`
+    this.durableLabel = init.durableLabel ?? durableSessionLabel(init.sessionId)
     this.resume = init.resume
     this.lastActiveAt = init.lastActiveAt ?? init.createdAt
     // A malformed stored ISO string parses to NaN, and Math.max(..., NaN) is NaN —

@@ -104,6 +104,14 @@ describe('resolvePlan — launch matrix', () => {
       units: ['podium-daemon.service'],
     })
   })
+  it('routes named managed instances only to their own units', () => {
+    expect(
+      plan({ mode: 'all-in-one', persistence: 'systemd' }, [], { PODIUM_INSTANCE: 'blue' }),
+    ).toEqual({
+      kind: 'systemd-managed',
+      units: ['podium-blue-server.service', 'podium-blue-daemon.service'],
+    })
+  })
   it('detached-recorded box, bare invocation → ensure the detached split is up', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'detached' })).toEqual({
       kind: 'detached-managed',

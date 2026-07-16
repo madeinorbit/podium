@@ -20,11 +20,24 @@ import {
   parseDaemonHandshakeReply,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { stateDir } from '@podium/runtime/config'
+import {
+  loadConfig,
+  resolveAgentHomeDir,
+  resolveAgentRelayPort,
+  resolveHookPort,
+  stateDir,
+} from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
+import {
+  applyInstanceRuntimeEnv,
+  durableSessionLabel,
+  ensureInstanceStateIdentity,
+  resolveInstanceId,
+} from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
+import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory } from './control/inventory'
@@ -35,7 +48,6 @@ import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { countControl, reportLongTick, startLoopAttribution } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
@@ -84,7 +96,7 @@ export function controlFrameByteLength(raw: RawData): number {
 export interface DaemonDiscoveryOptions {
   /** Disable unsolicited cached/background conversation pushes; scanRequest still works. */
   background?: boolean
-  /** Defaults to $PODIUM_STATE_DIR/discovery.db else ~/.podium/discovery.db. */
+  /** Defaults to the selected instance state root/discovery.db. */
   cachePath?: string
   /** Test hook / isolated HOME for discovery. */
   homeDir?: string
@@ -240,6 +252,10 @@ export interface DaemonHandle {
 }
 
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+  const instanceId = resolveInstanceId()
+  ensureInstanceStateIdentity({ instanceId })
+  applyInstanceRuntimeEnv(instanceId)
+  const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = resolveDurableBackend(opts, {
     abduco: isAbducoAvailable(),
@@ -249,7 +265,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     console.warn(noDurableBackendWarning())
   }
   const settingsDir = opts.hooks?.settingsDir ?? join(stateDir(), 'hooks')
-  const homeDir = opts.discovery?.homeDir
+  const homeDir = opts.discovery?.homeDir ?? resolveAgentHomeDir(config)
 
   // `currentWs` is the live socket; `send()` always targets it, so frames keep flowing
   // to a new connection after a reconnect. Everything below (observers, relay hub,
@@ -336,7 +352,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     (sessionId, payload) => ackReminder.respondTo(sessionId, payload),
   )
   const ingest = await startHookIngest({
-    ...(opts.hooks?.port !== undefined ? { port: opts.hooks.port } : {}),
+    port: opts.hooks?.port ?? resolveHookPort(config),
     // Bounded, timeout-safe: prime injection first (SessionStart/UserPromptSubmit),
     // then mail delivery at Stop; first non-null wins.
     respondTo,
@@ -370,7 +386,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // injected into the agent env at spawn; each request rides the hub over the
   // live WS and blocks until the server answers.
   const agentRelay = await startAgentRelayServer({
-    ...(opts.agentRelay?.port !== undefined ? { port: opts.agentRelay.port } : {}),
+    port: opts.agentRelay?.port ?? resolveAgentRelayPort(config),
     relay: async (req) => {
       // `session.setWorktree` is the agent-initiated worktree report (`podium
       // worktree <path>`). The daemon owns cwd truth, so it's handled here —
@@ -419,6 +435,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   const ctx: DaemonContext = {
     send,
     machineId,
+    instanceId,
+    durableLabels: new Map<string, string>(),
+    durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
     backend,
     launch,
     settingsDir,
@@ -493,11 +512,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     for (const [sessionId, session] of ctx.bridges) {
       session.dispose()
       if (reapSessions && backend !== 'none') {
-        killAbducoSession(`podium-${sessionId}`)
-        killTmuxServer(`podium-${sessionId}`)
+        const durableLabel = ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId)
+        killAbducoSession(durableLabel)
+        killTmuxServer(durableLabel)
       }
     }
     ctx.bridges.clear()
+    ctx.durableLabels.clear()
     for (const turn of ctx.runningHeadlessTurns.values()) {
       if (reapSessions) turn.interrupt()
       else turn.dispose?.()

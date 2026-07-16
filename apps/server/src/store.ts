@@ -57,7 +57,7 @@ export type { MessagePrincipalRef } from './store/messages'
 export * from './store/types'
 export { normalizeRepoPath }
 
-/** Default DB file: $PODIUM_STATE_DIR/podium.db, else ~/.podium/podium.db. */
+/** Default DB file: podium.db below the selected instance state root. */
 export function defaultDbPath(): string {
   return join(stateDir(), 'podium.db')
 }

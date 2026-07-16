@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { serve } from '@hono/node-server'
 import { trpcServer } from '@hono/trpc-server'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
-import { loadConfig } from '@podium/runtime/config'
+import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
+import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readOwnDaemonMachineId, UpstreamForwarder, UpstreamSync } from '@podium/sync'
 import { Hono } from 'hono'
@@ -60,6 +61,7 @@ export function isAddressInUseError(err: unknown): boolean {
 }
 
 export interface ServerHandle {
+  instanceId: string
   port: number
   registry: SessionRegistry
   /**
@@ -97,6 +99,7 @@ export function registerVersionRoute(app: Hono): void {
       wireVersion: WIRE_VERSION,
       minSupportedVersion: MIN_SUPPORTED_VERSION,
       appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
+      instanceId: resolveInstanceId(),
     }),
   )
 }
@@ -110,6 +113,8 @@ export async function startServer(
     plugins?: PodiumPlugin[]
   } = {},
 ): Promise<ServerHandle> {
+  const instanceId = resolveInstanceId()
+  ensureInstanceStateIdentity({ instanceId })
   // Headless seam: a non-interactive deploy can set the login password via PODIUM_PASSWORD.
   // One-shot (won't overwrite an existing one); must run before the open-exposure check below.
   await applyEnvPassword()
@@ -399,6 +404,7 @@ export async function startServer(
         if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
         resolve({
           port: info.port,
+          instanceId,
           registry,
           bootstrapToken,
           close: () =>

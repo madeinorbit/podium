@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stateDir } from '@podium/runtime/config'
 
 /**
  * abduco binary resolution — podium ships abduco rather than demanding a system
@@ -35,8 +35,7 @@ export function abducoSupported(platform: NodeJS.Platform = process.platform): b
 }
 
 export function defaultAbducoCachePath(): string {
-  const base = process.env.PODIUM_STATE_DIR ?? join(process.env.HOME || homedir(), '.podium')
-  return join(base, 'bin', 'abduco')
+  return join(stateDir(), 'bin', 'abduco')
 }
 
 function runs(bin: string): boolean {

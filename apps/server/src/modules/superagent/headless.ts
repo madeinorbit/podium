@@ -79,7 +79,6 @@ export class HeadlessService {
       machineId,
       toDaemon: (msg) =>
         this.deps.toMachine(this.deps.getSession(sessionId)?.machineId ?? machineId, msg),
-      durableLabel: `podium-${sessionId}`,
       status: 'live',
       headless: true,
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),

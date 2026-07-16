@@ -6,6 +6,7 @@ import { registerVersionRoute } from './server'
 type VersionBody = {
   wireVersion: number
   appVersion: string
+  instanceId: string
   minSupportedVersion: number
 }
 
@@ -21,12 +22,17 @@ describe('GET /version', () => {
   // has the real version baked in via `--define` — see scripts/build-bun.ts). Save/restore
   // the env around each test so the global mutation can't leak to sibling suites.
   let savedAppVersion: string | undefined
+  let savedInstance: string | undefined
   beforeEach(() => {
     savedAppVersion = process.env.PODIUM_APP_VERSION
+    savedInstance = process.env.PODIUM_INSTANCE
+    delete process.env.PODIUM_INSTANCE
   })
   afterEach(() => {
     if (savedAppVersion === undefined) delete process.env.PODIUM_APP_VERSION
     else process.env.PODIUM_APP_VERSION = savedAppVersion
+    if (savedInstance === undefined) delete process.env.PODIUM_INSTANCE
+    else process.env.PODIUM_INSTANCE = savedInstance
   })
 
   it('reports the wire + app version as JSON', async () => {
@@ -35,6 +41,7 @@ describe('GET /version', () => {
     expect(body.wireVersion).toBe(WIRE_VERSION)
     expect(body.minSupportedVersion).toBe(MIN_SUPPORTED_VERSION)
     expect(typeof body.appVersion).toBe('string')
+    expect(body.instanceId).toBe('default')
   })
 
   it('reports the baked PODIUM_APP_VERSION as appVersion', async () => {
@@ -45,6 +52,12 @@ describe('GET /version', () => {
     // Full contract shape stays intact alongside the baked version.
     expect(body.wireVersion).toBe(WIRE_VERSION)
     expect(body.minSupportedVersion).toBe(MIN_SUPPORTED_VERSION)
+  })
+
+  it('reports the selected instance identity', async () => {
+    process.env.PODIUM_INSTANCE = 'blue'
+    const { body } = await fetchVersion()
+    expect(body.instanceId).toBe('blue')
   })
 
   it("falls back to 'dev' when PODIUM_APP_VERSION is unset", async () => {

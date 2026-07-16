@@ -18,7 +18,7 @@ export interface HookIngest {
 }
 
 /**
- * Default is a FIXED port, not ephemeral: hook URLs live in settings files of
+ * Default is a FIXED, instance-owned port, not ephemeral: hook URLs live in settings files of
  * durable (abduco/tmux) sessions that outlive this process. A daemon restart
  * must come back on the same port or surviving agents post into the void.
  */
@@ -145,18 +145,7 @@ export function startHookIngest(opts: {
         close: () => new Promise<void>((r) => server.close(() => r())),
       })
     }
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && preferred !== 0) {
-        // Degraded mode: pre-restart durable sessions keep posting to the old
-        // port and lose state reporting, but new spawns work.
-        console.warn(`[podium] hook port ${preferred} in use — falling back to an ephemeral port`)
-        server.removeAllListeners('error')
-        server.once('error', reject)
-        server.listen(0, '127.0.0.1', finish)
-        return
-      }
-      reject(err)
-    })
+    server.once('error', reject)
     server.listen(preferred, '127.0.0.1', finish)
   })
 }

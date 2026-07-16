@@ -71,8 +71,9 @@ export function createAgentRelayHub(
  * Fixed default port, mirroring the hook ingest. The port is injected into an
  * agent's environment at spawn (Task 3) so its `podium` CLI can POST here;
  * on a daemon restart we must come back on the same port or already-running
- * agents post into the void. Ephemeral fallback on EADDRINUSE keeps new spawns
- * working even if the port is taken.
+ * agents post into the void. Bind conflicts fail startup so no session can be
+ * silently routed to another daemon;
+ * ephemeral port 0 remains available when tests request it explicitly.
  */
 export const DEFAULT_AGENT_RELAY_PORT = 45778
 
@@ -190,16 +191,7 @@ export function startAgentRelayServer(opts: {
         close: () => new Promise<void>((r) => server.close(() => r())),
       })
     }
-    server.once('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && preferred !== 0) {
-        console.warn(`[podium] agent-relay port ${preferred} in use — falling back to ephemeral`)
-        server.removeAllListeners('error')
-        server.once('error', reject)
-        server.listen(0, '127.0.0.1', finish)
-        return
-      }
-      reject(err)
-    })
+    server.once('error', reject)
     server.listen(preferred, '127.0.0.1', finish)
   })
 }

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { renderDaemonUnit, renderServerUnit, userUnitDir } from './cli-systemd'
 
 describe('renderServerUnit', () => {
-  it('is a Type=notify, watchdog, Restart=always user unit calling `podium server`', () => {
+  it('is a Type=notify, watchdog, Restart=always user unit calling podium server', () => {
     const u = renderServerUnit()
     expect(u).toContain('ExecStart=%h/.local/bin/podium server')
     expect(u).toContain('Type=notify')
@@ -18,6 +18,11 @@ describe('renderServerUnit', () => {
     expect(u).toContain('IOWeight=500')
     expect(u).toContain('MemoryLow=512M')
   })
+  it('renders a named server with an explicit identity and command', () => {
+    const u = renderServerUnit('blue')
+    expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(u).toContain('ExecStart=%h/.local/bin/podium-blue server')
+  })
 })
 
 /** The `Environment=PATH=` dirs of a rendered unit, in order. */
@@ -26,7 +31,7 @@ function pathDirs(unit: string): string[] {
 }
 
 describe('renderDaemonUnit', () => {
-  it('local split daemon auths as the local machine (--local) at the given server URL', () => {
+  it('local split daemon auths as the local machine at the given server URL', () => {
     const u = renderDaemonUnit({ serverUrl: 'ws://localhost:18787', local: true })
     expect(u).toContain(
       'ExecStart=%h/.local/bin/podium daemon --local --server ws://localhost:18787',
@@ -37,6 +42,17 @@ describe('renderDaemonUnit', () => {
       'Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin',
     )
     expect(u).toContain('Restart=always')
+  })
+  it('renders a named local daemon against only its named server unit', () => {
+    const u = renderDaemonUnit({
+      instanceId: 'blue',
+      serverUrl: 'ws://localhost:23000',
+      local: true,
+    })
+    expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(u).toContain('ExecStart=%h/.local/bin/podium-blue daemon --local')
+    expect(u).toContain('After=network-online.target podium-blue-server.service')
+    expect(u).not.toContain('After=network-online.target podium-server.service')
   })
   // #220: the daemon spawns the agent CLIs, which inherit its PATH (agent-bridge session.ts
   // spreads process.env). A dir missing here means `claude`/`codex`/`opencode` are simply not
@@ -87,7 +103,7 @@ describe('install.sh fallback unit lockstep (#20)', () => {
     // install.sh --join normally DELEGATES to `podium setup --join` (which renders the unit
     // via renderDaemonUnit); its fallback heredoc must never drift from that source of truth.
     const sh = readFileSync(fileURLToPath(new URL('../../../install.sh', import.meta.url)), 'utf8')
-    const m = sh.match(/cat > "\$UNIT_DIR\/podium-daemon\.service" <<'EOF'\n([\s\S]*?)EOF\n/)
+    const m = sh.match(/cat > "\$TMP\/podium-daemon\.service" <<'EOF'\n([\s\S]*?)EOF\n/)
     expect(m, 'install.sh no longer contains the fallback daemon-unit heredoc').toBeTruthy()
     expect(m?.[1]).toBe(renderDaemonUnit())
   })
