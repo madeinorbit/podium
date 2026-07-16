@@ -21,6 +21,11 @@
           var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
           var isDark = mode === 'system' ? prefersDark : mode === 'dark'
           var el = document.documentElement
+          var desktop = window.__PODIUM_DESKTOP__
+          if (desktop && /^(macos|windows|linux)$/.test(desktop.platform)) {
+            el.dataset.podiumDesktop = 'true'
+            el.dataset.podiumPlatform = desktop.platform
+          }
           if (preset === 'shadcn') el.removeAttribute('data-theme')
           else el.setAttribute('data-theme', preset)
           el.classList.toggle('dark', isDark)

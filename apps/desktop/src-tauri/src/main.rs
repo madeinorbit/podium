@@ -96,6 +96,29 @@ fn log_backend_version(port: u16) {
     }
 }
 
+#[cfg(target_os = "macos")]
+const DESKTOP_PLATFORM: &str = "macos";
+#[cfg(target_os = "windows")]
+const DESKTOP_PLATFORM: &str = "windows";
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+const DESKTOP_PLATFORM: &str = "linux";
+
+fn native_desktop_hook() -> String {
+    format!(
+        r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
+            platform: "{DESKTOP_PLATFORM}",
+            minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
+            toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }})
+        }});"#
+    )
+}
+
+fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
+    let url = tauri::Url::parse(server_url).map_err(|error| error.to_string())?;
+    Ok(format!("{}/*", url.origin().ascii_serialization()))
+}
+
 fn main() {
     let app = tauri::Builder::default()
         // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
@@ -158,6 +181,7 @@ fn main() {
             // same-origin with it — WKWebView's WebSocket from a tauri://localhost page to a remote
             // TLS relay fails (1006), but a same-origin load connects, exactly like a browser tab.
             let webview_url: WebviewUrl;
+            let remote_window_server_url: Option<String>;
 
             // mode=server (#176): the sidecar gets the explicit `server` subcommand so it runs
             // the SERVER role only — no local daemon/agents — and bypasses the CLI's
@@ -233,6 +257,7 @@ fn main() {
                     window_injection = bootstrap::injection_script(port);
                     wait_local_port = Some(port);
                     webview_url = WebviewUrl::default();
+                    remote_window_server_url = None;
                 }
 
                 bootstrap::LaunchAction::LocalDaemon { server_url } => {
@@ -262,6 +287,7 @@ fn main() {
                         "(daemon)".to_string(),
                     );
 
+                    remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
                 }
@@ -269,10 +295,29 @@ fn main() {
                 bootstrap::LaunchAction::ClientOnly { server_url } => {
                     // No backend, no monitor — just point the window at the remote server.
                     eprintln!("[podium-desktop] client mode → {server_url} (no local backend)");
+                    remote_window_server_url = Some(server_url.clone());
                     (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
                     wait_local_port = None;
                 }
             }
+
+            let mut window_capability =
+                tauri::ipc::CapabilityBuilder::new("native-window-controls")
+                    .window("main")
+                    .permission("core:window:allow-start-dragging")
+                    .permission("core:window:allow-internal-toggle-maximize")
+                    .permission("core:window:allow-toggle-maximize")
+                    .permission("core:window:allow-minimize")
+                    .permission("core:window:allow-close");
+            if let Some(server_url) = remote_window_server_url {
+                match remote_capability_pattern(&server_url) {
+                    Ok(pattern) => window_capability = window_capability.remote(pattern),
+                    Err(error) => eprintln!(
+                        "[podium-desktop] no remote window capability for invalid URL {server_url:?}: {error}"
+                    ),
+                }
+            }
+            app.add_capability(window_capability)?;
 
             // Build the tray icon with Open / Quit menu items.
             let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
@@ -299,7 +344,8 @@ fn main() {
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
-            let init = format!("{window_injection}\n{restart_hook}");
+            let native_desktop_hook = native_desktop_hook();
+            let init = format!("{window_injection}\n{restart_hook}\n{native_desktop_hook}");
             std::thread::spawn(move || {
                 if let Some(port) = wait_local_port {
                     let ready = bootstrap::wait_for_port(port, 200, 150);
@@ -312,16 +358,21 @@ fn main() {
                 }
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
-                    if let Err(e) = WebviewWindowBuilder::new(
-                        &handle2,
-                        "main",
-                        webview_url,
-                    )
-                    .title("Podium")
-                    .inner_size(1200.0, 800.0)
-                    .initialization_script(&init)
-                    .build()
-                    {
+                    let window_builder = WebviewWindowBuilder::new(&handle2, "main", webview_url)
+                        .title("Podium")
+                        .inner_size(1200.0, 800.0)
+                        .initialization_script(&init);
+
+                    // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
+                    #[cfg(target_os = "macos")]
+                    let window_builder = window_builder
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true)
+                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 15.0));
+                    #[cfg(not(target_os = "macos"))]
+                    let window_builder = window_builder.decorations(false);
+
+                    if let Err(e) = window_builder.build() {
                         eprintln!("[podium-desktop] window build failed: {e}");
                     }
                 });
@@ -382,4 +433,28 @@ fn main() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_hook_exposes_only_window_actions() {
+        let hook = native_desktop_hook();
+        assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
+        assert!(hook.contains("plugin:window|minimize"));
+        assert!(hook.contains("plugin:window|toggle_maximize"));
+        assert!(hook.contains("plugin:window|close"));
+        assert!(!hook.contains("plugin:process|restart"));
+    }
+
+    #[test]
+    fn remote_capability_is_limited_to_the_configured_origin() {
+        assert_eq!(
+            remote_capability_pattern("https://podium.example:55555/workspace?view=active"),
+            Ok("https://podium.example:55555/*".to_string())
+        );
+        assert!(remote_capability_pattern("not a URL").is_err());
+    }
 }

@@ -59,6 +59,43 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
+.desktop-topbar-logo {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+html[data-podium-desktop="true"] .desktop-topbar,
+html[data-podium-desktop="true"] .desktop-topbar-logo {
+  user-select: none;
+}
+html[data-podium-platform="macos"] .desktop-topbar {
+  padding-left: 82px;
+}
+.native-window-controls {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+  margin-right: -14px;
+  margin-left: 4px;
+}
+.native-window-control {
+  display: flex;
+  width: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+.native-window-control:hover {
+  background: var(--accent);
+  color: var(--text-strong);
+}
+.native-window-control-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
 .header-host-indicators {
   display: flex;
   min-width: 0;

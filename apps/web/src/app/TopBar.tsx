@@ -1,7 +1,9 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { Minus, Square, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
+import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { type MainView, useStoreSelector } from './store'
 
@@ -11,6 +13,7 @@ import { type MainView, useStoreSelector } from './store'
  * waiting badge · Issues · Workflows · Specs · Automations) · machine + quota chips
  * right-aligned. The icon-cell header with issue-context dropdown and “+”
  * belongs to the MOBILE shell (MobileApp.tsx), not here.
+ * [spec:SP-3834] The same header becomes the native app's integrated title bar.
  */
 export function TopBar(): JSX.Element {
   const { view, setView, issues } = useStoreSelector(
@@ -21,10 +24,14 @@ export function TopBar(): JSX.Element {
   const waitingCount = issues.filter(
     (issue) => !issue.archived && !issue.deletedAt && issue.needsHuman,
   ).length
+  const desktopBridge = nativeDesktopBridge()
+  const dragRegion = desktopBridge ? { 'data-tauri-drag-region': true } : undefined
 
   return (
-    <header className="desktop-topbar" data-testid="desktop-topbar">
-      <PodiumLogo className="flex-none" />
+    <header className="desktop-topbar" data-testid="desktop-topbar" {...dragRegion}>
+      <span className="desktop-topbar-logo" {...dragRegion}>
+        <PodiumLogo className="flex-none" />
+      </span>
       <nav className="ml-[10px] inline-flex flex-none items-center gap-0.5" aria-label="Primary">
         <NavItem label="Home" target="home" view={view} onSelect={setView} badge={waitingCount} />
         <NavItem label="Issues" target="issues" view={view} onSelect={setView} />
@@ -35,7 +42,50 @@ export function TopBar(): JSX.Element {
       <div className="ml-auto min-w-0 overflow-hidden">
         <HeaderHostIndicators />
       </div>
+      {desktopBridge && desktopBridge.platform !== 'macos' && (
+        <NativeWindowControls bridge={desktopBridge} />
+      )}
     </header>
+  )
+}
+
+function NativeWindowControls({ bridge }: { bridge: NativeDesktopBridge }): JSX.Element {
+  const run = (action: () => Promise<void>): void => {
+    void action().catch((error: unknown) => {
+      console.error('[podium-desktop] window action failed', error)
+    })
+  }
+
+  return (
+    <div className="native-window-controls" role="group" aria-label="Window controls">
+      <button
+        type="button"
+        className="native-window-control"
+        aria-label="Minimize window"
+        title="Minimize"
+        onClick={() => run(bridge.minimize)}
+      >
+        <Minus size={15} strokeWidth={1.5} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="native-window-control"
+        aria-label="Maximize window"
+        title="Maximize or restore"
+        onClick={() => run(bridge.toggleMaximize)}
+      >
+        <Square size={11} strokeWidth={1.5} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="native-window-control native-window-control-close"
+        aria-label="Close window"
+        title="Close"
+        onClick={() => run(bridge.close)}
+      >
+        <X size={15} strokeWidth={1.5} aria-hidden="true" />
+      </button>
+    </div>
   )
 }
 
