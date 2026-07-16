@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DaemonMessage, SessionOpenUrlMessage } from '@podium/protocol'
@@ -126,5 +127,36 @@ describe('browser command shims', () => {
       // biome-ignore lint/suspicious/noTemplateCurlyInString: this is a literal shell expansion.
       expect(readFileSync(path, 'utf8')).toContain('${PODIUM_AGENT_RELAY%/}/open')
     }
+  })
+
+  it('falls through to the real binary when no URL argument is present', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-browser-shims-'))
+    dirs.push(dir)
+    const realDir = mkdtempSync(join(tmpdir(), 'podium-real-bin-'))
+    dirs.push(realDir)
+    const marker = join(realDir, 'invoked')
+    writeFileSync(join(realDir, 'xdg-open'), `#!/bin/sh\nprintf '%s' "$*" > "${marker}"\n`, {
+      mode: 0o755,
+    })
+
+    const env = browserOpenEnv(dir, realDir)
+    const shim = join(dir, 'browser-shims', 'xdg-open')
+    const result = spawnSync(shim, ['README.md'], { env: { ...process.env, PATH: env.PATH } })
+
+    expect(result.status).toBe(0)
+    expect(readFileSync(marker, 'utf8')).toBe('README.md')
+  })
+
+  it('exits 2 for a non-URL invocation when no real binary exists', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-browser-shims-'))
+    dirs.push(dir)
+    const emptyDir = mkdtempSync(join(tmpdir(), 'podium-empty-bin-'))
+    dirs.push(emptyDir)
+
+    const env = browserOpenEnv(dir, emptyDir)
+    const shim = join(dir, 'browser-shims', 'xdg-open')
+    const result = spawnSync(shim, ['README.md'], { env: { ...process.env, PATH: env.PATH } })
+
+    expect(result.status).toBe(2)
   })
 })

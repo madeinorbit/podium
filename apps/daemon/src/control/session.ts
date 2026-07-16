@@ -407,6 +407,8 @@ export function browserOpenEnv(
 ): Record<string, string> {
   const shimDir = join(settingsDir, 'browser-shims')
   mkdirSync(shimDir, { recursive: true })
+  // The shim dir literal inside the script's single-quoted case pattern.
+  const shimDirSh = shimDir.replace(/'/g, "'\\''")
   const script = [
     '#!/bin/sh',
     'url=',
@@ -415,7 +417,20 @@ export function browserOpenEnv(
     '    http://*|https://*) url=$arg ;;',
     '  esac',
     'done',
-    '[ -n "$url" ] || { echo "podium browser shim: missing URL" >&2; exit 2; }',
+    // Non-URL invocations (macOS `open <file/-a App>`, `xdg-open <doc>`) are not
+    // ours to intercept: fall through to the real binary — the shim SHADOWS the
+    // command for URLs, it must not replace it for everything else.
+    'if [ -z "$url" ]; then',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: evaluated by the generated shell script.
+    '  name="${0##*/}"',
+    '  IFS=:',
+    '  for dir in $PATH; do',
+    `    case "$dir" in ''|'${shimDirSh}') continue ;; esac`,
+    '    [ -x "$dir/$name" ] && exec "$dir/$name" "$@"',
+    '  done',
+    '  echo "podium browser shim: no URL argument and no real $name on PATH" >&2',
+    '  exit 2',
+    'fi',
     '[ -n "$PODIUM_AGENT_RELAY" ] || { echo "podium browser shim: missing relay" >&2; exit 2; }',
     // biome-ignore lint/suspicious/noTemplateCurlyInString: evaluated by the generated shell script.
     'endpoint="${PODIUM_AGENT_RELAY%/}/open"',
