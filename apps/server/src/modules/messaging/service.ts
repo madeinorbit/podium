@@ -1,9 +1,4 @@
-import {
-  issueDisplayRef,
-  type AgentPhase,
-  type AgentRuntimeState,
-  type IssueWire,
-} from '@podium/protocol'
+import { issueDisplayRef, type AgentRuntimeState, type IssueWire } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'
@@ -87,11 +82,6 @@ interface TypingLease {
 const QUEUE_CAP = 20
 /** Telegram's typing action lasts ~5s; refresh a beat earlier so it never lapses. */
 export const TYPING_REFRESH_MS = 4000
-
-/** Phases that mean the agent is actively working (ambient typing on). */
-function isWorkingPhase(phase: AgentPhase): boolean {
-  return phase === 'working' || phase === 'compacting'
-}
 
 function conversationKey(ref: ConversationRef): string {
   return `${ref.chatId}\0${ref.threadRef ?? ''}`
@@ -332,7 +322,7 @@ export class MessagingService implements TelegramNoticePort {
   /** Ambient typing into the issue's bound forum topic while the agent works
    *  [spec:SP-62c3]. No-op when the session has no bound topic. */
   private onSessionStateChanged(sessionId: string, next: AgentRuntimeState): void {
-    if (isWorkingPhase(next.phase)) this.startAmbientTyping(sessionId)
+    if (next.phase === 'working') this.startAmbientTyping(sessionId)
     else this.stopAmbientTyping(sessionId)
   }
 

@@ -418,7 +418,7 @@ describe('MessagingService', () => {
       vi.useRealTimers()
     })
 
-    function agentState(phase: 'working' | 'compacting' | 'idle' | 'needs_user' | 'errored' | 'ended') {
+    function agentState(phase: 'working' | 'idle' | 'needs_user' | 'errored' | 'ended' | 'compacting') {
       return {
         phase,
         since: '2026-07-16T00:00:00.000Z',
@@ -461,17 +461,17 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
     })
 
-    it('also treats compacting as a working phase', () => {
+    it('does not start ambient typing on compacting (only phase===working)', () => {
       const h = makeHarness({
         sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
       })
-      const { sessionId, threadRef } = bindTopic(h)
+      const { sessionId } = bindTopic(h)
       h.bus.emit('session.stateChanged', {
         sessionId,
         prev: agentState('idle'),
         next: agentState('compacting'),
       })
-      expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
+      expect(h.typingCalls).toEqual([])
     })
 
     it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, () => {
@@ -492,7 +492,7 @@ describe('MessagingService', () => {
       expect(h.typingCalls).toHaveLength(3)
     })
 
-    it.each(['idle', 'needs_user', 'errored', 'ended'] as const)(
+    it.each(['idle', 'needs_user', 'errored', 'ended', 'compacting'] as const)(
       'stops ambient typing on %s',
       (phase) => {
         vi.useFakeTimers()
