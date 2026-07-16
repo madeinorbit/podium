@@ -23,18 +23,29 @@ async function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
  *  `<common>/worktrees/<name>`. Asking git rather than matching path shape is
  *  what makes "never hand off a main checkout" ([spec:SP-3f7a]) airtight:
  *  worktrees may live anywhere, and a cwd deep inside the main checkout must not
- *  read as one. Null = not a linked worktree (or not a repo at all). */
+ *  read as one. Null = not a linked worktree (or not a repo at all).
+ *
+ *  Both paths are RESOLVED against `cwd` before comparing: git prints them
+ *  relative to where it ran (`.git` from a root, `../.git` from a subdirectory)
+ *  and absolute only sometimes, so raw strings differ for one same directory.
+ *  `--path-format=absolute` would do this in git, but it needs git >= 2.31 and
+ *  `rev-parse` does not reject options it does not know — it ECHOES them as
+ *  output and exits 0, which would shift this parse by a line and read every
+ *  main checkout as a worktree. Hence the exact-3-lines check. (Same primitive,
+ *  same reasoning as POD-665's `gitWorktree` in worktree-resolve.ts; collapse
+ *  the two when these branches meet.) */
 async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
   const out = await git(cwd, [
     'rev-parse',
-    '--path-format=absolute',
     '--show-toplevel',
     '--git-dir',
     '--git-common-dir',
   ]).catch(() => '')
-  const [root, gitDir, commonDir] = out.split('\n').map((line) => line.trim())
-  if (!root || !gitDir || !commonDir || gitDir === commonDir) return null
-  return root
+  const lines = out.split('\n').map((line) => line.trim())
+  if (lines.length !== 3) return null
+  const [root, gitDir, commonDir] = lines as [string, string, string]
+  if (!root || !gitDir || !commonDir) return null
+  return resolve(cwd, gitDir) === resolve(cwd, commonDir) ? null : root
 }
 
 /**

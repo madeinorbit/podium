@@ -10,6 +10,7 @@ import {
   exportHandoffPackage,
   importHandoffPackage,
   readExportChunk,
+  resolveExportSource,
   transcriptPlacement,
 } from './handoff-package'
 
@@ -274,6 +275,30 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
       sourceMachineId: 'source',
       homeDir: input.homeDir,
     })
+
+  it('classifies main vs worktree from a subdir, where git prints relative git dirs', async () => {
+    // From a subdirectory git prints `--git-dir`/`--git-common-dir` RELATIVE to
+    // the cwd (`../.git`), so comparing the raw strings — or letting rev-parse
+    // echo an unknown flag it does not support (it exits 0 and prints it back) —
+    // reads a main checkout as a linked worktree. Both roots must be resolved.
+    const origin = await repo('classify')
+    await mkdir(join(origin, 'apps', 'web'), { recursive: true })
+    const wt = await worktree(origin, 'issue/657-classify')
+    await mkdir(join(wt, 'apps', 'web'), { recursive: true })
+
+    await expect(resolveExportSource(join(origin, 'apps', 'web'))).rejects.toThrow(
+      /only worktree sessions/,
+    )
+    await expect(resolveExportSource(origin)).rejects.toThrow(/only worktree sessions/)
+    expect(await resolveExportSource(join(wt, 'apps', 'web'))).toEqual({
+      worktreeRoot: wt,
+      subpath: 'apps/web',
+    })
+    // Drift: cwd is the main checkout, the issue's worktree carries the work.
+    expect(await resolveExportSource(origin, wt)).toEqual({ worktreeRoot: wt, subpath: '' })
+    // A main checkout is never a legal fallback either.
+    await expect(resolveExportSource(origin, origin)).rejects.toThrow(/only worktree sessions/)
+  })
 
   it('never exports a main checkout — at its root or from a subdir inside it', async () => {
     // git decides (git-dir === git-common-dir), not the path shape: a cwd deep
