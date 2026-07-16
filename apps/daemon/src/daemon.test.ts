@@ -20,6 +20,7 @@ import type {
   DaemonHandshakeReply,
 } from '@podium/protocol'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
@@ -612,52 +613,38 @@ describe('daemon multi-bridge', () => {
   })
 
   it('kill removes the per-session upload dir immediately', async () => {
-    // Regression guard: kill already called removeSessionUploads. Ensure the dir
-    // is gone after kill even when uploads were written to a custom HOME.
-    const home = trackTmp('podium-uploads-kill-')
+    // Regression guard: kill already called removeSessionUploads. Uploads live under
+    // stateDir() (PODIUM_STATE_DIR in hermetic tests, else ~/.podium) — not raw $HOME.
     const sessionId = 'upload-kill-s1'
-    const uploadDir = join(home, '.podium', 'uploads', sessionId)
+    const uploadDir = join(stateDir(), 'uploads', sessionId)
     mkdirSync(uploadDir, { recursive: true })
     writeFileSync(join(uploadDir, 'test.png'), 'data')
 
-    const prevHome = process.env.HOME
-    process.env.HOME = home
-    try {
-      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(existsSync(uploadDir)).toBe(true)
-      send({ type: 'kill', sessionId })
-      await waitFor(() => !existsSync(uploadDir))
-    } finally {
-      process.env.HOME = prevHome
-    }
+    send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+    expect(existsSync(uploadDir)).toBe(true)
+    send({ type: 'kill', sessionId })
+    await waitFor(() => !existsSync(uploadDir))
   })
 
   it('natural agent exit (backend=none) removes the per-session upload dir', async () => {
     // Regression: removeSessionUploads was only called on `kill`, not on the natural
     // exit path inside wireBridge.onExit. A session that exits on its own left
-    // ~/.podium/uploads/<sessionId>/ until the 24h hourly sweep.
-    const home = trackTmp('podium-uploads-exit-')
+    // stateDir()/uploads/<sessionId>/ until the 24h hourly sweep.
     const sessionId = 'upload-exit-s1'
-    const uploadDir = join(home, '.podium', 'uploads', sessionId)
+    const uploadDir = join(stateDir(), 'uploads', sessionId)
     mkdirSync(uploadDir, { recursive: true })
     writeFileSync(join(uploadDir, 'test.png'), 'data')
 
-    const prevHome = process.env.HOME
-    process.env.HOME = home
-    try {
-      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
-      await waitFor(() => fixtureFrame(sessionId) !== undefined)
-      expect(existsSync(uploadDir)).toBe(true)
-      // Send Ctrl-C to the fixture — it calls process.exit(0) on receiving \x03.
-      send({ type: 'input', sessionId, data: btoa('\x03') })
-      // With backend=none the master IS the process; when it exits the onExit fires
-      // and (with the fix) removeSessionUploads is called before agentExit.
-      await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
-      expect(existsSync(uploadDir)).toBe(false)
-    } finally {
-      process.env.HOME = prevHome
-    }
+    send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => fixtureFrame(sessionId) !== undefined)
+    expect(existsSync(uploadDir)).toBe(true)
+    // Send Ctrl-C to the fixture — it calls process.exit(0) on receiving \x03.
+    send({ type: 'input', sessionId, data: btoa('\x03') })
+    // With backend=none the master IS the process; when it exits the onExit fires
+    // and (with the fix) removeSessionUploads is called before agentExit.
+    await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
+    expect(existsSync(uploadDir)).toBe(false)
   })
 })
 
@@ -1007,102 +994,107 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         }),
       ].join('\n')}\n`,
     )
+    // Isolate Claude transcript lookup AND abduco sockets under the temp home.
+    // Restore HOME even if spawn/assert fails early so later tests don't inherit it.
     const prevHome = process.env.HOME
     process.env.HOME = home
-
-    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
-      const startedAt = Date.now()
-      while (!fn()) {
-        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
-        await new Promise((r) => setTimeout(r, 20))
+    try {
+      const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
+        const startedAt = Date.now()
+        while (!fn()) {
+          if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+          await new Promise((r) => setTimeout(r, 20))
+        }
       }
-    }
-    const startServer = async (): Promise<{
-      wss: WebSocketServer
-      received: DaemonMessage[]
-      send: (msg: unknown) => void
-      ready: Promise<void>
-    }> => {
-      const wss = new WebSocketServer({ port: 0 })
-      await new Promise<void>((r) => wss.once('listening', () => r()))
-      const received: DaemonMessage[] = []
-      let socket!: WS
-      const ready = new Promise<void>((r) => {
-        wss.once('connection', (ws) => {
-          socket = ws
-          handshakeAndCollect(ws, received)
-          r()
+      const startServer = async (): Promise<{
+        wss: WebSocketServer
+        received: DaemonMessage[]
+        send: (msg: unknown) => void
+        ready: Promise<void>
+      }> => {
+        const wss = new WebSocketServer({ port: 0 })
+        await new Promise<void>((r) => wss.once('listening', () => r()))
+        const received: DaemonMessage[] = []
+        let socket!: WS
+        const ready = new Promise<void>((r) => {
+          wss.once('connection', (ws) => {
+            socket = ws
+            handshakeAndCollect(ws, received)
+            r()
+          })
         })
+        return { wss, received, ready, send: (msg) => socket.send(encode(msg as never)) }
+      }
+      const launch = (_kind: unknown, opts: { cwd: string }) => ({
+        cmd: process.execPath,
+        args: [FIXTURE],
+        cwd: opts.cwd,
       })
-      return { wss, received, ready, send: (msg) => socket.send(encode(msg as never)) }
-    }
-    const launch = (_kind: unknown, opts: { cwd: string }) => ({
-      cmd: process.execPath,
-      args: [FIXTURE],
-      cwd: opts.cwd,
-    })
 
-    const a = await startServer()
-    const daemonA = await startDaemon({
-      serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir },
-      agentRelay: { port: 0 },
-      backend: 'abduco',
-      discovery: { background: false, cachePath: ':memory:' },
-      launch,
-    })
-    await a.ready
-    try {
-      a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd, geometry: G })
-      await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(abducoHasSession(label)).toBe(true)
-    } finally {
-      await daemonA.close()
-      await new Promise<void>((r) => a.wss.close(() => r()))
-    }
-
-    const b = await startServer()
-    const daemonB = await startDaemon({
-      serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir },
-      agentRelay: { port: 0 },
-      backend: 'abduco',
-      discovery: { background: false, cachePath: ':memory:' },
-      launch,
-    })
-    await b.ready
-    const deltas = () =>
-      b.received.filter(
-        (m): m is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
-          m.type === 'transcriptDelta' && m.sessionId === sessionId,
-      )
-    try {
-      b.send({
-        type: 'reattach',
-        sessionId,
-        durableLabel: label,
-        agentKind: 'claude-code',
-        cwd,
-        geometry: G,
-        resume: { kind: 'claude-session', value: resumeValue },
+      const a = await startServer()
+      const daemonA = await startDaemon({
+        serverUrl: `ws://localhost:${(a.wss.address() as { port: number }).port}`,
+        bootstrapToken: 'test',
+        hooks: { port: 0, settingsDir },
+        agentRelay: { port: 0 },
+        backend: 'abduco',
+        discovery: { background: false, cachePath: ':memory:', homeDir: home },
+        launch,
       })
-      await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // The fix: the reattaching daemon tails the seeded transcript and streams it
-      // as a transcriptDelta (the unified cursor-based protocol).
-      await waitFor(() => deltas().some((m) => m.items.length > 0))
-      const items = deltas().flatMap((m) => m.items)
-      expect(items.some((i) => i.role === 'user' && i.text.includes('fix mobile ui issues'))).toBe(
-        true,
-      )
-      expect(items.some((i) => i.role === 'assistant')).toBe(true)
+      await a.ready
+      try {
+        a.send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd, geometry: G })
+        await waitFor(() => a.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        expect(abducoHasSession(label)).toBe(true)
+      } finally {
+        await daemonA.close()
+        await new Promise<void>((r) => a.wss.close(() => r()))
+      }
+
+      const b = await startServer()
+      const daemonB = await startDaemon({
+        serverUrl: `ws://localhost:${(b.wss.address() as { port: number }).port}`,
+        bootstrapToken: 'test',
+        hooks: { port: 0, settingsDir },
+        agentRelay: { port: 0 },
+        backend: 'abduco',
+        discovery: { background: false, cachePath: ':memory:', homeDir: home },
+        launch,
+      })
+      await b.ready
+      const deltas = () =>
+        b.received.filter(
+          (m): m is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+            m.type === 'transcriptDelta' && m.sessionId === sessionId,
+        )
+      try {
+        b.send({
+          type: 'reattach',
+          sessionId,
+          durableLabel: label,
+          agentKind: 'claude-code',
+          cwd,
+          geometry: G,
+          resume: { kind: 'claude-session', value: resumeValue },
+        })
+        await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        // The fix: the reattaching daemon tails the seeded transcript and streams it
+        // as a transcriptDelta (the unified cursor-based protocol).
+        await waitFor(() => deltas().some((m) => m.items.length > 0))
+        const items = deltas().flatMap((m) => m.items)
+        expect(
+          items.some((i) => i.role === 'user' && i.text.includes('fix mobile ui issues')),
+        ).toBe(true)
+        expect(items.some((i) => i.role === 'assistant')).toBe(true)
+      } finally {
+        await daemonB.close()
+        killAbducoSession(label)
+        await new Promise<void>((r) => b.wss.close(() => r()))
+      }
     } finally {
-      await daemonB.close()
-      killAbducoSession(label)
-      await new Promise<void>((r) => b.wss.close(() => r()))
       if (prevHome === undefined) delete process.env.HOME
       else process.env.HOME = prevHome
+      killAbducoSession(label)
     }
   }, 20000)
 

@@ -43,6 +43,11 @@ const SCRUB_EXACT = new Set([
   'PODIUM_AGENT_RELAY_PORT',
   'PODIUM_AGENT_HOME',
   'PODIUM_ADOPT_STATE',
+  // A suite launched from inside an abduco-attached agent session inherits these;
+  // leaving them set makes child `abduco` think it is already attached and confuses
+  // list/create against the live master's socket (durable-backend tests).
+  'ABDUCO_SOCKET',
+  'ABDUCO_SESSION',
 ])
 for (const key of Object.keys(process.env)) {
   if (SCRUB_EXACT.has(key) || key.startsWith('PODIUM_CODEX_HOOK_')) {

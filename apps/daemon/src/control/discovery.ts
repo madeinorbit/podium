@@ -65,10 +65,14 @@ async function scanRepos(
   }
 
   try {
+    // Prefer live $HOME over the snapshotted agent-home (ctx.homeDir): git repos
+    // live under the user's home, and tests isolate discovery by mutating
+    // process.env.HOME after the daemon starts. ctx.homeDir stays the fallback
+    // when HOME is unset (named-instance agent-home / explicit discovery.homeDir).
     addResult(
       await scanGitRepositories({
         roots,
-        homeDir: ctx.homeDir ?? process.env.HOME ?? undefined,
+        homeDir: process.env.HOME ?? ctx.homeDir ?? undefined,
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
       }),

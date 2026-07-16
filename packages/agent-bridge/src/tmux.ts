@@ -107,16 +107,31 @@ export interface TmuxSpawnOptions {
   env?: Record<string, string>
 }
 
+/**
+ * Env for tmux create/attach. Force a real TERM (abduco does the same): agent
+ * sessions and many test runners inherit `TERM=dumb`, and tmux then fails the
+ * pane with "open terminal failed: terminal does not support clear" so the
+ * fixture/agent never paints — reattach looks like a silent PTY. [spec:SP-3f93]
+ */
+function tmuxClientEnv(extra?: Record<string, string>): Record<string, string> {
+  return {
+    ...process.env,
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    ...extra,
+  } as Record<string, string>
+}
+
 /** Create a detached per-session tmux server running the agent, apply config, attach a client. */
 export function spawnTmuxAgent(opts: TmuxSpawnOptions): AgentSession {
   const inner = [opts.cmd, ...(opts.args ?? [])].map(shellQuote).join(' ')
-  const env = { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>
+  const env = tmuxClientEnv(opts.env)
   execFileSync('tmux', newSessionArgs(opts.label, opts.cols, opts.rows, opts.cwd, inner), {
     stdio: 'ignore',
     env,
   })
   for (const args of tmuxConfigCommands(opts.label)) {
-    execFileSync('tmux', args, { stdio: 'ignore' })
+    execFileSync('tmux', args, { stdio: 'ignore', env })
   }
   return attachTmuxAgent({ label: opts.label, cols: opts.cols, rows: opts.rows, env: opts.env })
 }
@@ -137,7 +152,7 @@ export function attachTmuxAgent(opts: {
     args: ['-L', opts.label, 'attach', '-t', SESSION],
     cols: opts.cols,
     rows: opts.rows,
-    env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
+    env: tmuxClientEnv(opts.env),
   })
   return withHardRepaint(
     wrapPty(proc, { cols: opts.cols, rows: opts.rows }),

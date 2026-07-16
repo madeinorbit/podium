@@ -105,7 +105,7 @@ function reclaimStaleScope(label: string): void {
       spawnSync('systemctl', args, {
         stdio: 'ignore',
         timeout: 8000,
-        env: scopeEnv(process.env),
+        env: scopeEnv(liveEnv()),
       })
     } catch {
       // best-effort: no such unit / no systemd
@@ -157,7 +157,7 @@ export function canScopeMaster(): boolean {
     spawnSync('systemd-run', ['--user', '--scope', '--collect', '--quiet', '--', 'true'], {
       stdio: 'ignore',
       timeout: 8000,
-      env: scopeEnv(process.env),
+      env: scopeEnv(liveEnv()),
     }).status === 0
   return scopeOk
 }
@@ -198,12 +198,26 @@ export function parseAbducoList(output: string): AbducoSessionEntry[] {
   return entries
 }
 
+/**
+ * Live env snapshot for child `abduco`/`systemctl` calls.
+ *
+ * Bun's `spawnSync`/`execFileSync` (unlike Node) ignore mid-process
+ * `process.env` mutations when `env` is omitted — they reuse the process-start
+ * environment. That breaks HOME isolation in tests (session created under a
+ * temp `$HOME` via an explicit `env`, then "not found" by a bare `abduco`
+ * list) and would also miss any runtime env change in production. Always pass
+ * the live map. [spec:SP-3f93]
+ */
+function liveEnv(): NodeJS.ProcessEnv {
+  return { ...process.env }
+}
+
 function listSessions(): AbducoSessionEntry[] {
   // `abduco` with no args lists sessions; it also reaps stale sockets as a side
   // effect. Exit status varies by version, so parse whatever it printed.
   const bin = resolveAbducoBin()
   if (!bin) return []
-  const res = spawnSync(bin, [], { encoding: 'utf8' })
+  const res = spawnSync(bin, [], { encoding: 'utf8', env: liveEnv() })
   return parseAbducoList(res.stdout ?? '')
 }
 
@@ -228,7 +242,7 @@ async function listSessionsAsync(): Promise<AbducoSessionEntry[]> {
   const bin = resolveAbducoBin()
   if (!bin) return []
   try {
-    const { stdout } = await execFileAsync(bin, [], { encoding: 'utf8' })
+    const { stdout } = await execFileAsync(bin, [], { encoding: 'utf8', env: liveEnv() })
     return parseAbducoList(stdout ?? '')
   } catch (err) {
     // `abduco` exits non-zero on some versions even when it printed a valid list;
@@ -354,7 +368,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
     stdio: 'ignore',
     cwd: opts.cwd ?? process.cwd(),
     env: {
-      ...scopeEnv(process.env),
+      ...scopeEnv(liveEnv()),
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       ...opts.env,
