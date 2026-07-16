@@ -16,6 +16,7 @@ import { IntegrationsSection } from './sections/integrations'
 import { KeysSection } from './sections/keys'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
+import { PrivacySection } from './sections/privacy'
 import { ReposSection } from './sections/repos'
 import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
@@ -40,6 +41,7 @@ export type SettingsTab =
   | 'repos'
   | 'machines'
   | 'security'
+  | 'privacy'
   | 'updates'
   | 'experimental'
 
@@ -58,6 +60,9 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'repos', label: 'Repos' },
   { key: 'machines', label: 'Machines' },
   { key: 'security', label: 'Security' },
+  // Next to Security, not buried at the end: the opt-out has to be findable by
+  // someone looking for it, which is the whole promise the prompt made [spec:SP-f933].
+  { key: 'privacy', label: 'Privacy' },
   { key: 'updates', label: 'Updates' },
   { key: 'experimental', label: 'Experimental' },
 ]
@@ -109,10 +114,10 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   repos: () => <ReposSection />,
   machines: () => <MachinesPanel />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
+  // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
+  privacy: () => <PrivacySection />,
   updates: () => <UpdatesSection />,
-  experimental: ({ settings, patch }) => (
-    <ExperimentalSection settings={settings} patch={patch} />
-  ),
+  experimental: ({ settings, patch }) => <ExperimentalSection settings={settings} patch={patch} />,
 }
 
 /**

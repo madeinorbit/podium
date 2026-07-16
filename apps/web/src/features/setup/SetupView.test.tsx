@@ -10,6 +10,8 @@ const trpcMock = vi.hoisted(() => ({
   join: vi.fn(),
   connect: vi.fn(),
   authStatus: vi.fn(),
+  // The host flow's telemetry sub-step probes for kill switches [spec:SP-f933].
+  telemetryState: vi.fn(),
 }))
 
 vi.mock('@/app/trpc', async (importOriginal) => {
@@ -27,6 +29,9 @@ vi.mock('@/app/trpc', async (importOriginal) => {
       auth: {
         status: { query: trpcMock.authStatus },
       },
+      telemetry: {
+        state: { query: trpcMock.telemetryState },
+      },
     }),
   }
 })
@@ -36,6 +41,36 @@ import { SetupView } from './SetupView'
 const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
+
+/**
+ * Walk the host flow's telemetry sub-step [spec:SP-f933]. The network step no
+ * longer commits: it hands its payload to this step, which sends ONE
+ * setup.complete for the whole wizard. `answer` leaves both tiers off (the
+ * default) unless a tier is named.
+ */
+const finishTelemetry = async (
+  view: ReturnType<typeof within>,
+  answer: { usage?: boolean; crash?: boolean } = {},
+): Promise<void> => {
+  await act(async () => {
+    await flush() // the step probes telemetry.state for kill switches first
+  })
+  // Click the LABEL TEXT, not the role=checkbox span: Base UI's checkbox is a
+  // span + hidden input, and only the label click toggles it under happy-dom
+  // (same approach as the no-password ack test above).
+  await act(async () => {
+    if (answer.usage) fireEvent.click(view.getByText(/send anonymous usage reports/i))
+    if (answer.crash) fireEvent.click(view.getByText(/send crash reports/i))
+    await flush()
+  })
+  await act(async () => {
+    fireEvent.click(view.getByRole('button', { name: /finish/i }))
+    await flush()
+  })
+}
+
+/** What setup.complete carries when the user declines both tiers. */
+const DECLINED = { telemetry: { usage: 'off', crash: 'off' } }
 
 beforeEach(() => {
   trpcMock.options.mockResolvedValue([
@@ -52,6 +87,12 @@ beforeEach(() => {
   })
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
   trpcMock.authStatus.mockResolvedValue({ enabled: false }) // no password by default (first run)
+  // No kill switch by default → the telemetry sub-step asks.
+  trpcMock.telemetryState.mockResolvedValue({
+    usage: 'absent',
+    crash: 'absent',
+    endpoint: 'https://t',
+  })
 })
 
 afterEach(() => {
@@ -100,10 +141,12 @@ describe('SetupView', () => {
       await flush()
     })
 
+    await finishTelemetry(view)
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
       acknowledgeNoPassword: true,
+      ...DECLINED,
     })
     expect(onSaved).toHaveBeenCalled()
   })
@@ -127,10 +170,12 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /finish/i }))
       await flush()
     })
+    await finishTelemetry(view)
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
       password: 'launch-code',
+      ...DECLINED,
     })
   })
 
@@ -155,10 +200,12 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /finish/i }))
       await flush()
     })
+    await finishTelemetry(view)
     // No password / no ack → the server keeps the existing one.
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      ...DECLINED,
     })
   })
 
@@ -286,11 +333,113 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /finish/i }))
       await flush()
     })
+    await finishTelemetry(view)
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://relay.ts.net',
       mode: 'server',
       password: 'pw',
+      ...DECLINED,
     })
     expect(onSaved).toHaveBeenCalled()
+  })
+
+  // ------------------------------------------------------------------
+  // Telemetry sub-step [spec:SP-f933]
+  // ------------------------------------------------------------------
+  describe('telemetry sub-step', () => {
+    /** Drive mode → network → the telemetry step. */
+    const reachTelemetryStep = async (): Promise<ReturnType<typeof within>> => {
+      const { container } = render(
+        <SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />,
+      )
+      const view = within(container)
+      await act(async () => {
+        fireEvent.click(view.getByRole('button', { name: /continue/i }))
+        await flush()
+      })
+      fireEvent.change(view.getByLabelText(/public url/i), {
+        target: { value: 'https://box.ts.net' },
+      })
+      fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })
+      await act(async () => {
+        fireEvent.click(view.getByRole('button', { name: /finish/i }))
+        await flush()
+      })
+      return view
+    }
+
+    it('nothing is committed until the telemetry step finishes (one atomic write)', async () => {
+      await reachTelemetryStep()
+      // The network step handed its payload up rather than writing it.
+      expect(trpcMock.complete).not.toHaveBeenCalled()
+    })
+
+    it('shows the example report and the opt-out routes', async () => {
+      const view = await reachTelemetryStep()
+      await act(async () => {
+        await flush()
+      })
+      expect(view.getByText(/anonymous telemetry \(opt-in\)/i)).toBeTruthy()
+      expect(view.getByText(/"installAge": "1-7d"/)).toBeTruthy()
+      expect(view.getByText(/podium telemetry off/)).toBeTruthy()
+      expect(view.getByText(/dropped at ingest/i)).toBeTruthy()
+    })
+
+    it('defaults BOTH tiers to off', async () => {
+      const view = await reachTelemetryStep()
+      await act(async () => {
+        await flush()
+      })
+      expect(
+        view.getByRole('checkbox', { name: /usage reports/i }).getAttribute('aria-checked'),
+      ).toBe('false')
+      expect(
+        view.getByRole('checkbox', { name: /crash reports/i }).getAttribute('aria-checked'),
+      ).toBe('false')
+      // The button says what finishing without touching anything will do.
+      expect(view.getByRole('button', { name: /finish without telemetry/i })).toBeTruthy()
+    })
+
+    it('sends the opted-in tiers with the commit', async () => {
+      const view = await reachTelemetryStep()
+      await finishTelemetry(view, { usage: true })
+      expect(trpcMock.complete).toHaveBeenCalledWith(
+        expect.objectContaining({ telemetry: { usage: 'on', crash: 'off' } }),
+      )
+    })
+
+    it('consents to each tier independently', async () => {
+      const view = await reachTelemetryStep()
+      await finishTelemetry(view, { crash: true })
+      expect(trpcMock.complete).toHaveBeenCalledWith(
+        expect.objectContaining({ telemetry: { usage: 'off', crash: 'on' } }),
+      )
+    })
+
+    it('a kill switch SKIPS the step and commits with no telemetry answer at all', async () => {
+      trpcMock.telemetryState.mockResolvedValue({
+        usage: 'absent',
+        crash: 'absent',
+        endpoint: 'https://t',
+        suppressedBy: 'DO_NOT_TRACK',
+      })
+      const view = await reachTelemetryStep()
+      await act(async () => {
+        await flush()
+      })
+      // Never asked → not even an explicit 'off' is recorded, and the rest of
+      // the wizard still commits (a DO_NOT_TRACK box gets a working install).
+      expect(view.queryByRole('checkbox', { name: /usage reports/i })).toBeNull()
+      expect(trpcMock.complete).toHaveBeenCalledWith(
+        expect.not.objectContaining({ telemetry: expect.anything() }),
+      )
+    })
+
+    it('a failed state probe still lets the user through (never strands the wizard)', async () => {
+      trpcMock.telemetryState.mockRejectedValue(new Error('offline'))
+      const view = await reachTelemetryStep()
+      await finishTelemetry(view)
+      expect(trpcMock.complete).toHaveBeenCalledWith(expect.objectContaining(DECLINED))
+    })
   })
 })

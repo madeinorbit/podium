@@ -20,7 +20,12 @@ import {
   setUpdateChannel,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import { readTelemetryState, resetInstallId, setConsent } from '@podium/telemetry'
+import {
+  readTelemetryState,
+  resetInstallId,
+  setConsent,
+  shouldAskForConsent,
+} from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AccountConnectInput, accountViews, maskCredential } from './accounts'
@@ -1103,6 +1108,16 @@ export const appRouter = t.router({
           mode: z.enum(['all-in-one', 'server']).optional(),
           password: z.string().optional(),
           acknowledgeNoPassword: z.literal(true).optional(),
+          /**
+           * The web setup's telemetry answers [spec:SP-f933]. Rides THIS payload so
+           * the wizard commits atomically — and because setting a password here
+           * closes the /trpc guard, a follow-up telemetry call from the not-yet-
+           * logged-in setup page would 401. Absent = not asked (host modes ask;
+           * the embedded Settings → Machines reuse of this proc does not).
+           */
+          telemetry: z
+            .object({ usage: z.enum(['on', 'off']), crash: z.enum(['on', 'off']) })
+            .optional(),
         }),
       )
       .mutation(async ({ input }) => {
@@ -1122,6 +1137,10 @@ export const appRouter = t.router({
           publicUrl: v.normalized,
           ...(input.mode ? { mode: input.mode } : {}),
         })
+        // After applySetup, so a telemetry write can never be lost to the config
+        // round-trip that follows it. Honours the kill switches: an env that says
+        // "do not track" wins over an answer the UI should not have collected.
+        if (input.telemetry && shouldAskForConsent()) setConsent(input.telemetry)
         if (password) await setPassword(password)
         return cfg
       }),
