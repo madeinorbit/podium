@@ -10,6 +10,7 @@ import {
   Clock,
   CloudOff,
   Image as ImageIcon,
+  Lightbulb,
   Mic,
   Paperclip,
   ScrollText,
@@ -195,6 +196,10 @@ export function ChatView({
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [dragOver, setDragOver] = useState(false)
+  // Agent action offer [spec:SP-c7f1]: the offer bar hides optimistically the
+  // moment a button is clicked (its prompt goes out as a turn, which the server
+  // then clears). Keyed by the offer's createdAt so a NEW offer re-shows. */
+  const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   // The held transcript window (an initial disk read + live-delta subscription
@@ -599,6 +604,28 @@ export function ChatView({
     }
   }
 
+  // Agent action offer [spec:SP-c7f1]: clicking an offer button sends its
+  // agent-authored prompt as a normal user turn (reusing the sendText path, so
+  // the server auto-clears the offer). Optimistically hide the bar immediately.
+  const sendOfferPrompt = async (prompt: string, offerAt: string) => {
+    setDismissedOfferAt(offerAt)
+    const id = `pending-${++pendingSeq.current}`
+    setPending((p) => [...p, { id, text: prompt, at: Date.now(), state: 'sending' }])
+    setJustSent(true)
+    pinnedToBottom.current = true
+    setAtBottom(true)
+    try {
+      if (session?.status === 'live' || session?.status === 'starting') {
+        await trpc.sessions.sendText.mutate({ sessionId, text: prompt, mutationId: randomUUID() })
+      } else {
+        await resumeAndSend(sessionId, prompt)
+      }
+    } catch {
+      setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'failed' } : x)))
+      setDismissedOfferAt(null) // send failed — let the offer reappear
+    }
+  }
+
   // Answer a live AskUserQuestion from its chat card: send the chosen 1-based
   // option index per question to the server, which types the matching digit(s)
   // into the agent's native menu. Returns the promise so the card can show a
@@ -623,6 +650,13 @@ export function ChatView({
   // back (SessionMeta.queuedMessageCount, live via the sessions subscription) —
   // the honest state behind the optimistic pending bubbles.
   const queuedCount = session?.queuedMessageCount ?? 0
+  // Agent action offer [spec:SP-c7f1]: the live offer for this session, unless
+  // it was just consumed by a button click (optimistic hide until the server's
+  // cleared meta arrives). Not shown for headless superagent threads.
+  const offer =
+    !headless && session?.offer && session.offer.createdAt !== dismissedOfferAt
+      ? session.offer
+      : null
   // Headless: the working indicator follows turn boundaries, not PTY-derived
   // agent state (there is no PTY). The overlay row carries the detail.
   const activity = headless
@@ -1026,6 +1060,34 @@ export function ChatView({
           void processFiles(Array.from(e.dataTransfer.files))
         }}
       >
+        {/* Agent action offer bar [spec:SP-c7f1]: the agent's suggested next
+            actions, shown only while an offer exists for this session. The
+            message sits above compact buttons; a click sends the button's
+            predefined prompt as a normal turn (and clears the offer). */}
+        {offer && (
+          <div className="mb-2 rounded-xl border border-primary/40 bg-primary/[0.06] px-3 py-2">
+            <div className="flex items-start gap-1.5 text-xs text-foreground">
+              <Lightbulb size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
+              <span className="whitespace-pre-wrap">{offer.message}</span>
+            </div>
+            {offer.actions.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {offer.actions.map((action, ai) => (
+                  <button
+                    key={`${action.label}-${ai}`}
+                    type="button"
+                    disabled={!composerEnabled}
+                    onClick={() => void sendOfferPrompt(action.prompt, offer.createdAt)}
+                    title={action.prompt}
+                    className="rounded-md border border-primary/50 bg-primary/[0.12] px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-primary/20 disabled:cursor-default disabled:opacity-50"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {queuedCount > 0 && (
           <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
             <Clock size={12} aria-hidden="true" />
