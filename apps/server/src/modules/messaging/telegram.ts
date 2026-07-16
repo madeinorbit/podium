@@ -1,4 +1,10 @@
 import type { TelegramConfig } from '../../notify'
+import {
+  escapeChunkCounterSuffix,
+  formatTelegramMarkdown,
+  isTelegramMarkdownParseError,
+  stripTelegramMarkdownV2,
+} from './telegram-markdown'
 import type { ChannelAdapter, ConversationRef, InboundChatMessage } from './types'
 
 /** Telegram caps sendMessage at 4096 UTF-16 code units; split below it so the
@@ -84,9 +90,9 @@ type TelegramApiBody = { ok?: boolean; description?: string; result?: unknown; p
 /**
  * Telegram transport [spec:SP-5d81]: long-polls getUpdates on the notification
  * bot and accepts messages ONLY from the configured private chat — the chat id
- * is the authorization boundary. Outbound sends are plain text (rich
- * formatting is follow-up work), chunked to the platform cap, with one inline
- * retry on flood control.
+ * is the authorization boundary. Outbound replies convert superagent markdown
+ * to MarkdownV2 (Hermes pattern: try MDV2, strip+resend plain on parse error),
+ * chunked to the platform cap, with one inline retry on flood control.
  */
 export class TelegramChannel implements ChannelAdapter {
   readonly channel = 'telegram'
@@ -190,25 +196,40 @@ export class TelegramChannel implements ChannelAdapter {
   }
 
   async send(target: ConversationRef, text: string): Promise<void> {
-    const chunks = chunkTelegramText(text)
-    for (let i = 0; i < chunks.length; i++) {
-      const suffix = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : ''
-      await this.sendChunk(target, chunks[i] + suffix)
+    const formatted = formatTelegramMarkdown(text)
+    let chunks = chunkTelegramText(formatted)
+    if (chunks.length > 1) {
+      chunks = chunks.map((chunk, i) => {
+        const suffix = ` (${i + 1}/${chunks.length})`
+        return escapeChunkCounterSuffix(chunk + suffix)
+      })
+    }
+    for (const chunk of chunks) {
+      await this.sendChunk(target, chunk)
     }
   }
 
-  private async sendChunk(target: ConversationRef, text: string, retried = false): Promise<void> {
+  private async sendChunk(
+    target: ConversationRef,
+    text: string,
+    opts: { floodRetried?: boolean; plainFallback?: boolean } = {},
+  ): Promise<void> {
+    const { floodRetried = false, plainFallback = false } = opts
     try {
       await this.call('sendMessage', {
         chat_id: target.chatId,
         ...(target.threadRef ? { message_thread_id: Number(target.threadRef) } : {}),
         text,
+        ...(plainFallback ? {} : { parse_mode: 'MarkdownV2' }),
       })
     } catch (err) {
       const retryAfter = (err as { retryAfter?: number }).retryAfter
-      if (!retried && typeof retryAfter === 'number' && retryAfter <= 30) {
+      if (!floodRetried && typeof retryAfter === 'number' && retryAfter <= 30) {
         await sleep(retryAfter * 1000)
-        return this.sendChunk(target, text, true)
+        return this.sendChunk(target, text, { floodRetried: true, plainFallback })
+      }
+      if (!plainFallback && isTelegramMarkdownParseError(err)) {
+        return this.sendChunk(target, stripTelegramMarkdownV2(text), { plainFallback: true })
       }
       throw err
     }
