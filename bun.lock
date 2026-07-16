@@ -330,6 +330,17 @@
         "typescript": "^6.0.3",
       },
     },
+    "services/telemetry-relay": {
+      "name": "@podium/telemetry-relay",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/telemetry": "workspace:*",
+        "zod": "^3.24.0",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
     "tests/e2e": {
       "name": "@podium/e2e",
       "version": "0.0.0",
@@ -1009,6 +1020,8 @@
     "@podium/sync": ["@podium/sync@workspace:packages/sync"],
 
     "@podium/telemetry": ["@podium/telemetry@workspace:packages/telemetry"],
+
+    "@podium/telemetry-relay": ["@podium/telemetry-relay@workspace:services/telemetry-relay"],
 
     "@podium/terminal-client": ["@podium/terminal-client@workspace:packages/terminal-client"],
 

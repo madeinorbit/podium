@@ -30,6 +30,7 @@
   "workspaces": [
     "apps/*",
     "packages/*",
+    "services/*",
     "tooling/*",
     "tests/*"
   ],

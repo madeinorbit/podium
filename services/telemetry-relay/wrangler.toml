@@ -1,0 +1,18 @@
+# The telemetry relay [spec:SP-f933] — deployed in podium cloud; source here so
+# the "validate → drop IP → forward" rules are auditable.
+#
+# Secrets are NOT in this file and never will be:
+#   wrangler secret put POSTHOG_API_KEY
+#
+# POSTHOG_HOST is a plain var (it is disclosed in docs/TELEMETRY.md anyway —
+# naming the vendor is the point).
+name = "podium-telemetry-relay"
+main = "src/index.ts"
+compatibility_date = "2026-07-16"
+
+[vars]
+POSTHOG_HOST = "https://us.i.posthog.com"
+
+# No logpush, no analytics engine binding, no KV, no R2: the relay stores
+# nothing. Adding a binding here should be treated as a privacy change and
+# reviewed as one.
