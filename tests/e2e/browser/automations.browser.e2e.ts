@@ -111,3 +111,49 @@ test('desktop header links + a scheduled automation that persists', async ({ pag
   await expect(view.getByText('Nightly test sweep', { exact: true })).toHaveCount(0)
   await expect(view.getByText('No scheduled automations yet.', { exact: false })).toBeVisible()
 })
+
+test('a one-off automation persists its exact future run', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('podium.view', 'home')
+  })
+  await page.goto(`/?server=${RELAY}&e2e=1`)
+
+  const header = page.getByTestId('desktop-topbar')
+  await expect(header).toBeVisible({ timeout: 60_000 })
+  await header.getByRole('button', { name: 'Automations', exact: true }).click()
+
+  const view = page.getByRole('region', { name: 'Automations' })
+  await view.getByRole('button', { name: 'New automation' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Name').fill('Quota wakeup')
+  await dialog.getByLabel('Task prompt').fill('Continue the queued overnight work.')
+  await dialog.getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'One time' }).click()
+
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1_000)
+  const two = (value: number): string => String(value).padStart(2, '0')
+  const runAt = `${future.getFullYear()}-${two(future.getMonth() + 1)}-${two(future.getDate())}T${two(future.getHours())}:${two(future.getMinutes())}`
+  await dialog.getByLabel('Run at').fill(runAt)
+  await expect(dialog.getByText('will run once', { exact: false })).toBeVisible()
+  await dialog.getByLabel('Target').click()
+  await page.getByRole('option', { name: 'Global (home directory)' }).click()
+  await dialog.getByRole('button', { name: 'Create automation' }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect(view.getByText('Quota wakeup', { exact: true })).toBeVisible()
+  await expect(view.getByText('One-off', { exact: true })).toBeVisible()
+  await expect(view.getByText('One time at', { exact: false })).toBeVisible()
+  await expect(view.getByText('Next run:', { exact: false })).toBeVisible()
+  await expect(view.getByText(/Next run:.*Fresh session/)).toBeVisible()
+
+  await page.reload()
+  await expect(header).toBeVisible({ timeout: 20_000 })
+  await header.getByRole('button', { name: 'Automations', exact: true }).click()
+  await expect(view.getByText('Quota wakeup', { exact: true })).toBeVisible()
+  await view.getByRole('button', { name: 'Edit Quota wakeup' }).click()
+  await expect(page.getByRole('dialog').getByLabel('Run at')).toHaveValue(runAt)
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+
+  await view.getByRole('button', { name: 'Delete Quota wakeup' }).click()
+  await expect(view.getByText('Quota wakeup', { exact: true })).toHaveCount(0)
+})
