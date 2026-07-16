@@ -41,14 +41,20 @@ describe('durable headless invocation', () => {
 
 describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () => {
   it('reattaches the same in-flight turn after the local daemon handle is disposed', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'podium-headless-abduco-'))
+    // Keep paths SHORT: the abduco socket lives at
+    // $ABDUCO_SOCKET_DIR/abduco/<label> and unix sun_path caps at ~107 bytes.
+    // Under the per-run TMPDIR containment (/tmp/podium-test-run-XXXXXX) a long
+    // prefix + full-UUID label overflows it: "create-session: File name too long".
+    const root = mkdtempSync(join(tmpdir(), 'pod-hl-'))
     roots.push(root)
     const binDir = join(root, 'bin')
     const socketDir = join(root, 'abduco')
     mkdirSync(binDir, { recursive: true })
     mkdirSync(socketDir, { recursive: true })
     const grok = join(binDir, 'grok')
-    writeFileSync(grok, '#!/bin/sh\nsleep 0.4\nprintf "reply:%s\\n" "$*"\n')
+    // Keep the fake agent alive long enough that the dispose→reattach→assert
+    // sequence below cannot race its natural exit under CI load.
+    writeFileSync(grok, '#!/bin/sh\nsleep 2\nprintf "reply:%s\\n" "$*"\n')
     chmodSync(grok, 0o755)
 
     const previous = {
@@ -62,7 +68,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
     process.env.ABDUCO_SOCKET_DIR = socketDir
     process.env.PODIUM_NO_SCOPE = '1'
 
-    const sessionId = randomUUID()
+    const sessionId = randomUUID().slice(0, 8) // short: label feeds the socket path
     const turnId = randomUUID()
     const label = `podium-${sessionId}`
     const spec = {
@@ -72,7 +78,7 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       contextPrompt: 'hidden context',
       permissionMode: 'auto',
       sessionUuid: randomUUID(),
-      timeoutMs: 5_000,
+      timeoutMs: 15_000,
     }
     try {
       const first = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
@@ -90,14 +96,25 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
         opencode: () => 'opencode',
         cursor: () => 'cursor-agent',
       })
-      await new Promise((resolve) => setTimeout(resolve, 50))
-      expect(await abducoHasSessionAsync(label)).toBe(true)
+      // Poll rather than one-shot: reattach latency varies under load.
+      let stillAlive = false
+      for (let attempt = 0; attempt < 100; attempt++) {
+        stillAlive = await abducoHasSessionAsync(label)
+        if (stillAlive) break
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      expect(stillAlive).toBe(true)
       reattached.dispose?.()
 
       // Let the harness finish with no daemon attachment. The next daemon must
       // recover the completed output journal rather than treating the vanished
-      // socket as a failed turn.
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // socket as a failed turn. Wait for the abduco session to actually end
+      // instead of a fixed sleep.
+      for (let attempt = 0; attempt < 300; attempt++) {
+        if (!(await abducoHasSessionAsync(label))) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200))
       const recovered = runDurableHeadlessTurn(turnId, sessionId, spec, () => {}, {
         opencode: () => 'opencode',
         cursor: () => 'cursor-agent',
@@ -117,5 +134,5 @@ describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () =>
       if (previous.PODIUM_NO_SCOPE === undefined) delete process.env.PODIUM_NO_SCOPE
       else process.env.PODIUM_NO_SCOPE = previous.PODIUM_NO_SCOPE
     }
-  })
+  }, 60_000)
 })
