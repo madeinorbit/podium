@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { transaction } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
-import { type EntityChangeSpec, Ledger, prepareLedgerBoot } from './ledger'
+import { type EntityChangeSpec, entityOverlayKey, Ledger, prepareLedgerBoot } from './ledger'
 import { SyncRepository } from './sync-repository'
 import { createTestSyncDatabase, createTestSyncRepository } from './test-support'
 
@@ -28,6 +30,30 @@ const removeSpec = (id: string): EntityChangeSpec => ({ entity: 'issue', id, op:
 function commit(ledger: Ledger, specs: EntityChangeSpec[]) {
   return ledger.commit({ write: () => 'ok', changes: () => specs })
 }
+
+describe('entityOverlayKey', () => {
+  // [POD-758] Separator must be a real NUL at runtime (byte-identical to a
+  // literal-NUL join) while the SOURCE spells it as an escape so grep can
+  // still read the module.
+  it('is entity + NUL + id, byte-identical to a raw-NUL join', () => {
+    const key = entityOverlayKey('issue', 'abc')
+    // Runtime probe: join with a real U+0000 character (not via the helper).
+    const rawJoin = `issue${String.fromCharCode(0)}abc`
+    expect(key).toBe(rawJoin)
+    expect(Buffer.from(key, 'utf8')).toEqual(
+      Buffer.from([0x69, 0x73, 0x73, 0x75, 0x65, 0x00, 0x61, 0x62, 0x63]),
+    )
+    // Distinct entities must not collide through a separator-less concat.
+    expect(entityOverlayKey('iss', 'ue-x')).not.toBe(entityOverlayKey('issue', 'x'))
+  })
+
+  it('ledger.ts source spells the separator as \\u0000, never a literal 0x00 byte', () => {
+    const srcPath = fileURLToPath(new URL('./ledger.ts', import.meta.url))
+    const bytes = readFileSync(srcPath)
+    expect(bytes.includes(0)).toBe(false)
+    expect(bytes.toString('utf8')).toContain('\\u0000')
+  })
+})
 
 describe('Ledger', () => {
   it('appends declared changes, dedups no-op upserts, and returns the write result', () => {
