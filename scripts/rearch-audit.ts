@@ -814,10 +814,29 @@ function main(): void {
     console.error('--phase is a read-only gate; it cannot be combined with --update-baseline.')
     process.exit(2)
   }
+  // Validate the phase argument BEFORE the repo walk: bad args should fail in
+  // milliseconds, not after 2.3s of scanning.
+  if (wants('--phase') && (!phaseArg || !/^POD-\d+$/.test(phaseArg))) {
+    console.error('usage: --phase POD-309')
+    process.exit(2)
+  }
 
   const ctx = loadContext(repoRoot)
   const results = runAudit(ctx)
   const total = results.reduce((n, r) => n + r.count, 0)
+
+  // ACTIONS BEFORE REPORTS. `--json` is a format, not a mode: when it ran first
+  // and returned, `--json --update-baseline` exited 0 having written NOTHING —
+  // an output flag silently swallowing the write, and it looked like it worked.
+  // Same family as an output flag disabling the --phase gate.
+  if (wants('--update-baseline')) {
+    const next = baselineOf(results)
+    writeFileSync(join(repoRoot, BASELINE_FILE), formatBaseline(next))
+    if (wants('--json')) console.log(JSON.stringify({ total, items: results }, null, 2))
+    else
+      console.log(`baseline updated (${results.length} items, ${total} sites) → ${BASELINE_FILE}`)
+    return
+  }
 
   if (wants('--json') && !wants('--phase')) {
     console.log(JSON.stringify({ total, items: results }, null, 2))
@@ -831,12 +850,6 @@ function main(): void {
       for (const s of r.sites) console.log(`        ${s.file}:${s.line}  ${s.text}`)
     }
     console.log(`\n${results.length} items, ${total} sites`)
-    return
-  }
-
-  if (wants('--update-baseline')) {
-    writeFileSync(join(repoRoot, BASELINE_FILE), formatBaseline(baselineOf(results)))
-    console.log(`baseline updated (${results.length} items, ${total} sites) → ${BASELINE_FILE}`)
     return
   }
 

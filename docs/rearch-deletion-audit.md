@@ -33,13 +33,21 @@ CI compares live counts against the committed baseline:
 | count **<** baseline | 1 | **Unrecorded win.** Run `--update-baseline` and commit the file. |
 | count **=** baseline | 0 | Pass. |
 
-A decrease failing the build is deliberate, and it is not the ratchet fighting
-you — it is the ratchet *keeping* your win. If a win is not written to the
-baseline, the baseline still authorises the old, higher count, and a later PR can
-give the ground back with CI green. The fix is one mechanical command, and the
-baseline diff doubles as the per-phase before/after evidence the migration ledger
-(POD-298) records. This mirrors `bun run migration:manifest --check`: the
-committed artifact must be exact.
+### Why a decrease also fails — a deliberate deviation from POD-297's AC
+
+POD-297's acceptance criterion reads *"a PR may only keep counts equal or lower;
+increase fails the build"*, which taken literally says a decrease should pass.
+**It fails instead, on purpose** (approved on POD-279 — recorded here so the exit
+gate does not flag it as a defect).
+
+The rationale is convergence. A decrease that is not written to the baseline
+leaves the baseline still authorising the old, higher count — so a later PR can
+give the ground back with CI green, and *"must reach zero"* never converges. The
+count policy is unchanged: lowering a count is always allowed. What fails is a
+**stale artifact**, and the fix is one mechanical command. The baseline diff then
+doubles as the per-phase before/after evidence the migration ledger (POD-298 §8)
+records. This mirrors `bun run migration:manifest --check`: you may add
+migrations, but the committed manifest must be exact.
 
 The audit is a **blocking** CI step of its own, not part of `bun run lint` — the
 lint step is `continue-on-error` while the biome backlog burns down, so a ratchet
