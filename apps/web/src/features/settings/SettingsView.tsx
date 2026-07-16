@@ -7,8 +7,10 @@ import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
+import { invalidateFeatures } from '@/features/experimental/use-feature'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
+import { ExperimentalSection } from './sections/experimental'
 import { HibernationSection } from './sections/hibernation'
 import { IntegrationsSection } from './sections/integrations'
 import { KeysSection } from './sections/keys'
@@ -39,6 +41,7 @@ export type SettingsTab =
   | 'machines'
   | 'security'
   | 'updates'
+  | 'experimental'
 
 export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'appearance', label: 'Appearance' },
@@ -56,6 +59,7 @@ export const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'machines', label: 'Machines' },
   { key: 'security', label: 'Security' },
   { key: 'updates', label: 'Updates' },
+  { key: 'experimental', label: 'Experimental' },
 ]
 
 /** Everything a section can pull from the view: the loaded blob, the local
@@ -106,6 +110,9 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   machines: () => <MachinesPanel />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
   updates: () => <UpdatesSection />,
+  experimental: ({ settings, patch }) => (
+    <ExperimentalSection settings={settings} patch={patch} />
+  ),
 }
 
 /**
@@ -256,6 +263,9 @@ export function SettingsView(): JSX.Element {
     setError(null)
     try {
       setSettings(await trpc.settings.set.mutate(settings))
+      // Refresh feature gates so useFeature sees the saved experimental toggles
+      // [spec:SP-f4b9].
+      invalidateFeatures(trpc)
       setSavedAt(Date.now())
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
