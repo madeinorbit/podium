@@ -123,6 +123,33 @@ describe('IssueService CRUD', () => {
     expect(svc.archive(w.id).archived).toBe(true)
   })
 
+  it('resets omitted model and effort when the default agent changes', () => {
+    const { svc, deps } = harness()
+    deps.getSettings = () =>
+      normalizeSettings({
+        roles: {
+          coding: {
+            accountId: 'native:claude-code',
+            model: 'opus',
+            effort: 'high',
+          },
+        },
+      })
+    const issue = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+
+    const switched = svc.update(issue.id, { defaultAgent: 'codex' })
+    expect(switched.defaultModel).toBe('auto')
+    expect(switched.defaultEffort).toBe('auto')
+
+    const explicit = svc.update(issue.id, {
+      defaultAgent: 'claude-code',
+      defaultModel: 'sonnet',
+      defaultEffort: 'low',
+    })
+    expect(explicit.defaultModel).toBe('sonnet')
+    expect(explicit.defaultEffort).toBe('low')
+  })
+
   it('create honors a client-provided id verbatim (optimistic draft reconciliation)', () => {
     const { svc } = harness()
     const wire = svc.create({
@@ -675,6 +702,16 @@ describe('IssueService.start', () => {
 
   it('uses an explicitly selected agent when starting an unstarted issue', async () => {
     const { svc, deps } = harness()
+    deps.getSettings = () =>
+      normalizeSettings({
+        roles: {
+          coding: {
+            accountId: 'native:claude-code',
+            model: 'opus',
+            effort: 'high',
+          },
+        },
+      })
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.start(a.id, 'codex')
     expect(started.defaultAgent).toBe('codex')
@@ -687,6 +724,37 @@ describe('IssueService.start', () => {
       effort: 'auto',
       spawnedBy: `issue:${a.id}`,
     })
+  })
+
+  it('sanitizes legacy coding defaults stored on another harness', async () => {
+    const { svc, deps } = harness()
+    deps.getSettings = () =>
+      normalizeSettings({
+        roles: {
+          coding: {
+            accountId: 'native:claude-code',
+            model: 'opus',
+            effort: 'high',
+          },
+        },
+      })
+    const issue = svc.create({
+      repoPath: '/r',
+      title: 'Legacy Codex',
+      startNow: false,
+      defaultAgent: 'codex',
+      defaultModel: 'opus',
+      defaultEffort: 'high',
+    })
+
+    await svc.start(issue.id)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        agentKind: 'codex',
+        model: 'auto',
+        effort: 'auto',
+      }),
+    )
   })
 
   it('captures a chosen model + effort on the issue and spawns with them', async () => {
@@ -714,6 +782,16 @@ describe('IssueService.start', () => {
 
   it('addSession/addShell use issue provenance as the direct-service fallback', async () => {
     const { svc, deps } = harness()
+    deps.getSettings = () =>
+      normalizeSettings({
+        roles: {
+          coding: {
+            accountId: 'native:claude-code',
+            model: 'opus',
+            effort: 'high',
+          },
+        },
+      })
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await svc.start(a.id)
     svc.addSession(a.id, 'codex')

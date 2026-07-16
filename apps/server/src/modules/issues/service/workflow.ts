@@ -1,5 +1,6 @@
 import { DEFER_NEXT_MESSAGE } from '@podium/domain'
 import type { IssueWire, OrphanIssue } from '@podium/protocol'
+import { resolveRole } from '@podium/runtime'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -21,6 +22,24 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return `${repoPath}/.worktrees/${dir}`
   }
 
+  private modelSelectionFor(row: IssueRow, agentKind: string): { model: string; effort: string } {
+    const settings = this.d.getSettings()
+    const coding = resolveRole(settings, 'coding')
+    const usesIssueProfile = agentKind === row.defaultAgent
+    return {
+      model:
+        usesIssueProfile &&
+        (agentKind === coding.harness || row.defaultModel !== settings.roles.coding.model)
+          ? row.defaultModel
+          : 'auto',
+      effort:
+        usesIssueProfile &&
+        (agentKind === coding.harness || row.defaultEffort !== settings.roles.coding.effort)
+          ? row.defaultEffort
+          : 'auto',
+    }
+  }
+
   async start(
     id: string,
     agentKind?: string,
@@ -28,13 +47,18 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   ): Promise<IssueWire> {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
-    if (agentKind) row.defaultAgent = agentKind
+    if (agentKind && agentKind !== row.defaultAgent) {
+      row.defaultAgent = agentKind
+      row.defaultModel = 'auto'
+      row.defaultEffort = 'auto'
+    }
+    const selection = this.modelSelectionFor(row, row.defaultAgent)
     // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
     // branch, stage) [spec:SP-cc60] — the issue's stored defaults are the selection.
     assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
       agentKind: row.defaultAgent,
-      ...(row.defaultModel ? { model: row.defaultModel } : {}),
-      ...(row.defaultEffort ? { effort: row.defaultEffort } : {}),
+      ...(selection.model ? { model: selection.model } : {}),
+      ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
@@ -81,8 +105,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       cwd: path,
       issueId: row.id,
       agentKind: row.defaultAgent,
-      model: row.defaultModel,
-      effort: row.defaultEffort,
+      model: selection.model,
+      effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       ...(row.description.trim() ? { initialPrompt: row.description } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
@@ -514,12 +538,13 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const row = this.rowOrThrow(id)
     if (!row.worktreePath) throw new Error('issue not started')
     const kind = agentKind ?? row.defaultAgent
+    const selection = this.modelSelectionFor(row, kind)
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
     assertModelSelectionValid(this.d.store.settings.getModelCatalog(), {
       agentKind: kind,
-      ...(row.defaultModel ? { model: row.defaultModel } : {}),
-      ...(row.defaultEffort ? { effort: row.defaultEffort } : {}),
+      ...(selection.model ? { model: selection.model } : {}),
+      ...(selection.effort ? { effort: selection.effort } : {}),
       ...(opts?.forceUnknownModel ? { force: true } : {}),
     })
     if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
@@ -527,8 +552,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       cwd: row.worktreePath,
       issueId: row.id,
       agentKind: kind,
-      model: row.defaultModel,
-      effort: row.defaultEffort,
+      model: selection.model,
+      effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),

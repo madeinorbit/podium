@@ -290,6 +290,13 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     const prevStage = row.stage
     const wasClosed = this.isClosed(row)
     patch = this.normalizeClosedPatch(row, patch)
+    if (patch.defaultAgent !== undefined && patch.defaultAgent !== row.defaultAgent) {
+      patch = {
+        ...patch,
+        ...(!('defaultModel' in patch) ? { defaultModel: 'auto' } : {}),
+        ...(!('defaultEffort' in patch) ? { defaultEffort: 'auto' } : {}),
+      } // [spec:SP-7ff1]
+    }
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
