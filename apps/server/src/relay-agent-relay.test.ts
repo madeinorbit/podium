@@ -1,6 +1,17 @@
 import type { ControlMessage } from '@podium/protocol'
+import { sessionTitleRule } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+
+/**
+ * The nudge's own opening sentence, taken from the source of truth rather than
+ * pinned as a copy string [POD-743]. A bare `toContain('podium session title')`
+ * cannot tell the NUDGE from a mere mention of the command: the delegation
+ * guidance rides in every prime and legitimately contains that literal, which
+ * made the negative assertions fire always and the positive one pass always.
+ * seq only affects a later line, so 0 is a safe stand-in for the first.
+ */
+const TITLE_NUDGE = sessionTitleRule(0, []).split('\n')[0]
 
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 
@@ -350,7 +361,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     const r = await relay(sA, 'issues', 'prime', { repoPath })
     expect(r.ok).toBe(true)
     const prime = String(r.result)
-    expect(prime).toContain('podium session title')
+    expect(prime).toContain(TITLE_NUDGE)
     expect(prime).toContain(`under #${A.seq}`)
     // The sibling's display name is quoted so the agent can avoid duplicating it.
     expect(prime).toContain('Merge lock lease expiry')
@@ -360,7 +371,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     registry.modules.sessions.renameSession({ sessionId: sA, name: 'Already named' })
 
     const prime = String((await relay(sA, 'issues', 'prime', { repoPath })).result)
-    expect(prime).not.toContain('podium session title')
+    expect(prime).not.toContain(TITLE_NUDGE)
     // The issue prime itself is unaffected.
     expect(prime).toContain(A.title)
   })
@@ -371,7 +382,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
       agentKind: 'shell',
     }).sessionId
     const prime = String((await relay(loose, 'issues', 'prime', { repoPath })).result)
-    expect(prime).not.toContain('podium session title')
+    expect(prime).not.toContain(TITLE_NUDGE)
   })
 })
 
