@@ -78,6 +78,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     { adapter: HarnessAdapter; observation: HarnessObservation }
   >()
 
+  // Live-tail SEED window (POD-613): the first read only refills the server's
+  // gap-bridging per-session buffer (chat-capability flag, first-prompt title
+  // fallback, knownPaths file-read hints) — clients page real history off disk
+  // via the cursor read source (transcriptRead), which is untouched. Sized to
+  // match the 2000-item window the already-held reattach re-seed reads
+  // (control/session.ts readSlice limit), so the two boot paths stay in step.
+  const TAIL_SEED_WINDOW_BYTES = 2 * 1024 * 1024
+  const TAIL_SEED_MAX_ITEMS = 2000
+
   const ensureTranscriptTail = (
     sessionId: string,
     path: string,
@@ -115,6 +124,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           // The agent's `/color` accent rides the same transcript tail.
           onColor: (color) => send({ type: 'agentColor', sessionId, color }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
+          initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
+          maxInitialItems: TAIL_SEED_MAX_ITEMS,
         },
       ),
     )

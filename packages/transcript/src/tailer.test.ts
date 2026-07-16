@@ -207,3 +207,83 @@ describe('tailTranscript — seedGate (POD-612)', () => {
     }
   })
 })
+
+describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () => {
+  const collect = (path: string, opts: Parameters<typeof tailTranscript>[2]) => {
+    const emissions: Emission[] = []
+    const tailer = tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      { pollMs: 10, ...opts },
+    )
+    return { emissions, tailer }
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 60))
+
+  it('a tiny readChunkBytes yields identical items + exact cursors across chunk boundaries', async () => {
+    const path = join(dir, 'tail-chunked.jsonl')
+    const records = Array.from({ length: 5 }, (_, i) => userRecord(`k${i}`, `msg-${i}-${'x'.repeat(90)}`))
+    writeFileSync(path, `${records.join('\n')}\n`)
+    // 64-byte chunks force every record to span multiple chunks — the leftover
+    // carry across chunk reads must keep absolute offsets exact.
+    const { emissions, tailer } = collect(path, { readChunkBytes: 64 })
+    try {
+      await settle()
+      const items = emissions.flatMap((e) => e.items)
+      expect(items.map((i) => i.text)).toEqual(records.map((_, i) => `msg-${i}-${'x'.repeat(90)}`))
+      // Cursor offsets must match each record's true byte position.
+      let expected = 0
+      for (const [i, item] of items.entries()) {
+        const c = decodeCursor(item.cursor ?? '')
+        expect(c?.offset).toBe(expected)
+        expect(c?.uuid).toBe(`k${i}`)
+        expected += Buffer.byteLength(records[i] ?? '', 'utf8') + 1
+      }
+      // Appends after the seed keep flowing chunked too.
+      const r6 = userRecord('k5', 'appended')
+      appendFileSync(path, `${r6}\n`)
+      await settle()
+      const all = emissions.flatMap((e) => e.items)
+      expect(all.at(-1)?.text).toBe('appended')
+      expect(decodeCursor(all.at(-1)?.cursor ?? '')?.offset).toBe(expected)
+    } finally {
+      tailer.stop()
+    }
+  })
+
+  it('honors initialWindowBytes: the seed reads only the tail window and drops the leading partial', async () => {
+    const path = join(dir, 'tail-window.jsonl')
+    const records = Array.from({ length: 6 }, (_, i) => userRecord(`w${i}`, `win-${i}`))
+    writeFileSync(path, `${records.join('\n')}\n`)
+    // Window covering the last two records plus a fragment of the one before —
+    // the fragment must be dropped, the last two emitted.
+    const lastTwo = Buffer.byteLength(`${records[4]}\n${records[5]}\n`, 'utf8')
+    const { emissions, tailer } = collect(path, { initialWindowBytes: lastTwo + 10 })
+    try {
+      await settle()
+      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual(['win-4', 'win-5'])
+      expect(emissions[0]?.reset).toBe(true)
+    } finally {
+      tailer.stop()
+    }
+  })
+
+  it('honors maxInitialItems: a reset seed keeps only the most recent items', async () => {
+    const path = join(dir, 'tail-maxitems.jsonl')
+    const records = Array.from({ length: 7 }, (_, i) => userRecord(`m${i}`, `cap-${i}`))
+    writeFileSync(path, `${records.join('\n')}\n`)
+    // A tiny chunk size proves the cap is enforced while accumulating, not just
+    // in one final slice.
+    const { emissions, tailer } = collect(path, { maxInitialItems: 3, readChunkBytes: 64 })
+    try {
+      await settle()
+      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual([
+        'cap-4',
+        'cap-5',
+        'cap-6',
+      ])
+    } finally {
+      tailer.stop()
+    }
+  })
+})

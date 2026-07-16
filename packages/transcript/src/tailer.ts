@@ -23,6 +23,12 @@ const TAIL_BYTES = 16 * 1024 * 1024
 // Older items are paged in on demand via the read source, so this is a window cap,
 // not a hard transcript limit.
 const MAX_INITIAL_ITEMS = 12_000
+// Backfill reads are chunked: one bounded allocation + JSONL-parse slice per
+// chunk, with the await between chunk reads yielding the event loop. The old
+// single-allocation read slurped the whole window (up to TAIL_BYTES) and
+// JSON.parsed it in one synchronous stretch — at daemon boot that was seconds
+// of main-thread stall per large session (POD-613).
+const READ_CHUNK_BYTES = 1024 * 1024
 
 export interface TranscriptTailer {
   /** The file currently tailed. */
@@ -44,6 +50,15 @@ export interface TranscriptTailOptions {
    *  POD-612) defer and serialize the seeds without delaying anything else.
    *  Post-seed delta reads never go through the gate. */
   seedGate?: (fn: () => Promise<void>) => Promise<void>
+  /** First-read (and truncation re-read) window size in bytes; defaults to
+   *  TAIL_BYTES. The daemon passes a smaller BOOT-SEED window (POD-613): the
+   *  seed only refills the server's gap-bridging buffer — clients page real
+   *  history off disk via the cursor read source, which is unaffected. */
+  initialWindowBytes?: number
+  /** Cap on items a reset read may emit; defaults to MAX_INITIAL_ITEMS. */
+  maxInitialItems?: number
+  /** Chunk size for backfill reads (test seam); defaults to READ_CHUNK_BYTES. */
+  readChunkBytes?: number
 }
 
 /** Metadata accompanying each `onItems` delta. */
@@ -95,6 +110,9 @@ export function tailTranscript(
 ): TranscriptTailer {
   const recordToItems = opts.recordToItems ?? claudeRecordToItems
   const recordColor = opts.recordColor ?? claudeRecordColor
+  const windowBytes = opts.initialWindowBytes ?? TAIL_BYTES
+  const maxInitialItems = opts.maxInitialItems ?? MAX_INITIAL_ITEMS
+  const chunkBytes = opts.readChunkBytes ?? READ_CHUNK_BYTES
   const fileId = fileIdFor(path)
   let lastColor: string | undefined
   // Absolute byte position where `leftover` begins (= the start of the next
@@ -143,7 +161,7 @@ export function tailTranscript(
         const { size } = await handle.stat()
         let reset = false
         if (first) {
-          const start = Math.max(0, size - TAIL_BYTES)
+          const start = Math.max(0, size - windowBytes)
           offset = start
           leftover = Buffer.alloc(0)
           dropLeadingPartial = start > 0
@@ -157,19 +175,24 @@ export function tailTranscript(
           // same bounded tail window the first read uses: the replacement can be
           // arbitrarily large (a multi-hundred-MB file swap), and an uncapped
           // from-zero re-read was a one-shot allocation spike of the whole file.
-          const start = Math.max(0, size - TAIL_BYTES)
+          const start = Math.max(0, size - windowBytes)
           offset = start
           leftover = Buffer.alloc(0)
           dropLeadingPartial = start > 0
           flushedOffset = -1
           reset = true
         }
-        const consumed = offset + leftover.length
-        if (size === consumed && !reset) return
+        if (size === offset + leftover.length && !reset) return
         let items: TranscriptItem[] = []
-        if (size > consumed) {
-          const chunk = Buffer.alloc(size - consumed)
-          await handle.read(chunk, 0, chunk.length, consumed)
+        // CHUNKED read + parse: one bounded allocation and one bounded synchronous
+        // parse slice per chunk; the await on each chunk read yields the event
+        // loop, so a multi-MB backfill no longer blocks it end-to-end (POD-613).
+        while (offset + leftover.length < size) {
+          if (stopped) return
+          const consumed = offset + leftover.length
+          const len = Math.min(chunkBytes, size - consumed)
+          const chunk = Buffer.alloc(len)
+          await handle.read(chunk, 0, len, consumed)
           // Walk newline boundaries on the raw (leftover + chunk) buffer so each
           // record's ABSOLUTE offset is exact. `offset` is buf[0]'s file position.
           const buf = leftover.length > 0 ? Buffer.concat([leftover, chunk]) : chunk
@@ -197,8 +220,12 @@ export function tailTranscript(
           }
           // Bytes after the last newline are an unterminated trailing record:
           // advance `offset` to its start and keep it as leftover (NOT consumed).
+          // A record longer than one chunk simply stays in `leftover` and grows
+          // until its newline arrives in a later chunk.
           leftover = buf.subarray(lineStart)
           offset += lineStart
+          // Trim as we go so a large reset window can't accumulate unbounded items.
+          if (reset && items.length > maxInitialItems) items = items.slice(-maxInitialItems)
         }
         // Surface the trailing partial (a record whose '\n' has not landed yet) so
         // a final unterminated record isn't stuck invisible. We do NOT consume it:
@@ -218,7 +245,7 @@ export function tailTranscript(
         } else {
           flushedOffset = -1
         }
-        if (reset && items.length > MAX_INITIAL_ITEMS) items = items.slice(-MAX_INITIAL_ITEMS)
+        if (reset && items.length > maxInitialItems) items = items.slice(-maxInitialItems)
         if (items.length > 0 || reset) {
           onItems(items, { reset, tail: items.at(-1)?.cursor })
         }
