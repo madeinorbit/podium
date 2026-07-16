@@ -85,8 +85,20 @@ it('passes configured model and effort to the configured default harness', () =>
   expect(frame.effort).toBe('xhigh')
 })
 
+it('inherits configured defaults from auto issue overrides on the configured harness', () => {
+  const frame = createFrame('claude-code', { model: 'auto', effort: 'auto' })
+  expect(frame.model).toBe('claude-opus-4-8')
+  expect(frame.effort).toBe('xhigh')
+})
+
 it('omits configured model and effort when another harness is selected', () => {
   const frame = createFrame('codex')
+  expect(Object.hasOwn(frame, 'model')).toBe(false)
+  expect(Object.hasOwn(frame, 'effort')).toBe(false)
+})
+
+it('keeps auto issue overrides isolated from another harness', () => {
+  const frame = createFrame('codex', { model: 'auto', effort: 'auto' })
   expect(Object.hasOwn(frame, 'model')).toBe(false)
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })
@@ -101,4 +113,10 @@ it('omits configured defaults when resurrecting another harness', () => {
   const frame = resurrectFrame('codex')
   expect(Object.hasOwn(frame, 'model')).toBe(false)
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
+})
+
+it('restores configured defaults when resurrecting the configured harness', () => {
+  const frame = resurrectFrame('claude-code')
+  expect(frame.model).toBe('claude-opus-4-8')
+  expect(frame.effort).toBe('xhigh')
 })
