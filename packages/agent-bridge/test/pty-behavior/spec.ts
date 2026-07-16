@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import type { PtyBackend } from '../../src/pty/index'
+import { resolveNodeExecutable } from '../../src/pty/resolve-node-executable.js'
 import { type AgentSession, spawnAgent } from '../../src/session'
 
 const FIX = (name: string): string => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))
@@ -85,9 +86,10 @@ export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend
 
     it('2b: keyecho decodes real keystrokes under this backend', async () => {
       // cwd = keyecho's package dir so tsx picks up its React-runtime tsconfig.
+      // Under bun --bun, bare `node` is a Bun shim — resolve a real Node binary.
       const s = spawnAgent(
         {
-          cmd: 'node',
+          cmd: resolveNodeExecutable(),
           args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'raw'],
           cols: 100,
           rows: 30,

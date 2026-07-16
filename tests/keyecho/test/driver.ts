@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { ensureBunNodePtyTtyPolyfill, resolveNodeExecutable } from '@podium/agent-bridge'
 import * as pty from 'node-pty'
 
 const CLI = fileURLToPath(new URL('../src/cli.tsx', import.meta.url))
@@ -20,7 +21,10 @@ function nowMs(): number {
 }
 
 export function bootKeyecho(args: string[] = []): Keyecho {
-  const proc = pty.spawn(process.execPath, ['--import', 'tsx', CLI, ...args], {
+  // node-pty under Bun needs the tty.ReadStream polyfill (oven-sh/bun#25822).
+  ensureBunNodePtyTtyPolyfill()
+  // Real Node absolute path — Bun prepends a `node`→bunx shim on PATH under `bun --bun`.
+  const proc = pty.spawn(resolveNodeExecutable(), ['--import', 'tsx', CLI, ...args], {
     name: 'xterm-256color',
     cols: 100,
     rows: 30,

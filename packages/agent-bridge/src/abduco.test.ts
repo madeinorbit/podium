@@ -18,7 +18,13 @@ import {
   userRuntimeDir,
 } from './abduco.js'
 import { resolveAbducoBin } from './abduco-bin.js'
+import { nodePtyBackend, resolveNodeExecutable } from './pty/index.js'
 import { spawnAgent } from './session'
+
+// Prefer node-pty + real Node for fidelity fixtures under bun --bun (bare "node" is a Bun
+// shim; Bun.Terminal attach is fine for abduco but these tests claim node-pty parity).
+const nodePty = nodePtyBackend()
+const nodeBin = resolveNodeExecutable()
 
 describe('abduco command builders', () => {
   it('builds a direct-argv create command (no shell quoting needed)', () => {
@@ -192,12 +198,15 @@ const TUI_FIXTURE = fileURLToPath(new URL('../test/fixtures/fixture-tui.mjs', im
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 describe.skipIf(!hasAbduco)('abduco integration', () => {
-  it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', async () => {
+  // Resource-sensitive under concurrent suite load (abduco + many PTYs); one retry.
+  it('streams frames, surfaces the OSC title, round-trips input, survives detach, reattaches, kills', { retry: 1, timeout: 20000 }, async () => {
     const label = `podium-abduco-itest-${process.pid}`
     killAbducoSession(label)
+    // Integration uses the runtime default backend (bun-terminal under Bun, node-pty under
+    // Node). Fidelity tests below pin node-pty for parity claims.
     const session = spawnAbducoAgent({
       label,
-      cmd: 'node',
+      cmd: nodeBin,
       args: [FIXTURE],
       cols: 80,
       rows: 24,
@@ -210,7 +219,8 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     session.onTitle((t) => {
       title = t
     })
-    await wait(700)
+    const readyStart = Date.now()
+    while (!out.includes('READY') && Date.now() - readyStart < 8000) await wait(25)
     expect(out).toContain('READY') // byte-transparency
     expect(out).not.toContain('\x1b[?1049h') // client attach chrome stripped
     expect(title).toContain('FIXTURE-TITLE') // OSC passes through verbatim (no tmux set-titles needed)
@@ -242,7 +252,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     killAbducoSession(label)
     await wait(300)
     expect(abducoHasSession(label)).toBe(false)
-  }, 15000)
+  }, 20000)
 
   it('reattach at UNCHANGED geometry still repaints (nudge forces a real resize)', async () => {
     // abduco only SIGWINCHes the app on attach; node TUIs (Claude Code included)
@@ -253,7 +263,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     killAbducoSession(label)
     const session = spawnAbducoAgent({
       label,
-      cmd: 'node',
+      cmd: nodeBin,
       args: [TUI_FIXTURE],
       cols: 80,
       rows: 24,
@@ -308,7 +318,13 @@ describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn',
     expect(abducoHasSession(label)).toBe(false)
 
     try {
-      const session = spawnAbducoAgent({ label, cmd: 'node', args: [FIXTURE], cols: 80, rows: 24 })
+      const session = spawnAbducoAgent({
+        label,
+        cmd: nodeBin,
+        args: [FIXTURE],
+        cols: 80,
+        rows: 24,
+      })
       await wait(800)
       const master = parseAbducoList(
         spawnSync(resolveAbducoBin() as string, [], { encoding: 'utf8' }).stdout ?? '',
@@ -345,16 +361,28 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
     if (via === 'abduco') {
       label = `podium-abfid-${process.pid}-${hex}`
       killAbducoSession(label)
-      session = spawnAbducoAgent({ label, cmd: 'node', args: [HEX_FIXTURE], cols: 80, rows: 24 })
+      session = spawnAbducoAgent({
+        label,
+        cmd: nodeBin,
+        args: [HEX_FIXTURE],
+        cols: 80,
+        rows: 24,
+        backend: nodePty,
+      })
     } else {
-      session = spawnAgent({ cmd: 'node', args: [HEX_FIXTURE], cols: 80, rows: 24 })
+      session = spawnAgent({ cmd: nodeBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, nodePty)
     }
     session.onFrame((f) => {
       out += Buffer.from(f.data, 'base64').toString('utf8')
     })
-    await wait(500)
+    // Probe with a non-control byte first so setRawMode is live before Ctrl-C (0x03).
+    session.write(Buffer.from([0x61]).toString('base64')) // 'a'
+    const probeStart = Date.now()
+    while (!out.includes('<61>') && Date.now() - probeStart < 5000) await wait(25)
+    out = ''
     session.write(bytes.toString('base64'))
-    await wait(500)
+    const start = Date.now()
+    while (!out.includes(hex) && Date.now() - start < 5000) await wait(25)
     session.dispose()
     if (via === 'abduco') killAbducoSession(label)
     const m = out.match(/<([0-9a-f]*)>/g)

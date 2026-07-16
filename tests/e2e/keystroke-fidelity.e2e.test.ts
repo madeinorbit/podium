@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { type AgentSession, spawnAgent } from '@podium/agent-bridge'
+import { type AgentSession, resolveNodeExecutable, spawnAgent } from '@podium/agent-bridge'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 // keyecho is a fake agent CLI; spawn it the same way the daemon spawns claude/codex,
@@ -38,8 +38,10 @@ describe('agent-bridge forwards keystrokes to the agent (keyecho)', () => {
   const text = () => buf.replace(ANSI, '')
 
   beforeAll(async () => {
+    // keyecho is a Node/tsx Ink app. Under `bun --bun vitest`, bare `node` is a Bun
+    // shim — use resolveNodeExecutable() for a real Node (README test prerequisite).
     session = spawnAgent({
-      cmd: process.execPath,
+      cmd: resolveNodeExecutable(),
       args: ['--import', 'tsx', CLI, '--mode', 'raw'],
       cols: 100,
       rows: 30,

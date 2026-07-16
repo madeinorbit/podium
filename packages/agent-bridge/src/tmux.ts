@@ -105,6 +105,7 @@ export interface TmuxSpawnOptions {
   cols: number
   rows: number
   env?: Record<string, string>
+  backend?: PtyBackend
 }
 
 /**
@@ -133,7 +134,13 @@ export function spawnTmuxAgent(opts: TmuxSpawnOptions): AgentSession {
   for (const args of tmuxConfigCommands(opts.label)) {
     execFileSync('tmux', args, { stdio: 'ignore', env })
   }
-  return attachTmuxAgent({ label: opts.label, cols: opts.cols, rows: opts.rows, env: opts.env })
+  return attachTmuxAgent({
+    label: opts.label,
+    cols: opts.cols,
+    rows: opts.rows,
+    env: opts.env,
+    backend: opts.backend,
+  })
 }
 
 /** Attach a node-pty tmux client to an existing session. dispose() detaches (agent survives). */

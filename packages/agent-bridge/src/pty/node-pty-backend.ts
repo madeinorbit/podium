@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import { ensureBunNodePtyTtyPolyfill } from './bun-node-pty-tty-polyfill.js'
 import type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'
 
 // Lazy require so importing this module under Bun never loads the native addon.
@@ -6,6 +7,9 @@ import type { PtyBackend, PtyProcess, PtySpawnOptions } from './types.js'
 const req = createRequire(import.meta.url)
 let nodePty: typeof import('node-pty') | undefined
 function loadNodePty(): typeof import('node-pty') {
+  // Under Bun, patch tty.ReadStream before node-pty wraps the master fd
+  // (oven-sh/bun#25822 — silent PTYs without this).
+  ensureBunNodePtyTtyPolyfill()
   nodePty ??= req('node-pty') as typeof import('node-pty')
   return nodePty
 }

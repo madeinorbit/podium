@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { nodePtyBackend, resolveNodeExecutable } from './pty/index.js'
 import { spawnAgent } from './session'
 import {
   attachTmuxAgent,
@@ -11,6 +12,12 @@ import {
   tmuxConfigCommands,
   tmuxHasSession,
 } from './tmux'
+
+// tmux attach needs a full node-pty master: Bun.Terminal reports "terminal does not
+// support clear" and fails open. These tests exercise node-pty (with the Bun tty
+// polyfill under bun --bun). Use a real Node for fixtures — bare "node" is a Bun shim.
+const nodePty = nodePtyBackend()
+const nodeBin = resolveNodeExecutable()
 
 describe('tmux command builders', () => {
   it('shell-quotes args safely', () => {
@@ -72,10 +79,11 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     killTmuxServer(label)
     const session = spawnTmuxAgent({
       label,
-      cmd: 'node',
+      cmd: nodeBin,
       args: [FIXTURE],
       cols: 80,
       rows: 24,
+      backend: nodePty,
     })
     let out = ''
     let title = ''
@@ -99,7 +107,7 @@ describe.skipIf(!hasTmux)('tmux integration', () => {
     expect(tmuxHasSession(label)).toBe(true)
 
     // reattach gets a repaint.
-    const re = attachTmuxAgent({ label, cols: 80, rows: 24 })
+    const re = attachTmuxAgent({ label, cols: 80, rows: 24, backend: nodePty })
     let out2 = ''
     re.onFrame((f) => {
       out2 += Buffer.from(f.data, 'base64').toString('utf8')
@@ -126,6 +134,14 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
   }
   const HEX_FIXTURE = fileURLToPath(new URL('../test/fixtures/stdin-hex.mjs', import.meta.url))
 
+  async function waitUntil(pred: () => boolean, ms = 5000): Promise<void> {
+    const start = Date.now()
+    while (!pred()) {
+      if (Date.now() - start > ms) return
+      await wait(25)
+    }
+  }
+
   async function received(via: 'tmux' | 'direct', hex: string): Promise<string> {
     const bytes = Buffer.from(hex, 'hex')
     let out = ''
@@ -134,16 +150,27 @@ describe.skipIf(!hasTmux)('tmux input-fidelity parity', () => {
     if (via === 'tmux') {
       label = `podium-fid-${process.pid}-${hex}`
       killTmuxServer(label)
-      session = spawnTmuxAgent({ label, cmd: 'node', args: [HEX_FIXTURE], cols: 80, rows: 24 })
+      session = spawnTmuxAgent({
+        label,
+        cmd: nodeBin,
+        args: [HEX_FIXTURE],
+        cols: 80,
+        rows: 24,
+        backend: nodePty,
+      })
     } else {
-      session = spawnAgent({ cmd: 'node', args: [HEX_FIXTURE], cols: 80, rows: 24 })
+      session = spawnAgent({ cmd: nodeBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, nodePty)
     }
     session.onFrame((f) => {
       out += Buffer.from(f.data, 'base64').toString('utf8')
     })
-    await wait(500)
+    // Probe first with a non-control byte so we know the fixture is in raw mode before
+    // we send Ctrl-C (0x03) — a premature 0x03 can SIGINT the agent before setRawMode.
+    session.write(Buffer.from([0x61]).toString('base64')) // 'a'
+    await waitUntil(() => out.includes('<61>'), 5000)
+    out = ''
     session.write(bytes.toString('base64'))
-    await wait(500)
+    await waitUntil(() => out.includes(hex), 5000)
     session.dispose()
     if (via === 'tmux') killTmuxServer(label)
     const m = out.match(/<([0-9a-f]*)>/g)
