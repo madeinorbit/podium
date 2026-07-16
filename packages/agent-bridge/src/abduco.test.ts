@@ -252,7 +252,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     killAbducoSession(label)
     await wait(300)
     expect(abducoHasSession(label)).toBe(false)
-  }, 20000)
+  })
 
   it('reattach at UNCHANGED geometry still repaints (nudge forces a real resize)', async () => {
     // abduco only SIGWINCHes the app on attach; node TUIs (Claude Code included)
