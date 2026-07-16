@@ -21,6 +21,11 @@ By default your delegate **shares this issue's workspace** — the same branch, 
 worktree, the same working files you are editing. That is usually what you want for a
 reviewer, a researcher, or a spec author.
 
+The thing to internalise: **placement is decided when an issue is created and started,
+not when you spawn.** `agent spawn` has no say in it — it inherits whatever worktree the
+issue already got. So by the time you are writing a spawn command, the only placement
+question left is *which issue* you are spawning onto.
+
 `--worktree` does **not** isolate it, and this trips people up. The flag only asserts
 that the issue *has* a worktree, turning a silent spawn into the repo root into a loud
 failure. The delegate lands in the issue's worktree either way. Pass it for the loud
