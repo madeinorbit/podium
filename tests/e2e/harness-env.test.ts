@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
@@ -8,7 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -74,6 +75,38 @@ describe('applyRealAgentCodexEnv', () => {
         sourceCodexHomeDir: join(sourceHome, 'missing-codex-home'),
       }),
     ).toThrow(/requires a native Codex login/)
+  })
+})
+
+/**
+ * Regression guard for POD-688: the harness's abduco socket dir must stay inside
+ * abduco's sun_path budget, and must be the same path in every process.
+ *
+ * abduco builds the master's socket at `$ABDUCO_SOCKET_DIR/abduco/<user>/<label><@host>`
+ * and refuses to create the session ("create-session: File name too long") once
+ * that reaches sun_path's 108 bytes. Nothing in the harness enforced the budget,
+ * so the SP-0be7 TMPDIR container silently spent 23 of the 17 bytes of headroom:
+ * every daemon spawn failed and the only visible symptom was an e2e output timeout.
+ */
+describe('harness abduco socket budget', () => {
+  const SUN_PATH_MAX = 108 // sizeof(struct sockaddr_un.sun_path)
+
+  it('leaves room for a podium-<uuid> session socket under the harness socket dir', () => {
+    const { abducoSocketDir } = harnessEnv(9921)
+    // What abduco actually concatenates, worst-case, for one of our sessions.
+    const layout = `${abducoSocketDir}/abduco/${userInfo().username}/podium-${randomUUID()}@${hostname()}`
+    expect(layout.length).toBeLessThan(SUN_PATH_MAX)
+  })
+
+  it('anchors the base outside the per-test-file TMPDIR container so every process agrees', () => {
+    // test-hermetic-env.ts points TMPDIR at a random per-fork container; a
+    // harness path derived from it could not be reaped by Playwright's
+    // globalTeardown or the next run's startup reap, which never load it.
+    expect(process.env.PODIUM_TEST_HOST_TMPDIR).toBeTruthy()
+    expect(harnessEnv(9921).base).toBe(
+      join(process.env.PODIUM_TEST_HOST_TMPDIR as string, 'podium-e2e-9921'),
+    )
+    expect(harnessEnv(9921).base.startsWith(tmpdir())).toBe(false)
   })
 })
 

@@ -1,5 +1,7 @@
 import { execFile, execFileSync, spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './pty/index.js'
@@ -353,6 +355,45 @@ export interface AbducoSpawnOptions {
 }
 
 /**
+ * execFileSync, but with the child's stderr preserved in the thrown error.
+ *
+ * execFileSync only reports `Command failed: <argv>`; the actual diagnosis is on
+ * the child's stderr, which `stdio: 'ignore'` threw away. That blindness is what
+ * turned an abduco create failing with the one-line "create-session: File name
+ * too long" into a session that produced no output and an e2e timeout 20s later
+ * — and sent the first investigation chasing systemd, which was only relaying
+ * the inner abduco's exit status. [spec:SP-0be7]
+ *
+ * stderr is redirected to a FILE, never a pipe: abduco daemonizes the master,
+ * which inherits this fd, and execFileSync waits for pipe EOF — a pipe would
+ * block the create call until the whole agent session exited.
+ */
+function execCreateSync(
+  file: string,
+  args: string[],
+  options: Parameters<typeof execFileSync>[2],
+): void {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-err-'))
+  const errPath = join(dir, 'stderr')
+  const fd = openSync(errPath, 'w')
+  try {
+    execFileSync(file, args, { ...options, stdio: ['ignore', 'ignore', fd] })
+  } catch (err) {
+    let detail = ''
+    try {
+      detail = readFileSync(errPath, 'utf8').trim()
+    } catch {
+      // the child may have failed before writing anything
+    }
+    if (!detail) throw err
+    throw new Error(`${err instanceof Error ? err.message : String(err)}: ${detail}`)
+  } finally {
+    closeSync(fd)
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/**
  * Create a detached abduco session running the agent, then attach a client.
  * The session app inherits cwd/env from the CREATE call (abduco has no flags for
  * either); TERM/COLORTERM must be forced here — there is no tmux
@@ -364,8 +405,9 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
   const bin = resolveAbducoBin()
   if (!bin) throw new Error('abduco unavailable: not installed and the vendored build failed')
   const createArgs = abducoCreateArgv(opts.label, opts.cmd, opts.args ?? [])
+  // stdio is execCreateSync's to set: it captures stderr so a create failure
+  // reports abduco's own diagnosis instead of a bare "Command failed".
   const execOpts = {
-    stdio: 'ignore',
     cwd: opts.cwd ?? process.cwd(),
     env: {
       ...scopeEnv(liveEnv()),
@@ -385,7 +427,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
     // master, so we only ever clear a zombie scope held open by orphaned grandchildren.
     reclaimStaleScope(opts.label)
     try {
-      execFileSync(
+      execCreateSync(
         'systemd-run',
         systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs]),
         execOpts,
@@ -412,7 +454,7 @@ export function spawnAbducoAgent(opts: AbducoSpawnOptions): AgentSession {
       '[podium] no systemd user manager reachable (XDG_RUNTIME_DIR/linger missing?); durable sessions will NOT survive a podium restart — run `loginctl enable-linger <user>`',
     )
   }
-  execFileSync(bin, createArgs, execOpts)
+  execCreateSync(bin, createArgs, execOpts)
   return attachAbducoAgent({
     label: opts.label,
     cols: opts.cols,

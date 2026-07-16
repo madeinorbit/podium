@@ -25,8 +25,36 @@ const HARNESS_SHUTDOWN_GRACE_MS = 10_000
 const HARNESS_FORCE_KILL_WAIT_MS = 1_000
 const HARNESS_SHUTDOWN_POLL_MS = 50
 
+/**
+ * Tmp root for the harness's per-port dirs: the HOST tmpdir, deliberately NOT the
+ * per-test-file `TMPDIR` container that test-hermetic-env.ts installs (SP-0be7).
+ * That container is exported as PODIUM_TEST_HOST_TMPDIR's fallback only; two
+ * reasons this base must escape it:
+ *
+ *  1. Determinism. This path is a cross-PROCESS contract, not a per-process temp:
+ *     serve-harness parks durable abduco masters under it, and a *different*
+ *     process (Playwright globalTeardown, the next run's startup reap) must
+ *     recompute the identical path to reap them "as a set". The container is
+ *     per-fork and random, so vitest forks and the Playwright side silently
+ *     disagreed on where the harness lived.
+ *  2. abduco's socket budget. abduco builds the master's socket at
+ *     `$ABDUCO_SOCKET_DIR/abduco/<user>/<label><@host>` and hard-fails with
+ *     "create-session: File name too long" once that exceeds sun_path (108).
+ *     A `podium-<uuid>` label + `@<host>` spends 64 of it, leaving 43 for the
+ *     socket dir: `/tmp/podium-e2e-<port>/abduco` (27) fits, but the container
+ *     prefix (`/podium-test-run-XXXXXX`, +23) overflowed it — the daemon could
+ *     not spawn ANY session and the e2e test only saw a 20s output timeout.
+ *
+ * Not a tmp leak: unlike the unmanaged mkdtemp sites SP-0be7 contained, this is
+ * ONE fixed dir per port that reapHarnessSessions() removes at startup (self-
+ * healing after a hard kill), on afterAll, and from globalTeardown.
+ */
+function harnessTmpRoot(): string {
+  return process.env.PODIUM_TEST_HOST_TMPDIR?.trim() || tmpdir()
+}
+
 export function harnessStateBase(port: number): string {
-  return join(tmpdir(), `podium-e2e-${port}`)
+  return join(harnessTmpRoot(), `podium-e2e-${port}`)
 }
 export function harnessPidFile(port: number): string {
   return join(harnessStateBase(port), 'state', 'harness.pid')

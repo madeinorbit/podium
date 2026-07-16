@@ -81,6 +81,11 @@ const removeAll = () => {
 }
 const containerDir = mkdtempSync(join(tmpdir(), 'podium-test-run-'))
 cleanupDirs.push(containerDir)
+// Publish the pre-containment tmpdir BEFORE overriding TMPDIR. The e2e harness
+// (tests/e2e/harness-env.ts) must anchor its per-port dirs to the HOST tmp root
+// rather than this per-file container — see harnessTmpRoot() for why (path
+// determinism across processes + abduco's sun_path budget). [spec:SP-0be7]
+process.env.PODIUM_TEST_HOST_TMPDIR = tmpdir()
 process.env.TMPDIR = containerDir
 process.on('exit', removeAll)
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
