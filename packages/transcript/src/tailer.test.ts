@@ -45,8 +45,15 @@ function makeTailHarness(path: string, pollMs = 10) {
   )
   let drained = 0
   const tick = async (): Promise<Emission[]> => {
-    // Wait past one poll interval + a margin so the async readNew settles.
-    await new Promise((r) => setTimeout(r, pollMs + 30))
+    // Wait until at least one new emission lands (a fixed pollMs+margin sleep flaked
+    // under CPU steal in the retry-0 unit lane: the poll had not completed yet), then
+    // one extra poll interval so the round settles before draining — preserving the
+    // "within this poll's items" semantics of the no-double-emit assertions.
+    const deadline = Date.now() + 2_000
+    while (emissions.length === drained && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    await new Promise((r) => setTimeout(r, pollMs + 10))
     const fresh = emissions.slice(drained)
     drained = emissions.length
     return fresh
