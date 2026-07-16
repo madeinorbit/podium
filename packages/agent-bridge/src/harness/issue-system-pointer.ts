@@ -23,6 +23,9 @@ export const ISSUE_SYSTEM_POINTER =
   '`podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that ' +
   'creating or retitling an issue leaves it in `backlog`; only `claim` sets `in_progress`. ' +
   'Editing an issue outside your assigned one needs `--outside-scope`. ' +
+  // Issue identity is immutable [spec:SP-9c7b].
+  'Never reuse an existing issue for something completely different — new work gets a new issue or ' +
+  'sub-issue. Switch yourself to it only on the human\'s push; otherwise file it for another agent. ' +
   'If this session is on the wrong issue (or a draft), re-home it: `podium issue attach --id <issue>` ' +
   'to join an existing issue, or `podium issue attach --subissue "<title>"` for a new piece of work. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +

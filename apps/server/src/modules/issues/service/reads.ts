@@ -487,6 +487,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       'Workflow: pull `ready` → move it out of `backlog` → work → file discovered work (`discovered-from`) → checkpoint notes → close.',
       'Nothing advances an issue for you: set the stage yourself as the work moves — `podium issue update --id <id> --stage planning|in_progress|review` — and `podium issue close <id>` when it is done. An issue you are actively working must never sit in `backlog`.',
       'Track durable/discovered/cross-session work as issues, not markdown TODO files.',
+      // Issue identity is immutable [spec:SP-9c7b].
+      'Never reuse an existing issue for something completely different — an issue keeps its identity. If you start on new work, start a new issue and attach to it (`podium issue attach --subissue "<title>"`), and switch yourself only on the human\'s push; otherwise file a new issue/sub-issue for another agent to implement.',
       TITLE_RULE,
       'Agents may repair lifecycle structure inside their issue subtree with `reparent`, `supersede`, `duplicate`, `dep-remove`, and `archive`; use `--outside-scope` to confirm a target elsewhere. `delete` and `restore` remain operator-only.',
       "Issues you create default to INTERNAL (audience: agent) — kept off the human's board. For a chunk the human should track, cut a human-facing issue (`podium issue create --audience human`) and hang your internal breakdown under it, so the human sees progress without your churn.",
