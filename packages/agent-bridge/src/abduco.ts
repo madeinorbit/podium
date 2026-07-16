@@ -47,9 +47,25 @@ export function abducoCreateArgv(label: string, cmd: string, args: string[] = []
  * A `--scope` unit is a sibling cgroup of the service, so the restart's
  * cgroup-kill can't reach it. `--collect` GCs the (empty) scope once the master
  * exits; `--quiet` drops the "Running as unit …" line.
+ *
+ * CPUWeight=50/IOWeight=100 put the agent (and every child: test runs, builds) in
+ * the BATCH tier of the two-tier scheduling scheme (POD-598): the host runs ~10x
+ * CPU-oversubscribed by agent/test workloads, and POD-594 measured the daemon main
+ * thread runqueue-waiting 60% of wall time when every scope competed at the default
+ * CPUWeight=100. Interactive services carry CPUWeight=900/IOWeight=500.
  */
 export function systemdScopeArgv(unit: string, command: string[]): string[] {
-  return ['--user', '--scope', '--collect', '--quiet', `--unit=${unit}`, '--', ...command]
+  return [
+    '--user',
+    '--scope',
+    '--collect',
+    '--quiet',
+    '--property=CPUWeight=50',
+    '--property=IOWeight=100',
+    `--unit=${unit}`,
+    '--',
+    ...command,
+  ]
 }
 
 /** The transient scope unit name for a session label — the single source of truth. */

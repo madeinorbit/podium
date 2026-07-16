@@ -59,6 +59,8 @@ describe('abduco command builders', () => {
       '--scope',
       '--collect',
       '--quiet',
+      '--property=CPUWeight=50',
+      '--property=IOWeight=100',
       '--unit=podium-1.scope',
       '--',
       'abduco',
@@ -66,6 +68,19 @@ describe('abduco command builders', () => {
       'podium-1',
       'claude',
     ])
+  })
+
+  it('pins agent scopes to the batch scheduling tier (POD-598)', () => {
+    // Two-tier scheduling: interactive podium services run at CPUWeight=900/IOWeight=500;
+    // every per-agent scope (and all its children: test runs, builds) must land in the
+    // batch tier so agent load can't starve the daemon/server main threads (POD-594:
+    // 60% runqueue-wait at uniform default weights).
+    const argv = systemdScopeArgv('podium-1.scope', ['abduco'])
+    expect(argv).toContain('--property=CPUWeight=50')
+    expect(argv).toContain('--property=IOWeight=100')
+    // Properties are systemd-run options and must precede the `--` command separator.
+    expect(argv.indexOf('--property=CPUWeight=50')).toBeLessThan(argv.indexOf('--'))
+    expect(argv.indexOf('--property=IOWeight=100')).toBeLessThan(argv.indexOf('--'))
   })
 
   it('builds reclaim commands that free a stale same-named scope before recreating it', () => {

@@ -12,6 +12,12 @@ describe('renderServerUnit', () => {
     expect(u).toContain('Restart=always')
     expect(u).toContain('WantedBy=default.target')
   })
+  it('runs in the interactive scheduling tier (POD-598)', () => {
+    const u = renderServerUnit()
+    expect(u).toContain('CPUWeight=900')
+    expect(u).toContain('IOWeight=500')
+    expect(u).toContain('MemoryLow=512M')
+  })
 })
 
 /** The `Environment=PATH=` dirs of a rendered unit, in order. */
@@ -65,6 +71,14 @@ describe('renderDaemonUnit', () => {
     expect(u).toContain('RestartPreventExitStatus=78')
     // The server unit has no pairing handshake — no blocked exit to except.
     expect(renderServerUnit()).not.toContain('RestartPreventExitStatus')
+  })
+  it('runs in the interactive scheduling tier (POD-598)', () => {
+    // POD-594: the daemon main thread runqueue-waited 60% of wall time when it competed
+    // with per-agent scopes at uniform default CPUWeight=100.
+    const u = renderDaemonUnit()
+    expect(u).toContain('CPUWeight=900')
+    expect(u).toContain('IOWeight=500')
+    expect(u).toContain('MemoryLow=2G')
   })
 })
 

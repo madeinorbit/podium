@@ -132,6 +132,13 @@ RestartSec=2
 # restarting would just re-hammer the same rejected handshake, so don't (issue #19).
 # `podium status` explains the blocked state and how to re-pair.
 RestartPreventExitStatus=78
+# Two-tier scheduling (POD-598): hosts run heavily CPU-oversubscribed by agent/test
+# workloads; POD-594 measured this daemon's main thread runqueue-waiting 60% of wall
+# time with everything at default CPUWeight=100. Interactive Podium services get the
+# high tier; per-agent scopes get CPUWeight=50/IOWeight=100 (agent-bridge).
+CPUWeight=900
+IOWeight=500
+MemoryLow=2G
 
 [Install]
 WantedBy=default.target
