@@ -17,7 +17,7 @@
  * open it — that transition is complete for the founders' databases.)
  */
 
-import { bunSqliteClient, type SqlDatabase } from '@podium/runtime/sqlite'
+import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
 import { backupDatabase } from './backup'
@@ -133,9 +133,19 @@ export function runDrizzleMigrations(
 
   const client = bunSqliteClient(db)
   if (client === undefined) {
+    // Two very different causes, and guessing between them costs hours — so ask the
+    // runtime which one it is rather than blaming bun for both [POD-746]. Under bun,
+    // an unrecognised handle means `db` was registered in ANOTHER copy of
+    // @podium/runtime's WeakMap: the package got loaded twice (a lane resolving it
+    // outside this checkout), so this copy has never seen it.
     throw new Error(
-      'the drizzle migrator requires the bun:sqlite runtime — Podium runs under Bun ' +
-        '(the production binary and the vitest suite via `bun --bun`).',
+      isBunRuntime()
+        ? 'the drizzle migrator does not recognise this database handle. It runs on bun:sqlite ' +
+            'and this IS bun, so the handle was opened by a different copy of @podium/runtime ' +
+            '(the package is loaded twice — check how the lane resolves it), or by something ' +
+            'other than openDatabase().'
+        : 'the drizzle migrator requires the bun:sqlite runtime — Podium runs under Bun ' +
+            '(the production binary and the vitest suite via `bun --bun`).',
     )
   }
   // drizzle applies the by-name-unapplied set in one transaction and writes the
