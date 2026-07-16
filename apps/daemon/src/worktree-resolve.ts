@@ -248,6 +248,15 @@ export function createSessionCwdTracker(opts: {
       // pin now would resurrect it — an entry no clear() will ever come back for.
       // A racing hook only BUMPS the sequence, so this tells the two apart.
       if (!seq.has(sessionId)) return
+      // ONLY a real worktree pins — and the `main` case is load-bearing, not an
+      // oversight. Pinning a session launched in a main checkout would read as
+      // correct (it IS where podium started it) and would quietly break adoption:
+      // main is never a workspace [spec:SP-4ef9], so such a session has no worktree
+      // yet, and staying unpinned is the only thing that lets it follow the harness
+      // into the worktree the harness makes for itself and hand that to its issue
+      // (POD-664). Pin it to main and the session can never move again. The two
+      // rules compose exactly BECAUSE this one abstains here.
+      //
       // Pin even if a hook raced ahead of this resolution: where podium launched the
       // session outranks whatever directory its first hook happened to observe.
       if (info.kind === 'worktree') pinned.add(sessionId)
