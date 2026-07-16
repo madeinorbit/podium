@@ -7,7 +7,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { useFeaturesState } from '@/features/experimental/use-feature'
+import { useFeaturesState } from '@/lib/use-feature'
 import { Section } from './shared'
 
 interface FeatureFlagWire {

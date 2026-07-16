@@ -4,6 +4,12 @@
  * Module-level cache shared across the app: fetch `features.state` once per load,
  * re-fetch after settings.save. Components gate unfinished UI with
  * `if (!useFeature('x')) return null`.
+ *
+ * Lives in `lib/` (not `features/`) because it is a cross-cutting gate every
+ * feature may call, not a feature surface of its own — the Experimental settings
+ * *page* is `features/settings/sections/experimental.tsx`. Keeping it here is what
+ * stops `settings -> experimental` (and the next caller) from being a feature-to-
+ * feature edge; see features/README.md + test/features.structure.test.ts.
  */
 import type { FeatureId } from '@podium/protocol'
 import { useEffect, useState } from 'react'

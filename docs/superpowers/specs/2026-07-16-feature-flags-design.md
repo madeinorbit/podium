@@ -158,7 +158,7 @@ export function isFeatureEnabled(id: FeatureId, settings: PodiumSettings, config
 - Register the tab in `SettingsView.tsx`: `'experimental'` in the `SettingsTab` union,
   `{ key: 'experimental', label: 'Experimental' }` in `SETTINGS_TABS`, entry in
   `SECTION_VIEWS`. Place it near the bottom of the nav (before/after "Updates").
-- `apps/web/src/features/experimental/use-feature.ts`: `useFeature(id: FeatureId): boolean`
+- `apps/web/src/lib/use-feature.ts`: `useFeature(id: FeatureId): boolean`
   for gating unfinished UI. Fetch `features.state` once per app load (module-level
   promise/SWR cache like the model catalog does), re-fetch after `settings.set` resolves
   (the settings save path in `SettingsView.tsx` is the only writer). Components gate with
