@@ -177,6 +177,16 @@ export const snoozes = sqliteTable("snoozes", {
 	createdAt: text("created_at").notNull(),
 });
 
+// Agent action offers [spec:SP-c7f1] — one live offer per session (a freeform
+// message + JSON-encoded action buttons). Ephemeral overlay like `snoozes`;
+// replaced on re-offer, deleted on clear/next-turn.
+export const offers = sqliteTable("offers", {
+	sessionId: text("session_id").primaryKey(),
+	message: text().notNull(),
+	actions: text().notNull(), // JSON array of { label, prompt }
+	createdAt: text("created_at").notNull(),
+});
+
 export const clientSessions = sqliteTable("client_sessions", {
 	tokenHash: text("token_hash").primaryKey(),
 	createdAt: text("created_at").notNull(),

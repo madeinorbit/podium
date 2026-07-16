@@ -494,6 +494,54 @@ describe('SessionStore snoozes', () => {
   })
 })
 
+// Agent action offers [spec:SP-c7f1].
+describe('SessionStore offers', () => {
+  const OFFER = {
+    message: 'Tests are red on main',
+    actions: [{ label: 'Fix them', prompt: 'Please fix the failing tests' }],
+    createdAt: '2026-07-16T00:00:00.000Z',
+  }
+
+  it('starts empty, sets/round-trips an offer, replaces it, and clears', () => {
+    const store = new SessionStore(':memory:')
+    expect(store.sessions.listOffers()).toEqual({})
+
+    store.sessions.setOffer('s1', OFFER)
+    expect(store.sessions.listOffers()).toEqual({ s1: OFFER })
+
+    // A subsequent offer replaces the previous one.
+    const next = { message: 'Ready to land', actions: [], createdAt: 't2' }
+    store.sessions.setOffer('s1', next)
+    expect(store.sessions.listOffers()).toEqual({ s1: next })
+
+    store.sessions.clearOffer('s1')
+    expect(store.sessions.listOffers()).toEqual({})
+    store.close()
+  })
+
+  it('drops a row with corrupt JSON actions instead of throwing', () => {
+    const store = new SessionStore(':memory:')
+    store.sessions.setOffer('good', OFFER)
+    // Simulate a corrupt persisted row.
+    ;(
+      store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }
+    ).db
+      .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
+      .run('{not json', 'good')
+    expect(store.sessions.listOffers()).toEqual({})
+    store.close()
+  })
+
+  it('removes an offer when the session is purged', () => {
+    const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(row({ id: 's1' }))
+    store.sessions.setOffer('s1', OFFER)
+    store.sessions.purgeSession('s1')
+    expect(store.sessions.listOffers()).toEqual({})
+    store.close()
+  })
+})
+
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', () => {
     const store = new SessionStore(':memory:')

@@ -14,6 +14,7 @@ import type {
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
+import type { OfferMap, OfferRecord } from './types'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -243,6 +244,7 @@ export class SessionsRepository {
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
     this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
+    this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(id) // [spec:SP-c7f1]
     this.scrubTabOrders(id)
   }
 
@@ -318,6 +320,46 @@ export class SessionsRepository {
   /** Un-snooze a session (no-op if not snoozed). */
   clearSnooze(sessionId: string): void {
     this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
+  }
+
+  // ---- agent action offers [spec:SP-c7f1] ----
+  /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
+   *  row with corrupt JSON actions is dropped rather than failing the load. */
+  listOffers(): OfferMap {
+    const rows = this.db
+      .prepare('SELECT session_id, message, actions, created_at FROM offers')
+      .all() as { session_id: string; message: string; actions: string; created_at: string }[]
+    const out: OfferMap = {}
+    for (const r of rows) {
+      try {
+        const actions = JSON.parse(r.actions)
+        if (!Array.isArray(actions)) continue
+        out[r.session_id] = { message: r.message, actions, createdAt: r.created_at }
+      } catch {
+        // corrupt row -> treat as no offer
+      }
+    }
+    return out
+  }
+
+  /** Set (replace) the live offer for a session. */
+  setOffer(sessionId: string, offer: OfferRecord): void {
+    const id = sessionId.trim()
+    if (!id) throw new Error('offer session id is empty')
+    this.db
+      .prepare(
+        `INSERT INTO offers (session_id, message, actions, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           message = excluded.message,
+           actions = excluded.actions,
+           created_at = excluded.created_at`,
+      )
+      .run(id, offer.message, JSON.stringify(offer.actions), offer.createdAt)
+  }
+
+  /** Remove a session's offer (no-op if none). */
+  clearOffer(sessionId: string): void {
+    this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(sessionId.trim())
   }
 
   // ---- tab order ----

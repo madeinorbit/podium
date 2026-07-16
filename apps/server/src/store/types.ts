@@ -17,6 +17,15 @@ export interface PinState {
 /** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
 export type SnoozeMap = Record<string, string | null>
 
+/** One agent action offer [spec:SP-c7f1] — decoded from the `offers` row. */
+export interface OfferRecord {
+  message: string
+  actions: { label: string; prompt: string }[]
+  createdAt: string
+}
+/** sessionId → its live offer. */
+export type OfferMap = Record<string, OfferRecord>
+
 export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
 export type SessionDeletionSource = 'issue' | 'standalone'
 
