@@ -1,0 +1,23 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-f933] -->
+<section data-spec="SP-f933" data-title="Telemetry: opt-in, two tiers" data-parent="SP-7f2c" data-order="1" data-status="draft" data-updated="1784223039865">
+<p>Podium sits next to private code, so the bar for what leaves a machine is higher than for typical SaaS. Precedent: the <em>default</em> and the <em>vendor</em> drive community anger, not payload richness (Go 1.23 opt-out revolt; Homebrew vs Google Analytics). Payload minimalism is for the minority who read the schema; the prompt and the moment decide the opt-in rate.</p>
+
+<h3>Decisions</h3>
+<ul>
+  <li><b>Opt-in, default off.</b> Nothing is sent until the user says yes.</li>
+  <li><b>Two tiers, independently consented: <code>usage</code> and <code>crash</code>.</b> No <code>perf</code> tier — field histograms across heterogeneous self-hosted machines are noisy and hard to action, and local perf instrumentation already exists. Perf can later slot into <code>usage</code> as bucketed counters without a new tier.</li>
+  <li><b>No collection before consent.</b> Deliberately not Go&#39;s <code>local</code> mode: Go&#39;s local is its <em>default</em> (data must exist for a later delayed prompt) and backs <code>gotelemetry view</code>. Podium asks at setup, when counters would be zero anyway — so local collection buys nothing and adds an objection surface. Off means off.</li>
+  <li><b>Consent is tri-state per tier: absent | on | off.</b> Absent (never asked) behaves as off; the distinction exists so setup knows to ask.</li>
+  <li><b>Asked only during <code>podium setup</code></b>, as the last step, after the machine already works — the only optional question must not gate a working install, and Ctrl-C there leaves a working install with telemetry off. Re-running setup asks again. Never prompted on bare <code>podium</code> (Homebrew&#39;s repeating-notice complaints).</li>
+  <li><b>Only hosts emit and only hosts are asked.</b> The server is the sole emitter; joined daemons/clients are covered by the hub&#39;s decision.</li>
+  <li><b>The example report is shown by default</b> in the prompt — the audience is developers, and the JSON documents itself better than prose about it. The prompt names the opt-out location (Settings → Privacy).</li>
+  <li><b>First-party relay, disclosed vendor.</b> Clients POST to a Podium-operated endpoint that drops the source IP and forwards to PostHog Cloud. <b>Relay source lives in the public repo</b>; deployment is in podium cloud. PostHog is named explicitly in the docs — undisclosed processors being <em>discovered</em> is the scandal pattern. The relay&#39;s real value is vendor abstraction: no third-party domain in firewall logs, and the vendor can be swapped server-side.</li>
+  <li><b>The relay URL is updatable via the signed update manifest.</b> Whoever controls the update channel can already ship arbitrary code, so a URL field adds no trust surface — but it stays subordinate to the consent toggles, and an unsigned response can never change it.</li>
+  <li><b>Telemetry state lives in <code>config.json</code></b>, not the settings blob, so <code>podium telemetry off</code> works whether or not the server runs. Consent is read fresh at flush time, so it takes effect without a restart.</li>
+</ul>
+
+<h3>Deferred</h3>
+<p>Public aggregate dashboard — worth doing as trust proof and social proof, but gate it on install count (small numbers read as failure, and small slices de-anonymize; suppress buckets below ~20). Self-hosted PostHog — the relay makes it a server-side-only change if scale or sentiment demands it.</p>
+
+<p>Design: <code>docs/internal/superpowers/specs/2026-07-16-telemetry-design.md</code>. See <a href="#spec:SP-7f2c">Open-source release &amp; distribution</a>.</p>
+</section>
