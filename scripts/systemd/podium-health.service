@@ -1,0 +1,18 @@
+[Unit]
+Description=Podium health probe — last-resort restart of a wedged-but-alive /health
+# Design intent: this probe is a LAST-RESORT backstop, not the primary recovery
+# mechanism. podium-server is Type=notify with WatchdogSec — a stalled event loop
+# stops petting the watchdog and systemd restarts it — and Restart=always covers
+# exits/crashes. The ONE case neither can see is a server whose loop still pets
+# the watchdog while HTTP serving is wedged; that is all this probe is for.
+# All false-kill protection lives in scripts/podium-health-probe.sh: skip unless
+# the unit is "active", a 120s boot-age grace (a freshly-booted server under
+# post-deploy load must never be killed), and two failed probes 15s apart with
+# the guards re-checked between them. The previous hand-installed probe had none
+# of these and restarted healthy servers on ~60% of deploys (POD-608).
+After=podium-server.service
+
+[Service]
+Type=oneshot
+Environment=PODIUM_PORT=18787
+ExecStart=/usr/bin/env bash /home/user/src/other/podium/scripts/podium-health-probe.sh
