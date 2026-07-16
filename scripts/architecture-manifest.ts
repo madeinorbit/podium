@@ -634,7 +634,13 @@ export function applyAllowlist(
   violations: readonly Violation[],
   allowlist: readonly AllowlistEntry[],
 ): AllowlistResult {
-  const key = (rule: string, file: string) => `${rule} ${file}`
+  // The separator is a real NUL, written as an ESCAPE on purpose. NUL cannot
+  // occur in a rule id or a path, so the key can never collide - but a literal
+  // NUL BYTE in the source makes `file`, grep and friends classify this module
+  // as binary, and plain grep then reports NOTHING and exits 1 rather than
+  // erroring. This file carried one for 8 commits and silently answered "no
+  // match" for code that was sitting right here.
+  const key = (rule: string, file: string) => `${rule}\u0000${file}`
   const allowed = new Map(allowlist.map((e) => [key(e.rule, e.file), e]))
   const seen = new Map<string, Violation[]>()
   for (const v of violations) {
