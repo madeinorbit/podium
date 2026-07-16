@@ -42,7 +42,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun --bun vitest run --passWithNoTests && bun run test:bun",
     "test:unit": "bun --bun vitest run --passWithNoTests --config vitest.unit.config.ts",
-    "test:multi-instance": "bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts && vitest run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh",
+    "test:multi-instance": "bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts && bun --bun vitest run scripts/managed-account-spawn.integration.test.ts && bash scripts/install-sh.test.sh",
     "test:bun": "bun test --conditions=@podium/source apps/daemon/test packages/runtime/test/sqlite.bun.test.ts scripts/lifecycle.integration.bun.test.ts --test-name-pattern ''",
     "test:bun:unit": "bun test --conditions=@podium/source packages/runtime/test/sqlite.bun.test.ts --test-name-pattern ''",
     "lint": "biome check . && bun run lint:boundaries && bun scripts/render-systemd.ts --check",
