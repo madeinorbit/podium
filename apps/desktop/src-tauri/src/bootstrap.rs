@@ -111,6 +111,45 @@ pub fn remote_injection_script(server_url: &str) -> String {
     )
 }
 
+/// JS shim injected into EVERY window (local and remote modes): route external http(s)
+/// URLs — `window.open('_blank')` calls and clicks on external anchors — to the OS
+/// browser via the opener plugin. The webview itself (WKWebView on macOS especially)
+/// silently drops those, so without this shim agent login links and other external
+/// links never open anything. Central here so no web-app caller needs Tauri awareness;
+/// the raw plugin invoke avoids adding a Tauri JS dependency to apps/web (same pattern
+/// as the __PODIUM_RESTART__ hook). `window.open` returns a stub WindowProxy-alike so
+/// callers that probe the return value (e.g. `opened.opener = null`) keep working.
+pub fn opener_shim_script() -> &'static str {
+    r#";(() => {
+  const t = window.__TAURI_INTERNALS__;
+  if (!t || typeof t.invoke !== 'function') return;
+  const externalHref = (raw) => {
+    try {
+      const u = new URL(raw, window.location.href);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      return u.origin === window.location.origin ? null : u.href;
+    } catch { return null; }
+  };
+  const openExternal = (href) => { t.invoke('plugin:opener|open_url', { url: href }).catch(() => {}); };
+  const nativeOpen = window.open.bind(window);
+  window.open = (url, target, features) => {
+    const href = url == null ? null : externalHref(String(url));
+    if (href === null) return nativeOpen(url, target, features);
+    openExternal(href);
+    return { closed: true, opener: null, close() {}, focus() {} };
+  };
+  document.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    const href = externalHref(a.href);
+    if (href === null) return;
+    e.preventDefault();
+    openExternal(href);
+  }, true);
+})();"#
+}
+
 /// Map a ws(s):// relay URL to the http(s):// URL the window should LOAD (ws→http, wss→https);
 /// an http/https URL passes through unchanged.
 pub fn webview_http_url(server_url: &str) -> String {
@@ -242,6 +281,16 @@ mod tests {
         assert!(s.contains("https://relay.example:55555"));
         assert!(s.contains("__PODIUM_SERVER__"));
         assert!(s.contains("__PODIUM_SKIP_SETUP__ = true"));
+    }
+
+    #[test]
+    fn opener_shim_routes_external_urls_via_opener_plugin() {
+        let s = opener_shim_script();
+        assert!(s.contains("plugin:opener|open_url"));
+        assert!(s.contains("window.open ="));
+        assert!(s.contains("addEventListener('click'"));
+        // Must be a no-op wherever the Tauri IPC bridge is absent (plain browsers/PWA).
+        assert!(s.contains("__TAURI_INTERNALS__"));
     }
 
     #[test]

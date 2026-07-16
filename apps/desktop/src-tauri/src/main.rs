@@ -114,8 +114,13 @@ fn native_desktop_hook() -> String {
     )
 }
 
+/// URLPattern for the origin the remote-mode window actually LOADS. The window is
+/// pointed at the ws(s) relay URL mapped to http(s) (see `remote_window_target`), so
+/// the capability pattern must be derived from that mapped URL — a raw `wss://…`
+/// origin would never match the page's `https://…` origin and the grant would be dead.
 fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
-    let url = tauri::Url::parse(server_url).map_err(|error| error.to_string())?;
+    let url = tauri::Url::parse(&bootstrap::webview_http_url(server_url))
+        .map_err(|error| error.to_string())?;
     Ok(format!("{}/*", url.origin().ascii_serialization()))
 }
 
@@ -135,8 +140,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         // Opener: hands external URLs (agent login links from the terminal) to the OS
-        // browser. The webview itself silently drops window.open/_blank navigations,
-        // so the web UI invokes plugin:opener|open_url when it detects Tauri.
+        // browser. The webview itself silently drops window.open/_blank navigations, so
+        // an injected shim routes them here (see bootstrap::opener_shim_script).
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
@@ -309,15 +314,25 @@ fn main() {
                     .permission("core:window:allow-toggle-maximize")
                     .permission("core:window:allow-minimize")
                     .permission("core:window:allow-close");
+            // External-link opener for the injected shim (see bootstrap::opener_shim_script).
+            // Runtime-granted next to the window-controls capability so remote-mode windows
+            // (which load the relay origin directly) get it too.
+            let mut opener_capability = tauri::ipc::CapabilityBuilder::new("external-link-opener")
+                .window("main")
+                .permission("opener:default");
             if let Some(server_url) = remote_window_server_url {
                 match remote_capability_pattern(&server_url) {
-                    Ok(pattern) => window_capability = window_capability.remote(pattern),
+                    Ok(pattern) => {
+                        window_capability = window_capability.remote(pattern.clone());
+                        opener_capability = opener_capability.remote(pattern);
+                    }
                     Err(error) => eprintln!(
                         "[podium-desktop] no remote window capability for invalid URL {server_url:?}: {error}"
                     ),
                 }
             }
             app.add_capability(window_capability)?;
+            app.add_capability(opener_capability)?;
 
             // Build the tray icon with Open / Quit menu items.
             let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
@@ -345,7 +360,11 @@ fn main() {
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
             let native_desktop_hook = native_desktop_hook();
-            let init = format!("{window_injection}\n{restart_hook}\n{native_desktop_hook}");
+            // External-link shim (ALL modes): route window.open/_blank to the OS browser.
+            let init = format!(
+                "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}",
+                bootstrap::opener_shim_script()
+            );
             std::thread::spawn(move || {
                 if let Some(port) = wait_local_port {
                     let ready = bootstrap::wait_for_port(port, 200, 150);
@@ -456,5 +475,19 @@ mod tests {
             Ok("https://podium.example:55555/*".to_string())
         );
         assert!(remote_capability_pattern("not a URL").is_err());
+    }
+
+    #[test]
+    fn remote_capability_pattern_uses_the_loaded_http_origin_for_ws_urls() {
+        // config.serverUrl is commonly ws(s)://; the window loads the http(s) mapping
+        // of it, so the capability must be granted to THAT origin.
+        assert_eq!(
+            remote_capability_pattern("wss://relay.example:55555"),
+            Ok("https://relay.example:55555/*".to_string())
+        );
+        assert_eq!(
+            remote_capability_pattern("ws://relay.example:18787"),
+            Ok("http://relay.example:18787/*".to_string())
+        );
     }
 }
