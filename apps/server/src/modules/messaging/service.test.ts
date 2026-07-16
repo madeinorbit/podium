@@ -67,12 +67,23 @@ interface Harness {
   inbound: (text: string) => void
   sent: Array<{ chatId: string; text: string }>
   sendTurn: ReturnType<typeof vi.fn>
+  interruptTurn: ReturnType<typeof vi.fn>
+  clear: ReturnType<typeof vi.fn>
+  registerCommands: ReturnType<typeof vi.fn>
 }
 
-function makeHarness(opts: { sendTurnImpl?: () => Promise<unknown> } = {}): Harness {
+function makeHarness(
+  opts: {
+    sendTurnImpl?: () => Promise<unknown>
+    issues?: { list(): Array<{ seq: number; title: string; stage: string }> }
+    interruptTurnImpl?: () => void
+    clearImpl?: () => void
+  } = {},
+): Harness {
   const bus = new EventBus()
   const sent: Array<{ chatId: string; text: string }> = []
   let onMessage: ((msg: InboundChatMessage) => void) | undefined
+  const registerCommands = vi.fn(async () => {})
   const adapter: ChannelAdapter = {
     channel: 'telegram',
     start: (cb) => {
@@ -82,11 +93,14 @@ function makeHarness(opts: { sendTurnImpl?: () => Promise<unknown> } = {}): Harn
     send: async (target, text) => {
       sent.push({ chatId: target.chatId, text })
     },
+    registerCommands,
   }
   const sendTurn = vi.fn(
     opts.sendTurnImpl ??
       (() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
   )
+  const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
+  const clear = vi.fn(opts.clearImpl ?? (() => {}))
   const service = new MessagingService({
     bus,
     getSettings: () =>
@@ -98,7 +112,12 @@ function makeHarness(opts: { sendTurnImpl?: () => Promise<unknown> } = {}): Harn
           telegramChatId: '42',
         },
       }) as never,
-    superagent: { sendTurn: sendTurn as never },
+    superagent: {
+      sendTurn: sendTurn as never,
+      interruptTurn: interruptTurn as never,
+      clear: clear as never,
+    },
+    ...(opts.issues ? { issues: opts.issues } : {}),
     createTelegram: () => adapter,
   })
   service.configure()
@@ -107,6 +126,9 @@ function makeHarness(opts: { sendTurnImpl?: () => Promise<unknown> } = {}): Harn
     bus,
     sent,
     sendTurn,
+    interruptTurn,
+    clear,
+    registerCommands,
     inbound: (text) =>
       onMessage?.({ source: { channel: 'telegram', chatId: '42' }, text }),
   }
@@ -205,5 +227,104 @@ describe('MessagingService', () => {
     })
     await flush()
     expect(h.sent[0]!.text).toContain('harness died')
+  })
+
+  it('registers slash commands when the adapter starts', () => {
+    const h = makeHarness()
+    expect(h.registerCommands).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes /help locally without dispatching a turn', async () => {
+    const h = makeHarness()
+    h.inbound('/help')
+    await flush()
+    expect(h.sendTurn).not.toHaveBeenCalled()
+    expect(h.sent[0]!.text).toContain('/issues')
+  })
+
+  it('routes /stop to interruptTurn', async () => {
+    const h = makeHarness()
+    h.inbound('/stop')
+    await flush()
+    expect(h.interruptTurn).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(h.sendTurn).not.toHaveBeenCalled()
+  })
+
+  it('routes /new to clear and drops the inbound queue', async () => {
+    const h = makeHarness()
+    h.inbound('queued')
+    await flush()
+    h.inbound('/new')
+    await flush()
+    expect(h.clear).toHaveBeenCalledWith('global')
+    expect(h.sent.at(-1)!.text).toContain('reset')
+    h.bus.emit('superagent.turnEnded', {
+      threadId: 'global',
+      podiumSessionId: 'ps1',
+      ok: true,
+      output: 'stale',
+    })
+    await flush()
+    expect(h.sendTurn).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes /issues active through the issue list', async () => {
+    const h = makeHarness({
+      issues: {
+        list: () =>
+          [
+            {
+              id: 'i1',
+              seq: 9,
+              displayRef: 'POD-9',
+              title: 'Slash commands',
+              stage: 'in_progress',
+              description: '',
+              repoPath: '/p',
+              worktreePath: null,
+              branch: null,
+              parentBranch: '',
+              defaultAgent: 'grok',
+              defaultModel: 'auto',
+              defaultEffort: 'auto',
+              blockedBy: [],
+              priority: 2,
+              type: 'task',
+              pinned: false,
+              needsHuman: false,
+              labels: [],
+              deps: [],
+              dependents: [],
+              ready: true,
+              blocked: false,
+              deferred: false,
+              childCount: 0,
+              childDoneCount: 0,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-07-16T00:00:00.000Z',
+              archived: false,
+              readAt: null,
+              unread: false,
+              origin: 'human',
+              audience: 'human',
+              draft: false,
+              sessions: [],
+              sessionSummary: { live: 0, total: 0 },
+            },
+          ] as never,
+      },
+    })
+    h.inbound('/issues active')
+    await flush()
+    expect(h.sendTurn).not.toHaveBeenCalled()
+    expect(h.sent[0]!.text).toContain('POD-9 Slash commands')
+  })
+
+  it('still dispatches unknown slash commands to the superagent', async () => {
+    const h = makeHarness()
+    h.inbound('/model opus')
+    await flush()
+    expect(h.sendTurn).toHaveBeenCalledTimes(1)
+    expect(h.sendTurn.mock.calls[0]![0]!.text).toContain('/model opus')
   })
 })

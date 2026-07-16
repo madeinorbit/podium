@@ -1,5 +1,7 @@
+import type { IssueWire } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
+import { formatIssues, HELP_TEXT, parseSlashCommand } from './commands'
 import { TelegramChannel } from './telegram'
 import type { ChannelAdapter, ConversationRef, InboundChatMessage } from './types'
 
@@ -10,12 +12,16 @@ export interface SuperagentTurnPort {
     threadId: string
     text: string
   }): Promise<{ threadId: string; podiumSessionId: string }>
+  interruptTurn(input: { threadId: string }): void
+  clear(threadId?: string): void
 }
 
 export interface MessagingDeps {
   bus: EventBus
   getSettings(): PodiumSettings
   superagent: SuperagentTurnPort
+  /** Issue list for /issues slash commands. */
+  issues?: { list(): IssueWire[] }
   /** True while the settings telegram-setup pairing window owns getUpdates. */
   telegramSetupPending?: () => boolean
   /** Adapter factory — injected in tests. */
@@ -79,6 +85,12 @@ export class MessagingService {
         new TelegramChannel(config, this.deps.telegramSetupPending ?? (() => false)))
     this.adapter = create({ botToken, chatId })
     this.adapter.start((msg) => this.onInbound(msg))
+    void this.adapter.registerCommands?.().catch((err) => {
+      console.warn(
+        '[podium:messaging] command menu registration failed:',
+        err instanceof Error ? err.message : err,
+      )
+    })
     console.log('[podium:messaging] telegram bridge polling as configured chat', chatId)
   }
 
@@ -94,6 +106,12 @@ export class MessagingService {
   }
 
   private onInbound(msg: InboundChatMessage): void {
+    const slash = parseSlashCommand(msg.text)
+    if (slash) {
+      const threadId = this.resolveThreadId(msg)
+      void this.handleSlash(threadId, msg.source, slash)
+      return
+    }
     const threadId = this.resolveThreadId(msg)
     const queue = this.queues.get(threadId) ?? []
     if (queue.length >= QUEUE_CAP) {
@@ -137,6 +155,51 @@ export class MessagingService {
         void this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
         this.pump(threadId)
       })
+  }
+
+  private async handleSlash(
+    threadId: string,
+    source: ConversationRef,
+    slash: { command: string; args: string[] },
+  ): Promise<void> {
+    try {
+      switch (slash.command) {
+        case 'help':
+          await this.reply(source, HELP_TEXT)
+          return
+        case 'issues': {
+          const list = this.deps.issues?.list()
+          if (!list) {
+            await this.reply(source, 'Issue list is unavailable.')
+            return
+          }
+          await this.reply(source, formatIssues(list, slash.args[0]))
+          return
+        }
+        case 'stop':
+          try {
+            this.deps.superagent.interruptTurn({ threadId })
+            await this.reply(source, 'Stopping the current turn…')
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            await this.reply(source, `⚠️ ${message}`)
+          }
+          return
+        case 'new':
+          try {
+            this.deps.superagent.clear(threadId)
+            this.queues.delete(threadId)
+            await this.reply(source, 'Superagent thread reset — next message starts fresh.')
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            await this.reply(source, `⚠️ ${message}`)
+          }
+          return
+      }
+    } catch (err) {
+      console.warn('[podium:messaging] slash command failed:', err)
+      await this.reply(source, '⚠️ Command failed — try again or use /help.')
+    }
   }
 
   private turnText(msg: QueuedInbound): string {

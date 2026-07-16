@@ -1,3 +1,4 @@
+export { HELP_TEXT, formatIssues, parseSlashCommand } from './commands'
 export { MessagingService } from './service'
 export type { MessagingDeps, SuperagentTurnPort } from './service'
 export { TelegramChannel, chunkTelegramText, parseTelegramUpdates } from './telegram'

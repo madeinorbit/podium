@@ -204,6 +204,7 @@ export async function startServer(
     bus: registry.modules.bus,
     getSettings: () => store.settings.getSettings(),
     superagent,
+    issues: registry.modules.issues,
     telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
   })
   messaging.configure()

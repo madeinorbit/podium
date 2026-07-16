@@ -221,6 +221,17 @@ export class TelegramChannel implements ChannelAdapter {
       action: 'typing',
     }).catch(() => {})
   }
+
+  async registerCommands(): Promise<void> {
+    await this.call('setMyCommands', {
+      commands: [
+        { command: 'help', description: 'List available commands' },
+        { command: 'issues', description: 'Active or recent issues' },
+        { command: 'stop', description: 'Interrupt the running turn' },
+        { command: 'new', description: 'Reset the superagent thread' },
+      ],
+    })
+  }
 }
 
 function sleep(ms: number): Promise<void> {
