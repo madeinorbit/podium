@@ -141,6 +141,22 @@ describe('closeServerFast', () => {
     sock.destroy()
   })
 
+  it('http close that never fires its callback still resolves within httpCloseGraceMs', async () => {
+    // Bun can leave upgraded WebSocket sockets counted forever; the callback never
+    // runs even after closeAllConnections. Awaiters (e2e afterAll, hub restart)
+    // must not hang — persistence already ran above.
+    const persisted = vi.fn()
+    const t0 = Date.now()
+    await closeServerFast({
+      closeWebSockets: () => Promise.resolve(),
+      server: { close: vi.fn() } as never, // callback never fires
+      persist: [['store.close', persisted]],
+      httpCloseGraceMs: 30,
+    })
+    expect(persisted).toHaveBeenCalledTimes(1)
+    expect(Date.now() - t0).toBeLessThan(200)
+  })
+
   it('under bootProcess: persistence runs and exit(0) lands within the backstop even if http close hangs', async () => {
     // End-to-end with the boot kernel, server-style: a close whose network
     // stage never settles (no closeAllConnections, no close callback) must

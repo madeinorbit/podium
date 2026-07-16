@@ -15,9 +15,12 @@
  *     Awaited only up to a short grace so a pathological hang can't block 2.
  *  2. Persist: run every persistence step, in order, each in try/catch — one
  *     failure logs and continues, and no step depends on any socket draining.
- *  3. Force-close the network: server.close() stops accepting, then
- *     closeAllConnections() destroys lingering sockets so the close callback
- *     fires immediately (verified present + effective on Bun 1.3 and Node 18+).
+ *  3. Force-close the network: server.close() stops accepting (the listen port
+ *     is released even while upgraded sockets linger), then closeAllConnections()
+ *     destroys keep-alive HTTP sockets. The close callback is also raced against
+ *     a short grace: under Bun, upgraded WebSocket sockets can remain counted
+ *     forever despite terminate()/closeAllConnections(), so awaiting the callback
+ *     alone hangs tests and same-port restarts that `await server.close()`.
  */
 import type { Server } from 'node:http'
 
@@ -36,12 +39,19 @@ export interface CloseServerDeps {
   persist: readonly PersistStep[]
   /** Max wait for the WS close to settle before persisting anyway. Default 250ms. */
   wsCloseGraceMs?: number
+  /**
+   * Max wait for `server.close()`'s callback after force-close. Default 250ms.
+   * The listen port is released by `close()` itself; this only bounds awaiters
+   * when the runtime never drains upgraded sockets (Bun + WebSocket).
+   */
+  httpCloseGraceMs?: number
   logError?: (msg: string) => void
 }
 
 export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
   const logError = deps.logError ?? ((msg) => console.error(msg))
   const grace = deps.wsCloseGraceMs ?? 250
+  const httpGrace = deps.httpCloseGraceMs ?? 250
 
   // 1. Stop intake FIRST so no new writes race the store close below. The
   //    terminate() calls inside ws.close() run synchronously on invocation;
@@ -75,12 +85,27 @@ export async function closeServerFast(deps: CloseServerDeps): Promise<void> {
   }
 
   // 3. Force-close the network. close() alone would wait (potentially forever)
-  //    for keep-alive sockets to drain; closeAllConnections() destroys them so
-  //    the callback fires immediately. If a runtime ever lacks it, the boot
-  //    kernel's closeTimeoutMs backstop still bounds the wait — with all state
-  //    already persisted above.
+  //    for keep-alive / upgraded sockets to drain; closeAllConnections() clears
+  //    ordinary keep-alives. Bound the callback wait so a runtime that never
+  //    drains upgraded WS sockets cannot hang awaiters — the listen port is
+  //    already released by close(), so same-port restart still works.
   await new Promise<void>((resolve) => {
-    deps.server.close(() => resolve())
-    deps.server.closeAllConnections?.()
+    let settled = false
+    let httpTimer: ReturnType<typeof setTimeout> | undefined
+    const finish = (): void => {
+      if (settled) return
+      settled = true
+      if (httpTimer !== undefined) clearTimeout(httpTimer)
+      resolve()
+    }
+    try {
+      deps.server.close(() => finish())
+      deps.server.closeAllConnections?.()
+    } catch (err) {
+      logError(`[podium:server] http close threw during shutdown: ${String(err)}`)
+      finish()
+      return
+    }
+    httpTimer = setTimeout(finish, httpGrace)
   })
 }
