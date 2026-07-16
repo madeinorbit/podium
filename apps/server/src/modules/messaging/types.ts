@@ -32,6 +32,4 @@ export interface ChannelAdapter {
   send(target: ConversationRef, text: string): Promise<void>
   /** Best-effort "the agent is typing" signal; optional per platform. */
   sendTyping?(target: ConversationRef): void
-  /** Register the platform's command menu (e.g. Telegram setMyCommands). */
-  registerCommands?(): Promise<void>
 }

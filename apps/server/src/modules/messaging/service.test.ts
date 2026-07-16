@@ -68,8 +68,8 @@ interface Harness {
   sent: Array<{ chatId: string; text: string }>
   sendTurn: ReturnType<typeof vi.fn>
   interruptTurn: ReturnType<typeof vi.fn>
-  clear: ReturnType<typeof vi.fn>
-  registerCommands: ReturnType<typeof vi.fn>
+  restartThread: ReturnType<typeof vi.fn>
+  registerTelegramCommands: ReturnType<typeof vi.fn>
 }
 
 function makeHarness(
@@ -77,13 +77,13 @@ function makeHarness(
     sendTurnImpl?: () => Promise<unknown>
     issues?: { list(): Array<{ seq: number; title: string; stage: string }> }
     interruptTurnImpl?: () => void
-    clearImpl?: () => void
+    restartThreadImpl?: () => void
   } = {},
 ): Harness {
   const bus = new EventBus()
   const sent: Array<{ chatId: string; text: string }> = []
   let onMessage: ((msg: InboundChatMessage) => void) | undefined
-  const registerCommands = vi.fn(async () => {})
+  const registerTelegramCommands = vi.fn(async () => {})
   const adapter: ChannelAdapter = {
     channel: 'telegram',
     start: (cb) => {
@@ -93,14 +93,13 @@ function makeHarness(
     send: async (target, text) => {
       sent.push({ chatId: target.chatId, text })
     },
-    registerCommands,
   }
   const sendTurn = vi.fn(
     opts.sendTurnImpl ??
       (() => Promise.resolve({ threadId: 'global', podiumSessionId: 'ps1' })),
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
-  const clear = vi.fn(opts.clearImpl ?? (() => {}))
+  const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
   const service = new MessagingService({
     bus,
     getSettings: () =>
@@ -115,10 +114,11 @@ function makeHarness(
     superagent: {
       sendTurn: sendTurn as never,
       interruptTurn: interruptTurn as never,
-      clear: clear as never,
+      restartThread: restartThread as never,
     },
     ...(opts.issues ? { issues: opts.issues } : {}),
     createTelegram: () => adapter,
+    registerTelegramCommands,
   })
   service.configure()
   return {
@@ -127,8 +127,8 @@ function makeHarness(
     sent,
     sendTurn,
     interruptTurn,
-    clear,
-    registerCommands,
+    restartThread,
+    registerTelegramCommands,
     inbound: (text) =>
       onMessage?.({ source: { channel: 'telegram', chatId: '42' }, text }),
   }
@@ -229,9 +229,10 @@ describe('MessagingService', () => {
     expect(h.sent[0]!.text).toContain('harness died')
   })
 
-  it('registers slash commands when the adapter starts', () => {
+  it('registers slash commands via setMyCommands when the adapter starts', () => {
     const h = makeHarness()
-    expect(h.registerCommands).toHaveBeenCalledTimes(1)
+    expect(h.registerTelegramCommands).toHaveBeenCalledTimes(1)
+    expect(h.registerTelegramCommands).toHaveBeenCalledWith('tok')
   })
 
   it('routes /help locally without dispatching a turn', async () => {
@@ -250,14 +251,14 @@ describe('MessagingService', () => {
     expect(h.sendTurn).not.toHaveBeenCalled()
   })
 
-  it('routes /new to clear and drops the inbound queue', async () => {
+  it('routes /new to restartThread and drops the inbound queue', async () => {
     const h = makeHarness()
     h.inbound('queued')
     await flush()
     h.inbound('/new')
     await flush()
-    expect(h.clear).toHaveBeenCalledWith('global')
-    expect(h.sent.at(-1)!.text).toContain('reset')
+    expect(h.restartThread).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(h.sent.at(-1)!.text).toContain('restarted')
     h.bus.emit('superagent.turnEnded', {
       threadId: 'global',
       podiumSessionId: 'ps1',

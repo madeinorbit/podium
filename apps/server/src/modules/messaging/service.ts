@@ -1,7 +1,7 @@
 import type { IssueWire } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
-import { formatIssues, HELP_TEXT, parseSlashCommand } from './commands'
+import { formatIssues, HELP_TEXT, parseSlashCommand, registerTelegramCommands } from './commands'
 import { TelegramChannel } from './telegram'
 import type { ChannelAdapter, ConversationRef, InboundChatMessage } from './types'
 
@@ -13,7 +13,7 @@ export interface SuperagentTurnPort {
     text: string
   }): Promise<{ threadId: string; podiumSessionId: string }>
   interruptTurn(input: { threadId: string }): void
-  clear(threadId?: string): void
+  restartThread(input: { threadId: string }): void
 }
 
 export interface MessagingDeps {
@@ -26,6 +26,8 @@ export interface MessagingDeps {
   telegramSetupPending?: () => boolean
   /** Adapter factory — injected in tests. */
   createTelegram?: (config: { botToken: string; chatId: string }) => ChannelAdapter
+  /** Telegram setMyCommands — injected in tests. */
+  registerTelegramCommands?: (botToken: string) => Promise<void>
 }
 
 interface QueuedInbound {
@@ -85,7 +87,8 @@ export class MessagingService {
         new TelegramChannel(config, this.deps.telegramSetupPending ?? (() => false)))
     this.adapter = create({ botToken, chatId })
     this.adapter.start((msg) => this.onInbound(msg))
-    void this.adapter.registerCommands?.().catch((err) => {
+    const register = this.deps.registerTelegramCommands ?? registerTelegramCommands
+    void register(botToken).catch((err) => {
       console.warn(
         '[podium:messaging] command menu registration failed:',
         err instanceof Error ? err.message : err,
@@ -187,9 +190,9 @@ export class MessagingService {
           return
         case 'new':
           try {
-            this.deps.superagent.clear(threadId)
+            this.deps.superagent.restartThread({ threadId })
             this.queues.delete(threadId)
-            await this.reply(source, 'Superagent thread reset — next message starts fresh.')
+            await this.reply(source, 'Superagent thread restarted — next message uses a fresh harness session.')
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             await this.reply(source, `⚠️ ${message}`)

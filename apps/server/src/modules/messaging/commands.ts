@@ -93,10 +93,31 @@ export function formatIssues(issues: IssueWire[], mode: string | undefined): str
   }
 }
 
+export const TELEGRAM_COMMANDS = [
+  { command: 'help', description: 'List available commands' },
+  { command: 'issues', description: 'Active or recent issues' },
+  { command: 'stop', description: 'Interrupt the running turn' },
+  { command: 'new', description: 'Restart the superagent thread' },
+] as const
+
+/** Register the bot command menu via Telegram setMyCommands. */
+export async function registerTelegramCommands(botToken: string): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken.trim()}/setMyCommands`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ commands: TELEGRAM_COMMANDS }),
+  })
+  const parsed = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string }
+  if (res.ok && parsed.ok === true) return
+  const description =
+    typeof parsed.description === 'string' ? parsed.description : `HTTP ${res.status}`
+  throw new Error(description)
+}
+
 export const HELP_TEXT = `Podium Telegram commands:
 /help — this message
 /issues [active|recent|ready] — issue list (default: active)
 /stop — interrupt the running superagent turn
-/new — reset the superagent thread (fresh context)
+/new — restart the superagent harness (fresh session on next message)
 
 Anything else is sent to the superagent.`
