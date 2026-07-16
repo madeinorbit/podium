@@ -1,16 +1,9 @@
 /**
- * Schema convergence [spec:SP-4428]: a fresh drizzle-built database and an
- * existing (pre-drizzle) database bridged onto drizzle end up with the same
- * DATA schema, and the bridge never re-runs the baseline it stamps.
- *
- * The comparison excludes the two migration ledgers (`schema_version`,
- * `__drizzle_migrations`) — a bridged DB keeps the legacy `schema_version`
- * table (never dropped) and gains the stamped baseline; a fresh DB never has
- * `schema_version` at all. Those ledgers legitimately differ; the data schema
- * must not. The bridge comparison additionally excludes the FTS5 objects
- * (`*_fts`, its shadow tables, and the `conversations_a{i,d,u}` triggers) —
- * `ConversationsRepository.ensureFts()` creates those idempotently on every
- * boot, so a pre-boot snapshot never has them yet.
+ * Schema convergence [spec:SP-4428]: a fresh drizzle-built database has the full
+ * production data schema, and reopening it is idempotent. The comparison
+ * excludes the `__drizzle_migrations` ledger and the FTS5 objects (`*_fts`, its
+ * shadow tables, and the `conversations_a{i,d,u}` triggers), which
+ * `ConversationsRepository.ensureFts()` creates idempotently on every boot.
  */
 
 import { mkdtempSync } from 'node:fs'
@@ -20,7 +13,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from '../store'
 import { BASELINE_MIGRATION } from './drizzle-manifest.generated'
-import { appliedDrizzleNames, BASELINE_LEGACY_VERSION } from './index'
+import { appliedDrizzleNames } from './index'
 
 interface SchemaRow {
   type: string
@@ -87,62 +80,5 @@ describe('fresh drizzle-built database', () => {
     new SessionStore(file).close()
 
     expect(schemaOf(file)).toEqual(before)
-  })
-})
-
-describe('bridging an existing (pre-drizzle) database onto drizzle', () => {
-  it('preserves the existing data schema and data, and stamps (never re-executes) the baseline', () => {
-    const file = tmpDbFile('bridge.db')
-    {
-      const db: SqlDatabase = openDatabase(file)
-      for (const stmt of BASELINE_MIGRATION.sql.split('--> statement-breakpoint')) {
-        db.exec(stmt)
-      }
-      db.exec(
-        `CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT)`,
-      )
-      db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)').run(
-        BASELINE_LEGACY_VERSION,
-        'session-geometry',
-        new Date().toISOString(),
-      )
-      db.prepare(
-        `INSERT INTO sessions
-           (id, agent_kind, cwd, title, origin_kind, status, durable_label, created_at, last_active_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'sess_seed',
-        'claude-code',
-        '/tmp/x',
-        'seed session',
-        'spawn',
-        'exited',
-        'seed',
-        't',
-        't',
-      )
-      db.close()
-    }
-
-    const before = dataSchemaOf(file)
-
-    const store = new SessionStore(file)
-    store.close()
-
-    const db = openDatabase(file)
-    const seeded = db.prepare('SELECT title FROM sessions WHERE id = ?').get('sess_seed') as
-      | { title: string }
-      | undefined
-    expect(seeded?.title).toBe('seed session')
-    // The legacy schema_version ledger survives untouched (never dropped)...
-    expect(db.prepare(`SELECT version FROM schema_version`).get()).toEqual({
-      version: BASELINE_LEGACY_VERSION,
-    })
-    // ...and the baseline is now recorded in the drizzle ledger too, by STAMP —
-    // its DDL never re-ran (the seeded row above proves the table wasn't rebuilt).
-    expect(appliedDrizzleNames(db)).toEqual(new Set([BASELINE_MIGRATION.name]))
-    db.close()
-
-    expect(dataSchemaOf(file)).toEqual(before)
   })
 })

@@ -33,8 +33,8 @@ import { dirname, join } from 'node:path'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { migrateDatabase } from './migrations/index'
-import { BASELINE_MIGRATION, DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { runDrizzleMigrations } from './migrations/index'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
@@ -100,11 +100,9 @@ export class SessionStore {
     // Schema migration [spec:SP-4428]. drizzle-kit AUTHORS migrations; this boot
     // APPLIES them with drizzle-orm's own bun:sqlite migrator, on THIS connection
     // (so the foreign_keys = OFF window covers it). Schema DDL lives ONLY in
-    // src/migrations/. `migrateDatabase` bridges a pre-drizzle database onto the
-    // ledger (stamp the baseline if it is exactly at the adoption version; refuse
-    // loudly if it is behind — the legacy chain that would heal it is gone), a
-    // fresh file is built by the baseline, and pending migrations then apply.
-    const applied = migrateDatabase(this.db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION, {
+    // src/migrations/. A fresh file is built by the baseline; an existing drizzle
+    // database advances by any pending migrations.
+    const applied = runDrizzleMigrations(this.db, DRIZZLE_MIGRATIONS, {
       dbPath: path === ':memory:' ? undefined : path,
     })
     // Say what the schema actually did — a silently-skipped migration (#472)

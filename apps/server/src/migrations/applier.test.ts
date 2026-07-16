@@ -1,7 +1,7 @@
 /**
- * Applier unit tests [spec:SP-4428]: `runDrizzleMigrations` / `stampMigration` /
- * `appliedDrizzleNames` / `migrateDatabase` against SYNTHETIC migrations, so the
- * behavior under test is the applier + bridge logic itself, never the real
+ * Applier unit tests [spec:SP-4428]: `runDrizzleMigrations` / `appliedDrizzleNames`
+ * against SYNTHETIC migrations, so the behavior under test is the applier logic
+ * itself, never the real
  * (60+ table) production schema — that convergence is covered separately in
  * convergence.test.ts. Every assertion reads the SCHEMA or the
  * `__drizzle_migrations` ledger back from SQLite; a bare return-value check is
@@ -13,15 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { BASELINE_MIGRATION, DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import {
-  appliedDrizzleNames,
-  BASELINE_LEGACY_VERSION,
-  type DrizzleMigration,
-  migrateDatabase,
-  runDrizzleMigrations,
-  stampMigration,
-} from './index'
+import { appliedDrizzleNames, type DrizzleMigration, runDrizzleMigrations } from './index'
 
 const A: DrizzleMigration = {
   name: '20260101000000_a',
@@ -134,143 +126,6 @@ describe('runDrizzleMigrations', () => {
     runDrizzleMigrations(db, [A, B], { dbPath: file })
     expect(backupsIn().length).toBeGreaterThan(0)
 
-    db.close()
-  })
-})
-
-describe('stampMigration', () => {
-  it('records a migration as applied WITHOUT running its SQL', () => {
-    const db = openDatabase(':memory:')
-
-    expect(stampMigration(db, A)).toBe(true)
-    expect(hasTable(db, 'a')).toBe(false) // never executed
-    expect(appliedDrizzleNames(db)).toEqual(new Set([A.name]))
-
-    // A later run skips it by name — the ledger entry alone is enough.
-    const applied = runDrizzleMigrations(db, [A, B])
-    expect(applied).toEqual([B.name])
-    expect(hasTable(db, 'a')).toBe(false)
-    expect(hasTable(db, 'b')).toBe(true)
-    db.close()
-  })
-
-  it('returns false when the migration is already recorded', () => {
-    const db = openDatabase(':memory:')
-    expect(stampMigration(db, A)).toBe(true)
-    expect(stampMigration(db, A)).toBe(false)
-    expect(appliedDrizzleNames(db)).toEqual(new Set([A.name]))
-    db.close()
-  })
-})
-
-describe('migrateDatabase bridge', () => {
-  function isoNow(): string {
-    return new Date().toISOString()
-  }
-
-  function execBaselineDDL(db: SqlDatabase): void {
-    for (const stmt of BASELINE_MIGRATION.sql.split('--> statement-breakpoint')) {
-      db.exec(stmt)
-    }
-  }
-
-  function stampLegacyVersion(db: SqlDatabase, version: number, name: string): void {
-    db.exec(
-      `CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT)`,
-    )
-    db.prepare('INSERT INTO schema_version (version, name, applied_at) VALUES (?, ?, ?)').run(
-      version,
-      name,
-      isoNow(),
-    )
-  }
-
-  it('empty :memory: builds the baseline (and any pending migrations past it)', () => {
-    const db = openDatabase(':memory:')
-    const applied = migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)
-
-    expect(applied).toContain(BASELINE_MIGRATION.name)
-    expect(hasTable(db, 'sessions')).toBe(true)
-    expect(appliedDrizzleNames(db)).toContain(BASELINE_MIGRATION.name)
-    db.close()
-  })
-
-  it('EXISTING at exactly BASELINE_LEGACY_VERSION: stamps the baseline, preserves data, never re-executes it', () => {
-    const db = openDatabase(':memory:')
-    execBaselineDDL(db)
-    stampLegacyVersion(db, BASELINE_LEGACY_VERSION, 'session-geometry')
-    db.prepare(`INSERT INTO meta (key, value) VALUES ('seed', 'still-here')`).run()
-
-    const applied = migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)
-
-    // Nothing was "applied" in the executed sense — the baseline was stamped,
-    // and (with only the baseline in the manifest) there is nothing pending
-    // past it.
-    expect(applied).toEqual([])
-    expect(appliedDrizzleNames(db)).toEqual(new Set([BASELINE_MIGRATION.name]))
-    expect(db.prepare(`SELECT value FROM meta WHERE key = 'seed'`).get()).toEqual({
-      value: 'still-here',
-    })
-    db.close()
-  })
-
-  it('SELF-HEALS an empty ledger from a crashed adoption instead of re-running the baseline', () => {
-    const db = openDatabase(':memory:')
-    execBaselineDDL(db)
-    stampLegacyVersion(db, BASELINE_LEGACY_VERSION, 'session-geometry')
-    db.prepare(`INSERT INTO meta (key, value) VALUES ('seed', 'still-here')`).run()
-    // Simulate a crash during the first adoption boot: the ledger table exists
-    // but is EMPTY (the stamp's INSERT never committed). A discriminator keyed on
-    // table PRESENCE would skip the bridge and try to RE-RUN the baseline against
-    // the already-built schema — 'table sessions already exists' — wedging every
-    // future boot. The empty-ledger check re-enters the bridge and re-stamps.
-    db.exec(
-      `CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`,
-    )
-
-    const applied = migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)
-
-    expect(applied).toEqual([])
-    expect(appliedDrizzleNames(db)).toEqual(new Set([BASELINE_MIGRATION.name]))
-    expect(db.prepare(`SELECT value FROM meta WHERE key = 'seed'`).get()).toEqual({
-      value: 'still-here',
-    })
-    db.close()
-  })
-
-  it('BEHIND BASELINE_LEGACY_VERSION: refuses — the legacy chain that would heal it is gone', () => {
-    const db = openDatabase(':memory:')
-    execBaselineDDL(db)
-    stampLegacyVersion(db, BASELINE_LEGACY_VERSION - 1, 'pre-baseline')
-
-    expect(() => migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)).toThrow(
-      /run the last pre-drizzle/i,
-    )
-    // The guard fires before the ledger table is even created.
-    expect(hasTable(db, '__drizzle_migrations')).toBe(false)
-    db.close()
-  })
-
-  it('AHEAD of BASELINE_LEGACY_VERSION: refuses — downgrade', () => {
-    const db = openDatabase(':memory:')
-    execBaselineDDL(db)
-    stampLegacyVersion(db, BASELINE_LEGACY_VERSION + 1, 'future')
-
-    expect(() => migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)).toThrow(
-      /newer than this build.?s baseline|downgrade/i,
-    )
-    expect(hasTable(db, '__drizzle_migrations')).toBe(false)
-    db.close()
-  })
-
-  it('data tables but neither ledger: refuses as unrecognized', () => {
-    const db = openDatabase(':memory:')
-    db.exec('CREATE TABLE mystery (id TEXT PRIMARY KEY)')
-
-    expect(() => migrateDatabase(db, DRIZZLE_MIGRATIONS, BASELINE_MIGRATION)).toThrow(
-      /unrecognized/i,
-    )
-    expect(hasTable(db, '__drizzle_migrations')).toBe(false)
     db.close()
   })
 })

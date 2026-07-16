@@ -10,10 +10,8 @@
  * dropping mirrored parent-child dep rows, folding the retired `verifying`
  * stage back into `review`) tested one-time DATA heals that ran as part of
  * the now-deleted legacy migration chain. That chain — and the
- * `legacy-schema.fixture` it seeded — is gone [spec:SP-4428], and the
- * adoption bridge (`migrateDatabase`) only ever STAMPS an existing database
- * at the frozen baseline; it never re-heals data. There is no fresh-schema
- * equivalent for those tests, so they are dropped rather than adapted.
+ * `legacy-schema.fixture` it seeded — is gone [spec:SP-4428]. There is no
+ * fresh-schema equivalent for those tests, so they are dropped, not adapted.
  */
 
 import { describe, expect, it } from 'vitest'
