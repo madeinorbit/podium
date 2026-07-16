@@ -394,9 +394,8 @@ export class MessagingService implements TelegramNoticePort {
           await this.adapter?.answerCallback?.(cb.id, 'Topic mode not enabled for this bot')
           await this.reply(
             { channel: msg.source.channel, chatId: msg.source.chatId },
-            'Telegram has not enabled topic mode for this bot yet (getMe.has_topics_enabled ' +
-              'is false — a bot-level Telegram setting still rolling out, not a chat setting). ' +
-              'Until it is available, issue topics need a Telegram group with Topics enabled.',
+            'Topic mode is off for this bot: enable it in @BotFather → /mybots → ' +
+              'select this bot → Bot Settings → "Thread mode". Then tap the issue button again.',
           )
           return
         }

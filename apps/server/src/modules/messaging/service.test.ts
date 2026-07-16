@@ -684,7 +684,7 @@ describe('MessagingService', () => {
     await flush()
     expect(h.answerCallback).toHaveBeenCalledWith('cb3', 'Topic mode not enabled for this bot')
     expect(h.sent).toHaveLength(1)
-    expect(h.sent[0]!.text).toContain('topic mode')
+    expect(h.sent[0]!.text).toContain('Thread mode')
     expect(h.sent[0]!.threadRef).toBeUndefined()
   })
 
