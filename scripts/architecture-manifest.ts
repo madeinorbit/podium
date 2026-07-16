@@ -420,8 +420,19 @@ export function loadHarnessLiterals(repoRoot: string): string[] {
  * `'cursor'` alone is hopeless: the repo compares CSS cursors and pagination
  * cursors too. Deliberately narrow — a miss is a warn-mode gap, a false positive
  * would pollute the allowlist with noise nobody can act on.
+ *
+ * `provider` is deliberately NOT here. `ApiProvider` (settings.ts) is a separate
+ * enum — `['openrouter','anthropic','openai','codex']` — that happens to share
+ * the literal 'codex' with HarnessAgent, and resolving exactly that kind of
+ * same-literal collision is what this guard is FOR. Including it would flag
+ * `backend.provider === 'codex'` (an ApiProvider) while still missing
+ * `switch (p) { case 'codex': }` in providerLabel — the same type, one variable
+ * named `provider` and one named `p`. Coverage that depends on a variable's name
+ * for a type it doesn't hold is arbitrary, so the rule tracks HarnessAgent
+ * identity only. Codex-the-provider's variance is real but is POD-292's broader
+ * "confine agent-CLI variance to the harness layer", not this axiom.
  */
-const HARNESS_CONTEXT_RE = /harness|agent|kind|provider/i
+const HARNESS_CONTEXT_RE = /harness|agent|kind/i
 
 /** `switch (DISC)` governing the `case` at `index`, or null. */
 function enclosingSwitchDiscriminant(stripped: string, index: number): string | null {

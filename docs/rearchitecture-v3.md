@@ -480,13 +480,20 @@ browser-safe nor node-only. The workspace-granular tag cannot see subpaths: lega
 8a covers `@podium/runtime` only, which is why the identical hole in `@podium/telemetry`
 is filed as POD-745 rather than papered over.
 
-**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 50 known
-violations with per-(rule, file) COUNTS, each mapped to the phase that removes it: 48
+**Warn mode + ratchet.** `scripts/boundary-allowlist.ts` freezes today's 48 known
+violations with per-(rule, file) COUNTS, each mapped to the phase that removes it: 46
 harness-branching → Phase 5 (POD-292/POD-325), 2 `apps/desktop → scripts` → Phase 7
 (POD-294). Allowlisted-and-within-count warns; anything new — or one more in an
 already-listed file — fails. A count that no longer matches reality is reported as
 stale, so the list can only shrink. Phases shrink their own entries (§5); POD-335 flips
 to error level with the list empty.
+
+**The harness axiom tracks HarnessAgent identity, not the literal.** `ApiProvider`
+(`['openrouter','anthropic','openai','codex']`) is a separate enum sharing the literal
+`codex`, so a comparison reading a provider is not harness branching and is not flagged
+— codex-the-provider's variance belongs to POD-292's broader "confine agent-CLI variance
+to the harness layer". Identifiers flowing, and Records keyed by harness, are never
+flagged: only comparisons branch.
 
 **Rule → legacy-rule retirement map** (POD-335 retires each legacy rule only once its
 equivalent exists; none is dropped without one): `manifest-layer` + `manifest-platform`
