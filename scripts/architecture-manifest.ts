@@ -188,6 +188,17 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     features: ['config', 'sqlite', 'git-port', 'connectivity', 'auth-store', 'settings'],
   },
   'packages/sync': { layer: 2, platform: 'node-only', features: ['oplog', 'upstream-sync'] },
+  // Opt-in telemetry [spec:SP-f933]. NEUTRAL for the same reason as runtime,
+  // and by the same construction: the barrel and the pure slices (schema,
+  // example, scrub) are browser-safe — apps/web imports './example' for its
+  // privacy/setup copy — while node-only concerns (consent's node:crypto,
+  // queue's state dir) sit behind their own subpaths. Tagging it node-only
+  // would falsely accuse those two real, browser-safe web imports.
+  'packages/telemetry': {
+    layer: 2,
+    platform: 'neutral',
+    features: ['telemetry-schema', 'telemetry-consent', 'telemetry-queue'],
+  },
   'packages/agent-bridge': {
     layer: 2,
     platform: 'node-only',
@@ -228,8 +239,10 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L1: the issue command table is defined in terms of the wire schema.
   'packages/issue-client -> packages/protocol',
-  // L2: sync and agent-bridge are ports built on runtime's config/sqlite plumbing.
+  // L2: sync, telemetry and agent-bridge are ports built on runtime's
+  // config/sqlite plumbing.
   'packages/sync -> packages/runtime',
+  'packages/telemetry -> packages/runtime',
   'packages/agent-bridge -> packages/runtime',
   // L2: agent-bridge parses transcripts through the shared parser rather than
   // carrying a second copy.
