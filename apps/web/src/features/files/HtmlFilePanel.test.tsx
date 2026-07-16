@@ -122,4 +122,46 @@ describe('HtmlFilePanel', () => {
     )
     expect(srcdoc).not.toContain('src="./hero.png"')
   })
+
+  // Only an artifact ([spec:SP-0fc9]) is a deliverable the agent built to be clicked; any
+  // other .html is incidental content on disk and stays inert.
+  describe('script execution is scoped to artifacts', () => {
+    const renderScope = (
+      scope: Parameters<typeof HtmlFilePanel>[0]['scope'],
+    ): HTMLIFrameElement => {
+      documentContent = '<button onclick="go()">Go</button><script>window.go = () => {}</script>'
+      act(() => {
+        root.render(<HtmlFilePanel scope={scope} path="proto.html" onClose={vi.fn()} />)
+      })
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        'iframe[title="Rendered HTML preview"]',
+      )
+      if (!iframe) throw new Error('no preview iframe')
+      return iframe
+    }
+
+    it('grants allow-scripts and keeps the script for an artifact', () => {
+      const iframe = renderScope({ kind: 'artifact', issueId: 'i1', artifactId: 'a1' })
+      const srcdoc = iframe.getAttribute('srcdoc') ?? ''
+
+      expect(iframe.getAttribute('sandbox')).toBe('allow-scripts')
+      expect(srcdoc).toContain('<script>')
+      expect(srcdoc).toContain('onclick')
+      // Opaque origin is the isolation; the CSP is what stops a script phoning home.
+      expect(srcdoc).toContain("connect-src 'none'")
+      expect(srcdoc).toContain('img-src http://podium.test')
+    })
+
+    it.each([
+      ['session', { kind: 'session', sessionId: 's1' }],
+      ['worktree', { kind: 'worktree', root: '/repo' }],
+    ] as const)('keeps a %s file fully sandboxed and script-free', (_label, scope) => {
+      const iframe = renderScope(scope)
+      const srcdoc = iframe.getAttribute('srcdoc') ?? ''
+
+      expect(iframe.getAttribute('sandbox')).toBe('')
+      expect(srcdoc).not.toContain('<script')
+      expect(srcdoc).not.toContain('onclick')
+    })
+  })
 })

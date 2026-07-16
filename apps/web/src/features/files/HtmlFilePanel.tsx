@@ -83,6 +83,11 @@ export function HtmlFilePanel({
     }
   }, [doc.status, stylesheetPathKey, readFileScoped, scope])
 
+  // Artifacts are deliverables an agent built for the user to click ([spec:SP-0fc9]); every
+  // other scope is just some .html on disk. Only the former earns script execution.
+  const allowScripts = scope.kind === 'artifact'
+  const assetOrigin = httpOrigin || (typeof window === 'undefined' ? '' : window.location.origin)
+
   const srcDoc = useMemo(
     () =>
       buildStaticHtmlPreview({
@@ -91,8 +96,10 @@ export function HtmlFilePanel({
         resolveAsset: (baseDir, src) =>
           scopedAssetUrl({ httpOrigin, scope, fileDir: baseDir, src }),
         readTextAsset: (absPath) => cssTextByPath[absPath],
+        allowScripts,
+        assetOrigin,
       }),
-    [doc.content, fileDir, httpOrigin, scope, cssTextByPath],
+    [doc.content, fileDir, httpOrigin, scope, cssTextByPath, allowScripts, assetOrigin],
   )
 
   const handleClose = (): void => {
@@ -175,7 +182,10 @@ export function HtmlFilePanel({
             <div className="flex min-w-0 flex-1 bg-white">
               <iframe
                 title="Rendered HTML preview"
-                sandbox=""
+                // allow-scripts WITHOUT allow-same-origin ⇒ opaque origin: no app DOM, no
+                // session cookie, no storage. Modals/popups/forms/top-navigation/downloads
+                // stay ungranted; the injected CSP blocks network egress.
+                sandbox={allowScripts ? 'allow-scripts' : ''}
                 srcDoc={srcDoc}
                 className="h-full min-h-0 w-full flex-1 border-0 bg-white"
               />

