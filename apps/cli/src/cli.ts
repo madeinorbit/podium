@@ -140,6 +140,7 @@ export type LaunchPlan =
   | { kind: 'agent'; args: string[] }
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
+  | { kind: 'workspace'; args: string[] }
   | { kind: 'lock'; args: string[] }
   | { kind: 'workflow'; args: string[] }
   | { kind: 'merge-lock'; args: string[] }
@@ -318,6 +319,7 @@ export function resolvePlan(
     'session',
     'spec',
     'worktree',
+    'workspace',
     'mail',
     'agent',
     'workflow',
@@ -427,6 +429,7 @@ export function resolvePlan(
   if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
+  if (argv[0] === 'workspace') return { kind: 'workspace', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
   if (argv[0] === 'workflow') return { kind: 'workflow', args: argv.slice(1) }
   if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
@@ -600,6 +603,7 @@ export function helpText(): string {
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
     '  worktree [path]       Declare the worktree this agent session works in',
+    '  workspace <command>   Fetch another agent\'s working state; clean up peeks',
     '',
     '  workflow <command>    Follow and manage versioned agent workflows',
     'Agent sessions: lifecycle changes and automation schedules need operator approval —',
@@ -990,6 +994,12 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
     case 'worktree': {
       const { worktreeCliMain } = await import('./worktree-cli')
       await worktreeCliMain(plan.args)
+      return
+    }
+    // `podium workspace fetch/clean`: lazy cross-machine workspace peek [POD-658].
+    case 'workspace': {
+      const { workspaceCliMain } = await import('./workspace-cli')
+      await workspaceCliMain(plan.args)
       return
     }
     // `podium workflow <command>`: manage definitions and report/advance the

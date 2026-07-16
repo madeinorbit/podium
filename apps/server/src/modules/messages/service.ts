@@ -128,6 +128,9 @@ export interface MessageDeliveryDeps {
   transact?<T>(fn: () => T): T
   /** Existing notify path for needs-attention surfacing (best-effort). */
   notifyOperator?(input: { messageId: string; reason: string; body: string }): void
+  /** Human-readable machine name for cross-machine provenance [POD-658];
+   *  absent (tests) = raw machine id. */
+  machineName?(id: string): string
   now(): string
 }
 
@@ -149,7 +152,12 @@ export function sanitizeBody(body: string): string {
 /** Render the delivery envelope. Server-only: bodies never carry frames of
  *  their own — a spoofed "[podium message …]" inside `body` lands INSIDE the
  *  real frame and reads as quoted text. */
-export function renderEnvelope(m: MessageRow, fromLabel: string, toLabel: string): string {
+export function renderEnvelope(
+  m: MessageRow,
+  fromLabel: string,
+  toLabel: string,
+  note?: string,
+): string {
   // The seance constraint [spec:SP-34d7 read-toolkit tier 4]: a question's
   // frame binds the receiver — answer from existing context, reply, then
   // RESUME. Server-rendered like the rest of the frame, never client text.
@@ -161,6 +169,7 @@ export function renderEnvelope(m: MessageRow, fromLabel: string, toLabel: string
   return (
     `[podium message ${m.id} · from ${fromLabel} · to ${toLabel} · reply: podium mail reply ${m.id}]\n` +
     `${m.body}\n` +
+    (note ? `${note}\n` : '') +
     questionRule +
     `[end podium message ${m.id}]`
   )
@@ -429,7 +438,7 @@ export class MessageDeliveryService {
     const state = this.stateOf(target)
     if (state === 'idle') {
       // idle/live: inject now, every urgency.
-      const r = sessions.sendText({ sessionId: target.sessionId, text: this.renderFor(message) })
+      const r = sessions.sendText({ sessionId: target.sessionId, text: this.renderFor(message, target.sessionId) })
       if (r.ok) this.markDelivered(message, target.sessionId)
       return r
     }
@@ -443,7 +452,7 @@ export class MessageDeliveryService {
         // visibly cancels an open AskUserQuestion menu before the text lands.
         const r = sessions.interruptText({
           sessionId: target.sessionId,
-          text: this.renderFor(message),
+          text: this.renderFor(message, target.sessionId),
         })
         if (r.ok) this.markDelivered(message, target.sessionId)
         return r
@@ -453,7 +462,7 @@ export class MessageDeliveryService {
       if (target.status === 'starting') {
         const r = sessions.queueText({
           sessionId: target.sessionId,
-          text: this.renderFor(message),
+          text: this.renderFor(message, target.sessionId),
         })
         if (r.ok) this.markDelivered(message, target.sessionId)
         return r
@@ -471,7 +480,7 @@ export class MessageDeliveryService {
     // wake: durable queue + resurrect (queueText resurrects parked sessions);
     // record the wake against the cooldown window.
     this.recordWake(message, target)
-    const r = sessions.queueText({ sessionId: target.sessionId, text: this.renderFor(message) })
+    const r = sessions.queueText({ sessionId: target.sessionId, text: this.renderFor(message, target.sessionId) })
     if (r.ok) {
       this.markDelivered(message, target.sessionId)
       return r
@@ -519,7 +528,7 @@ export class MessageDeliveryService {
       this.emitTransition(message, 'message.spawned', { spawnIssue: key })
       const q = this.deps
         .sessions()
-        .queueText({ sessionId: r.sessionId, text: this.renderFor(message) })
+        .queueText({ sessionId: r.sessionId, text: this.renderFor(message, r.sessionId) })
       if (q.ok) this.markDelivered(message, r.sessionId)
       return q
     }
@@ -574,12 +583,12 @@ export class MessageDeliveryService {
     )
     const inlineRows = rows.filter((m) => !pointerRows.includes(m))
     for (const m of inlineRows) {
-      const r = sessions.sendText({ sessionId: session.sessionId, text: this.renderFor(m) })
+      const r = sessions.sendText({ sessionId: session.sessionId, text: this.renderFor(m, session.sessionId) })
       if (r.ok) this.markDelivered(m, session.sessionId)
     }
     if (pointerRows.length === 1 && pointerRows[0]!.body.length <= INLINE_BODY_MAX) {
       const m = pointerRows[0]!
-      const r = sessions.sendText({ sessionId: session.sessionId, text: this.renderFor(m) })
+      const r = sessions.sendText({ sessionId: session.sessionId, text: this.renderFor(m, session.sessionId) })
       if (r.ok) this.markDelivered(m, session.sessionId)
     } else if (pointerRows.length > 0) {
       const r = sessions.sendText({
@@ -987,7 +996,7 @@ export class MessageDeliveryService {
   /** The exact text the receiver sees: enveloped for every principal EXCEPT the
    *  operator — only the human's own words land unwrapped. Oversized
    *  issue-addressed bodies render as an inbox pointer instead of inline. */
-  renderFor(message: MessageRow): string {
+  renderFor(message: MessageRow, receiverSessionId?: string): string {
     if (message.toKind === 'issue' && message.body.length > INLINE_BODY_MAX) {
       return this.pointerText([message])
     }
@@ -1005,7 +1014,26 @@ export class MessageDeliveryService {
     // Substrate boundary: every NON-operator delivered body is control-stripped
     // so it can never break out of the bracketed paste (ESC[201~) in typeText.
     const body = sanitizeBody(message.body)
-    return renderEnvelope({ ...message, body }, this.fromLabel(message), this.toLabel(message))
+    return renderEnvelope(
+      { ...message, body },
+      this.fromLabel(message),
+      this.toLabel(message),
+      this.crossMachineNote(message, receiverSessionId),
+    )
+  }
+
+  /** Cross-machine provenance [POD-658]: when the sending session runs on a
+   *  DIFFERENT machine than the receiver, say so and how to inspect its working
+   *  state — built only from what podium already knows (session machineIds),
+   *  zero storage. */
+  private crossMachineNote(message: MessageRow, receiverSessionId?: string): string | undefined {
+    if (!receiverSessionId || message.fromKind !== 'agent' || !message.fromSession) return undefined
+    const sessions = this.deps.sessions().listSessions()
+    const senderMachine = sessions.find((s) => s.sessionId === message.fromSession)?.machineId
+    const receiverMachine = sessions.find((s) => s.sessionId === receiverSessionId)?.machineId
+    if (!senderMachine || !receiverMachine || senderMachine === receiverMachine) return undefined
+    const name = this.deps.machineName?.(senderMachine) ?? senderMachine
+    return `[this agent runs on machine "${name}" — inspect its working tree with: podium workspace fetch ${message.fromSession}]`
   }
 
   private fromLabel(message: MessageRow): string {

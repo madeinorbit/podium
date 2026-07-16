@@ -1811,6 +1811,123 @@ export class SessionsService {
   }
 
   /**
+   * Lazy cross-machine workspace fetch [POD-658]: materialize ANOTHER session's
+   * current working state (unpushed commits + dirty + untracked files) on the
+   * CALLER's machine as a detached read-only peek worktree. COPY semantics —
+   * unlike handoff, the source session is never killed, re-homed, or touched;
+   * nothing is published or persisted ahead of time (export → transfer → import
+   * all happen inside this one request, refs deleted before it returns).
+   */
+  async fetchWorkspace(input: { sourceSessionId: string; callerSessionId: string }): Promise<{
+    path: string
+    sameMachine: boolean
+    sourceMachine: string
+    branch: string
+    headSha: string
+    dirty: boolean
+  }> {
+    const source = this.sessions.get(input.sourceSessionId)
+    if (!source) throw new Error('unknown source session')
+    const caller = this.sessions.get(input.callerSessionId)
+    if (!caller) throw new Error('unknown calling session')
+    const sourceMachine = this.machines.listMachines().find((m) => m.id === source.machineId)
+    if (source.machineId === caller.machineId) {
+      return {
+        path: source.cwd,
+        sameMachine: true,
+        sourceMachine: sourceMachine?.name ?? source.machineId,
+        branch: '',
+        headSha: '',
+        dirty: false,
+      }
+    }
+    if (!sourceMachine?.online) throw new Error('source machine is offline')
+
+    const repos = this.store.repos.listRepos()
+    const sourceRepo = repos
+      .filter(
+        (repo) =>
+          repo.machineId === source.machineId &&
+          (source.cwd === repo.path || source.cwd.startsWith(`${repo.path}/`)),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
+    const fetcherRepo = repos.find(
+      (repo) => repo.machineId === caller.machineId && repo.repoId === sourceRepo.repoId,
+    )
+    if (!fetcherRepo) throw new Error('this machine does not have the source repository')
+
+    const issue = source.issueId ? this.issues().get(source.issueId) : undefined
+    const branch = issue?.branch ?? basename(source.cwd)
+    const candidates = [
+      ...new Set(
+        [issue?.parentBranch, 'main', 'origin/main', branch].filter((ref): ref is string =>
+          Boolean(ref),
+        ),
+      ),
+    ]
+    const verified = await Promise.all(
+      candidates.map((ref) =>
+        this.rpc.repoOp('revParseVerify', fetcherRepo.path, { ref }, caller.machineId),
+      ),
+    )
+    const baseShas = verifiedBundleBases(verified)
+    if (baseShas.length === 0)
+      throw new Error('no verified common bundle base with the source repository')
+
+    const fetchId = `ws-${randomUUID().slice(0, 13)}`
+    const exported = await this.rpc.workspaceExport(
+      {
+        fetchId,
+        cwd: source.cwd,
+        baseShas,
+        repoId: sourceRepo.repoId,
+        sourceMachineId: source.machineId,
+      },
+      source.machineId,
+    )
+    if (!exported.ok || !exported.stagePath || exported.sizeBytes === undefined || !exported.manifest)
+      throw new Error(exported.error ?? 'source failed to export its workspace')
+    await transferHandoffPackage({
+      rpc: this.rpc,
+      sessionId: fetchId,
+      sourceMachineId: source.machineId,
+      targetMachineId: caller.machineId,
+      sourceStagePath: exported.stagePath,
+      sizeBytes: exported.sizeBytes,
+    })
+    const imported = await this.rpc.workspaceImport(fetchId, fetcherRepo.path, caller.machineId)
+    if (!imported.ok || !imported.path)
+      throw new Error(imported.error ?? 'failed to materialize the fetched workspace')
+    return {
+      path: imported.path,
+      sameMachine: false,
+      sourceMachine: sourceMachine.name,
+      branch: exported.manifest.branch,
+      headSha: exported.manifest.headSha,
+      dirty: exported.manifest.snapshotSha !== null,
+    }
+  }
+
+  /** Remove every peek worktree fetch materialized in the caller's repo [POD-658]. */
+  async cleanWorkspacePeeks(input: { callerSessionId: string }): Promise<{ removed: string[] }> {
+    const caller = this.sessions.get(input.callerSessionId)
+    if (!caller) throw new Error('unknown calling session')
+    const repo = this.store.repos
+      .listRepos()
+      .filter(
+        (r) =>
+          r.machineId === caller.machineId &&
+          (caller.cwd === r.path || caller.cwd.startsWith(`${r.path}/`)),
+      )
+      .sort((a, b) => b.path.length - a.path.length)[0]
+    if (!repo) throw new Error('calling session is not inside a registered repository')
+    const result = await this.rpc.workspaceClean(repo.path, caller.machineId)
+    if (!result.ok) throw new Error(result.error ?? 'workspace clean failed')
+    return { removed: result.removed ?? [] }
+  }
+
+  /**
    * Chat-compose path for a parked session: if it's live, just send; if it's
    * hibernated/exited (process gone, conversation intact), wake it first and
    * deliver the text once the resumed CLI is ready to receive it. Lets the chat
@@ -2832,6 +2949,18 @@ export class SessionsService {
       }
       case 'handoffImportResult': {
         this.rpc.onHandoffImportResult(msg)
+        break
+      }
+      case 'workspaceExportResult': {
+        this.rpc.onWorkspaceExportResult(msg)
+        break
+      }
+      case 'workspaceImportResult': {
+        this.rpc.onWorkspaceImportResult(msg)
+        break
+      }
+      case 'workspaceCleanResult': {
+        this.rpc.onWorkspaceCleanResult(msg)
         break
       }
       case 'repoOpResult': {

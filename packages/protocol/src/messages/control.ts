@@ -15,6 +15,11 @@ import {
   HandoffImportChunkMessage,
   HandoffImportRequestMessage,
 } from './handoff'
+import {
+  WorkspaceCleanRequestMessage,
+  WorkspaceExportRequestMessage,
+  WorkspaceImportRequestMessage,
+} from './workspace'
 import { HarnessExecRequestMessage } from './harness'
 import {
   HeadlessBindMessage,
@@ -51,6 +56,9 @@ export const ControlMessage = z.discriminatedUnion('type', [
   HandoffChunkReadRequestMessage,
   HandoffImportChunkMessage,
   HandoffImportRequestMessage,
+  WorkspaceExportRequestMessage,
+  WorkspaceImportRequestMessage,
+  WorkspaceCleanRequestMessage,
   HeadlessTurnRequestMessage,
   HeadlessInterruptMessage,
   HeadlessTurnAckMessage,

@@ -20,6 +20,11 @@ import {
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
 } from './handoff'
+import {
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
+} from './workspace'
 import { HarnessExecResultMessage } from './harness'
 import {
   HeadlessBindResultMessage,
@@ -91,6 +96,9 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   HandoffChunkReadResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
+  WorkspaceCleanResultMessage,
   HeadlessTurnEventMessage,
   HeadlessTurnResultMessage,
   HeadlessBindResultMessage,

@@ -41,6 +41,10 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // Instruction-first workflows: every procedure is schema-validated and
   // capability-scoped by WorkflowService; protected writes still need approval.
   workflows: null,
+  // Lazy cross-machine workspace fetch [POD-658]: fetch materializes another
+  // session's working state on the CALLER's machine (scope-gated against the
+  // target's issue in the dispatch arm); clean removes only what fetch made.
+  workspace: new Set(['fetch', 'clean']),
   // Advisory named lease locks [spec:SP-85d1] — coordination tokens agents
   // acquire/release via `podium lock`/`podium merge-lock`; role-gated by the
   // lock registry's guard, caller identity stamped from the relay capability.

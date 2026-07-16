@@ -1356,3 +1356,30 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     expect(all).toHaveLength(2)
   })
 })
+
+describe('cross-machine provenance note [POD-658]', () => {
+  it('appends the fetch hint when sender and receiver run on different machines', () => {
+    const { svc, sent } = harness([
+      session({ sessionId: 's1', machineId: 'm1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b', machineId: 'm2' }),
+    ])
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'ping', urgency: 'next-turn' },
+    )
+    expect(sent[0]?.text).toContain('runs on machine "m2"')
+    expect(sent[0]?.text).toContain('podium workspace fetch sX')
+  })
+
+  it('stays silent for same-machine senders and non-agent principals', () => {
+    const { svc, sent } = harness([
+      session({ sessionId: 's1', machineId: 'm1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b', machineId: 'm1' }),
+    ])
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'ping', urgency: 'next-turn' },
+    )
+    expect(sent[0]?.text).not.toContain('workspace fetch')
+  })
+})

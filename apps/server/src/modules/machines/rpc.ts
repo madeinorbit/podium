@@ -4,6 +4,9 @@ import type {
   HandoffChunkReadResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
 } from '@podium/protocol'
 import type {
   AgentKind,
@@ -111,6 +114,18 @@ export class DaemonRpcService {
   private readonly pendingHandoffImports = new Map<
     string,
     (r: Omit<HandoffImportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingWorkspaceExports = new Map<
+    string,
+    (r: Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingWorkspaceImports = new Map<
+    string,
+    (r: Omit<WorkspaceImportResultMessage, 'type' | 'requestId'>) => void
+  >()
+  private readonly pendingWorkspaceCleans = new Map<
+    string,
+    (r: Omit<WorkspaceCleanResultMessage, 'type' | 'requestId'>) => void
   >()
   private readonly pendingHarnessExecs = new Map<string, (r: OpResult) => void>()
   private readonly pendingUsage = new Map<
@@ -373,6 +388,58 @@ export class DaemonRpcService {
         repoPath,
         worktreeName,
       }),
+      machineId,
+    )
+  }
+
+  /** Lazy workspace snapshot export on the SOURCE daemon [POD-658]. */
+  workspaceExport(
+    input: {
+      fetchId: string
+      cwd: string
+      baseShas: string[]
+      repoId: string
+      sourceMachineId: string
+    },
+    machineId: string,
+  ): Promise<Omit<WorkspaceExportResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingWorkspaceExports,
+      'we',
+      120_000,
+      () => ({ ok: false, error: 'workspace export timed out' }),
+      (requestId) => ({ type: 'workspaceExportRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  /** Materialize a transferred snapshot as a detached peek worktree [POD-658]. */
+  workspaceImport(
+    fetchId: string,
+    repoPath: string,
+    machineId: string,
+  ): Promise<Omit<WorkspaceImportResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingWorkspaceImports,
+      'wi',
+      120_000,
+      () => ({ ok: false, error: 'workspace import timed out' }),
+      (requestId) => ({ type: 'workspaceImportRequest', requestId, fetchId, repoPath }),
+      machineId,
+    )
+  }
+
+  /** Remove every peek worktree under a repo [POD-658]. */
+  workspaceClean(
+    repoPath: string,
+    machineId: string,
+  ): Promise<Omit<WorkspaceCleanResultMessage, 'type' | 'requestId'>> {
+    return this.request(
+      this.pendingWorkspaceCleans,
+      'wc',
+      60_000,
+      () => ({ ok: false, error: 'workspace clean timed out' }),
+      (requestId) => ({ type: 'workspaceCleanRequest', requestId, repoPath }),
       machineId,
     )
   }
@@ -687,6 +754,19 @@ export class DaemonRpcService {
   onHandoffImportResult(msg: HandoffImportResultMessage): void {
     const { type: _t, requestId, ...payload } = msg
     DaemonRpcService.settle(this.pendingHandoffImports, requestId, payload)
+  }
+
+  onWorkspaceExportResult(msg: WorkspaceExportResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingWorkspaceExports, requestId, payload)
+  }
+  onWorkspaceImportResult(msg: WorkspaceImportResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingWorkspaceImports, requestId, payload)
+  }
+  onWorkspaceCleanResult(msg: WorkspaceCleanResultMessage): void {
+    const { type: _t, requestId, ...payload } = msg
+    DaemonRpcService.settle(this.pendingWorkspaceCleans, requestId, payload)
   }
 
   onHarnessExecResult(msg: Extract<DaemonMessage, { type: 'harnessExecResult' }>): void {

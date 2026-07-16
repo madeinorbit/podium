@@ -591,6 +591,41 @@ export class SessionRegistry {
             input,
           )
         }
+        // Lazy cross-machine workspace fetch [POD-658]: materialize another
+        // session's working state on the CALLER's machine (fetch), or remove
+        // what fetch materialized (clean). Fetch is scope-gated against the
+        // TARGET's issue exactly like sessions.status — seeing a peer's dirty
+        // tree is a read of that peer.
+        if (router === 'workspace') {
+          const actorSessionId = capability.actorSessionId
+          if (!actorSessionId) {
+            throw new Error(`workspace.${proc} is only callable by a session (no actor bound)`)
+          }
+          if (proc === 'clean') {
+            return sessionsSvc.cleanWorkspacePeeks({ callerSessionId: actorSessionId })
+          }
+          if (proc !== 'fetch') return undefined
+          return (async () => {
+            const raw = (input ?? {}) as Record<string, unknown>
+            if (typeof raw.ref !== 'string' || !raw.ref) throw new Error('ref is required')
+            const target = readToolkit.resolveTarget(raw.ref)
+            if (!target) throw new Error(`no session found for ${raw.ref}`)
+            const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+            if (targetIssueId) {
+              checkIssueAccess(
+                { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                issues,
+                'workspace.fetch',
+                'write',
+                targetIssueId,
+              )
+            }
+            return sessionsSvc.fetchWorkspace({
+              sourceSessionId: target.sessionId,
+              callerSessionId: actorSessionId,
+            })
+          })()
+        }
         if (router === 'sessions') {
           // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
           // a structured snapshot (no transcript text); read is a bounded
@@ -927,6 +962,9 @@ export class SessionRegistry {
         issues: () => issues,
         createSession: (o) => sessionsSvc.createSession(o),
       }),
+      // Cross-machine provenance [POD-658]: name the sender's machine in the
+      // envelope note so the receiver knows to `podium workspace fetch`.
+      machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
     messageGate = new MessageGate({

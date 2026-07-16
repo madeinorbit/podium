@@ -9,6 +9,7 @@ import { handoffHandlers } from './handoff'
 import { inventoryHandlers } from './inventory'
 import { sessionHandlers } from './session'
 import { transcriptHandlers } from './transcripts'
+import { workspaceHandlers } from './workspace'
 
 /**
  * THE control-frame registry (#195): one handler per frame type, grouped into
@@ -26,6 +27,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...execHandlers,
   ...headlessHandlers,
   ...handoffHandlers,
+  ...workspaceHandlers,
   ...approvalHandlers,
   ...inventoryHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
