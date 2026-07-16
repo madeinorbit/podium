@@ -38,8 +38,8 @@ describe('the example usage report', () => {
 
   it('shows no field the schema cannot send', () => {
     // The reverse drift: an example that promises a field we removed.
-    const shown = [...EXAMPLE_USAGE_REPORT_DISPLAY.matchAll(/"([A-Za-z][\w-]*)":/g)].map(
-      (m) => m[1],
+    const shown = [...EXAMPLE_USAGE_REPORT_DISPLAY.matchAll(/"([A-Za-z][\w-]*)":/g)].flatMap(
+      (m) => m[1] ?? [],
     )
     const allowed = new Set<string>([
       ...Object.keys(UsageReport.shape),
