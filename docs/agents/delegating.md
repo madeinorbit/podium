@@ -59,11 +59,26 @@ alongside an implementer). At that point section 3 applies: say who owns which f
 
 ## 2. Naming — how the board reads
 
-You **cannot** name your delegate: `podium session title` only ever renames the calling
-session. So give the delegate its job in the prompt *and* tell it to title itself for
-that job:
+Name the delegate **at spawn**, so it is never anonymous on the board:
 
-> First action: run `podium session title "Reviewer: auth flow"`.
+```
+podium agent spawn --issue <ref> --title "Reviewer: auth flow" --prompt "…"
+```
+
+`--title` names the *session*. Do not confuse it with `--new "title"`, which names an
+*issue*. A name you pass is agent-sourced, so it never overwrites a name the user set by
+hand, and the delegate may still re-title itself as its work becomes clear.
+
+The isolated path has **no equivalent flag** — `podium issue create --start` names the
+issue, not the session it spawns. There, tell the delegate to title itself as its first
+action, in the `--description` that becomes its prompt:
+
+> First action: run `podium session title "Spec author"`.
+
+That is also the fallback whenever you want a delegate to name itself once it understands
+its own job better than you did. `podium session title` only ever renames the *calling*
+session — you cannot retitle a delegate after it has started, so if you care about the
+board, pass `--title` at spawn.
 
 Session titles follow the usual rule — 3–5 words naming the thing, not the activity, and
 they must distinguish this session from its siblings on the same issue. A board of
@@ -117,6 +132,8 @@ You are implementing POD-699 (Child session name at spawn). Read \`podium spec s
 (title doctrine) first.
 
 FIRST ACTION: podium session title \"Spawn child naming flag\"
+(this path spawns via --start, which names the issue, not the session — so you name
+yourself; a delegate spawned with 'agent spawn --title' arrives already named.)
 
 VERIFIED FACTS (do not re-litigate; confirmed at all three layers today):
 - 'podium session title' names ONLY the calling session, deliberately — session-cli.ts:208-211.
