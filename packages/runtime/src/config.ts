@@ -13,7 +13,7 @@
  *
  * | Variable                      | Layered over            | Read by / accessor                                     |
  * |-------------------------------|-------------------------|--------------------------------------------------------|
- * | PODIUM_INSTANCE               | — → default             | global selector; state/ports/runtime/services [spec:SP-15aa] |
+ * | PODIUM_INSTANCE               | — → default             | global selector; state/ports/runtime/services [spec:SP-0cf1] |
  * | PODIUM_STATE_DIR              | — (env-only)            | `stateDir()` (config/run-registry/logs home)           |
  * | PODIUM_PORT                   | config.port → per-id    | `resolvePort()` (cli, scripts entrypoints)             |
  * | PODIUM_HOOK_PORT              | config.hookPort → per-id| `resolveHookPort()` (daemon hook ingest)                |

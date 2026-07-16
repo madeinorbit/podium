@@ -1,5 +1,5 @@
 /**
- * First-class Podium instance identity and namespaces. [spec:SP-15aa]
+ * First-class Podium instance identity and namespaces. [spec:SP-0cf1]
  *
  * `default` is the compatibility instance: it keeps every historical path,
  * port, executable, service, and durable-session label. Named instances use
