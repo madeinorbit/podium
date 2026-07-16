@@ -63,6 +63,32 @@ export interface AuditContext {
   listDir(rel: string): string[]
 }
 
+/** Tokens after which a `/` starts a REGEX literal rather than division. */
+const REGEX_ALLOWED_AFTER_PUNCT = new Set([
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '^',
+  '<',
+  '>',
+  '~',
+])
+const REGEX_ALLOWED_AFTER_KEYWORD =
+  /\b(return|typeof|instanceof|in|of|new|delete|void|do|else|case|yield|await)$/
+
 /**
  * Strip `//` and block comments, replacing them with spaces so every byte
  * offset — and therefore every line number — is preserved. `check-boundaries.ts`
@@ -71,16 +97,29 @@ export interface AuditContext {
  * needs the line structure intact.
  *
  * String literals are preserved verbatim: the '__local__' placeholder IS a
- * string literal, so the audit must still see inside quotes. Known limitation
- * (shared with check-boundaries): a regex literal containing a quote character
- * can desynchronise the scanner. Only under-reports, and no scanned root has
- * one; the pattern lives in scripts/, which the regex checks don't walk.
+ * string literal, so the audit must still see inside quotes.
+ *
+ * REGEX LITERALS are tracked as their own state. Without that, a quote or
+ * backtick inside one (`.replace(/`/g, '')` — real, apps/server/src/steward.ts)
+ * flips the scanner into string state and it never recovers, so every comment
+ * below it survives as "code" and is counted forever. Four scanned files do
+ * this today. Distinguishing a regex from division needs the preceding token:
+ * after a value (identifier, `)`, `]`, literal) a `/` is division; after an
+ * operator, punctuator, or keyword it opens a regex.
  */
 export function stripComments(source: string): string {
-  type State = 'code' | 'line' | 'block' | 'single' | 'double' | 'template'
+  type State = 'code' | 'line' | 'block' | 'single' | 'double' | 'template' | 'regex' | 'class'
   let state: State = 'code'
   let out = ''
   let i = 0
+  /** Last non-whitespace char emitted in code state — decides regex vs division. */
+  let lastSig = ''
+  /** Code emitted so far on this line, for the keyword check. */
+  let codeRun = ''
+  /** Open `${` interpolations and `{` blocks, so a nested template inside an
+   *  interpolation (`` `${x.replace(/'/g, `'\\''`)}` `` — real, tmux.ts:11)
+   *  doesn't let the inner backtick close the outer template. */
+  const stack: ('tmpl' | 'brace')[] = []
   while (i < source.length) {
     const c = source[i] as string
     const n = source[i + 1]
@@ -97,8 +136,57 @@ export function stripComments(source: string): string {
         i += 2
         continue
       }
+      if (c === '{') stack.push('brace')
+      else if (c === '}' && stack.length > 0) {
+        if (stack.pop() === 'tmpl') {
+          state = 'template'
+          out += c
+          i += 1
+          continue
+        }
+      }
+      if (
+        c === '/' &&
+        (lastSig === '' ||
+          REGEX_ALLOWED_AFTER_PUNCT.has(lastSig) ||
+          // trimEnd: codeRun keeps the space in `return /re/`, and the keyword
+          // pattern is $-anchored.
+          REGEX_ALLOWED_AFTER_KEYWORD.test(codeRun.trimEnd()))
+      ) {
+        state = 'regex'
+        out += c
+        i += 1
+        continue
+      }
       if (c === "'" || c === '"' || c === '`') {
         state = c === "'" ? 'single' : c === '"' ? 'double' : 'template'
+      }
+      if (!/\s/.test(c)) {
+        lastSig = c
+        codeRun += c
+      } else if (c === '\n') codeRun = ''
+      else codeRun += c
+      out += c
+      i += 1
+      continue
+    }
+    if (state === 'regex' || state === 'class') {
+      // Escapes are verbatim; `[...]` may contain an unescaped `/`.
+      if (c === '\\') {
+        out += source.slice(i, i + 2)
+        i += 2
+        continue
+      }
+      if (state === 'regex' && c === '[') state = 'class'
+      else if (state === 'class' && c === ']') state = 'regex'
+      else if (state === 'regex' && c === '/') {
+        state = 'code'
+        lastSig = '/'
+      } else if (c === '\n') {
+        // Unterminated: not valid JS. Recover rather than swallow the file.
+        state = 'code'
+        lastSig = ''
+        codeRun = ''
       }
       out += c
       i += 1
@@ -129,15 +217,30 @@ export function stripComments(source: string): string {
       i += 2
       continue
     }
+    // `${` opens a code interpolation inside a template.
+    if (state === 'template' && c === '$' && n === '{') {
+      stack.push('tmpl')
+      state = 'code'
+      lastSig = '{'
+      codeRun = ''
+      out += '${'
+      i += 2
+      continue
+    }
     if (
       (state === 'single' && c === "'") ||
       (state === 'double' && c === '"') ||
       (state === 'template' && c === '`')
     ) {
       state = 'code'
+      // A closed string is a VALUE, so a following `/` is division, not a regex.
+      lastSig = c
+      codeRun = ''
     } else if (c === '\n' && state !== 'template') {
       // Unterminated single/double quote: recover at the newline.
       state = 'code'
+      lastSig = ''
+      codeRun = ''
     }
     out += c
     i += 1
@@ -382,7 +485,11 @@ export const CHECKS: AuditCheck[] = [
     collect: (ctx) =>
       grep(ctx, {
         roots: ['apps/server/src/router.ts'],
-        pattern: /\bmods\(|\bsessionStore\b/,
+        // `mods(ctx)` is only sugar: trpc.ts:41 returns `ctx.modules ??
+        // ctx.registry.modules`. Keying on the helper NAME alone would miss the
+        // same reach-through spelled longhand (router.ts:582 etc.) — and would
+        // read a codemod that inlines the helper as 100+ deletions.
+        pattern: /\bmods\(|\bsessionStore\b|\bctx\.registry\.modules\b|\bctx\.modules\b/,
       }),
   },
   {
@@ -391,10 +498,22 @@ export const CHECKS: AuditCheck[] = [
     phase: 'POD-313',
     unit: 'REDUNDANT alias: N procedures forwarding to superagent.sendTurn ⇒ N-1 counted (one is the real entry)',
     collect: (ctx) => {
+      // No `=>` in the anchor: it rides on formatting, and biome wraps the
+      // arrow onto its own line as soon as the arg list grows.
       const sites = grep(ctx, {
         roots: ['apps/server/src/router.ts'],
-        pattern: /=>\s*ctx\.superagent\.sendTurn\(/,
+        pattern: /ctx\.superagent\.sendTurn\(/,
       })
+      // A bare `sites.slice(1)` turns detector FAILURE into "0 = deleted, phase
+      // clear to close": if the anchor ever stops matching, [].slice(1) is []
+      // and POD-313 reads as done with both procedures intact. Zero matches
+      // means the anchor moved, not that the duplicate went away.
+      if (sites.length === 0)
+        throw new Error(
+          'send-turn-duplicate: anchor `ctx.superagent.sendTurn(` matched nothing in ' +
+            'apps/server/src/router.ts — the detector is broken (or the router moved). ' +
+            'Fix the check; do not record a phantom zero.',
+        )
       return sites.slice(1)
     },
   },
@@ -436,16 +555,21 @@ export const CHECKS: AuditCheck[] = [
         // precisely so `@podium/protocol`'s import path stays stable. Only
         // APP-level all-re-export files are shims (a moved module's tombstone).
         if (/^packages\/[^/]+\/src\/(?:.*\/)?index\.ts$/.test(f.file)) continue
-        const statements = f.stripped
-          .split('\n')
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0)
-        if (statements.length === 0) continue
-        if (statements.every((l) => /^export .*\bfrom\s*['"]/.test(l)))
+        // STATEMENT-based, not line-based. A wrapped `export {\n a,\n} from 'x'`
+        // has no single line carrying both `export` and `from`, so a per-line
+        // test drops the file entirely — and since biome (lineWidth 100) wraps a
+        // re-export as soon as one name is added, the count would FALL and the
+        // ratchet would cheerfully record a deletion that never happened.
+        const code = f.stripped
+        const REEXPORT =
+          /export\s+(?:type\s+)?(?:\*(?:\s+as\s+\w+)?|\{[\s\S]*?\})\s+from\s*['"][^'"]+['"]\s*;?/g
+        const count = code.match(REEXPORT)?.length ?? 0
+        if (count === 0) continue
+        if (code.replace(REEXPORT, '').trim().length === 0)
           sites.push({
             file: f.file,
             line: 1,
-            text: `${statements.length} re-exports, no other code`,
+            text: `${count} re-exports, no other code`,
           })
       }
       return sites
@@ -478,11 +602,26 @@ export const CHECKS: AuditCheck[] = [
     id: 'capability-tables',
     title: 'Per-harness capability tables',
     phase: 'POD-325',
-    unit: 'hand-maintained Record<AgentKind|HarnessAgent, …> table (folds into the manifests)',
+    unit:
+      'hand-maintained per-harness Record<AgentKind|HarnessAgent, …> table in the ' +
+      'protocol/runtime/agent-bridge/server tree (folds into the harness manifests)',
     collect: (ctx) =>
       grep(ctx, {
-        roots: ['apps', 'packages'],
-        pattern: /^export const \w+: Record<(?:AgentKind|HarnessAgent),/,
+        // Scoped to where per-harness CAPABILITY data lives. apps/web's
+        // KIND_ICON (WorkerLabel.tsx:77) is the same Record<AgentKind, …> shape
+        // and drifts the same way, but it is a UI icon map, not a capability
+        // POD-325 folds into a harness manifest — counting it would block this
+        // phase on unrelated web work. Deliberately out of scope, not an oversight.
+        roots: [
+          'packages/protocol',
+          'packages/runtime',
+          'packages/agent-bridge',
+          'apps/server',
+          'apps/daemon',
+        ],
+        // No `export` requirement: a module-private table drifts identically.
+        pattern:
+          /^\s*(?:export )?const \w+: (?:Readonly<)?Record<\s*(?:AgentKind|HarnessAgent)\s*,/,
       }),
   },
   {
@@ -666,16 +805,26 @@ function main(): void {
     process.exit(2)
   }
 
+  // `--phase` is a GATE, so it must decide the exit code before any mode that
+  // returns early. Otherwise `--phase POD-314 --json` exits 0 with 119 live
+  // sites, and any automation reading machine output from the gate always
+  // passes — the exact "looks like it worked" failure the unknown-flag check
+  // above exists to prevent.
+  if (wants('--phase') && wants('--update-baseline')) {
+    console.error('--phase is a read-only gate; it cannot be combined with --update-baseline.')
+    process.exit(2)
+  }
+
   const ctx = loadContext(repoRoot)
   const results = runAudit(ctx)
   const total = results.reduce((n, r) => n + r.count, 0)
 
-  if (wants('--json')) {
+  if (wants('--json') && !wants('--phase')) {
     console.log(JSON.stringify({ total, items: results }, null, 2))
     return
   }
 
-  if (wants('--sites')) {
+  if (wants('--sites') && !wants('--phase')) {
     for (const r of results) {
       console.log(`${r.count.toString().padStart(4)}  ${r.id} (${r.phase}) — ${r.title}`)
       console.log(`        unit: ${r.unit}`)
@@ -706,6 +855,12 @@ function main(): void {
       process.exit(2)
     }
     const left = mine.filter((r) => r.count > 0)
+    // `--phase --json` still gates; the JSON is the report, the exit code is the
+    // verdict. Never let an output format decide whether a gate holds.
+    if (wants('--json'))
+      console.log(
+        JSON.stringify({ phase: phaseArg, clearToClose: left.length === 0, items: mine }, null, 2),
+      )
     if (left.length > 0) {
       console.error(`${phaseArg} may NOT be closed — ${left.length} of its items still exist:\n`)
       for (const r of left) {
