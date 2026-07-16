@@ -86,53 +86,91 @@ Build orchestration is part of the oracle environment: typecheck runs under tsgo
 (POD-706, [spec:SP-3b58]), with turbo task orchestration once POD-715 lands — gate
 evidence must cite the orchestrator actually in CI at the time.
 
-**A FLAKY LANE IS NOT AN ORACLE — "lane green" is only evidence if the lane is
-deterministic.** The unit lane runs at `retries: 0` by doctrine (a retry hides the bug it
-retries), which is right, but it means one flaky file makes every gate reading "unit lane
-green" a coin flip — and it reds unrelated PRs, training everyone to re-run rather than
-read. **POD-295 must lock a baseline that is green because it is deterministic, not green
-because it was run twice**; a phase that reports "oracle green" over a known-flaky lane has
-reported nothing. Flakes are gate POD-422 blockers, not background noise.
+### 2.1 Running it: one command (POD-295)
 
-**Ownership of a flake splits, and the halves must not be confused.** The FIX belongs to
-whoever owns the code under test; POD-295 inherits only the CONSEQUENCE (its gate reads a
-coin flip until the fix lands) and must not become the parking lot for every flake the
-oracle happens to surface. Known open at the time of writing: POD-757 — a settle()/await
-race at `packages/transcript/src/tailer.test.ts:247`, ~40% failure running ALONE, owned by
-`@podium/transcript`, NOT by POD-295.
+`bun run oracle` (`scripts/oracle.ts`) runs the whole lane set in one step and prints a
+per-lane verdict. It runs lanes **sequentially** (the heavy lanes bind fixed ports —
+relay.e2e 9921, multi-machine 9922 — so two at once on one machine collide) and it
+**does not stop at the first red**, because one red lane must never mask another's
+status. Lane membership lives in `ORACLE_LANES` there; `scripts/test-configuration.test.ts`
+pins it against the CI matrix and the package.json scripts, so a lane cannot silently
+fall out of CI. Typecheck and unit have their own CI jobs; the `oracle` matrix job runs
+the three heavy lanes.
 
-**POD-743 is the worked example, and it is now CLOSED — read it before writing any
-assertion this rewrite depends on.** Two relay tests were red, and it was a TEST bug, not a
-product regression: they asserted `not.toContain('podium session title')`, a bare substring
-POD-694's delegation prose legitimately contains, so they failed on the MENTION rather than
-on the nudge. The dangerous half was the other direction — the POSITIVE assertion was
-satisfiable by that same delegation prose ALONE, so it would have passed even if the nudge
-were deleted outright. **An assertion keyed on a proxy can prove neither presence nor
-absence.** The fix (POD-295, `ce1e31de`) is the shape to copy: key every assertion on the
-thing itself — `sessionTitleRule()`'s own text — never on a string something else may
-legally emit, then MUTATION-TEST it (deleting the product's guard must turn the file red on
-precisely the right test). That mutation check is what separates an assertion from a
-decoration; it is §4's "a detector that stops matching is not a deletion" pointed at tests
-instead of greps.
+### 2.2 Where the oracle blocks (POD-295)
 
-**A lane that does not run what it claims is not an oracle either.** The lane list above is
-the doctrine's, and it is only as true as the lanes underneath it: POD-295 found that the
-`e2e` lane never ran Playwright at all — `test:e2e` is vitest over `tests/e2e`, while the
-54 browser suites under `tests/e2e/browser/**` sit in no lane, no script and no CI job
-(POD-756; the lane map's claim of "real server + daemon + abduco + Playwright" was false and
-is corrected in `docs/agents/testing.md`). So until POD-756 lands, **"oracle green" asserts
-nothing whatsoever about the UI** — a phase whose cut lines touch the client cannot cite the
-e2e lane as evidence it did not break the app. Verified at c577009d, POD-298: `e2e/browser`
-is referenced 0 times in package.json and 0 times in ci.yml.
+AC-as-written said "a red oracle blocks merge on every PR to main". **That does not map
+onto this repo**, and taking it literally would break landing: work lands by local
+`git merge --ff-only` under the merge lock, and main is pushed to origin in batches
+(39 commits behind at the time of writing; the only open PRs are dependabot's). GitHub
+required-status-checks would reject that batched push. So the oracle blocks in two
+places, neither of them server-side:
 
-And the orphans have an orphan: `tests/e2e/mobile-web-smoke.spec.ts` is collected by NOTHING
-— it sits outside Playwright's `testDir './browser'` AND fails its `testMatch
-'**/*.browser.e2e.ts'` (missing on both counts), it is absent from the integration lane's
-include list, and `grep -rn mobile-web-smoke` finds no script, config or workflow naming it.
-It has run nowhere for as long as anyone can tell. **Count a suite against the glob that
-DEFINES it, never against the directory it lives in** — the 54 above was twice reported as
-56 by two people counting `*.ts` files, which swept in two harness helpers; two commands
-sharing one blind spot are one witness, not two.
+1. **Local land gate (the real gate).** Acquiring the merge lock for main requires a
+   green `bun run oracle` on the candidate sha, with the evidence pasted into the issue.
+   Advisory — exactly like the merge lock itself, which nothing enforces either.
+2. **CI backstop (detection, not prevention).** The `oracle` matrix job runs on
+   `pull_request` and on `push` to main, never `continue-on-error`, one lane per leg.
+   It catches what slipped past the convention; on the batched-push model it reports
+   after the fact.
+
+Deliberately NOT used: branch protection and git hooks (POD-279 coordinator decision,
+2026-07-16). The CI job must never be made `continue-on-error` — see POD-744, where
+biome + boundaries bundled under one `continue-on-error` made an architectural guardrail
+decorative for weeks: it exited 1 on every branch and CI reported green. **A gate whose
+red is swallowed is worse than no gate — it launders the failure.**
+
+### 2.3 Quarantine register (POD-295)
+
+No oracle test is quarantined. AC3 requires that every skip/quarantine carry a linked
+issue and a reason recorded here — this table stays as the single record. Reds are
+tracked as fixes, not skips; a quarantine is a last resort, never a silent skip.
+
+| Test | Lane | Issue | Reason |
+| --- | --- | --- | --- |
+| _(none)_ | | | |
+
+### 2.4 Baseline — commit c577009d, 2026-07-16 (POD-295)
+
+Measured with `bun run oracle` on the branch at local main tip. **The baseline is RED —
+it is recorded as measured, not as hoped.** Both failures are deterministic (they
+reproduce every run, identically); there are **zero flakes** and zero quarantines.
+
+| Lane | Result | Detail |
+| --- | --- | --- |
+| typecheck | **GREEN** | 21 turbo tasks incl. `@podium/telemetry-relay` |
+| unit | **RED** | 1 file / 2 tests — `relay-agent-relay.test.ts` → POD-743 |
+| integration | **RED** | 1 file / 3 tests — `managed-account-spawn.integration.test.ts` → POD-746 |
+| e2e | **GREEN** | 7 files / 21 tests |
+| multi-instance | **RED** | same file and cause as integration → POD-746 |
+
+The oracle is therefore **not yet locked green**; POD-295's baseline AC stays open until
+POD-743 and POD-746 land. Both were root-caused rather than quarantined, and both turned
+out to be the same failure shape — **a check that reports a plausible cause instead of the
+real one**, which is worth naming here because the rewrite will meet it again:
+
+- **POD-743** (unit): the test pins the bare substring `'podium session title'` to assert
+  an already-named session is not nagged. POD-694's delegation prose legitimately contains
+  that literal, in every prime, so the assertion fires regardless of the behavior it
+  means to check. The product is correct — verified: the actual nudge sentence is absent
+  from the failing prime. This is exactly the "UI copy-string pin" [spec:SP-0be7] warns
+  against, so the fix is a more specific assertion, not a relaxed one.
+- **POD-746** (integration + multi-instance): the error says "the drizzle migrator requires
+  the bun:sqlite runtime". The runtime is fine (`isBunRuntime()=true`, bun:sqlite present).
+  `bunSqliteClient()` is a module-scoped WeakMap lookup, and `@podium/runtime/sqlite` is
+  loaded twice across resolution roots, so the migrator holds a different WeakMap than the
+  one the db was registered in. Proven by differential: for one db object, the test-side
+  lookup FINDS it while the server-side lookup returns undefined.
+
+Two lanes report one bug: `managed-account-spawn.integration.test.ts` runs in both
+integration (via the `*.integration.test.ts` glob) and multi-instance (named explicitly in
+the script). Worth deciding whether that overlap is intended — the lane map treats the
+lanes as distinct sets.
+
+Known gap at baseline (POD-756): the oracle covers **no browser tests**. 56 Playwright
+suites under `tests/e2e/browser/` run in no lane, no script and no CI; `test:e2e` is
+browser-free despite what the docs said. Whether the oracle gains a browser lane is open —
+POD-295 locked the existing lane set rather than growing it.
 
 ---
 
@@ -369,8 +407,12 @@ code moves. Four children:
 moves, no deletions. The audit script REPORTS counts; it does not fail CI on nonzero
 (that ratchet is per-phase). Manifest lint stays in warn mode until Phase 7 (POD-335).
 
-**Oracle status:** baseline being locked by POD-295 (lane-based; see its issue for the
-current lane-by-lane state). Typecheck lane green under tsgo; turbo pending POD-715.
+**Oracle status:** baseline MEASURED at c577009d and **RED** — see §2.4 for the lane table.
+typecheck + e2e green; unit red (POD-743), integration + multi-instance red (POD-746, one
+file failing in both). Deterministic, not flaky; zero quarantines. The oracle command
+(`bun run oracle`) and the CI job are in place; the baseline is not yet lockable GREEN and
+gate POD-422 cannot pass until those two land. Typecheck runs under tsgo via turbo
+(POD-715 landed).
 
 **Audit counts:** baseline committed by POD-297 in `scripts/rearch-audit-baseline.json`
 — **21 items / 246 sites at fd4ea76b**. That is the before-count every later phase reads.
