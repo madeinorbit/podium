@@ -24,6 +24,7 @@ import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { AccountConnectInput, accountViews, maskCredential } from './accounts'
 import { clearPassword, hasPassword, setPassword, verifyPassword } from './auth-store'
+import { getFeatureStates } from './features'
 import {
   type CloudAgentKind,
   type CloudRepoRequest,
@@ -804,6 +805,12 @@ export const appRouter = t.router({
     telegramSetupPoll: t.procedure
       .input(z.object({ setupId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).settings.pollTelegramSetup(input.setupId)),
+  }),
+  // Experimental feature flags [spec:SP-f4b9] — same auth as settings.get.
+  features: t.router({
+    state: t.procedure.query(({ ctx }) =>
+      getFeatureStates(mods(ctx).settings.getSettings(), loadConfig()),
+    ),
   }),
   accounts: t.router({
     // The Accounts & Keys hub (SP-6454): native CLI logins on this machine
