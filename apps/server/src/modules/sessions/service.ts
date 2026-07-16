@@ -2564,18 +2564,33 @@ export class SessionsService {
    *  created: only a real linked worktree (a main checkout is never a workspace, and an
    *  issue claiming main would swallow every unattached session — [spec:SP-595b]), only
    *  in the issue's own repo, only when the issue owns no worktree yet, and never one
-   *  another issue already owns (a `cd` into a sibling's workspace must not steal it). */
+   *  another issue already owns (a `cd` into a sibling's workspace must not steal it).
+   *
+   *  Declaring (`podium worktree`) vs being observed makes no difference to the stamp:
+   *  the guards below decide, and `explicit` only buys a send the daemon would otherwise
+   *  dedup away. Both answer the same question — is the session working in a worktree
+   *  its issue doesn't know about? */
   private adoptWorktree(issueId: string, msg: Extract<DaemonMessage, { type: 'sessionCwd' }>): void {
     const issue = this.issues().get(issueId)
     if (!issue || issue.archived || issue.worktreePath !== null) return
-    // A pre-POD-665 daemon sends no `kind`, so it gets exactly its old contract: an
-    // explicit declaration stamps, hook wandering never does, main excluded by path.
-    const adoptable =
-      msg.kind === undefined
-        ? msg.explicit === true && issue.repoPath !== msg.cwd
-        : msg.kind === 'worktree' &&
-          (msg.repoRoot === undefined || msg.repoRoot === issue.repoPath)
-    if (!adoptable) return
+    // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a
+    // path is a real worktree and not main, because it comes from git. An older daemon
+    // sends no `kind` and simply does not adopt — its sessions self-heal the instant
+    // its binary updates, since any hook cwd from a real worktree then adopts.
+    //
+    // Its old guard (`explicit && issue.repoPath !== msg.cwd`) is deliberately NOT kept.
+    // It identifies "main" by string-comparing against a REGISTERED path, which holds
+    // only while that string is byte-identical to git's toplevel: a symlinked repo path
+    // resolves to its real path, so the compare says "not main" and the issue gets
+    // stamped with live main itself — the swallow-everything failure [spec:SP-595b].
+    // Path tests cannot be rescued here either, since worktrees live INSIDE the repo
+    // dir (`<repo>/.worktrees/x`) — no prefix separates them from a main subdirectory.
+    // That is the whole reason classification moved into git. A nicety that heals on
+    // its own is not worth a live-main stamp during a mixed-version rollout.
+    if (msg.kind !== 'worktree') return
+    // Absent repoRoot means an exotic layout (a bare repo serving worktrees) where no
+    // primary checkout exists to compare; the remaining guards still apply.
+    if (msg.repoRoot !== undefined && msg.repoRoot !== issue.repoPath) return
     if (this.issues().worktreePaths().includes(msg.cwd)) return
     this.issues().update(issue.id, {
       worktreePath: msg.cwd,

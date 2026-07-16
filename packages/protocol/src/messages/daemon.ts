@@ -79,15 +79,18 @@ export const SessionCwdMessage = z.object({
   type: z.literal('sessionCwd'),
   sessionId: z.string(),
   cwd: z.string(),
-  // True when the agent DECLARED this worktree (`podium worktree`), as opposed
-  // to hook-observed cd wandering. An explicit declaration also stamps the
-  // worktree onto the session's attached issue (if that issue has none yet).
+  // True when the agent DECLARED this worktree (`podium worktree`), as opposed to
+  // hook-observed cd wandering. Its weight is on the DAEMON side: a declaration
+  // always sends, bypassing the dedup that would swallow a re-declaration of the
+  // root the session already sits in. The server does not gate adoption on it —
+  // `kind` and the issue guards decide that (POD-665).
   explicit: z.boolean().optional(),
   // What `cwd` IS, classified by git on the daemon (the only side that can run it):
   // the repo's main checkout, a linked worktree, or outside git entirely. Only a
   // linked worktree may be adopted as an issue's workspace [spec:SP-4ef9] — main
-  // never is. Optional so an older daemon (which sends neither this nor the fields
-  // below) keeps its pre-POD-665 contract: explicit declarations still stamp.
+  // never is. Optional because an older daemon cannot send it; such a daemon simply
+  // does not adopt (no path test can stand in for git here — worktrees live inside
+  // the repo dir), and self-heals when its binary updates.
   kind: z.enum(['main', 'worktree', 'none']).optional(),
   // The branch checked out in `cwd`, resolved fresh at send time; absent when
   // detached or when `cwd` is no worktree. Lets the server stamp branch AND

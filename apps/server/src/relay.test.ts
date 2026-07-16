@@ -240,14 +240,49 @@ describe('SessionRegistry', () => {
     expect(read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: null })
   })
 
-  it('keeps the pre-POD-665 contract for a daemon that sends no kind: explicit stamps, drift does not', () => {
-    const older = adopting()
-    older.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined })
-    expect(older.read()).toMatchObject({ worktreePath: null })
+  it('a daemon too old to classify never adopts, declared or not', () => {
+    // Only git can tell a worktree from main, so a daemon that cannot say `kind` is
+    // not trusted to stamp anything. It self-heals when its binary updates.
+    const drifted = adopting()
+    drifted.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined })
+    expect(drifted.read()).toMatchObject({ worktreePath: null })
 
     const declared = adopting()
     declared.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined, explicit: true })
-    expect(declared.read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x' })
+    expect(declared.read()).toMatchObject({ worktreePath: null })
+  })
+
+  it('an old daemon cannot stamp live main by reporting it under a different path', () => {
+    // THE hole that retired the old daemon's guard, reproduced. That guard identified
+    // main by string-comparing the REGISTERED repo path, but git reports a symlinked
+    // repo by its REAL path — so `repoPath !== cwd` answered "not main" and the issue
+    // swallowed live main, the failure [spec:SP-595b] exists to prevent. Verified with
+    // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
+    const reg = new SessionRegistry()
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const issue = reg.modules.issues.create({
+      repoPath: '/link/repo', // registered through a symlink…
+      title: 'Symlinked',
+      startNow: false,
+    })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/link/repo',
+      issueId: issue.id,
+    })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '/real/repo', // …but git resolves it to here, so a path compare says "not main"
+      explicit: true, // the old daemon's one stamping trigger
+    })
+    expect(reg.modules.issues.get(issue.id)).toMatchObject({ worktreePath: null })
+  })
+
+  it('an explicit declaration is not a licence to stamp main', () => {
+    const { cwdMsg, read } = adopting()
+    cwdMsg({ cwd: '/real/repo', kind: 'main', branch: 'main', repoRoot: '/real/repo', explicit: true })
+    expect(read()).toMatchObject({ worktreePath: null })
   })
 
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
