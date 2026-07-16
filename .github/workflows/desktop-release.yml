@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       release_notes:
-        description: Optional updater notes; begin with CRITICAL: for a required update
+        description: "Optional updater notes; begin with CRITICAL: for a required update"
         required: false
         type: string
 

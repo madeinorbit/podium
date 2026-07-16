@@ -11,6 +11,13 @@ const headlessWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.
 const releaseSource = readFileSync(join(repoRoot, 'scripts/release.ts'), 'utf8')
 
 describe('desktop release workflow', () => {
+  it('parses as a GitHub workflow with workflow_dispatch', () => {
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      on?: { workflow_dispatch?: unknown }
+    }
+    expect(parsed.on?.workflow_dispatch).toBeDefined()
+  })
+
   it('can only be invoked explicitly for stable or edge', () => {
     expect(desktopWorkflow).toContain('workflow_dispatch:')
     expect(desktopWorkflow).not.toMatch(/^\s+push:/m)
