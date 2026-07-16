@@ -1,4 +1,9 @@
-import { issueDisplayRef, type IssueWire } from '@podium/protocol'
+import {
+  issueDisplayRef,
+  type AgentPhase,
+  type AgentRuntimeState,
+  type IssueWire,
+} from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'
@@ -68,12 +73,29 @@ interface QueuedInbound {
 
 interface AwaitedReply {
   source: ConversationRef
-  typing: ReturnType<typeof setInterval>
+}
+
+/** One shared typing interval per conversation target, refcounted by owner so
+ *  superagent-turn typing and ambient session-working typing never double-fire
+ *  into the same topic [spec:SP-62c3]. */
+interface TypingLease {
+  source: ConversationRef
+  interval: ReturnType<typeof setInterval>
+  owners: Set<string>
 }
 
 const QUEUE_CAP = 20
 /** Telegram's typing action lasts ~5s; refresh a beat earlier so it never lapses. */
 export const TYPING_REFRESH_MS = 4000
+
+/** Phases that mean the agent is actively working (ambient typing on). */
+function isWorkingPhase(phase: AgentPhase): boolean {
+  return phase === 'working' || phase === 'compacting'
+}
+
+function conversationKey(ref: ConversationRef): string {
+  return `${ref.chatId}\0${ref.threadRef ?? ''}`
+}
 
 /**
  * Two-way messaging-app bridge [spec:SP-5d81]. Inbound chat messages become
@@ -81,6 +103,13 @@ export const TYPING_REFRESH_MS = 4000
  * back to the chat. Attention notices ride the same ChannelAdapter (formatting,
  * chunking, forum-topic threading) via {@link sendNotice}, with a direct-send
  * fallback when the bridge is stopped.
+ *
+ * Ambient working signal [spec:SP-62c3]: while a session bound to an issue
+ * forum topic is in a working phase, refresh `sendChatAction` typing into that
+ * topic. Driven by `session.stateChanged` + session→issue→topic binding (the
+ * reverse of {@link noticeThreadRef}). Sessions without a bound topic are
+ * silent. Superagent-turn typing shares the same per-topic lease so the two
+ * paths never double-fire.
  *
  * Thread mapping: main chat → global; forum topics opened from /issues buttons
  * map to btw_<session> (live agent) or the repo concierge thread. Bindings
@@ -104,10 +133,20 @@ export class MessagingService implements TelegramNoticePort {
   private readonly topicThreadByRef = new Map<string, string>()
   /** Issue id → forum-topic threadRef for reopen. */
   private readonly topicRefByIssue = new Map<string, string>()
+  /** Shared typing intervals, keyed by conversation (chatId + threadRef). */
+  private readonly typingLeases = new Map<string, TypingLease>()
+  /** Ambient typing owners still held for a session (sessionId → conversation key). */
+  private readonly ambientTypingBySession = new Map<string, string>()
 
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', (ev) => this.onTurnEnded(ev))
     deps.bus.on('settings.changed', () => this.configure())
+    deps.bus.on('session.stateChanged', ({ sessionId, next }) => {
+      this.onSessionStateChanged(sessionId, next)
+    })
+    deps.bus.on('session.exited', ({ sessionId }) => {
+      this.stopAmbientTyping(sessionId)
+    })
   }
 
   /** (Re)build the adapter from current settings. Safe to call repeatedly. */
@@ -117,6 +156,7 @@ export class MessagingService implements TelegramNoticePort {
     const chatId = n.telegramChatId.trim()
     const key = botToken && chatId ? `${botToken}\n${chatId}` : ''
     if (key === this.adapterKey) return
+    this.clearAllTyping()
     this.adapter?.stop()
     this.adapter = undefined
     this.adapterKey = key
@@ -139,6 +179,7 @@ export class MessagingService implements TelegramNoticePort {
   }
 
   stop(): void {
+    this.clearAllTyping()
     this.adapter?.stop()
     this.adapter = undefined
     this.adapterKey = ''
@@ -259,15 +300,67 @@ export class MessagingService implements TelegramNoticePort {
     this.pump(threadId)
   }
 
-  private startTyping(source: ConversationRef): ReturnType<typeof setInterval> {
+  private acquireTyping(owner: string, source: ConversationRef): void {
+    const key = conversationKey(source)
+    const existing = this.typingLeases.get(key)
+    if (existing) {
+      existing.owners.add(owner)
+      return
+    }
     this.adapter?.sendTyping?.(source)
-    const typing = setInterval(() => this.adapter?.sendTyping?.(source), TYPING_REFRESH_MS)
-    ;(typing as { unref?: () => void }).unref?.()
-    return typing
+    const interval = setInterval(() => this.adapter?.sendTyping?.(source), TYPING_REFRESH_MS)
+    ;(interval as { unref?: () => void }).unref?.()
+    this.typingLeases.set(key, { source, interval, owners: new Set([owner]) })
   }
 
-  private stopTyping(typing: ReturnType<typeof setInterval> | undefined): void {
-    if (typing !== undefined) clearInterval(typing)
+  private releaseTyping(owner: string, source: ConversationRef): void {
+    const key = conversationKey(source)
+    const lease = this.typingLeases.get(key)
+    if (!lease) return
+    lease.owners.delete(owner)
+    if (lease.owners.size > 0) return
+    clearInterval(lease.interval)
+    this.typingLeases.delete(key)
+  }
+
+  private clearAllTyping(): void {
+    for (const lease of this.typingLeases.values()) clearInterval(lease.interval)
+    this.typingLeases.clear()
+    this.ambientTypingBySession.clear()
+  }
+
+  /** Ambient typing into the issue's bound forum topic while the agent works
+   *  [spec:SP-62c3]. No-op when the session has no bound topic. */
+  private onSessionStateChanged(sessionId: string, next: AgentRuntimeState): void {
+    if (isWorkingPhase(next.phase)) this.startAmbientTyping(sessionId)
+    else this.stopAmbientTyping(sessionId)
+  }
+
+  private startAmbientTyping(sessionId: string): void {
+    if (this.ambientTypingBySession.has(sessionId)) return
+    if (!this.adapter) return
+    const chatId = this.deps.getSettings().notifications.telegramChatId.trim()
+    if (!chatId) return
+    const threadRef = this.noticeThreadRef(chatId, sessionId)
+    // Only indicate for sessions with a bound issue topic — never main chat.
+    if (!threadRef) return
+    const source: ConversationRef = {
+      channel: 'telegram',
+      chatId,
+      threadRef,
+    }
+    const owner = ambientTypingOwner(sessionId)
+    this.acquireTyping(owner, source)
+    this.ambientTypingBySession.set(sessionId, conversationKey(source))
+  }
+
+  private stopAmbientTyping(sessionId: string): void {
+    const key = this.ambientTypingBySession.get(sessionId)
+    if (!key) return
+    this.ambientTypingBySession.delete(sessionId)
+    const lease = this.typingLeases.get(key)
+    if (!lease) return
+    this.releaseTyping(ambientTypingOwner(sessionId), lease.source)
   }
 
   private pump(threadId: string): void {
@@ -276,17 +369,18 @@ export class MessagingService implements TelegramNoticePort {
     const next = queue?.[0]
     if (!next) return
     this.dispatching.add(threadId)
-    const typing = this.startTyping(next.source)
+    const turnOwner = turnTypingOwner(threadId)
+    this.acquireTyping(turnOwner, next.source)
     void this.deps.superagent
       .sendTurn({ threadId, text: this.turnText(next) })
       .then(() => {
         this.dispatching.delete(threadId)
         queue?.shift()
-        this.awaiting.set(threadId, { source: next.source, typing })
+        this.awaiting.set(threadId, { source: next.source })
       })
       .catch((err: unknown) => {
         this.dispatching.delete(threadId)
-        this.stopTyping(typing)
+        this.releaseTyping(turnOwner, next.source)
         const message = err instanceof Error ? err.message : String(err)
         if (message.includes('already running')) return
         queue?.shift()
@@ -353,7 +447,7 @@ export class MessagingService implements TelegramNoticePort {
   private onTurnEnded(ev: { threadId: string; ok: boolean; output?: string; error?: string }): void {
     const awaited = this.awaiting.get(ev.threadId)
     if (awaited) {
-      this.stopTyping(awaited.typing)
+      this.releaseTyping(turnTypingOwner(ev.threadId), awaited.source)
       this.awaiting.delete(ev.threadId)
       const text = ev.ok
         ? (ev.output?.trim() || '(the superagent finished without a text reply)')
@@ -470,4 +564,12 @@ export class MessagingService implements TelegramNoticePort {
  *  by the user for this private chat (Bot API 9.3 has_topics_enabled). */
 function isNotAForumError(err: unknown): boolean {
   return err instanceof Error && /not a forum/i.test(err.message)
+}
+
+function turnTypingOwner(threadId: string): string {
+  return `turn:${threadId}`
+}
+
+function ambientTypingOwner(sessionId: string): string {
+  return `session:${sessionId}`
 }

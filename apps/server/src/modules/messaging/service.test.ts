@@ -413,6 +413,200 @@ describe('MessagingService', () => {
     })
   })
 
+  describe('ambient session working typing [spec:SP-62c3]', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    function agentState(phase: 'working' | 'compacting' | 'idle' | 'needs_user' | 'errored' | 'ended') {
+      return {
+        phase,
+        since: '2026-07-16T00:00:00.000Z',
+        openTaskCount: 0,
+        ...(phase === 'needs_user' ? { need: { kind: 'question' as const } } : {}),
+        ...(phase === 'errored'
+          ? { error: { class: 'server_error', retryable: true } }
+          : {}),
+        ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+      }
+    }
+
+    function bindTopic(
+      h: Harness,
+      opts: { sessionId?: string; issueId?: string; threadRef?: string } = {},
+    ): { sessionId: string; issueId: string; threadRef: string } {
+      const sessionId = opts.sessionId ?? 's_agent'
+      const issueId = opts.issueId ?? 'iss_bound'
+      const threadRef = opts.threadRef ?? '555'
+      h.topics.upsert({
+        issueId,
+        chatId: '42',
+        threadRef,
+        superagentThreadId: `btw_${sessionId}`,
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      })
+      return { sessionId, issueId, threadRef }
+    }
+
+    it('sends typing into the bound topic when the session enters working', () => {
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId, threadRef } = bindTopic(h)
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
+    })
+
+    it('also treats compacting as a working phase', () => {
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId, threadRef } = bindTopic(h)
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: agentState('idle'),
+        next: agentState('compacting'),
+      })
+      expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
+    })
+
+    it(`refreshes ambient typing every ${TYPING_REFRESH_MS}ms while working`, () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId } = bindTopic(h)
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      expect(h.typingCalls).toHaveLength(1)
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(2)
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(3)
+    })
+
+    it.each(['idle', 'needs_user', 'errored', 'ended'] as const)(
+      'stops ambient typing on %s',
+      (phase) => {
+        vi.useFakeTimers()
+        const h = makeHarness({
+          sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+        })
+        const { sessionId } = bindTopic(h)
+        h.bus.emit('session.stateChanged', {
+          sessionId,
+          prev: undefined,
+          next: agentState('working'),
+        })
+        const countWhileWorking = h.typingCalls.length
+        h.bus.emit('session.stateChanged', {
+          sessionId,
+          prev: agentState('working'),
+          next: agentState(phase),
+        })
+        vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+        expect(h.typingCalls).toHaveLength(countWhileWorking)
+      },
+    )
+
+    it('stops ambient typing on session.exited', () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId } = bindTopic(h)
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      const countWhileWorking = h.typingCalls.length
+      h.bus.emit('session.exited', { sessionId, code: 0 })
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countWhileWorking)
+    })
+
+    it('does not indicate for sessions without a bound topic', () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: () => 'iss_unbound',
+      })
+      h.bus.emit('session.stateChanged', {
+        sessionId: 's_unbound',
+        prev: undefined,
+        next: agentState('working'),
+      })
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 2)
+      expect(h.typingCalls).toEqual([])
+    })
+
+    it('does not double-fire when superagent-turn typing already covers the topic', async () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
+      h.topics.upsert({
+        issueId: 'iss_bound',
+        chatId: '42',
+        threadRef,
+        superagentThreadId: `btw_${sessionId}`,
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      })
+      // Superagent turn typing first (inbound into the bound topic).
+      h.inbound('status in topic', { threadRef })
+      await flushMicro()
+      expect(h.typingCalls).toEqual([{ chatId: '42', threadRef }])
+      // Ambient working signal for the same topic — must share the lease.
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      expect(h.typingCalls).toHaveLength(1)
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(2)
+      // Turn ends — ambient still owns the lease, so typing continues.
+      h.bus.emit('superagent.turnEnded', {
+        threadId: `btw_${sessionId}`,
+        podiumSessionId: 'ps1',
+        ok: true,
+        output: 'done',
+      })
+      await flushMicro()
+      const afterTurn = h.typingCalls.length
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(afterTurn + 1)
+    })
+
+    it('keeps a single refresh cadence when ambient starts before the turn', async () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sessionIssueId: (id) => (id === 's_agent' ? 'iss_bound' : null),
+      })
+      const { sessionId, threadRef } = bindTopic(h, { threadRef: '9001' })
+      h.bus.emit('session.stateChanged', {
+        sessionId,
+        prev: undefined,
+        next: agentState('working'),
+      })
+      expect(h.typingCalls).toHaveLength(1)
+      h.inbound('status in topic', { threadRef })
+      await flushMicro()
+      // Second owner must not fire an extra immediate typing action.
+      expect(h.typingCalls).toHaveLength(1)
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(2)
+    })
+  })
+
   it('surfaces terminal dispatch errors and keeps the queue moving', async () => {
     const h = makeHarness({
       sendTurnImpl: () => Promise.reject(new Error('thread is open in a terminal')),
