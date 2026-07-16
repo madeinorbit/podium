@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   type AuditContext,
@@ -404,6 +406,79 @@ describe('diffBaseline', () => {
     const d = diffBaseline(results, baselineOf(results))
     expect(d.regressions).toHaveLength(0)
     expect(d.improvements).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The CLI contract. The phase-close rule (docs/rearch-deletion-audit.md, and
+// the migration ledger's §3.2) is an EXIT CODE, so the argument handling is the
+// load-bearing part — and it was previously covered only by code-reading. This
+// repo has shipped a fail-OPEN gate twice (`git rev-parse` echoes unknown flags
+// and exits 0, which defeated POD-657 and POD-665 independently), so these
+// assert the codes against the real binary rather than trusting main().
+// ---------------------------------------------------------------------------
+
+describe('CLI exit codes', () => {
+  const script = new URL('./rearch-audit.ts', import.meta.url).pathname
+
+  /** Run the audit for real; returns its exit code (never throws on non-zero). */
+  function run(args: string[]): number {
+    const r = spawnSync('bun', [script, ...args], { encoding: 'utf8' })
+    if (r.error) throw r.error
+    return r.status ?? -1
+  }
+
+  it('exits 0 when the tree matches the committed baseline', () => {
+    expect(run([])).toBe(0)
+  })
+
+  it('fails CLOSED on an unknown flag rather than silently running the ratchet', () => {
+    // A typo'd `--updatebaseline` that quietly exits 0 having updated nothing is
+    // the worst outcome this tool can produce: it looks like it worked.
+    expect(run(['--updatebaseline'])).toBe(2)
+    expect(run(['--phasee', 'POD-309'])).toBe(2)
+    expect(run(['--json', '--bogus'])).toBe(2)
+  })
+
+  it('fails CLOSED on a malformed or missing phase argument', () => {
+    expect(run(['--phase'])).toBe(2)
+    expect(run(['--phase', 'notaphase'])).toBe(2)
+    expect(run(['--phase', '297'])).toBe(2)
+  })
+
+  it('fails CLOSED on a well-formed phase that maps to no items', () => {
+    // Must never read as "clear to close" just because nothing matched.
+    expect(run(['--phase', 'POD-999'])).toBe(2)
+  })
+
+  it('refuses --phase together with --update-baseline', () => {
+    expect(run(['--phase', 'POD-309', '--update-baseline'])).toBe(2)
+  })
+
+  it('gates a phase whose items are still alive', () => {
+    expect(run(['--phase', 'POD-309'])).toBe(1)
+  })
+
+  it('an output flag cannot disable the gate', () => {
+    // `--phase X --json` exited 0 with 119 live sites before this was fixed:
+    // the format must never decide whether the gate holds.
+    expect(run(['--phase', 'POD-314', '--json'])).toBe(1)
+    expect(run(['--phase', 'POD-314', '--sites'])).toBe(1)
+  })
+
+  it('an output flag cannot swallow the baseline write', () => {
+    // `--json --update-baseline` used to exit 0 having written NOTHING: --json
+    // returned first. Actions must run before reports.
+    const file = new URL('./rearch-audit-baseline.json', import.meta.url).pathname
+    const original = readFileSync(file, 'utf8')
+    try {
+      writeFileSync(file, original.replace(/"publish-computed-fanout": \d+/, '"x-planted": 99'))
+      expect(run(['--json', '--update-baseline'])).toBe(0)
+      expect(readFileSync(file, 'utf8')).not.toContain('x-planted')
+      expect(readFileSync(file, 'utf8')).toContain('publish-computed-fanout')
+    } finally {
+      writeFileSync(file, original)
+    }
   })
 })
 
