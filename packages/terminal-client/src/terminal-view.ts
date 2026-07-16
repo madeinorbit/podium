@@ -95,11 +95,27 @@ export const DEFAULT_THEME: ITheme = {
   brightWhite: '#f3f3f8',
 }
 
+/** The Tauri IPC bridge, present only inside the desktop app's webview. */
+interface TauriInternals {
+  invoke?: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
+}
+
 /** Open an external URL in a new tab / the system browser. In installed PWAs,
  *  `window.open(..., '_blank')` is the most reliable handoff to the browser app
  *  (iOS Safari in particular); fall back to an anchor click only if it is blocked. */
 function openExternalUrl(uri: string): void {
-  if (typeof window !== 'undefined' && typeof window.open === 'function') {
+  if (typeof window === 'undefined') return
+  // Tauri webviews (WKWebView on macOS in particular) silently drop BOTH
+  // window.open('_blank') and synthetic _blank anchor clicks — nothing ever
+  // reaches the OS browser. Hand the URL to the opener plugin instead. Raw
+  // invoke keeps this package free of Tauri JS deps (the desktop updater's
+  // plugin:process|restart uses the same pattern).
+  const tauri = (window as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__
+  if (typeof tauri?.invoke === 'function') {
+    void tauri.invoke('plugin:opener|open_url', { url: uri })
+    return
+  }
+  if (typeof window.open === 'function') {
     const opened = window.open(uri, '_blank')
     if (opened) {
       try {

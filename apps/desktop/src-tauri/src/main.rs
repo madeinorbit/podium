@@ -111,6 +111,10 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
+        // Opener: hands external URLs (agent login links from the terminal) to the OS
+        // browser. The webview itself silently drops window.open/_blank navigations,
+        // so the web UI invokes plugin:opener|open_url when it detects Tauri.
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
             // distinguish 0.1.0 from 0.1.1 across a self-replace+restart. Only writes when
