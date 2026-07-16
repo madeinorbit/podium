@@ -49,6 +49,24 @@ jobs:
       - name: architecture manifest ratchet
         run: bun run lint:architecture
 
+  # [POD-758] Own blocking job — never fold into the continue-on-error lint
+  # bundle above. A raw NUL in source makes the file binary to grep (silent
+  # "no match", exit 1); that is a guardrail hole for every grep-based check.
+  no-nul-bytes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: no raw NUL bytes in TypeScript sources
+        run: bun run lint:no-nul
+
   typecheck:
     runs-on: ubuntu-latest
     steps:

@@ -55,6 +55,7 @@
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "audit:rearch": "bun scripts/rearch-audit.ts",
     "lint:architecture": "bun scripts/check-boundaries.ts --manifest-only",
+    "lint:no-nul": "bun scripts/check-no-nul-bytes.ts",
     "format": "biome format --write .",
     "changeset": "changeset",
     "version-packages": "changeset version",
