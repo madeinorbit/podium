@@ -190,7 +190,7 @@ integration (via the `*.integration.test.ts` glob) and multi-instance (named exp
 the script). Worth deciding whether that overlap is intended — the lane map treats the
 lanes as distinct sets.
 
-Known gap at baseline (POD-756): the oracle covers **no browser tests**. 56 Playwright
+Known gap at baseline (POD-756): the oracle covers **no browser tests**. 54 Playwright
 suites under `tests/e2e/browser/` run in no lane, no script and no CI; `test:e2e` is
 browser-free despite what the docs said. Whether the oracle gains a browser lane is open —
 POD-295 locked the existing lane set rather than growing it.
