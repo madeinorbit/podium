@@ -1,4 +1,6 @@
 /** Pure machine-affinity and handoff target selection. */
+import { worktreeForCwd, worktreeSubpath } from './worktree'
+
 export interface RepoMachines {
   machines?: { machineId: string; path: string }[]
 }
@@ -34,33 +36,99 @@ export interface HandoffSession {
   machineId?: string
   agentKind: string
 }
+/** The issue a session is attached to — its branch and workspace ([spec:SP-4ef9]). */
+export interface HandoffIssue {
+  branch?: string | null
+  worktreePath?: string | null
+}
+export type HandoffWorktree = { path: string; isMain: boolean; machineId?: string }
 export interface HandoffRepo extends RepoMachines {
   repoId?: string
-  worktrees: { path: string; isMain: boolean; machineId?: string }[]
+  worktrees: HandoffWorktree[]
 }
 export interface HandoffMachine extends SelectableMachine {
   inventory?: {
     agents: { kind: string; installed: boolean; login: { state: 'in' | 'out' | 'unknown' } }[]
   }
 }
+export interface HandoffSourceRef<R extends HandoffRepo> {
+  repo: R
+  /** The worktree to move — never a main checkout ([spec:SP-3f7a]). */
+  worktreePath: string
+  /** Where the agent sits inside it (`''` = its root); the resumed agent lands there. */
+  subpath: string
+  /** Which layer resolved it: the cwd's own worktree, or the issue's. */
+  via: 'cwd' | 'issue'
+}
 
-/** Eligible move targets for a worktree session ([spec:SP-3f7a]). */
+/**
+ * The worktree a session would hand off, and where inside it the agent sits
+ * ([spec:SP-3f7a]).
+ *
+ * `session.cwd` is the shell's MOMENTARY cwd — the daemon restamps it as the
+ * agent moves — so requiring it to equal a worktree path is not a workable gate:
+ * an agent that runs one command against the main checkout would silently lose
+ * eligibility. Two layers instead:
+ *   1. containment — the worktree that CONTAINS the cwd (a subdir still counts);
+ *   2. issue-anchored — when the cwd has drifted onto the main checkout, the
+ *      attached issue's own worktree is still this session's home, so move that.
+ * A main checkout is never itself a source; git has the final say at export.
+ */
+export function handoffSource<R extends HandoffRepo>(
+  session: HandoffSession,
+  repos: R[],
+  issue?: HandoffIssue,
+): HandoffSourceRef<R> | null {
+  const onMachine = (worktree: HandoffWorktree): boolean =>
+    session.machineId === undefined || worktree.machineId === session.machineId
+  // The worktree owning the cwd, across every repo. Longest match wins, so a cwd
+  // under `<repo>/.worktrees/x` belongs to that worktree, not the parent checkout.
+  let home: { repo: R; worktree: HandoffWorktree } | null = null
+  for (const repo of repos) {
+    const owned = repo.worktrees.filter(onMachine)
+    const path = worktreeForCwd(
+      session.cwd,
+      owned.map((worktree) => worktree.path),
+    )
+    if (path === null || (home !== null && home.worktree.path.length >= path.length)) continue
+    const worktree = owned.find((candidate) => candidate.path === path)
+    if (worktree) home = { repo, worktree }
+  }
+  if (!home) return null
+  if (!home.worktree.isMain) {
+    return {
+      repo: home.repo,
+      worktreePath: home.worktree.path,
+      subpath: worktreeSubpath(home.worktree.path, session.cwd),
+      via: 'cwd',
+    }
+  }
+  // Drifted onto the main checkout. Anchor on the issue's worktree instead — but
+  // only within the repo the session is actually in, so the package's repo
+  // identity still matches the tree it carries.
+  if (issue?.branch && issue.worktreePath) {
+    const worktree = home.repo.worktrees.find(
+      (candidate) =>
+        candidate.path === issue.worktreePath && !candidate.isMain && onMachine(candidate),
+    )
+    if (worktree) {
+      return { repo: home.repo, worktreePath: worktree.path, subpath: '', via: 'issue' }
+    }
+  }
+  return null
+}
+
+/** Eligible move targets for a handoff-capable session ([spec:SP-3f7a]). */
 export function handoffTargets<M extends HandoffMachine>(
   session: HandoffSession,
   repos: HandoffRepo[],
   machines: M[],
+  issue?: HandoffIssue,
 ): M[] {
   if (session.agentKind !== 'claude-code' && session.agentKind !== 'codex') return []
-  const repo = repos.find((candidate) =>
-    candidate.worktrees.some(
-      (worktree) =>
-        worktree.path === session.cwd &&
-        !worktree.isMain &&
-        (session.machineId === undefined || worktree.machineId === session.machineId),
-    ),
-  )
-  if (!repo?.repoId) return []
-  return machinesWithRepo(repo, machines).filter((machine) => {
+  const source = handoffSource(session, repos, issue)
+  if (!source?.repo.repoId) return []
+  return machinesWithRepo(source.repo, machines).filter((machine) => {
     if (!machine.online || machine.id === session.machineId) return false
     const harness = machine.inventory?.agents.find((agent) => agent.kind === session.agentKind)
     return harness?.installed === true && harness.login.state !== 'out'

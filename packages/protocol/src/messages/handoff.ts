@@ -15,6 +15,10 @@ export const HandoffManifest = z.object({
   snapshotSha: z.string().nullable(),
   snapshotFlattened: z.literal(true),
   worktreeName: z.string(),
+  /** Where the agent sat inside the worktree, relative to its root ([spec:SP-3f7a]).
+   *  Absent = the root. The import lands the resumed agent in the equivalent
+   *  subdir, or the root when the target tree has no such directory. */
+  cwdSubpath: z.string().optional(),
   bundleBase: z.array(z.string()),
   title: z.string().optional(),
   issueId: z.string().optional(),
@@ -27,7 +31,12 @@ export const HandoffExportRequestMessage = z.object({
   type: z.literal('handoffExportRequest'),
   requestId: z.string(),
   sessionId: z.string(),
+  /** The session's stamped cwd — momentary, and it drifts (the daemon follows the
+   *  shell). The exporter moves the worktree CONTAINING it ([spec:SP-3f7a]). */
   cwd: z.string(),
+  /** The attached issue's worktree, used only when `cwd` has drifted off any
+   *  worktree (typically onto the main checkout, which is never a source). */
+  fallbackCwd: z.string().optional(),
   agentKind: AgentKind,
   resume: ResumeRef,
   branch: z.string(),

@@ -27,6 +27,25 @@ async function repo(name: string): Promise<string> {
   git(path, 'commit', '-m', 'base')
   return path
 }
+/** A linked worktree — the only thing a handoff may move ([spec:SP-3f7a]). Lives
+ *  under the repo, so the `repo()` cleanup takes it with it. */
+async function worktree(repoPath: string, branch: string): Promise<string> {
+  const path = join(repoPath, '.worktrees', branch.replace(/[^a-zA-Z0-9]/gu, '-'))
+  git(repoPath, 'worktree', 'add', '-b', branch, path)
+  return path
+}
+/** Seed the Claude transcript in the bucket for `cwd` (Claude buckets by cwd). */
+async function seedTranscript(home: string, cwd: string, resumeValue: string, body = '{}\n') {
+  const path = join(home, '.claude', 'projects', claudeProjectSlug(cwd), `${resumeValue}.jsonl`)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, body)
+  return path
+}
+async function home(name: string): Promise<string> {
+  const path = await mkdtemp(join(tmpdir(), `podium-home-${name}-`))
+  roots.push(path)
+  return path
+}
 afterEach(() => {
   for (const root of roots.splice(0)) execFileSync('rm', ['-rf', root])
 })
@@ -77,21 +96,12 @@ describe('handoff package', () => {
     // Target-verified bases can be unknown to the source (e.g. the target's
     // freshly-fetched origin/main after a reverse handoff): `git bundle create
     // ^<unknown>` aborts with "bad object", so export must keep the intersection.
-    const source = await repo('base-intersect')
-    const base = git(source, 'rev-parse', 'HEAD')
-    git(source, 'checkout', '-b', 'issue/intersect')
-    const sourceHome = await mkdtemp(join(tmpdir(), 'podium-home-intersect-'))
-    roots.push(sourceHome)
+    const origin = await repo('base-intersect')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const source = await worktree(origin, 'issue/intersect')
+    const sourceHome = await home('intersect')
     const resumeValue = 'claude-intersect-id'
-    const transcript = join(
-      sourceHome,
-      '.claude',
-      'projects',
-      claudeProjectSlug(source),
-      `${resumeValue}.jsonl`,
-    )
-    await mkdir(dirname(transcript), { recursive: true })
-    await writeFile(transcript, '{}\n')
+    await seedTranscript(sourceHome, source, resumeValue)
     const foreign = '1234567890abcdef1234567890abcdef12345678'
     const exported = await exportHandoffPackage({
       sessionId: 'handoff-intersect',
@@ -125,30 +135,20 @@ describe('handoff package', () => {
     // ref (git bundle drops refs pointing at excluded bases) — import must
     // create the branch from headSha. Importing again must reuse the existing
     // worktree (round trip) and hard-sync it to the package state.
-    const source = await repo('dirty-only')
-    const base = git(source, 'rev-parse', 'HEAD')
+    const origin = await repo('dirty-only')
+    const base = git(origin, 'rev-parse', 'HEAD')
     const target = await mkdtemp(join(tmpdir(), 'podium-target-dirty-'))
     roots.push(target)
-    execFileSync('git', ['clone', source, target])
+    execFileSync('git', ['clone', origin, target])
     git(target, 'config', 'user.email', 'test@podium.local')
     git(target, 'config', 'user.name', 'Podium Test')
-    git(source, 'checkout', '-b', 'feat/dirty-only')
+    const source = await worktree(origin, 'feat/dirty-only')
     await writeFile(join(source, 'untracked.txt'), 'v1\n')
 
-    const sourceHome = await mkdtemp(join(tmpdir(), 'podium-home-dirty-'))
-    roots.push(sourceHome)
-    const targetHome = await mkdtemp(join(tmpdir(), 'podium-home-dirty-target-'))
-    roots.push(targetHome)
+    const sourceHome = await home('dirty')
+    const targetHome = await home('dirty-target')
     const resumeValue = 'claude-dirty-only'
-    const transcript = join(
-      sourceHome,
-      '.claude',
-      'projects',
-      claudeProjectSlug(source),
-      `${resumeValue}.jsonl`,
-    )
-    await mkdir(dirname(transcript), { recursive: true })
-    await writeFile(transcript, '{}\n')
+    await seedTranscript(sourceHome, source, resumeValue)
     const exported = await exportHandoffPackage({
       sessionId: 'handoff-dirty-only',
       cwd: source,
@@ -166,7 +166,7 @@ describe('handoff package', () => {
     const first = await importHandoffPackage({
       sessionId: 'handoff-dirty-only',
       repoPath: target,
-      worktreeName: basename(source),
+      worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
     })
     expect(git(first.newCwd, 'branch', '--show-current')).toBe('feat/dirty-only')
@@ -179,7 +179,7 @@ describe('handoff package', () => {
     const second = await importHandoffPackage({
       sessionId: 'handoff-dirty-only',
       repoPath: target,
-      worktreeName: basename(source),
+      worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
     })
     expect(second.newCwd).toBe(first.newCwd)
@@ -188,34 +188,24 @@ describe('handoff package', () => {
   })
 
   it('exports and imports dirty state plus Claude transcript between repositories', async () => {
-    const source = await repo('source')
-    const base = git(source, 'rev-parse', 'HEAD')
+    const origin = await repo('source')
+    const base = git(origin, 'rev-parse', 'HEAD')
     const target = await mkdtemp(join(tmpdir(), 'podium-target-'))
     roots.push(target)
-    execFileSync('git', ['clone', source, target])
+    execFileSync('git', ['clone', origin, target])
     git(target, 'config', 'user.email', 'test@podium.local')
     git(target, 'config', 'user.name', 'Podium Test')
-    git(source, 'checkout', '-b', 'issue/498-handoff')
+    const source = await worktree(origin, 'issue/498-handoff')
     await writeFile(join(source, 'branch.txt'), 'branch\n')
     git(source, 'add', '.')
     git(source, 'commit', '-m', 'branch')
     await writeFile(join(source, 'tracked.txt'), 'dirty survives\n')
     await writeFile(join(source, 'untracked.txt'), 'untracked survives\n')
 
-    const sourceHome = await mkdtemp(join(tmpdir(), 'podium-home-source-'))
-    roots.push(sourceHome)
-    const targetHome = await mkdtemp(join(tmpdir(), 'podium-home-target-'))
-    roots.push(targetHome)
+    const sourceHome = await home('source')
+    const targetHome = await home('target')
     const resumeValue = 'claude-native-id'
-    const transcript = join(
-      sourceHome,
-      '.claude',
-      'projects',
-      claudeProjectSlug(source),
-      `${resumeValue}.jsonl`,
-    )
-    await mkdir(dirname(transcript), { recursive: true })
-    await writeFile(transcript, '{"memory":"bluebird"}\n')
+    await seedTranscript(sourceHome, source, resumeValue, '{"memory":"bluebird"}\n')
     const exported = await exportHandoffPackage({
       sessionId: 'handoff-roundtrip',
       cwd: source,
@@ -241,7 +231,7 @@ describe('handoff package', () => {
     const imported = await importHandoffPackage({
       sessionId: 'handoff-roundtrip',
       repoPath: target,
-      worktreeName: basename(source),
+      worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
     })
     expect(await readFile(join(imported.newCwd, 'tracked.txt'), 'utf8')).toBe('dirty survives\n')
@@ -260,5 +250,179 @@ describe('handoff package', () => {
         'utf8',
       ),
     ).toContain('bluebird')
+  })
+})
+
+describe('handoff source resolution ([spec:SP-3f7a])', () => {
+  const exportFrom = async (input: {
+    cwd: string
+    fallbackCwd?: string
+    sessionId: string
+    homeDir: string
+    baseShas: string[]
+    resumeValue: string
+  }) =>
+    exportHandoffPackage({
+      sessionId: input.sessionId,
+      cwd: input.cwd,
+      ...(input.fallbackCwd ? { fallbackCwd: input.fallbackCwd } : {}),
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: input.resumeValue },
+      branch: 'ignored',
+      baseShas: input.baseShas,
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: input.homeDir,
+    })
+
+  it('never exports a main checkout — at its root or from a subdir inside it', async () => {
+    // git decides (git-dir === git-common-dir), not the path shape: a cwd deep
+    // inside the main checkout must not read as a worktree.
+    const origin = await repo('main-guard')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const sourceHome = await home('main-guard')
+    await mkdir(join(origin, 'apps', 'web'), { recursive: true })
+    await seedTranscript(sourceHome, origin, 'claude-main-guard')
+    const common = { homeDir: sourceHome, baseShas: [base], resumeValue: 'claude-main-guard' }
+    await expect(exportFrom({ ...common, sessionId: 'guard-root', cwd: origin })).rejects.toThrow(
+      /only worktree sessions can be handed off/,
+    )
+    await expect(
+      exportFrom({ ...common, sessionId: 'guard-subdir', cwd: join(origin, 'apps', 'web') }),
+    ).rejects.toThrow(/only worktree sessions can be handed off/)
+  })
+
+  it('exports the worktree CONTAINING a drifted cwd and lands the agent in the same subdir', async () => {
+    const origin = await repo('subpath')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-target-subpath-'))
+    roots.push(target)
+    execFileSync('git', ['clone', origin, target])
+    const source = await worktree(origin, 'issue/657-subpath')
+    await mkdir(join(source, 'apps', 'web'), { recursive: true })
+    await writeFile(join(source, 'apps', 'web', 'app.ts'), 'export const x = 1\n')
+    const agentCwd = join(source, 'apps', 'web')
+
+    const sourceHome = await home('subpath')
+    const targetHome = await home('subpath-target')
+    const resumeValue = 'claude-subpath'
+    await seedTranscript(sourceHome, agentCwd, resumeValue, '{"memory":"subdir"}\n')
+    const exported = await exportFrom({
+      sessionId: 'handoff-subpath',
+      cwd: agentCwd,
+      homeDir: sourceHome,
+      baseShas: [base],
+      resumeValue,
+    })
+    expect(exported.manifest.cwdSubpath).toBe('apps/web')
+    expect(exported.manifest.worktreeName).toBe(basename(source))
+    expect(exported.manifest.branch).toBe('issue/657-subpath')
+
+    const stage = join(targetHome, '.podium', 'handoff', 'handoff-subpath.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    await copyFile(exported.stagePath, stage)
+    const imported = await importHandoffPackage({
+      sessionId: 'handoff-subpath',
+      repoPath: target,
+      worktreeName: exported.manifest.worktreeName,
+      homeDir: targetHome,
+    })
+    expect(imported.newCwd).toBe(
+      join(target, '.worktrees', exported.manifest.worktreeName, 'apps', 'web'),
+    )
+    // The transcript follows the landing cwd — Claude buckets by cwd, so the
+    // resumed agent only finds its conversation in the subdir's bucket.
+    expect(
+      await readFile(
+        join(
+          targetHome,
+          '.claude',
+          'projects',
+          claudeProjectSlug(imported.newCwd),
+          `${resumeValue}.jsonl`,
+        ),
+        'utf8',
+      ),
+    ).toContain('subdir')
+  })
+
+  it('lands at the worktree root when the subdir does not exist on the target', async () => {
+    // An empty scratch dir is never committed, so the imported tree has no such
+    // path — the handoff must still land, at the root.
+    const origin = await repo('subpath-missing')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-target-missing-'))
+    roots.push(target)
+    execFileSync('git', ['clone', origin, target])
+    const source = await worktree(origin, 'issue/657-missing')
+    const agentCwd = join(source, 'scratch')
+    await mkdir(agentCwd, { recursive: true })
+
+    const sourceHome = await home('missing')
+    const targetHome = await home('missing-target')
+    const resumeValue = 'claude-missing'
+    await seedTranscript(sourceHome, agentCwd, resumeValue)
+    const exported = await exportFrom({
+      sessionId: 'handoff-missing',
+      cwd: agentCwd,
+      homeDir: sourceHome,
+      baseShas: [base],
+      resumeValue,
+    })
+    expect(exported.manifest.cwdSubpath).toBe('scratch')
+    const stage = join(targetHome, '.podium', 'handoff', 'handoff-missing.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    await copyFile(exported.stagePath, stage)
+    const imported = await importHandoffPackage({
+      sessionId: 'handoff-missing',
+      repoPath: target,
+      worktreeName: exported.manifest.worktreeName,
+      homeDir: targetHome,
+    })
+    expect(imported.newCwd).toBe(join(target, '.worktrees', exported.manifest.worktreeName))
+  })
+
+  it('falls back to the issue worktree when the cwd drifted onto the main checkout', async () => {
+    // The live shape this issue is about: the agent ran a command against the
+    // main checkout and got restamped there. Its issue worktree is still its
+    // home — that is what moves, and main is never touched.
+    const origin = await repo('anchored')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const source = await worktree(origin, 'issue/657-anchored')
+    await writeFile(join(source, 'work.txt'), 'in progress\n')
+    const sourceHome = await home('anchored')
+    const resumeValue = 'claude-anchored'
+    await seedTranscript(sourceHome, source, resumeValue)
+
+    const exported = await exportFrom({
+      sessionId: 'handoff-anchored',
+      cwd: origin, // drifted: stamped at the repo root
+      fallbackCwd: source,
+      homeDir: sourceHome,
+      baseShas: [base],
+      resumeValue,
+    })
+    expect(exported.manifest.branch).toBe('issue/657-anchored')
+    expect(exported.manifest.worktreeName).toBe(basename(source))
+    expect(exported.manifest.cwdSubpath).toBeUndefined()
+  })
+
+  it('ignores the fallback when the cwd is in a worktree of its own', async () => {
+    const origin = await repo('prefer-cwd')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const source = await worktree(origin, 'issue/657-actual')
+    const other = await worktree(origin, 'issue/658-other')
+    const sourceHome = await home('prefer-cwd')
+    const resumeValue = 'claude-prefer-cwd'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const exported = await exportFrom({
+      sessionId: 'handoff-prefer-cwd',
+      cwd: source,
+      fallbackCwd: other,
+      homeDir: sourceHome,
+      baseShas: [base],
+      resumeValue,
+    })
+    expect(exported.manifest.branch).toBe('issue/657-actual')
   })
 })

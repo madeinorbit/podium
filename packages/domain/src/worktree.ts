@@ -10,3 +10,11 @@ export function worktreeForCwd(cwd: string, worktreePaths: string[]): string | n
   }
   return best
 }
+
+/** Where `cwd` sits inside the worktree `root` that contains it — `''` at the
+ *  root itself, else a relative path (`apps/web`). Containment is the caller's
+ *  to establish (`worktreeForCwd`); an uncontained cwd reads as the root. */
+export function worktreeSubpath(root: string, cwd: string): string {
+  const prefix = root.endsWith('/') ? root : `${root}/`
+  return cwd.startsWith(prefix) ? cwd.slice(prefix.length) : ''
+}

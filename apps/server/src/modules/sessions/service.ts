@@ -1682,7 +1682,19 @@ export class SessionsService {
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
     if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
-    if (session.cwd === sourceRepo.path) throw new Error('only worktree sessions can be handed off')
+    // [spec:SP-3f7a] `session.cwd` drifts — the daemon follows the shell, so an
+    // agent that ran a command against the main checkout is stamped at the repo
+    // root. Its issue's worktree is still its home, so offer that as a fallback
+    // source instead of refusing. Restricted to this repo, so the package's repo
+    // identity always matches the tree it carries. Which candidate wins is the
+    // exporter's call (it asks git); refuse up front only when neither exists.
+    const issue = session.issueId ? this.issues().get(session.issueId) : undefined
+    const issueWorktree =
+      issue?.branch && issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
+        ? issue.worktreePath
+        : undefined
+    if (session.cwd === sourceRepo.path && !issueWorktree)
+      throw new Error('only worktree sessions can be handed off')
     const targetRepo = repos.find(
       (repo) => repo.machineId === input.machineId && repo.repoId === sourceRepo.repoId,
     )
@@ -1699,7 +1711,6 @@ export class SessionsService {
       throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
     }
 
-    const issue = session.issueId ? this.issues().get(session.issueId) : undefined
     session.handoffTarget = targetMachine.name
     this.broadcastSessions()
 
@@ -1742,6 +1753,7 @@ export class SessionsService {
         {
           sessionId: session.sessionId,
           cwd: source.cwd,
+          ...(issueWorktree ? { fallbackCwd: issueWorktree } : {}),
           agentKind: session.agentKind,
           resume: session.resume,
           branch,

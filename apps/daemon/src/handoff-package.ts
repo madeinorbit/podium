@@ -18,6 +18,63 @@ async function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
   return stdout.trim()
 }
 
+/** git's own answer to "is this a LINKED worktree, and where is its root?" — a
+ *  main checkout has `git-dir === git-common-dir`, a linked worktree points at
+ *  `<common>/worktrees/<name>`. Asking git rather than matching path shape is
+ *  what makes "never hand off a main checkout" ([spec:SP-3f7a]) airtight:
+ *  worktrees may live anywhere, and a cwd deep inside the main checkout must not
+ *  read as one. Null = not a linked worktree (or not a repo at all). */
+async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
+  const out = await git(cwd, [
+    'rev-parse',
+    '--path-format=absolute',
+    '--show-toplevel',
+    '--git-dir',
+    '--git-common-dir',
+  ]).catch(() => '')
+  const [root, gitDir, commonDir] = out.split('\n').map((line) => line.trim())
+  if (!root || !gitDir || !commonDir || gitDir === commonDir) return null
+  return root
+}
+
+/**
+ * The worktree this export moves, and where the agent sits inside it.
+ *
+ * Two layers ([spec:SP-3f7a]), mirroring the client's `handoffSource` gate but
+ * decided here against git truth: the worktree CONTAINING the session's cwd, or
+ * — when that cwd has drifted off any worktree — the attached issue's worktree,
+ * which is still the session's home. Neither may be a main checkout.
+ */
+export async function resolveExportSource(
+  cwd: string,
+  fallbackCwd?: string,
+): Promise<{ worktreeRoot: string; subpath: string }> {
+  const contained = await linkedWorktreeRoot(cwd)
+  if (contained) {
+    const subpath = relative(contained, cwd)
+    return { worktreeRoot: contained, subpath: subpath.startsWith('..') ? '' : subpath }
+  }
+  const anchored = fallbackCwd ? await linkedWorktreeRoot(fallbackCwd) : null
+  if (anchored) return { worktreeRoot: anchored, subpath: '' }
+  throw new Error('only worktree sessions can be handed off')
+}
+
+/** The subdir to resume in on the target: the same place inside the worktree the
+ *  agent was working, when the imported tree actually has it. A branch that never
+ *  created that directory must not fail the whole handoff — land at the root. */
+async function landingCwd(worktreeRoot: string, subpath?: string): Promise<string> {
+  const parts = (subpath ?? '')
+    .split(/[\\/]+/u)
+    .filter((part) => part && part !== '.' && part !== '..')
+  if (parts.length === 0) return worktreeRoot
+  const target = join(worktreeRoot, ...parts)
+  const exists = await stat(target).then(
+    (info) => info.isDirectory(),
+    () => false,
+  )
+  return exists ? target : worktreeRoot
+}
+
 export async function buildSnapshotCommit(
   cwd: string,
   sessionId: string,
@@ -108,6 +165,7 @@ async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
 export async function exportHandoffPackage(input: {
   sessionId: string
   cwd: string
+  fallbackCwd?: string
   agentKind: 'claude-code' | 'codex'
   resume: HandoffManifestType['resume']
   branch: string
@@ -123,16 +181,22 @@ export async function exportHandoffPackage(input: {
   await mkdir(stageDir, { recursive: true, mode: 0o700 })
   const packageDir = await mkdtemp(join(stageDir, `${input.sessionId}-`))
   const stagePath = join(stageDir, `${input.sessionId}.tgz`)
-  const snapshot = await buildSnapshotCommit(input.cwd, input.sessionId)
+  // Every git operation below belongs to the WORKTREE, not the session's cwd:
+  // the cwd may be a subdir of it, or (after drift) somewhere else entirely.
+  const source = await resolveExportSource(input.cwd, input.fallbackCwd)
+  const cwd = source.worktreeRoot
+  const snapshot = await buildSnapshotCommit(cwd, input.sessionId)
   try {
-    const actualBranch = await git(input.cwd, ['branch', '--show-current'])
+    const actualBranch = await git(cwd, ['branch', '--show-current'])
     if (!actualBranch) throw new Error('detached HEAD cannot be handed off')
-    const baseShas = await sourceKnownShas(input.cwd, input.baseShas)
+    const baseShas = await sourceKnownShas(cwd, input.baseShas)
     if (baseShas.length === 0)
       throw new Error('no bundle base shared between source and target repositories')
     const transcript = await transcriptForExport({
       agentKind: input.agentKind,
-      cwd: input.cwd,
+      // Claude buckets transcripts by cwd, so look in the bucket the agent ran
+      // in — the drifted cwd reconstructed from the worktree root + subpath.
+      cwd: join(cwd, source.subpath),
       resumeValue: input.resume.value,
       home,
     })
@@ -148,7 +212,8 @@ export async function exportHandoffPackage(input: {
       headSha: snapshot.headSha,
       snapshotSha: snapshot.snapshotSha,
       snapshotFlattened: true,
-      worktreeName: basename(input.cwd),
+      worktreeName: basename(cwd),
+      ...(source.subpath ? { cwdSubpath: source.subpath } : {}),
       bundleBase: baseShas,
       ...(input.title ? { title: input.title } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
@@ -163,13 +228,13 @@ export async function exportHandoffPackage(input: {
         ...(snapshot.snapshotSha ? [snapshot.handoffRef] : []),
         ...baseShas.map((sha) => `^${sha}`),
       ]
-      await git(input.cwd, ['bundle', 'create', join(packageDir, 'repo.bundle'), ...revs])
+      await git(cwd, ['bundle', 'create', join(packageDir, 'repo.bundle'), ...revs])
     }
     await rm(stagePath, { force: true })
     await runFile('tar', ['-czf', stagePath, '-C', packageDir, '.'])
     return { manifest, stagePath, sizeBytes: (await stat(stagePath)).size }
   } finally {
-    await git(input.cwd, ['update-ref', '-d', snapshot.handoffRef]).catch(() => '')
+    await git(cwd, ['update-ref', '-d', snapshot.handoffRef]).catch(() => '')
     await rm(packageDir, { recursive: true, force: true })
   }
 }
@@ -231,7 +296,7 @@ export async function importHandoffPackage(input: {
   const home = input.homeDir ?? homedir()
   const archive = stagePathFor(home, input.sessionId)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-handoff-import-'))
-  const newCwd = join(input.repoPath, '.worktrees', basename(input.worktreeName))
+  const worktreeRoot = join(input.repoPath, '.worktrees', basename(input.worktreeName))
   let createdWorktree = false
   try {
     await runFile('tar', ['-xzf', archive, '-C', unpacked])
@@ -282,18 +347,18 @@ export async function importHandoffPackage(input: {
     const worktrees = await git(input.repoPath, ['worktree', 'list', '--porcelain'])
     const existingWorktree = worktrees
       .split('\n\n')
-      .some((block) => block.split('\n').includes(`worktree ${newCwd}`))
+      .some((block) => block.split('\n').includes(`worktree ${worktreeRoot}`))
     if (existingWorktree) {
       // Round trip: the session returns to a machine that still has its old
       // worktree. Move semantics — the incoming package is the authoritative
       // state; the residue left behind at export time is superseded by it.
-      const checkedOut = await git(newCwd, ['branch', '--show-current'])
+      const checkedOut = await git(worktreeRoot, ['branch', '--show-current'])
       if (checkedOut !== manifest.branch)
         throw new Error(
           `existing worktree has branch ${checkedOut || '(detached)'}, package expects ${manifest.branch}`,
         )
-      await git(newCwd, ['reset', '--hard', incomingTip])
-      await git(newCwd, ['clean', '-fd'])
+      await git(worktreeRoot, ['reset', '--hard', incomingTip])
+      await git(worktreeRoot, ['clean', '-fd'])
     } else {
       const branchTip = await git(input.repoPath, [
         'rev-parse',
@@ -315,19 +380,22 @@ export async function importHandoffPackage(input: {
           throw new Error(`target branch ${manifest.branch} has diverged from the package`)
       }
       await git(input.repoPath, ['update-ref', `refs/heads/${manifest.branch}`, incomingTip])
-      await mkdir(dirname(newCwd), { recursive: true })
-      await git(input.repoPath, ['worktree', 'add', newCwd, manifest.branch])
+      await mkdir(dirname(worktreeRoot), { recursive: true })
+      await git(input.repoPath, ['worktree', 'add', worktreeRoot, manifest.branch])
       createdWorktree = true
     }
     await git(input.repoPath, ['update-ref', '-d', incomingRef]).catch(() => '')
     if (manifest.snapshotSha)
-      await git(newCwd, [
+      await git(worktreeRoot, [
         'restore',
         `--source=${HANDOFF_REF_ROOT}/${manifest.sessionId}`,
         '--worktree',
         '--',
         '.',
       ])
+    // Land where the agent was working; the transcript must follow the cwd it
+    // resumes in, since Claude buckets transcripts by cwd.
+    const newCwd = await landingCwd(worktreeRoot, manifest.cwdSubpath)
     const transcriptTarget = transcriptPlacement(manifest, newCwd, home)
     await mkdir(dirname(transcriptTarget), { recursive: true, mode: 0o700 })
     await copyFile(join(unpacked, 'transcript.jsonl'), transcriptTarget)
@@ -342,8 +410,8 @@ export async function importHandoffPackage(input: {
     // Only unwind a worktree WE created — a reused round-trip worktree predates
     // this import and must survive a failed attempt.
     if (createdWorktree) {
-      await git(input.repoPath, ['worktree', 'remove', '--force', newCwd]).catch(() => '')
-      await rm(newCwd, { recursive: true, force: true }).catch(() => undefined)
+      await git(input.repoPath, ['worktree', 'remove', '--force', worktreeRoot]).catch(() => '')
+      await rm(worktreeRoot, { recursive: true, force: true }).catch(() => undefined)
     }
     throw error
   } finally {

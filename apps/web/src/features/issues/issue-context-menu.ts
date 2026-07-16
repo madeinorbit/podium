@@ -1,4 +1,9 @@
-import { handoffTargets, type HandoffMachine, type HandoffRepo } from '@podium/domain'
+import {
+  type HandoffIssue,
+  type HandoffMachine,
+  type HandoffRepo,
+  handoffTargets,
+} from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 
@@ -14,9 +19,12 @@ import type { IssuesKeyState } from './issues-keys'
  * store sessions, reuses `handoffTargets` for eligibility, and returns a result
  * only when exactly one attached session has at least one target machine.
  * Callers must also require a single selected issue (`issues.length === 1`).
+ *
+ * The issue itself is part of the gate: a session whose cwd has drifted onto the
+ * main checkout is still eligible via the issue's own worktree.
  */
 export function resolveIssueHandoffSession<M extends HandoffMachine>(
-  issue: { sessions: readonly { sessionId: string }[] },
+  issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],
@@ -26,7 +34,7 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
   for (const ref of issue.sessions) {
     const session = byId.get(ref.sessionId)
     if (!session) continue
-    const targets = handoffTargets(session, repos, machines)
+    const targets = handoffTargets(session, repos, machines, issue)
     if (targets.length > 0) eligible.push({ session, targets })
   }
   return eligible.length === 1 ? (eligible[0] ?? null) : null

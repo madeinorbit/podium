@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handoffTargets } from './machine-selection'
+import { handoffSource, handoffTargets } from './machine-selection'
 
 const repos = [
   {
@@ -8,7 +8,11 @@ const repos = [
       { machineId: 'source', path: '/a' },
       { machineId: 'target', path: '/b' },
     ],
-    worktrees: [{ path: '/a/.worktrees/x', isMain: false, machineId: 'source' }],
+    worktrees: [
+      { path: '/a', isMain: true, machineId: 'source' },
+      { path: '/a/.worktrees/x', isMain: false, machineId: 'source' },
+      { path: '/b', isMain: true, machineId: 'target' },
+    ],
   },
 ]
 const agent = (state: 'in' | 'out' | 'unknown', installed = true) => ({
@@ -16,6 +20,7 @@ const agent = (state: 'in' | 'out' | 'unknown', installed = true) => ({
   installed,
   login: { state },
 })
+const issue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
 
 describe('handoffTargets', () => {
   it('requires another online repo machine with the harness installed and not logged out', () => {
@@ -41,5 +46,79 @@ describe('handoffTargets', () => {
         target,
       ]),
     ).toEqual([])
+  })
+
+  it('offers a drifted session its issue worktree ([spec:SP-3f7a])', () => {
+    const drifted = { cwd: '/a', machineId: 'source', agentKind: 'codex' }
+    const machines = [{ id: 'target', online: true, inventory: { agents: [agent('in')] } }]
+    expect(handoffTargets(drifted, repos, machines)).toEqual([])
+    expect(handoffTargets(drifted, repos, machines, issue).map((m) => m.id)).toEqual(['target'])
+  })
+})
+
+describe('handoffSource ([spec:SP-3f7a])', () => {
+  const at = (cwd: string, machineId = 'source') => ({ cwd, machineId, agentKind: 'codex' })
+
+  it('resolves the worktree CONTAINING the cwd, carrying the subpath', () => {
+    expect(handoffSource(at('/a/.worktrees/x/apps/web'), repos)).toMatchObject({
+      worktreePath: '/a/.worktrees/x',
+      subpath: 'apps/web',
+      via: 'cwd',
+    })
+    expect(handoffSource(at('/a/.worktrees/x'), repos)).toMatchObject({
+      worktreePath: '/a/.worktrees/x',
+      subpath: '',
+      via: 'cwd',
+    })
+  })
+
+  it('never sources a main checkout, at its root or in a subdir', () => {
+    expect(handoffSource(at('/a'), repos)).toBeNull()
+    expect(handoffSource(at('/a/apps/web'), repos)).toBeNull()
+    // Even with an issue attached, the issue's own worktree is the source — the
+    // main checkout is never handed off, and the drifted subpath is not carried.
+    expect(handoffSource(at('/a/apps/web'), repos, issue)).toMatchObject({
+      worktreePath: '/a/.worktrees/x',
+      subpath: '',
+      via: 'issue',
+    })
+  })
+
+  it('falls back to the issue worktree only when it exists on the session machine', () => {
+    expect(handoffSource(at('/a'), repos, issue)).toMatchObject({ via: 'issue' })
+    // Issue with a branch but no worktree, and a worktree the scan doesn't know.
+    expect(handoffSource(at('/a'), repos, { branch: 'issue/1-x', worktreePath: null })).toBeNull()
+    expect(
+      handoffSource(at('/a'), repos, { branch: 'issue/1-x', worktreePath: '/a/.worktrees/gone' }),
+    ).toBeNull()
+    // The issue's worktree lives on another machine.
+    expect(handoffSource(at('/a', 'target'), repos, issue)).toBeNull()
+  })
+
+  it('requires a branch: an issue without one has no workspace to anchor on', () => {
+    expect(handoffSource(at('/a'), repos, { branch: null, worktreePath: '/a/.worktrees/x' })).toBe(
+      null,
+    )
+  })
+
+  it('prefers the cwd worktree over the issue worktree', () => {
+    const sibling = { branch: 'issue/2-y', worktreePath: '/a/.worktrees/y' }
+    const withSibling = [
+      {
+        ...repos[0]!,
+        worktrees: [
+          ...repos[0]!.worktrees,
+          { path: '/a/.worktrees/y', isMain: false, machineId: 'source' },
+        ],
+      },
+    ]
+    expect(handoffSource(at('/a/.worktrees/x'), withSibling, sibling)).toMatchObject({
+      worktreePath: '/a/.worktrees/x',
+      via: 'cwd',
+    })
+  })
+
+  it('returns null when the cwd is outside every known repo', () => {
+    expect(handoffSource(at('/tmp/scratch'), repos, issue)).toBeNull()
   })
 })

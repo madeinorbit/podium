@@ -1,14 +1,5 @@
 import { isAbsolute, join } from 'node:path'
 import type {
-  HandoffExportResultMessage,
-  HandoffChunkReadResultMessage,
-  HandoffImportChunkResultMessage,
-  HandoffImportResultMessage,
-  WorkspaceCleanResultMessage,
-  WorkspaceExportResultMessage,
-  WorkspaceImportResultMessage,
-} from '@podium/protocol'
-import type {
   AgentKind,
   AgentQuotaWire,
   ControlMessage,
@@ -21,11 +12,18 @@ import type {
   FileWriteResultMessage,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  HandoffChunkReadResultMessage,
+  HandoffExportResultMessage,
+  HandoffImportChunkResultMessage,
+  HandoffImportResultMessage,
   MachineQuotaWire,
   RepoOp,
   ResumeRef,
   TranscriptItem,
   UsageBucketWire,
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
 } from '@podium/protocol'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { SessionStore } from '../../store'
@@ -311,6 +309,7 @@ export class DaemonRpcService {
     input: {
       sessionId: string
       cwd: string
+      fallbackCwd?: string
       agentKind: 'claude-code' | 'codex'
       resume: { kind: string; value: string }
       branch: string

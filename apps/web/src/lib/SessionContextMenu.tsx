@@ -3,10 +3,10 @@ import { handoffTargets } from '@podium/domain'
 import type { SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
-  ArrowRightLeft,
   AlarmClockOff,
   Archive,
   ArchiveRestore,
+  ArrowRightLeft,
   ChevronRight,
   Mail,
   MailOpen,
@@ -94,6 +94,7 @@ export function SessionContextMenu({
     trpc,
     repos,
     machines,
+    issues,
   } = useStoreSelector(
     (s) => ({
       setPinned: s.setPinned,
@@ -107,12 +108,16 @@ export function SessionContextMenu({
       trpc: s.trpc,
       repos: s.repos,
       machines: s.machines,
+      issues: s.issues,
     }),
     shallowEqual,
   )
   const { guardedKill, guardedArchive } = useSessionGuard()
   const now = useNow(60_000)
-  const targets = handoffTargets(session, reposToViews(repos), machines)
+  // The attached issue is part of the handoff gate: a session whose cwd drifted
+  // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
+  const issue = issues.find((i) => i.id === session.issueId)
+  const targets = handoffTargets(session, reposToViews(repos), machines, issue)
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [handoffTop, setHandoffTop] = useState<number | null>(null)
