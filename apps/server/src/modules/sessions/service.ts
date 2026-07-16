@@ -1811,7 +1811,7 @@ export class SessionsService {
   }
 
   /**
-   * Lazy cross-machine workspace fetch [POD-658]: materialize ANOTHER session's
+   * Lazy cross-machine workspace fetch [spec:SP-6d57]: materialize ANOTHER session's
    * current working state (unpushed commits + dirty + untracked files) on the
    * CALLER's machine as a detached read-only peek worktree. COPY semantics —
    * unlike handoff, the source session is never killed, re-homed, or touched;

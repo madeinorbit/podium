@@ -1022,7 +1022,7 @@ export class MessageDeliveryService {
     )
   }
 
-  /** Cross-machine provenance [POD-658]: when the sending session runs on a
+  /** Cross-machine provenance [spec:SP-6d57]: when the sending session runs on a
    *  DIFFERENT machine than the receiver, say so and how to inspect its working
    *  state — built only from what podium already knows (session machineIds),
    *  zero storage. */

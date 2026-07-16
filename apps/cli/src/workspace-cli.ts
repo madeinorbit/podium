@@ -3,7 +3,7 @@ import { resolveAgentRelay } from '@podium/runtime/config'
 /**
  * `podium workspace fetch <issue|session>` — materialize another agent's
  * CURRENT working state (unpushed commits + dirty + untracked files) as a
- * read-only peek worktree on THIS machine [POD-658]. Fully lazy: the source
+ * read-only peek worktree on THIS machine [spec:SP-6d57]. Fully lazy: the source
  * exports on demand and nothing is published or persisted; the source session
  * is never touched. `podium workspace clean` removes every peek this repo has.
  */
