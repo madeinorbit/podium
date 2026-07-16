@@ -541,15 +541,27 @@ export function runCheck(repoRoot: string): {
 }
 
 function main(): void {
+  // `--manifest-only` runs the ARCHITECTURE MANIFEST alone and takes its exit
+  // code from the ratchet only (new/over-count manifest violations), ignoring
+  // the legacy rules entirely. That is what makes the ratchet blockable in CI
+  // today: `bun run lint` is `continue-on-error: true` because it is already red
+  // — ~249 biome errors (podium #30) plus the agent-bridge-consumers failures
+  // (POD-740) — so a ratchet wired only into `bun run lint` would report a NEW
+  // violation and CI would sail straight past it. This mode is green as of the
+  // committed allowlist, so `lint:architecture` blocks on its own while the
+  // legacy rules stay non-blocking until their reds are burned down.
+  const manifestOnly = process.argv.includes('--manifest-only')
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
   const { violations, staleGrandfathers, manifest } = runCheck(repoRoot)
   const { warnings, errors, stale } = applyAllowlist(manifest, BOUNDARY_ALLOWLIST)
   const ms = Math.round(performance.now() - start)
-  for (const f of staleGrandfathers) {
-    console.warn(
-      `warning: grandfathered agent-bridge entry '${f}' no longer imports it — remove it from GRANDFATHERED_AGENT_BRIDGE in scripts/check-boundaries.ts`,
-    )
+  if (!manifestOnly) {
+    for (const f of staleGrandfathers) {
+      console.warn(
+        `warning: grandfathered agent-bridge entry '${f}' no longer imports it — remove it from GRANDFATHERED_AGENT_BRIDGE in scripts/check-boundaries.ts`,
+      )
+    }
   }
 
   // Architecture manifest — WARN mode (POD-296). Allowlisted violations are
@@ -572,13 +584,17 @@ function main(): void {
     console.error('Fix the dependency — the allowlist is a ratchet, it only goes down.')
   }
 
-  if (violations.length > 0) {
+  if (!manifestOnly && violations.length > 0) {
     console.error(`\nDependency-boundary violations (${violations.length}):\n`)
     for (const v of violations) console.error(`  [${v.rule}] ${v.message}`)
     console.error('\nSee ARCHITECTURE.md "Dependency direction" for the rules.')
   }
-  if (violations.length > 0 || errors.length > 0) process.exit(1)
-  console.log(`boundaries OK (${ms}ms) — manifest: ${warnings.length} allowlisted, 0 new`)
+  if (errors.length > 0 || (!manifestOnly && violations.length > 0)) process.exit(1)
+  console.log(
+    manifestOnly
+      ? `architecture manifest OK (${ms}ms) — ${warnings.length} allowlisted, 0 new`
+      : `boundaries OK (${ms}ms) — manifest: ${warnings.length} allowlisted, 0 new`,
+  )
 }
 
 if (import.meta.main) main()
