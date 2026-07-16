@@ -90,12 +90,26 @@ evidence must cite the orchestrator actually in CI at the time.
 deterministic.** The unit lane runs at `retries: 0` by doctrine (a retry hides the bug it
 retries), which is right, but it means one flaky file makes every gate reading "unit lane
 green" a coin flip — and it reds unrelated PRs, training everyone to re-run rather than
-read. Known open: POD-757 (`packages/transcript/src/tailer.test.ts`, a settle()/await race,
-~40% failure running ALONE), and POD-743, whose two red relay tests assert on a bare
-substring another paragraph may legally contain. **POD-295 owns locking a baseline that is
-green because it is deterministic, not green because it was run twice**; a phase that
-reports "oracle green" over a known-flaky lane has reported nothing. Flakes are gate
-POD-422 blockers, not background noise.
+read. **POD-295 must lock a baseline that is green because it is deterministic, not green
+because it was run twice**; a phase that reports "oracle green" over a known-flaky lane has
+reported nothing. Flakes are gate POD-422 blockers, not background noise.
+
+**Ownership of a flake splits, and the halves must not be confused.** The FIX belongs to
+whoever owns the code under test; POD-295 inherits only the CONSEQUENCE (its gate reads a
+coin flip until the fix lands) and must not become the parking lot for every flake the
+oracle happens to surface. Known open at the time of writing: POD-757 — a settle()/await
+race at `packages/transcript/src/tailer.test.ts:247`, ~40% failure running ALONE, owned by
+`@podium/transcript`, NOT by POD-295. And POD-743 — two red relay tests that are a TEST
+bug, not a product regression: they assert `not.toContain('podium session title')`, a bare
+substring POD-694's delegation prose legitimately contains, so they fail on the mention
+rather than on the nudge.
+
+POD-743 is worth reading before writing any assertion this rewrite depends on, because the
+proxy fails in BOTH directions: the positive assertion is satisfiable by the delegation
+prose ALONE, so it would pass even if the nudge were deleted outright. **An assertion keyed
+on a proxy can prove neither presence nor absence.** Key on the thing itself (the nudge's
+own text), never on a string that something else may legally emit — the same rule as §4's
+"a detector that stops matching is not a deletion", pointed at tests instead of greps.
 
 ---
 
@@ -214,6 +228,14 @@ evidence, not proof. The deletion audit states this in its own terms
 phase's design intent was met** — the exit gates (§3.3) still own that judgement. Treat
 `audit:rearch --phase X` exiting 0 as a NECESSARY condition for closing X, never a
 sufficient one.
+
+**And symmetrically: a detector's HIT is a question, not a verdict — only reading the site
+answers it.** A zero is not proof the debt is gone; a hit is not proof the debt is there.
+This cuts wider than greps: it is the rule for any mismatch a cheap check surfaces. (Worked
+example, POD-298 2026-07-16: a cited issue's TITLE disagreeing with what the citation
+claimed was treated as the finding — "the ref is wrong" — when the title of a bug names the
+ROOT CAUSE while the body carries the SYMPTOM, and the body supported the citation exactly.
+The check was right to flag; it was wrong to conclude. Flag, then READ.)
 
 ---
 
