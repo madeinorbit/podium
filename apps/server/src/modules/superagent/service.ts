@@ -682,6 +682,20 @@ export class SuperagentService {
     return { threadId, isNew: true }
   }
 
+  /** Ensure the repo's concierge intake thread exists (no turn). */
+  ensureConciergeThread({ repoPath }: { repoPath: string }): { threadId: string; isNew: boolean } {
+    const threadId = conciergeThreadId(repoPath)
+    const existing = this.store.superagent.getSuperagentThread(threadId)
+    if (existing?.kind === 'concierge') return { threadId, isNew: false }
+    this.store.superagent.upsertSuperagentThread({
+      id: threadId,
+      kind: 'concierge',
+      repoPath,
+      title: `concierge · ${repoPath.split('/').pop() ?? repoPath}`,
+    })
+    return { threadId, isNew: true }
+  }
+
   private listSessions() {
     return this.modules.sessions.listSessions()
   }

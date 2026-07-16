@@ -44,6 +44,7 @@ import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
+import { MessagingTopicsRepository } from './store/messaging-topics'
 import { MessagesRepository } from './store/messages'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
@@ -86,6 +87,8 @@ export class SessionStore {
   readonly locks: LocksRepository
   /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
   readonly automations: AutomationsRepository
+  /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
+  readonly messagingTopics: MessagingTopicsRepository
 
   constructor(private readonly path: string = defaultDbPath()) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
@@ -138,6 +141,7 @@ export class SessionStore {
     this.workflows = new WorkflowsRepository(this.db)
     this.locks = new LocksRepository(this.db)
     this.automations = new AutomationsRepository(this.db)
+    this.messagingTopics = new MessagingTopicsRepository(this.db)
 
     // Per-boot, idempotent runtime steps (environment-conditional FTS objects
     // and data heals) — never schema DDL.

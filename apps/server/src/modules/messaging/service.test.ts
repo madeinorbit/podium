@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
+import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import { MessagingService, type MessagingDeps } from './service'
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
 import type { ChannelAdapter, InboundChatMessage } from './types'
@@ -95,9 +96,27 @@ interface Harness {
   interruptTurn: ReturnType<typeof vi.fn>
   restartThread: ReturnType<typeof vi.fn>
   startBtwTurn: ReturnType<typeof vi.fn>
+  ensureConciergeThread: ReturnType<typeof vi.fn>
   registerTelegramCommands: ReturnType<typeof vi.fn>
   createForumTopic: ReturnType<typeof vi.fn>
   answerCallback: ReturnType<typeof vi.fn>
+  topicRows: MessagingIssueTopicRow[]
+  topics: NonNullable<MessagingDeps['topics']>
+}
+
+function makeTopicsStore(): NonNullable<MessagingDeps['topics']> {
+  const rows: MessagingIssueTopicRow[] = []
+  return {
+    listForChat: (chatId) => rows.filter((r) => r.chatId === chatId),
+    getByIssue: (chatId, issueId) => rows.find((r) => r.chatId === chatId && r.issueId === issueId),
+    getByThreadRef: (chatId, threadRef) =>
+      rows.find((r) => r.chatId === chatId && r.threadRef === threadRef),
+    upsert: (row) => {
+      const i = rows.findIndex((r) => r.chatId === row.chatId && r.issueId === row.issueId)
+      if (i >= 0) rows[i] = row
+      else rows.push(row)
+    },
+  }
 }
 
 function makeHarness(
@@ -141,6 +160,12 @@ function makeHarness(
     threadId: `btw_${sessionId}`,
     isNew: true,
   }))
+  const ensureConciergeThread = vi.fn(({ repoPath }: { repoPath: string }) => ({
+    threadId: `concierge_${Buffer.from(repoPath, 'utf8').toString('base64url')}`,
+    isNew: true,
+  }))
+  const topicRows: MessagingIssueTopicRow[] = []
+  const topics = makeTopicsStore()
   const service = new MessagingService({
     bus,
     getSettings: () =>
@@ -157,7 +182,9 @@ function makeHarness(
       interruptTurn: interruptTurn as never,
       restartThread: restartThread as never,
       startBtwTurn: startBtwTurn as never,
+      ensureConciergeThread: ensureConciergeThread as never,
     },
+    topics,
     ...(opts.issues ? { issues: opts.issues } : {}),
     createTelegram: () => adapter,
     registerTelegramCommands,
@@ -171,9 +198,12 @@ function makeHarness(
     interruptTurn,
     restartThread,
     startBtwTurn,
+    ensureConciergeThread,
     registerTelegramCommands,
     createForumTopic,
     answerCallback,
+    topicRows,
+    topics,
     inbound: (text, opts) =>
       onMessage?.({
         source: {
@@ -428,7 +458,7 @@ describe('MessagingService', () => {
                   clientCount: 0,
                   createdAt: '2026-07-16T00:00:00.000Z',
                   lastActiveAt: '2026-07-16T01:00:00.000Z',
-                  origin: 'local',
+                  origin: { kind: 'spawn' },
                   archived: false,
                   readAt: null,
                   unread: false,
@@ -449,6 +479,61 @@ describe('MessagingService', () => {
     h.inbound('status in topic', { threadRef: '9001' })
     await flush()
     expect(h.sendTurn.mock.calls[0]![0]!.threadId).toBe('btw_sess_1')
+    expect(h.topics.getByThreadRef('42', '9001')?.superagentThreadId).toBe('btw_sess_1')
+  })
+
+  it('binds topics to repo concierge when the issue has no agent session', async () => {
+    const h = makeHarness({
+      issues: {
+        list: () =>
+          [
+            {
+              id: 'iss_i2',
+              seq: 10,
+              displayRef: 'POD-10',
+              title: 'No sessions',
+              stage: 'planning',
+              description: '',
+              repoPath: '/my/repo',
+              worktreePath: null,
+              branch: null,
+              parentBranch: '',
+              defaultAgent: 'grok',
+              defaultModel: 'auto',
+              defaultEffort: 'auto',
+              blockedBy: [],
+              priority: 2,
+              type: 'task',
+              pinned: false,
+              needsHuman: false,
+              labels: [],
+              deps: [],
+              dependents: [],
+              ready: false,
+              blocked: false,
+              deferred: false,
+              childCount: 0,
+              childDoneCount: 0,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-07-16T00:00:00.000Z',
+              archived: false,
+              readAt: null,
+              unread: false,
+              origin: 'human',
+              audience: 'human',
+              draft: false,
+              sessions: [],
+              sessionSummary: { live: 0, total: 0 },
+            },
+          ] as never,
+      },
+    })
+    h.inbound('', { callback: { id: 'cb2', data: 'i:iss_i2' } })
+    await flush()
+    expect(h.ensureConciergeThread).toHaveBeenCalledWith({ repoPath: '/my/repo' })
+    h.inbound('hello concierge', { threadRef: '9001' })
+    await flush()
+    expect(h.sendTurn.mock.calls[0]![0]!.threadId).toMatch(/^concierge_/)
   })
 
   it('still dispatches unknown slash commands to the superagent', async () => {

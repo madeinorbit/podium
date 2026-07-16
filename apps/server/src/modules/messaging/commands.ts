@@ -201,5 +201,6 @@ export const HELP_TEXT = `Podium Telegram commands:
 /stop — interrupt the running superagent turn
 /new — restart the superagent harness (fresh session on next message)
 
-Tap an issue button to open it in a forum topic wired to that issue's agent.
-Anything else is sent to the superagent (main chat → global; topic → issue agent).`
+Tap an issue button to open it in a forum topic wired to that issue's agent
+(btw thread when a session is live, else the repo concierge).
+Anything else is sent to the superagent (main chat → global; topic → bound thread).`

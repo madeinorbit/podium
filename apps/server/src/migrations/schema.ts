@@ -493,6 +493,18 @@ export const recapWatermarks = sqliteTable("recap_watermarks", {
 (table) => [primaryKey({ columns: [table.reader, table.sessionId], name: "recap_watermarks_pk"}),
 ]);
 
+/** Telegram forum-topic ↔ issue/superagent-thread bindings [spec:SP-5d81]. */
+export const messagingIssueTopics = sqliteTable("messaging_issue_topics", {
+	issueId: text("issue_id").notNull(),
+	chatId: text("chat_id").notNull(),
+	threadRef: text("thread_ref").notNull(),
+	superagentThreadId: text("superagent_thread_id").notNull(),
+	updatedAt: text("updated_at").notNull(),
+},
+(table) => [primaryKey({ columns: [table.issueId, table.chatId], name: "messaging_issue_topics_pk"}),
+index("idx_messaging_issue_topics_ref").on(table.chatId, table.threadRef),
+]);
+
 export const workflows = sqliteTable("workflows", {
 	id: text().primaryKey(),
 	name: text().notNull(),
