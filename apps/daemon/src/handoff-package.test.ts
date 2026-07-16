@@ -9,6 +9,7 @@ import {
   codexTranscriptPlacement,
   exportHandoffPackage,
   importHandoffPackage,
+  parseWorktreeDirs,
   readExportChunk,
   resolveExportSource,
   transcriptPlacement,
@@ -275,6 +276,24 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
       sourceMachineId: 'source',
       homeDir: input.homeDir,
     })
+
+  it('refuses an echoed flag instead of reading a main checkout as a worktree', () => {
+    // `git rev-parse` never fails on an unknown option — it echoes it and exits 0
+    // (verified: `git rev-parse --totally-unknown-opt` prints it back). No
+    // installed git can produce this output, so it is a fixture: `--git-common-dir`
+    // is git >= 2.5, and on an older git it comes back as the literal flag IN
+    // PLACE — still three lines, so a line count does not save us. Read as a path
+    // it makes a main checkout compare unequal to itself => handed off (SP-3f7a).
+    expect(parseWorktreeDirs('/repo\n/repo/.git\n--git-common-dir')).toBeNull()
+    // Head-position echo (`--path-format=absolute` on git < 2.31) adds a line.
+    expect(parseWorktreeDirs('--path-format=absolute\n/repo\n/repo/.git\n/repo/.git')).toBeNull()
+    // The real thing still parses: a main checkout names one dir twice.
+    expect(parseWorktreeDirs('/repo\n/repo/.git\n/repo/.git')).toEqual({
+      root: '/repo',
+      gitDir: '/repo/.git',
+      commonDir: '/repo/.git',
+    })
+  })
 
   it('classifies main vs worktree from a subdir, where git prints relative git dirs', async () => {
     // From a subdirectory git prints `--git-dir`/`--git-common-dir` RELATIVE to

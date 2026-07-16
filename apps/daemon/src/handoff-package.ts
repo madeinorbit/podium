@@ -28,12 +28,28 @@ async function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
  *  Both paths are RESOLVED against `cwd` before comparing: git prints them
  *  relative to where it ran (`.git` from a root, `../.git` from a subdirectory)
  *  and absolute only sometimes, so raw strings differ for one same directory.
- *  `--path-format=absolute` would do this in git, but it needs git >= 2.31 and
- *  `rev-parse` does not reject options it does not know — it ECHOES them as
- *  output and exits 0, which would shift this parse by a line and read every
- *  main checkout as a worktree. Hence the exact-3-lines check. (Same primitive,
- *  same reasoning as POD-665's `gitWorktree` in worktree-resolve.ts; collapse
- *  the two when these branches meet.) */
+ *  `--path-format=absolute` would do this in git, but it needs git >= 2.31 —
+ *  and an unknown flag is echoed, not rejected (see `parseWorktreeDirs`).
+ *  (Same primitive, same reasoning as POD-665's `gitWorktree` in
+ *  worktree-resolve.ts; collapse the two when these branches meet.) */
+export function parseWorktreeDirs(
+  out: string,
+): { root: string; gitDir: string; commonDir: string } | null {
+  const lines = out.split('\n').map((line) => line.trim())
+  if (lines.length !== 3) return null
+  const [root, gitDir, commonDir] = lines as [string, string, string]
+  if (!root || !gitDir || !commonDir) return null
+  // `git rev-parse` NEVER fails on an option it does not know — it echoes the
+  // option back and exits 0. `--git-common-dir` only exists since git 2.5, so on
+  // an older git the third line is the literal '--git-common-dir': read as a
+  // path, a main checkout compares unequal to ITSELF and reads as a linked
+  // worktree — the one thing SP-3f7a forbids, failing OPEN. A line count cannot
+  // catch it (the echo replaces the value IN PLACE), so reject anything shaped
+  // like a flag: no path git prints here can begin with '-'.
+  if (lines.some((line) => line.startsWith('-'))) return null
+  return { root, gitDir, commonDir }
+}
+
 async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
   const out = await git(cwd, [
     'rev-parse',
@@ -41,11 +57,9 @@ async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
     '--git-dir',
     '--git-common-dir',
   ]).catch(() => '')
-  const lines = out.split('\n').map((line) => line.trim())
-  if (lines.length !== 3) return null
-  const [root, gitDir, commonDir] = lines as [string, string, string]
-  if (!root || !gitDir || !commonDir) return null
-  return resolve(cwd, gitDir) === resolve(cwd, commonDir) ? null : root
+  const dirs = parseWorktreeDirs(out)
+  if (!dirs) return null
+  return resolve(cwd, dirs.gitDir) === resolve(cwd, dirs.commonDir) ? null : dirs.root
 }
 
 /**
