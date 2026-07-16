@@ -403,6 +403,40 @@ export class SessionRegistry {
           )
           return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
         }
+        if (op.kind === 'automation-schedule') {
+          const existingSessionId =
+            op.target.kind === 'current'
+              ? sessionId
+              : op.target.kind === 'session'
+                ? op.target.sessionId
+                : null
+          const existing =
+            existingSessionId === null
+              ? null
+              : sessionsSvc
+                  .listSessions()
+                  .find((session) => session.sessionId === existingSessionId)
+          if (existingSessionId !== null && !existing) {
+            throw new Error(`unknown target session: ${existingSessionId}`)
+          }
+          const fresh = op.target.kind === 'fresh' ? op.target : null
+          const scheduled = automations.create({
+            name: op.name,
+            scheduleKind: 'once',
+            cron: null,
+            runAt: op.runAt,
+            targetSessionId: existingSessionId,
+            repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
+            agentKind: existing?.agentKind ?? fresh?.agentKind ?? 'codex',
+            model: fresh?.model ?? 'auto',
+            effort: fresh?.effort ?? 'auto',
+            prompt: op.prompt,
+            enabled: true,
+            sessionMode: existingSessionId === null ? 'fresh' : 'resume',
+          })
+          return `scheduled one-off automation ${scheduled.id} for ${scheduled.runAt}`
+        }
+
         return null
       },
       logEvent: (kind, issueId, payload) => {

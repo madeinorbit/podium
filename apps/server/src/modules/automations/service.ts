@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import type { AgentKind, AutomationSessionMode } from '@podium/protocol'
+import type { AgentKind, AutomationScheduleKind, AutomationSessionMode } from '@podium/protocol'
 import type { Ledger } from '@podium/sync'
 import type {
   AutomationRow,
@@ -74,7 +74,11 @@ export interface AutomationInput {
   name: string
   /** null/absent = GLOBAL: the session runs in the home directory [spec:SP-17db]. */
   repoPath?: string | null
-  cron: string
+  scheduleKind?: AutomationScheduleKind
+  cron?: string | null
+  runAt?: string | null
+  /** Existing session to wake and message; null uses the selected session mode. */
+  targetSessionId?: string | null
   agentKind: string
   model?: string
   effort?: string
@@ -128,11 +132,41 @@ export class AutomationsService {
     return this.deps.homeDir ? this.deps.homeDir() : homedir()
   }
 
-  /** The armed time for an automation, or null when it is disabled (or its cron can
-   *  never fire again). Always strictly in the future. */
-  private armFrom(cron: string, enabled: boolean): string | null {
+  /** The armed time for an automation, or null when it is disabled (or a cron can
+   *  never fire again). One-off timestamps have already been validated as future. */
+  private armFrom(
+    scheduleKind: AutomationScheduleKind,
+    cron: string | null,
+    runAt: string | null,
+    enabled: boolean,
+  ): string | null {
     if (!enabled) return null
+    if (scheduleKind === 'once') return runAt
+    if (!cron) throw new Error('cron schedule is missing its expression')
     return nextRunAfter(cron, this.now())?.toISOString() ?? null
+  }
+
+  private validateSchedule(
+    scheduleKind: AutomationScheduleKind,
+    cron: string | null,
+    runAt: string | null,
+    requireFuture: boolean,
+  ): void {
+    if (scheduleKind === 'cron') {
+      if (!cron) throw new Error('cron schedule requires an expression')
+      parseCron(cron)
+      assertScheduleFloor(cron, this.now())
+      if (runAt !== null) throw new Error('cron schedule cannot also have a runAt timestamp')
+      return
+    }
+    if (cron !== null) throw new Error('one-off schedule cannot also have a cron expression')
+    const timestamp = runAt === null ? Number.NaN : Date.parse(runAt)
+    if (!Number.isFinite(timestamp)) {
+      throw new Error('one-off schedule requires a valid runAt timestamp')
+    }
+    if (requireFuture && timestamp <= this.now().getTime()) {
+      throw new Error('one-off runAt timestamp must be in the future')
+    }
   }
 
   list(): AutomationRow[] {
@@ -150,21 +184,26 @@ export class AutomationsService {
   /** Create an automation. Validation happens before persistence, including the
    *  explicit one-minute floor [spec:SP-17db]. */
   create(input: AutomationInput): AutomationRow {
-    parseCron(input.cron)
-    assertScheduleFloor(input.cron, this.now())
+    const scheduleKind = input.scheduleKind ?? 'cron'
+    const cron = input.cron?.trim() || null
+    const runAt = input.runAt ? new Date(input.runAt).toISOString() : null
+    this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once')
     const enabled = input.enabled ?? false
     const row: AutomationRow = {
       id: `aut_${randomUUID()}`,
       name: input.name.trim(),
       enabled,
       repoPath: input.repoPath?.trim() || null,
-      cron: input.cron.trim(),
+      scheduleKind,
+      cron,
+      runAt,
+      targetSessionId: input.targetSessionId?.trim() || null,
       agentKind: input.agentKind,
       model: input.model ?? 'auto',
       effort: input.effort ?? 'auto',
       prompt: input.prompt,
       sessionMode: input.sessionMode ?? 'fresh',
-      nextRunAt: this.armFrom(input.cron, enabled),
+      nextRunAt: this.armFrom(scheduleKind, cron, runAt, enabled),
       lastRunAt: null,
       createdAt: this.now().toISOString(),
     }
@@ -186,15 +225,27 @@ export class AutomationsService {
   update(id: string, patch: Partial<AutomationInput>): AutomationRow {
     const current = this.deps.store.get(id)
     if (!current) throw new Error(`unknown automation: ${id}`)
-    if (patch.cron !== undefined) {
-      parseCron(patch.cron)
-      assertScheduleFloor(patch.cron, this.now())
-    }
+    const scheduleKind = patch.scheduleKind ?? current.scheduleKind
+    const cron = patch.cron !== undefined ? patch.cron?.trim() || null : current.cron
+    const runAt =
+      patch.runAt !== undefined
+        ? patch.runAt
+          ? new Date(patch.runAt).toISOString()
+          : null
+        : current.runAt
+    const scheduleChanged =
+      scheduleKind !== current.scheduleKind || cron !== current.cron || runAt !== current.runAt
+    this.validateSchedule(scheduleKind, cron, runAt, scheduleKind === 'once' && scheduleChanged)
     const next: AutomationRow = {
       ...current,
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
       ...(patch.repoPath !== undefined ? { repoPath: patch.repoPath?.trim() || null } : {}),
-      ...(patch.cron !== undefined ? { cron: patch.cron.trim() } : {}),
+      scheduleKind,
+      cron,
+      runAt,
+      ...(patch.targetSessionId !== undefined
+        ? { targetSessionId: patch.targetSessionId?.trim() || null }
+        : {}),
       ...(patch.agentKind !== undefined ? { agentKind: patch.agentKind } : {}),
       ...(patch.model !== undefined ? { model: patch.model } : {}),
       ...(patch.effort !== undefined ? { effort: patch.effort } : {}),
@@ -202,8 +253,19 @@ export class AutomationsService {
       ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
       ...(patch.sessionMode !== undefined ? { sessionMode: patch.sessionMode } : {}),
     }
-    const rearm = patch.cron !== undefined || patch.enabled !== undefined
-    if (rearm) next.nextRunAt = this.armFrom(next.cron, next.enabled)
+    if (
+      next.scheduleKind === 'once' &&
+      next.lastRunAt !== null &&
+      patch.enabled === true &&
+      !scheduleChanged
+    ) {
+      throw new Error('completed one-off schedule needs a new runAt timestamp before enabling')
+    }
+    if (scheduleChanged) next.lastRunAt = null
+    const rearm = scheduleChanged || patch.enabled !== undefined
+    if (rearm) {
+      next.nextRunAt = this.armFrom(next.scheduleKind, next.cron, next.runAt, next.enabled)
+    }
     const updated = this.deps.ledger.commit({
       write: () => {
         this.deps.store.update(next)
@@ -270,6 +332,7 @@ export class AutomationsService {
     return this.deps.store.list().map((a) => ({
       id: a.id,
       enabled: a.enabled,
+      scheduleKind: a.scheduleKind,
       cron: a.cron,
       nextRunAt: a.nextRunAt,
       lastSessionId: lastSessions.get(a.id) ?? null,
@@ -307,6 +370,7 @@ export class AutomationsService {
     }
     const rearmed: AutomationRow = {
       ...automation,
+      enabled: automation.scheduleKind === 'once' ? false : automation.enabled,
       nextRunAt: decision.nextRunAt,
       lastRunAt: decision.firedAt,
     }
@@ -348,8 +412,9 @@ export class AutomationsService {
    * mutation id.
    */
   private spawn(automation: AutomationRow, runId: string): string {
-    if (automation.sessionMode === 'resume') {
-      const previousSessionId = this.deps.store.lastSpawnedSessions().get(automation.id)
+    if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
+      const previousSessionId =
+        automation.targetSessionId ?? this.deps.store.lastSpawnedSessions().get(automation.id)
       if (previousSessionId) {
         const resumed = this.deps.resumeAndSend({
           sessionId: previousSessionId,
@@ -358,7 +423,10 @@ export class AutomationsService {
         })
         if (resumed.ok) return previousSessionId
         const reason = resumed.reason ?? 'unknown resume failure'
-        if (reason !== 'unknown session' && reason !== 'no resume ref') {
+        if (
+          automation.targetSessionId !== null ||
+          (reason !== 'unknown session' && reason !== 'no resume ref')
+        ) {
           throw new AutomationSpawnError(
             `session ${previousSessionId} rejected the scheduled resume: ${reason}`,
             previousSessionId,

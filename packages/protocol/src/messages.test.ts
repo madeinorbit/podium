@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
   AgentQuotaResultMessage,
+  ApprovalOp,
   ClientMessage,
   type ControlMessage,
   ConversationSummaryWire,
   type DaemonMessage,
+  describeApprovalOp,
   encode,
   GitRepositoryWire,
   isKnownMetadataChange,
@@ -274,7 +276,10 @@ describe('ServerMessage', () => {
           name: 'Nightly',
           enabled: true,
           repoPath: '/w',
+          scheduleKind: 'cron',
           cron: '* * * * *',
+          runAt: null,
+          targetSessionId: null,
           agentKind: 'codex',
           model: 'auto',
           effort: 'auto',
@@ -1046,6 +1051,21 @@ describe('headless harness frames (concierge unification, Phase A)', () => {
         } as unknown as DaemonMessage),
       ),
     ).toThrow()
+  })
+
+  it('describes every approved one-off detail the operator is authorizing', () => {
+    const op = ApprovalOp.parse({
+      kind: 'automation-schedule',
+      name: 'Overnight continuation',
+      runAt: '2026-07-17T02:00:00.000Z',
+      prompt: 'Continue during the quota window.',
+      target: { kind: 'session', sessionId: 'sess_sleeping' },
+    })
+    const description = describeApprovalOp(op)
+    expect(description).toContain('Overnight continuation')
+    expect(description).toContain('2026-07-17T02:00:00.000Z')
+    expect(description).toContain('sess_sleeping')
+    expect(description).toContain('Continue during the quota window.')
   })
 
   it('round-trips headlessActivity (turn boundaries) through the ServerMessage codec', () => {

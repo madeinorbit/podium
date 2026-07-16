@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentKind } from './terminal'
 
 /**
  * Approval broker [spec:SP-edbb] — agent-initiated management operations.
@@ -30,6 +31,23 @@ export const ApprovalOp = z.discriminatedUnion('kind', [
     targetKind: z.enum(['global', 'repository']),
     targetId: z.string(),
     revisionId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('automation-schedule'),
+    name: z.string().min(1),
+    runAt: z.string().datetime({ offset: true }),
+    prompt: z.string().min(1),
+    target: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('current') }),
+      z.object({ kind: z.literal('session'), sessionId: z.string().min(1) }),
+      z.object({
+        kind: z.literal('fresh'),
+        repoPath: z.string().min(1),
+        agentKind: AgentKind,
+        model: z.string().optional(),
+        effort: z.string().optional(),
+      }),
+    ]),
   }),
 ])
 export type ApprovalOp = z.infer<typeof ApprovalOp>
@@ -100,5 +118,14 @@ export function describeApprovalOp(op: ApprovalOp): string {
       return `publish global workflow revision ${op.revisionId}`
     case 'workflow-set-default':
       return `set the ${op.targetKind} workflow default${op.targetId ? ` for ${op.targetId}` : ''} to revision ${op.revisionId}`
+    case 'automation-schedule': {
+      const target =
+        op.target.kind === 'current'
+          ? 'this session'
+          : op.target.kind === 'session'
+            ? `session ${op.target.sessionId}`
+            : `a new ${op.target.agentKind} session in ${op.target.repoPath}`
+      return `schedule “${op.name}” for ${op.runAt}, targeting ${target}: ${op.prompt}`
+    }
   }
 }

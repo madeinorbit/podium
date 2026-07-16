@@ -29,7 +29,10 @@ const automation: AutomationWire = {
   name: 'Nightly sweep',
   enabled: false,
   repoPath: '/repos/podium',
+  scheduleKind: 'cron',
   cron: '*/15 * * * *',
+  runAt: null,
+  targetSessionId: null,
   agentKind: 'codex',
   model: 'auto',
   effort: 'auto',
@@ -77,7 +80,10 @@ describe('NewAutomationDialog edit mode', () => {
         patch: {
           name: 'Nightly sweep',
           repoPath: '/repos/podium',
+          scheduleKind: 'cron',
           cron: '*/15 * * * *',
+          runAt: null,
+          targetSessionId: null,
           agentKind: 'codex',
           model: 'auto',
           effort: 'auto',
@@ -89,5 +95,62 @@ describe('NewAutomationDialog edit mode', () => {
     )
     expect(create).not.toHaveBeenCalled()
     expect(onSaved).toHaveBeenCalledTimes(1)
+  })
+  it('prefills and preserves an explicit targeted one-off schedule', async () => {
+    const runAt = '2099-07-17T02:00:00.000Z'
+    const oneOff: AutomationWire = {
+      ...automation,
+      id: 'aut_once',
+      name: 'Overnight continuation',
+      enabled: true,
+      scheduleKind: 'once',
+      cron: null,
+      runAt,
+      targetSessionId: 'sess_sleeping',
+      prompt: 'Continue overnight.',
+      nextRunAt: runAt,
+    }
+    render(
+      <NewAutomationDialog
+        trpc={
+          {
+            automations: {
+              create: { mutate: create },
+              update: { mutate: update },
+            },
+          } as never
+        }
+        automation={oneOff}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    )
+
+    const runAtInput = screen.getByLabelText('Run at') as HTMLInputElement
+    expect(new Date(runAtInput.value).toISOString()).toBe(runAt)
+    expect(screen.queryByLabelText('Cron expression')).toBeNull()
+    expect(screen.getByText('Explicit session target: sess_sleeping')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({
+        id: 'aut_once',
+        patch: {
+          name: 'Overnight continuation',
+          repoPath: '/repos/podium',
+          scheduleKind: 'once',
+          cron: null,
+          runAt,
+          targetSessionId: 'sess_sleeping',
+          agentKind: 'codex',
+          model: 'auto',
+          effort: 'auto',
+          prompt: 'Continue overnight.',
+          enabled: true,
+          sessionMode: 'resume',
+        },
+      }),
+    )
   })
 })

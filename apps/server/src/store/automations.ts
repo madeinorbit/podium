@@ -8,6 +8,7 @@
 import type {
   AutomationRunOutcome,
   AutomationRunWire,
+  AutomationScheduleKind,
   AutomationSessionMode,
   AutomationWire,
 } from '@podium/protocol'
@@ -23,7 +24,10 @@ function rowToAutomation(r: Record<string, unknown>): AutomationRow {
     name: r.name as string,
     enabled: Number(r.enabled) !== 0,
     repoPath: (r.repo_path as string | null) ?? null,
-    cron: r.cron as string,
+    scheduleKind: (r.schedule_kind as AutomationScheduleKind) ?? 'cron',
+    cron: (r.cron as string) || null,
+    runAt: (r.run_at as string | null) ?? null,
+    targetSessionId: (r.target_session_id as string | null) ?? null,
     agentKind: r.agent_kind as string,
     model: r.model as string,
     effort: r.effort as string,
@@ -67,16 +71,19 @@ export class AutomationsRepository {
     this.db
       .prepare(
         `INSERT INTO automations
-           (id, name, enabled, repo_path, cron, agent_kind, model, effort, prompt,
-            session_mode, next_run_at, last_run_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, enabled, repo_path, schedule_kind, cron, run_at, target_session_id,
+            agent_kind, model, effort, prompt, session_mode, next_run_at, last_run_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         a.id,
         a.name,
         a.enabled ? 1 : 0,
         a.repoPath,
-        a.cron,
+        a.scheduleKind,
+        a.cron ?? '',
+        a.runAt,
+        a.targetSessionId,
         a.agentKind,
         a.model,
         a.effort,
@@ -93,15 +100,19 @@ export class AutomationsRepository {
     this.db
       .prepare(
         `UPDATE automations SET
-           name = ?, enabled = ?, repo_path = ?, cron = ?, agent_kind = ?, model = ?,
-           effort = ?, prompt = ?, session_mode = ?, next_run_at = ?, last_run_at = ?
+           name = ?, enabled = ?, repo_path = ?, schedule_kind = ?, cron = ?, run_at = ?,
+           target_session_id = ?, agent_kind = ?, model = ?, effort = ?, prompt = ?,
+           session_mode = ?, next_run_at = ?, last_run_at = ?
          WHERE id = ?`,
       )
       .run(
         a.name,
         a.enabled ? 1 : 0,
         a.repoPath,
-        a.cron,
+        a.scheduleKind,
+        a.cron ?? '',
+        a.runAt,
+        a.targetSessionId,
         a.agentKind,
         a.model,
         a.effort,

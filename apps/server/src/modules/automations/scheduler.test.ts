@@ -12,6 +12,7 @@ const minutesAhead = (n: number): Date => new Date(NOW.getTime() + n * 60_000)
 const schedulable = (over: Partial<Schedulable> = {}): Schedulable => ({
   id: 'aut_1',
   enabled: true,
+  scheduleKind: 'cron',
   cron: '0 * * * *', // hourly, on the hour
   nextRunAt: iso(NOW),
   lastSessionId: null,
@@ -121,6 +122,20 @@ describe('decideTick', () => {
     expect(d!.nextRunAt).toBe(iso(new Date(2026, 6, 14, 10, 0)))
   })
 
+  it('one-off decisions are terminal for both delivered and missed occurrences', () => {
+    const oneOff = { scheduleKind: 'once' as const, cron: null }
+    const [delivered] = decide([schedulable(oneOff)])
+    expect(delivered).toMatchObject({ kind: 'spawn', nextRunAt: null })
+
+    const [missed] = decide([
+      schedulable({
+        ...oneOff,
+        nextRunAt: iso(new Date(NOW.getTime() - GRACE_MS - 1)),
+      }),
+    ])
+    expect(missed).toMatchObject({ kind: 'missed', nextRunAt: null })
+  })
+
   it('decides only the automations that are due, leaving the rest alone', () => {
     const decisions = decide([
       schedulable({ id: 'due' }),
@@ -221,6 +236,39 @@ describe('AutomationsService.create', () => {
     expect(off.nextRunAt).toBeNull()
   })
 
+  it('arms a one-off at its exact future timestamp and rejects past timestamps', () => {
+    const h = harness()
+    const runAt = iso(minutesAhead(2))
+    const created = h.service.create({
+      name: 'Wake this session',
+      scheduleKind: 'once',
+      runAt,
+      agentKind: 'codex',
+      prompt: 'Continue overnight.',
+      enabled: true,
+      sessionMode: 'resume',
+      targetSessionId: 'sess_sleeping',
+    })
+    expect(created).toMatchObject({
+      scheduleKind: 'once',
+      cron: null,
+      runAt,
+      nextRunAt: runAt,
+      targetSessionId: 'sess_sleeping',
+    })
+
+    expect(() =>
+      h.service.create({
+        name: 'Too late',
+        scheduleKind: 'once',
+        runAt: iso(minutesAgo(1)),
+        agentKind: 'codex',
+        prompt: 'x',
+        enabled: true,
+      }),
+    ).toThrow(/future/)
+  })
+
   it('rejects an unparseable cron before it can be persisted', () => {
     const h = harness()
     expect(() =>
@@ -272,6 +320,74 @@ describe('AutomationsService.create', () => {
 })
 
 describe('AutomationsService.tick — spawn', () => {
+  it('wakes an explicit existing session through resume-and-send exactly once', () => {
+    const h = harness()
+    const runAt = minutesAhead(2)
+    const a = h.service.create({
+      name: 'Overnight continuation',
+      scheduleKind: 'once',
+      runAt: iso(runAt),
+      targetSessionId: 'sess_sleeping',
+      agentKind: 'codex',
+      prompt: 'Continue the queued work.',
+      enabled: true,
+      sessionMode: 'resume',
+    })
+
+    h.setNow(new Date(runAt.getTime() + 1_000))
+    h.service.tick()
+    h.service.tick()
+
+    expect(h.resumeAndSend).toHaveBeenCalledTimes(1)
+    expect(h.resumeAndSend).toHaveBeenCalledWith({
+      sessionId: 'sess_sleeping',
+      text: 'Continue the queued work.',
+      mutationId: expect.stringMatching(/^arun_/),
+    })
+    expect(h.createIssue).not.toHaveBeenCalled()
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.queueText).not.toHaveBeenCalled()
+    expect(h.service.runs(a.id)).toHaveLength(1)
+    expect(h.service.runs(a.id)[0]).toMatchObject({
+      outcome: 'spawned',
+      sessionId: 'sess_sleeping',
+      firedAt: iso(runAt),
+    })
+    expect(h.store.automations.get(a.id)).toMatchObject({
+      enabled: false,
+      nextRunAt: null,
+      lastRunAt: iso(runAt),
+    })
+    expect(() => h.service.setEnabled(a.id, true)).toThrow(/new runAt/)
+  })
+
+  it('records a terminal error instead of replacing a lost explicit target', () => {
+    const h = harness({ resumeOk: false, resumeReason: 'no resume ref' })
+    const runAt = minutesAhead(2)
+    const a = h.service.create({
+      name: 'Strict targeted wake',
+      scheduleKind: 'once',
+      runAt: iso(runAt),
+      targetSessionId: 'sess_deleted',
+      agentKind: 'codex',
+      prompt: 'Continue.',
+      enabled: true,
+      sessionMode: 'resume',
+    })
+
+    h.setNow(new Date(runAt.getTime() + 1_000))
+    h.service.tick()
+
+    expect(h.createIssue).not.toHaveBeenCalled()
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.service.runs(a.id)[0]).toMatchObject({
+      outcome: 'error',
+      sessionId: 'sess_deleted',
+      detail: expect.stringContaining('no resume ref'),
+    })
+    expect(h.store.automations.get(a.id)).toMatchObject({ enabled: false, nextRunAt: null })
+  })
+
   it('spawns at the due time with automation provenance and the prompt via queueText', () => {
     const h = harness()
     const a = daily(h)

@@ -11,7 +11,7 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
-import type { ApprovalOp } from '@podium/protocol'
+import { type ApprovalOp, isAgentKind } from '@podium/protocol'
 import {
   loadConfig,
   needsSetup,
@@ -178,6 +178,106 @@ export type LaunchPlan =
       takeover: boolean
     }
 
+const AUTOMATION_SCHEDULE_USAGE =
+  'usage: podium automation schedule --at <ISO timestamp> --message <text> [--name <name>] [--session <id> | --fresh --repo <path> --agent <kind> [--model <id>] [--effort <level>]]'
+
+function automationSchedulePlan(argv: string[]): LaunchPlan {
+  if (argv[1] !== 'schedule') {
+    return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
+  }
+  const valueFlags = new Set([
+    '--at',
+    '--message',
+    '--name',
+    '--session',
+    '--repo',
+    '--agent',
+    '--model',
+    '--effort',
+  ])
+  const values = new Map<string, string>()
+  let fresh = false
+  for (let i = 2; i < argv.length; i++) {
+    const token = argv[i] ?? ''
+    if (token === '--fresh') {
+      if (fresh) return { kind: 'usage-error', message: 'podium automation: duplicate --fresh' }
+      fresh = true
+      continue
+    }
+    if (!valueFlags.has(token)) {
+      return { kind: 'usage-error', message: `podium automation: unknown option ${token}` }
+    }
+    const value = argv[++i]
+    if (!value || value.startsWith('--')) {
+      return { kind: 'usage-error', message: `podium automation: ${token} needs a value` }
+    }
+    if (values.has(token)) {
+      return { kind: 'usage-error', message: `podium automation: duplicate ${token}` }
+    }
+    values.set(token, value)
+  }
+
+  const at = values.get('--at')
+  const prompt = values.get('--message')
+  if (!at || !prompt) return { kind: 'usage-error', message: AUTOMATION_SCHEDULE_USAGE }
+  const timestamp = Date.parse(at)
+  if (!Number.isFinite(timestamp)) {
+    return { kind: 'usage-error', message: `podium automation: invalid --at timestamp '${at}'` }
+  }
+
+  const selectedSession = values.get('--session')
+  if (fresh && selectedSession) {
+    return {
+      kind: 'usage-error',
+      message: 'podium automation: --fresh and --session are exclusive',
+    }
+  }
+  let target: Extract<ApprovalOp, { kind: 'automation-schedule' }>['target']
+  if (fresh) {
+    const repoPath = values.get('--repo')
+    const agentKind = values.get('--agent')
+    const model = values.get('--model')
+    const effort = values.get('--effort')
+    if (!repoPath || !agentKind || !isAgentKind(agentKind)) {
+      return {
+        kind: 'usage-error',
+        message: 'podium automation: --fresh requires --repo and a valid --agent kind',
+      }
+    }
+    target = {
+      kind: 'fresh',
+      repoPath,
+      agentKind,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+    }
+  } else {
+    if (
+      values.has('--repo') ||
+      values.has('--agent') ||
+      values.has('--model') ||
+      values.has('--effort')
+    ) {
+      return {
+        kind: 'usage-error',
+        message: 'podium automation: --repo/--agent/--model/--effort require --fresh',
+      }
+    }
+    target = selectedSession ? { kind: 'session', sessionId: selectedSession } : { kind: 'current' }
+  }
+
+  return {
+    kind: 'approval-request',
+    op: {
+      kind: 'automation-schedule',
+      name: values.get('--name') ?? 'Scheduled session wakeup',
+      runAt: new Date(timestamp).toISOString(),
+      prompt,
+      target,
+    },
+  }
+}
+
 /**
  * THE pure launch resolver: (config, argv, env, tty) → LaunchPlan. No I/O, no
  * process access — everything ambient is passed in, so the full mode × persistence ×
@@ -245,6 +345,15 @@ export function resolvePlan(
     return argv[1] === 'status' && argv[2]
       ? { kind: 'approval-status', id: argv[2] }
       : { kind: 'usage-error', message: 'usage: podium approval status <id>' }
+  }
+  if (argv[0] === 'automation') {
+    if (!agentSession) {
+      return {
+        kind: 'usage-error',
+        message: 'podium automation schedule is available to managed agent sessions',
+      }
+    }
+    return automationSchedulePlan(argv)
   }
   if (agentSession) {
     if (argv[0] === 'update') return { kind: 'approval-request', op: { kind: 'update' } }
@@ -486,12 +595,14 @@ export function helpText(): string {
     '  issue <command>       Drive the native issue tracker',
     '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
     '  session <command>     Send turns to agent sessions; status/read for a peek',
+    '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
+    '                        Request a one-off session wake (agent sessions only)',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
     '  worktree [path]       Declare the worktree this agent session works in',
     '',
     '  workflow <command>    Follow and manage versioned agent workflows',
-    "Agent sessions: update/stop/channel/set-server need the operator's approval —",
+    'Agent sessions: lifecycle changes and automation schedules need operator approval —',
     'the command BLOCKS until they approve (runs it) or deny (exits non-zero).',
     '',
     'Other:',

@@ -15,7 +15,7 @@ export const WEEKDAYS = [
   'Saturday',
 ] as const
 
-export type Frequency = 'hourly' | 'daily' | 'weekly' | 'cron'
+export type Frequency = 'once' | 'hourly' | 'daily' | 'weekly' | 'cron'
 
 /**
  * Build a cron expression from the composer's schedule fields.
@@ -33,6 +33,7 @@ export function cronFromFields(
   weekday: number,
   rawCron: string,
 ): string {
+  if (freq === 'once') return ''
   if (freq === 'cron') return rawCron.trim()
   if (freq === 'hourly') return '0 * * * *'
   const [hRaw, mRaw] = time.split(':')
@@ -88,7 +89,8 @@ export function isValidCronExpression(expr: string): boolean {
 const pad = (n: string): string => n.padStart(2, '0')
 
 /** A human sentence for the expressions the composer emits; the raw cron otherwise. */
-export function cronSummary(cron: string): string {
+export function cronSummary(cron: string | null | undefined): string {
+  if (!cron) return 'No recurring schedule'
   const [m, h, dom, month, dow] = cron.trim().split(/\s+/)
   if (!m || !h || !dom || !month || !dow) return cron
   if (dom !== '*' || month !== '*') return `Cron: ${cron}`

@@ -5,6 +5,7 @@
  * missed/overlap/re-arm policy table-testable without a database or a PTY.
  */
 
+import type { AutomationScheduleKind } from '@podium/protocol'
 import { nextAfter, parseCron } from './cron'
 
 /** How late a fire may be and still run. Past this, the occurrence is recorded as
@@ -19,7 +20,8 @@ export const GRACE_MS = 60 * 60 * 1000
 export interface Schedulable {
   id: string
   enabled: boolean
-  cron: string
+  scheduleKind: AutomationScheduleKind
+  cron: string | null
   /** ISO; null = not armed. */
   nextRunAt: string | null
   /** Session of this automation's most recent `spawned` run; null = never spawned. */
@@ -80,9 +82,12 @@ export function decideTick(input: {
     // The re-arm is computed BEFORE the outcome branch and is the same in all of
     // them — a skipped or missed fire must still move the automation forward, or
     // the next tick would re-decide the same overdue occurrence forever.
-    let nextRunAt: string | null
+    let nextRunAt: string | null = null
     try {
-      nextRunAt = nextAfter(parseCron(a.cron), now)?.toISOString() ?? null
+      if (a.scheduleKind === 'cron') {
+        if (!a.cron) throw new Error('cron schedule is missing its expression')
+        nextRunAt = nextAfter(parseCron(a.cron), now)?.toISOString() ?? null
+      }
     } catch (err) {
       decisions.push({
         automationId: a.id,

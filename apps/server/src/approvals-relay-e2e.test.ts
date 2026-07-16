@@ -80,6 +80,36 @@ describe('approval broker relay e2e (#410)', () => {
     expect(registry.modules.approvals.listPending()).toHaveLength(0)
   })
 
+  it('approved current-session schedule creates an armed server-owned one-off', async () => {
+    const runAt = '2099-07-17T02:00:00.000Z'
+    const r = await relay('request', {
+      op: {
+        kind: 'automation-schedule',
+        name: 'Overnight continuation',
+        runAt,
+        prompt: 'Continue during the quota window.',
+        target: { kind: 'current' },
+      },
+    })
+    expect(r.ok).toBe(true)
+    const { id } = r.result as { id: string }
+
+    const approved = registry.modules.approvals.approve(id)
+    expect(approved).toMatchObject({ status: 'succeeded' })
+    expect(daemonInbox.some((message) => message.type === 'approvalExecRequest')).toBe(false)
+    expect(registry.modules.automations.list()).toEqual([
+      expect.objectContaining({
+        name: 'Overnight continuation',
+        scheduleKind: 'once',
+        runAt,
+        nextRunAt: runAt,
+        targetSessionId: sA,
+        sessionMode: 'resume',
+        enabled: true,
+      }),
+    ])
+  })
+
   it('the relay cannot approve/deny — only request and get are reachable', async () => {
     const r = await relay('approve', { id: 'apr_x' })
     expect(r.ok).toBe(false)

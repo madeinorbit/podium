@@ -52,6 +52,15 @@ const GLOBAL_TARGET = '__global__'
 
 const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
 
+const localDateTimeValue = (iso?: string | null): string => {
+  const fallback = new Date(Date.now() + 60 * 60_000)
+  fallback.setSeconds(0, 0)
+  const date = iso ? new Date(iso) : fallback
+  if (Number.isNaN(date.getTime())) return ''
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 /**
  * The "New automation" composer (#470) [spec:SP-17db]. Schedule creates a REAL,
  * persisted automation via `automations.create`. Reactive keeps its fields visible
@@ -77,11 +86,14 @@ export function NewAutomationDialog({
   const editing = automation !== null
   const [name, setName] = useState(automation?.name ?? '')
   const [kind, setKind] = useState<TriggerKind>('schedule')
-  // Existing schedules open as custom cron so their exact expression is preserved.
-  const [freq, setFreq] = useState<Frequency>(automation ? 'cron' : 'daily')
+  // Existing recurring schedules open as custom cron so their exact expression is preserved.
+  const [freq, setFreq] = useState<Frequency>(
+    automation ? (automation.scheduleKind === 'once' ? 'once' : 'cron') : 'daily',
+  )
   const [time, setTime] = useState('09:00')
   const [weekday, setWeekday] = useState(1) // Monday
   const [rawCron, setRawCron] = useState(automation?.cron ?? '')
+  const [runAt, setRunAt] = useState(() => localDateTimeValue(automation?.runAt))
   // Reactive fields (composed but not creatable — no runner yet).
   const [reactive, setReactive] = useState<ReactiveTrigger>('merge-main')
   const [glob, setGlob] = useState('')
@@ -109,17 +121,22 @@ export function NewAutomationDialog({
     .filter((r) => r.kind !== 'worktree')
     .sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))
   const cron = cronFromFields(freq, time, weekday, rawCron)
+  const runAtTimestamp = new Date(runAt).getTime()
+  const oneOffRunAt = Number.isFinite(runAtTimestamp)
+    ? new Date(runAtTimestamp).toISOString()
+    : null
   // The composer's own frequencies always build a valid expression; only the custom
   // cron box can be empty or malformed. Gating Create on validity is what stops an
   // untouched box from arming a schedule (#470) — it no longer falls back to
   // `* * * * *`, which would have spawned an agent session every minute.
   const cronValid = isValidCronExpression(cron)
   const cronInvalid = freq === 'cron' && cron.length > 0 && !cronValid
+  const scheduleValid = freq === 'once' ? runAtTimestamp > Date.now() : cronValid
   const canSave =
     kind === 'schedule' &&
     name.trim().length > 0 &&
     prompt.trim().length > 0 &&
-    cronValid &&
+    scheduleValid &&
     !saving
 
   const save = (): void => {
@@ -129,7 +146,11 @@ export function NewAutomationDialog({
     const input = {
       name: name.trim(),
       repoPath: target === GLOBAL_TARGET ? null : target,
-      cron,
+      scheduleKind: freq === 'once' ? ('once' as const) : ('cron' as const),
+      cron: freq === 'once' ? null : cron,
+      runAt: freq === 'once' ? oneOffRunAt : null,
+      // Agent-created targeted one-offs keep their explicit session when edited.
+      targetSessionId: automation?.targetSessionId ?? null,
       agentKind: agent,
       model,
       effort,
@@ -191,6 +212,7 @@ export function NewAutomationDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="once">One time</SelectItem>
                     <SelectItem value="hourly">Hourly</SelectItem>
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly">Weekly</SelectItem>
@@ -198,6 +220,23 @@ export function NewAutomationDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {freq === 'once' && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="automation-run-at">Run at</Label>
+                  <Input
+                    id="automation-run-at"
+                    type="datetime-local"
+                    value={runAt}
+                    onChange={(event) => setRunAt(event.target.value)}
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    {scheduleValid
+                      ? 'This automation will run once, at this local date and time.'
+                      : 'Choose a date and time in the future.'}
+                  </span>
+                </div>
+              )}
+
               {freq === 'weekly' && (
                 <div className="flex flex-col gap-1.5">
                   <Label>Day of week</Label>
@@ -245,11 +284,20 @@ export function NewAutomationDialog({
                   </span>
                 </div>
               )}
-              <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
-                <span className="text-[11px] text-muted-foreground">cron</span>
-                <code className="font-mono text-[12px] text-foreground">{cron || '—'}</code>
-                <span className="text-[11px] text-muted-foreground/70">server-local time</span>
-              </div>
+              {freq === 'once' ? (
+                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+                  <span className="text-[11px] text-muted-foreground">one time</span>
+                  <span className="text-[12px] text-foreground">
+                    {oneOffRunAt ? new Date(oneOffRunAt).toLocaleString() : '—'}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+                  <span className="text-[11px] text-muted-foreground">cron</span>
+                  <code className="font-mono text-[12px] text-foreground">{cron || '—'}</code>
+                  <span className="text-[11px] text-muted-foreground/70">server-local time</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-3">
@@ -302,6 +350,11 @@ export function NewAutomationDialog({
                 <SelectItem value={GLOBAL_TARGET}>Global (home directory)</SelectItem>
               </SelectContent>
             </Select>
+            {automation?.targetSessionId && (
+              <span className="text-[11px] text-muted-foreground">
+                Explicit session target: {automation.targetSessionId}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">

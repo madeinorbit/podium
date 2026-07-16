@@ -30,6 +30,7 @@ function repoLabel(path: string): string {
 
 /** Where the automation's session spawns: a repo, or the home directory. */
 function targetLabel(a: Automation): string {
+  if (a.targetSessionId) return `Session ${a.targetSessionId}`
   return a.repoPath ? repoLabel(a.repoPath) : 'Global (home directory)'
 }
 
@@ -79,7 +80,7 @@ export function ScheduledSection({
           <Clock size={14} aria-hidden="true" /> Scheduled
         </h3>
         <p className="text-[12px] text-muted-foreground">
-          Recurring agent tasks. Each run starts a fresh session or resumes the previous one,
+          Recurring and one-time agent tasks. Each run starts a fresh session or resumes one,
           according to its configured session mode.
         </p>
       </div>
@@ -144,6 +145,21 @@ function AutomationCard({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const lastRun = runs[0]
+  const completedOneOff = a.scheduleKind === 'once' && a.lastRunAt !== null
+  const scheduleSummary =
+    a.scheduleKind === 'once' ? `One time at ${formatTime(a.runAt)}` : cronSummary(a.cron)
+  const statusSummary = completedOneOff
+    ? `Completed: ${formatTime(a.lastRunAt)}`
+    : a.enabled
+      ? `Next run: ${formatTime(a.nextRunAt)}`
+      : 'Disabled'
+  const modeSummary = a.targetSessionId
+    ? 'Wake targeted session'
+    : a.sessionMode === 'resume'
+      ? 'Resume previous session'
+      : a.scheduleKind === 'once'
+        ? 'Fresh session'
+        : 'Fresh session per run'
   return (
     <div
       className={cn(
@@ -183,17 +199,15 @@ function AutomationCard({
           <div className="flex items-center gap-2">
             <span className="truncate font-medium text-[13px] text-foreground">{a.name}</span>
             <Badge variant="outline" className="font-normal">
-              Schedule
+              {a.scheduleKind === 'once' ? 'One-off' : 'Recurring'}
             </Badge>
           </div>
           <div className="truncate text-[12px] text-muted-foreground">
-            {cronSummary(a.cron)} — {targetLabel(a)}
+            {scheduleSummary} — {targetLabel(a)}
           </div>
           <div className="truncate text-[11px] text-muted-foreground/70">
-            {a.enabled ? `Next run: ${formatTime(a.nextRunAt)}` : 'Disabled'} ·{' '}
-            {issueAgentLabel(a.agentKind)}
-            {a.model !== 'auto' ? ` · ${a.model}` : ''} ·{' '}
-            {a.sessionMode === 'resume' ? 'Resume previous session' : 'Fresh session per run'}
+            {statusSummary} · {issueAgentLabel(a.agentKind)}
+            {a.model !== 'auto' ? ` · ${a.model}` : ''} · {modeSummary}
           </div>
         </div>
         <button
@@ -207,7 +221,7 @@ function AutomationCard({
         </button>
         <Switch
           checked={a.enabled}
-          disabled={busy}
+          disabled={busy || completedOneOff}
           onCheckedChange={onToggle}
           aria-label={`${a.enabled ? 'Disable' : 'Enable'} ${a.name}`}
         />

@@ -25,6 +25,7 @@ export function approvalArgv(op: ApprovalOp): string[] {
       return ['set-server', op.target]
     case 'workflow-publish':
     case 'workflow-set-default':
+    case 'automation-schedule':
       throw new Error(`${op.kind} is a server-owned approval operation`)
   }
 }

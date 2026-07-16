@@ -50,7 +50,12 @@ function hibernatedSession(reg: SessionRegistry): string {
 function settle(reg: SessionRegistry, sessionId: string): void {
   let seq = 0
   for (let i = 0; i < 5; i += 1) {
-    reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentFrame', sessionId, seq: seq++, data: 'eA==' })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentFrame',
+      sessionId,
+      seq: seq++,
+      data: 'eA==',
+    })
     vi.advanceTimersByTime(200)
   }
   vi.advanceTimersByTime(1400)
@@ -66,7 +71,10 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = hibernatedSession(reg)
       daemon.length = 0
 
-      expect(reg.modules.sessions.queueText({ sessionId, text: 'wake-up-msg' })).toEqual({ ok: true, queued: true })
+      expect(reg.modules.sessions.queueText({ sessionId, text: 'wake-up-msg' })).toEqual({
+        ok: true,
+        queued: true,
+      })
       // The wake: a spawn under the same id carrying the resume ref.
       expect(daemon).toContainEqual(
         expect.objectContaining({
@@ -93,11 +101,72 @@ describe('queueText (durable outbox sends)', () => {
     }
   })
 
+  it('a due one-off wakes a hibernated target and delivers its message exactly once', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-16T22:00:00.000Z'))
+    const reg = new SessionRegistry()
+    try {
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
+      const sessionId = hibernatedSession(reg)
+      daemon.length = 0
+      const runAt = '2026-07-16T22:02:00.000Z'
+      const automation = reg.modules.automations.create({
+        name: 'Night quota wake',
+        scheduleKind: 'once',
+        runAt,
+        targetSessionId: sessionId,
+        repoPath: '/w',
+        agentKind: 'claude-code',
+        prompt: 'continue-night-work',
+        enabled: true,
+        sessionMode: 'resume',
+      })
+
+      vi.setSystemTime(new Date('2026-07-16T22:02:01.000Z'))
+      reg.modules.automations.tick()
+
+      expect(daemon).toContainEqual(
+        expect.objectContaining({
+          type: 'spawn',
+          sessionId,
+          resume: { kind: 'claude-session', value: 'abc-123' },
+        }),
+      )
+      expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
+
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      settle(reg, sessionId)
+
+      expect(pastesContaining(daemon, 'continue-night-work')).toEqual([
+        '\x1b[200~continue-night-work\x1b[201~',
+      ])
+      expect(reg.modules.automations.runs(automation.id)).toEqual([
+        expect.objectContaining({ outcome: 'spawned', sessionId }),
+      ])
+      expect(reg.modules.automations.list()[0]).toMatchObject({
+        enabled: false,
+        nextRunAt: null,
+        lastRunAt: runAt,
+      })
+
+      reg.modules.automations.tick()
+      expect(reg.modules.automations.runs(automation.id)).toHaveLength(1)
+      expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(1)
+    } finally {
+      reg.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it('refuses a parked agent with no resume ref and queues NOTHING', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
     reg.modules.sessions.onDaemonMessageFrom('local', { type: 'agentExit', sessionId, code: 1 })
     daemon.length = 0
@@ -132,7 +201,10 @@ describe('queueText (durable outbox sends)', () => {
       // Restart: fresh store + registry over the same DB file.
       const storeB = new SessionStore(file)
       const regB = new SessionRegistry(storeB)
-      expect(regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount).toBe(1)
+      expect(
+        regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+          ?.queuedMessageCount,
+      ).toBe(1)
 
       const daemonB: ControlMessage[] = []
       regB.modules.sessions.attachDaemon('local', (m) => daemonB.push(m))
@@ -142,7 +214,8 @@ describe('queueText (durable outbox sends)', () => {
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
       expect(regB.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
       expect(
-        regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.queuedMessageCount,
+        regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+          ?.queuedMessageCount,
       ).toBeUndefined()
       regB.dispose()
       storeB.close()
@@ -157,7 +230,10 @@ describe('queueText (durable outbox sends)', () => {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
       reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
       reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
       reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
@@ -188,7 +264,10 @@ describe('queueText (durable outbox sends)', () => {
       const daemon: ControlMessage[] = []
       reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
       // No bind: the session sits in 'starting' past the 25s drain deadline.
-      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
       reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
 
       vi.advanceTimersByTime(26_000)
@@ -306,7 +385,10 @@ describe('withMutation (idempotency wrapper)', () => {
       const reg = new SessionRegistry()
       const daemon: ControlMessage[] = []
       reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
       reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
 
       const send = () =>

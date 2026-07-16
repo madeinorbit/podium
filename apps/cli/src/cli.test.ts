@@ -300,6 +300,93 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['status'], agent)).toEqual({ kind: 'status' })
   })
 
+  it('approval broker: agents can request one-off current, selected, or fresh sessions', () => {
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    const at = '2026-07-17T02:00:00.000Z'
+    expect(
+      plan({}, ['automation', 'schedule', '--at', at, '--message', 'Continue overnight.'], agent),
+    ).toEqual({
+      kind: 'approval-request',
+      op: {
+        kind: 'automation-schedule',
+        name: 'Scheduled session wakeup',
+        runAt: at,
+        prompt: 'Continue overnight.',
+        target: { kind: 'current' },
+      },
+    })
+    expect(
+      plan(
+        {},
+        [
+          'automation',
+          'schedule',
+          '--at',
+          at,
+          '--message',
+          'Check the result.',
+          '--session',
+          'sess_other',
+          '--name',
+          'Night result check',
+        ],
+        agent,
+      ),
+    ).toMatchObject({
+      kind: 'approval-request',
+      op: {
+        name: 'Night result check',
+        target: { kind: 'session', sessionId: 'sess_other' },
+      },
+    })
+    expect(
+      plan(
+        {},
+        [
+          'automation',
+          'schedule',
+          '--at',
+          at,
+          '--message',
+          'Start a clean run.',
+          '--fresh',
+          '--repo',
+          '/repos/podium',
+          '--agent',
+          'codex',
+          '--model',
+          'gpt-5.7',
+        ],
+        agent,
+      ),
+    ).toMatchObject({
+      kind: 'approval-request',
+      op: {
+        target: {
+          kind: 'fresh',
+          repoPath: '/repos/podium',
+          agentKind: 'codex',
+          model: 'gpt-5.7',
+        },
+      },
+    })
+    expect(
+      plan({}, ['automation', 'schedule', '--at', 'nope', '--message', 'x'], agent),
+    ).toMatchObject({
+      kind: 'usage-error',
+    })
+    expect(
+      plan(
+        {},
+        ['automation', 'schedule', '--at', at, '--message', 'x', '--fresh', '--session', 's2'],
+        agent,
+      ),
+    ).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['automation', 'schedule', '--at', at, '--message', 'x'])).toMatchObject({
+      kind: 'usage-error',
+    })
+  })
+
   it('agent-session detection: new name, legacy alias, and PODIUM_NO_RELAY escape hatch', () => {
     // Detection via the new PODIUM_AGENT_RELAY name.
     expect(plan({}, ['update'], { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' })).toEqual({

@@ -4,6 +4,10 @@ import { z } from 'zod'
 export const AutomationSessionMode = z.enum(['fresh', 'resume'])
 export type AutomationSessionMode = z.infer<typeof AutomationSessionMode>
 
+/** Recurring cron or a single timestamped fire [spec:SP-17db]. */
+export const AutomationScheduleKind = z.enum(['cron', 'once'])
+export type AutomationScheduleKind = z.infer<typeof AutomationScheduleKind>
+
 export const AutomationRunOutcome = z.enum(['spawned', 'missed', 'skipped_overlap', 'error'])
 export type AutomationRunOutcome = z.infer<typeof AutomationRunOutcome>
 
@@ -13,7 +17,11 @@ export const AutomationWire = z.object({
   name: z.string(),
   enabled: z.boolean(),
   repoPath: z.string().nullable(),
-  cron: z.string(),
+  scheduleKind: AutomationScheduleKind,
+  cron: z.string().nullable(),
+  runAt: z.string().nullable(),
+  /** Explicit existing-session target. null keeps the fresh/previous-run behavior. */
+  targetSessionId: z.string().nullable(),
   agentKind: z.string(),
   model: z.string(),
   effort: z.string(),

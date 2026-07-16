@@ -1,5 +1,6 @@
 import {
   AgentKind,
+  AutomationScheduleKind,
   AutomationSessionMode,
   agentSupportsCloud,
   type FileReadResultMessage,
@@ -102,13 +103,13 @@ const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
  *  never a 500.
  *  `repoPath: null` = a GLOBAL automation: it runs in the home directory, for
  *  cross-repo chores. */
-const automationInput = z.object({
+const automationFields = z.object({
   name: z.string().min(1),
   repoPath: z.string().min(1).nullable().optional(),
-  cron: z
-    .string()
-    .refine(isValidCron, 'invalid cron expression — 5 fields: minute hour day month weekday')
-    .refine((expr) => respectsScheduleFloor(expr), SCHEDULE_FLOOR_MESSAGE),
+  scheduleKind: AutomationScheduleKind.optional(),
+  cron: z.string().nullable().optional(),
+  runAt: z.string().datetime({ offset: true }).nullable().optional(),
+  targetSessionId: z.string().min(1).nullable().optional(),
   agentKind: AgentKind,
   model: z.string().optional(),
   effort: z.string().optional(),
@@ -116,6 +117,40 @@ const automationInput = z.object({
   enabled: z.boolean().optional(),
   sessionMode: AutomationSessionMode.optional(),
 })
+
+const automationInput = automationFields.superRefine((input, ctx) => {
+  const scheduleKind = input.scheduleKind ?? 'cron'
+  if (scheduleKind === 'cron') {
+    if (!input.cron || !isValidCron(input.cron)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cron'],
+        message: 'invalid cron expression — 5 fields: minute hour day month weekday',
+      })
+    } else if (!respectsScheduleFloor(input.cron)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cron'], message: SCHEDULE_FLOOR_MESSAGE })
+    }
+    if (input.runAt != null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['runAt'], message: 'not valid for cron' })
+    }
+  } else {
+    if (input.cron != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cron'],
+        message: 'not valid for one-off',
+      })
+    }
+    if (!input.runAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['runAt'],
+        message: 'required for one-off',
+      })
+    }
+  }
+})
+const automationPatch = automationFields.partial()
 
 /** Hub-role gate (roles.ts): fleet admin + pairing procs exist on the wire only
  *  when this process runs the hub role. NOT_FOUND (→ HTTP 404), not FORBIDDEN —
@@ -1305,7 +1340,7 @@ export const appRouter = t.router({
       .input(automationInput)
       .mutation(({ ctx, input }) => mods(ctx).automations.create(input)),
     update: t.procedure
-      .input(z.object({ id: z.string().min(1), patch: automationInput.partial() }))
+      .input(z.object({ id: z.string().min(1), patch: automationPatch }))
       .mutation(({ ctx, input }) => mods(ctx).automations.update(input.id, input.patch)),
     setEnabled: t.procedure
       .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))

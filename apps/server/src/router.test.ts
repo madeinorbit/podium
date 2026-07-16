@@ -122,7 +122,11 @@ describe('appRouter', () => {
       }
       registry.modules.issueArtifacts = new IssueArtifactStore(base, stubRpc)
       // No daemon round-trip, no root allowlist: the bytes come from the store.
-      const r = await call.files.read({ issueId: 'iss_1', artifactId: 'abc123', path: 'entry.html' })
+      const r = await call.files.read({
+        issueId: 'iss_1',
+        artifactId: 'abc123',
+        path: 'entry.html',
+      })
       expect(r).toEqual({ ok: true, path: 'entry.html', content: '<h1>hi</h1>' })
       // Missing snapshot → ok:false with an error, matching the daemon shape.
       const miss = await call.files.read({ issueId: 'iss_1', artifactId: 'dead', path: 'x.html' })
@@ -462,5 +466,37 @@ describe('repos router', () => {
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(await call.automations.list()).toEqual([])
+  })
+  it('automations.create accepts a future one-off and rejects an incomplete one', async () => {
+    const { call } = caller()
+    const runAt = '2099-07-17T02:00:00.000Z'
+    const created = await call.automations.create({
+      name: 'One night wake',
+      scheduleKind: 'once',
+      cron: null,
+      runAt,
+      targetSessionId: 'sess_sleeping',
+      repoPath: '/repos/podium',
+      agentKind: 'codex',
+      prompt: 'Continue.',
+      enabled: true,
+      sessionMode: 'resume',
+    })
+    expect(created).toMatchObject({
+      scheduleKind: 'once',
+      cron: null,
+      runAt,
+      nextRunAt: runAt,
+      targetSessionId: 'sess_sleeping',
+    })
+
+    await expect(
+      call.automations.create({
+        name: 'Missing time',
+        scheduleKind: 'once',
+        agentKind: 'codex',
+        prompt: 'go',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })
