@@ -11,7 +11,7 @@ import type {
   LintFinding,
   OrphanIssue,
 } from '@podium/protocol'
-import { TITLE_RULE, formatIssueRef } from '@podium/protocol'
+import { DELEGATION_RULE, LOCK_RULE, TITLE_RULE, formatIssueRef } from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd } from '../../../issue-util'
@@ -499,6 +499,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       'Stay in your worktree: NEVER `cd` into another checkout (even briefly — it re-homes this session in the UI); use `git -C <path> …` for commands against other checkouts.',
       // Finish-workflow merge coordination [spec:SP-85d1] — advisory merge lock.
       'Merging to a shared branch (e.g. main): first `podium merge-lock acquire --wait`, then rebase onto that branch, `git merge --ff-only`, and `podium merge-lock release` IMMEDIATELY after the merge.',
+      // The generic lease underneath merge-lock, and how to delegate [spec:SP-4ef9,
+      // SP-85d1]. Both live in @podium/protocol so the prime and the committed guide
+      // cannot drift apart.
+      LOCK_RULE,
+      DELEGATION_RULE,
       'If you INTENTIONALLY move to a different git worktree/checkout, report it: run `podium worktree` from it (or `podium worktree <path>`) so Podium regroups this session.',
     ]
     if (opts.boundIssueId) {

@@ -26,6 +26,13 @@ This project uses Podium's issue tracker for work management. If you are running
 session, use the `podium issue` CLI (start with `podium issue prime`). Track durable/discovered
 work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issues.md](docs/agents/podium-issues.md)**.
 
+## Delegating to other agents
+
+`podium agent spawn` puts another agent on an issue. Podium infers nothing about a delegate —
+no roles, no write-claim, no auto-isolation [spec:SP-4ef9] — so what you tell it in the spawn
+prompt is the only lever: its job, a title to give itself, who else is on the issue, and who
+owns which files. Full guide: **[docs/agents/delegating.md](docs/agents/delegating.md)**.
+
 ## Running tests
 
 Four lanes [spec:SP-0be7]: `bun run test` is the fast hermetic default (run before every
@@ -40,4 +47,5 @@ CLIs and bills LLM quota — only on explicit human request. Vitest always runs 
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
 - [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
+- [docs/agents/delegating.md](docs/agents/delegating.md) — spawn other agents: placement, naming, concurrency, advisory locks.
 - [docs/agents/testing.md](docs/agents/testing.md) — the four test lanes and which suite to run when.

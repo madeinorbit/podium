@@ -1627,6 +1627,31 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('Ready one')
   })
 
+  // POD-694 [spec:SP-4ef9, SP-85d1]. Asserting the discoverable SURFACE (command
+  // names, guide path) rather than the copy: an agent that cannot see the string
+  // `podium lock` has no way to learn leases exist for anything but merging, which
+  // was the actual gap. Prose is free to change; these identifiers are the contract.
+  it('prime surfaces the generic `podium lock`, not merge-lock alone', () => {
+    const { svc } = harness()
+    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    for (const out of [
+      svc.prime({ repoPath: '/r', boundIssueId: issue.id }),
+      svc.prime({ repoPath: '/r', boundIssueId: null }),
+    ]) {
+      expect(out).toContain('podium lock acquire')
+      expect(out).toContain('podium merge-lock')
+    }
+  })
+
+  it('prime tells a delegating agent to name its delegate and points at the guide', () => {
+    const { svc } = harness()
+    const issue = svc.create({ repoPath: '/r', title: 'Bound', startNow: false })
+    const out = svc.prime({ repoPath: '/r', boundIssueId: issue.id })
+    expect(out).toContain('podium agent spawn')
+    expect(out).toContain('podium session title')
+    expect(out).toContain('docs/agents/delegating.md')
+  })
+
   it('prime renders structural blockers and parent as ref (title) (open only)', () => {
     const { svc } = harness()
     const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
