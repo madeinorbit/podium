@@ -29,7 +29,21 @@ import { join } from 'node:path'
 // tests can't POST to the live daemon's hook ingest. It rides its OWN transport, separate from
 // the generic agent relay — PODIUM_NO_RELAY deliberately does NOT gate it (it only shorts
 // resolveAgentRelay()), so we drop it here instead.
-const SCRUB_EXACT = new Set(['PODIUM_AGENT_RELAY', 'PODIUM_ISSUE_RELAY', 'PODIUM_SESSION_ID', 'PODIUM_PORT'])
+// The instance-identity vars (docs/multi-instance.md) are scrubbed too: a suite launched from
+// inside a NAMED instance's session would otherwise inherit that identity — resolveInstance()
+// reads PODIUM_INSTANCE, and the port/agent-home/adopt overrides retarget the live deployment.
+// Tests always run as the hermetic per-file throwaway, never as the hosting instance.
+const SCRUB_EXACT = new Set([
+  'PODIUM_AGENT_RELAY',
+  'PODIUM_ISSUE_RELAY',
+  'PODIUM_SESSION_ID',
+  'PODIUM_PORT',
+  'PODIUM_INSTANCE',
+  'PODIUM_HOOK_PORT',
+  'PODIUM_AGENT_RELAY_PORT',
+  'PODIUM_AGENT_HOME',
+  'PODIUM_ADOPT_STATE',
+])
 for (const key of Object.keys(process.env)) {
   if (SCRUB_EXACT.has(key) || key.startsWith('PODIUM_CODEX_HOOK_')) {
     delete process.env[key]
