@@ -568,7 +568,13 @@ function main(): void {
   // known debt, each mapped to the phase that removes it; they report but do
   // not fail. Anything NEW (or over an entry's count) is an error: that is the
   // ratchet. POD-335 flips this to error level with an empty allowlist.
-  for (const s of stale) console.warn(`warning: ${s}`)
+  // Stale entries FAIL: a count left above reality leaves slots that can be
+  // silently refilled while CI stays green, which would make the ratchet hold
+  // only at its loosest historical setting. See applyAllowlist.
+  if (stale.length > 0) {
+    console.error(`\nStale allowlist entries (${stale.length}) — the ratchet only goes down:\n`)
+    for (const s of stale) console.error(`  ${s}`)
+  }
   if (warnings.length > 0) {
     console.warn(
       `\narchitecture manifest — ${warnings.length} allowlisted violation(s) (warn, see scripts/boundary-allowlist.ts):`,
@@ -589,7 +595,8 @@ function main(): void {
     for (const v of violations) console.error(`  [${v.rule}] ${v.message}`)
     console.error('\nSee ARCHITECTURE.md "Dependency direction" for the rules.')
   }
-  if (errors.length > 0 || (!manifestOnly && violations.length > 0)) process.exit(1)
+  if (errors.length > 0 || stale.length > 0 || (!manifestOnly && violations.length > 0))
+    process.exit(1)
   console.log(
     manifestOnly
       ? `architecture manifest OK (${ms}ms) — ${warnings.length} allowlisted, 0 new`
