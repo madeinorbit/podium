@@ -53,8 +53,17 @@ export const sharedVitestConfig = {
         find: /^@podium\/runtime\/(.*)$/,
         replacement: `${fileURLToPath(new URL('./packages/runtime/src/', import.meta.url))}$1`,
       },
-      // NOTE: no '@podium/telemetry' alias — same subpath shape, but it has not been
-      // shown to split, so it stays on the exports map for now [spec:SP-f933].
+      // NOTE: no '@podium/telemetry' alias. Same subpath shape as runtime, and the hazard
+      // above is real — so this is a CHECKED decision, not an oversight, and it rests on two
+      // things that are both true today [POD-746, spec:SP-f933]:
+      //   1. the seam is unreachable — nothing outside a workspace package imports it
+      //      (no @podium/telemetry import in scripts/ or tests/), so nothing walks up; and
+      //   2. duplication would be harmless — telemetry holds no MODULE-scoped identity
+      //      state. Its only mutable state is a private field of TelemetryEmitter, which
+      //      callers construct: per instance, not per module copy. Runtime broke only
+      //      because a module-scoped WeakMap made identity load-bearing.
+      // EITHER half failing brings the hazard back: give telemetry a module-scoped
+      // WeakMap/Map/registry, or import it from scripts/, and it needs the anchor above.
       {
         find: '@podium/transcript',
         replacement: fileURLToPath(new URL('./packages/transcript/src/index.ts', import.meta.url)),
