@@ -70,6 +70,8 @@ interface AwaitedReply {
 }
 
 const QUEUE_CAP = 20
+/** Telegram's typing action lasts ~5s; refresh a beat earlier so it never lapses. */
+export const TYPING_REFRESH_MS = 4000
 
 /**
  * Two-way messaging-app bridge [spec:SP-5d81]. Inbound chat messages become
@@ -235,24 +237,34 @@ export class MessagingService implements TelegramNoticePort {
     this.pump(threadId)
   }
 
+  private startTyping(source: ConversationRef): ReturnType<typeof setInterval> {
+    this.adapter?.sendTyping?.(source)
+    const typing = setInterval(() => this.adapter?.sendTyping?.(source), TYPING_REFRESH_MS)
+    ;(typing as { unref?: () => void }).unref?.()
+    return typing
+  }
+
+  private stopTyping(typing: ReturnType<typeof setInterval> | undefined): void {
+    if (typing !== undefined) clearInterval(typing)
+  }
+
   private pump(threadId: string): void {
     if (this.awaiting.has(threadId) || this.dispatching.has(threadId)) return
     const queue = this.queues.get(threadId)
     const next = queue?.[0]
     if (!next) return
     this.dispatching.add(threadId)
+    const typing = this.startTyping(next.source)
     void this.deps.superagent
       .sendTurn({ threadId, text: this.turnText(next) })
       .then(() => {
         this.dispatching.delete(threadId)
         queue?.shift()
-        const typing = setInterval(() => this.adapter?.sendTyping?.(next.source), 5000)
-        ;(typing as { unref?: () => void }).unref?.()
-        this.adapter?.sendTyping?.(next.source)
         this.awaiting.set(threadId, { source: next.source, typing })
       })
       .catch((err: unknown) => {
         this.dispatching.delete(threadId)
+        this.stopTyping(typing)
         const message = err instanceof Error ? err.message : String(err)
         if (message.includes('already running')) return
         queue?.shift()
@@ -319,7 +331,7 @@ export class MessagingService implements TelegramNoticePort {
   private onTurnEnded(ev: { threadId: string; ok: boolean; output?: string; error?: string }): void {
     const awaited = this.awaiting.get(ev.threadId)
     if (awaited) {
-      clearInterval(awaited.typing)
+      this.stopTyping(awaited.typing)
       this.awaiting.delete(ev.threadId)
       const text = ev.ok
         ? (ev.output?.trim() || '(the superagent finished without a text reply)')

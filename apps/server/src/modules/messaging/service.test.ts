@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
-import { MessagingService, type MessagingDeps } from './service'
+import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './service'
 import { chunkTelegramText, parseTelegramUpdates } from './telegram'
 import type { ChannelAdapter, InboundChatMessage } from './types'
 
@@ -92,6 +92,7 @@ interface Harness {
   bus: EventBus
   inbound: (text: string, opts?: { threadRef?: string; callback?: { id: string; data: string } }) => void
   sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }>
+  typingCalls: Array<{ chatId: string; threadRef?: string }>
   sendTurn: ReturnType<typeof vi.fn>
   interruptTurn: ReturnType<typeof vi.fn>
   restartThread: ReturnType<typeof vi.fn>
@@ -129,6 +130,7 @@ function makeHarness(
 ): Harness {
   const bus = new EventBus()
   const sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }> = []
+  const typingCalls: Array<{ chatId: string; threadRef?: string }> = []
   let onMessage: ((msg: InboundChatMessage) => void) | undefined
   const registerTelegramCommands = vi.fn(async () => {})
   const createForumTopic = vi.fn(async () => ({ threadRef: '9001' }))
@@ -149,6 +151,12 @@ function makeHarness(
     },
     createForumTopic,
     answerCallback,
+    sendTyping: (target) => {
+      typingCalls.push({
+        chatId: target.chatId,
+        ...(target.threadRef ? { threadRef: target.threadRef } : {}),
+      })
+    },
   }
   const sendTurn = vi.fn(
     opts.sendTurnImpl ??
@@ -194,6 +202,7 @@ function makeHarness(
     service,
     bus,
     sent,
+    typingCalls,
     sendTurn,
     interruptTurn,
     restartThread,
@@ -218,6 +227,7 @@ function makeHarness(
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0))
+const flushMicro = () => Promise.resolve()
 
 describe('MessagingService', () => {
   it('dispatches an inbound message as a global-thread turn and relays the reply', async () => {
@@ -286,6 +296,119 @@ describe('MessagingService', () => {
     await flush()
     expect(h.sent).toEqual([]) // web turn's reply is not relayed
     expect(h.sendTurn).toHaveBeenCalledTimes(2) // retried and accepted
+  })
+
+  describe('typing indicator', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('starts at inbound accept before sendTurn resolves', async () => {
+      let resolveTurn!: () => void
+      const h = makeHarness({
+        sendTurnImpl: () =>
+          new Promise((resolve) => {
+            resolveTurn = () => resolve({ threadId: 'global', podiumSessionId: 'ps1' })
+          }),
+      })
+      h.inbound('hello')
+      await flushMicro()
+      expect(h.typingCalls).toEqual([{ chatId: '42' }])
+      expect(h.sendTurn).toHaveBeenCalledTimes(1)
+      resolveTurn()
+      await flushMicro()
+      expect(h.typingCalls).toEqual([{ chatId: '42' }])
+    })
+
+    it(`refreshes every ${TYPING_REFRESH_MS}ms while awaiting`, async () => {
+      vi.useFakeTimers()
+      const h = makeHarness()
+      h.inbound('hello')
+      await flushMicro()
+      expect(h.typingCalls).toHaveLength(1)
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(2)
+      vi.advanceTimersByTime(TYPING_REFRESH_MS)
+      expect(h.typingCalls).toHaveLength(3)
+    })
+
+    it('clears typing on turnEnded reply', async () => {
+      vi.useFakeTimers()
+      const h = makeHarness()
+      h.inbound('hello')
+      await flushMicro()
+      h.bus.emit('superagent.turnEnded', {
+        threadId: 'global',
+        podiumSessionId: 'ps1',
+        ok: true,
+        output: 'done',
+      })
+      await flushMicro()
+      const countAfterReply = h.typingCalls.length
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countAfterReply)
+    })
+
+    it('clears typing on failed turn', async () => {
+      vi.useFakeTimers()
+      const h = makeHarness()
+      h.inbound('hello')
+      await flushMicro()
+      h.bus.emit('superagent.turnEnded', {
+        threadId: 'global',
+        podiumSessionId: 'ps1',
+        ok: false,
+        error: 'boom',
+      })
+      await flushMicro()
+      const countAfterError = h.typingCalls.length
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countAfterError)
+    })
+
+    it('clears typing on dispatch error', async () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sendTurnImpl: () => Promise.reject(new Error('thread is open in a terminal')),
+      })
+      h.inbound('hello')
+      await flushMicro()
+      await flushMicro()
+      expect(h.sent).toHaveLength(1)
+      const countAfterError = h.typingCalls.length
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countAfterError)
+    })
+
+    it('clears typing when the thread is busy elsewhere', async () => {
+      vi.useFakeTimers()
+      const h = makeHarness({
+        sendTurnImpl: () =>
+          Promise.reject(new Error('a turn is already running on this thread')),
+      })
+      h.inbound('hello')
+      await flushMicro()
+      await flushMicro()
+      const countAfterBusy = h.typingCalls.length
+      vi.advanceTimersByTime(TYPING_REFRESH_MS * 3)
+      expect(h.typingCalls).toHaveLength(countAfterBusy)
+    })
+
+    it('threads typing into the inbound forum topic', async () => {
+      const h = makeHarness()
+      h.topics.upsert({
+        issueId: 'iss_i1',
+        chatId: '42',
+        threadRef: '9001',
+        superagentThreadId: 'btw_sess_1',
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      })
+      h.service.configure()
+      h.inbound('status in topic', { threadRef: '9001' })
+      await flushMicro()
+      expect(h.typingCalls).toEqual([{ chatId: '42', threadRef: '9001' }])
+      expect(h.sendTurn.mock.calls[0]![0]!.threadId).toBe('btw_sess_1')
+    })
   })
 
   it('surfaces terminal dispatch errors and keeps the queue moving', async () => {
