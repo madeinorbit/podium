@@ -84,8 +84,8 @@ if (isLinux) {
 }
 
 // 4. Bundle targets must include something the host OS can actually produce, or
-//    `tauri build` exits without a usable artifact. The committed default is Linux-only
-//    (appimage/deb); flag it on macOS rather than letting the user chase an empty output dir.
+//    `tauri build` exits without a usable artifact. Flag a host mismatch rather than letting
+//    the user chase an empty output directory.
 try {
   const confPath = fileURLToPath(new URL('../src-tauri/tauri.conf.json', import.meta.url))
   const conf = JSON.parse(readFileSync(confPath, 'utf8')) as { bundle?: { targets?: unknown } }

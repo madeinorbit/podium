@@ -13,6 +13,8 @@ Desktop builds are explicit promotions. Pushing `main` continues to refresh only
 assets in the rolling `edge` release; it does not build Tauri. Pushing a `v*` tag creates only
 the stable headless release. The manually dispatched **desktop release** workflow adds the
 signed AppImage, detached signature, and `latest.json` to one of those existing releases.
+The same explicit promotion also builds Apple Silicon macOS on Blacksmith and publishes a DMG,
+the signed `.app.tar.gz` updater bundle, and a shared multi-platform `latest.json`.
 
 ## Version and signing prerequisites
 
@@ -25,6 +27,12 @@ GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key must match `plugins.updater.pubkey` in
 `apps/desktop/src-tauri/tauri.conf.json`; changing the key strands existing installations.
 
+Apple Silicon builds currently use Tauri's ad-hoc macOS signing identity (`-`) because the
+repository has no Apple Developer ID or notarization secrets. The updater archive is still
+signed with the production Tauri updater key. Ad-hoc signing avoids an unsigned ARM executable,
+but first launch may require approval in macOS Privacy & Security. A normal public macOS release
+should eventually configure Developer ID signing and notarization.
+
 ## Cut an edge desktop release
 
 1. Set the intended edge SemVer in the root `package.json`, merge it to `main`, and wait for the
@@ -33,9 +41,10 @@ GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
    `channel=edge`. Leave `release_tag` empty. Add optional `release_notes`; begin the notes with
    `CRITICAL:` only when clients must receive the existing non-dismissible required-update
    prompt.
-3. The workflow builds the signed AppImage once, deterministically regenerates and validates
-   `latest.json` against the `.sig` contents and the rolling `edge` URL, then uploads those three
-   desktop assets without replacing the headless assets.
+3. The workflow builds Linux x86_64 and macOS Apple Silicon in parallel. Only after both builds
+   succeed does it deterministically regenerate and validate one `latest.json` against both
+   detached signatures and the rolling `edge` URLs. It uploads the AppImage, macOS DMG, macOS
+   updater archive, signatures, and manifest without replacing the headless assets.
 
 Later pushes to `main` refresh the headless edge files in place and preserve this promoted
 desktop version until another explicit desktop edge promotion.
@@ -65,8 +74,8 @@ manifest directly.
 
 ## Release verification
 
-For a real release, verify from an older signed AppImage whose embedded public key matches the
-release signing key:
+For a real release, verify from an older signed AppImage or macOS app whose embedded public key
+matches the release signing key:
 
 1. launch with an isolated `PODIUM_STATE_DIR` containing the intended `updateChannel`;
 2. observe the real update prompt;

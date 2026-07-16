@@ -1,6 +1,7 @@
 /**
- * Prepare the signed Tauri AppImage and its static updater manifest for an explicitly
- * promoted stable or edge desktop release. This script never publishes. [spec:SP-7f2c]
+ * Prepare signed Tauri updater artifacts and one static multi-platform manifest for an
+ * explicitly promoted stable or edge desktop release. This script never publishes.
+ * [spec:SP-7f2c]
  */
 import {
   copyFileSync,
@@ -9,17 +10,40 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
 
 export type DesktopReleaseChannel = 'stable' | 'edge'
+export type DesktopReleaseTarget = 'linux-x86_64' | 'darwin-aarch64'
+
+export type DesktopReleaseArtifact = {
+  target: DesktopReleaseTarget
+  artifactName: string
+  signature: string
+}
 
 type DesktopManifest = {
   version: string
   notes?: string
   platforms: Record<string, { url: string; signature: string }>
 }
+
+type TargetBundle = {
+  target: DesktopReleaseTarget
+  updaterSuffix: string
+  requiredDownloadSuffixes: string[]
+}
+
+const targetBundles: TargetBundle[] = [
+  { target: 'linux-x86_64', updaterSuffix: '.AppImage', requiredDownloadSuffixes: [] },
+  {
+    target: 'darwin-aarch64',
+    updaterSuffix: '.app.tar.gz',
+    requiredDownloadSuffixes: ['.dmg'],
+  },
+]
 
 export function desktopReleaseTag(
   channel: DesktopReleaseChannel,
@@ -34,23 +58,48 @@ export function desktopReleaseTag(
   return stableTag
 }
 
+function assertUniqueArtifacts(artifacts: DesktopReleaseArtifact[]): void {
+  if (artifacts.length === 0) throw new Error('desktop manifest needs at least one artifact')
+  const targets = new Set<string>()
+  const names = new Set<string>()
+  for (const artifact of artifacts) {
+    if (targets.has(artifact.target)) {
+      throw new Error(`duplicate desktop manifest target ${artifact.target}`)
+    }
+    if (names.has(artifact.artifactName)) {
+      throw new Error(`duplicate desktop artifact name ${artifact.artifactName}`)
+    }
+    if (!artifact.signature) {
+      throw new Error(`desktop artifact signature is empty for ${artifact.target}`)
+    }
+    targets.add(artifact.target)
+    names.add(artifact.artifactName)
+  }
+}
+
 export function buildDesktopManifest(input: {
   version: string
   channel: DesktopReleaseChannel
-  artifactName: string
-  signature: string
+  artifacts: DesktopReleaseArtifact[]
   notes?: string
   stableTag?: string
-  target?: string
 }): string {
+  assertUniqueArtifacts(input.artifacts)
   const releaseTag = desktopReleaseTag(input.channel, input.version, input.stableTag)
-  const target = input.target ?? 'linux-x86_64'
-  const url = `https://github.com/madeinorbit/podium/releases/download/${releaseTag}/${input.artifactName}`
+  const platforms = Object.fromEntries(
+    input.artifacts.map((artifact) => [
+      artifact.target,
+      {
+        url: `https://github.com/madeinorbit/podium/releases/download/${releaseTag}/${artifact.artifactName}`,
+        signature: artifact.signature,
+      },
+    ]),
+  )
   return `${JSON.stringify(
     {
       version: input.version,
       ...(input.notes ? { notes: input.notes } : {}),
-      platforms: { [target]: { url, signature: input.signature } },
+      platforms,
     } satisfies DesktopManifest,
     null,
     2,
@@ -62,31 +111,58 @@ export function validateDesktopManifest(
   expected: {
     version: string
     channel: DesktopReleaseChannel
-    artifactName: string
-    signature: string
+    artifacts: DesktopReleaseArtifact[]
     notes?: string
     stableTag?: string
-    target?: string
   },
 ): void {
+  assertUniqueArtifacts(expected.artifacts)
   const parsed = JSON.parse(text) as Partial<DesktopManifest>
-  const target = expected.target ?? 'linux-x86_64'
   const releaseTag = desktopReleaseTag(expected.channel, expected.version, expected.stableTag)
-  const expectedUrl = `https://github.com/madeinorbit/podium/releases/download/${releaseTag}/${expected.artifactName}`
   if (parsed.version !== expected.version) {
     throw new Error(`manifest version mismatch: expected ${expected.version}`)
   }
-  const platform = parsed.platforms?.[target]
-  if (!platform) throw new Error(`manifest is missing platform ${target}`)
-  if (platform.url !== expectedUrl) {
-    throw new Error(`manifest URL mismatch: expected ${expectedUrl}`)
+  const expectedTargets = expected.artifacts.map((artifact) => artifact.target).sort()
+  const actualTargets = Object.keys(parsed.platforms ?? {}).sort()
+  if (JSON.stringify(actualTargets) !== JSON.stringify(expectedTargets)) {
+    throw new Error(
+      `manifest platform mismatch: expected ${expectedTargets.join(', ')}, found ${actualTargets.join(', ')}`,
+    )
   }
-  if (platform.signature !== expected.signature) {
-    throw new Error('manifest signature does not match the detached .sig contents')
+  for (const artifact of expected.artifacts) {
+    const expectedUrl = `https://github.com/madeinorbit/podium/releases/download/${releaseTag}/${artifact.artifactName}`
+    const platform = parsed.platforms?.[artifact.target]
+    if (!platform) throw new Error(`manifest is missing platform ${artifact.target}`)
+    if (platform.url !== expectedUrl) {
+      throw new Error(`manifest URL mismatch: expected ${expectedUrl}`)
+    }
+    if (platform.signature !== artifact.signature) {
+      throw new Error(
+        `manifest signature for ${artifact.target} does not match the detached .sig contents`,
+      )
+    }
   }
   if (parsed.notes !== (expected.notes || undefined)) {
     throw new Error('manifest notes do not match the requested release notes')
   }
+}
+
+function filesBelow(root: string): string[] {
+  const files: string[] = []
+  for (const entry of readdirSync(root)) {
+    const path = join(root, entry)
+    if (statSync(path).isDirectory()) files.push(...filesBelow(path))
+    else files.push(path)
+  }
+  return files
+}
+
+function exactlyOne(files: string[], suffix: string, description: string): string {
+  const matches = files.filter((path) => basename(path).endsWith(suffix))
+  if (matches.length !== 1) {
+    throw new Error(`expected exactly one ${description}; found ${matches.length}`)
+  }
+  return matches[0] ?? ''
 }
 
 export function prepareDesktopRelease(input: {
@@ -96,49 +172,79 @@ export function prepareDesktopRelease(input: {
   outputDir: string
   notes?: string
   stableTag?: string
-}): { artifactPath: string; signaturePath: string; manifestPath: string; releaseTag: string } {
-  const appImages = readdirSync(input.bundleDir).filter((name) => name.endsWith('.AppImage'))
-  if (appImages.length !== 1) {
-    throw new Error(
-      `expected exactly one AppImage in ${input.bundleDir}; found ${appImages.length}`,
+}): {
+  artifactPaths: string[]
+  signaturePaths: string[]
+  downloadPaths: string[]
+  manifestPath: string
+  releaseTag: string
+} {
+  const files = filesBelow(input.bundleDir)
+  const artifacts: DesktopReleaseArtifact[] = []
+  const updaterSources: string[] = []
+  const signatureSources: string[] = []
+  const downloadSources: string[] = []
+
+  for (const bundle of targetBundles) {
+    const updaterSource = exactlyOne(
+      files.filter((path) => !path.endsWith('.sig')),
+      bundle.updaterSuffix,
+      `${bundle.target} updater artifact ending in ${bundle.updaterSuffix}`,
     )
+    const signatureSource = `${updaterSource}.sig`
+    if (!existsSync(signatureSource)) {
+      throw new Error(`missing detached signature ${signatureSource}`)
+    }
+    const signature = readFileSync(signatureSource, 'utf8').trim()
+    if (!signature) throw new Error(`detached signature is empty: ${signatureSource}`)
+
+    updaterSources.push(updaterSource)
+    signatureSources.push(signatureSource)
+    artifacts.push({
+      target: bundle.target,
+      artifactName: basename(updaterSource),
+      signature,
+    })
+    for (const suffix of bundle.requiredDownloadSuffixes) {
+      downloadSources.push(
+        exactlyOne(files, suffix, `${bundle.target} download ending in ${suffix}`),
+      )
+    }
   }
-  const artifactName = basename(appImages[0] ?? '')
-  const sourceArtifact = join(input.bundleDir, artifactName)
-  const sourceSignature = `${sourceArtifact}.sig`
-  if (!existsSync(sourceSignature)) throw new Error(`missing detached signature ${sourceSignature}`)
-  const signature = readFileSync(sourceSignature, 'utf8').trim()
-  if (!signature) throw new Error(`detached signature is empty: ${sourceSignature}`)
 
   const manifest = buildDesktopManifest({
     version: input.version,
     channel: input.channel,
-    artifactName,
-    signature,
+    artifacts,
     notes: input.notes,
     stableTag: input.stableTag,
   })
   validateDesktopManifest(manifest, {
     version: input.version,
     channel: input.channel,
-    artifactName,
-    signature,
+    artifacts,
     notes: input.notes,
     stableTag: input.stableTag,
   })
 
   rmSync(input.outputDir, { recursive: true, force: true })
   mkdirSync(input.outputDir, { recursive: true })
-  const artifactPath = join(input.outputDir, artifactName)
-  const signaturePath = `${artifactPath}.sig`
+  const copySources = (sources: string[]): string[] =>
+    sources.map((source) => {
+      const destination = join(input.outputDir, basename(source))
+      copyFileSync(source, destination)
+      return destination
+    })
+  const artifactPaths = copySources(updaterSources)
+  const signaturePaths = copySources(signatureSources)
+  const downloadPaths = copySources(downloadSources)
   const manifestPath = join(input.outputDir, 'latest.json')
-  copyFileSync(sourceArtifact, artifactPath)
-  copyFileSync(sourceSignature, signaturePath)
   writeFileSync(manifestPath, manifest)
 
   return {
-    artifactPath,
-    signaturePath,
+    artifactPaths,
+    signaturePaths,
+    downloadPaths,
     manifestPath,
     releaseTag: desktopReleaseTag(input.channel, input.version, input.stableTag),
   }
@@ -168,7 +274,7 @@ function main(): void {
     channel,
     stableTag,
     notes: arg('--notes'),
-    bundleDir: arg('--bundle-dir') ?? 'apps/desktop/src-tauri/target/release/bundle/appimage',
+    bundleDir: arg('--bundle-dir') ?? 'apps/desktop/src-tauri/target',
     outputDir: arg('--output-dir') ?? 'dist-desktop',
   })
   console.log(`[desktop-release] prepared ${version} for ${channel} at ${result.manifestPath}`)
