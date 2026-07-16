@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildIssuesMessage,
   formatActiveIssues,
   formatIssues,
   formatReadyIssues,
   formatRecentIssues,
+  issueCallbackData,
+  parseIssueCallbackData,
   parseSlashCommand,
+  pickIssueSession,
 } from './commands'
 import type { IssueWire } from '@podium/protocol'
 
@@ -123,5 +127,65 @@ describe('issue formatters', () => {
     expect(formatIssues(issues, 'active')).toContain('Active issues')
     expect(formatIssues(issues, 'recent')).toContain('Recent issues')
     expect(formatIssues(issues, 'bogus')).toContain('Usage:')
+  })
+
+  it('builds one inline button per listed issue', () => {
+    const built = buildIssuesMessage(issues, 'active')
+    expect(built.text).toContain('POD-2')
+    expect(built.buttons).toEqual([
+      [{ label: 'POD-2 In flight', data: issueCallbackData('b') }],
+      [{ label: 'POD-4 Ready task', data: issueCallbackData('d') }],
+    ])
+  })
+
+  it('round-trips issue callback data', () => {
+    expect(parseIssueCallbackData(issueCallbackData('iss_abc'))).toBe('iss_abc')
+    expect(parseIssueCallbackData('nope')).toBeUndefined()
+  })
+
+  it('picks the live session for btw wiring', () => {
+    const withSessions = issue({
+      id: 'e',
+      seq: 5,
+      title: 'Epic',
+      sessions: [
+        {
+          sessionId: 'old',
+          agentKind: 'grok',
+          title: 'old',
+          cwd: '/p',
+          status: 'exited',
+          controllerId: null,
+          geometry: { cols: 80, rows: 24 },
+          epoch: 0,
+          clientCount: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastActiveAt: '2026-07-10T00:00:00.000Z',
+          origin: 'local',
+          archived: false,
+          readAt: null,
+          unread: false,
+        },
+        {
+          sessionId: 'live',
+          agentKind: 'grok',
+          title: 'live',
+          cwd: '/p',
+          status: 'live',
+          controllerId: null,
+          geometry: { cols: 80, rows: 24 },
+          epoch: 0,
+          clientCount: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastActiveAt: '2026-07-16T00:00:00.000Z',
+          origin: 'local',
+          archived: false,
+          readAt: null,
+          unread: false,
+        },
+      ],
+      sessionSummary: { total: 2, byPhase: {} },
+    })
+    expect(pickIssueSession(withSessions)?.sessionId).toBe('live')
   })
 })

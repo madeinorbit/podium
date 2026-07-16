@@ -6,7 +6,7 @@ import type { ChannelAdapter, InboundChatMessage } from './types'
 
 describe('parseTelegramUpdates', () => {
   it('extracts text messages and the last update id', () => {
-    const { messages, lastUpdateId } = parseTelegramUpdates([
+    const { messages, callbacks, lastUpdateId } = parseTelegramUpdates([
       {
         update_id: 10,
         message: {
@@ -21,7 +21,32 @@ describe('parseTelegramUpdates', () => {
     expect(messages).toEqual([
       { updateId: 10, chatId: '42', text: 'hello', senderLabel: '@mika' },
     ])
+    expect(callbacks).toEqual([])
     expect(lastUpdateId).toBe(12)
+  })
+
+  it('extracts callback_query presses', () => {
+    const { callbacks } = parseTelegramUpdates([
+      {
+        update_id: 3,
+        callback_query: {
+          id: 'cb1',
+          data: 'i:iss_abc',
+          from: { first_name: 'Mika' },
+          message: { chat: { id: 42 }, message_thread_id: 5 },
+        },
+      },
+    ])
+    expect(callbacks).toEqual([
+      {
+        updateId: 3,
+        chatId: '42',
+        threadRef: '5',
+        callbackQueryId: 'cb1',
+        data: 'i:iss_abc',
+        senderLabel: 'Mika',
+      },
+    ])
   })
 
   it('skips bot senders and carries forum topic ids as threadRef', () => {
@@ -64,12 +89,15 @@ describe('chunkTelegramText', () => {
 interface Harness {
   service: MessagingService
   bus: EventBus
-  inbound: (text: string) => void
-  sent: Array<{ chatId: string; text: string }>
+  inbound: (text: string, opts?: { threadRef?: string; callback?: { id: string; data: string } }) => void
+  sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }>
   sendTurn: ReturnType<typeof vi.fn>
   interruptTurn: ReturnType<typeof vi.fn>
   restartThread: ReturnType<typeof vi.fn>
+  startBtwTurn: ReturnType<typeof vi.fn>
   registerTelegramCommands: ReturnType<typeof vi.fn>
+  createForumTopic: ReturnType<typeof vi.fn>
+  answerCallback: ReturnType<typeof vi.fn>
 }
 
 function makeHarness(
@@ -81,18 +109,27 @@ function makeHarness(
   } = {},
 ): Harness {
   const bus = new EventBus()
-  const sent: Array<{ chatId: string; text: string }> = []
+  const sent: Array<{ chatId: string; text: string; threadRef?: string; buttons?: unknown }> = []
   let onMessage: ((msg: InboundChatMessage) => void) | undefined
   const registerTelegramCommands = vi.fn(async () => {})
+  const createForumTopic = vi.fn(async () => ({ threadRef: '9001' }))
+  const answerCallback = vi.fn(async () => {})
   const adapter: ChannelAdapter = {
     channel: 'telegram',
     start: (cb) => {
       onMessage = cb
     },
     stop: () => {},
-    send: async (target, text) => {
-      sent.push({ chatId: target.chatId, text })
+    send: async (target, text, opts) => {
+      sent.push({
+        chatId: target.chatId,
+        text,
+        ...(target.threadRef ? { threadRef: target.threadRef } : {}),
+        ...(opts?.replyMarkup ? { buttons: opts.replyMarkup.inlineKeyboard } : {}),
+      })
     },
+    createForumTopic,
+    answerCallback,
   }
   const sendTurn = vi.fn(
     opts.sendTurnImpl ??
@@ -100,6 +137,10 @@ function makeHarness(
   )
   const interruptTurn = vi.fn(opts.interruptTurnImpl ?? (() => {}))
   const restartThread = vi.fn(opts.restartThreadImpl ?? (() => {}))
+  const startBtwTurn = vi.fn(({ sessionId }: { sessionId: string }) => ({
+    threadId: `btw_${sessionId}`,
+    isNew: true,
+  }))
   const service = new MessagingService({
     bus,
     getSettings: () =>
@@ -115,6 +156,7 @@ function makeHarness(
       sendTurn: sendTurn as never,
       interruptTurn: interruptTurn as never,
       restartThread: restartThread as never,
+      startBtwTurn: startBtwTurn as never,
     },
     ...(opts.issues ? { issues: opts.issues } : {}),
     createTelegram: () => adapter,
@@ -128,9 +170,20 @@ function makeHarness(
     sendTurn,
     interruptTurn,
     restartThread,
+    startBtwTurn,
     registerTelegramCommands,
-    inbound: (text) =>
-      onMessage?.({ source: { channel: 'telegram', chatId: '42' }, text }),
+    createForumTopic,
+    answerCallback,
+    inbound: (text, opts) =>
+      onMessage?.({
+        source: {
+          channel: 'telegram',
+          chatId: '42',
+          ...(opts?.threadRef ? { threadRef: opts.threadRef } : {}),
+        },
+        text,
+        ...(opts?.callback ? { callback: opts.callback } : {}),
+      }),
   }
 }
 
@@ -269,13 +322,13 @@ describe('MessagingService', () => {
     expect(h.sendTurn).toHaveBeenCalledTimes(1)
   })
 
-  it('routes /issues active through the issue list', async () => {
+  it('routes /issues active through the issue list with inline buttons', async () => {
     const h = makeHarness({
       issues: {
         list: () =>
           [
             {
-              id: 'i1',
+              id: 'iss_i1',
               seq: 9,
               displayRef: 'POD-9',
               title: 'Slash commands',
@@ -319,6 +372,83 @@ describe('MessagingService', () => {
     await flush()
     expect(h.sendTurn).not.toHaveBeenCalled()
     expect(h.sent[0]!.text).toContain('POD-9 Slash commands')
+    expect(h.sent[0]!.buttons).toEqual([[{ label: 'POD-9 Slash commands', data: 'i:iss_i1' }]])
+  })
+
+  it('opens a forum topic and maps threadRef to btw on issue button press', async () => {
+    const h = makeHarness({
+      issues: {
+        list: () =>
+          [
+            {
+              id: 'iss_i1',
+              seq: 9,
+              displayRef: 'POD-9',
+              title: 'Slash commands',
+              stage: 'in_progress',
+              description: '',
+              repoPath: '/p',
+              worktreePath: null,
+              branch: null,
+              parentBranch: '',
+              defaultAgent: 'grok',
+              defaultModel: 'auto',
+              defaultEffort: 'auto',
+              blockedBy: [],
+              priority: 2,
+              type: 'task',
+              pinned: false,
+              needsHuman: false,
+              labels: [],
+              deps: [],
+              dependents: [],
+              ready: true,
+              blocked: false,
+              deferred: false,
+              childCount: 0,
+              childDoneCount: 0,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-07-16T00:00:00.000Z',
+              archived: false,
+              readAt: null,
+              unread: false,
+              origin: 'human',
+              audience: 'human',
+              draft: false,
+              sessions: [
+                {
+                  sessionId: 'sess_1',
+                  agentKind: 'grok',
+                  title: 'work',
+                  cwd: '/p',
+                  status: 'live',
+                  controllerId: null,
+                  geometry: { cols: 80, rows: 24 },
+                  epoch: 0,
+                  clientCount: 0,
+                  createdAt: '2026-07-16T00:00:00.000Z',
+                  lastActiveAt: '2026-07-16T01:00:00.000Z',
+                  origin: 'local',
+                  archived: false,
+                  readAt: null,
+                  unread: false,
+                  issueId: 'iss_i1',
+                },
+              ],
+              sessionSummary: { live: 1, total: 1 },
+            },
+          ] as never,
+      },
+    })
+    h.inbound('', { callback: { id: 'cb1', data: 'i:iss_i1' } })
+    await flush()
+    expect(h.createForumTopic).toHaveBeenCalledWith('42', 'POD-9 Slash commands')
+    expect(h.startBtwTurn).toHaveBeenCalledWith({ sessionId: 'sess_1' })
+    expect(h.answerCallback).toHaveBeenCalledWith('cb1', 'Created topic')
+    expect(h.sent[0]!.threadRef).toBe('9001')
+    h.inbound('status in topic', { threadRef: '9001' })
+    await flush()
+    expect(h.sendTurn.mock.calls[0]![0]!.threadId).toBe('btw_sess_1')
   })
 
   it('still dispatches unknown slash commands to the superagent', async () => {

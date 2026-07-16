@@ -1,4 +1,5 @@
-import { issueDisplayRef, type IssueWire } from '@podium/protocol'
+import { issueDisplayRef, type IssueWire, type SessionMeta } from '@podium/protocol'
+import type { InlineButton } from './types'
 
 const KNOWN_COMMANDS = new Set(['help', 'issues', 'stop', 'new'])
 const ISSUES_LIST_CAP = 15
@@ -93,6 +94,86 @@ export function formatIssues(issues: IssueWire[], mode: string | undefined): str
   }
 }
 
+const LIVE_STATUSES = new Set(['live', 'starting', 'reconnecting'])
+
+/** Telegram `callback_data` for an issue open button (≤64 bytes). */
+export function issueCallbackData(issueId: string): string {
+  return `i:${issueId}`
+}
+
+/** Parse `issueCallbackData` — returns the issue id or undefined. */
+export function parseIssueCallbackData(data: string): string | undefined {
+  const m = /^i:(iss_[a-zA-Z0-9_-]+)$/.exec(data)
+  return m?.[1]
+}
+
+function listedIssues(issues: IssueWire[], mode: string | undefined): IssueWire[] {
+  switch (mode) {
+    case 'recent':
+      return issues
+        .filter(boardVisible)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, ISSUES_LIST_CAP)
+    case 'ready':
+      return issues
+        .filter((i) => boardVisible(i) && isOpen(i) && i.ready)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, ISSUES_LIST_CAP)
+    case 'active':
+    case undefined: {
+      const open = issues.filter((i) => boardVisible(i) && isOpen(i))
+      const stageRank: Record<string, number> = {
+        in_progress: 0,
+        review: 1,
+        planning: 2,
+        backlog: 3,
+        done: 4,
+      }
+      open.sort((a, b) => {
+        const sa = stageRank[a.stage] ?? 9
+        const sb = stageRank[b.stage] ?? 9
+        if (sa !== sb) return sa - sb
+        return b.updatedAt.localeCompare(a.updatedAt)
+      })
+      return open.slice(0, ISSUES_LIST_CAP)
+    }
+    default:
+      return []
+  }
+}
+
+function issueButtonLabel(issue: IssueWire): string {
+  const ref = issueDisplayRef(issue)
+  const title = issue.title.length > 24 ? `${issue.title.slice(0, 23)}…` : issue.title
+  return `${ref} ${title}`
+}
+
+/** Active/recent/ready issue list with one inline open button per row. */
+export function buildIssuesMessage(
+  issues: IssueWire[],
+  mode: string | undefined,
+): { text: string; buttons: InlineButton[][] } | { text: string; buttons?: undefined } {
+  if (mode && mode !== 'active' && mode !== 'recent' && mode !== 'ready') {
+    return { text: 'Usage: /issues [active|recent|ready]' }
+  }
+  const rows = listedIssues(issues, mode)
+  const text = formatIssues(issues, mode)
+  if (rows.length === 0) return { text }
+  const buttons = rows.map((issue) => [
+    { label: issueButtonLabel(issue), data: issueCallbackData(issue.id) },
+  ])
+  return { text, buttons }
+}
+
+/** Pick the agent session whose btw thread should back an issue topic. */
+export function pickIssueSession(issue: IssueWire): SessionMeta | undefined {
+  const sessions = issue.sessions.filter((s) => !s.archived && !s.headless)
+  if (sessions.length === 0) return undefined
+  const live = sessions.filter((s) => LIVE_STATUSES.has(s.status))
+  const pool = live.length > 0 ? live : sessions
+  return [...pool].sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
+}
+
 export const TELEGRAM_COMMANDS = [
   { command: 'help', description: 'List available commands' },
   { command: 'issues', description: 'Active or recent issues' },
@@ -116,8 +197,9 @@ export async function registerTelegramCommands(botToken: string): Promise<void> 
 
 export const HELP_TEXT = `Podium Telegram commands:
 /help — this message
-/issues [active|recent|ready] — issue list (default: active)
+/issues [active|recent|ready] — issue list with open buttons (default: active)
 /stop — interrupt the running superagent turn
 /new — restart the superagent harness (fresh session on next message)
 
-Anything else is sent to the superagent.`
+Tap an issue button to open it in a forum topic wired to that issue's agent.
+Anything else is sent to the superagent (main chat → global; topic → issue agent).`

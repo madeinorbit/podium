@@ -1,10 +1,24 @@
-import type { IssueWire } from '@podium/protocol'
+import { issueDisplayRef, type IssueWire } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { pushTelegramText, type TelegramConfig } from '../../notify'
 import type { EventBus } from '../bus'
-import { formatIssues, HELP_TEXT, parseSlashCommand, registerTelegramCommands } from './commands'
+import {
+  buildIssuesMessage,
+  HELP_TEXT,
+  parseIssueCallbackData,
+  parseSlashCommand,
+  pickIssueSession,
+  registerTelegramCommands,
+} from './commands'
 import { TelegramChannel } from './telegram'
-import type { ChannelAdapter, ConversationRef, InboundChatMessage, TelegramNoticePort } from './types'
+import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
+import type {
+  ChannelAdapter,
+  ConversationRef,
+  InboundChatMessage,
+  SendOptions,
+  TelegramNoticePort,
+} from './types'
 
 /** How a superagent turn is dispatched — the slice of SuperagentService the
  *  bridge needs (kept narrow for tests). */
@@ -15,6 +29,16 @@ export interface SuperagentTurnPort {
   }): Promise<{ threadId: string; podiumSessionId: string }>
   interruptTurn(input: { threadId: string }): void
   restartThread(input: { threadId: string }): void
+  startBtwTurn(input: { sessionId: string }): { threadId: string; isNew: boolean }
+  ensureConciergeThread(input: { repoPath: string }): { threadId: string; isNew: boolean }
+}
+
+/** Persisted forum-topic ↔ superagent-thread bindings. */
+export interface MessagingTopicsPort {
+  listForChat(chatId: string): MessagingIssueTopicRow[]
+  getByIssue(chatId: string, issueId: string): MessagingIssueTopicRow | undefined
+  getByThreadRef(chatId: string, threadRef: string): MessagingIssueTopicRow | undefined
+  upsert(row: MessagingIssueTopicRow): void
 }
 
 export interface MessagingDeps {
@@ -23,6 +47,8 @@ export interface MessagingDeps {
   superagent: SuperagentTurnPort
   /** Issue list for /issues slash commands. */
   issues?: { list(): IssueWire[] }
+  /** Forum-topic bindings (SQLite). */
+  topics?: MessagingTopicsPort
   /** True while the settings telegram-setup pairing window owns getUpdates. */
   telegramSetupPending?: () => boolean
   /** Adapter factory — injected in tests. */
@@ -52,9 +78,9 @@ const QUEUE_CAP = 20
  * chunking, forum-topic threading) via {@link sendNotice}, with a direct-send
  * fallback when the bridge is stopped.
  *
- * Thread mapping V1: every conversation maps to the GLOBAL superagent thread
- * (`resolveThreadId`) — the seam where messaging-app threads/topics/channels
- * later map to their own superagent threads.
+ * Thread mapping: main chat → global; forum topics opened from /issues buttons
+ * map to btw_<session> (live agent) or the repo concierge thread. Bindings
+ * persist in `messaging_issue_topics`. `resolveThreadId` is the seam.
  */
 export class MessagingService implements TelegramNoticePort {
   private adapter: ChannelAdapter | undefined
@@ -69,6 +95,10 @@ export class MessagingService implements TelegramNoticePort {
   /** Threads with a sendTurn dispatch in flight (pre-ack) — a second pump
    *  while the first promise is pending must not re-send queue[0]. */
   private readonly dispatching = new Set<string>()
+  /** Forum-topic threadRef → superagent thread id. */
+  private readonly topicThreadByRef = new Map<string, string>()
+  /** Issue id → forum-topic threadRef for reopen. */
+  private readonly topicRefByIssue = new Map<string, string>()
 
   constructor(private readonly deps: MessagingDeps) {
     deps.bus.on('superagent.turnEnded', (ev) => this.onTurnEnded(ev))
@@ -99,6 +129,7 @@ export class MessagingService implements TelegramNoticePort {
         err instanceof Error ? err.message : err,
       )
     })
+    this.loadTopicMappings(chatId)
     console.log('[podium:messaging] telegram bridge polling as configured chat', chatId)
   }
 
@@ -135,13 +166,53 @@ export class MessagingService implements TelegramNoticePort {
     pushTelegramText(config, text)
   }
 
-  /** V1: everything converses with the global orchestrator thread. */
-  private resolveThreadId(_msg: InboundChatMessage): string {
+  private loadTopicMappings(chatId: string): void {
+    this.topicThreadByRef.clear()
+    this.topicRefByIssue.clear()
+    for (const row of this.deps.topics?.listForChat(chatId) ?? []) {
+      this.topicThreadByRef.set(row.threadRef, row.superagentThreadId)
+      this.topicRefByIssue.set(row.issueId, row.threadRef)
+    }
+  }
+
+  /** Map a chat location to a superagent thread. Main chat → global; a forum
+   *  topic → the btw/concierge thread bound when the issue button was opened. */
+  private resolveThreadId(msg: InboundChatMessage): string {
+    const ref = msg.source.threadRef
+    if (!ref) return 'global'
+    const cached = this.topicThreadByRef.get(ref)
+    if (cached) return cached
+    const row = this.deps.topics?.getByThreadRef(msg.source.chatId, ref)
+    if (row) {
+      this.topicThreadByRef.set(ref, row.superagentThreadId)
+      this.topicRefByIssue.set(row.issueId, ref)
+      return row.superagentThreadId
+    }
     return 'global'
+  }
+
+  private resolveIssueThread(issue: IssueWire): string {
+    const session = pickIssueSession(issue)
+    if (session) {
+      return this.deps.superagent.startBtwTurn({ sessionId: session.sessionId }).threadId
+    }
+    return this.deps.superagent.ensureConciergeThread({ repoPath: issue.repoPath }).threadId
+  }
+
+  private issueThreadNote(issue: IssueWire): string {
+    const session = pickIssueSession(issue)
+    if (session) {
+      return `Agent session ${session.name ?? session.title} is wired to this topic.`
+    }
+    return `No agent session — messages here go to the ${issue.repoPath} concierge.`
   }
 
   private onInbound(msg: InboundChatMessage): void {
     this.lastInboundRef = msg.source
+    if (msg.callback) {
+      void this.handleCallback(msg)
+      return
+    }
     const slash = parseSlashCommand(msg.text)
     if (slash) {
       const threadId = this.resolveThreadId(msg)
@@ -183,9 +254,6 @@ export class MessagingService implements TelegramNoticePort {
       .catch((err: unknown) => {
         this.dispatching.delete(threadId)
         const message = err instanceof Error ? err.message : String(err)
-        // A turn someone else started is running — keep the message queued;
-        // that turn's turnEnded re-pumps. Anything else is terminal for this
-        // message: surface it and drop, or the queue wedges forever.
         if (message.includes('already running')) return
         queue?.shift()
         void this.reply(next.source, `⚠️ Could not reach the superagent: ${message}`)
@@ -209,7 +277,12 @@ export class MessagingService implements TelegramNoticePort {
             await this.reply(source, 'Issue list is unavailable.')
             return
           }
-          await this.reply(source, formatIssues(list, slash.args[0]))
+          const built = buildIssuesMessage(list, slash.args[0])
+          await this.reply(
+            source,
+            built.text,
+            built.buttons ? { replyMarkup: { inlineKeyboard: built.buttons } } : undefined,
+          )
           return
         }
         case 'stop':
@@ -253,13 +326,95 @@ export class MessagingService implements TelegramNoticePort {
         : `⚠️ Turn failed: ${ev.error ?? 'unknown error'}`
       void this.reply(awaited.source, text)
     }
-    // Whether ours or a web-dispatched turn: the thread is free — send the next.
     this.pump(ev.threadId)
   }
 
-  private async reply(target: ConversationRef, text: string): Promise<void> {
+  private async handleCallback(msg: InboundChatMessage): Promise<void> {
+    const cb = msg.callback
+    if (!cb) return
+    const issueId = parseIssueCallbackData(cb.data)
     try {
-      await this.adapter?.send(target, text)
+      if (!issueId) {
+        await this.adapter?.answerCallback?.(cb.id, 'Unknown button')
+        return
+      }
+      const issues = this.deps.issues?.list()
+      const issue = issues?.find((i) => i.id === issueId)
+      if (!issue) {
+        await this.adapter?.answerCallback?.(cb.id, 'Issue not found')
+        return
+      }
+      const opened = await this.openIssueTopic(msg.source.chatId, issue)
+      await this.adapter?.answerCallback?.(cb.id, opened.reused ? 'Opened topic' : 'Created topic')
+      await this.reply(
+        { channel: msg.source.channel, chatId: msg.source.chatId, threadRef: opened.threadRef },
+        opened.text,
+      )
+    } catch (err) {
+      console.warn('[podium:messaging] callback failed:', err)
+      try {
+        await this.adapter?.answerCallback?.(cb.id, 'Could not open issue topic')
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  private persistTopicBinding(
+    issueId: string,
+    chatId: string,
+    threadRef: string,
+    superagentThreadId: string,
+  ): void {
+    this.topicRefByIssue.set(issueId, threadRef)
+    this.topicThreadByRef.set(threadRef, superagentThreadId)
+    this.deps.topics?.upsert({
+      issueId,
+      chatId,
+      threadRef,
+      superagentThreadId,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+
+  private async openIssueTopic(
+    chatId: string,
+    issue: IssueWire,
+  ): Promise<{ threadRef: string; text: string; reused: boolean }> {
+    const threadId = this.resolveIssueThread(issue)
+    const ref = issueDisplayRef(issue)
+    const sessionNote = this.issueThreadNote(issue)
+    const existing =
+      this.deps.topics?.getByIssue(chatId, issue.id)?.threadRef ??
+      this.topicRefByIssue.get(issue.id)
+    if (existing) {
+      this.persistTopicBinding(issue.id, chatId, existing, threadId)
+      return {
+        threadRef: existing,
+        reused: true,
+        text: `${ref} ${issue.title}\n${sessionNote}\nReply in this topic to continue.`,
+      }
+    }
+    if (!this.adapter?.createForumTopic) {
+      throw new Error('forum topics are not supported by the messaging adapter')
+    }
+    const topicName = `${ref} ${issue.title}`.slice(0, 128)
+    const { threadRef } = await this.adapter.createForumTopic(chatId, topicName)
+    this.persistTopicBinding(issue.id, chatId, threadRef, threadId)
+    return {
+      threadRef,
+      reused: false,
+      text: `${ref} ${issue.title}\n${sessionNote}\nReply in this topic to continue.`,
+    }
+  }
+
+  private async reply(
+    target: ConversationRef,
+    text: string,
+    opts?: SendOptions,
+  ): Promise<void> {
+    try {
+      await this.adapter?.send(target, text, opts)
     } catch (err) {
       console.warn('[podium:messaging] reply send failed:', err instanceof Error ? err.message : err)
     }

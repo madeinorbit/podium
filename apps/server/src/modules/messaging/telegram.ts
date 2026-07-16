@@ -5,7 +5,12 @@ import {
   isTelegramMarkdownParseError,
   stripTelegramMarkdownV2,
 } from './telegram-markdown'
-import type { ChannelAdapter, ConversationRef, InboundChatMessage } from './types'
+import type {
+  ChannelAdapter,
+  ConversationRef,
+  InboundChatMessage,
+  SendOptions,
+} from './types'
 
 /** Telegram caps sendMessage at 4096 UTF-16 code units; split below it so the
  *  " (n/m)" counter never overflows a chunk. JS string.length IS UTF-16 code
@@ -24,18 +29,62 @@ export interface TelegramUpdateMessage {
 /** Parse a raw getUpdates result into the inbound messages we bridge: plain
  *  text messages only (media/edits/reactions are follow-up work). Exported for
  *  tests. */
+export interface TelegramCallbackUpdate {
+  updateId: number
+  chatId: string
+  threadRef?: string
+  callbackQueryId: string
+  data: string
+  senderLabel?: string
+}
+
 export function parseTelegramUpdates(result: unknown): {
   messages: TelegramUpdateMessage[]
+  callbacks: TelegramCallbackUpdate[]
   lastUpdateId?: number
 } {
-  if (!Array.isArray(result)) return { messages: [] }
+  if (!Array.isArray(result)) return { messages: [], callbacks: [] }
   const messages: TelegramUpdateMessage[] = []
+  const callbacks: TelegramCallbackUpdate[] = []
   let lastUpdateId: number | undefined
   for (const raw of result) {
     if (!raw || typeof raw !== 'object') continue
-    const update = raw as { update_id?: unknown; message?: unknown }
+    const update = raw as { update_id?: unknown; message?: unknown; callback_query?: unknown }
     if (typeof update.update_id !== 'number') continue
     lastUpdateId = update.update_id
+    const cb = update.callback_query as
+      | {
+          id?: unknown
+          data?: unknown
+          from?: { first_name?: unknown; username?: unknown; is_bot?: unknown }
+          message?: {
+            chat?: { id?: unknown }
+            message_thread_id?: unknown
+          }
+        }
+      | undefined
+    if (cb && typeof cb.id === 'string' && typeof cb.data === 'string' && cb.data !== '') {
+      const chatId = cb.message?.chat?.id
+      if (typeof chatId === 'number' || typeof chatId === 'string') {
+        const senderLabel =
+          typeof cb.from?.username === 'string'
+            ? `@${cb.from.username}`
+            : typeof cb.from?.first_name === 'string'
+              ? cb.from.first_name
+              : undefined
+        callbacks.push({
+          updateId: update.update_id,
+          chatId: String(chatId),
+          ...(typeof cb.message?.message_thread_id === 'number'
+            ? { threadRef: String(cb.message.message_thread_id) }
+            : {}),
+          callbackQueryId: cb.id,
+          data: cb.data,
+          ...(senderLabel ? { senderLabel } : {}),
+        })
+      }
+      continue
+    }
     const msg = update.message as
       | {
           text?: unknown
@@ -64,7 +113,21 @@ export function parseTelegramUpdates(result: unknown): {
       ...(senderLabel ? { senderLabel } : {}),
     })
   }
-  return { messages, ...(lastUpdateId !== undefined ? { lastUpdateId } : {}) }
+  return {
+    messages,
+    callbacks,
+    ...(lastUpdateId !== undefined ? { lastUpdateId } : {}),
+  }
+}
+
+function inlineKeyboardMarkup(opts?: SendOptions) {
+  const rows = opts?.replyMarkup?.inlineKeyboard
+  if (!rows?.length) return undefined
+  return {
+    inline_keyboard: rows.map((row) =>
+      row.map((btn) => ({ text: btn.label, callback_data: btn.data })),
+    ),
+  }
 }
 
 /** Split at the platform cap, preferring newline then space boundaries so a
@@ -166,12 +229,12 @@ export class TelegramChannel implements ChannelAdapter {
           'getUpdates',
           {
             timeout: POLL_TIMEOUT_S,
-            allowed_updates: ['message'],
+            allowed_updates: ['message', 'callback_query'],
             ...(this.offset !== undefined ? { offset: this.offset } : {}),
           },
           this.abort?.signal,
         )
-        const { messages, lastUpdateId } = parseTelegramUpdates(body.result)
+        const { messages, callbacks, lastUpdateId } = parseTelegramUpdates(body.result)
         if (lastUpdateId !== undefined) this.offset = lastUpdateId + 1
         for (const msg of messages) {
           if (msg.chatId !== wantChatId) continue
@@ -185,6 +248,19 @@ export class TelegramChannel implements ChannelAdapter {
             ...(msg.senderLabel ? { senderLabel: msg.senderLabel } : {}),
           })
         }
+        for (const cb of callbacks) {
+          if (cb.chatId !== wantChatId) continue
+          onMessage({
+            source: {
+              channel: this.channel,
+              chatId: cb.chatId,
+              ...(cb.threadRef ? { threadRef: cb.threadRef } : {}),
+            },
+            text: '',
+            callback: { id: cb.callbackQueryId, data: cb.data },
+            ...(cb.senderLabel ? { senderLabel: cb.senderLabel } : {}),
+          })
+        }
       } catch (err) {
         if (this.stopped) return
         const status = (err as { status?: number }).status
@@ -195,7 +271,7 @@ export class TelegramChannel implements ChannelAdapter {
     }
   }
 
-  async send(target: ConversationRef, text: string): Promise<void> {
+  async send(target: ConversationRef, text: string, opts?: SendOptions): Promise<void> {
     const formatted = formatTelegramMarkdown(text)
     let chunks = chunkTelegramText(formatted)
     if (chunks.length > 1) {
@@ -204,23 +280,48 @@ export class TelegramChannel implements ChannelAdapter {
         return escapeChunkCounterSuffix(chunk + suffix)
       })
     }
-    for (const chunk of chunks) {
-      await this.sendChunk(target, chunk)
+    const replyMarkup = inlineKeyboardMarkup(opts)
+    for (let i = 0; i < chunks.length; i++) {
+      await this.sendChunk(target, chunks[i]!, {
+        ...(i === chunks.length - 1 && replyMarkup ? { replyMarkup } : {}),
+      })
     }
+  }
+
+  async answerCallback(callbackQueryId: string, text?: string): Promise<void> {
+    await this.call('answerCallbackQuery', {
+      callback_query_id: callbackQueryId,
+      ...(text ? { text } : {}),
+    })
+  }
+
+  async createForumTopic(chatId: string, name: string): Promise<{ threadRef: string }> {
+    const body = await this.call('createForumTopic', {
+      chat_id: chatId,
+      name: name.slice(0, 128),
+    })
+    const threadId = (body.result as { message_thread_id?: unknown } | undefined)?.message_thread_id
+    if (typeof threadId !== 'number') throw new Error('createForumTopic returned no message_thread_id')
+    return { threadRef: String(threadId) }
   }
 
   private async sendChunk(
     target: ConversationRef,
     text: string,
-    opts: { floodRetried?: boolean; plainFallback?: boolean } = {},
+    opts: {
+      floodRetried?: boolean
+      plainFallback?: boolean
+      replyMarkup?: ReturnType<typeof inlineKeyboardMarkup>
+    } = {},
   ): Promise<void> {
-    const { floodRetried = false, plainFallback = false } = opts
+    const { floodRetried = false, plainFallback = false, replyMarkup } = opts
     try {
       await this.call('sendMessage', {
         chat_id: target.chatId,
         ...(target.threadRef ? { message_thread_id: Number(target.threadRef) } : {}),
         text,
         ...(plainFallback ? {} : { parse_mode: 'MarkdownV2' }),
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
       })
     } catch (err) {
       const retryAfter = (err as { retryAfter?: number }).retryAfter

@@ -23,11 +23,24 @@ export interface ConversationRef {
   threadRef?: string
 }
 
+/** One inline keyboard button (Telegram `callback_data` when `data` is set). */
+export interface InlineButton {
+  label: string
+  data: string
+}
+
+/** Optional outbound extras a platform may support (inline keyboards, …). */
+export interface SendOptions {
+  replyMarkup?: { inlineKeyboard: InlineButton[][] }
+}
+
 /** An inbound human message from a messaging app. */
 export interface InboundChatMessage {
   source: ConversationRef
   text: string
   senderLabel?: string
+  /** Inline-keyboard press — handled locally, not dispatched as a superagent turn. */
+  callback?: { id: string; data: string }
 }
 
 /** Transport adapter for one messaging platform. Implementations stay thin:
@@ -37,7 +50,11 @@ export interface ChannelAdapter {
   /** Begin receiving. Must be idempotent-safe to call after stop(). */
   start(onMessage: (msg: InboundChatMessage) => void): void
   stop(): void
-  send(target: ConversationRef, text: string): Promise<void>
+  send(target: ConversationRef, text: string, opts?: SendOptions): Promise<void>
   /** Best-effort "the agent is typing" signal; optional per platform. */
   sendTyping?(target: ConversationRef): void
+  /** Acknowledge an inline-button press (dismisses the loading spinner). */
+  answerCallback?(callbackQueryId: string, text?: string): Promise<void>
+  /** Bot API 9.3 — create a forum topic in a private supergroup chat. */
+  createForumTopic?(chatId: string, name: string): Promise<{ threadRef: string }>
 }
