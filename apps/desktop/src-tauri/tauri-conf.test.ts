@@ -27,7 +27,7 @@ describe('tauri desktop config', () => {
   it('uses native traffic lights on macOS and custom chrome elsewhere', () => {
     expect(mainSource).toContain('.title_bar_style(tauri::TitleBarStyle::Overlay)')
     expect(mainSource).toContain('.hidden_title(true)')
-    expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 15.0))')
+    expect(mainSource).toContain('.traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0))')
     expect(mainSource).toContain('let window_builder = window_builder.decorations(false);')
   })
 })

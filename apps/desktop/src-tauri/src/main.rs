@@ -387,7 +387,7 @@ fn main() {
                     let window_builder = window_builder
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
                         .hidden_title(true)
-                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 15.0));
+                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
                     #[cfg(not(target_os = "macos"))]
                     let window_builder = window_builder.decorations(false);
 

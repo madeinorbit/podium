@@ -69,7 +69,10 @@ html[data-podium-desktop="true"] .desktop-topbar-logo {
   user-select: none;
 }
 html[data-podium-platform="macos"] .desktop-topbar {
-  padding-left: 82px;
+  padding-left: 84px;
+}
+html[data-podium-platform="macos"] .desktop-topbar-nav {
+  margin-left: 6px;
 }
 .native-window-controls {
   display: flex;

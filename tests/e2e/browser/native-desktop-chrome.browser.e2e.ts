@@ -97,5 +97,17 @@ test('macOS reserves traffic-light space and keeps native controls', async ({ pa
   await expect(root).toHaveAttribute('data-podium-platform', 'macos')
   const header = page.getByTestId('desktop-topbar')
   await expect(header.getByRole('group', { name: 'Window controls' })).toHaveCount(0)
-  expect(await header.evaluate((element) => getComputedStyle(element).paddingLeft)).toBe('82px')
+  const geometry = await header.evaluate((element) => {
+    const logo = element.querySelector<HTMLElement>('.desktop-topbar-logo')
+    const nav = element.querySelector<HTMLElement>('.desktop-topbar-nav')
+    if (!logo || !nav) throw new Error('macOS header geometry elements are missing')
+    const logoBounds = logo.getBoundingClientRect()
+    const navBounds = nav.getBoundingClientRect()
+    return {
+      paddingLeft: getComputedStyle(element).paddingLeft,
+      logoToNav: navBounds.left - logoBounds.right,
+    }
+  })
+  expect(geometry.paddingLeft).toBe('84px')
+  expect(geometry.logoToNav).toBe(16)
 })
