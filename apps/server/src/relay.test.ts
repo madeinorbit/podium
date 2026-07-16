@@ -163,6 +163,93 @@ describe('SessionRegistry', () => {
     expect(cwdOf()).toBe('/repo')
   })
 
+  // ---- adopting the worktree a session actually works in [spec:SP-4ef9] ----
+
+  const adopting = () => {
+    const reg = new SessionRegistry()
+    reg.modules.sessions.attachDaemon('local', () => {})
+    const issue = reg.modules.issues.create({ repoPath: '/repo', title: 'Adopt me', startNow: false })
+    // Born at the repo root, the way every session in POD-664 was: no worktree of
+    // its own, so nothing stops the harness from making one.
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/repo',
+      issueId: issue.id,
+    })
+    const cwdMsg = (over: Record<string, unknown>) =>
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'sessionCwd',
+        sessionId,
+        cwd: '/repo/.claude/worktrees/x',
+        kind: 'worktree',
+        branch: 'claude/x',
+        repoRoot: '/repo',
+        ...over,
+      } as never)
+    return { reg, issue, cwdMsg, read: () => reg.modules.issues.get(issue.id) }
+  }
+
+  it('adopts a worktree the harness made for itself, stamping branch and path together', () => {
+    const { cwdMsg, read } = adopting()
+    cwdMsg({})
+    expect(read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: 'claude/x' })
+  })
+
+  it('never adopts the repo MAIN checkout as an issue workspace', () => {
+    // An issue owning main would swallow every unattached session [spec:SP-595b].
+    const { cwdMsg, read } = adopting()
+    cwdMsg({ cwd: '/repo', kind: 'main', branch: 'main' })
+    expect(read()).toMatchObject({ worktreePath: null, branch: null })
+  })
+
+  it('never adopts a directory outside git', () => {
+    const { cwdMsg, read } = adopting()
+    cwdMsg({ cwd: '/tmp/scratch', kind: 'none', branch: undefined, repoRoot: undefined })
+    expect(read()).toMatchObject({ worktreePath: null })
+  })
+
+  it('never steals a worktree another issue already owns', () => {
+    // A `cd` into a sibling's workspace to read something must not hand it over.
+    const { reg, cwdMsg, read } = adopting()
+    const sibling = reg.modules.issues.create({
+      repoPath: '/repo',
+      title: 'Sibling',
+      startNow: false,
+    })
+    reg.modules.issues.update(sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
+    cwdMsg({ cwd: '/repo/.worktrees/sibling', branch: 'issue/sibling' })
+    expect(read()).toMatchObject({ worktreePath: null })
+  })
+
+  it('never adopts a worktree belonging to a different repo', () => {
+    const { cwdMsg, read } = adopting()
+    cwdMsg({ cwd: '/other/.worktrees/x', repoRoot: '/other' })
+    expect(read()).toMatchObject({ worktreePath: null })
+  })
+
+  it('leaves an issue that already has a worktree alone', () => {
+    const { reg, issue, cwdMsg, read } = adopting()
+    reg.modules.issues.update(issue.id, { worktreePath: '/repo/.worktrees/mine', branch: 'mine' })
+    cwdMsg({})
+    expect(read()).toMatchObject({ worktreePath: '/repo/.worktrees/mine', branch: 'mine' })
+  })
+
+  it('takes the worktree but leaves the branch claim alone when HEAD is detached', () => {
+    const { cwdMsg, read } = adopting()
+    cwdMsg({ branch: undefined })
+    expect(read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x', branch: null })
+  })
+
+  it('keeps the pre-POD-665 contract for a daemon that sends no kind: explicit stamps, drift does not', () => {
+    const older = adopting()
+    older.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined })
+    expect(older.read()).toMatchObject({ worktreePath: null })
+
+    const declared = adopting()
+    declared.cwdMsg({ kind: undefined, branch: undefined, repoRoot: undefined, explicit: true })
+    expect(declared.read()).toMatchObject({ worktreePath: '/repo/.claude/worktrees/x' })
+  })
+
   it('passes initialPrompt to the daemon spawn for argv-capable agents (claude/codex/grok)', () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []

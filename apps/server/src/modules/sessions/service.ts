@@ -2553,6 +2553,37 @@ export class SessionsService {
     }
   }
 
+  /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
+   *  Two ways in: the agent DECLARES it (`podium worktree`), or the HARNESS makes its
+   *  own worktree and the session's hooks start reporting from it (Claude's
+   *  EnterWorktree — POD-664 left the worktree real on disk with the issue holding
+   *  neither branch nor path). Podium adopts what the harness did rather than fighting
+   *  it; branch and path are stamped together so the issue can never hold half of one.
+   *
+   *  Every guard earns its place — this stamps a path the AGENT chose, not one podium
+   *  created: only a real linked worktree (a main checkout is never a workspace, and an
+   *  issue claiming main would swallow every unattached session — [spec:SP-595b]), only
+   *  in the issue's own repo, only when the issue owns no worktree yet, and never one
+   *  another issue already owns (a `cd` into a sibling's workspace must not steal it). */
+  private adoptWorktree(issueId: string, msg: Extract<DaemonMessage, { type: 'sessionCwd' }>): void {
+    const issue = this.issues().get(issueId)
+    if (!issue || issue.archived || issue.worktreePath !== null) return
+    // A pre-POD-665 daemon sends no `kind`, so it gets exactly its old contract: an
+    // explicit declaration stamps, hook wandering never does, main excluded by path.
+    const adoptable =
+      msg.kind === undefined
+        ? msg.explicit === true && issue.repoPath !== msg.cwd
+        : msg.kind === 'worktree' &&
+          (msg.repoRoot === undefined || msg.repoRoot === issue.repoPath)
+    if (!adoptable) return
+    if (this.issues().worktreePaths().includes(msg.cwd)) return
+    this.issues().update(issue.id, {
+      worktreePath: msg.cwd,
+      // Absent on a detached HEAD: take the worktree, leave the branch claim alone.
+      ...(msg.branch ? { branch: msg.branch } : {}),
+    })
+  }
+
   // ---- ws data plane: daemon ----
   /** Inbound daemon message, tagged with the machine it came from. Session-keyed
    *  handlers (bind/agentFrame/agentExit/…) look up by sessionId and are machine-
@@ -2875,21 +2906,7 @@ export class SessionsService {
           this.persist(session)
           this.broadcastSessions()
         }
-        // An EXPLICIT declaration (`podium worktree`) also stamps the worktree
-        // onto the session's attached issue — but only when that issue doesn't
-        // own one yet, and never the repo's primary checkout (an issue must not
-        // claim live main just because its agent reported from there).
-        if (msg.explicit && msg.cwd && session.issueId) {
-          const issue = this.issues().get(session.issueId)
-          if (
-            issue &&
-            !issue.archived &&
-            issue.worktreePath === null &&
-            issue.repoPath !== msg.cwd
-          ) {
-            this.issues().update(issue.id, { worktreePath: msg.cwd })
-          }
-        }
+        if (msg.cwd && session.issueId) this.adoptWorktree(session.issueId, msg)
         break
       }
       case 'transcriptDelta': {
