@@ -14,6 +14,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { SessionMeta } from '@podium/protocol'
 import { Archive, Columns2, FileText, Pin, Plus, X } from 'lucide-react'
@@ -37,8 +38,8 @@ import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
 import { type FileTab, useStoreSelector } from './store'
-import { fileTabsForWorkspace } from './workspace-tabs'
 import type { WorktreeView } from './types'
+import { fileTabsForWorkspace } from './workspace-tabs'
 
 const FilePanel = lazy(() =>
   import('@/features/files/FilePanel').then((m) => ({ default: m.FilePanel })),
@@ -295,6 +296,12 @@ export function Workspace(): JSX.Element {
                   active={t.id === paneA}
                   pinned={t.kind === 'session' && pins.panels.includes(t.id)}
                   onSelect={() => {
+                    // Switch-latency trace [POD-701]: a tab click that changes the
+                    // focused session starts a trace at the gesture (no-op switches
+                    // — clicking the already-active tab — are skipped).
+                    if (t.kind === 'session' && t.id !== paneA) {
+                      beginSwitch({ sessionId: t.id, issueId: issue?.id ?? null })
+                    }
                     // Opening a session tab marks it read (#126) so the sidebar
                     // row's unread emphasis clears in step with what's on screen.
                     if (t.kind === 'session') void markSessionRead(t.id)

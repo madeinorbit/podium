@@ -15,6 +15,28 @@ export interface TerminalDiagnosticsApi {
   clear(): void
   /** Console tracing is otherwise opt-in via ?terminalDebug=1 or localStorage. */
   setConsoleEnabled(enabled: boolean): void
+  /** Live-tap every recorded entry (see {@link onTerminalDiagnostic}). */
+  onTrace(listener: TerminalDiagnosticListener): () => void
+}
+
+/** Listener for {@link onTerminalDiagnostic}. Entries are shared, not cloned —
+ *  treat them as read-only. */
+export type TerminalDiagnosticListener = (entry: TerminalDiagnosticEntry) => void
+
+const listeners = new Set<TerminalDiagnosticListener>()
+
+/**
+ * Subscribe to every diagnostics entry as it is recorded (a live tap on the
+ * same bounded ring `snapshot()` reads). Used by the switch-latency collector
+ * [POD-701] to correlate terminal lifecycle events into client switch traces
+ * without re-instrumenting session-mount. Listeners must never throw (guarded
+ * anyway) and must not mutate the entry.
+ */
+export function onTerminalDiagnostic(listener: TerminalDiagnosticListener): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 const MAX_ENTRIES = 500
@@ -80,6 +102,13 @@ export function createTerminalDiagnosticRecorder(sessionId: string): TerminalDia
       }
       entries.push(entry)
       if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES)
+      for (const listener of listeners) {
+        try {
+          listener(entry)
+        } catch {
+          // a diagnostics tap must never break the terminal lifecycle
+        }
+      }
       if (event.startsWith('anomaly:')) console.warn('[podium terminal]', copyEntry(entry))
       else if (consoleEnabled()) console.debug('[podium terminal]', copyEntry(entry))
     },
@@ -90,6 +119,7 @@ const diagnosticsApi: TerminalDiagnosticsApi = {
   snapshot: terminalDiagnosticsSnapshot,
   clear: clearTerminalDiagnostics,
   setConsoleEnabled: setTerminalDiagnosticsConsole,
+  onTrace: onTerminalDiagnostic,
 }
 
 Object.defineProperty(globalThis, '__podiumTerminalDiagnostics', {

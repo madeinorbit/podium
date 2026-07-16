@@ -427,6 +427,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       state: () => connection.state(),
       echoLatency: () => connection.echoLatency(),
       diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
+      // Client switch-latency traces [POD-701]. Read through the introspection
+      // global the collector registers (client-core), so the terminal package
+      // never imports it — an empty list before the collector module loads.
+      switchTraces: () =>
+        (
+          globalThis as { __podiumSwitchTraces?: { recent(): unknown[] } }
+        ).__podiumSwitchTraces?.recent() ?? [],
       screenHash: (screenOpts?: { dropDim?: boolean }) => view.screenHash(screenOpts),
       screenText: () => view.screenText(),
       codexInputReady: () => codexInputReady(view),

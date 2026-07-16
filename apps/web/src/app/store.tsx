@@ -7,6 +7,7 @@
  * and re-exports the typed hooks so existing `./store` imports keep working.
  */
 
+import { setSwitchTraceReporter } from '@podium/client-core/perf'
 import {
   type Store as CoreStore,
   StoreProvider as CoreStoreProvider,
@@ -15,7 +16,7 @@ import {
   useStoreSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
 import type { JSX, ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { formatAppError } from './AppErrorPage'
 import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
@@ -23,9 +24,9 @@ import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 /** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
 export type Store = CoreStore<Trpc>
 
+export type { UserFocus } from '@podium/client-core/react'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/viewmodels'
-export type { UserFocus } from '@podium/client-core/react'
 
 const NOTICES: StoreNotices = {
   error: (message) => toast.error(message),
@@ -45,6 +46,14 @@ export function StoreProvider({
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
+  // Ship finalized client switch traces [POD-701] to the server: fire-and-forget,
+  // never throws into the UI (the collector also swallows reporter errors).
+  useEffect(() => {
+    setSwitchTraceReporter((trace) => {
+      void trpc.perf.report.mutate(trace).catch(() => {})
+    })
+    return () => setSwitchTraceReporter(null)
+  }, [trpc])
   return (
     <CoreStoreProvider
       config={config}

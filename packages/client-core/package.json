@@ -64,6 +64,11 @@
       "@podium/source": "./src/react/index.ts",
       "types": "./src/react/index.ts",
       "import": "./src/react/index.ts"
+    },
+    "./perf": {
+      "@podium/source": "./src/perf/index.ts",
+      "types": "./src/perf/index.ts",
+      "import": "./src/perf/index.ts"
     }
   },
   "scripts": {

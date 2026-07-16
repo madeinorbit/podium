@@ -1,3 +1,4 @@
+import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   extractClaudePromptDraft,
@@ -216,6 +217,22 @@ export function AgentPanel({
   useEffect(() => {
     setPanelRenderMode(sessionId, effectiveMode)
   }, [sessionId, effectiveMode, setPanelRenderMode])
+
+  // Switch-latency trace marks [POD-701] — both are no-ops (one null check in
+  // markSwitch) unless a switch to THIS session is being traced.
+  // `panel:mount`: this panel mounted cold (evicted from the warm set, or a
+  // first open) during the switch — the trace's `cold` indicator.
+  useEffect(() => {
+    markSwitch(sessionId, 'panel:mount')
+  }, [sessionId])
+  // `panel:active`: the pane became the visible one.
+  const prevActiveForTrace = useRef(false)
+  useEffect(() => {
+    if (active && !prevActiveForTrace.current) {
+      markSwitch(sessionId, 'panel:active', { mode: effectiveMode })
+    }
+    prevActiveForTrace.current = active
+  }, [active, sessionId, effectiveMode])
 
   const pickMode = (m: PanelMode) => {
     // Persist the per-session override in the store (#35)…

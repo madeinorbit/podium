@@ -1,6 +1,7 @@
+import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
 import type { IssueColorSlot } from '@podium/domain'
+import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
@@ -522,7 +523,15 @@ export function useUnifiedWork() {
   const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
   const work = unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
 
-  const selectIssue = (issue: IssueWire) => {
+  // Switch-latency trace [POD-701]: a gesture that changes the focused SESSION
+  // starts a trace at t0. Skipped for no-op switches (target already in pane A)
+  // and for file-tab targets (`file:…` — no session to trace).
+  const traceSwitchTo = (target: string | null, issueId: string | null) => {
+    if (target && target !== paneA && !target.startsWith('file:')) {
+      beginSwitch({ sessionId: target, issueId })
+    }
+  }
+  const selectIssue = (issue: IssueWire, paneSession?: string) => {
     setSelectedIssueId(issue.id)
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until
@@ -546,12 +555,16 @@ export function useUnifiedWork() {
     const rowFileIds = issue.worktreePath
       ? fileTabs.filter((f) => f.worktreePath === issue.worktreePath).map((f) => f.id)
       : []
-    setPane('A', pickPaneSession(members, paneA, rowFileIds))
+    // `paneSession` (a row's specific member, from selectPanelForIssue) wins over
+    // the keep-or-most-recent pick, so the trace targets the session that really
+    // opens and the pane is only set once.
+    const target = paneSession ?? pickPaneSession(members, paneA, rowFileIds)
+    traceSwitchTo(target, issue.id)
+    setPane('A', target)
     setView('workspace')
   }
   const selectPanelForIssue = (issue: IssueWire, sessionId: string) => {
-    selectIssue(issue)
-    setPane('A', sessionId)
+    selectIssue(issue, sessionId)
     // Opening a specific member session marks THAT session read too (#126).
     void markSessionRead(sessionId)
   }
@@ -562,6 +575,7 @@ export function useUnifiedWork() {
     const members = sessionsForWorktree(sessions, path, allWorktreePaths)
     const rowFileIds = fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
     const opened = pickPaneSession(members, paneA, rowFileIds)
+    traceSwitchTo(opened, null)
     setPane('A', opened)
     // A worktree has no unread flag of its own — opening it opens one session, so
     // mark THAT session read (#126). Other unread sessions keep the row emphasized.
@@ -569,6 +583,7 @@ export function useUnifiedWork() {
     setView('workspace')
   }
   const selectPanel = (worktreePath: string, sessionId: string) => {
+    traceSwitchTo(sessionId, null)
     setSelectedIssueId(null)
     setSelectedWorktree(worktreePath)
     setPane('A', sessionId)

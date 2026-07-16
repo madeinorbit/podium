@@ -1,3 +1,4 @@
+import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import type { SessionMeta, TranscriptItem } from '@podium/protocol'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -135,11 +136,13 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // effects can call it to refresh the window without re-mounting the subscription.
   const readNewest = useCallback(async () => {
     const sid = sessionId
+    markSwitch(sid, 'transcript:read-start')
     const r = await trpc.sessions.transcriptRead.query({
       sessionId: sid,
       direction: 'before',
       limit: INITIAL_LIMIT,
     })
+    markSwitch(sid, 'transcript:read-end', { items: r.items.length })
     if (sessionIdRef.current !== sid) return r // session switched mid-read — drop it
     setItems((prev) => reconcileReset(prev, r.items, r.tail))
     setOlder([])
@@ -249,6 +252,31 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // Render unit: consecutive tool calls fold into one collapsed batch row; the
   // minimap, scroll-to-match, and [data-block] indices are all keyed by ROW.
   const rows = useMemo(() => buildChatRows(blocks), [blocks])
+
+  // Switch-latency trace marks [POD-701] — both no-ops unless a switch to this
+  // session is being traced. `chat:rows-built` stamps the commit in which the
+  // derived rows landed.
+  useEffect(() => {
+    markSwitch(sessionId, 'chat:rows-built', { rows: rows.length })
+  }, [sessionId, rows])
+  // `chat:first-paint`: the browser has painted the loaded rows — a double rAF
+  // after the rows-built commit (the second rAF runs after the first frame with
+  // the new content is on screen). Warm switches (rows already loaded) mark on
+  // becoming active instead; the isSwitchTraced gate keeps this inert (no rAF
+  // scheduling) outside a traced switch, and markSwitch records first-paint at
+  // most once per trace.
+  useEffect(() => {
+    if (!active || !initialLoaded || !isSwitchTraced(sessionId)) return
+    // Deliberately NOT cancelled on re-run: a hot stream can change `rows`
+    // faster than two frames, and cancelling would starve the mark forever.
+    // Extra fires are deduped by markSwitch (first-paint records once/trace).
+    const painted = rows.length
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        markSwitch(sessionId, 'chat:first-paint', { paintedRows: painted })
+      })
+    })
+  }, [active, initialLoaded, sessionId, rows])
   // Render only the trailing window of ROWS so the DOM node count stays bounded
   // for arbitrarily long transcripts. `renderStart` is the first windowed-in row;
   // the row index passed to each view stays absolute into `rows` (renderStart + ri)

@@ -40,6 +40,7 @@ import type { SocketHub } from '@podium/terminal-client'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import type { Outbox, OutboxEntry } from '../outbox'
+import { markSwitch } from '../perf/switch-trace'
 import { createReplica, type Replica, type UiState } from '../replica/replica'
 import {
   createRouter,
@@ -741,6 +742,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     const modes: Record<string, 'native' | 'chat'> = {}
     for (const sid of visible) modes[sid] = this.panelRenderModes[sid] ?? 'native'
     this.hub.setViewState(visible, focused, modes)
+    // Switch-latency trace [POD-701]: stamp when the view-state report carrying
+    // the traced session went out (markSwitch no-ops for untraced sessions).
+    for (const sid of visible) markSwitch(sid, 'viewstate:sent')
   }
 
   private readonly onVisibilityChange = (): void => {
