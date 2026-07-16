@@ -193,6 +193,12 @@ export interface IssueDeps {
    *  issue archive onto its member sessions (issue #133) so archiving an issue never
    *  leaves a bare, session-less worktree row in the sidebar. */
   setSessionArchived?(sessionId: string, archived: boolean): void
+  /** Fired after a worktree is successfully created (POD-665) so connected clients
+   *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
+   *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)
+   *  materialization the client has no other way to learn about live. Injected by
+   *  the relay; optional so existing test deps literals stay valid. */
+  onWorktreesChanged?(repoPath: string, machineId?: string): void
   defaultRepoBranch?(repoPath: string): Promise<string>
   llm?: typeof llmClient
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>

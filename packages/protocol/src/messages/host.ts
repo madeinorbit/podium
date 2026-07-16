@@ -39,6 +39,22 @@ export const MachinesChangedMessage = z.object({
   machines: z.array(MachineWire),
 })
 
+// A git worktree was created for repoPath (POD-665) — daemon-created, so
+// connected clients otherwise never learn about it until reload. Carries
+// which repo changed (not the new worktree/repo payload itself: scanReposAll()
+// returns [] with a diagnostic when a fan-out degrades, and pushing that
+// unattended could clobber a good client repo list) so a future client could
+// re-fetch selectively; today the client just re-fetches everything via the
+// same discovery.refreshRepos path it already uses at boot. Unlike
+// machinesChanged, this is a one-shot invalidation — NOT re-served on attach;
+// the client's boot-time repo fetch is the catch-up path for anyone who missed
+// it. [spec:SP-4ef9] a worktree is a per-(branch,machine) materialization.
+export const WorktreesChangedMessage = z.object({
+  type: z.literal('worktreesChanged'),
+  repoPath: z.string(),
+  machineId: z.string().optional(),
+})
+
 // Latest sample per daemon host. An array (not a single host) so the wire shape
 // already accommodates multiple machines each running a daemon.
 export const HostMetricsChangedMessage = z.object({

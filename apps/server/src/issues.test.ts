@@ -10,6 +10,7 @@ import { SessionStore } from './store'
 function harness(sessions: SessionMeta[] = []) {
   const store = new SessionStore(':memory:')
   const setSessionArchived = vi.fn()
+  const onWorktreesChanged = vi.fn()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
@@ -28,9 +29,10 @@ function harness(sessions: SessionMeta[] = []) {
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
     setSessionArchived,
+    onWorktreesChanged,
     now: () => '2026-06-30T00:00:00.000Z',
   }
-  return { store, deps, svc: new IssueService(deps), setSessionArchived }
+  return { store, deps, svc: new IssueService(deps), setSessionArchived, onWorktreesChanged }
 }
 
 const sess = (cwd: string, phase = 'working'): SessionMeta =>
@@ -554,6 +556,21 @@ describe('IssueService.start', () => {
       initialPrompt: 'do the thing',
       spawnedBy: `issue:${created.id}`,
     })
+  })
+
+  it('fires onWorktreesChanged with the issue repoPath after a successful worktree add (POD-665)', async () => {
+    const { svc, onWorktreesChanged } = harness()
+    const created = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    await svc.start(created.id)
+    expect(onWorktreesChanged).toHaveBeenCalledWith('/r', undefined)
+  })
+
+  it('does NOT fire onWorktreesChanged when worktreeAdd fails (POD-665)', async () => {
+    const { svc, deps, onWorktreesChanged } = harness()
+    deps.repoOp = vi.fn(async () => ({ ok: false, output: 'boom' }))
+    const created = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    await expect(svc.start(created.id)).rejects.toThrow(/worktree add failed/)
+    expect(onWorktreesChanged).not.toHaveBeenCalled()
   })
 
   it('rejects an unavailable model BEFORE mutating start state [spec:SP-cc60]', async () => {

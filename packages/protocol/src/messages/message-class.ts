@@ -71,6 +71,10 @@ export const SERVER_MESSAGE_CLASS = {
   machinesChanged: 'live',
   hostMetricsChanged: 'live',
   attentionEvent: 'live',
+  // One-shot invalidation (POD-665): unlike the advisory broadcasts above, this is
+  // NOT re-served on attach — the client already fetches repos at boot, so a missed
+  // push is caught by that, not by a reconnect replay.
+  worktreesChanged: 'live',
   // Approval-broker snapshot (small pending list) — re-broadcast on change and
   // on attach; not an oplog entity.
   approvalsChanged: 'live',

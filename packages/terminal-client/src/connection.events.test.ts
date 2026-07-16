@@ -79,6 +79,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     sessionDraftChanged: noop,
     hostMetricsChanged: noop,
     machinesChanged: noop,
+    worktreesChanged: noop,
     attentionEvent: noop,
     transcriptDelta: noop,
     issuesChanged: noop,

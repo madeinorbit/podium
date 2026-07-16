@@ -1,7 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/agent-bridge'
-import type { AgentKind, ConversationSummaryWire, IssueWire, SessionMeta } from '@podium/protocol'
+import type {
+  AgentKind,
+  ConversationSummaryWire,
+  IssueWire,
+  LiveServerMessage,
+  SessionMeta,
+} from '@podium/protocol'
 import { sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { checkIssueAccess } from './issue-authz'
@@ -920,6 +926,17 @@ export class SessionRegistry {
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // POD-665: fan out the invalidation raw (imitating MachinesService.
+      // broadcastMachines) — no repo payload, just "go re-fetch" (see
+      // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
+      onWorktreesChanged: (repoPath, machineId) => {
+        const msg: LiveServerMessage = {
+          type: 'worktreesChanged',
+          repoPath,
+          ...(machineId ? { machineId } : {}),
+        }
+        for (const c of clients().values()) c.send(msg)
+      },
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
       // out via the funnel's publishComputed tail; the PublishSpecs are built

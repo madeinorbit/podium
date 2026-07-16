@@ -4,7 +4,7 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import type { TranscriptItem } from '@podium/protocol'
+import type { LiveServerMessage, TranscriptItem } from '@podium/protocol'
 import { isAgentKind, WorkState } from '@podium/protocol'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
@@ -765,6 +765,12 @@ export function buildSuperagentTools(
         const safe = branch.replace(/[^a-zA-Z0-9._-]+/g, '-')
         const path = `${repoPath}-${safe}`
         const r = await rpc.repoOp('worktreeAdd', repoPath, { path, branch })
+        if (r.ok) {
+          // POD-665: same invalidation issues.start() fires after worktreeAdd — this
+          // tool creates a worktree through a separate path, so it needs its own push.
+          const msg: LiveServerMessage = { type: 'worktreesChanged', repoPath }
+          for (const c of sessions.clients.values()) c.send(msg)
+        }
         return r.ok ? JSON.stringify({ worktreePath: path, branch }) : `failed: ${r.output}`
       },
     },

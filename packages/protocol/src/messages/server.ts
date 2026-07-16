@@ -4,7 +4,12 @@ import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './autom
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { ConversationsChangedMessage } from './discovery'
 import { HeadlessActivityMessage } from './headless'
-import { AttentionEventMessage, HostMetricsChangedMessage, MachinesChangedMessage } from './host'
+import {
+  AttentionEventMessage,
+  HostMetricsChangedMessage,
+  MachinesChangedMessage,
+  WorktreesChangedMessage,
+} from './host'
 import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
 import { SessionAgentStateChangedMessage, SessionsChangedMessage } from './runtime-state'
 import { MetadataDeltaMessage } from './sync'
@@ -51,6 +56,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   SessionDraftChangedMessage,
   HostMetricsChangedMessage,
   MachinesChangedMessage,
+  WorktreesChangedMessage,
   PongMessage,
   AttentionEventMessage,
   TranscriptDeltaMessage,

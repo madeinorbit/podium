@@ -71,6 +71,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       row.machineId ?? undefined,
     )
     if (!res.ok) throw new Error(`worktree add failed: ${res.output}`)
+    // POD-665: the daemon just created this worktree out from under connected
+    // clients — nudge them to re-fetch repos rather than sit invisible until reload.
+    this.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     // Starting a CLOSED issue is an explicit reopen (#24): clear the closed
     // markers so the issue doesn't get a live worktree while staying
     // derived-closed (invisible to ready/open). Emitted as issue.reopened so

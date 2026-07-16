@@ -432,6 +432,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     offs.push(
       this.hub.on('sessionDraft', (sessionId, text) => this.adoptSessionDraft(sessionId, text)),
     )
+    // A daemon-created worktree is otherwise invisible in every repo menu until
+    // reload (POD-665) — re-fetch through the same path used at boot.
+    offs.push(this.hub.on('worktreesChanged', () => void this.refreshRepos()))
     // Reconnect drains the outbox: the browser 'online' event (the outbox's own
     // trigger) misses a server restart behind a healthy network, but the hub's
     // heartbeat-derived health catches both.

@@ -211,6 +211,10 @@ export interface HubEvents {
   automationRuns: [automationRuns: AutomationRunWire[]]
   hostMetrics: [hosts: HostMetricsWire[]]
   machines: [machines: MachineWire[]]
+  /** A repo's worktrees changed on the daemon side (POD-665). No cached list —
+   *  this is a one-shot invalidation; the subscriber re-fetches through the same
+   *  path it already uses at boot. */
+  worktreesChanged: [repoPath: string, machineId: string | undefined]
   /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
   approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
@@ -1029,6 +1033,9 @@ export class SocketHub {
     machinesChanged: (msg) => {
       this.machinesList = msg.machines
       this.emit('machines', this.machinesList)
+    },
+    worktreesChanged: (msg) => {
+      this.emit('worktreesChanged', msg.repoPath, msg.machineId)
     },
     approvalsChanged: (msg) => {
       this.approvalsList = msg.pending
