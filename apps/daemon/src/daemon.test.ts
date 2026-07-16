@@ -270,26 +270,49 @@ describe('daemon multi-bridge', () => {
     expect(count()).toBe(before)
   })
 
-  it('resolves a hook cwd inside a git checkout to the worktree root before forwarding', async () => {
-    // A cd into a SUBDIRECTORY of the same checkout must not regroup the session:
-    // the daemon resolves the hook cwd to its git toplevel and forwards that.
+  it('resolves a hook cwd inside a worktree to its root, and reports the branch and repo', async () => {
+    // A cd into a SUBDIRECTORY of the same worktree must not regroup the session:
+    // the daemon resolves the hook cwd to its git toplevel and forwards that, with
+    // the facts only it can read (POD-665) — what the directory IS, the branch live
+    // in it, and the repo it belongs to.
     const repo = join(trackTmp('podium-cwd-git-'), 'repo')
     mkdirSync(join(repo, 'packages', 'web'), { recursive: true })
-    execFileSync('git', ['-C', repo, 'init', '-q'])
+    execFileSync('git', ['-C', repo, 'init', '-q', '-b', 'main'])
+    execFileSync('git', ['-C', repo, 'config', 'user.email', 'test@example.com'])
+    execFileSync('git', ['-C', repo, 'config', 'user.name', 'Test'])
+    execFileSync('git', ['-C', repo, 'commit', '-q', '--allow-empty', '-m', 'init'])
+    const wt = join(repo, '.worktrees', 'feat')
+    execFileSync('git', ['-C', repo, 'worktree', 'add', '-q', '-b', 'feat', wt])
+    mkdirSync(join(wt, 'packages', 'web'), { recursive: true })
 
     send({ type: 'spawn', sessionId: 'sGit', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sGit'))
     await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/sGit`, {
       method: 'POST',
-      body: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: join(repo, 'packages', 'web') }),
+      body: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: join(wt, 'packages', 'web') }),
     })
     await waitFor(() =>
-      received.some((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit' && m.cwd === repo),
+      received.some((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit' && m.cwd === wt),
     )
+    expect(received.find((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit')).toMatchObject({
+      cwd: wt,
+      kind: 'worktree',
+      branch: 'feat',
+      repoRoot: repo,
+    })
     // The raw subdirectory path never went over the wire.
     expect(
-      received.some((m) => m.type === 'sessionCwd' && m.cwd === join(repo, 'packages', 'web')),
+      received.some((m) => m.type === 'sessionCwd' && m.cwd === join(wt, 'packages', 'web')),
     ).toBe(false)
+
+    // …and the repo's MAIN checkout never captures the session [spec:SP-4ef9]: an
+    // agent stepping into it to run one command must stay in the worktree it works in.
+    await fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/sGit`, {
+      method: 'POST',
+      body: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: join(repo, 'packages', 'web') }),
+    })
+    await new Promise((r) => setTimeout(r, 150))
+    expect(received.filter((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit')).toHaveLength(1)
   })
 
   it('session.setWorktree on the loopback relay restamps the session worktree locally', async () => {

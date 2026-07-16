@@ -374,8 +374,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // worktree moves (EnterWorktree, cd into another checkout).
   const sessionCwdTracker = createSessionCwdTracker({
     resolver: createCwdResolver(),
-    send: (sessionId, cwd, explicit) =>
-      send({ type: 'sessionCwd', sessionId, cwd, ...(explicit ? { explicit: true } : {}) }),
+    send: ({ sessionId, cwd, kind, branch, repoRoot, explicit }) =>
+      send({
+        type: 'sessionCwd',
+        sessionId,
+        cwd,
+        kind,
+        ...(branch ? { branch } : {}),
+        ...(repoRoot ? { repoRoot } : {}),
+        ...(explicit ? { explicit: true } : {}),
+      }),
   })
 
   // Reattach fan-out gates (POD-612): wide gate for bridge wiring, narrow

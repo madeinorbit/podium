@@ -131,6 +131,13 @@ export function wireBridge(
 
 function spawn(ctx: DaemonContext, msg: SpawnControl): void {
   try {
+    // Born pinned (POD-665): the server picked this cwd, so the session's workspace
+    // is known before the agent has run a single hook. Every server-side spawn funnels
+    // through here, so this one call covers issue start, add-session, `agent spawn`,
+    // the UI button and automations alike. Not awaited — the pin only has to beat the
+    // agent's FIRST hook (a git rev-parse against an agent boot), and delaying the PTY
+    // for it would be the wrong trade.
+    void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
     const spawnStartedAt = Date.now()
     const runtimeDir = instructionRuntimeDir(ctx, msg.sessionId)
     const cmd = ctx.launch(msg.agentKind, {
@@ -279,6 +286,14 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   }
   await ctx.reattachGate(async () => {
     if (ctx.bridges.has(msg.sessionId)) return // raced with another reattach for this id
+    // Re-pin a survivor (POD-665). Pins live in daemon memory, so a daemon restart
+    // would otherwise leave every reattached session unpinned and free to be dragged
+    // out of its worktree by the next `cd`. `msg.cwd` is the row's persisted cwd —
+    // the server's own record of where this session lives. Only this branch needs it:
+    // reaching the one above means the daemon never died, so the pin is still held.
+    // Inside the gate on purpose — a restart reattaches every session at once, and
+    // this forks git.
+    void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
     // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
     // nudge, so without a Ctrl-L it shows blank until the user types. TUIs repaint
     // on resize, so only shells take the hard path.

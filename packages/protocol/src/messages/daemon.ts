@@ -83,6 +83,21 @@ export const SessionCwdMessage = z.object({
   // to hook-observed cd wandering. An explicit declaration also stamps the
   // worktree onto the session's attached issue (if that issue has none yet).
   explicit: z.boolean().optional(),
+  // What `cwd` IS, classified by git on the daemon (the only side that can run it):
+  // the repo's main checkout, a linked worktree, or outside git entirely. Only a
+  // linked worktree may be adopted as an issue's workspace [spec:SP-4ef9] — main
+  // never is. Optional so an older daemon (which sends neither this nor the fields
+  // below) keeps its pre-POD-665 contract: explicit declarations still stamp.
+  kind: z.enum(['main', 'worktree', 'none']).optional(),
+  // The branch checked out in `cwd`, resolved fresh at send time; absent when
+  // detached or when `cwd` is no worktree. Lets the server stamp branch AND
+  // worktree together when it adopts (POD-664: the harness makes its own worktree,
+  // leaving the issue with neither).
+  branch: z.string().optional(),
+  // The primary checkout of the repo `cwd` belongs to — an issue's `repoPath`. The
+  // server matches it before adopting, so a session that steps into some OTHER
+  // repo's worktree can't hand that worktree to this issue.
+  repoRoot: z.string().optional(),
 })
 export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 
