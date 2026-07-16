@@ -1,5 +1,5 @@
 /**
- * Process-level acceptance proof for independent Podium instances [spec:SP-0cf1].
+ * Process-level acceptance proof for independent Podium instances [spec:SP-15aa].
  * Starts two real all-in-one runtimes and exercises their public CLI and APIs.
  *
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts

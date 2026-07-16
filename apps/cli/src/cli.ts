@@ -598,7 +598,7 @@ async function runInProcess(
   loadHost: () => Promise<HostModules>,
 ): Promise<void> {
   const { port, roles, modePlan } = plan
-  ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-0cf1] claim before run-registry writes
+  ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
 
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
