@@ -2,7 +2,7 @@
   "name": "@podium/telemetry",
   "version": "0.0.0",
   "private": true,
-  "description": "Opt-in, two-tier anonymous telemetry: the schema of record, the scrubber, the capped queue, and the emitter [spec:SP-f933].",
+  "description": "Opt-in, two-tier anonymous telemetry: the schema of record, the scrubber, the capped queue, and the emitter [spec:SP-f933]. NOTE: ./example is the only browser-safe entry (zero runtime imports) — apps/web must import that subpath, never the bare specifier, which pulls node:fs via the emitter/queue/consent.",
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
@@ -11,6 +11,7 @@
       "import": "./src/index.ts"
     },
     "./schema": "./src/schema.ts",
+    "./example": "./src/example.ts",
     "./scrub": "./src/scrub.ts",
     "./queue": "./src/queue.ts",
     "./emitter": "./src/emitter.ts",

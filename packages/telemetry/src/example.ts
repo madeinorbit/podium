@@ -36,7 +36,7 @@ export const EXAMPLE_USAGE_REPORT: UsageReport = {
   installAge: '1-7d',
   machines: '2-5',
   sessions: { 'claude-code': 14, codex: 2 },
-  features: { issues: true, spec: true, handoff: false },
+  features: { issues: true },
 }
 
 /**
@@ -44,16 +44,35 @@ export const EXAMPLE_USAGE_REPORT: UsageReport = {
  * aligned keys and the inline `//` note read better than anything
  * `JSON.stringify` produces, and this text is doing persuasion work, not
  * serialization work. Guard 2 keeps the hand-formatting honest.
+ *
+ * Unindented: the CLI prompt indents it for terminal layout, the web renders it
+ * in a <pre>. Callers own their own leading whitespace — see {@link indentExample}.
+ *
+ * This module has NO runtime imports (the `UsageReport` import above is
+ * type-only, erased at compile), which is what lets `apps/web` reach it via the
+ * `@podium/telemetry/example` subpath without dragging node:fs into the browser
+ * bundle. Note this INVERTS the @podium/runtime convention where the bare
+ * specifier is the browser-safe one: here the bare specifier pulls the emitter,
+ * the queue and consent, and only this subpath is pure. Keep it that way — the
+ * alternative is what we had, three hand-maintained copies of the example that
+ * had already drifted apart.
  */
 export const EXAMPLE_USAGE_REPORT_DISPLAY = [
-  '    {',
-  '      "schema":    1,',
-  '      "installId": "3f9c1a2e-…",        // random · reset-id to change',
-  '      "version":   "1.4.2",',
-  '      "os": "linux", "arch": "x64",',
-  '      "installAge": "1-7d",',
-  '      "machines":   "2-5",',
-  '      "sessions":   { "claude-code": 14, "codex": 2 },',
-  '      "features":   { "issues": true, "spec": true, "handoff": false }',
-  '    }',
+  '{',
+  '  "schema":    1,',
+  '  "installId": "3f9c1a2e-…",        // random · reset-id to change',
+  '  "version":   "1.4.2",',
+  '  "os": "linux", "arch": "x64",',
+  '  "installAge": "1-7d",',
+  '  "machines":   "2-5",',
+  '  "sessions":   { "claude-code": 14, "codex": 2 },',
+  '  "features":   { "issues": true }',
+  '}',
 ].join('\n')
+
+/** Indent every line — the CLI prompt sits inside an indented block. */
+export function indentExample(by = '    '): string {
+  return EXAMPLE_USAGE_REPORT_DISPLAY.split('\n')
+    .map((l) => by + l)
+    .join('\n')
+}

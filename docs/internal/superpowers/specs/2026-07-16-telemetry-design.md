@@ -105,7 +105,7 @@ Hard kill switches, checked before anything else including the prompt:
   "installAge": "1-7d",
   "machines": "2-5",
   "sessions": { "claude-code": 14, "codex": 2 },
-  "features": { "issues": true, "spec": true, "handoff": false }
+  "features": { "issues": true }
 }
 ```
 
@@ -113,6 +113,15 @@ Every field is enumerated in the schema module. Counts are integers; `installAge
 `machines` are **pre-bucketed** enums (`0d`,`1-7d`,`8-30d`,`31-90d`,`90d+` / `1`,`2-5`,`6-20`,`20+`)
 so raw values never exist in the payload. `sessions` keys are harness kinds from the existing
 protocol enum — not free strings.
+
+**Only surfaces actually wired to `markFeature()` may be `features` members.** This design
+originally listed `issues`, `spec` and `handoff`, and the first implementation shipped all three
+as enum members while only `issues` was ever set — so every report would have said
+`spec: false, handoff: false` forever, and the example advertised `spec: true`, which no real
+report could produce. A field that structurally cannot be true is worse than a missing one: it
+yields confidently wrong data ("nobody uses spec") that reads as a product signal instead of the
+wiring bug it is. `spec` and `handoff` are cut until wired (POD-739); the enum, the doc and the
+example are drift-guarded against each other in both directions, so adding one back is mechanical.
 
 ### `crash` tier — rate-limited per issue signature
 
@@ -260,7 +269,7 @@ All-in-one desktop gets the web flow above.
       "installAge": "1-7d",
       "machines":   "2-5",
       "sessions":   { "claude-code": 14, "codex": 2 },
-      "features":   { "issues": true, "spec": true, "handoff": false }
+      "features":   { "issues": true }
     }
 
   • Never     paths, repo names, prompts, code, any free text

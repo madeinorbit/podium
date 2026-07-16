@@ -20,7 +20,7 @@
  */
 import { loadConfig, stateDir } from '@podium/runtime/config'
 import {
-  EXAMPLE_USAGE_REPORT_DISPLAY,
+  indentExample,
   readLastSent,
   readQueue,
   readTelemetryState,
@@ -111,7 +111,7 @@ export function showText(dir: string = stateDir()): string {
       'EXAMPLE — not real data, nothing has been collected. If you turned',
       'usage reporting on, one report a day would look like this:',
       '',
-      EXAMPLE_USAGE_REPORT_DISPLAY,
+      indentExample(),
     )
   }
   lines.push('', `Queue file: ${dir}/telemetry/queue.jsonl`)

@@ -13,7 +13,7 @@ import {
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import { EXAMPLE_USAGE_REPORT_DISPLAY, setConsent, shouldAskForConsent } from '@podium/telemetry'
+import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {
@@ -201,7 +201,7 @@ export const TELEMETRY_PROMPT_HEADER = [
   '  Nothing is collected unless you turn it on. One report a day,',
   '  and this is exactly what it looks like:',
   '',
-  EXAMPLE_USAGE_REPORT_DISPLAY,
+  indentExample(),
   '',
   '  • Never     paths, repo names, prompts, code, any free text',
   '  • Your IP   dropped at ingest, never reaches analytics',

@@ -226,8 +226,6 @@ describe('what the wire actually carries', () => {
       e.recordSession(kind)
     }
     e.markFeature('issues')
-    e.markFeature('spec')
-    e.markFeature('handoff')
     await e.flush()
     expect((relay.bodies[0] as string).length).toBeLessThan(500)
   })

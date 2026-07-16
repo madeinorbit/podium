@@ -11,6 +11,11 @@
  * the reason, mirroring how experimental.tsx renders config-locked flags: a
  * toggle that silently refuses to move is a bug report waiting to happen.
  */
+// The example report — literally the same string the CLI prompt and setup
+// wizard show, not a copy. It WAS a copy, and had already drifted. The
+// `/example` subpath is the one browser-safe entry (zero runtime imports);
+// the bare `@podium/telemetry` specifier pulls the emitter and node:fs.
+import { EXAMPLE_USAGE_REPORT_DISPLAY as EXAMPLE_REPORT } from '@podium/telemetry/example'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -44,20 +49,6 @@ const TIERS: { key: 'usage' | 'crash'; name: string; description: string }[] = [
       'The error type and the Podium source lines it came from. Error messages are dropped entirely; frames outside Podium are dropped, not rewritten.',
   },
 ]
-
-/** The example report, matching the CLI prompt and docs/TELEMETRY.md. Shown by
- *  default: the audience is developers, and the JSON documents itself better
- *  than prose about it. Replaced by the REAL pending report once one exists. */
-const EXAMPLE_REPORT = `{
-  "schema":    1,
-  "installId": "3f9c1a2e-…",
-  "version":   "1.4.2",
-  "os": "linux", "arch": "x64",
-  "installAge": "1-7d",
-  "machines":   "2-5",
-  "sessions":   { "claude-code": 14, "codex": 2 },
-  "features":   { "issues": true, "spec": true, "handoff": false }
-}`
 
 export function PrivacySection(): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)

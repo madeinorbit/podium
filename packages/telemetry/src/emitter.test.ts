@@ -132,7 +132,6 @@ describe('usage report', () => {
     h.emitter.recordSession('claude-code')
     h.emitter.recordSession('codex')
     h.emitter.markFeature('issues')
-    h.emitter.markFeature('spec')
     await h.emitter.flush()
     expect(h.posted).toEqual([
       {
@@ -144,7 +143,7 @@ describe('usage report', () => {
         installAge: '1-7d',
         machines: '2-5',
         sessions: { 'claude-code': 2, codex: 1 },
-        features: { issues: true, spec: true },
+        features: { issues: true },
       },
     ])
   })

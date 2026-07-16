@@ -60,8 +60,25 @@ export type InstallAgeBucket = z.infer<typeof InstallAgeBucket>
 export const MachinesBucket = z.enum(['1', '2-5', '6-20', '20+'])
 export type MachinesBucket = z.infer<typeof MachinesBucket>
 
-/** The feature surfaces we count, as a closed enum — NOT free-form keys. */
-export const TELEMETRY_FEATURES = ['issues', 'spec', 'handoff'] as const
+/**
+ * The feature surfaces we count, as a closed enum — NOT free-form keys.
+ *
+ * ONLY surfaces that are actually wired to `markFeature()` belong here. The
+ * design listed `spec` and `handoff` too, and they shipped in the first cut as
+ * enum members nothing ever set — so every report would have said
+ * `spec: false, handoff: false` forever, and the example report advertised
+ * `spec: true`, which no real report could produce.
+ *
+ * A field that structurally cannot be true is worse than a missing field: it
+ * yields confidently wrong data ("nobody uses spec") that reads as a product
+ * signal instead of the wiring bug it is. Telemetry exists to stop us guessing;
+ * a lying field makes us guess with false confidence.
+ *
+ * Adding one back is cheap and additive — wire the event, add the member, and
+ * the drift guards (docs-drift.test.ts, example.test.ts) will force the doc and
+ * the example to follow. See POD-739.
+ */
+export const TELEMETRY_FEATURES = ['issues'] as const
 export const TelemetryFeature = z.enum(TELEMETRY_FEATURES)
 export type TelemetryFeature = z.infer<typeof TelemetryFeature>
 

@@ -1,4 +1,10 @@
 import type { PodiumMode } from '@podium/runtime'
+// The example report — literally the same string the CLI prompt and `podium
+// telemetry show` print, not a copy of it. It WAS a copy, and it had already
+// drifted (advertising `spec`/`handoff`, which the schema no longer sends).
+// The `/example` subpath is the one browser-safe entry: the bare
+// `@podium/telemetry` specifier pulls the emitter, the queue and node:fs.
+import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { makeTrpc, type Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -69,18 +75,6 @@ type NetOptionInfo = Awaited<ReturnType<Trpc['setup']['options']['query']>>[numb
 /** The whole-wizard commit payload, derived from the router so it can't drift. */
 type SetupCompleteInput = Parameters<Trpc['setup']['complete']['mutate']>[0]
 type TelemetryChoice = NonNullable<SetupCompleteInput['telemetry']>
-
-/** The example report — same fields as the CLI prompt and docs/TELEMETRY.md. */
-const TELEMETRY_EXAMPLE = `{
-  "schema":    1,
-  "installId": "3f9c1a2e-…",
-  "version":   "1.4.2",
-  "os": "linux", "arch": "x64",
-  "installAge": "1-7d",
-  "machines":   "2-5",
-  "sessions":   { "claude-code": 14, "codex": 2 },
-  "features":   { "issues": true, "spec": true, "handoff": false }
-}`
 
 /**
  * Setup sub-step: telemetry [spec:SP-f933]. Host modes only (D10), and the LAST

@@ -76,6 +76,33 @@ describe('docs/TELEMETRY.md lists every value each closed enum admits', () => {
     }
   })
 
+  /**
+   * The REVERSE direction. Everything above asks "is each schema value in the
+   * doc?" — which says nothing about a doc that still advertises a value the
+   * schema dropped. That hole was live: `spec` and `handoff` were removed from
+   * TELEMETRY_FEATURES (nothing ever set them, so every report said false) and
+   * every forward check still passed while the doc kept promising both.
+   *
+   * A doc that over-promises is the worse direction to be wrong in: under-
+   * documenting hides a field we do send; over-documenting makes us look like we
+   * send more than we do, which is the reputation we are spending this whole
+   * feature to protect.
+   */
+  it('promises no feature the schema cannot send', () => {
+    const example = /"features":\s*\{([^}]*)\}/.exec(doc)?.[1] ?? ''
+    const promised = [...example.matchAll(/"([\w-]+)"\s*:/g)].map((m) => m[1] as string)
+    expect(
+      promised.length,
+      'the usage example in docs/TELEMETRY.md lost its features block',
+    ).toBeGreaterThan(0)
+    for (const feature of promised) {
+      expect(
+        (TELEMETRY_FEATURES as readonly string[]).includes(feature),
+        `docs/TELEMETRY.md advertises the feature '${feature}', which the schema cannot send`,
+      ).toBe(true)
+    }
+  })
+
   it('documents every harness kind sessions can be keyed by', async () => {
     const { AgentKind } = await import('@podium/protocol')
     for (const kind of AgentKind.options) {

@@ -67,7 +67,7 @@ Two tiers, consented independently. You can enable one and not the other.
   "installAge": "1-7d",
   "machines": "2-5",
   "sessions": { "claude-code": 14, "codex": 2 },
-  "features": { "issues": true, "spec": true, "handoff": false }
+  "features": { "issues": true }
 }
 ```
 
@@ -81,7 +81,7 @@ Two tiers, consented independently. You can enable one and not the other.
 | `installAge` | `0d` \| `1-7d` \| `8-30d` \| `31-90d` \| `90d+` | **Bucketed.** The raw age never exists in the payload. |
 | `machines` | `1` \| `2-5` \| `6-20` \| `20+` | **Bucketed**, same reason. |
 | `sessions` | counts, keyed by harness | How many sessions you started, per agent kind (`claude-code`, `codex`, `grok`, `opencode`, `cursor`, `shell`). Counts only. |
-| `features` | booleans, keyed by feature | Whether you used `issues`, `spec`, or `handoff` — never what you used them on. |
+| `features` | booleans, keyed by feature | Whether you used `issues` — never what you used it on. |
 
 ### `crash` — rate-limited, one per distinct crash
 

@@ -41,6 +41,14 @@ export interface TelemetryWiring {
  * The subscriptions map 1:1 onto the schema's closed `features` enum — there is
  * deliberately no generic "track this string" seam, because that is exactly how
  * a free-text field gets added by accident.
+ *
+ * That 1:1 claim is load-bearing, and it was false in the first cut: the enum
+ * also held `spec` and `handoff`, which nothing here ever set, so every report
+ * would have reported them false forever. Keep it true — a `features` member
+ * with no `markFeature` call below is not a gap in the data, it is a lie in the
+ * data. Adding a surface means adding the bus event AND the subscription; the
+ * drift guards then force the doc and the example to follow. (POD-739 tracks
+ * wiring `spec` and `handoff` back.)
  */
 export function wireTelemetry(deps: TelemetryWiringDeps): TelemetryWiring {
   const emitter = new TelemetryEmitter({

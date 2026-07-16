@@ -28,6 +28,7 @@
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/server": "workspace:*",
+    "@podium/telemetry": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@podium/terminal-client-react": "workspace:*",
     "@tanstack/db": "^0.6.14",
