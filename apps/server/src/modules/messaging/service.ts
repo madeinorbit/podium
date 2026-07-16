@@ -207,7 +207,7 @@ export class MessagingService {
 
   private turnText(msg: QueuedInbound): string {
     const sender = msg.senderLabel ? ` from ${msg.senderLabel}` : ''
-    return `(Telegram message${sender} — you are replying into a phone chat: be concise; markdown is fine and tables will be reformatted for mobile)\n\n${msg.text}`
+    return `(Telegram message${sender} — you are replying into a phone chat: be concise, plain text, no markdown tables)\n\n${msg.text}`
   }
 
   private onTurnEnded(ev: { threadId: string; ok: boolean; output?: string; error?: string }): void {
