@@ -13,7 +13,11 @@ import {
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import { setConsent, shouldAskForConsent } from '@podium/telemetry'
+import {
+  EXAMPLE_USAGE_REPORT_DISPLAY,
+  setConsent,
+  shouldAskForConsent,
+} from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 
 export interface SetupIO {
@@ -188,24 +192,12 @@ async function passwordStep(
  * itself better than prose describing it (Syncthing showed the exact report and
  * got ~zero friction; Ubuntu's install-time preview got 67% yes).
  *
- * Illustrative values, deliberately: it renders before consent exists, so there
- * is nothing real to show — `podium telemetry show` prints the real thing once
- * there is one. The FIELDS here must match @podium/telemetry's UsageReport;
- * docs/TELEMETRY.md is the drift-tested copy of the same list.
+ * Illustrative VALUES, deliberately — it renders before consent exists, so there
+ * is nothing real to show. The FIELDS are the schema's, enforced: the example
+ * lives in @podium/telemetry beside `UsageReport` because `packages/*` may not
+ * import `apps/*`, so an example defined here could never be drift-tested (it
+ * shipped advertising a `claude` session kind that the wire has never had).
  */
-export const TELEMETRY_EXAMPLE_REPORT = [
-  '    {',
-  '      "schema":    1,',
-  '      "installId": "3f9c1a2e-…",        // random · reset-id to change',
-  '      "version":   "1.4.2",',
-  '      "os": "linux", "arch": "x64",',
-  '      "installAge": "1-7d",',
-  '      "machines":   "2-5",',
-  '      "sessions":   { "claude": 14, "codex": 2 },',
-  '      "features":   { "issues": true, "spec": true, "handoff": false }',
-  '    }',
-].join('\n')
-
 export const TELEMETRY_PROMPT_HEADER = [
   '',
   '── Anonymous telemetry (opt-in) ─────────────────────────────────',
@@ -213,7 +205,7 @@ export const TELEMETRY_PROMPT_HEADER = [
   '  Nothing is collected unless you turn it on. One report a day,',
   '  and this is exactly what it looks like:',
   '',
-  TELEMETRY_EXAMPLE_REPORT,
+  EXAMPLE_USAGE_REPORT_DISPLAY,
   '',
   '  • Never     paths, repo names, prompts, code, any free text',
   '  • Your IP   dropped at ingest, never reaches analytics',

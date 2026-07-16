@@ -10,6 +10,7 @@
  */
 export * from './consent'
 export * from './emitter'
+export * from './example'
 export * from './queue'
 export * from './schema'
 export * from './scrub'

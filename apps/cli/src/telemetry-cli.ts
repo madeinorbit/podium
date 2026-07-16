@@ -20,6 +20,7 @@
  */
 import { loadConfig, stateDir } from '@podium/runtime/config'
 import {
+  EXAMPLE_USAGE_REPORT_DISPLAY,
   readLastSent,
   readQueue,
   readTelemetryState,
@@ -81,7 +82,14 @@ export function statusText(state: TelemetryState): string {
   return lines.join('\n')
 }
 
-/** `podium telemetry show` — the literal pending + last-sent bytes. */
+/** `podium telemetry show` — the literal pending + last-sent bytes.
+ *
+ *  When there is nothing real yet — the common case, since the setup prompt
+ *  points here and telemetry is off by default — it falls back to the example.
+ *  Answering "what would you send me?" is the whole reason this command exists,
+ *  and "(nothing queued)" answers it for nobody. The example is labelled as an
+ *  example every time it appears: a preview must never be mistakable for a
+ *  record of something actually sent. */
 export function showText(dir: string = stateDir()): string {
   const pending = readQueue(dir)
   const lastSent = readLastSent(dir)
@@ -97,6 +105,15 @@ export function showText(dir: string = stateDir()): string {
       ? `  at ${lastSent.at}\n${JSON.stringify(lastSent.report, null, 2)}`
       : '  (nothing has ever been sent)',
   )
+  if (!pending.length && !lastSent) {
+    lines.push(
+      '',
+      'EXAMPLE — not real data, nothing has been collected. If you turned',
+      'usage reporting on, one report a day would look like this:',
+      '',
+      EXAMPLE_USAGE_REPORT_DISPLAY,
+    )
+  }
   lines.push('', `Queue file: ${dir}/telemetry/queue.jsonl`)
   return lines.join('\n')
 }
