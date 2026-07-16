@@ -14,6 +14,7 @@ import {
   resolveInstallDir,
   resolvePort,
   resolveRunRecordMode,
+  resolveFeatureOverrides,
   resolveUpdateChannel,
   resolveUpdateFeed,
   resolveUpdateTarget,
@@ -148,6 +149,21 @@ describe('layered resolvers (#251): env → config.json → default', () => {
       resolveUpdateChannel({ updateChannel: 'edge' }, { PODIUM_UPDATE_CHANNEL: 'stable' }),
     ).toBe('stable')
     expect(resolveUpdateChannel({}, {})).toBe('stable')
+  })
+  it('resolveFeatureOverrides: config.features only (no env layer) [spec:SP-f4b9]', () => {
+    expect(resolveFeatureOverrides({})).toEqual({})
+    expect(resolveFeatureOverrides({ features: { 'sample-experiment': true } })).toEqual({
+      'sample-experiment': true,
+    })
+    expect(
+      resolveFeatureOverrides({
+        features: { a: true, b: false },
+      }),
+    ).toEqual({ a: true, b: false })
+  })
+  it('PodiumConfig accepts features record and round-trips via save/load', () => {
+    saveConfig({ mode: 'server', features: { 'sample-experiment': true, other: false } })
+    expect(loadConfig().features).toEqual({ 'sample-experiment': true, other: false })
   })
   it('resolveUpdateFeed: env > config > undefined', () => {
     expect(

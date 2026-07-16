@@ -115,6 +115,14 @@ export const PodiumConfig = z.object({
       token: z.string(),
     })
     .optional(),
+  /**
+   * Operator feature-flag overrides [spec:SP-f4b9]. Keys are stable feature ids
+   * from the protocol registry (`FEATURES`); values force enable/disable and
+   * lock the Experimental UI toggle. Config-file only — there is deliberately
+   * no `PODIUM_FEATURES` env layer (hidden flags are enableable only via this
+   * file, except in development mode where they are listed).
+   */
+  features: z.record(z.string(), z.boolean()).optional(),
 })
 export type PodiumConfig = z.infer<typeof PodiumConfig>
 
@@ -258,6 +266,18 @@ export function resolveUpdateChannel(
   env: EnvSource = process.env,
 ): 'stable' | 'edge' {
   return (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as 'stable' | 'edge'
+}
+
+/**
+ * Operator feature-flag overrides from config.json [spec:SP-f4b9].
+ * Config-file only — deliberately no env layer (`PODIUM_FEATURES`). Hidden flags
+ * are enableable only via this file (except in development mode, where they are
+ * listed in Experimental). Returns `{}` when absent.
+ */
+export function resolveFeatureOverrides(
+  config: PodiumConfig = loadConfig(),
+): Record<string, boolean> {
+  return config.features ?? {}
 }
 
 /** Self-update feed override: PODIUM_UPDATE_FEED → config.updateFeed → undefined

@@ -362,3 +362,22 @@ describe('shouldPromptAutoContinue', () => {
     ).toBe(false)
   })
 })
+
+describe('normalizeSettings — experimental [spec:SP-f4b9]', () => {
+  it('defaults experimental to empty object', () => {
+    expect(DEFAULT_SETTINGS.experimental).toEqual({})
+    expect(normalizeSettings({}).experimental).toEqual({})
+  })
+
+  it('fills experimental for old blobs without the key', () => {
+    const s = normalizeSettings({ sessionDefaults: { agent: 'grok' } })
+    expect(s.experimental).toEqual({})
+  })
+
+  it('keeps known and unknown feature ids as-is', () => {
+    const s = normalizeSettings({
+      experimental: { 'sample-experiment': true, 'future-flag': false },
+    })
+    expect(s.experimental).toEqual({ 'sample-experiment': true, 'future-flag': false })
+  })
+})

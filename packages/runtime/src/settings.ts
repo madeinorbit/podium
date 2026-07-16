@@ -307,6 +307,13 @@ export const PodiumSettings = z.object({
       promptDismissed: z.boolean().default(false),
     })
     .default({}),
+  /**
+   * User toggles for experimental features [spec:SP-f4b9]. Keys are feature ids
+   * from the protocol registry; unknown ids are kept (a flag may exist in a
+   * newer/older build) and are harmless. Honored only while the flag is listed
+   * for this install — see `resolveFeatureState`.
+   */
+  experimental: z.record(z.string(), z.boolean()).default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 
