@@ -129,17 +129,31 @@ whoever owns the code under test; POD-295 inherits only the CONSEQUENCE (its gat
 coin flip until the fix lands) and must not become the parking lot for every flake the
 oracle happens to surface. Known open at the time of writing: POD-757 — a settle()/await
 race at `packages/transcript/src/tailer.test.ts:247`, ~40% failure running ALONE, owned by
-`@podium/transcript`, NOT by POD-295. And POD-743 — two red relay tests that are a TEST
-bug, not a product regression: they assert `not.toContain('podium session title')`, a bare
-substring POD-694's delegation prose legitimately contains, so they fail on the mention
-rather than on the nudge.
+`@podium/transcript`, NOT by POD-295.
 
-POD-743 is worth reading before writing any assertion this rewrite depends on, because the
-proxy fails in BOTH directions: the positive assertion is satisfiable by the delegation
-prose ALONE, so it would pass even if the nudge were deleted outright. **An assertion keyed
-on a proxy can prove neither presence nor absence.** Key on the thing itself (the nudge's
-own text), never on a string that something else may legally emit — the same rule as §4's
-"a detector that stops matching is not a deletion", pointed at tests instead of greps.
+**POD-743 is the worked example, and it is now CLOSED — read it before writing any
+assertion this rewrite depends on.** Two relay tests were red, and it was a TEST bug, not a
+product regression: they asserted `not.toContain('podium session title')`, a bare substring
+POD-694's delegation prose legitimately contains, so they failed on the MENTION rather than
+on the nudge. The dangerous half was the other direction — the POSITIVE assertion was
+satisfiable by that same delegation prose ALONE, so it would have passed even if the nudge
+were deleted outright. **An assertion keyed on a proxy can prove neither presence nor
+absence.** The fix (POD-295, `ce1e31de`) is the shape to copy: key every assertion on the
+thing itself — `sessionTitleRule()`'s own text — never on a string something else may
+legally emit, then MUTATION-TEST it (deleting the product's guard must turn the file red on
+precisely the right test). That mutation check is what separates an assertion from a
+decoration; it is §4's "a detector that stops matching is not a deletion" pointed at tests
+instead of greps.
+
+**A lane that does not run what it claims is not an oracle either.** The lane list above is
+the doctrine's, and it is only as true as the lanes underneath it: POD-295 found that the
+`e2e` lane never ran Playwright at all — `test:e2e` is vitest over `tests/e2e`, while the
+56 browser suites under `tests/e2e/browser/**` sit in no lane, no script and no CI job
+(POD-756; the lane map's claim of "real server + daemon + abduco + Playwright" was false and
+is corrected in `docs/agents/testing.md`). So until POD-756 lands, **"oracle green" asserts
+nothing whatsoever about the UI** — a phase whose cut lines touch the client cannot cite the
+e2e lane as evidence it did not break the app. Verified at c577009d, POD-298: `e2e/browser`
+is referenced 0 times in package.json and 0 times in ci.yml.
 
 ---
 
