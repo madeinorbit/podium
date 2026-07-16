@@ -1689,10 +1689,9 @@ export class SessionsService {
     // identity always matches the tree it carries. Which candidate wins is the
     // exporter's call (it asks git); refuse up front only when neither exists.
     const issue = session.issueId ? this.issues().get(session.issueId) : undefined
-    const issueWorktree =
-      issue?.branch && issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
-        ? issue.worktreePath
-        : undefined
+    const issueWorktree = issue?.worktreePath?.startsWith(`${sourceRepo.path}/`)
+      ? issue.worktreePath
+      : undefined
     if (session.cwd === sourceRepo.path && !issueWorktree)
       throw new Error('only worktree sessions can be handed off')
     const targetRepo = repos.find(

@@ -106,7 +106,12 @@ export function handoffSource<R extends HandoffRepo>(
   // Drifted onto the main checkout. Anchor on the issue's worktree instead — but
   // only within the repo the session is actually in, so the package's repo
   // identity still matches the tree it carries.
-  if (issue?.branch && issue.worktreePath) {
+  //
+  // The worktree alone anchors this; `issue.branch` is deliberately NOT required.
+  // The handoff takes its branch from git in the worktree, never from the issue
+  // row, so a null `branch` is a bookkeeping gap, not a missing workspace — and
+  // on live data 19 sessions sit on issues with a worktree and no branch.
+  if (issue?.worktreePath) {
     const worktree = home.repo.worktrees.find(
       (candidate) =>
         candidate.path === issue.worktreePath && !candidate.isMain && onMachine(candidate),

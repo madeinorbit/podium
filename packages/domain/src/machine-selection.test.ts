@@ -95,10 +95,18 @@ describe('handoffSource ([spec:SP-3f7a])', () => {
     expect(handoffSource(at('/a', 'target'), repos, issue)).toBeNull()
   })
 
-  it('requires a branch: an issue without one has no workspace to anchor on', () => {
-    expect(handoffSource(at('/a'), repos, { branch: null, worktreePath: '/a/.worktrees/x' })).toBe(
-      null,
-    )
+  it('anchors on the worktree even when the issue has no branch recorded', () => {
+    // The handoff reads its branch from git in the worktree, so a null issue
+    // branch is a bookkeeping gap, not a missing workspace (live data: 19
+    // sessions sit on issues with a worktree and no branch).
+    expect(
+      handoffSource(at('/a'), repos, { branch: null, worktreePath: '/a/.worktrees/x' }),
+    ).toMatchObject({ worktreePath: '/a/.worktrees/x', via: 'issue' })
+  })
+
+  it('never anchors on an issue whose worktreePath IS the main checkout', () => {
+    // Live data has exactly this: an issue row pointing at the repo root.
+    expect(handoffSource(at('/a'), repos, { branch: 'main', worktreePath: '/a' })).toBeNull()
   })
 
   it('prefers the cwd worktree over the issue worktree', () => {
