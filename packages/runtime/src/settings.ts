@@ -445,10 +445,12 @@ function decodeAccount(
 export function resolveRole(settings: PodiumSettings, role: RoleName): ResolvedRole {
   const rb = settings.roles[role]
   const accountId = rb.accountId || DEFAULT_ACCOUNT[role]
-  // An explicit `harness` forces harness execution — this disambiguates the
-  // codex login (CLI harness vs Responses API) and, in future, drives a chosen
-  // harness on a managed credential.
-  if (rb.harness) {
+  // A native account already names its harness; a stale explicit harness must not
+  // override it and make that account's model/effort leak to another CLI
+  // [spec:SP-7ff1]. Managed credentials still need an explicit harness to choose
+  // which CLI receives the injected credential.
+  const nativeAccount = accountId.startsWith(HARNESS_ACCOUNT)
+  if (rb.harness && !nativeAccount) {
     return {
       accountId,
       execution: 'harness',

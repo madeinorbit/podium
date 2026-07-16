@@ -19,8 +19,9 @@ function storeWithClaudeDefaults(): SessionStore {
       coding: {
         ...settings.roles.coding,
         accountId: 'native:claude-code',
-        model: 'opus',
-        effort: 'high',
+        harness: 'codex',
+        model: 'claude-opus-4-8',
+        effort: 'xhigh',
       },
     },
   })
@@ -80,8 +81,8 @@ function resurrectFrame(agentKind: 'claude-code' | 'codex') {
 
 it('passes configured model and effort to the configured default harness', () => {
   const frame = createFrame('claude-code')
-  expect(frame.model).toBe('opus')
-  expect(frame.effort).toBe('high')
+  expect(frame.model).toBe('claude-opus-4-8')
+  expect(frame.effort).toBe('xhigh')
 })
 
 it('omits configured model and effort when another harness is selected', () => {

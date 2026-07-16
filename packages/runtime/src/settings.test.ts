@@ -33,6 +33,41 @@ describe('settings harness choices', () => {
   })
 })
 
+describe('resolveRole harness precedence', () => {
+  it('uses a native account harness over a stale explicit harness', () => {
+    const settings = normalizeSettings({
+      roles: {
+        coding: {
+          accountId: nativeAccountId('claude-code'),
+          harness: 'codex',
+          model: 'claude-opus-4-8',
+          effort: 'xhigh',
+        },
+      },
+    })
+
+    expect(resolveRole(settings, 'coding')).toMatchObject({
+      execution: 'harness',
+      harness: 'claude-code',
+      model: 'claude-opus-4-8',
+      effort: 'xhigh',
+    })
+  })
+
+  it('keeps an explicit harness for a managed coding account', () => {
+    const settings = normalizeSettings({
+      roles: {
+        coding: { accountId: managedAccountId('openai'), harness: 'codex' },
+      },
+    })
+
+    expect(resolveRole(settings, 'coding')).toMatchObject({
+      execution: 'harness',
+      harness: 'codex',
+    })
+  })
+})
+
 describe('normalizeSettings — coding.startScreen', () => {
   it('defaults startScreen to native', () => {
     expect(normalizeSettings({}).roles.coding.startScreen).toBe('native')
