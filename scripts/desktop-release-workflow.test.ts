@@ -29,6 +29,7 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('release_notes:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY_PASSWORD:')
+    expect(desktopWorkflow).toContain('libwebkit2gtk-4.1-dev')
     const validation = desktopWorkflow.indexOf('--validate-only')
     const build = desktopWorkflow.indexOf('bun run --cwd apps/desktop build')
     const prepare = desktopWorkflow.lastIndexOf('bun scripts/desktop-release.ts')
