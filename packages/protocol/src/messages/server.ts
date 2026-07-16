@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ApprovalsChangedMessage } from './approvals'
 import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
+import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { ConversationsChangedMessage } from './discovery'
 import { HeadlessActivityMessage } from './headless'
 import { AttentionEventMessage, HostMetricsChangedMessage, MachinesChangedMessage } from './host'
@@ -59,5 +60,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   MetadataDeltaMessage,
   AutomationsChangedMessage,
   AutomationRunsChangedMessage,
+  SessionOpenUrlMessage,
+  SessionOpenUrlResultMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

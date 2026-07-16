@@ -791,6 +791,7 @@ export class SessionRegistry {
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
     })
+    this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is

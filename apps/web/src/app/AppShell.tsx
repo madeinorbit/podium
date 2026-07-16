@@ -20,6 +20,7 @@ import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AutoContinueDialog } from './AutoContinueDialog'
+import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedSuperagentBar } from './FoldedSuperagentBar'
@@ -73,6 +74,7 @@ export function AppShell(): JSX.Element {
         <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
           <StoreProvider config={config} onFatalError={setAppError}>
             <ThemeUiStateMirror />
+            <BrowserOpenOverlay />
             <ConfirmProvider>
               <AppBody isMobile={isMobile} />
             </ConfirmProvider>

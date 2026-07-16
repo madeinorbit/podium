@@ -39,6 +39,7 @@ import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { consumePairCode } from '@podium/runtime/setup'
 import WebSocket, { type RawData } from 'ws'
 import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
+import { createBrowserOpenManager } from './browser-open'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
 import type { DaemonContext, DurableBackend } from './control/context'
@@ -405,6 +406,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // (the result-dispatch handler) and the loopback server reach the one hub; it
   // captures `send` so requests ride the live WS.
   const agentRelayHub = createAgentRelayHub(send)
+  const browserOpen = createBrowserOpenManager(send)
   // Injects the session's capability-scoped `prime` as additionalContext on the first
   // SessionStart/UserPromptSubmit after (re)start; re-arms on PreCompact. Driven by
   // startHookIngest's `respondTo`, so it must exist before the ingest starts.
@@ -464,6 +466,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // live WS and blocks until the server answers.
   const agentRelay = await startAgentRelayServer({
     port: opts.agentRelay?.port ?? resolveAgentRelayPort(config),
+    openUrl: (sessionId, url) => browserOpen.capture(sessionId, url),
     relay: async (req) => {
       // `session.setWorktree` is the agent-initiated worktree report (`podium
       // worktree <path>`). The daemon owns cwd truth, so it's handled here —
@@ -532,6 +535,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     hookEndpointFor: (sessionId) => ingest.endpointFor(sessionId),
     agentRelayEndpointFor: (sessionId) => agentRelay.endpointFor(sessionId),
     agentRelayHub,
+    browserOpen,
     workerClient,
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
     // Per-agent plan-quota reader (live, read-only, TTL-cached). Same homeDir
@@ -697,6 +701,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       void codexIdentityReceipts
         .replay(send)
         .catch((err) => console.warn('[podium] Codex identity receipt replay failed:', err))
+      // Open requests captured during a transport outage are replayed after auth;
+      // the server deduplicates them by session/request id. [spec:SP-a43e]
+      browserOpen.replay()
       resolveStart()
     }
     // Send the handshake as the FIRST frame on a socket's open. The server holds the

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import {
   AttachMessage,
   DetachMessage,
@@ -29,5 +30,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   TranscriptSubscribeMessage,
   TranscriptUnsubscribeMessage,
   SetSessionDraftMessage,
+  SessionOpenUrlCallbackMessage,
+  SessionOpenUrlDismissMessage,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>

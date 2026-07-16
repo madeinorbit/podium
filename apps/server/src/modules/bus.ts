@@ -5,6 +5,7 @@ import type {
   IssueWire,
   MetadataChange,
   SessionMeta,
+  SessionOpenUrlMessage,
   TranscriptItem,
 } from '@podium/protocol'
 
@@ -30,6 +31,8 @@ export interface EventMap {
   }
   /** A session's process ended (agentExit / reattachFailed death). */
   'session.exited': { sessionId: string; code: number }
+  /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
+  'session.openUrl': SessionOpenUrlMessage
   /** The session list changed in a way that was broadcast (post-fanout). */
   'session.listChanged': { sessions: SessionMeta[] }
   /** One issue changed and was published (single-issue fast path, issue #22). */

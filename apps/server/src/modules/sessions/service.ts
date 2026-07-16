@@ -23,6 +23,8 @@ import {
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
+  type SessionOpenUrlMessage,
+  type SessionOpenUrlResultMessage,
   type SyncChangesSinceResult,
   type TranscriptItem,
   type WorkState,
@@ -49,9 +51,9 @@ import type { HostsService } from '../hosts/service'
 import type { IssueService } from '../issues/service'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
-import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
+import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
 import { type ClientConn, type Send, Session } from './session'
 
@@ -212,6 +214,9 @@ export class SessionsService {
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
   // churn must not re-flood the daemon with the whole map every time).
   private readonly lastPriority = new Map<string, number>()
+  /** Pending remote browser-open requests, parked here when no client is connected. */
+  private readonly pendingOpenUrls = new Map<string, SessionOpenUrlMessage>()
+  private readonly openUrlExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.flushActivity(), 12_000)
@@ -284,6 +289,9 @@ export class SessionsService {
 
   dispose(): void {
     clearInterval(this.activityFlushTimer)
+    for (const timer of this.openUrlExpiryTimers.values()) clearTimeout(timer)
+    this.openUrlExpiryTimers.clear()
+    this.pendingOpenUrls.clear()
     // Graceful server restarts must not lose a resize that landed inside the
     // coalescing window; persist dirty geometry/activity before closing [spec:SP-1a0b].
     this.flushActivity()
@@ -2163,6 +2171,9 @@ export class SessionsService {
     send({ type: 'machinesChanged', machines: this.machines.listMachines() })
     send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
     this.hosts.snapshotFor(send)
+    // A request captured while no browser was connected remains an explicit
+    // needs-attention affordance for the next client. [spec:SP-a43e]
+    for (const request of this.pendingOpenUrls.values()) send(request)
     return id
   }
 
@@ -2181,6 +2192,101 @@ export class SessionsService {
     // them live).
     this.pushPriorities()
     this.broadcastSessions()
+  }
+  private openUrlKey(sessionId: string, requestId: string): string {
+    return `${sessionId}:${requestId}`
+  }
+
+  private clearPendingOpenUrl(sessionId: string, requestId: string): void {
+    const requestKey = this.openUrlKey(sessionId, requestId)
+    this.pendingOpenUrls.delete(requestKey)
+    const timer = this.openUrlExpiryTimers.get(requestKey)
+    if (timer) clearTimeout(timer)
+    this.openUrlExpiryTimers.delete(requestKey)
+  }
+
+  private expireOpenUrl(sessionId: string, requestId: string): void {
+    const requestKey = this.openUrlKey(sessionId, requestId)
+    if (!this.pendingOpenUrls.has(requestKey)) return
+    this.clearPendingOpenUrl(sessionId, requestId)
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      this.toMachine(session.machineId, { type: 'sessionOpenUrlDismiss', sessionId, requestId })
+    }
+    this.broadcastToClients({
+      type: 'sessionOpenUrlResult',
+      sessionId,
+      requestId,
+      status: 'expired',
+    })
+  }
+
+  /**
+   * Focus-aware fan-out for the typed session.openUrl bus event. The request
+   * remains parked until completion/dismissal/expiry, so a later client can
+   * still surface it when no browser was connected at capture time. [spec:SP-a43e]
+   */
+  onOpenUrl(request: SessionOpenUrlMessage): void {
+    if (!this.sessions.has(request.sessionId) || request.expiresAt <= this.now()) return
+    const requestKey = this.openUrlKey(request.sessionId, request.requestId)
+    if (this.pendingOpenUrls.has(requestKey)) return
+    this.pendingOpenUrls.set(requestKey, request)
+    const timer = setTimeout(
+      () => this.expireOpenUrl(request.sessionId, request.requestId),
+      Math.max(1, request.expiresAt - this.now()),
+    )
+    timer.unref?.()
+    this.openUrlExpiryTimers.set(requestKey, timer)
+
+    const clients = [...this.clients.values()]
+    const focused = clients.filter((client) => client.focused === request.sessionId)
+    const visible = clients.filter((client) => client.viewVisible.has(request.sessionId))
+    const recipients = focused.length > 0 ? focused : visible.length > 0 ? visible : clients
+    for (const client of recipients) client.send(request)
+  }
+
+  private onOpenUrlResult(machineId: string, message: SessionOpenUrlResultMessage): void {
+    const session = this.sessions.get(message.sessionId)
+    if (!session || session.machineId !== machineId) return
+    const requestKey = this.openUrlKey(message.sessionId, message.requestId)
+    if (!this.pendingOpenUrls.has(requestKey)) return
+    if (message.status !== 'failed') {
+      this.clearPendingOpenUrl(message.sessionId, message.requestId)
+    }
+    this.broadcastToClients(message)
+  }
+
+  private submitOpenUrlCallback(
+    client: ClientConn,
+    message: Extract<ClientMessage, { type: 'sessionOpenUrlCallback' }>,
+  ): void {
+    const requestKey = this.openUrlKey(message.sessionId, message.requestId)
+    const request = this.pendingOpenUrls.get(requestKey)
+    const session = this.sessions.get(message.sessionId)
+    if (!request || !session || request.expiresAt <= this.now()) {
+      client.send({
+        type: 'sessionOpenUrlResult',
+        sessionId: message.sessionId,
+        requestId: message.requestId,
+        status: 'expired',
+      })
+      return
+    }
+    this.toMachine(session.machineId, message)
+  }
+
+  private dismissOpenUrl(message: Extract<ClientMessage, { type: 'sessionOpenUrlDismiss' }>): void {
+    const requestKey = this.openUrlKey(message.sessionId, message.requestId)
+    if (!this.pendingOpenUrls.has(requestKey)) return
+    const session = this.sessions.get(message.sessionId)
+    this.clearPendingOpenUrl(message.sessionId, message.requestId)
+    if (session) this.toMachine(session.machineId, message)
+    this.broadcastToClients({
+      type: 'sessionOpenUrlResult',
+      sessionId: message.sessionId,
+      requestId: message.requestId,
+      status: 'dismissed',
+    })
   }
 
   /**
@@ -2279,6 +2385,12 @@ export class SessionsService {
       case 'setSessionDraft':
         this.setSessionDraft(msg, id)
         break
+      case 'sessionOpenUrlCallback':
+        this.submitOpenUrlCallback(client, msg)
+        break
+      case 'sessionOpenUrlDismiss':
+        this.dismissOpenUrl(msg)
+        break
       case 'ping':
         client.send({ type: 'pong' })
         break
@@ -2298,6 +2410,17 @@ export class SessionsService {
       }
       case 'agentRelayRequest': {
         this.deps.runAgentRelay(machineId, msg)
+        break
+      }
+      case 'sessionOpenUrl': {
+        const session = this.sessions.get(msg.sessionId)
+        // A daemon may only originate intents for sessions it owns. The bus is
+        // the typed notification seam from capture to client routing. [spec:SP-a43e]
+        if (session?.machineId === machineId) this.bus.emit('session.openUrl', msg)
+        break
+      }
+      case 'sessionOpenUrlResult': {
+        this.onOpenUrlResult(machineId, msg)
         break
       }
       case 'bind': {

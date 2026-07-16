@@ -108,6 +108,36 @@ describe('agent relay server', () => {
     }
   })
 
+  it('POST /agent/<sessionId>/open captures the raw URL without entering the command relay', async () => {
+    const opened: Array<{ sessionId: string; url: string }> = []
+    let relayCalls = 0
+    const srv = await startAgentRelayServer({
+      port: 0,
+      openUrl: (sessionId, url) => {
+        opened.push({ sessionId, url })
+        return { ok: true }
+      },
+      relay: async () => {
+        relayCalls++
+        return { ok: true }
+      },
+    })
+    try {
+      const url =
+        'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fcallback'
+      const response = await fetch(`${srv.endpointFor('sOpen')}/open`, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body: url,
+      })
+      expect(response.status).toBe(202)
+      expect(opened).toEqual([{ sessionId: 'sOpen', url }])
+      expect(relayCalls).toBe(0)
+    } finally {
+      await srv.close()
+    }
+  })
+
   it('rejects a non-POST or bad path with 404', async () => {
     const srv = await startAgentRelayServer({ port: 0, relay: async () => ({ ok: true }) })
     try {

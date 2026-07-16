@@ -2,6 +2,7 @@ import type { AgentSession, agentLaunchCommand } from '@podium/agent-bridge'
 import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
+import type { BrowserOpenManager } from '../browser-open'
 import type { CodexIdentityReceipts } from '../codex-identity-receipts'
 import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
@@ -67,6 +68,8 @@ export interface DaemonContext {
   /** Agent-relay loopback endpoint for a session (agent env). */
   agentRelayEndpointFor(sessionId: string): string
   agentRelayHub: AgentRelayHub
+  /** Expiring, redirect-bound browser-open callback capabilities. */
+  browserOpen: BrowserOpenManager
   /** Runs /proc walks + discovery scans off the interactive loop. */
   workerClient: DiscoveryWorkerClient
   /** Discovery scan + publish; `full` requests the entire conversation list. */

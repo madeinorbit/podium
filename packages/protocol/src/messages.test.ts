@@ -207,6 +207,13 @@ describe('ClientMessage', () => {
     { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'requestControl', sessionId: 's1' },
     { type: 'redrawRequest', sessionId: 's1' },
+    {
+      type: 'sessionOpenUrlCallback',
+      sessionId: 's1',
+      requestId: 'open-1',
+      url: 'http://localhost:1455/auth/callback?code=x',
+    },
+    { type: 'sessionOpenUrlDismiss', sessionId: 's1', requestId: 'open-1' },
     { type: 'ping' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
@@ -302,6 +309,21 @@ describe('ServerMessage', () => {
         openTaskCount: 0,
         error: { class: 'rate_limit', retryable: true },
       },
+    },
+    {
+      type: 'sessionOpenUrl',
+      sessionId: 's1',
+      requestId: 'open-1',
+      url: 'https://auth.example/login?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
+      callbackTarget: { host: 'localhost', port: 1455, path: '/auth/callback' },
+      expiresAt: 1_800_000_000_000,
+    },
+    {
+      type: 'sessionOpenUrlResult',
+      sessionId: 's1',
+      requestId: 'open-1',
+      status: 'completed',
+      httpStatus: 200,
     },
     { type: 'pong' },
   ]
@@ -445,6 +467,13 @@ describe('ControlMessage (server -> daemon)', () => {
       sessionId: 's1',
       resume: { kind: 'codex-thread', value: 'thread-1' },
     },
+    {
+      type: 'sessionOpenUrlCallback',
+      sessionId: 's1',
+      requestId: 'open-1',
+      url: 'http://localhost:1455/auth/callback?code=x',
+    },
+    { type: 'sessionOpenUrlDismiss', sessionId: 's1', requestId: 'open-1' },
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseControlMessage(encode(msg))).toEqual(msg)
@@ -490,6 +519,20 @@ describe('DaemonMessage (daemon -> server)', () => {
         },
       ],
       diagnostics: [{ severity: 'warning', path: '/bad', message: 'nope' }],
+    },
+    {
+      type: 'sessionOpenUrl',
+      sessionId: 's1',
+      requestId: 'open-1',
+      url: 'https://auth.example/login',
+      expiresAt: 1_800_000_000_000,
+    },
+    {
+      type: 'sessionOpenUrlResult',
+      sessionId: 's1',
+      requestId: 'open-1',
+      status: 'failed',
+      error: 'no listener',
     },
   ]
   it.each(cases)('round-trips %j', (msg) => {

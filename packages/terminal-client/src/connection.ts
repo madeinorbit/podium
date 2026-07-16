@@ -19,6 +19,8 @@ import {
   type ServerMessage,
   type ServerMessageLenient,
   type SessionMeta,
+  type SessionOpenUrlMessage,
+  type SessionOpenUrlResultMessage,
   type SyncChangesSinceResultLenient,
   type TranscriptItem,
 } from '@podium/protocol'
@@ -217,6 +219,8 @@ export interface HubEvents {
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
   attention: [event: AttentionEvent]
+  openUrl: [request: SessionOpenUrlMessage]
+  openUrlResult: [result: SessionOpenUrlResultMessage]
   sessionDraft: [sessionId: string, text: string]
   /** One live transcript frame: ONLY that frame's delta items — the caller owns
    *  history (see subscribeTranscript, which also manages the server-side
@@ -774,6 +778,24 @@ export class SocketHub {
   sendSessionDraft(sessionId: string, text: string): void {
     if (this.connectedFlag) this.sendRaw({ type: 'setSessionDraft', sessionId, text })
   }
+  /** Submit a user-pasted loopback callback to the daemon that owns the session. */
+  submitOpenUrlCallback(sessionId: string, requestId: string, url: string): void {
+    this.sendRaw({
+      type: 'sessionOpenUrlCallback',
+      sessionId,
+      requestId,
+      url,
+    })
+  }
+
+  /** Dismiss and revoke a pending browser-open request. */
+  dismissOpenUrl(sessionId: string, requestId: string): void {
+    this.sendRaw({
+      type: 'sessionOpenUrlDismiss',
+      sessionId,
+      requestId,
+    })
+  }
 
   /** Report page visibility; the server's smart router skips mobile push while visible. */
   setVisible(visible: boolean): void {
@@ -966,6 +988,12 @@ export class SocketHub {
     },
     attentionEvent: (msg) => {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
+    },
+    sessionOpenUrl: (msg) => {
+      this.emit('openUrl', msg)
+    },
+    sessionOpenUrlResult: (msg) => {
+      this.emit('openUrlResult', msg)
     },
     headlessActivity: (msg) => {
       this.emit('headlessActivity', msg.sessionId, msg.event)

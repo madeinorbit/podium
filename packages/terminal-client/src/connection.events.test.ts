@@ -85,6 +85,8 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     issueUpdated: noop,
     metadataDelta: noop,
     headlessActivity: noop,
+    sessionOpenUrl: noop,
+    sessionOpenUrlResult: noop,
   }
 
   it('a mock future ServerMessage member without a handler fails compilation', () => {

@@ -106,6 +106,7 @@ const RELAY_BODY_MAX_BYTES = 1 * 1024 * 1024
  */
 export function startAgentRelayServer(opts: {
   relay: (req: AgentRelayRequest) => Promise<AgentRelayResult>
+  openUrl?: (sessionId: string, url: string) => { ok: true } | { ok: false; error: string }
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_AGENT_RELAY_PORT. */
   port?: number
 }): Promise<{ port: number; endpointFor(sessionId: string): string; close(): Promise<void> }> {
@@ -113,7 +114,7 @@ export function startAgentRelayServer(opts: {
     // Accept both the new `/agent/<sid>` path and the legacy `/issue/<sid>` path:
     // an in-flight session spawned before the rename keeps POSTing to `/issue/`
     // after a daemon redeploy. Only `/agent/` is ever emitted (endpointFor).
-    const match = /^\/(?:issue|agent)\/([\w.-]+)$/.exec(req.url ?? '')
+    const match = /^\/(?:issue|agent)\/([\w.-]+)(?:\/(open))?$/.exec(req.url ?? '')
     if (!match || req.method !== 'POST') {
       res.writeHead(404)
       res.end()
@@ -138,9 +139,19 @@ export function startAgentRelayServer(opts: {
     })
     req.on('end', () => {
       if (aborted) return
+      const raw = Buffer.concat(chunks).toString('utf8')
+      if (match[2] === 'open') {
+        const outcome = opts.openUrl?.(sessionId, raw) ?? {
+          ok: false as const,
+          error: 'browser-open forwarding is unavailable',
+        }
+        res.writeHead(outcome.ok ? 202 : 400, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(outcome))
+        return
+      }
       let body: unknown
       try {
-        body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        body = JSON.parse(raw)
       } catch {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: false, error: 'invalid JSON body' }))

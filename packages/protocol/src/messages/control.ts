@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApprovalExecRequestMessage } from './approvals'
+import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import { RepoOpRequestMessage, ScanReposRequestMessage, ScanRequestMessage } from './discovery'
 import {
   DirListRequestMessage,
@@ -8,13 +9,13 @@ import {
   FileWriteRequestMessage,
   ImageUploadRequestMessage,
 } from './files'
-import { HarnessExecRequestMessage } from './harness'
 import {
   HandoffChunkReadRequestMessage,
   HandoffExportRequestMessage,
   HandoffImportChunkMessage,
   HandoffImportRequestMessage,
 } from './handoff'
+import { HarnessExecRequestMessage } from './harness'
 import {
   HeadlessBindMessage,
   HeadlessInterruptMessage,
@@ -75,5 +76,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   FileAssetRequestMessage,
   FileWriteRequestMessage,
   DirListRequestMessage,
+  SessionOpenUrlCallbackMessage,
+  SessionOpenUrlDismissMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

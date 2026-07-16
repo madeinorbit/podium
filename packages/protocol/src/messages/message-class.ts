@@ -74,6 +74,8 @@ export const SERVER_MESSAGE_CLASS = {
   // Approval-broker snapshot (small pending list) — re-broadcast on change and
   // on attach; not an oplog entity.
   approvalsChanged: 'live',
+  sessionOpenUrl: 'live',
+  sessionOpenUrlResult: 'live',
 } as const satisfies Record<ServerMessage['type'], 'durable' | 'live'>
 
 /** The message types a raw (non-funnel) send may carry. */
@@ -105,6 +107,8 @@ export const CLIENT_MESSAGE_CLASS = {
   transcriptSubscribe: 'bulk',
   transcriptUnsubscribe: 'bulk',
   setSessionDraft: 'durable',
+  sessionOpenUrlCallback: 'command',
+  sessionOpenUrlDismiss: 'command',
 } as const satisfies Record<ClientMessage['type'], MessageSyncClass>
 
 /** Server→daemon classification. Almost everything here is a command RPC
@@ -145,6 +149,8 @@ export const CONTROL_MESSAGE_CLASS = {
   fileWriteRequest: 'command',
   dirListRequest: 'command',
   approvalExecRequest: 'command',
+  sessionOpenUrlCallback: 'command',
+  sessionOpenUrlDismiss: 'command',
 } as const satisfies Record<ControlMessage['type'], MessageSyncClass>
 
 /** Daemon→server classification. PTY/agent-runtime streams are `live` (mirrors
@@ -191,4 +197,6 @@ export const DAEMON_MESSAGE_CLASS = {
   fileWriteResult: 'command',
   dirListResult: 'command',
   approvalExecResult: 'command',
+  sessionOpenUrl: 'live',
+  sessionOpenUrlResult: 'live',
 } as const satisfies Record<DaemonMessage['type'], MessageSyncClass>

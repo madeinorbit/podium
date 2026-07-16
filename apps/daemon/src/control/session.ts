@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   type AgentSession,
@@ -178,6 +178,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
           // Bind the loopback agent-relay + session id into every agent's env so its
           // `podium` CLI can reach the daemon for this exact session.
           ...agentRelayEnv(msg.sessionId, ctx.agentRelayEndpointFor(msg.sessionId), ctx.instanceId),
+          ...browserOpenEnv(ctx.settingsDir),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
@@ -335,6 +336,8 @@ export const sessionHandlers: Pick<
   | 'redraw'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
+  | 'sessionOpenUrlCallback'
+  | 'sessionOpenUrlDismiss'
 > = {
   spawn,
   reattach: (ctx, msg) => {
@@ -385,4 +388,54 @@ export const sessionHandlers: Pick<
   sessionPriority: (ctx, msg) => {
     ctx.outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)
   },
+  sessionOpenUrlCallback: (ctx, msg) => {
+    void ctx.browserOpen.callback(msg)
+  },
+  sessionOpenUrlDismiss: (ctx, msg) => {
+    ctx.browserOpen.dismiss(msg)
+  },
+}
+/**
+ * Install the browser-command shims once and return the env that makes every
+ * spawned session use them. The script reads the already capability-scoped
+ * PODIUM_AGENT_RELAY at invocation time, so one shim directory serves every
+ * session without embedding session ids. [spec:SP-a43e]
+ */
+export function browserOpenEnv(
+  settingsDir: string,
+  inheritedPath: string = process.env.PATH ?? '',
+): Record<string, string> {
+  const shimDir = join(settingsDir, 'browser-shims')
+  mkdirSync(shimDir, { recursive: true })
+  const script = [
+    '#!/bin/sh',
+    'url=',
+    'for arg do',
+    '  case "$arg" in',
+    '    http://*|https://*) url=$arg ;;',
+    '  esac',
+    'done',
+    '[ -n "$url" ] || { echo "podium browser shim: missing URL" >&2; exit 2; }',
+    '[ -n "$PODIUM_AGENT_RELAY" ] || { echo "podium browser shim: missing relay" >&2; exit 2; }',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: evaluated by the generated shell script.
+    'endpoint="${PODIUM_AGENT_RELAY%/}/open"',
+    'if command -v curl >/dev/null 2>&1; then',
+    '  exec curl --silent --show-error --fail --request POST --header "content-type: text/plain" --data-binary "$url" "$endpoint" >/dev/null',
+    'fi',
+    'if command -v wget >/dev/null 2>&1; then',
+    '  exec wget -qO /dev/null --header="content-type: text/plain" --post-data="$url" "$endpoint"',
+    'fi',
+    'echo "podium browser shim: curl or wget is required" >&2',
+    'exit 127',
+    '',
+  ].join('\n')
+  for (const name of ['podium-browser-open', 'xdg-open', 'open', 'sensible-browser']) {
+    const path = join(shimDir, name)
+    writeFileSync(path, script, { mode: 0o700 })
+    chmodSync(path, 0o700)
+  }
+  return {
+    BROWSER: join(shimDir, 'podium-browser-open'),
+    PATH: inheritedPath ? `${shimDir}:${inheritedPath}` : shimDir,
+  }
 }

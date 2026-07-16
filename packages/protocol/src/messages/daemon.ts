@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
+import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import {
   ConversationsChangedMessage,
   RepoOpResultMessage,
@@ -120,5 +121,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   FileAssetResultMessage,
   FileWriteResultMessage,
   DirListResultMessage,
+  SessionOpenUrlMessage,
+  SessionOpenUrlResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
