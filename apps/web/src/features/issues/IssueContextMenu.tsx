@@ -6,6 +6,7 @@ import {
   AlarmClockOff,
   Archive,
   ArchiveRestore,
+  ArrowRightLeft,
   Bot,
   Check,
   ChevronRight,
@@ -24,15 +25,20 @@ import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
-import { DEFER_NEXT_MESSAGE, snoozeUntil1h } from '@/lib/derive'
+import { DEFER_NEXT_MESSAGE, reposToViews, snoozeUntil1h } from '@/lib/derive'
 import { issueAgentOptions } from '@/lib/issue-agents'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { STAGE_LABELS } from './issue-card'
-import { deferDateFromNow, issueMenuEligibility, toggleLabelAcross } from './issue-context-menu'
+import {
+  deferDateFromNow,
+  issueMenuEligibility,
+  resolveIssueHandoffSession,
+  toggleLabelAcross,
+} from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 
 /** Which flat second-level flyout is open (SessionContextMenu-style, no nesting). */
-type SubKind = 'stage' | 'priority' | 'agent' | 'labels' | 'duplicate' | 'defer'
+type SubKind = 'stage' | 'priority' | 'agent' | 'labels' | 'duplicate' | 'defer' | 'handoff'
 
 /**
  * Right-click context menu for issue cards/rows — the same actions the issue
@@ -63,8 +69,15 @@ export function IssueContextMenu({
    *  board, which has no in-place editor) the item falls back to a prompt. */
   onRename?: (id: string) => void
 }): JSX.Element | null {
-  const { trpc, markIssueRead, markIssueUnread } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, markIssueRead: s.markIssueRead, markIssueUnread: s.markIssueUnread }),
+  const { trpc, markIssueRead, markIssueUnread, sessions, repos, machines } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      markIssueRead: s.markIssueRead,
+      markIssueUnread: s.markIssueUnread,
+      sessions: s.sessions,
+      repos: s.repos,
+      machines: s.machines,
+    }),
     shallowEqual,
   )
   const ref = useRef<HTMLDivElement | null>(null)
@@ -106,12 +119,27 @@ export function IssueContextMenu({
   if (!first) return null
   const elig = issueMenuEligibility(issues)
   const ids = issues.map((i) => i.id)
+  // Single-issue only: offer Handoff when exactly one attached session is
+  // handoff-eligible (same gate as SessionContextMenu via handoffTargets).
+  const handoff =
+    issues.length === 1
+      ? resolveIssueHandoffSession(first, sessions, reposToViews(repos), machines)
+      : null
 
   // Fire-and-close: failures toast (the issuesChanged broadcast reconciles the
   // board on success, so no success handling is needed).
   const run = (fn: () => Promise<unknown>): void => {
     fn().catch((e) => toast.error(e instanceof Error ? e.message : String(e)))
     onClose()
+  }
+
+  const handoffTo = (machineId: string, machineName: string): void => {
+    if (!handoff) return
+    onClose()
+    void trpc.sessions.handoff.mutate({ sessionId: handoff.session.sessionId, machineId }).then(
+      () => toast.success('Handed off to ' + machineName),
+      (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
+    )
   }
 
   const setStage = (stage: IssueStage): void =>
@@ -318,6 +346,19 @@ export function IssueContextMenu({
           ]
         : []),
     ],
+    // [spec:SP-3f7a] same machine list as SessionContextMenu; empty when gated off.
+    handoff: (handoff?.targets ?? []).map((machine) => (
+      <button
+        key={machine.id}
+        type="button"
+        role="menuitem"
+        className={itemCls}
+        onClick={() => handoffTo(machine.id, machine.name)}
+      >
+        <span className="size-2 rounded-full bg-live" aria-hidden="true" />
+        {machine.name}
+      </button>
+    )),
   }
 
   return createPortal(
@@ -384,6 +425,8 @@ export function IssueContextMenu({
       {elig.canAssignAgent &&
         subTrigger('agent', <Bot size={14} aria-hidden="true" />, 'Assign agent')}
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
+      {/* [spec:SP-3f7a] issue-row handoff when exactly one session is eligible */}
+      {handoff && subTrigger('handoff', <ArrowRightLeft size={14} aria-hidden="true" />, 'Handoff')}
 
       {(elig.canClose || elig.canDefer || elig.canUndefer) && (
         <hr className="my-1 h-px border-0 bg-border" />
@@ -482,7 +525,7 @@ export function IssueContextMenu({
       {sub && (
         <div
           role="menu"
-          aria-label={`${sub.kind} options`}
+          aria-label={sub.kind === 'handoff' ? 'Handoff targets' : `${sub.kind} options`}
           className="absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10"
           style={{
             // Flip to the left edge when the flyout would leave the viewport.

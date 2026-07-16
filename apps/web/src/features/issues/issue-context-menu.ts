@@ -1,4 +1,5 @@
-import type { IssueWire } from '@podium/protocol'
+import { handoffTargets, type HandoffMachine, type HandoffRepo } from '@podium/domain'
+import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
 
 /**
@@ -6,6 +7,30 @@ import type { IssuesKeyState } from './issues-keys'
  * eligibility gating, right-click selection semantics, and defer-date presets.
  * Kept React-free so the rules can be unit-tested like sessionMenuEligibility.
  */
+
+/**
+ * Resolve the single handoff-eligible session for an issue-row context menu
+ * ([spec:SP-3f7a]). Looks up each `issue.sessions[].sessionId` in the live
+ * store sessions, reuses `handoffTargets` for eligibility, and returns a result
+ * only when exactly one attached session has at least one target machine.
+ * Callers must also require a single selected issue (`issues.length === 1`).
+ */
+export function resolveIssueHandoffSession<M extends HandoffMachine>(
+  issue: { sessions: readonly { sessionId: string }[] },
+  sessions: readonly SessionMeta[],
+  repos: HandoffRepo[],
+  machines: M[],
+): { session: SessionMeta; targets: M[] } | null {
+  const byId = new Map(sessions.map((s) => [s.sessionId, s]))
+  const eligible: { session: SessionMeta; targets: M[] }[] = []
+  for (const ref of issue.sessions) {
+    const session = byId.get(ref.sessionId)
+    if (!session) continue
+    const targets = handoffTargets(session, repos, machines)
+    if (targets.length > 0) eligible.push({ session, targets })
+  }
+  return eligible.length === 1 ? (eligible[0] ?? null) : null
+}
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
 export function isIssueClosed(issue: IssueWire): boolean {

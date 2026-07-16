@@ -1,12 +1,45 @@
+import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   contextMenuTargets,
   deferDateFromNow,
   isIssueClosed,
   issueMenuEligibility,
+  resolveIssueHandoffSession,
   toggleLabelAcross,
 } from './issue-context-menu'
 import { makeIssue } from '@/lib/test-issue'
+
+const handoffRepos = [
+  {
+    repoId: 'r1',
+    machines: [
+      { machineId: 'source', path: '/a' },
+      { machineId: 'target', path: '/b' },
+    ],
+    worktrees: [{ path: '/a/.worktrees/x', isMain: false, machineId: 'source' }],
+  },
+]
+const handoffAgent = (state: 'in' | 'out' | 'unknown' = 'in', installed = true) => ({
+  kind: 'codex',
+  installed,
+  login: { state },
+})
+const handoffMachines = [
+  { id: 'source', online: true, inventory: { agents: [handoffAgent()] } },
+  { id: 'target', online: true, inventory: { agents: [handoffAgent('unknown')] } },
+]
+const makeSession = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): SessionMeta =>
+  ({
+    status: 'live',
+    agentKind: 'codex',
+    cwd: '/a/.worktrees/x',
+    machineId: 'source',
+    createdAt: 't',
+    updatedAt: 't',
+    unread: false,
+    ...over,
+  }) as SessionMeta
 
 describe('issueMenuEligibility', () => {
   it('gates everything off for an empty target set', () => {
@@ -165,5 +198,65 @@ describe('toggleLabelAcross', () => {
       { id: 'a', labels: ['y'] },
       { id: 'b', labels: [] },
     ])
+  })
+})
+
+describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
+  it('returns the single eligible session and its targets', () => {
+    const session = makeSession({ sessionId: 's1' })
+    const issue = makeIssue({ sessions: [{ sessionId: 's1' } as SessionMeta] })
+    const result = resolveIssueHandoffSession(issue, [session], handoffRepos, handoffMachines)
+    expect(result?.session.sessionId).toBe('s1')
+    expect(result?.targets.map((m) => m.id)).toEqual(['target'])
+  })
+
+  it('looks up SessionMeta from the store by issue.sessions sessionId', () => {
+    // Issue wire may carry a stale/partial session ref; store has the live meta.
+    const issue = makeIssue({
+      sessions: [{ sessionId: 's1', agentKind: 'shell', cwd: '/elsewhere' } as SessionMeta],
+    })
+    const live = makeSession({ sessionId: 's1', agentKind: 'codex', cwd: '/a/.worktrees/x' })
+    const result = resolveIssueHandoffSession(issue, [live], handoffRepos, handoffMachines)
+    expect(result?.session).toBe(live)
+  })
+
+  it('returns null when zero or more than one attached session is handoff-eligible', () => {
+    const ineligible = makeSession({ sessionId: 'shell', agentKind: 'shell' })
+    const a = makeSession({ sessionId: 'a' })
+    const b = makeSession({ sessionId: 'b' })
+    expect(
+      resolveIssueHandoffSession(
+        makeIssue({ sessions: [{ sessionId: 'shell' } as SessionMeta] }),
+        [ineligible],
+        handoffRepos,
+        handoffMachines,
+      ),
+    ).toBeNull()
+    expect(
+      resolveIssueHandoffSession(
+        makeIssue({
+          sessions: [{ sessionId: 'a' } as SessionMeta, { sessionId: 'b' } as SessionMeta],
+        }),
+        [a, b],
+        handoffRepos,
+        handoffMachines,
+      ),
+    ).toBeNull()
+  })
+
+  it('ignores missing store sessions and still resolves a sole eligible one', () => {
+    const eligible = makeSession({ sessionId: 'ok' })
+    const result = resolveIssueHandoffSession(
+      makeIssue({
+        sessions: [
+          { sessionId: 'gone' } as SessionMeta,
+          { sessionId: 'ok' } as SessionMeta,
+        ],
+      }),
+      [eligible],
+      handoffRepos,
+      handoffMachines,
+    )
+    expect(result?.session.sessionId).toBe('ok')
   })
 })
