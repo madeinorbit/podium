@@ -8,11 +8,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# All jobs install with --ignore-scripts (same rationale as release.yml): node-pty's
-# node-gyp postinstall crash-loops on CI runner toolchains, and nothing CI runs needs
+# Fast jobs install with --ignore-scripts (same rationale as release.yml): node-pty's
+# node-gyp postinstall crash-loops on CI runner toolchains, and nothing they run needs
 # it — the unit scope (vitest.unit.config.ts) excludes every suite that actually
-# spawns a PTY/abduco/real server. Integration + e2e suites run outside CI for now
-# (see the convention documented in vitest.unit.config.ts).
+# spawns a PTY/abduco/real server. The oracle job below is the exception: it runs the
+# process-spawning lanes, so it installs with scripts and real system deps.
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -113,3 +113,54 @@ jobs:
       # `test:bun` (compiled-daemon + lifecycle integration) stays out of CI.
       - name: unit tests (bun test)
         run: bun run test:bun:unit
+
+  # Migration oracle [POD-295]: the process-spawning lanes (integration, e2e,
+  # multi-instance). Together with unit-tests + typecheck above they are the
+  # behavioral contract every rewrite phase must preserve — lane definitions live
+  # in docs/agents/testing.md [spec:SP-0be7] and the lane set in scripts/oracle.ts
+  # (`bun run oracle` runs all five locally; a drift guard keeps the two in sync).
+  #
+  # This job is the BACKSTOP, not the gate: work lands here by local ff-merge under
+  # the merge lock, so the gate is a green `bun run oracle` on the candidate sha
+  # (land-flow convention, docs/rearchitecture-v3.md). CI catches what slipped past.
+  #
+  # NEVER continue-on-error, and one lane per matrix leg: POD-744 is the cautionary
+  # tale — biome + boundaries bundled under a single continue-on-error made an
+  # architectural guardrail decorative, reporting green while exiting 1 for weeks.
+  # A gate whose red is swallowed is worse than no gate; it launders the failure.
+  #
+  # The agent-smoke lane is deliberately absent: it launches real agent CLIs and
+  # bills LLM quota, so it runs only as an explicit gate step where a phase touches
+  # harness adapters.
+  oracle:
+    strategy:
+      # One red lane must not cancel the others — a partial picture is how a
+      # second failure hides behind the first.
+      fail-fast: false
+      matrix:
+        lane: [integration, e2e, multi-instance]
+    name: oracle (${{ matrix.lane }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      # abduco backs the PTY/session layer these lanes exercise.
+      - name: system deps (abduco)
+        run: sudo apt-get update && sudo apt-get install -y abduco
+      # The exception to --ignore-scripts above: node-pty's native addon must
+      # exist for lanes that spawn real PTYs.
+      - run: bun install --frozen-lockfile
+      # No playwright install here on purpose: the e2e LANE is browser-free — it
+      # is 7 vitest files under tests/e2e (verified: none of them, nor their
+      # helpers, import playwright). The Playwright browser suite is
+      # tests/e2e/browser/**.browser.e2e.ts under its own playwright.config.ts,
+      # which no script or lane currently runs at all — see POD-756.
+      - name: oracle lane
+        run: bun run test:${{ matrix.lane }}

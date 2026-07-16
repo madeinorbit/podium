@@ -10,7 +10,7 @@ real PTYs, real agent CLIs billing LLM quota) runs implicitly.
 | --- | --- | --- | --- |
 | **Unit (default)** | `bun run test` (= `test:unit` + `test:web` + `test:bun:unit`) | Hermetic vitest suites (`vitest.unit.config.ts`), apps/web happy-dom tests, bun:sqlite runtime store. No real servers, PTYs, or agent binaries. Retries: 0 — a flaky unit test is a bug. | Target <1min |
 | **Integration** | `bun run test:integration` | `vitest.integration.config.ts`: process/PTY/abduco/daemon suites, `*.integration.*`, `*.pty.test.ts`, real-port server boots, `tests/e2e/**`. Spawns real processes; resource flakes may retry here. | Minutes |
-| **E2E** | `bun run test:e2e` | `tests/e2e/**` only (real server + daemon + abduco + Playwright), via the integration config. | Minutes, heavy |
+| **E2E** | `bun run test:e2e` | The 7 vitest files under `tests/e2e/**` (real server + daemon + abduco), via the integration config with the `@podium/source` condition. **No browser**: the Playwright suite (`tests/e2e/browser/**.browser.e2e.ts`, own `playwright.config.ts`) is in NO lane and NO script — see POD-756. | Minutes, heavy |
 | **Agent smoke** | `bun run test:smoke:agents` | `vitest.agent-smoke.config.ts`: launches REAL agent CLIs (claude/codex/opencode/cursor). Gated on `PODIUM_REAL_CLI=1`, which only the npm script sets — never set it yourself implicitly. **Bills real LLM quota.** | Real money |
 | **Multi-instance** | `bun run test:multi-instance` | Acceptance lane for instance identity/state/endpoints/CLI routing/lifecycle ([docs/multi-instance.md](../multi-instance.md)): starts fully separate concurrent runtimes plus the installer suite. Do not substitute multiple clients routed to one server. | Minutes |
 
@@ -49,5 +49,16 @@ never `bun test` for vitest files.
   hermetic throwaway. For a live-like isolated deployment, use a named instance
   ([docs/multi-instance.md](../multi-instance.md)) instead of hand-rolled
   `PODIUM_PORT`/`PODIUM_STATE_DIR` overrides.
-- **CI runs the unit lane only** (installs with `--ignore-scripts`, so node-pty's
-  native addon never exists there). Integration/e2e/smoke run locally, on request.
+- **CI runs the oracle: unit + typecheck + integration + e2e + multi-instance**
+  [POD-295]. The light jobs (lint/typecheck/migrations/unit) install with
+  `--ignore-scripts`, so node-pty's native addon never exists there; the `oracle`
+  matrix job is the exception — it installs fully and adds abduco, because its
+  lanes spawn real PTYs. Agent-smoke is NEVER in CI (it bills real LLM quota) and
+  runs only on explicit request.
+- **The oracle is the rewrite's behavioral contract** [POD-295]: `bun run oracle`
+  runs all five lanes locally in one command (sequentially — the heavy lanes bind
+  fixed ports). The lane set lives in `scripts/oracle.ts`; a drift guard in
+  `scripts/test-configuration.test.ts` pins it against the CI matrix and the
+  package.json scripts, so a lane cannot fall out of CI silently. Land-flow
+  convention: acquiring the merge lock for main wants a green oracle on the
+  candidate sha (see docs/rearchitecture-v3.md) — advisory, with CI as backstop.

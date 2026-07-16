@@ -6,6 +6,7 @@ import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
 import unitConfig from '../vitest.unit.config'
+import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 
 type Project = string | { test?: { name?: string; exclude?: string[]; retry?: number } }
 type Config = {
@@ -83,6 +84,50 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
+  })
+
+  it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {
+    // The oracle is defined in three places that can drift apart silently: the lane
+    // set (scripts/oracle.ts), the local runner (`bun run oracle`), and the CI job.
+    // Drift fails OPEN — a lane dropped from CI still reports green — so pin them.
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.oracle).toBe('bun scripts/oracle.ts')
+
+    // Every oracle lane must name a script that actually exists.
+    for (const lane of ORACLE_LANES) {
+      expect(
+        pkg.scripts[lane.script],
+        `oracle lane "${lane.name}" needs a real script`,
+      ).toBeDefined()
+    }
+
+    // agent-smoke bills real LLM quota — it must never be reachable from the oracle.
+    for (const lane of ORACLE_LANES) {
+      expect(lane.script).not.toBe('test:smoke:agents')
+      expect(pkg.scripts[lane.script]).not.toContain('PODIUM_REAL_CLI')
+    }
+
+    // CI runs the heavy lanes as a matrix; the light ones (typecheck, unit) already
+    // have their own jobs. Together they must cover the oracle exactly — no lane
+    // may exist in the runner but be absent from CI.
+    const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+    const matrix = ci.match(/lane: \[([^\]]+)\]/)?.[1]
+    expect(matrix, 'ci.yml has no oracle lane matrix').toBeDefined()
+    const ciLanes = (matrix ?? '').split(',').map((s) => s.trim())
+    expect(ciLanes.sort()).toEqual([...HEAVY_LANES].sort())
+
+    // The oracle job must never swallow its own red (POD-744's lesson: a bundled
+    // continue-on-error made the boundary guardrail decorative for weeks).
+    // Match the YAML KEY, not the bare string: the job's own comments discuss
+    // continue-on-error, and a substring check cannot tell prose from a setting
+    // — that exact confusion is what broke the test in POD-743.
+    const fromOracle = ci.slice(ci.indexOf('\n  oracle:') + 1)
+    const nextJob = fromOracle.slice(1).search(/^ {2}[a-z][\w-]*:$/m)
+    const oracleJob = nextJob === -1 ? fromOracle : fromOracle.slice(0, nextJob + 1)
+    expect(oracleJob).toMatch(/^ {2}oracle:$/m)
+    expect(oracleJob).not.toMatch(/^\s*continue-on-error:/m)
   })
 
   it('runs every vitest invocation under the Bun runtime [spec:SP-3f93]', () => {
