@@ -1,5 +1,11 @@
 import { isAbsolute, join } from 'node:path'
 import type {
+  HandoffExportResultMessage,
+  HandoffChunkReadResultMessage,
+  HandoffImportChunkResultMessage,
+  HandoffImportResultMessage,
+} from '@podium/protocol'
+import type {
   AgentKind,
   AgentQuotaWire,
   ControlMessage,
@@ -12,10 +18,6 @@ import type {
   FileWriteResultMessage,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-  HandoffChunkReadResultMessage,
-  HandoffExportResultMessage,
-  HandoffImportChunkResultMessage,
-  HandoffImportResultMessage,
   MachineQuotaWire,
   RepoOp,
   ResumeRef,

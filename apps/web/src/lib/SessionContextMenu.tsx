@@ -3,10 +3,10 @@ import { handoffTargets } from '@podium/domain'
 import type { SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
+  ArrowRightLeft,
   AlarmClockOff,
   Archive,
   ArchiveRestore,
-  ArrowRightLeft,
   ChevronRight,
   Mail,
   MailOpen,
