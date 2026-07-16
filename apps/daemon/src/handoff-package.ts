@@ -9,6 +9,7 @@ import {
   resolvePinnedCodexRollout,
 } from '@podium/agent-bridge'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/protocol'
+import { gitWorktree } from './worktree-resolve'
 
 const runFile = promisify(execFile)
 const HANDOFF_REF_ROOT = 'refs/podium/handoff'
@@ -18,48 +19,15 @@ async function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promis
   return stdout.trim()
 }
 
-/** git's own answer to "is this a LINKED worktree, and where is its root?" — a
- *  main checkout has `git-dir === git-common-dir`, a linked worktree points at
- *  `<common>/worktrees/<name>`. Asking git rather than matching path shape is
- *  what makes "never hand off a main checkout" ([spec:SP-3f7a]) airtight:
- *  worktrees may live anywhere, and a cwd deep inside the main checkout must not
- *  read as one. Null = not a linked worktree (or not a repo at all).
- *
- *  Both paths are RESOLVED against `cwd` before comparing: git prints them
- *  relative to where it ran (`.git` from a root, `../.git` from a subdirectory)
- *  and absolute only sometimes, so raw strings differ for one same directory.
- *  `--path-format=absolute` would do this in git, but it needs git >= 2.31 —
- *  and an unknown flag is echoed, not rejected (see `parseWorktreeDirs`).
- *  (Same primitive, same reasoning as POD-665's `gitWorktree` in
- *  worktree-resolve.ts; collapse the two when these branches meet.) */
-export function parseWorktreeDirs(
-  out: string,
-): { root: string; gitDir: string; commonDir: string } | null {
-  const lines = out.split('\n').map((line) => line.trim())
-  if (lines.length !== 3) return null
-  const [root, gitDir, commonDir] = lines as [string, string, string]
-  if (!root || !gitDir || !commonDir) return null
-  // `git rev-parse` NEVER fails on an option it does not know — it echoes the
-  // option back and exits 0. `--git-common-dir` only exists since git 2.5, so on
-  // an older git the third line is the literal '--git-common-dir': read as a
-  // path, a main checkout compares unequal to ITSELF and reads as a linked
-  // worktree — the one thing SP-3f7a forbids, failing OPEN. A line count cannot
-  // catch it (the echo replaces the value IN PLACE), so reject anything shaped
-  // like a flag: no path git prints here can begin with '-'.
-  if (lines.some((line) => line.startsWith('-'))) return null
-  return { root, gitDir, commonDir }
-}
-
+/** The root of the LINKED worktree containing `cwd`, or null (main checkout, or
+ *  not a repo). POD-657 and POD-665 each built this classification independently
+ *  and hit the same trap — `git rev-parse` echoes an unknown flag and exits 0, so
+ *  a shifted parse reads every main checkout as a worktree, failing OPEN on the
+ *  one rule [spec:SP-3f7a] forbids. Collapsed here onto `gitWorktree`, the single
+ *  hardened primitive, as both branches' commit bodies agreed. */
 async function linkedWorktreeRoot(cwd: string): Promise<string | null> {
-  const out = await git(cwd, [
-    'rev-parse',
-    '--show-toplevel',
-    '--git-dir',
-    '--git-common-dir',
-  ]).catch(() => '')
-  const dirs = parseWorktreeDirs(out)
-  if (!dirs) return null
-  return resolve(cwd, dirs.gitDir) === resolve(cwd, dirs.commonDir) ? null : dirs.root
+  const info = await gitWorktree(cwd)
+  return info?.kind === 'worktree' ? info.root : null
 }
 
 /**
