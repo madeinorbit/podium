@@ -119,9 +119,10 @@ function makeHarness(settingsDir: string): Harness {
       remove: () => {},
     },
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
-    // Both methods the real spawn handler reaches for (POD-746): pins launch
-    // cwd on every spawn (unawaited) and clears on exit. A stub missing one
-    // throws from inside the handler → spawnError, not a type error.
+    // Both methods the real spawn handler reaches for: it pins the launch cwd on every
+    // spawn (unawaited) and clears on exit. A stub missing one throws from inside the
+    // handler, which surfaces here as a spawnError, not as a type error — `as unknown as
+    // DaemonContext` below erases the shape, and scripts/ is outside the typecheck.
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
