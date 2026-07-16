@@ -9,6 +9,11 @@
  *
  * Everything here is a no-op unless `PODIUM_LOOP_PROFILE` is set.
  */
+import {
+  formatStallClassification,
+  type StallClassification,
+} from '@podium/runtime/loop-metrics'
+
 const ENABLED = !!process.env.PODIUM_LOOP_PROFILE
 export const loopProfileEnabled = ENABLED
 
@@ -43,13 +48,16 @@ export function timeTask<T>(label: string, fn: () => T, thresholdMs = 50): T {
 }
 
 /** Hand this to `startLoopMetrics({ onLongTick })`. Reports the current window's
- *  activity mix + heap; the per-second reset keeps the mix scoped to the stall. */
-export function reportLongTick(ms: number): void {
+ *  activity mix + heap; the per-second reset keeps the mix scoped to the stall.
+ *  The starved-vs-busy classification (POD-600) rides along when the probe
+ *  could compute one (Linux schedstat available). */
+export function reportLongTick(ms: number, classification?: StallClassification): void {
   if (!ENABLED) return
   const mu = process.memoryUsage()
   const mb = (b: number) => (b / 1048576).toFixed(0)
+  const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
   console.warn(
-    `[podium:loop] daemon stall ${ms.toFixed(0)}ms | frames=${ctr.frames} bytes=${(ctr.frameBytes / 1024).toFixed(0)}KB control=${ctr.control} tails=${ctr.tails} worker=${ctr.worker} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB`,
+    `[podium:loop] daemon stall ${ms.toFixed(0)}ms | frames=${ctr.frames} bytes=${(ctr.frameBytes / 1024).toFixed(0)}KB control=${ctr.control} tails=${ctr.tails} worker=${ctr.worker} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${cls}`,
   )
 }
 

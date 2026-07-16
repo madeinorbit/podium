@@ -8,7 +8,7 @@ import { trpcServer } from '@hono/trpc-server'
 import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
-import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readOwnDaemonMachineId, UpstreamForwarder, UpstreamSync } from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -401,7 +401,21 @@ export async function startServer(
           authorizeClient: (req) =>
             !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
         })
-        if (process.env.PODIUM_LOOP_PROFILE) startLoopMetrics({ label: 'server' })
+        // Server-side stall reporter (POD-600): a lightweight analog of the
+        // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,
+        // no activity counters (this process does no PTY work).
+        if (process.env.PODIUM_LOOP_PROFILE)
+          startLoopMetrics({
+            label: 'server',
+            onLongTick: (ms, classification) => {
+              const mu = process.memoryUsage()
+              const mb = (b: number) => (b / 1048576).toFixed(0)
+              const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
+              console.warn(
+                `[podium:loop] server stall ${ms.toFixed(0)}ms${cls} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB`,
+              )
+            },
+          })
         resolve({
           port: info.port,
           instanceId,

@@ -13,7 +13,7 @@ import {
 } from '@podium/agent-bridge'
 import type { AgentKind, ControlMessage, DaemonMessage, TranscriptItem } from '@podium/protocol'
 import { recordToItemsForKind, type TranscriptTailer, tailTranscript } from '@podium/transcript'
-import { countTail } from './loop-attribution'
+import { countTail, timeTask } from './loop-attribution'
 import type { SessionCwdTracker } from './worktree-resolve'
 
 export type SpawnControl = Extract<ControlMessage, { type: 'spawn' }>
@@ -87,17 +87,22 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         (items, meta) => {
           if (items.length === 0 && !meta.reset) return
           countTail()
-          send({
-            type: 'transcriptDelta',
-            sessionId,
-            items,
-            ...(meta.tail ? { tail: meta.tail } : {}),
-            ...(meta.reset ? { reset: true } : {}),
+          // The per-batch delta publish (encode + ws send + dirty-mark) is
+          // synchronous loop work — timed so a chatty transcript shows up in
+          // the stall attribution.
+          timeTask(`tailBatch(${items.length})`, () => {
+            send({
+              type: 'transcriptDelta',
+              sessionId,
+              items,
+              ...(meta.tail ? { tail: meta.tail } : {}),
+              ...(meta.reset ? { reset: true } : {}),
+            })
+            // The tail fired because this transcript file was appended to — mark it
+            // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
+            // search index near-real-time, instead of waiting for the periodic scan.
+            deps.onTranscriptDirty(path)
           })
-          // The tail fired because this transcript file was appended to — mark it
-          // dirty so the worker re-summarizes JUST it (coalesced, ~1s) and keeps the
-          // search index near-real-time, instead of waiting for the periodic scan.
-          deps.onTranscriptDirty(path)
         },
         {
           recordToItems,

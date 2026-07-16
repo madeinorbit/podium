@@ -20,6 +20,10 @@ WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
 Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
+# Event-loop stall logging + starved-vs-busy classification (POD-600). Cheap
+# (a probe timer + one /proc read per second); the daemon gets the same flag
+# via a local drop-in.
+Environment=PODIUM_LOOP_PROFILE=1
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite —
 # no build, no dist, no stale-dist trap. Bun runtime (runs TS natively); @podium/agent-bridge
 # is a shared dep. This process does NO PTY work (that's the daemon) — keeping per-agent

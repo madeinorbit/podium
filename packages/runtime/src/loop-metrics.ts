@@ -1,4 +1,20 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks'
+import {
+  createStallClassifier,
+  formatStallClassification,
+  type StallClassification,
+} from './loop-stall'
+
+// Re-exported so callers wiring an onLongTick reporter (daemon loop-attribution,
+// server) can name the classification without a second subpath import.
+export {
+  classifyStall,
+  createStallClassifier,
+  formatStallClassification,
+  parseSchedstat,
+  type StallClassification,
+  type StallClassifier,
+} from './loop-stall'
 
 export interface LoopMetricsHandle {
   stop(): void
@@ -24,8 +40,9 @@ export function startLoopMetrics(opts: {
   log?: (m: string) => void
   now?: () => number
   /** Called with the stall duration (ms) each time a long tick is logged, so a
-   *  caller can attribute it (e.g. dump what the loop was busy with). */
-  onLongTick?: (ms: number) => void
+   *  caller can attribute it (e.g. dump what the loop was busy with). The
+   *  classification (starved vs busy, POD-600) rides along where available. */
+  onLongTick?: (ms: number, classification?: StallClassification) => void
 }): LoopMetricsHandle {
   const longTickMs = opts.longTickMs ?? 100
   const sampleMs = opts.sampleMs ?? 1000
@@ -34,6 +51,11 @@ export function startLoopMetrics(opts: {
 
   const h = monitorEventLoopDelay({ resolution: 10 })
   h.enable()
+
+  // Starved-vs-busy classifier (POD-600): baseline re-anchored once per sample
+  // window below; each long tick reports own-CPU vs runqueue-wait deltas.
+  // Absent (undefined) off Linux — the log line just omits the classification.
+  const classifier = createStallClassifier()
 
   // Lifetime max delay (ms) seen by the probe, and whether the current sample
   // window has already logged a long tick (throttle to once per sampleMs).
@@ -54,9 +76,14 @@ export function startLoopMetrics(opts: {
       if (late > lifetimeMaxMs) lifetimeMaxMs = late
       if (late > windowMaxMs) windowMaxMs = late
       if (!loggedThisWindow && late > longTickMs) {
-        log(`[podium:loop] ${opts.label} long tick ${late.toFixed(0)}ms`)
+        const cls = classifier?.classify(late)
+        log(
+          `[podium:loop] ${opts.label} long tick ${late.toFixed(0)}ms${
+            cls ? ` | ${formatStallClassification(cls)}` : ''
+          }`,
+        )
         loggedThisWindow = true
-        opts.onLongTick?.(late)
+        opts.onLongTick?.(late, cls)
       }
     }
   }, probeMs)
@@ -74,6 +101,12 @@ export function startLoopMetrics(opts: {
     if (histMaxMs > lifetimeMaxMs) lifetimeMaxMs = histMaxMs
     windowMaxMs = 0
     loggedThisWindow = false
+    // Re-anchor the starved-vs-busy deltas so a long tick's classification
+    // reflects roughly the current window, not everything since boot. Ordering
+    // note: a stall delays BOTH pending timers, and the probe (registered
+    // first, shorter interval) fires first — so the stall is classified
+    // against the pre-stall baseline before this refresh moves it.
+    classifier?.refreshBaseline()
   }, sampleMs)
   sample.unref?.()
 

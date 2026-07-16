@@ -48,7 +48,7 @@ import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { countControl, reportLongTick, startLoopAttribution } from './loop-attribution'
+import { countControl, reportLongTick, startLoopAttribution, timeTask } from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
@@ -480,14 +480,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     let msg: ControlMessage
     try {
-      msg = parseControlMessage(raw.toString())
+      // The toString+parse of a large frame is a known synchronous loop cost
+      // (the big-paste wedge shape) — time it separately from the handler.
+      msg = timeTask('controlParse', () => parseControlMessage(raw.toString()))
     } catch (err) {
       // Drop the malformed control frame (don't wedge the loop) — but log it, never
       // silently, so protocol drift / poison frames are observable.
       warnDroppedControlFrame(err)
       return
     }
-    dispatchControlMessage(ctx, msg)
+    timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
   }
 
   // Reconnecting client: the daemon may start before the server (separate
