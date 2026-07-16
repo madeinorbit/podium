@@ -659,6 +659,33 @@ describe('MessagingService', () => {
     expect(h.sendTurn.mock.calls[0]![0]!.threadId).toMatch(/^concierge_/)
   })
 
+  it('guides the user to enable topic mode when the chat is not a forum', async () => {
+    const h = makeHarness({
+      issues: {
+        list: () =>
+          [
+            {
+              id: 'iss_i2',
+              seq: 10,
+              displayRef: 'POD-10',
+              title: 'No sessions',
+              stage: 'planning',
+              repoPath: '/my/repo',
+              sessions: [],
+              sessionSummary: { total: 0, byPhase: {} },
+            },
+          ] as never,
+      },
+    })
+    h.createForumTopic.mockRejectedValueOnce(new Error('Bad Request: the chat is not a forum'))
+    h.inbound('', { callback: { id: 'cb3', data: 'i:iss_i2' } })
+    await flush()
+    expect(h.answerCallback).toHaveBeenCalledWith('cb3', 'Enable Topics for this chat first')
+    expect(h.sent).toHaveLength(1)
+    expect(h.sent[0]!.text).toContain('Enable Topics')
+    expect(h.sent[0]!.threadRef).toBeUndefined()
+  })
+
   it('still dispatches unknown slash commands to the superagent', async () => {
     const h = makeHarness()
     h.inbound('/model opus')

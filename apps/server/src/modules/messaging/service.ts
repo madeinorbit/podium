@@ -365,6 +365,19 @@ export class MessagingService implements TelegramNoticePort {
     } catch (err) {
       console.warn('[podium:messaging] callback failed:', err)
       try {
+        // Bot API 9.3: bots may only create topics in a private chat after the
+        // USER enables topic mode for it — surface the one-time setup step
+        // instead of a dead-end toast.
+        if (isNotAForumError(err)) {
+          await this.adapter?.answerCallback?.(cb.id, 'Enable Topics for this chat first')
+          await this.reply(
+            { channel: msg.source.channel, chatId: msg.source.chatId },
+            'Telegram only lets me create topics after you enable topic mode for this chat: ' +
+              'open this chat’s profile (tap the bot name at the top) and choose "Enable Topics", ' +
+              'then tap the issue button again.',
+          )
+          return
+        }
         await this.adapter?.answerCallback?.(cb.id, 'Could not open issue topic')
       } catch {
         /* best-effort */
@@ -431,4 +444,9 @@ export class MessagingService implements TelegramNoticePort {
       console.warn('[podium:messaging] reply send failed:', err instanceof Error ? err.message : err)
     }
   }
+}
+/** Telegram's "Bad Request: the chat is not a forum" — topic mode not enabled
+ *  by the user for this private chat (Bot API 9.3 has_topics_enabled). */
+function isNotAForumError(err: unknown): boolean {
+  return err instanceof Error && /not a forum/i.test(err.message)
 }
