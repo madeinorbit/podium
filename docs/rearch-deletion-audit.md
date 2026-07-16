@@ -96,14 +96,39 @@ disappears is a duplicate, not the capability:
 - **Package barrels are not shims.** `packages/*/src/**/index.ts` re-exports a
   deliberate public API. Only *app-level* all-re-export files are tombstones.
 
+## A detector that stops matching is not a deletion
+
+This is the audit's own worst failure mode, and it is worth stating plainly
+because the ratchet actively converts it into permanent damage: **a count that
+falls because a regex broke looks exactly like a count that fell because someone
+deleted the debt.** The script then prints *"counts went DOWN — nice, lock the
+win in"*, the baseline records a deletion that never happened, and the phase can
+close over live code.
+
+So detectors must not key on things that move for unrelated reasons:
+
+- **Not on formatting.** Anchors that need a construct on one line break when
+  biome (lineWidth 100) wraps it — and the count silently drops. `reexport-shims`
+  matches statements, not lines, for this reason.
+- **Not on a helper's name when the debt is the underlying reach-through.**
+  `mods(ctx)` is only sugar for `ctx.registry.modules`, so `router-triple-access`
+  matches both; otherwise a codemod inlining the helper would "delete" 100+ sites
+  while changing nothing.
+- **Zero must be provable, not inferred.** Where a zero count could only mean the
+  detector broke, say so: `send-turn-duplicate` throws if its anchor matches
+  nothing rather than reporting 0.
+
+`scripts/rearch-audit.test.ts` asserts every check still binds to a real anchor
+in the live tree, which catches total drift. It cannot catch partial
+under-counting — that is what the rules above are for.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`
-   and `unit`.
-2. Add a test pinning the shape it must match **and one it must not** — a
-   detector that quietly stops matching reads as "deleted!" and would let a phase
-   close on a false zero. `scripts/rearch-audit.test.ts` asserts every check
-   still binds to a real anchor in the live tree for exactly this reason.
+   and `unit`. Make the `unit` describe exactly what the detector counts — if the
+   prose is broader than the regex, the gap is a false zero waiting to happen.
+2. Add a test pinning the shape it must match **and one it must not**, plus one
+   that the count survives reformatting.
 3. `bun run audit:rearch --update-baseline` and commit the baseline.
 
 The counts here were re-derived at the baseline commit, not carried over from the

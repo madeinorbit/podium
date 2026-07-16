@@ -62,6 +62,56 @@ describe('stripComments', () => {
     expect(out).not.toContain('gone')
     expect(out).toContain('const t = 1')
   })
+
+  // A regex literal carrying a quote/backtick used to flip the scanner into
+  // string state with no recovery, so EVERY comment below it survived as code
+  // and was counted forever. Four real scanned files do this.
+  it('does not desync on a regex literal containing a backtick', () => {
+    // Verbatim shape of apps/server/src/steward.ts:87.
+    const src = ['const t = x.replace(/`/g, "")', '// gone', 'const after = 1'].join('\n')
+    const out = stripComments(src)
+    expect(out).not.toContain('gone')
+    expect(out).toContain('const after = 1')
+  })
+
+  it('does not desync on a regex literal containing a quote', () => {
+    const src = [`const t = s.replace(/'/g, '')`, '// gone', 'const after = 1'].join('\n')
+    const out = stripComments(src)
+    expect(out).not.toContain('gone')
+    expect(out).toContain('const after = 1')
+  })
+
+  it('does not desync on a nested template inside an interpolation', () => {
+    // Verbatim shape of packages/agent-bridge/src/tmux.ts:11 (shellQuote).
+    const src = ["const q = `'${s.replace(/'/g, `'\\''`)}'`", '// gone', 'const after = 1'].join(
+      '\n',
+    )
+    const out = stripComments(src)
+    expect(out).not.toContain('gone')
+    expect(out).toContain('const after = 1')
+  })
+
+  it('treats division as division, not as a regex opener', () => {
+    const src = ['const r = total / count', '// gone', 'const after = 1'].join('\n')
+    const out = stripComments(src)
+    expect(out).not.toContain('gone')
+    expect(out).toContain('const after = 1')
+    expect(out).toContain('total / count')
+  })
+
+  it('recognises a regex after a return keyword', () => {
+    const src = ['function f() { return /a`b/.test(x) }', '// gone', 'const after = 1'].join('\n')
+    const out = stripComments(src)
+    expect(out).not.toContain('gone')
+    expect(out).toContain('const after = 1')
+  })
+
+  it('handles a / inside a regex character class', () => {
+    const src = ['const re = /[/`]/g', '// gone', 'const after = 1'].join('\n')
+    const out = stripComments(src)
+    expect(out).not.toContain('gone')
+    expect(out).toContain('const after = 1')
+  })
 })
 
 describe('isTestFile / isFrozenFile', () => {
@@ -176,6 +226,67 @@ describe('inventory checks', () => {
     })
     const sites = CHECKS.find((c) => c.id === 'reexport-shims')?.collect(ctx) ?? []
     expect(sites.map((s) => s.file)).toEqual(['apps/web/src/lib/home.ts'])
+  })
+
+  // A per-LINE predicate missed these: no single line carries both `export` and
+  // `from`. Biome (lineWidth 100) wraps a re-export as soon as a name is added,
+  // so the count would DROP and the ratchet would record a phantom deletion.
+  it('reexport-shims sees a wrapped multi-line re-export', () => {
+    const ctx = ctxOf({
+      'apps/web/src/app/optimistic-spawn.ts': [
+        '/** Re-export shim (arch-v2 P3). */',
+        'export {',
+        '  mergeOptimistic,',
+        '  type OptimisticSpawnArgs,',
+        "} from '@podium/client-core/viewmodels'",
+      ].join('\n'),
+    })
+    const sites = CHECKS.find((c) => c.id === 'reexport-shims')?.collect(ctx) ?? []
+    expect(sites.map((s) => s.file)).toEqual(['apps/web/src/app/optimistic-spawn.ts'])
+  })
+
+  it('reexport-shims count does not move when a re-export is reformatted', () => {
+    const oneLine = ctxOf({ 'apps/a.ts': `export { a, b } from './x'` })
+    const wrapped = ctxOf({ 'apps/a.ts': `export {\n  a,\n  b,\n} from './x'` })
+    const check = CHECKS.find((c) => c.id === 'reexport-shims')
+    expect(check?.collect(oneLine).length).toBe(check?.collect(wrapped).length)
+  })
+
+  it('router-triple-access counts the longhand reach-through, not just mods()', () => {
+    // mods(ctx) IS `ctx.modules ?? ctx.registry.modules` (trpc.ts:41), so keying
+    // on the helper name alone would read an inlining codemod as ~119 deletions.
+    const ctx = ctxOf({
+      'apps/server/src/router.ts': [
+        'mods(ctx).sessions.list()',
+        'ctx.registry.modules.rpc.scanRepos([])',
+        'const s = sessionStore',
+      ].join('\n'),
+    })
+    expect(countOf(ctx, 'router-triple-access')).toBe(3)
+  })
+
+  it('send-turn-duplicate ERRORS when its anchor stops matching', () => {
+    // `[].slice(1)` is `[]` — a broken detector would otherwise report 0 and
+    // `--phase POD-313` would print "clear to close" with both procedures live.
+    const broken = ctxOf({ 'apps/server/src/router.ts': 'nothing resembling the anchor' })
+    const check = CHECKS.find((c) => c.id === 'send-turn-duplicate')
+    expect(() => check?.collect(broken)).toThrow(/matched nothing/)
+  })
+
+  it('capability-tables counts a module-private table but not the web icon map', () => {
+    const ctx = ctxOf({
+      'packages/protocol/src/messages/terminal.ts':
+        'export const AGENT_CAPABILITIES: Record<AgentKind, AgentCapabilities> = {}',
+      // No `export` — drifts identically, still debt.
+      'apps/server/src/private.ts': 'const RESUME: Record<HarnessAgent, string> = {}',
+      // Same shape, different concern: a UI icon map is not a harness capability.
+      'apps/web/src/lib/WorkerLabel.tsx': 'const KIND_ICON: Record<AgentKind, IconComponent> = {}',
+    })
+    const sites = CHECKS.find((c) => c.id === 'capability-tables')?.collect(ctx) ?? []
+    expect(sites.map((s) => s.file).sort()).toEqual([
+      'apps/server/src/private.ts',
+      'packages/protocol/src/messages/terminal.ts',
+    ])
   })
 
   it('sync/async twins match only a blocking fn that HAS an async twin', () => {
