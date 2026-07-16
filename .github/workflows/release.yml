@@ -1,10 +1,13 @@
 name: release
 on:
   push:
-    branches: [main]          # → edge (headless only)
-    tags: ['v*']              # → stable (headless + desktop)
+    branches: [main]          # → rolling edge headless assets only
+    tags: ['v*']              # → stable headless assets only
 permissions:
   contents: write
+concurrency:
+  group: headless-release-${{ github.ref_type == 'branch' && 'edge' || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 jobs:
   release:
     runs-on: blacksmith-4vcpu-ubuntu-2204
@@ -34,15 +37,3 @@ jobs:
           else
             bun scripts/release.ts --channel edge
           fi
-      - name: Desktop build + publish (stable tags only)
-        if: github.ref_type == 'tag'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          bun run --cwd apps/desktop build
-          # Tauri emits the bundle, its .sig, and latest.json under apps/desktop/src-tauri/target/release/bundle
-          gh release upload "${{ github.ref_name }}" \
-            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage* \
-            apps/desktop/src-tauri/target/release/bundle/latest.json --clobber

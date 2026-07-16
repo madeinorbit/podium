@@ -117,9 +117,11 @@ curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/instal
 
 ## Desktop app auto-update
 
-The bundled **desktop** app (Tauri) updates itself from the GitHub `latest.json` updater
-feed — it always tracks **stable**. There's nothing to run; it checks and applies updates on
-its own.
+The bundled **desktop** app (Tauri) uses the same persisted `updateChannel`: stable reads the
+latest stable manifest and edge reads the rolling edge manifest. Release builds check and apply
+updates on their own. Debug/`tauri dev` builds do not use the production updater. Desktop
+artifacts are promoted explicitly rather than built on every push; see
+[Desktop releases](desktop-releases.md).
 
 ## Running the daemon as a system service (`--system`)
 

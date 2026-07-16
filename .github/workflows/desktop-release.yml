@@ -1,0 +1,81 @@
+name: desktop release
+
+# Desktop releases are explicit promotions, never a side effect of pushing main. [spec:SP-7f2c]
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel to promote
+        required: true
+        type: choice
+        options:
+          - edge
+          - stable
+      release_tag:
+        description: Stable tag (vX.Y.Z); required for stable and ignored for edge
+        required: false
+        type: string
+      release_notes:
+        description: Optional updater notes; begin with CRITICAL: for a required update
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Stable builds the immutable release tag. Edge builds the ref selected in the
+          # workflow-dispatch UI, making the promoted source commit explicit.
+          ref: ${{ inputs.channel == 'stable' && inputs.release_tag || github.ref }}
+      - uses: useblacksmith/setup-bun@v1
+        with: { bun-version: '1.3.14' }
+      - name: Validate release selection
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: >-
+          bun scripts/desktop-release.ts
+          --validate-only
+          --channel "$CHANNEL"
+          --tag "$RELEASE_TAG"
+      - uses: useblacksmith/cache@v5
+        with:
+          path: |
+            ~/.bun/install/cache
+            packages/agent-bridge/src/abduco.bin
+          key: desktop-build-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Build signed desktop bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun run --cwd apps/desktop build
+      - name: Prepare and validate static updater manifest
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: >-
+          bun scripts/desktop-release.ts
+          --channel "$CHANNEL"
+          --tag "$RELEASE_TAG"
+          --notes "$RELEASE_NOTES"
+      - name: Upload promoted desktop assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          target_tag="$RELEASE_TAG"
+          if [ "$CHANNEL" = "edge" ]; then target_tag=edge; fi
+          gh release view "$target_tag" >/dev/null
+          gh release upload "$target_tag" dist-desktop/* --clobber

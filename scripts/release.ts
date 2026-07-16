@@ -4,7 +4,7 @@
  *   bun scripts/release.ts --channel edge        # build + upload to the rolling edge prerelease
  *   bun scripts/release.ts --channel stable --tag v0.2.0
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 
 export function buildHeadlessManifest(p: {
@@ -61,7 +61,8 @@ async function main(): Promise<void> {
     console.log(`[release] built ${version} for ${channel}; set GH_TOKEN to publish.`)
     return
   }
-  // 2) publish via gh: (re)create the channel release and upload assets (--clobber overwrites edge)
+  // 2) publish via gh. Edge updates only its headless assets in place: deleting the release
+  // would erase an explicitly promoted desktop build on every main push. [spec:SP-7f2c]
   const assets = [
     `dist-bun/${tarball}`,
     `dist-bun/${tarball}.sig`,
@@ -71,21 +72,54 @@ async function main(): Promise<void> {
     'install.sh',
   ]
   if (channel === 'edge') {
-    execFileSync('bash', ['-c', `gh release delete edge --yes --cleanup-tag 2>/dev/null || true`])
-    execFileSync('gh', [
-      'release',
-      'create',
-      'edge',
-      '--prerelease',
-      '--title',
-      `edge (${version})`,
-      '--notes',
-      `Rolling edge build ${version}`,
-      ...assets,
-    ])
+    const releaseExists =
+      spawnSync('gh', ['release', 'view', 'edge'], {
+        stdio: 'ignore',
+      }).status === 0
+    const sha =
+      process.env.GITHUB_SHA ??
+      execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    if (releaseExists) {
+      const repo = process.env.GITHUB_REPOSITORY ?? 'madeinorbit/podium'
+      execFileSync('gh', [
+        'api',
+        '--method',
+        'PATCH',
+        `repos/${repo}/git/refs/tags/edge`,
+        '-f',
+        `sha=${sha}`,
+        '-F',
+        'force=true',
+      ])
+      execFileSync('gh', [
+        'release',
+        'edit',
+        'edge',
+        '--prerelease',
+        '--title',
+        `edge (${version})`,
+        '--notes',
+        `Rolling edge build ${version}`,
+      ])
+      execFileSync('gh', ['release', 'upload', 'edge', ...assets, '--clobber'])
+    } else {
+      execFileSync('gh', [
+        'release',
+        'create',
+        'edge',
+        '--target',
+        sha,
+        '--prerelease',
+        '--title',
+        `edge (${version})`,
+        '--notes',
+        `Rolling edge build ${version}`,
+        ...assets,
+      ])
+    }
   } else {
     execFileSync('gh', ['release', 'create', tag, '--latest', '--generate-notes', ...assets])
-    // desktop (stable only) — built + uploaded by the workflow's tauri step (see release.yml)
+    // Desktop promotion is a separate workflow_dispatch operation. [spec:SP-7f2c]
   }
   console.log(`[release] published ${version} → ${channel}`)
 }

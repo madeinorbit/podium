@@ -7,7 +7,7 @@ const conf = JSON.parse(readFileSync(join(__dirname, 'tauri.conf.json'), 'utf8')
 const mainSource = readFileSync(join(__dirname, 'src/main.rs'), 'utf8')
 
 describe('tauri desktop config', () => {
-  it('points updater endpoints at the GitHub latest.json', () => {
+  it('keeps stable as the packaged fallback endpoint', () => {
     expect(conf.plugins.updater.endpoints).toEqual([
       'https://github.com/madeinorbit/podium/releases/latest/download/latest.json',
     ])

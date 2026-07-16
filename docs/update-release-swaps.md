@@ -1,9 +1,9 @@
-# Podium auto-update: release-time swaps
+# Podium auto-update: release-time keys
 
-The auto-update machinery (headless tarball + desktop AppImage) ships with **dev/placeholder**
-keys and a placeholder feed host so the whole chain round-trips locally. Before cutting a real
-public release, an operator must perform exactly **three swaps**. None of them are in the repo by
-default — they are the operator's secrets / infra.
+The auto-update machinery uses separate signing systems for the headless tarball and desktop
+AppImage. Before cutting a real public release, an operator must verify that the CI private keys
+match the committed public keys. Private keys are operator secrets and must never be committed.
+GitHub Releases is the production feed [spec:SP-7f2c].
 
 ## The version is single-sourced
 
@@ -46,18 +46,17 @@ wired — at release, generate a real Tauri minisign key (`tauri signer generate
 with it (Tauri build env `TAURI_SIGNING_PRIVATE_KEY` / `…_PASSWORD`), and replace the placeholder
 `updater.pubkey` in `tauri.conf.json`.
 
-## Swap 3 — feed host
+## Release feeds
 
-Both feeds are pluggable and ship with placeholder/localhost defaults:
+Production feeds are GitHub Releases:
 
-- **Headless:** `podium update` reads the feed base from env `PODIUM_UPDATE_FEED`, else config
-  `updateFeed` (`packages/core/src/config.ts`), else `http://127.0.0.1:8789` (dev). The manifest URL
-  is `<feed>/update/<target>/x86_64/<current>`.
-- **Desktop:** `updater.endpoints` in `tauri.conf.json`
-  (`https://releases.podium.app/update/{{target}}/{{arch}}/{{current_version}}` placeholder).
+- **Headless:** `podium update` selects the stable GitHub release or rolling `edge` release from
+  `updateChannel`; its explicit environment/config feed overrides remain available for tests.
+- **Desktop:** release builds select the stable or edge static `latest.json` from the same
+  persisted `updateChannel`. Debug builds do not check production feeds.
 
-At release, point both at the real release host (which serves the Tauri-shaped manifest
-`{ version, platforms: { "linux-x86_64": { url, signature } } }` plus the artifacts + `.sig`).
+Desktop artifacts are cut only through the manual workflow documented in
+[Desktop releases](desktop-releases.md).
 
 ## Summary
 
@@ -65,5 +64,4 @@ At release, point both at the real release host (which serves the Tauri-shaped m
 |---|------|-------|
 | 1 | Headless Ed25519 key | env `PODIUM_UPDATE_SIGNING_KEY` (build) + `apps/cli/src/podium-update-pubkey.ts` (commit) |
 | 2 | Desktop minisign key | Tauri signing env + `tauri.conf.json` `updater.pubkey` |
-| 3 | Feed host | `PODIUM_UPDATE_FEED` / config `updateFeed` + `tauri.conf.json` `updater.endpoints` |
 | — | Version bump | `package.json` `"version"` (single source; flows to both) |

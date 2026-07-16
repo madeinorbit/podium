@@ -397,11 +397,12 @@ fn main() {
                 });
             });
 
-            // Check for updates on launch (non-blocking): if a newer signed version
-            // exists, prompt the user and — on confirm — download, install, restart.
+            // Check the persisted stable/edge channel on launch (non-blocking). The
+            // updater itself returns before network/UI work in debug builds. [spec:SP-7f2c]
             let updater_handle = app.handle().clone();
+            let update_channel = cfg.update_channel;
             tauri::async_runtime::spawn(async move {
-                crate::updater::check_and_prompt_update(updater_handle).await;
+                crate::updater::check_and_prompt_update(updater_handle, update_channel).await;
             });
 
             Ok(())

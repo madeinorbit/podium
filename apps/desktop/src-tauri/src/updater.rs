@@ -1,4 +1,25 @@
+use crate::bootstrap::UpdateChannel;
 use tauri::AppHandle;
+
+const STABLE_ENDPOINT: &str =
+    "https://github.com/madeinorbit/podium/releases/latest/download/latest.json";
+const EDGE_ENDPOINT: &str =
+    "https://github.com/madeinorbit/podium/releases/download/edge/latest.json";
+
+/// Resolve the production static manifest for the persisted release channel.
+/// [spec:SP-7f2c]
+pub fn endpoint_for_channel(channel: UpdateChannel) -> &'static str {
+    match channel {
+        UpdateChannel::Stable => STABLE_ENDPOINT,
+        UpdateChannel::Edge => EDGE_ENDPOINT,
+    }
+}
+
+/// Production auto-update is deliberately absent from debug/`tauri dev` builds.
+/// Development is not a third release channel. [spec:SP-7f2c]
+pub const fn production_auto_update_enabled(debug_build: bool) -> bool {
+    !debug_build
+}
 
 /// Build the templated updater endpoint from a pluggable base URL.
 ///
@@ -24,11 +45,27 @@ pub fn is_critical(body: &str) -> bool {
 /// confirmation dialog is SKIPPED and the install proceeds unattended. This exists
 /// solely so Task 2's headless e2e (no display server, no human) can exercise the
 /// full check → download → install → restart path. Do NOT set it in production.
-pub async fn check_and_prompt_update(app: AppHandle) {
+pub async fn check_and_prompt_update(app: AppHandle, channel: UpdateChannel) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
     use tauri_plugin_updater::UpdaterExt;
 
-    let updater = match app.updater() {
+    if !production_auto_update_enabled(cfg!(debug_assertions)) {
+        eprintln!("[podium-desktop] production auto-update disabled in debug builds");
+        return;
+    }
+
+    let endpoint = match tauri::Url::parse(endpoint_for_channel(channel)) {
+        Ok(endpoint) => endpoint,
+        Err(e) => {
+            eprintln!("[podium-desktop] invalid updater endpoint: {e}");
+            return;
+        }
+    };
+    let updater = match app
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .and_then(|builder| builder.build())
+    {
         Ok(u) => u,
         Err(e) => {
             eprintln!("[podium-desktop] updater unavailable: {e}");
@@ -110,5 +147,19 @@ mod tests {
         assert!(is_critical("  CRITICAL: security fix"));
         assert!(!is_critical("normal notes"));
         assert!(!is_critical(""));
+    }
+
+    #[test]
+    fn release_channels_use_distinct_static_manifests() {
+        assert_eq!(endpoint_for_channel(UpdateChannel::Stable), STABLE_ENDPOINT);
+        assert_eq!(endpoint_for_channel(UpdateChannel::Edge), EDGE_ENDPOINT);
+    }
+
+    #[test]
+    fn debug_builds_never_enable_production_auto_update() {
+        assert!(!production_auto_update_enabled(true));
+        assert!(production_auto_update_enabled(false));
+        assert!(cfg!(debug_assertions), "cargo test should exercise the debug guard");
+        assert!(!production_auto_update_enabled(cfg!(debug_assertions)));
     }
 }

@@ -15,11 +15,29 @@ pub fn pick_free_port() -> u16 {
         .unwrap_or(18787)
 }
 
+/// Desktop release channel persisted in the shared Podium config.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateChannel {
+    #[default]
+    Stable,
+    Edge,
+}
+
+impl UpdateChannel {
+    fn from_config(value: Option<&str>) -> Self {
+        match value {
+            Some("edge") => Self::Edge,
+            _ => Self::Stable,
+        }
+    }
+}
+
 /// The desktop-relevant slice of ~/.podium/config.json. Other fields are ignored.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct DesktopConfig {
     pub mode: Option<String>,
     pub server_url: Option<String>,
+    pub update_channel: UpdateChannel,
 }
 
 /// What the shell should do at launch, derived purely from the config.
@@ -40,8 +58,9 @@ pub enum LaunchAction {
     ClientOnly { server_url: String },
 }
 
-/// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode` and
-/// `serverUrl`. A missing or corrupt file yields an empty config (→ all-in-one behavior).
+/// Read `$PODIUM_STATE_DIR/config.json` else `~/.podium/config.json`, extracting `mode`,
+/// `serverUrl`, and `updateChannel`. A missing or corrupt file yields an empty config
+/// (→ all-in-one behavior on the stable update channel).
 pub fn read_config() -> DesktopConfig {
     let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -62,6 +81,12 @@ pub fn read_config() -> DesktopConfig {
             .get("serverUrl")
             .and_then(|v| v.as_str())
             .map(str::to_string),
+        // [spec:SP-7f2c] Desktop releases have only explicit stable/edge channels.
+        // Missing or unrecognized values fail closed to stable rather than inventing a
+        // development channel or an arbitrary feed.
+        update_channel: UpdateChannel::from_config(
+            json.get("updateChannel").and_then(|v| v.as_str()),
+        ),
     }
 }
 
@@ -399,7 +424,7 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(
             tmp.join("config.json"),
-            r#"{"mode":"daemon","serverUrl":"ws://h:9","pairCode":"X"}"#,
+            r#"{"mode":"daemon","serverUrl":"ws://h:9","updateChannel":"edge","pairCode":"X"}"#,
         )
         .unwrap();
         let prev = std::env::var("PODIUM_STATE_DIR").ok();
@@ -407,6 +432,24 @@ mod tests {
         let cfg = read_config();
         assert_eq!(cfg.mode.as_deref(), Some("daemon"));
         assert_eq!(cfg.server_url.as_deref(), Some("ws://h:9"));
+        assert_eq!(cfg.update_channel, UpdateChannel::Edge);
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn read_config_defaults_unknown_update_channel_to_stable() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("podium-cfg-channel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("config.json"), r#"{"updateChannel":"nightly"}"#).unwrap();
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+        assert_eq!(read_config().update_channel, UpdateChannel::Stable);
         match prev {
             Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
             None => std::env::remove_var("PODIUM_STATE_DIR"),
