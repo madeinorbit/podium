@@ -73,6 +73,120 @@ describe('handoff package', () => {
     )
   })
 
+  it('drops target-verified bases the source repo does not know', async () => {
+    // Target-verified bases can be unknown to the source (e.g. the target's
+    // freshly-fetched origin/main after a reverse handoff): `git bundle create
+    // ^<unknown>` aborts with "bad object", so export must keep the intersection.
+    const source = await repo('base-intersect')
+    const base = git(source, 'rev-parse', 'HEAD')
+    git(source, 'checkout', '-b', 'issue/intersect')
+    const sourceHome = await mkdtemp(join(tmpdir(), 'podium-home-intersect-'))
+    roots.push(sourceHome)
+    const resumeValue = 'claude-intersect-id'
+    const transcript = join(
+      sourceHome,
+      '.claude',
+      'projects',
+      claudeProjectSlug(source),
+      `${resumeValue}.jsonl`,
+    )
+    await mkdir(dirname(transcript), { recursive: true })
+    await writeFile(transcript, '{}\n')
+    const foreign = '1234567890abcdef1234567890abcdef12345678'
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-intersect',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [foreign, base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    expect(exported.manifest.bundleBase).toEqual([base])
+    await expect(
+      exportHandoffPackage({
+        sessionId: 'handoff-intersect-none',
+        cwd: source,
+        agentKind: 'claude-code',
+        resume: { kind: 'claude-session', value: resumeValue },
+        branch: 'ignored',
+        baseShas: [foreign],
+        repoId: 'repo',
+        sourceMachineId: 'source',
+        homeDir: sourceHome,
+      }),
+    ).rejects.toThrow(/no bundle base shared/)
+  })
+
+  it('imports a dirty-only package (branch tip on a shared base) and reuses an existing worktree', async () => {
+    // A branch with no commits beyond the shared base bundles ONLY the snapshot
+    // ref (git bundle drops refs pointing at excluded bases) — import must
+    // create the branch from headSha. Importing again must reuse the existing
+    // worktree (round trip) and hard-sync it to the package state.
+    const source = await repo('dirty-only')
+    const base = git(source, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-target-dirty-'))
+    roots.push(target)
+    execFileSync('git', ['clone', source, target])
+    git(target, 'config', 'user.email', 'test@podium.local')
+    git(target, 'config', 'user.name', 'Podium Test')
+    git(source, 'checkout', '-b', 'feat/dirty-only')
+    await writeFile(join(source, 'untracked.txt'), 'v1\n')
+
+    const sourceHome = await mkdtemp(join(tmpdir(), 'podium-home-dirty-'))
+    roots.push(sourceHome)
+    const targetHome = await mkdtemp(join(tmpdir(), 'podium-home-dirty-target-'))
+    roots.push(targetHome)
+    const resumeValue = 'claude-dirty-only'
+    const transcript = join(
+      sourceHome,
+      '.claude',
+      'projects',
+      claudeProjectSlug(source),
+      `${resumeValue}.jsonl`,
+    )
+    await mkdir(dirname(transcript), { recursive: true })
+    await writeFile(transcript, '{}\n')
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-dirty-only',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    const stage = join(targetHome, '.podium', 'handoff', 'handoff-dirty-only.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    await copyFile(exported.stagePath, stage)
+    const first = await importHandoffPackage({
+      sessionId: 'handoff-dirty-only',
+      repoPath: target,
+      worktreeName: basename(source),
+      homeDir: targetHome,
+    })
+    expect(git(first.newCwd, 'branch', '--show-current')).toBe('feat/dirty-only')
+    expect(await readFile(join(first.newCwd, 'untracked.txt'), 'utf8')).toBe('v1\n')
+
+    // Round trip: stale residue in the existing worktree is superseded.
+    await writeFile(join(first.newCwd, 'untracked.txt'), 'stale residue\n')
+    await writeFile(join(first.newCwd, 'residue.txt'), 'left behind\n')
+    await copyFile(exported.stagePath, stage)
+    const second = await importHandoffPackage({
+      sessionId: 'handoff-dirty-only',
+      repoPath: target,
+      worktreeName: basename(source),
+      homeDir: targetHome,
+    })
+    expect(second.newCwd).toBe(first.newCwd)
+    expect(await readFile(join(second.newCwd, 'untracked.txt'), 'utf8')).toBe('v1\n')
+    await expect(access(join(second.newCwd, 'residue.txt'))).rejects.toThrow()
+  })
+
   it('exports and imports dirty state plus Claude transcript between repositories', async () => {
     const source = await repo('source')
     const base = git(source, 'rev-parse', 'HEAD')

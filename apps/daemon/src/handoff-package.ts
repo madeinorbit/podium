@@ -89,6 +89,22 @@ async function transcriptForExport(input: {
   return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
 }
 
+/** Bundle bases are verified on the TARGET (bundle verify needs its prerequisites
+ *  present there), but `git bundle create ^<sha>` also needs each base to exist on
+ *  the SOURCE — e.g. the target's freshly-fetched origin/main may be unknown here.
+ *  Keep only the intersection; an unknown ^sha aborts the whole bundle. */
+async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
+  const known: string[] = []
+  for (const sha of shas) {
+    const ok = await git(cwd, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`]).then(
+      () => true,
+      () => false,
+    )
+    if (ok) known.push(sha)
+  }
+  return known
+}
+
 export async function exportHandoffPackage(input: {
   sessionId: string
   cwd: string
@@ -111,6 +127,9 @@ export async function exportHandoffPackage(input: {
   try {
     const actualBranch = await git(input.cwd, ['branch', '--show-current'])
     if (!actualBranch) throw new Error('detached HEAD cannot be handed off')
+    const baseShas = await sourceKnownShas(input.cwd, input.baseShas)
+    if (baseShas.length === 0)
+      throw new Error('no bundle base shared between source and target repositories')
     const transcript = await transcriptForExport({
       agentKind: input.agentKind,
       cwd: input.cwd,
@@ -130,7 +149,7 @@ export async function exportHandoffPackage(input: {
       snapshotSha: snapshot.snapshotSha,
       snapshotFlattened: true,
       worktreeName: basename(input.cwd),
-      bundleBase: input.baseShas,
+      bundleBase: baseShas,
       ...(input.title ? { title: input.title } : {}),
       ...(input.issueId ? { issueId: input.issueId } : {}),
       sourceMachineId: input.sourceMachineId,
@@ -138,11 +157,11 @@ export async function exportHandoffPackage(input: {
     })
     await writeFile(join(packageDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
     await copyFile(transcript.path, join(packageDir, 'transcript.jsonl'))
-    if (snapshot.snapshotSha || !input.baseShas.includes(snapshot.headSha)) {
+    if (snapshot.snapshotSha || !baseShas.includes(snapshot.headSha)) {
       const revs = [
         actualBranch,
         ...(snapshot.snapshotSha ? [snapshot.handoffRef] : []),
-        ...input.baseShas.map((sha) => `^${sha}`),
+        ...baseShas.map((sha) => `^${sha}`),
       ]
       await git(input.cwd, ['bundle', 'create', join(packageDir, 'repo.bundle'), ...revs])
     }
@@ -213,6 +232,7 @@ export async function importHandoffPackage(input: {
   const archive = stagePathFor(home, input.sessionId)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-handoff-import-'))
   const newCwd = join(input.repoPath, '.worktrees', basename(input.worktreeName))
+  let createdWorktree = false
   try {
     await runFile('tar', ['-xzf', archive, '-C', unpacked])
     const manifest = HandoffManifest.parse(
@@ -226,24 +246,80 @@ export async function importHandoffPackage(input: {
     } catch {
       hasBundle = false
     }
+    // The bundle records refs/heads/<branch> only when the tip is NOT already
+    // excluded as a base (a dirty-only handoff whose branch sits exactly on a
+    // shared base ships just the snapshot ref). And on a round trip the branch
+    // is typically still checked out in the abandoned source worktree, where
+    // `git fetch` refuses to update it — so fetch through a temp incoming ref
+    // and move the branch explicitly below.
+    const incomingRef = `refs/podium/handoff-incoming/${manifest.sessionId}`
+    let incomingTip = manifest.headSha
     if (hasBundle) {
       await git(input.repoPath, ['bundle', 'verify', bundle])
-      const refs = [`+refs/heads/${manifest.branch}:refs/heads/${manifest.branch}`]
+      const heads = await git(input.repoPath, ['bundle', 'list-heads', bundle])
+      const refs: string[] = []
+      if (heads.includes(`refs/heads/${manifest.branch}`))
+        refs.push(`+refs/heads/${manifest.branch}:${incomingRef}`)
       if (manifest.snapshotSha)
         refs.push(
           `${HANDOFF_REF_ROOT}/${manifest.sessionId}:${HANDOFF_REF_ROOT}/${manifest.sessionId}`,
         )
-      await git(input.repoPath, ['fetch', bundle, ...refs])
-    } else if (
-      manifest.snapshotSha ||
-      !(
-        await git(input.repoPath, ['rev-parse', '--verify', `${manifest.headSha}^{commit}`])
-      ).includes(manifest.headSha)
-    ) {
-      throw new Error('package omitted required git bundle')
+      if (refs.length > 0) await git(input.repoPath, ['fetch', bundle, ...refs])
+      if (heads.includes(`refs/heads/${manifest.branch}`))
+        incomingTip = await git(input.repoPath, ['rev-parse', '--verify', incomingRef])
     }
-    await mkdir(dirname(newCwd), { recursive: true })
-    await git(input.repoPath, ['worktree', 'add', newCwd, manifest.branch])
+    const tipKnown = await git(input.repoPath, [
+      'rev-parse',
+      '--verify',
+      '--quiet',
+      `${incomingTip}^{commit}`,
+    ]).then(
+      () => true,
+      () => false,
+    )
+    if (!tipKnown) throw new Error('package omitted required git bundle')
+
+    const worktrees = await git(input.repoPath, ['worktree', 'list', '--porcelain'])
+    const existingWorktree = worktrees
+      .split('\n\n')
+      .some((block) => block.split('\n').includes(`worktree ${newCwd}`))
+    if (existingWorktree) {
+      // Round trip: the session returns to a machine that still has its old
+      // worktree. Move semantics — the incoming package is the authoritative
+      // state; the residue left behind at export time is superseded by it.
+      const checkedOut = await git(newCwd, ['branch', '--show-current'])
+      if (checkedOut !== manifest.branch)
+        throw new Error(
+          `existing worktree has branch ${checkedOut || '(detached)'}, package expects ${manifest.branch}`,
+        )
+      await git(newCwd, ['reset', '--hard', incomingTip])
+      await git(newCwd, ['clean', '-fd'])
+    } else {
+      const branchTip = await git(input.repoPath, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `refs/heads/${manifest.branch}`,
+      ]).catch(() => '')
+      if (branchTip && branchTip !== incomingTip) {
+        const fastForward = await git(input.repoPath, [
+          'merge-base',
+          '--is-ancestor',
+          branchTip,
+          incomingTip,
+        ]).then(
+          () => true,
+          () => false,
+        )
+        if (!fastForward)
+          throw new Error(`target branch ${manifest.branch} has diverged from the package`)
+      }
+      await git(input.repoPath, ['update-ref', `refs/heads/${manifest.branch}`, incomingTip])
+      await mkdir(dirname(newCwd), { recursive: true })
+      await git(input.repoPath, ['worktree', 'add', newCwd, manifest.branch])
+      createdWorktree = true
+    }
+    await git(input.repoPath, ['update-ref', '-d', incomingRef]).catch(() => '')
     if (manifest.snapshotSha)
       await git(newCwd, [
         'restore',
@@ -263,8 +339,12 @@ export async function importHandoffPackage(input: {
     await rm(archive, { force: true })
     return { manifest, newCwd }
   } catch (error) {
-    await git(input.repoPath, ['worktree', 'remove', '--force', newCwd]).catch(() => '')
-    await rm(newCwd, { recursive: true, force: true }).catch(() => undefined)
+    // Only unwind a worktree WE created — a reused round-trip worktree predates
+    // this import and must survive a failed attempt.
+    if (createdWorktree) {
+      await git(input.repoPath, ['worktree', 'remove', '--force', newCwd]).catch(() => '')
+      await rm(newCwd, { recursive: true, force: true }).catch(() => undefined)
+    }
     throw error
   } finally {
     await rm(unpacked, { recursive: true, force: true })
