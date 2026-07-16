@@ -1,0 +1,16 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-f4b9] -->
+<section data-spec="SP-f4b9" data-title="Experimental feature flags" data-parent="SP-root" data-order="24" data-status="draft" data-updated="1784214952438">
+<p>Pre-release gating for unfinished features (decided 2026-07-16). A feature-flag system hides incomplete work from users until it is ready.</p>
+
+<h4>Decisions</h4>
+<ul>
+  <li>Every flag has a <strong>name</strong> and a <strong>description</strong> (user-facing copy, not just an id).</li>
+  <li>A settings page called <strong>"Experimental"</strong> lets users toggle experimental features on/off.</li>
+  <li>Each flag declares a <strong>visibility level</strong> controlling where it appears in Experimental:
+    <ul>
+      <li><strong>hidden</strong> — not listed at all; enableable only via the config file — EXCEPT in development mode, where it is shown in Experimental.</li>
+      <li><strong>by release channel</strong> — listed in Experimental for users on the matching update channel (stable/edge; edge-gated flags show only on edge installs).</li>
+    </ul>
+  </li>
+</ul>
+</section>
