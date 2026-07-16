@@ -434,13 +434,55 @@ export function loadHarnessLiterals(repoRoot: string): string[] {
  */
 const HARNESS_CONTEXT_RE = /harness|agent|kind/i
 
-/** `switch (DISC)` governing the `case` at `index`, or null. */
-function enclosingSwitchDiscriminant(stripped: string, index: number): string | null {
-  const before = stripped.slice(0, index)
-  const swIdx = before.lastIndexOf('switch')
-  if (swIdx === -1) return null
-  const m = /^switch\s*\(([^)]*)\)/.exec(stripped.slice(swIdx))
-  return m?.[1] ?? null
+/**
+ * The discriminant of the switch that ENCLOSES the `case` at `index`, or null.
+ *
+ * Brace-matched rather than "search backwards for the nearest `switch`", which
+ * is wrong three ways: an inner `switch (mode)` swallows the outer switch's
+ * later cases — and the inverse is worse than a miss, since the outer switch's
+ * message would confidently name a discriminant that isn't the real one; any
+ * lowercase substring (`switchToTab(1)` in a case body) shadows the keyword and
+ * silences every case after it; and a discriminant containing parens
+ * (`switch (getSession().agentKind)`) truncates at the first `)`.
+ *
+ * So: walk back to the `{` opening this case's own block, require a balanced
+ * `( … )` immediately before it, and require the `switch` keyword before that.
+ */
+function enclosingSwitchDiscriminant(src: string, index: number): string | null {
+  // 1. The `{` opening the block that holds `index`, skipping nested blocks.
+  let depth = 0
+  let i = index - 1
+  for (; i >= 0; i--) {
+    const c = src[i]
+    if (c === '}') depth++
+    else if (c === '{') {
+      if (depth === 0) break
+      depth--
+    }
+  }
+  if (i < 0) return null
+
+  // 2. A switch head ends in `)` — any other block shape disqualifies.
+  let close = i - 1
+  while (close >= 0 && /\s/.test(src[close] ?? '')) close--
+  if (src[close] !== ')') return null
+
+  // 3. Back to its matching `(`, so the discriminant may contain parens itself.
+  let parens = 0
+  let open = close
+  for (; open >= 0; open--) {
+    const c = src[open]
+    if (c === ')') parens++
+    else if (c === '(') {
+      parens--
+      if (parens === 0) break
+    }
+  }
+  if (open < 0) return null
+
+  // 4. The keyword must be `switch` on a word boundary — not switchToTab/doSwitch.
+  if (!/\bswitch\s*$/.test(src.slice(0, open))) return null
+  return src.slice(open + 1, close)
 }
 
 function lineOf(source: string, index: number): number {
@@ -536,17 +578,30 @@ export interface AllowlistResult {
   warnings: Violation[]
   /** New rule/file, or over the declared count — fails the build. */
   errors: Violation[]
-  /** Entries whose declared count exceeds reality (lower it) or that are dead. */
+  /**
+   * Entries whose declared count exceeds reality (lower it) or that are dead.
+   * These FAIL the build too — see {@link applyAllowlist}. Kept separate from
+   * `errors` because they are a different instruction to the reader: `errors`
+   * means "you added debt", `stale` means "you paid debt down, now bank it".
+   */
   stale: string[]
 }
 
 /**
- * The ratchet. Known violations warn; anything NEW fails.
+ * The ratchet. Known violations warn; anything NEW fails; a count that has gone
+ * SLACK fails too.
  *
  * Counts are per (rule, file) rather than per file, so a second violation of a
  * DIFFERENT rule in an already-dirty file still fails — and adding a 6th
  * harness branch to a file allowed 5 fails too. That is the whole point: the
  * allowlist freezes the debt at today's size, it doesn't bless the file.
+ *
+ * Why `stale` is fatal and not a warning: a count of 10 against an actual 6
+ * leaves four slots someone can silently refill, and CI stays green the whole
+ * way — the ratchet would only ever have held at its loosest historical
+ * setting. "The list can only shrink" is only true if NOT shrinking it stops
+ * the build. So paying debt down without banking it fails, with the exact
+ * number to write. Mildly rude, and the only version that ratchets.
  */
 export function applyAllowlist(
   violations: readonly Violation[],

@@ -394,6 +394,74 @@ describe('findHarnessBranching', () => {
     expect(find('apps/web/src/x.ts', src)).toHaveLength(2)
   })
 
+  // --- the enclosing-switch walker ----------------------------------------
+  // A backwards search for the nearest `switch` token gets all of these wrong;
+  // only brace matching resolves them.
+
+  it('finds the OUTER discriminant for cases that follow a nested switch', () => {
+    const src = [
+      `switch (agentKind) {`,
+      `  case 'codex': {`,
+      `    switch (mode) {`,
+      `      case 'fast':`,
+      `        return 1`,
+      `    }`,
+      `    break`,
+      `  }`,
+      `  case 'grok':`, //        <- after the inner switch closed
+      `    return 2`,
+      `  case 'claude-code':`,
+      `    return 3`,
+      `}`,
+    ].join('\n')
+    expect(find('apps/web/src/x.ts', src)).toHaveLength(3)
+  })
+
+  it('is not shadowed by a lowercase `switch` substring in a case body', () => {
+    const src = [
+      `switch (agentKind) {`,
+      `  case 'codex':`,
+      `    switchToTab(1)`, //     <- not the keyword
+      `    return 1`,
+      `  case 'grok':`,
+      `    return 2`,
+      `}`,
+    ].join('\n')
+    expect(find('apps/web/src/x.ts', src)).toHaveLength(2)
+  })
+
+  it('reads a discriminant that itself contains parens', () => {
+    const src = `switch (getSession().agentKind) {\n  case 'codex':\n    return 1\n}`
+    expect(find('apps/web/src/x.ts', src)).toHaveLength(1)
+  })
+
+  it('does NOT attribute an inner harness switch to a non-harness outer one', () => {
+    // The inverse error, and the nastier one: the outer switch is non-harness,
+    // so its later cases must stay unflagged AND must never be reported with a
+    // discriminant they don't have.
+    const src = [
+      `switch (statusText) {`,
+      `  case 'busy': {`,
+      `    switch (agentKind) {`,
+      `      case 'codex':`, //    <- the one real branch
+      `        return 1`,
+      `    }`,
+      `    break`,
+      `  }`,
+      `  case 'codex':`, //        <- a status literally named codex; NOT harness
+      `    return 2`,
+      `}`,
+    ].join('\n')
+    const v = find('apps/web/src/x.ts', src)
+    expect(v).toHaveLength(1)
+    expect(v[0]?.message).toContain('switch (agentKind)')
+    expect(v[0]?.message).not.toContain('statusText')
+  })
+
+  it('ignores a case with no enclosing switch at all', () => {
+    expect(find('apps/web/src/x.ts', `const s = { case: 'codex' }`)).toEqual([])
+  })
+
   it('reports the ORIGINAL source line, not the comment-stripped one', () => {
     // Regression: stripComments used to DELETE block comments, so every line
     // after one shifted and the reported line pointed at an innocent neighbour.
@@ -420,7 +488,20 @@ describe('findHarnessBranching', () => {
   })
 
   it('does NOT flag a Record lookup keyed by harness (the blessed icon map)', () => {
-    const src = `const Icon = KIND_ICON[kind]\nconst label = LABELS[agentKind]`
+    // The fixture must CONTAIN harness literals, or it proves nothing — a
+    // lookup with no literal in it can't fire under any implementation. This is
+    // the real shape the axiom blesses: literals as KEYS, never compared.
+    const src = [
+      `const KIND_ICON: Record<AgentKind, Icon> = {`,
+      `  'claude-code': ClaudeIcon,`,
+      `  codex: CodexIcon,`,
+      `  grok: GrokIcon,`,
+      `  opencode: OpenCodeIcon,`,
+      `  cursor: CursorIcon,`,
+      `}`,
+      `const Icon = KIND_ICON[kind]`,
+      `const label = LABELS[agentKind]`,
+    ].join('\n')
     expect(find('apps/web/src/x.ts', src)).toEqual([])
   })
 
@@ -443,9 +524,12 @@ describe('findHarnessBranching', () => {
   // --- the 'cursor' false-positive guard ----------------------------------
 
   it("does NOT flag a non-harness 'cursor' comparison", () => {
+    // Both lines must contain a HARNESS literal or they prove nothing: a
+    // comparison against 'pointer' can't fire under any implementation. The
+    // live shape is a pagination cursor compared to the literal 'cursor'.
     const src = [
-      `if (style.cursor === 'pointer') return`,
       `if (page.cursor === 'cursor') next()`,
+      `if (style.cursor !== 'cursor') reset()`,
     ].join('\n')
     expect(find('apps/web/src/x.ts', src)).toEqual([])
   })
@@ -581,6 +665,25 @@ describe('applyAllowlist', () => {
     expect(r.errors).toEqual([])
     expect(r.stale).toHaveLength(1)
     expect(r.stale[0]).toContain('allows 3 but only 1 remain')
+  })
+
+  it('leaves NO refillable slack: slack is reported, and the caller fails on it', () => {
+    // The hole this closes: if slack only warned, fixing 4 of 5 branches and
+    // forgetting to lower the count leaves 4 slots that can be silently
+    // refilled with CI green — the ratchet would hold at its loosest historical
+    // setting forever. check-boundaries.ts exits 1 on stale.length > 0.
+    const five = [entry('harness-branching', 'a.ts', 5)]
+    const afterFixingFour = applyAllowlist([v('harness-branching', 'a.ts')], five)
+    expect(afterFixingFour.errors).toEqual([]) // nothing NEW was added...
+    expect(afterFixingFour.stale).toHaveLength(1) // ...but the slack is surfaced.
+
+    // Refilled to the declared count: legal, and no longer stale.
+    const refilled = applyAllowlist(
+      Array.from({ length: 5 }, () => v('harness-branching', 'a.ts')),
+      five,
+    )
+    expect(refilled.stale).toEqual([])
+    expect(refilled.warnings).toHaveLength(5)
   })
 
   it('reports a dead entry with zero remaining violations', () => {
