@@ -64,6 +64,15 @@ export type SessionOrigin = z.infer<typeof SessionOrigin>
 export const WorkState = z.enum(['planning', 'implementing', 'testing', 'done', 'icebox'])
 export type WorkState = z.infer<typeof WorkState>
 
+/** Agent action offer [spec:SP-c7f1] — a freeform message plus zero..N action
+ *  buttons an agent offers the user as suggested next actions. */
+export const SessionOffer = z.object({
+  message: z.string(),
+  actions: z.array(z.object({ label: z.string(), prompt: z.string() })),
+  createdAt: z.string(), // ISO 8601
+})
+export type SessionOffer = z.infer<typeof SessionOffer>
+
 export const SessionMeta = z.object({
   sessionId: z.string(),
   agentKind: AgentKind,
@@ -134,6 +143,13 @@ export const SessionMeta = z.object({
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the
    *  agent's phase; it drives the chat "queued" state on every client. */
   queuedMessageCount: z.number().int().positive().optional(),
+  /** Agent action offer [spec:SP-c7f1]. Session-scoped channel for an agent to
+   *  suggest next actions the user can pick — a freeform message plus zero..N
+   *  buttons, each carrying an agent-authored prompt injected as a normal turn
+   *  on click. Like snoozedUntil/draftUpdatedAt it is a derived overlay merged
+   *  onto SessionMeta, orthogonal to the agent's phase. Ephemeral: cleared on
+   *  the next user-submitted turn (a button click counts). Absent/null = none. */
+  offer: SessionOffer.nullable().optional(),
   /** Transient move overlay; absent outside an in-flight handoff. */
   handoffTarget: z.string().optional(),
   /** The stable Podium conversation identity this session is working in

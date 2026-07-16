@@ -158,6 +158,32 @@ describe('shared schemas', () => {
     expect(parsed.unread).toBe(false)
   })
 
+  // Agent action offer [spec:SP-c7f1]: additive overlay — absent by default,
+  // round-trips a message + action buttons, and accepts an explicit null.
+  it('SessionMeta omits offer by default and round-trips one when present', () => {
+    expect('offer' in SessionMeta.parse(baseMeta)).toBe(false)
+    const offer = {
+      message: 'Tests are red on main',
+      actions: [
+        { label: 'Fix them', prompt: 'Please fix the failing tests' },
+        { label: 'Show failures', prompt: 'Show me the failing test output' },
+      ],
+      createdAt: '2026-07-16T00:00:00.000Z',
+    }
+    const parsed = SessionMeta.parse({ ...baseMeta, offer })
+    expect(parsed.offer).toEqual(offer)
+    expect(SessionMeta.parse({ ...baseMeta, offer: null }).offer).toBeNull()
+  })
+
+  it('SessionMeta rejects an offer action missing its prompt', () => {
+    expect(
+      SessionMeta.safeParse({
+        ...baseMeta,
+        offer: { message: 'm', actions: [{ label: 'Go' }], createdAt: 't' },
+      }).success,
+    ).toBe(false)
+  })
+
   it('parses AgentKind and ResumeRef', () => {
     expect(AgentKind.parse('codex')).toBe('codex')
     expect(AgentKind.parse('grok')).toBe('grok')
