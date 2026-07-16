@@ -32,6 +32,10 @@ export const sharedVitestConfig = {
       '@podium/protocol': fileURLToPath(
         new URL('./packages/protocol/src/index.ts', import.meta.url),
       ),
+      // NOTE: no '@podium/telemetry' alias, for the same prefix-matching reason as
+      // '@podium/runtime' above — it exposes subpaths ('@podium/telemetry/schema',
+      // …) that a string alias would rewrite into '<index.ts>/schema'. The
+      // workspace exports map resolves it correctly on its own [spec:SP-f933].
       '@podium/transcript': fileURLToPath(
         new URL('./packages/transcript/src/index.ts', import.meta.url),
       ),

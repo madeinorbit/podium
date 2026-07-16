@@ -121,6 +121,10 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // apps/server injects its store repositories through narrow interfaces
   // instead of this package importing apps/server.
   'packages/sync': new Set(['packages/protocol', 'packages/runtime']),
+  // Opt-in telemetry [spec:SP-f933]: the schema needs protocol's AgentKind enum
+  // and consent/queue need runtime's config + state dir. It must never reach an
+  // app — apps/server constructs the emitter and injects its gauges.
+  'packages/telemetry': new Set(['packages/protocol', 'packages/runtime']),
 }
 
 export interface ImportRef {

@@ -1,0 +1,31 @@
+{
+  "name": "@podium/telemetry",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Opt-in, two-tier anonymous telemetry: the schema of record, the scrubber, the capped queue, and the emitter [spec:SP-f933].",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./schema": "./src/schema.ts",
+    "./scrub": "./src/scrub.ts",
+    "./queue": "./src/queue.ts",
+    "./emitter": "./src/emitter.ts",
+    "./consent": "./src/consent.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@podium/protocol": "workspace:*",
+    "@podium/runtime": "workspace:*",
+    "zod": "^3.24.0"
+  }
+}

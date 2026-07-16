@@ -23,6 +23,9 @@
  * | PODIUM_HOST                   | — → 127.0.0.1           | apps/server bindHost (injectable env param)            |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
+ * | DO_NOT_TRACK                  | — (env-only kill switch)| @podium/telemetry `telemetrySuppressedBy()` [SP-f933]  |
+ * | PODIUM_TELEMETRY              | — (env-only kill switch)| `=off` suppresses sending AND the setup prompt         |
+ * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
  * | PODIUM_UPDATE_FEED            | config.updateFeed       | `resolveUpdateFeed()`                                  |
  * | PODIUM_UPDATE_TARGET          | — → 'linux-x86_64'      | `resolveUpdateTarget()`                                |
  * | PODIUM_HOME                   | — → dirname(execPath)   | `resolveInstallDir()` (headless launcher exports it)   |
@@ -123,6 +126,34 @@ export const PodiumConfig = z.object({
    * file, except in development mode where they are listed).
    */
   features: z.record(z.string(), z.boolean()).optional(),
+  /**
+   * Opt-in telemetry consent + identity [spec:SP-f933]. Lives HERE rather than
+   * in the settings blob so `podium telemetry off` works whether or not the
+   * server is running — and so a user can turn it off with a text editor.
+   *
+   * Each tier is TRI-state: `on` | `off` | ABSENT. Absent and `off` both send
+   * nothing; absent additionally means "never asked", which is what lets
+   * `podium setup` know to ask. Nothing is ever sent unless a tier is
+   * explicitly `on` — and DO_NOT_TRACK=1 / PODIUM_TELEMETRY=off override even
+   * that (env kill switches, resolved in @podium/telemetry's consent.ts, which
+   * is also the only writer of this key).
+   *
+   * `installId` + `since` are minted on the first OPT-IN, never at install and
+   * never by an opt-out: a user who says no never gets an identifier. The
+   * `endpoint` override is the config layer of the relay-URL precedence
+   * (PODIUM_TELEMETRY_ENDPOINT → here → signed update manifest → baked-in).
+   */
+  telemetry: z
+    .object({
+      /** Random UUIDv4 (not derived from the machine); `podium telemetry reset-id` rotates it. */
+      installId: z.string().uuid().optional(),
+      /** Epoch ms the clock started — set with installId on first opt-in (D5). */
+      since: z.number().int().positive().optional(),
+      usage: z.enum(['on', 'off']).optional(),
+      crash: z.enum(['on', 'off']).optional(),
+      endpoint: z.string().optional(),
+    })
+    .optional(),
 })
 export type PodiumConfig = z.infer<typeof PodiumConfig>
 
