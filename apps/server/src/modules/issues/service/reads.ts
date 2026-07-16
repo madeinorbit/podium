@@ -440,10 +440,19 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   /** Spawn-time attachment derivation (issue-as-workspace): choose the deepest
    *  containing non-archived worktree. Multiple issues at that same deepest root
-   *  remain ambiguous and leave the session unattached. [spec:SP-ccb2] */
+   *  remain ambiguous and leave the session unattached. [spec:SP-ccb2]
+   *  A registered repo MAIN checkout is shared workspace, never an issue's own
+   *  worktree — an issue claiming it must not swallow every session spawned
+   *  there ([spec:SP-595b] #582). */
   soleOwnerForCwd(cwd: string): string | null {
+    const repoRoots = new Set(this.deps.store.repos.listRepoPaths())
     const owners = [...this.rows.values()].filter(
-      (r) => !r.deletedAt && !r.archived && isMemberCwd(r.worktreePath, cwd),
+      (r) =>
+        !r.deletedAt &&
+        !r.archived &&
+        r.worktreePath != null &&
+        !repoRoots.has(r.worktreePath) &&
+        isMemberCwd(r.worktreePath, cwd),
     )
     let deepest = 0
     for (const owner of owners) deepest = Math.max(deepest, owner.worktreePath?.length ?? 0)
@@ -470,8 +479,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
 
   prime(opts: { repoPath?: string; boundIssueId?: string | null }): string {
     const rules = [
-      // Human-facing ids (#474): agents should name issues/sessions by their nice id.
-      'Reference issues and sessions by their human-facing id and name (e.g. `POD-13 (Fix session naming)`), not the internal `iss_…`/UUID — those nice ids resolve in every `podium` command, mail, and the UI.',
+      // Human-facing ids (#474): agents must name issues/sessions by their nice id.
+      // Bare `#N` never linkifies in the UI — only the `PREFIX-seq` grammar does
+      // (protocol refs.ts anyRefMatcher), so `#557` is a dead string to the user.
+      'Reference issues and sessions ONLY by their human-facing id (e.g. `POD-557`) — NEVER the bare `#557` shorthand and never the internal `iss_…`/UUID. Only the `POD-…` form renders as a clickable link for the user; anything else is dead text.',
+      'The canonical long form is `POD-557 (Issue title)`. Use it when the reader may not know the issue (first mention, reports, mail); the bare short form `POD-557` is fine for repeat mentions. Every listing (`podium issue show/ready/list`, this prime) gives you the title next to the ref — if you don\'t have it, `podium issue show <id>` does.',
       'Workflow: pull `ready` → move it out of `backlog` → work → file discovered work (`discovered-from`) → checkpoint notes → close.',
       'Nothing advances an issue for you: set the stage yourself as the work moves — `podium issue update --id <id> --stage planning|in_progress|review` — and `podium issue close <id>` when it is done. An issue you are actively working must never sit in `backlog`.',
       'Track durable/discovered/cross-session work as issues, not markdown TODO files.',
@@ -499,11 +511,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
           .filter((d) => d.type === 'blocks')
           .map((d) => this.rows.get(d.id))
           .filter((b): b is IssueRow => b != null && !this.isClosed(b))
-          .map((b) => `#${b.seq}`)
+          .map((b) => `${this.niceRef(b)} (${b.title})`)
         const parent = me.parentId ? this.get(me.parentId) : null
         if (me.draft) {
           return [
-            `This session is attached to a draft work item (#${me.seq}).`,
+            `This session is attached to a draft work item (${this.niceRef(me)}).`,
             "Once you have understood and named the user's request, EITHER:",
             `  - retitle it if this is new work: podium issue update --id ${me.seq} --title "…" (this makes it a real issue — title it by the rule below), OR`,
             '  - attach to an existing issue that already covers it: podium issue attach --id <id>.',
@@ -528,9 +540,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
             : null,
           'If the user\'s request is NOT a continuation of this issue but a new piece of work, create a sub-issue and move there: podium issue attach --subissue "<title>".',
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
-          me.parentId ? `Parent epic: #${parent?.seq ?? me.parentId}` : null,
+          me.parentId
+            ? `Parent epic: ${parent ? `${this.niceRef(parent)} (${parent.title})` : me.parentId}`
+            : null,
           kids.length
-            ? `Open children:\n${kids.map((k) => `  - ${this.niceRef(k)} ${k.title}`).join('\n')}`
+            ? `Open children:\n${kids.map((k) => `  - ${this.niceRef(k)} (${k.title})`).join('\n')}`
             : null,
           blockers.length ? `Blocked by: ${blockers.join(', ')}` : null,
           unreadMail > 0
@@ -553,7 +567,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return [
       'No issue bound to this session.',
       ready.length
-        ? `Ready work:\n${ready.map((i) => `  - ${this.niceRef(i)} ${i.title}`).join('\n')}`
+        ? `Ready work:\n${ready.map((i) => `  - ${this.niceRef(i)} (${i.title})`).join('\n')}`
         : '(no ready issues)',
       'Use `podium issue start <id>` to claim one, or `podium issue create` to file new work.',
       '',

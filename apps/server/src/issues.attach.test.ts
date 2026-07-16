@@ -207,6 +207,19 @@ describe('soleOwnerForCwd', () => {
     svc.update(broad.id, { archived: true })
     expect(svc.soleOwnerForCwd('/r/.worktrees/a')).toBeNull()
   })
+
+  it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', () => {
+    const { svc, store } = harness()
+    store.repos.addRepo('/r')
+    const squatter = svc.create({ repoPath: '/other', title: 'Squatter', startNow: false })
+    svc.update(squatter.id, { worktreePath: '/r' })
+    expect(svc.soleOwnerForCwd('/r')).toBeNull()
+    expect(svc.soleOwnerForCwd('/r/sub')).toBeNull()
+    // Dedicated worktrees under the root still attach.
+    const wt = svc.create({ repoPath: '/r', title: 'Wt', startNow: false })
+    svc.update(wt.id, { worktreePath: '/r/.worktrees/wt' })
+    expect(svc.soleOwnerForCwd('/r/.worktrees/wt')).toBe(wt.id)
+  })
 })
 
 describe('prime draft/attach variants', () => {
