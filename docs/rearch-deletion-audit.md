@@ -85,8 +85,9 @@ disappears is a duplicate, not the capability:
 ## Counting rules
 
 - **Comments are stripped** before matching. A doc comment mentioning a deleted
-  symbol must not pin its count above zero — roughly a third of the raw greps for
-  these anchors are prose.
+  symbol must not pin its count above zero, and comment churn must not move a
+  count. This is not a marginal correction: a third of the raw `publishComputed`
+  hits are prose, and two thirds of the `__local__` ones (23 of 35).
 - **String literals are kept**: `'__local__'` is itself a literal.
 - **Tests are excluded.** They legitimately construct doubles of the shapes being
   retired.
