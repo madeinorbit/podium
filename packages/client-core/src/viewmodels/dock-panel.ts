@@ -90,8 +90,11 @@ export function issueForCwd(issues: IssueWire[], cwd: string): IssueWire | null 
  *  attachment (`SessionMeta.issueId`) wins — it names exactly the issue the
  *  session works on, so subissue sessions running in the parent's worktree and
  *  re-homed sessions resolve to THEIR issue, not the worktree owner's (#243).
- *  Fallback: the issue whose worktree contains `cwd` (unattached sessions and
- *  file-tab resolution). */
+ *  A known session WITHOUT an attached issue resolves to no issue at all —
+ *  never guess by cwd containment (an issue whose worktreePath is a shared
+ *  main checkout would swallow every unattached session, [spec:SP-595b] #582).
+ *  Containment
+ *  fallback applies only to file tabs / panes with no resolvable session. */
 export function issueForPanel(args: {
   issues: IssueWire[]
   sessions: SessionMeta[]
@@ -110,10 +113,10 @@ export function issueForPanel(args: {
   const session = args.sessionId
     ? args.sessions.find((s) => s.sessionId === args.sessionId)
     : undefined
-  const id = session?.issueId
-  if (id !== undefined) {
-    const attached = args.issues.find((i) => i.id === id && !i.archived && !i.deletedAt)
-    if (attached) return attached
+  if (session) {
+    const id = session.issueId
+    if (id === undefined) return null
+    return args.issues.find((i) => i.id === id && !i.archived && !i.deletedAt) ?? null
   }
   return issueForCwd(args.issues, args.cwd)
 }

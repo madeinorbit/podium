@@ -1,0 +1,4 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-595b] -->
+<section data-spec="SP-595b" data-title="No inferred issue for unattached sessions" data-parent="SP-root" data-order="20" data-status="draft" data-updated="1784187383038">
+The dock/sidebar Issue panel must never guess which issue a session belongs to. If the active session exists but has no attached issue (SessionMeta.issueId, live), the panel shows the 'no issue attached' empty state — cwd-containment fallback is forbidden for sessions, because an issue whose worktreePath is a shared main checkout would swallow every unattached session (observed: LUM-1 claiming the podium main checkout showed as the panel issue for all unattached podium sessions, #582). Cwd containment remains only for file tabs / panes with no resolvable session.
+</section>

@@ -186,7 +186,9 @@ describe('issueForPanel', () => {
     ).toBe('i1')
   })
 
-  it('unattached session in an owned worktree falls back to containment', () => {
+  it('unattached session resolves to NO issue — never cwd containment (#582)', () => {
+    // An issue whose worktreePath is a shared main checkout must not swallow
+    // unattached sessions running there.
     const s = sess('s1', '/repo/.worktrees/issue-7')
     expect(
       issueForPanel({
@@ -194,11 +196,11 @@ describe('issueForPanel', () => {
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
         sessionId: 's1',
-      })?.id,
-    ).toBe('i1')
+      }),
+    ).toBeNull()
   })
 
-  it('attachment to an archived issue falls through to containment', () => {
+  it('attachment to an archived issue resolves to no issue (#582)', () => {
     const archivedTarget = issue({ id: 'i3', worktreePath: null, archived: true })
     const s = sess('s1', '/repo/.worktrees/issue-7', { issueId: 'i3' })
     expect(
@@ -207,8 +209,8 @@ describe('issueForPanel', () => {
         sessions: [s],
         cwd: '/repo/.worktrees/issue-7',
         sessionId: 's1',
-      })?.id,
-    ).toBe('i1')
+      }),
+    ).toBeNull()
   })
 
   it('falls back to the active session explicit issue attachment', () => {
