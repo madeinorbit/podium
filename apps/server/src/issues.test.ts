@@ -1605,12 +1605,11 @@ describe('IssueService.prime (P1a)', () => {
     const epic = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const child = svc.create({ repoPath: '/r', title: 'Child', startNow: false, parentId: epic.id })
     const out = svc.prime({ repoPath: '/r', boundIssueId: epic.id })
+    // Structural: the bound issue and its child both surface. Instructional
+    // copy-string pins (reparent / --outside-scope / operator-only prose) dropped
+    // as brittle bitrot, POD-619 [spec:SP-0be7].
     expect(out).toContain('Epic')
     expect(out).toContain(child.title)
-    expect(out).toMatch(/discovered-from|Workflow|track work as issues/i)
-    expect(out).toContain('reparent')
-    expect(out).toContain('--outside-scope')
-    expect(out).toContain('operator-only')
   })
 
   it('prime tells the agent to report worktree moves via `podium worktree`', () => {
@@ -2627,9 +2626,11 @@ describe('IssueService agent mail (#103)', () => {
     expect(svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
     svc.sendMail(a.id, 'operator', 'x')
     svc.sendMail(a.id, 'operator', 'y')
-    expect(svc.prime({ boundIssueId: a.id })).toContain(
-      "You have 2 unread mail message(s): run 'podium issue mail inbox'",
-    )
+    // Behavioral: the unread count surfaces and points at the mail inbox command
+    // (exact sentence pin relaxed, POD-619 [spec:SP-0be7]).
+    const primed = svc.prime({ boundIssueId: a.id })
+    expect(primed).toContain('2 unread mail')
+    expect(primed).toContain('mail inbox')
   })
 })
 

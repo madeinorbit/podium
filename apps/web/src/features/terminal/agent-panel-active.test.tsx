@@ -223,25 +223,37 @@ describe('AgentPanel active wiring', () => {
     expect(opts?.active).toBe(false)
   })
 
-  it('warm-toggle: a native->chat switch keeps the terminal and only flips it inactive (no dispose)', async () => {
+  it('warm-toggle: reuses ONE terminal across a native->chat->native cycle (no dispose, only setActive flips)', async () => {
+    // Task 6: the terminal stays MOUNTED across the whole cycle — mountSession is
+    // called exactly once and dispose never — while Task 3's eligibility wiring
+    // flips setActive(false) on hide and setActive(true) on re-show so the hidden
+    // terminal stops/starts driving the PTY size.
     await act(async () => {
       root.render(<AgentPanel sessionId="s1" active />)
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
-    dispose.mockClear()
+
+    // native -> chat: the terminal stays mounted (hidden), just inactive.
     setActive.mockClear()
-    // Flip the persisted mode to chat; effectiveMode becomes 'chat'. Task 6: the
-    // terminal stays mounted (hidden) — it is NOT disposed; instead Task 3's
-    // eligibility wiring calls setActive(false) so the hidden terminal stops
-    // driving the PTY size.
     storePanelMode = { s1: 'chat' }
     await act(async () => {
       root.render(<AgentPanel sessionId="s1" active />)
     })
     await flush()
-    expect(dispose).not.toHaveBeenCalled()
-    expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(setActive).toHaveBeenCalledWith(false)
+
+    // chat -> native: same instance, re-activated.
+    setActive.mockClear()
+    storePanelMode = { s1: 'native' }
+    await act(async () => {
+      root.render(<AgentPanel sessionId="s1" active />)
+    })
+    await flush()
+    expect(setActive).toHaveBeenCalledWith(true)
+
+    // The whole cycle reused ONE terminal: no second mount, no dispose.
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(dispose).not.toHaveBeenCalled()
   })
 })

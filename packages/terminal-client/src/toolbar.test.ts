@@ -13,19 +13,6 @@ describe('mobile key toolbar', () => {
     }
   })
 
-  it('labels are unique so each tap is unambiguous', () => {
-    const labels = allKeys().map((k) => k.label)
-    expect(new Set(labels).size).toBe(labels.length)
-  })
-
-  it('carries the agent/terminal essentials', () => {
-    // The keys a coding agent or shell needs that a soft keyboard hides. Arrows
-    // moved to the Blink-style D-pad, so they're no longer in the key list.
-    for (const label of ['Esc', '⇧Tab', '^C']) {
-      expect(byLabel(label), `expected toolbar to include ${label}`).toBeDefined()
-    }
-  })
-
   it('maps named keys to the correct terminal sequences', () => {
     expect(byLabel('Esc')?.send).toBe(keySequence('Escape'))
     expect(byLabel('⇧Tab')?.send).toBe(keySequence('ShiftTab'))

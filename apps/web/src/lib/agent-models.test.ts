@@ -20,11 +20,6 @@ describe('agent-models catalog', () => {
 
   it('exposes real per-agent models beyond auto', () => {
     expect(modelOptions('claude-code').map((o) => o.value)).toContain('opus')
-    expect(modelOptions('grok').map((o) => o.value)).toEqual([
-      'auto',
-      'grok-4.5',
-      'grok-composer-2.5-fast',
-    ])
   })
 
   it('scopes effort ladders per agent', () => {

@@ -21,13 +21,6 @@ function caller() {
 }
 
 describe('appRouter', () => {
-  it('sessions.create then sessions.list reflects it', async () => {
-    const { call } = caller()
-    const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    const list = await call.sessions.list()
-    expect(list).toMatchObject([{ sessionId, agentKind: 'claude-code', cwd: '/p' }])
-  })
-
   it('models.refresh + models.catalog return the injected live catalog', async () => {
     const registry = new SessionRegistry(undefined, undefined, {
       modelProbe: async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
@@ -42,11 +35,13 @@ describe('appRouter', () => {
     registry.dispose()
   })
 
-  it("sessions.create stamps spawnedBy 'user' (the tRPC seam is the human seam, issue #60)", async () => {
+  it("sessions.create then list reflects it and stamps spawnedBy 'user' (the tRPC seam is the human seam, issue #60)", async () => {
     const { call } = caller()
     const { sessionId } = await call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     const list = await call.sessions.list()
-    expect(list.find((s) => s.sessionId === sessionId)?.spawnedBy).toBe('user')
+    expect(list).toMatchObject([
+      { sessionId, agentKind: 'claude-code', cwd: '/p', spawnedBy: 'user' },
+    ])
   })
 
   it("sessions.resume stamps spawnedBy 'user' on its fresh-spawn fallback (issue #60)", async () => {

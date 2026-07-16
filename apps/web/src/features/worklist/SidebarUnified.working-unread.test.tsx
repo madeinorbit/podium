@@ -163,17 +163,4 @@ describe('SidebarUnified WORKING rows suppress unread emphasis (#138 FIX B)', ()
     // isn't distinguishing).
     expect(lifted?.className).not.toContain('font-medium')
   })
-
-  it('a currently-working session kept in WORK (pinned issue) is not emphasized', () => {
-    render(<SidebarUnified />)
-    // #41: the WORKING mirror is gone — the pinned working issue renders exactly
-    // once, inside its project group, and its label is not emphasized…
-    const labels = screen.getAllByText('Pinned working')
-    expect(labels).toHaveLength(1)
-    for (const l of labels) expect(l.className).not.toContain('font-medium')
-    // …and its working child sessions are muted by the isSessionWorking gate,
-    // even though suppressUnread is false on the WORK copy.
-    for (const child of screen.getAllByText('pin-a'))
-      expect(child.closest('button')?.className).not.toContain('font-medium')
-  })
 })

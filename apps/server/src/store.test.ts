@@ -332,16 +332,8 @@ describe('SessionStore sessions', () => {
   })
 
   // Email-style read state (issue #124): read_at persists like the other additive columns.
-  it('fresh DB has the read_at column', () => {
-    const store = new SessionStore(':memory:')
-    // @ts-expect-error reach the private db for a schema assertion
-    const cols = (store.db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[]).map(
-      (c) => c.name,
-    )
-    expect(cols).toContain('read_at')
-    store.close()
-  })
-
+  // (A separate schema-PRAGMA "column exists" test was dropped as redundant — this
+  // round-trip already fails if the column is missing. POD-619 [spec:SP-0be7].)
   it('round-trips read_at; a row that never had it reads null', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(

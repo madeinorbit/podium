@@ -13,10 +13,11 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
-  // Force desktop capacity (N=8): max-width:768px does not match.
+  // Force MOBILE capacity (N=3): max-width:768px matches. This is the hook's only
+  // non-redundant behavior over warm-set.test.ts — the responsive matchMedia→N wiring.
   vi.stubGlobal(
     'matchMedia',
-    vi.fn(() => ({ matches: false })),
+    vi.fn(() => ({ matches: true })),
   )
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -34,7 +35,7 @@ function warmAttr(): string {
 }
 
 describe('useWarmSet', () => {
-  it('keeps only the N (=8 desktop) most-recently-active session ids', () => {
+  it('caps the warm set at the mobile capacity (N=3) by recency', () => {
     const all = Array.from({ length: 10 }, (_, i) => `s${i + 1}`)
     // Activate s1..s10 one at a time across rerenders.
     for (let i = 1; i <= 10; i++) {
@@ -43,10 +44,9 @@ describe('useWarmSet', () => {
       })
     }
     const warm = new Set(warmAttr().split(',').filter(Boolean))
-    // s10 (active) + the 7 next-most-recent: s9,s8,s7,s6,s5,s4,s3 = 8 ids.
-    expect(warm.size).toBe(8)
-    expect([...warm].sort()).toEqual(['s10', 's3', 's4', 's5', 's6', 's7', 's8', 's9'])
-    expect(warm.has('s1')).toBe(false)
-    expect(warm.has('s2')).toBe(false)
+    // s10 (active) + the 2 next-most-recent: s9,s8 = 3 ids at mobile capacity.
+    expect(warm.size).toBe(3)
+    expect([...warm].sort()).toEqual(['s10', 's8', 's9'])
+    expect(warm.has('s7')).toBe(false)
   })
 })

@@ -18,20 +18,16 @@ function sess(over: Partial<SessionMeta> = {}): SessionMeta {
   } as unknown as SessionMeta
 }
 
-describe('sessionDotClass — still status dots', () => {
+describe('sessionDotClass — still statuses', () => {
   it.each([
-    'starting',
-    'reconnecting',
-    'live',
-  ] as const)('does not add a looping animation class while %s', (status) => {
+    ['starting', null],
+    ['reconnecting', null],
+    ['live', null],
+    ['hibernated', 'parked'],
+  ] as const)('%s carries no looping animation class (marker: %s)', (status, marker) => {
     const classes = sessionDotClass(sess({ status }))
     expect(classes).not.toContain('dot-starting')
     expect(classes).not.toContain('dot-working')
-  })
-
-  it('keeps the parked marker without an animation class', () => {
-    const classes = sessionDotClass(sess({ status: 'hibernated' }))
-    expect(classes).toContain('parked')
-    expect(classes).not.toContain('dot-working')
+    if (marker) expect(classes).toContain(marker)
   })
 })

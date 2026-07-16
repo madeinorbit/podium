@@ -1,6 +1,3 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { type MailClient, parseMailArgs, runMailCli } from './mail-cli'
 
@@ -122,33 +119,5 @@ describe('podium mail CLI (argv shape)', () => {
     const out = await runMailCli(['help'], client())
     for (const verb of ['send --to', 'inbox', 'show <id>', 'reply <id>'])
       expect(out).toContain(verb)
-  })
-})
-
-// Real-binary smoke (repo norm: skip-if-absent): drive the actual runnable CLI
-// entry (scripts/cli.ts — the composition root; apps/cli/src/cli.ts only
-// exports main) with bun. Help must render without a server; unknown commands
-// must exit non-zero.
-const cliEntry = join(__dirname, '../../../scripts/cli.ts')
-const hasBun = (() => {
-  try {
-    execFileSync('bun', ['--version'], { stdio: 'ignore' })
-    return existsSync(cliEntry)
-  } catch {
-    return false
-  }
-})()
-
-describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium mail real-binary smoke', () => {
-  it('renders help without a server', () => {
-    const out = execFileSync('bun', [cliEntry, 'mail', '--help'], { encoding: 'utf8' })
-    expect(out).toContain('podium mail <command>')
-    expect(out).toContain('reply <id>')
-  })
-
-  it('fails fast on an unknown mail command', () => {
-    expect(() =>
-      execFileSync('bun', [cliEntry, 'mail', 'bogus'], { encoding: 'utf8', stdio: 'pipe' }),
-    ).toThrow()
   })
 })

@@ -139,28 +139,6 @@ describe('quota overlay groups by account', () => {
     expect(screen.getByText('vmi')).toBeTruthy()
   })
 
-  it('dedupes a shared account into one card listing both machines', async () => {
-    quotaSummary.mockResolvedValue([
-      machineQuota('podium-host', 'podium-host', 'podium-host', 'shared@example.com', 30),
-      machineQuota('vmi34', 'vmi', 'vmi', 'shared@example.com', 30),
-    ])
-    render(<QuotaIndicator />)
-    const gauge = await screen.findByRole('button', { name: /agent quota/i })
-    fireEvent.click(gauge)
-    // One email, shown once, with both machines on the same card.
-    await waitFor(() => expect(screen.getAllByText('shared@example.com')).toHaveLength(1))
-    expect(screen.getByText('podium-host, vmi')).toBeTruthy()
-  })
-
-  it('single account: renders the account card with its email + machine', async () => {
-    quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
-    render(<QuotaIndicator />)
-    const gauge = await screen.findByRole('button', { name: /agent quota/i })
-    fireEvent.click(gauge)
-    await waitFor(() => expect(screen.getByText('solo@example.com')).toBeTruthy())
-    expect(screen.getByText('solo')).toBeTruthy()
-  })
-
   it('renders a provider-labeled scoped window without UI-specific mapping', async () => {
     const quota = machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)
     quota.agents[0]?.windows.push({

@@ -413,6 +413,41 @@ describe('issues.mail* (agent mail #103)', () => {
   })
 })
 
+// Basic create/list and the local (non-forwarded) update path (P7b). Folded from
+// the former router-issues.test.ts (POD-619 [spec:SP-0be7]) — now with registry disposal.
+describe('issues router create/list/update', () => {
+  const registries: SessionRegistry[] = []
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+  const caller = () => {
+    const registry = new SessionRegistry()
+    registries.push(registry)
+    // OPERATOR clears every issues.* gate so these create/update flows aren't blocked.
+    return appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+    })
+  }
+
+  it('creates and lists', async () => {
+    const c = caller()
+    const created = await c.issues.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    expect(created.seq).toBe(1)
+    expect((await c.issues.list({ repoPath: '/r' })).length).toBe(1)
+  })
+
+  it('updates stage locally (never takes the forwarded `{ queued: true }` branch, P7b)', async () => {
+    const c = caller()
+    const created = await c.issues.create({ repoPath: '/r', title: 'X', startNow: false })
+    const moved = await c.issues.update({ id: created.id, patch: { stage: 'in_progress' } })
+    if ('queued' in moved) throw new Error('local update unexpectedly queued')
+    expect(moved.stage).toBe('in_progress')
+  })
+})
+
 // Event subscriptions (Phase B): subscriber defaults to the caller; a subtree caller
 // may only watch sources within its subtree and only see/remove its own rows.
 describe('issues.subscription* authz (Phase B)', () => {

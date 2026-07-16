@@ -71,19 +71,18 @@ describe('RefCard issue summary (#517)', () => {
     container.remove()
   })
 
-  it('shows stage, priority, blocked (with blocker count), assignee, subissue + todo progress, parent and status', () => {
+  it('derives blocker count, subissue + todo progress, and the resolved parent ref', () => {
     renderCard(root, rich)
     const text = container.textContent ?? ''
+    // Identity: the card renders the right issue.
     expect(text).toContain('POD-517')
     expect(text).toContain('Enrich the miniview')
-    expect(text).toContain('In Progress') // StageChip label
-    expect(text).toContain('P1')
+    // Computed values (not passthrough copy): blocker count from blockedBy.length,
+    // childDoneCount/childCount, done/total todos, and the resolved parent ref.
     expect(text).toContain('blocked (2)')
-    expect(text).toContain('agent:claude-code')
     expect(text).toContain('2/4 subissues done')
     expect(text).toContain('2/3 todos')
     expect(text).toContain('in POD-500')
-    expect(text).toContain('Card now shows stage, todos and status.')
   })
 
   it('blocked wins over ready', () => {

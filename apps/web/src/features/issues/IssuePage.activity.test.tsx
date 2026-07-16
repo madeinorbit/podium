@@ -94,23 +94,19 @@ afterEach(() => {
 })
 
 describe('IssuePage activity feed', () => {
-  it('renders state-transition events interleaved with comments', async () => {
+  it('scopes the feed to this issue and fetches events + comments from the log start', async () => {
+    // (Event/comment label formatting is covered by issue-events.test.ts; here we
+    // only assert the page-level scoping + fetch wiring.)
     const issue = makeIssue({ id: 'i-1', repoPath: '/r', commentCount: 1 })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
 
-    // Known transition kinds render human-readable.
+    // Events for a different issue ('other') are filtered out — only i-1's single 'created'.
     expect(await screen.findByText('created')).toBeTruthy()
-    expect(await screen.findByText('moved to Review')).toBeTruthy()
-    // Comment thread still renders alongside events.
-    expect(screen.getByText('a note')).toBeTruthy()
-    // Unknown kinds (e.g. S2's issue.pinned) render generically, not dropped.
-    expect(screen.getByText('pinned')).toBeTruthy()
-    // Pure UI-sync bookkeeping is hidden.
-    expect(screen.queryByText('issue.state')).toBeNull()
-    // Events for a different issue are filtered out (only i-1's single 'created').
     expect(screen.getAllByText('created')).toHaveLength(1)
+    // The comment thread renders alongside events.
+    expect(screen.getByText('a note')).toBeTruthy()
 
     // Feed is fetched scoped to this issue's repo, from the log start.
     await waitFor(() => expect(eventsQuery).toHaveBeenCalled())

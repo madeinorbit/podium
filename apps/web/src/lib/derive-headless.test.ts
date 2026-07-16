@@ -95,3 +95,19 @@ describe('headless session exclusion (concierge unification)', () => {
     expect(dedupeSessionsByResume([h, pty]).map((s) => s.sessionId)).toEqual(['h1', 'p1'])
   })
 })
+
+// Folded from home.test.ts (#619): withoutShells is the command-center's shell
+// exclusion, a sibling of the headless exclusion above.
+describe('withoutShells', () => {
+  it('drops shell sessions from a command-center list', () => {
+    const agent = meta({ sessionId: 'ag', agentKind: 'claude-code' })
+    const shell = meta({ sessionId: 'sh', agentKind: 'shell' })
+    expect(withoutShells([agent, shell]).map((s) => s.sessionId)).toEqual(['ag'])
+  })
+
+  it('keeps every non-shell agent kind', () => {
+    const claude = meta({ sessionId: 'c', agentKind: 'claude-code' })
+    const codex = meta({ sessionId: 'x', agentKind: 'codex' })
+    expect(withoutShells([claude, codex]).map((s) => s.sessionId)).toEqual(['c', 'x'])
+  })
+})

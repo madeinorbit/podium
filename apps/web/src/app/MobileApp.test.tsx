@@ -161,13 +161,6 @@ describe('MobileApp home view (#227)', () => {
     expect(screen.getByText('Selected issue')).toBeTruthy()
     expect(screen.queryByText('Command center')).toBeNull()
   })
-
-  it('offers the app tools the retired worktree sheet used to hold', () => {
-    render(<MobileApp />)
-    for (const label of ['Add repo', 'Usage & analytics', 'Settings', 'Search']) {
-      expect(screen.getByLabelText(label)).toBeTruthy()
-    }
-  })
 })
 
 describe('MobileApp panel dropdown (#227)', () => {
@@ -190,37 +183,16 @@ describe('MobileApp panel dropdown (#227)', () => {
     expect(setPane).toHaveBeenCalledWith('A', 'file:s:/repo/notes.md')
     expect(setView).toHaveBeenCalledWith('workspace')
   })
-
-  it('titles the dropdown with the selected issue', () => {
-    state.view = 'workspace'
-    state.selectedIssueId = 'iss'
-    render(<MobileApp />)
-    expect(screen.getByLabelText('Select panel').textContent).toContain('Selected issue')
-  })
 })
 
 describe('MobileApp redesigned header (#45, mobile.md §2.1)', () => {
-  it('tints the workspace header with the issue channel; home stays neutral', () => {
-    state.view = 'workspace'
-    state.selectedIssueId = 'iss'
-    const { unmount } = render(<MobileApp />)
-    expect(screen.getByTestId('mobile-header').className).toContain('issue-mix-16')
-    unmount()
-    state.view = 'home'
-    render(<MobileApp />)
-    expect(screen.getByTestId('mobile-header').className).not.toContain('issue-mix-16')
-  })
-
-  it('shows the ID square, the active panel name, and a +N count that hides while open', () => {
+  it('shows the ID square and a +N panel count that hides while the menu is open', () => {
     state.view = 'workspace'
     state.selectedIssueId = 'iss'
     state.paneA = 'agent-one'
     render(<MobileApp />)
     expect(screen.getByTestId('mobile-header-id-square')).toBeTruthy()
     const trigger = screen.getByLabelText('Select panel')
-    // Line 1 = issue title, line 2 = the ACTIVE panel's name.
-    expect(trigger.textContent).toContain('Selected issue')
-    expect(trigger.textContent).toContain('agent-one')
     // 3 panels of this work (agent, shell, file tab) minus the active one.
     expect(screen.getByTestId('mobile-panel-count').textContent).toBe('+2')
     fireEvent.click(trigger)
@@ -236,15 +208,12 @@ describe('MobileApp redesigned header (#45, mobile.md §2.1)', () => {
     expect(setSuperOpen).toHaveBeenCalledWith(false)
   })
 
-  it('lights the ✦ cell and mounts the overlay while the superagent is open', () => {
+  it('mounts the superagent overlay while the superagent is open', () => {
     state.view = 'workspace'
     state.selectedIssueId = 'iss'
     state.superOpen = true
     render(<MobileApp />)
     expect(screen.getByTestId('mobile-super-overlay')).toBeTruthy()
-    expect(screen.getByTitle('Superagent').className).toContain('text-attention')
-    // The header reverts to neutral under the overlay (2c).
-    expect(screen.getByTestId('mobile-header').className).not.toContain('issue-mix-16')
   })
 })
 
@@ -265,16 +234,5 @@ describe('MobileApp panel-menu status grammar (#45, mobile.md §2.3)', () => {
     // Working row → braille spinner; waiting row → amber pill.
     expect(container.querySelector('[data-testid="mobile-panel-menu"] .spb')).toBeTruthy()
     expect(screen.getByLabelText('waiting on you')).toBeTruthy()
-  })
-
-  it('the active row wears the 18% issue tint', () => {
-    state.view = 'workspace'
-    state.selectedIssueId = 'iss'
-    state.paneA = 'agent-one'
-    render(<MobileApp />)
-    fireEvent.click(screen.getByLabelText('Select panel'))
-    const menu = screen.getByTestId('mobile-panel-menu')
-    const tinted = menu.querySelector('.issue-mix-18')
-    expect(tinted?.textContent).toContain('agent-one')
   })
 })

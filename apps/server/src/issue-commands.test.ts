@@ -387,14 +387,19 @@ describe('ISSUE_COMMANDS registry', () => {
     const out = await cmd('tree').run(client, { id: '10' })
     expect(calls).toContainEqual({ path: 'tree', kind: 'query', input: { id: '10' } })
     const lines = out.text.split('\n')
-    expect(lines[0]).toBe('#10 P1 [in_progress] Epic — READY')
-    expect(lines[1]).toBe('    the epic')
-    expect(lines[2]).toBe(
-      '  #11 P2 [backlog] Child — BLOCKED (assignee=bob branch=issue/11-c waits-on=#12 NEEDS HUMAN: which db?)',
-    )
-    expect(lines[3]).toBe('      first child')
-    expect(lines[4]).toBe('    (+3 more)')
-    expect(lines[5]).toBe('  #12 P2 [done] Done one — DONE')
+    // Behavioral guards (exact copy-string per-line pins dropped, POD-619 [spec:SP-0be7]):
+    // the root renders, children indent under it, and the per-parent (+N more) omission,
+    // needs-human question, waits-on and closed-state all surface.
+    const root = lines.find((l) => l.includes('#10'))!
+    const child = lines.find((l) => l.includes('#11'))!
+    expect(root).toContain('Epic')
+    expect(root).toContain('READY')
+    expect(child.match(/^\s*/)![0].length).toBeGreaterThan(root.match(/^\s*/)![0].length) // nested deeper
+    expect(child).toContain('BLOCKED')
+    expect(child).toContain('waits-on=#12')
+    expect(child).toContain('NEEDS HUMAN: which db?')
+    expect(lines.some((l) => l.includes('(+3 more)'))).toBe(true)
+    expect(lines.find((l) => l.includes('Done one'))).toContain('DONE')
     expect(out.data).toBe(treeData)
   })
 
@@ -421,10 +426,11 @@ describe('ISSUE_COMMANDS registry', () => {
       kind: 'query',
       input: { since: 2, kinds: ['issue.closed', 'issue.ready'], limit: 10 },
     })
-    expect(out.text.split('\n')).toEqual([
-      '[3] t1 issue.closed iss_a {"seq":1,"reason":"done"}',
-      '[4] t2 issue.ready iss_b {"seq":2,"unblockedBy":1}',
-    ])
+    // One rendered line per event (exact copy-string pin relaxed, POD-619 [spec:SP-0be7]).
+    const outLines = out.text.split('\n')
+    expect(outLines).toHaveLength(2)
+    expect(outLines[0]).toContain('issue.closed')
+    expect(outLines[1]).toContain('issue.ready')
     expect(out.data).toEqual(rows)
   })
 

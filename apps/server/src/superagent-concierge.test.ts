@@ -8,7 +8,6 @@ import {
   buildConciergeDelta,
   buildConciergeSeed,
   conciergeRepoPath,
-  conciergeSystemPrompt,
   conciergeThreadId,
   NOT_CONFIRMED_MSG,
   SuperagentService,
@@ -396,6 +395,12 @@ describe('concierge threads (issue #64)', () => {
   })
 })
 
+// The prior-art intake test (grepping conciergeSystemPrompt for instructional
+// copy-strings) was dropped as brittle bitrot, POD-619 [spec:SP-0be7]. Its real
+// behavioral surface is covered elsewhere: the confirmed-gate on start-capable
+// tools (concierge threads describe) and the search_all/issue_find_duplicates
+// tools actually running (search_all tool describe below).
+
 // Recall (issue #72): ground new work in prior work — omni-search in the belt,
 // session→issue back-links, and a prior-art step in the intake protocol.
 describe('search_all tool', () => {
@@ -480,21 +485,5 @@ describe('list_sessions boundIssue', () => {
     const outside = rows.find((r) => r.cwd === '/elsewhere')
     expect(outside).toBeDefined()
     expect(outside).not.toHaveProperty('boundIssue')
-  })
-})
-
-describe('concierge prior-art intake', () => {
-  it('the concierge prompt instructs a prior-art check before filing new work', () => {
-    const p = conciergeSystemPrompt('/r')
-    expect(p).toContain('PRIOR ART')
-    expect(p).toContain('search_all')
-    expect(p).toContain('issue_find_duplicates')
-    expect(p).toContain('worktreePath')
-    expect(p).toContain('continue the existing thread of work or start fresh')
-    // The interactive-only + confirmed rules stay untouched.
-    expect(p).toContain('INTERACTIVE-ONLY')
-    expect(p).toContain('{"confirmed": true}')
-    // Status answers cite their sources.
-    expect(p).toContain('Cite the sessions and issue #s')
   })
 })

@@ -3,6 +3,7 @@ import {
   AgentChoice,
   AUTO_CONTINUE_BASE_DELAY_MS,
   AUTO_CONTINUE_MAX_DELAY_MS,
+  DEFAULT_SETTINGS,
   HARNESS_MCP_SUPPORT,
   HarnessAgent,
   managedAccountId,
@@ -292,6 +293,22 @@ describe('auto-continue backoff constants', () => {
   it('escalates from 10s and caps at 5 minutes', () => {
     expect(AUTO_CONTINUE_BASE_DELAY_MS).toBe(10_000)
     expect(AUTO_CONTINUE_MAX_DELAY_MS).toBe(300_000)
+  })
+})
+
+describe('normalizeSettings — gitWorkflow + issues', () => {
+  it('defaults are present', () => {
+    expect(DEFAULT_SETTINGS.gitWorkflow).toEqual({
+      defaultParentBranch: '',
+      mergeStyle: 'ff-only',
+      autoRebaseBeforeMerge: true,
+    })
+    expect(DEFAULT_SETTINGS.issues).toEqual({ assistantEnabled: true })
+  })
+  it('back-compat: an old blob with no gitWorkflow parses with defaults', () => {
+    const s = normalizeSettings({ sessionDefaults: { agent: 'claude-code' } })
+    expect(s.gitWorkflow.mergeStyle).toBe('ff-only')
+    expect(s.issues.assistantEnabled).toBe(true)
   })
 })
 

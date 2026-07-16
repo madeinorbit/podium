@@ -83,7 +83,12 @@ vi.mock('@/app/store', () => {
     // ui-state collection (persisted section collapse etc.) — absent key = default.
     uiState: { get: () => null, set: vi.fn() },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
-    sessions: [idleSess('s-unread', 'u1'), idleSess('s-read', 'r1'), idleSess('s-defer', 'd1')],
+    sessions: [
+      idleSess('s-unread', 'u1'),
+      idleSess('s-read', 'r1'),
+      idleSess('s-defer', 'd1'),
+      idleSess('s-snz', 'snz'),
+    ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
@@ -97,6 +102,8 @@ vi.mock('@/app/store', () => {
         deferUntil: '2020-01-01T00:00:00.000Z',
         deferred: false,
       }),
+      // Still-snoozed: deferUntil far in the future (#133).
+      issue('snz', 'Snoozed issue', { deferUntil: '2099-01-01T00:00:00.000Z', deferred: true }),
     ],
     trpc: {
       settings: {
@@ -177,5 +184,12 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     fireEvent.click(screen.getByText('Unsnoozed issue'))
     // …and opening the issue nulls deferUntil so the tag source is gone.
     expect(deferMutate).toHaveBeenCalledWith({ id: 'd1', until: null })
+  })
+
+  it('shows the snooze alarm icon only on a still-snoozed row (#133)', () => {
+    render(<SidebarUnified />)
+    expect(screen.getByText('Snoozed issue')).toBeTruthy()
+    // Exactly one alarm icon across the whole sidebar — on the snoozed row only.
+    expect(screen.getAllByLabelText('Snoozed')).toHaveLength(1)
   })
 })

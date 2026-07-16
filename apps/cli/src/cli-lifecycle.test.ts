@@ -45,10 +45,8 @@ describe('renderStatus', () => {
       config: { mode: 'all-in-one', persistence: 'detached', port: 18787 },
       nowMs: T0 + 90_000,
     })
-    expect(out).toContain('mode: all-in-one, persistence: detached')
-    expect(out).toContain('● server  up :18787  pid 42  (1m)')
-    expect(out).toContain('● daemon  up  pid 43  (1m)')
-    expect(out).toContain('http://localhost:18787')
+    expect(out).toContain('● server  up :18787  pid 42')
+    expect(out).toContain('● daemon  up  pid 43')
   })
 
   it('an in-process all-in-one record (desktop sidecar) is surfaced directly', () => {
