@@ -26,9 +26,18 @@ This project uses Podium's issue tracker for work management. If you are running
 session, use the `podium issue` CLI (start with `podium issue prime`). Track durable/discovered
 work as issues, not markdown TODO lists. Full guide: **[docs/agents/podium-issues.md](docs/agents/podium-issues.md)**.
 
+## Running tests
+
+Four lanes [spec:SP-0be7]: `bun run test` is the fast hermetic default (run before every
+commit); `bun run test:integration` for process/PTY/abduco/daemon/server-boot work;
+`bun run test:e2e` for full-stack flows; `bun run test:smoke:agents` launches real agent
+CLIs and bills LLM quota — only on explicit human request. Vitest always runs under Bun
+(`bun --bun vitest run ...`). Full doctrine: **[docs/agents/testing.md](docs/agents/testing.md)**.
+
 ## Reference docs for agents
 
 - [docs/multi-instance.md](docs/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
 - [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
+- [docs/agents/testing.md](docs/agents/testing.md) — the four test lanes and which suite to run when.
