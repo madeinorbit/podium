@@ -1,11 +1,24 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { fetchClaudeQuota, parseClaudeUsage } from './quota-claude'
 
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
+
 function homeWithCreds(creds: unknown): string {
-  const home = mkdtempSync(join(tmpdir(), 'podium-cq-'))
+  const home = trackTmp('podium-cq-')
   mkdirSync(join(home, '.claude'), { recursive: true })
   writeFileSync(join(home, '.claude', '.credentials.json'), JSON.stringify(creds))
   return home
@@ -123,7 +136,7 @@ describe('parseClaudeUsage', () => {
 
 describe('fetchClaudeQuota', () => {
   it('is unauthenticated when no credentials file exists', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'podium-cq-'))
+    const home = trackTmp('podium-cq-')
     const r = await fetchClaudeQuota({ homeDir: home, now })
     expect(r).toMatchObject({ agent: 'claude-code', status: 'unauthenticated', windows: [] })
   })

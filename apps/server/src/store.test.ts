@@ -1,14 +1,28 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
 
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
+
 async function tmpDbPath(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'podium-store-'))
+  const dir = trackTmp('podium-store-')
   return join(dir, 'podium.db')
 }
 

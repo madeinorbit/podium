@@ -1,15 +1,29 @@
-import { chmod, mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { chmod, mkdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, test } from 'vitest'
+import { afterAll, describe, expect, test } from 'vitest'
 import { inspectGitRepositoryPath, readRegisteredWorktrees } from './metadata.js'
+
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
 
 const mainSha = '1111111111111111111111111111111111111111'
 const featureSha = '2222222222222222222222222222222222222222'
 const altSha = '3333333333333333333333333333333333333333'
 
 async function createTempRoot(): Promise<string> {
-  return await mkdtemp(join(tmpdir(), 'podium-git-discovery-'))
+  return trackTmp('podium-git-discovery-')
 }
 
 async function writeNormalRepo(root: string, name = 'repo'): Promise<string> {

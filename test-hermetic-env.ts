@@ -36,16 +36,43 @@ for (const key of Object.keys(process.env)) {
   }
 }
 process.env.PODIUM_NO_RELAY = '1'
-if (!process.env.PODIUM_STATE_DIR) {
-  // One throwaway per test file (setupFiles/preload run once per fork). Remove it when the
-  // fork exits so a full-suite run doesn't leak hundreds of dirs into /tmp and fill the disk.
-  const dir = mkdtempSync(join(tmpdir(), 'podium-test-'))
-  process.env.PODIUM_STATE_DIR = dir
-  process.on('exit', () => {
+
+// ---- tmp-dir containment [spec:SP-0be7] (POD-518) -------------------------------------------
+// INVARIANT: everything a test process (and any child it spawns) writes to "tmp" lands inside
+// ONE per-process dir that is removed when the process exits. A full-suite run used to leak
+// ~660 dirs / 84MB into /tmp per run (POD-518; /tmp hit 143k entries) because 181 mkdtemp
+// sites across 44 test files had no cleanup — worst case a real ~/.codex/auth.json copied
+// into a world-readable /tmp home for up to 30 days.
+//
+// Mechanism: create the container in the ORIGINAL tmpdir, then point TMPDIR at it. Verified
+// (bun 1.x and node both) that os.tmpdir() re-reads TMPDIR at call time, so every subsequent
+// os.tmpdir()/mkdtemp in this process is contained; child processes inherit process.env, so
+// their tmp writes are contained too. Pool is forks (one process per test file), so the
+// container is per-file. Cleanup: process 'exit' plus best-effort signal handlers — a
+// SIGKILLed fork still leaks its one dir, but the prefix 'podium-test-run-' is safe to sweep.
+const cleanupDirs: string[] = []
+const removeAll = () => {
+  for (const d of cleanupDirs) {
     try {
-      rmSync(dir, { recursive: true, force: true })
+      rmSync(d, { recursive: true, force: true })
     } catch {
       // best-effort; the OS reaps /tmp eventually
     }
+  }
+}
+const containerDir = mkdtempSync(join(tmpdir(), 'podium-test-run-'))
+cleanupDirs.push(containerDir)
+process.env.TMPDIR = containerDir
+process.on('exit', removeAll)
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+  process.on(sig, () => {
+    removeAll()
+    process.exit(1)
   })
+}
+
+if (!process.env.PODIUM_STATE_DIR) {
+  // One throwaway per test file (setupFiles/preload run once per fork). It lives inside the
+  // container above, so the exit cleanup removes it too.
+  process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-test-'))
 }

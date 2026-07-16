@@ -1,10 +1,23 @@
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentPhase, AgentRuntimeState, ControlMessage, ServerMessage } from '@podium/protocol'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
+
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
 
 function sink() {
   const sent: ServerMessage[] = []
@@ -64,7 +77,7 @@ describe('SessionRegistry', () => {
   })
 
   it('createSession records spawnedBy provenance, persists it, and omits it when unset (issue #60)', () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store = new SessionStore(file)
     const reg = new SessionRegistry(store)
     reg.modules.sessions.attachDaemon('local', () => {})
@@ -1050,7 +1063,7 @@ describe('SessionRegistry', () => {
   })
 
   it('boot reconcile: persisted live sessions retain geometry and trigger a same-size reattach', () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
     reg1.modules.sessions.attachDaemon('local', () => {})
@@ -1102,7 +1115,7 @@ describe('SessionRegistry', () => {
   })
 
   it('reattach success: bind on a reconnecting session makes it live', () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
     reg1.modules.sessions.attachDaemon('local', () => {})
@@ -1117,7 +1130,7 @@ describe('SessionRegistry', () => {
   })
 
   it('reattachFailed marks the session exited', () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'podium-relay-')), 'podium.db')
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
     reg1.modules.sessions.attachDaemon('local', () => {})
@@ -2461,7 +2474,7 @@ describe('reconnect identity (hello reclaim)', () => {
     it('persists a draft (debounced) across a server restart and replays it', () => {
       vi.useFakeTimers()
       try {
-        const dir = mkdtempSync(join(tmpdir(), 'podium-draft-'))
+        const dir = trackTmp('podium-draft-')
         const dbPath = join(dir, 'podium.db')
         const store = new SessionStore(dbPath)
         const reg = new SessionRegistry(store)

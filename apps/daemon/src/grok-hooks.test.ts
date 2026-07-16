@@ -1,17 +1,30 @@
 import { execFile, spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from './grok-hooks'
+
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
 
 const execFileAsync = promisify(execFile)
 
 async function home(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'podium-grok-hooks-'))
+  const dir = trackTmp('podium-grok-hooks-')
   await mkdir(join(dir, '.grok'), { recursive: true })
   return dir
 }
@@ -35,7 +48,7 @@ const events = [
 
 describe('ensurePodiumGrokHooks', () => {
   it('skips silently when the Grok home does not exist', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'podium-grok-hooks-'))
+    const dir = trackTmp('podium-grok-hooks-')
     const result = await ensurePodiumGrokHooks({ homeDir: dir })
     expect(result.installed).toBe(false)
     expect(existsSync(join(dir, '.grok', 'hooks', 'podium.json'))).toBe(false)
@@ -124,7 +137,7 @@ describe('ensurePodiumGrokHooks', () => {
 
 describe('Podium Grok hook command', () => {
   it('exits successfully and performs no callback when PODIUM_GROK_HOOK_URL is absent', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'podium-grok-hook-cmd-'))
+    const dir = trackTmp('podium-grok-hook-cmd-')
     const marker = join(dir, 'curl-called')
     const curlPath = join(dir, 'curl')
     await writeFile(curlPath, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`)

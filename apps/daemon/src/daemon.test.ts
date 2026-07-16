@@ -1,6 +1,6 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +20,7 @@ import type {
 } from '@podium/protocol'
 import { type DaemonMessage, encode, parseDaemonMessage } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import {
   controlFrameByteLength,
@@ -33,6 +33,19 @@ import {
 } from './daemon'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
+
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
 
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -186,7 +199,7 @@ describe('daemon multi-bridge', () => {
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
@@ -256,7 +269,7 @@ describe('daemon multi-bridge', () => {
   it('resolves a hook cwd inside a git checkout to the worktree root before forwarding', async () => {
     // A cd into a SUBDIRECTORY of the same checkout must not regroup the session:
     // the daemon resolves the hook cwd to its git toplevel and forwards that.
-    const repo = join(mkdtempSync(join(tmpdir(), 'podium-cwd-git-')), 'repo')
+    const repo = join(trackTmp('podium-cwd-git-'), 'repo')
     mkdirSync(join(repo, 'packages', 'web'), { recursive: true })
     execFileSync('git', ['-C', repo, 'init', '-q'])
 
@@ -279,7 +292,7 @@ describe('daemon multi-bridge', () => {
     // The agent-initiated channel: `podium worktree <path>` POSTs to the agent-relay
     // loopback; the daemon handles session.setWorktree itself (never forwarded to
     // the server's tracker relay) — validate, resolve to git toplevel, sessionCwd.
-    const repo = join(mkdtempSync(join(tmpdir(), 'podium-setwt-')), 'repo')
+    const repo = join(trackTmp('podium-setwt-'), 'repo')
     mkdirSync(join(repo, 'sub'), { recursive: true })
     execFileSync('git', ['-C', repo, 'init', '-q'])
 
@@ -389,7 +402,7 @@ describe('daemon multi-bridge', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
@@ -424,7 +437,7 @@ describe('daemon multi-bridge', () => {
 
   it('scanReposRequest returns a wire-valid repository for a seeded repo root', async () => {
     // Hand-build a minimal git repo (mirrors packages/agent-bridge git scanner fixtures).
-    const root = await mkdtemp(join(tmpdir(), 'podium-repos-'))
+    const root = trackTmp('podium-repos-')
     const repo = join(root, 'app')
     const gitDir = join(repo, '.git')
     await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
@@ -448,7 +461,7 @@ describe('daemon multi-bridge', () => {
     const wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
     const port = (wss.address() as { port: number }).port
-    const root = await mkdtemp(join(tmpdir(), 'podium-immediate-control-'))
+    const root = trackTmp('podium-immediate-control-')
     await writeFile(join(root, 'file.txt'), 'ok\n')
     const received: DaemonMessage[] = []
     const malformedControlWarnings: unknown[][] = []
@@ -483,7 +496,7 @@ describe('daemon multi-bridge', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
@@ -514,7 +527,7 @@ describe('daemon multi-bridge', () => {
   })
 
   it('scanReposRequest with no roots discovers repositories under HOME', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-home-repos-'))
+    const home = trackTmp('podium-home-repos-')
     const repo = join(home, 'src', 'app')
     const gitDir = join(repo, '.git')
     await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
@@ -540,9 +553,9 @@ describe('daemon multi-bridge', () => {
   })
 
   it('scanReposRequest includes HOME discovery alongside explicit roots', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-home-plus-roots-'))
+    const home = trackTmp('podium-home-plus-roots-')
     const homeRepo = join(home, 'src', 'home-app')
-    const extraRoot = await mkdtemp(join(tmpdir(), 'podium-extra-root-'))
+    const extraRoot = trackTmp('podium-extra-root-')
     const extraRepo = join(extraRoot, 'extra-app')
     for (const repo of [homeRepo, extraRepo]) {
       const gitDir = join(repo, '.git')
@@ -570,7 +583,7 @@ describe('daemon multi-bridge', () => {
   })
 
   it('scanReposRequest isolates a bad root: good repo returned, diagnostic for the bad one', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'podium-repos-ok-'))
+    const root = trackTmp('podium-repos-ok-')
     const repo = join(root, 'app')
     const gitDir = join(repo, '.git')
     await mkdir(join(gitDir, 'refs', 'heads'), { recursive: true })
@@ -596,7 +609,7 @@ describe('daemon multi-bridge', () => {
   it('kill removes the per-session upload dir immediately', async () => {
     // Regression guard: kill already called removeSessionUploads. Ensure the dir
     // is gone after kill even when uploads were written to a custom HOME.
-    const home = mkdtempSync(join(tmpdir(), 'podium-uploads-kill-'))
+    const home = trackTmp('podium-uploads-kill-')
     const sessionId = 'upload-kill-s1'
     const uploadDir = join(home, '.podium', 'uploads', sessionId)
     mkdirSync(uploadDir, { recursive: true })
@@ -619,7 +632,7 @@ describe('daemon multi-bridge', () => {
     // Regression: removeSessionUploads was only called on `kill`, not on the natural
     // exit path inside wireBridge.onExit. A session that exits on its own left
     // ~/.podium/uploads/<sessionId>/ until the 24h hourly sweep.
-    const home = mkdtempSync(join(tmpdir(), 'podium-uploads-exit-'))
+    const home = trackTmp('podium-uploads-exit-')
     const sessionId = 'upload-exit-s1'
     const uploadDir = join(home, '.podium', 'uploads', sessionId)
     mkdirSync(uploadDir, { recursive: true })
@@ -695,7 +708,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -792,7 +805,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -861,7 +874,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     // boot-probe would leak onto the re-armed tracker and mask the bug.
     const sessionId = `ab-restart-seed-${process.pid}`
     const label = `podium-${sessionId}`
-    const settingsDir = mkdtempSync(join(tmpdir(), 'podium-hooks-'))
+    const settingsDir = trackTmp('podium-hooks-')
     const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
       const startedAt = Date.now()
       while (!fn()) {
@@ -961,11 +974,11 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     // agent fires no hook to lazily add one. Reattach must re-tail the live JSONL.
     const sessionId = `ab-retail-${process.pid}`
     const label = `podium-${sessionId}`
-    const settingsDir = mkdtempSync(join(tmpdir(), 'podium-hooks-'))
+    const settingsDir = trackTmp('podium-hooks-')
     const resumeValue = 'conv-history-xyz'
     const cwd = '/tmp'
     // Seed the live transcript Claude would be writing, under a temp HOME.
-    const home = await mkdtemp(join(tmpdir(), 'podium-home-'))
+    const home = trackTmp('podium-home-')
     const projDir = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
     await mkdir(projDir, { recursive: true })
     await writeFile(
@@ -1102,7 +1115,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       backend: 'abduco',
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1151,7 +1164,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: true,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1199,7 +1212,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: true,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1292,7 +1305,7 @@ describe('daemon conversation discovery', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
@@ -1341,7 +1354,7 @@ describe('daemon conversation discovery', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
@@ -1393,7 +1406,7 @@ describe('daemon conversation discovery', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
@@ -1460,7 +1473,7 @@ describe('daemon conversation discovery', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
@@ -1498,7 +1511,7 @@ describe('daemon host metrics', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { intervalMs: 25 },
@@ -1535,7 +1548,7 @@ describe('daemon host metrics', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false, intervalMs: 10 },
@@ -1566,7 +1579,7 @@ describe('daemon memory breakdown', () => {
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${port}`,
         bootstrapToken: 'test',
-        hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+        hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
         tmux: false,
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
@@ -1620,7 +1633,7 @@ describe('agent state instrumentation', () => {
 
   beforeEach(async () => {
     received = []
-    settingsDir = await mkdtemp(join(tmpdir(), 'podium-hooks-'))
+    settingsDir = trackTmp('podium-hooks-')
     wss = new WebSocketServer({ port: 0 })
     await new Promise<void>((r) => wss.once('listening', () => r()))
     const port = (wss.address() as { port: number }).port
@@ -1888,7 +1901,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
     const d = await startDaemon({
       serverUrl: `ws://localhost:${(server.wss.address() as { port: number }).port}`,
       bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: mkdtempSync(join(tmpdir(), 'podium-hooks-')) },
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       tmux: false,
       discovery: { background: false, cachePath: ':memory:', homeDir },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1931,7 +1944,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   })
 
   it('serves a claude transcriptRead: newest window (no anchor), cursor-stamped, then pages older', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-trx-home-'))
+    const home = trackTmp('podium-trx-home-')
     const cwd = '/work/repo'
     const resumeValue = 'conv-read-1'
     await seedClaudeTranscript(home, cwd, resumeValue, ['m0', 'm1', 'm2', 'm3', 'm4'])
@@ -1987,7 +2000,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   })
 
   it('serves an opencode transcriptRead from the DB store', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-trx-oc-home-'))
+    const home = trackTmp('podium-trx-oc-home-')
     const sid = 'oc-ses-read'
     seedOpencodeDb(home, sid, ['o0', 'o1', 'o2'])
 
@@ -2017,7 +2030,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   })
 
   it('a live claude file tail emits transcriptDelta (with a tail cursor), not transcriptAppend', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-trx-tail-home-'))
+    const home = trackTmp('podium-trx-tail-home-')
     const cwd = home // real cwd so the spawn stays alive while the tail polls
     const resumeValue = 'conv-tail-1'
     await seedClaudeTranscript(home, cwd, resumeValue, ['hello tail'])
@@ -2056,7 +2069,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
     // A reattach for a session whose bridge the daemon already holds (server
     // restarted, daemon survived). The early branch must re-seed chat from disk so
     // the freshly-restarted server's empty buffer repopulates.
-    const home = await mkdtemp(join(tmpdir(), 'podium-trx-reseed-home-'))
+    const home = trackTmp('podium-trx-reseed-home-')
     // A REAL cwd so the spawned bridge actually starts and stays held in memory.
     const cwd = home
     const resumeValue = 'conv-reseed-1'
@@ -2100,7 +2113,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
   })
 
   it('does NOT tail a sibling bucket file for a claude spawn with no resume (waits for the hook)', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'podium-trx-noresume-home-'))
+    const home = trackTmp('podium-trx-noresume-home-')
     const cwd = home // real cwd so the spawn stays alive
     // A DIFFERENT conversation exists in the same cwd bucket. A no-resume spawn must
     // NOT pick it up — guessing the newest sibling file merged unrelated conversations

@@ -1,32 +1,45 @@
 import { execFile, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { existsSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finished } from 'node:stream/promises'
 import { promisify } from 'node:util'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   computeCodexTrustedHash,
   ensurePodiumCodexHooks,
   PODIUM_CODEX_HOOK_COMMAND,
 } from './codex-hooks.js'
 
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
+
 const LEGACY_PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$PODIUM_CODEX_HOOK_URL"; [ -n "$u" ] || exit 0; curl --data-binary @- "$u"'`
 
 const execFileAsync = promisify(execFile)
 
 const home = async (): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), 'podium-codex-hooks-'))
+  const dir = trackTmp('podium-codex-hooks-')
   await mkdir(join(dir, '.codex'), { recursive: true })
   return dir
 }
 
 describe('ensurePodiumCodexHooks', () => {
   it('skips silently when ~/.codex does not exist', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'podium-codex-hooks-'))
+    const dir = trackTmp('podium-codex-hooks-')
     const res = await ensurePodiumCodexHooks({ homeDir: dir })
     expect(res.installed).toBe(false)
     expect(existsSync(join(dir, '.codex', 'hooks.json'))).toBe(false)

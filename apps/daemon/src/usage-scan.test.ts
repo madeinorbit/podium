@@ -1,8 +1,21 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { bucketize, scanClaudeUsage, usageFromRecord } from './usage-scan'
+
+// POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
+// tests finish, so a suite run leaves nothing behind in tmp.
+const tmpDirs: string[] = []
+function trackTmp(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
+
 
 const assistantLine = (ts: string, model: string, input: number, output: number) =>
   JSON.stringify({
@@ -69,7 +82,7 @@ describe('bucketize', () => {
 
 describe('scanClaudeUsage', () => {
   it('walks ~/.claude/projects and aggregates respecting sinceMs', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'podium-usage-'))
+    const home = trackTmp('podium-usage-')
     const dir = join(home, '.claude', 'projects', '-src-app')
     mkdirSync(dir, { recursive: true })
     writeFileSync(
@@ -95,7 +108,7 @@ describe('scanClaudeUsage', () => {
   })
 
   it('returns [] when no claude dir exists', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'podium-usage-empty-'))
+    const home = trackTmp('podium-usage-empty-')
     expect(await scanClaudeUsage({ sinceMs: 0, homeDir: home })).toEqual([])
   })
 })
