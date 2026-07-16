@@ -65,9 +65,9 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   {
     rule: 'harness-branching',
     file: 'packages/runtime/src/settings.ts',
-    count: 3,
+    count: 2,
     phase: P5,
-    note: 'Codex-specific backend/account resolution (harnessAgent, provider, background role) — becomes manifest-driven under POD-325.',
+    note: 'Codex-specific harness migration (harnessAgent) and the background-role harness check — manifest-driven under POD-325. A third codex comparison in this file reads an ApiProvider rather than a HarnessAgent, so it is out of this axiom by design (see HARNESS_CONTEXT_RE).',
   },
   {
     rule: 'harness-branching',
@@ -138,13 +138,6 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
     count: 1,
     phase: P5,
     note: 'Brand tone keyed on defaultAgent — same local record-lookup fix as WorkerLabel.tsx.',
-  },
-  {
-    rule: 'harness-branching',
-    file: 'apps/server/src/llm.ts',
-    count: 1,
-    phase: P5,
-    note: 'Codex-as-provider branch in the LLM client (subscription auth vs api key) — manifest-driven under POD-325.',
   },
   {
     rule: 'harness-branching',

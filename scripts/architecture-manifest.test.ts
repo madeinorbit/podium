@@ -460,6 +460,36 @@ describe('findHarnessBranching', () => {
     expect(find('apps/web/src/x.ts', src)).toEqual([])
   })
 
+  // --- the codex/codex collision: ApiProvider is NOT HarnessAgent ------------
+  // settings.ts declares ApiProvider = ['openrouter','anthropic','openai','codex'],
+  // a different enum that shares the literal 'codex'. Resolving exactly this
+  // collision is what the context guard is for.
+
+  it("does NOT flag an ApiProvider 'codex' comparison", () => {
+    expect(
+      find('apps/server/src/llm.ts', `if (backend.provider === 'codex') return codexClient()`),
+    ).toEqual([])
+  })
+
+  it("does NOT flag an ApiProvider 'codex' switch (providerLabel)", () => {
+    const src = `switch (p) {\n  case 'openrouter':\n    return 'OpenRouter'\n  case 'codex':\n    return 'Codex (ChatGPT)'\n}`
+    expect(find('apps/web/src/x.tsx', src)).toEqual([])
+  })
+
+  it('still flags a real HarnessAgent codex branch in the same file', () => {
+    // The distinction is the identity being read, not the literal: this is a
+    // HarnessAgent, the two above are ApiProviders.
+    expect(
+      find('packages/runtime/src/settings.ts', `if (b.harnessAgent !== 'codex') return b`),
+    ).toHaveLength(1)
+    expect(
+      find(
+        'packages/runtime/src/settings.ts',
+        `if (harness === 'codex' && role === 'background') {`,
+      ),
+    ).toHaveLength(1)
+  })
+
   it('no-ops when the literal set is empty', () => {
     expect(findHarnessBranching('apps/web/src/x.ts', `if (k === 'codex') go()`, [])).toEqual([])
   })
