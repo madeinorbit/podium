@@ -12,6 +12,7 @@ import {
   type ImportRef,
   loadHarnessLiterals,
   MANIFEST,
+  MANIFEST_RULES,
   partitionAllowlist,
   SAME_LAYER_ALLOWED,
   stripComments,
@@ -704,6 +705,75 @@ describe('applyAllowlist', () => {
     )
     expect(r.warnings).toEqual([])
     expect(r.errors).toHaveLength(1)
+  })
+})
+
+describe('MANIFEST_RULES drift', () => {
+  // MANIFEST_RULES is hand-maintained, so a future rule id can be forgotten.
+  // That does not misroute silently — the manifest pass errors on a violation
+  // with no entry while the legacy pass calls the entry dead, so it fails twice
+  // — but it fails with two confusing messages instead of one honest one.
+  // Cheaper to catch it at the source: scan for the rule ids each module can
+  // actually emit and require the manifest's own to be declared.
+  const ruleIdsIn = (file: string) => {
+    const src = readFileSync(join(REPO_ROOT, 'scripts', file), 'utf8')
+    return new Set([...src.matchAll(/rule: '([a-z-]+)'/g)].map((m) => m[1] ?? ''))
+  }
+
+  it('declares every rule id the manifest module emits', () => {
+    for (const id of ruleIdsIn('architecture-manifest.ts')) {
+      expect(MANIFEST_RULES.has(id), `'${id}' is emitted but missing from MANIFEST_RULES`).toBe(
+        true,
+      )
+    }
+  })
+
+  it('declares manifest-untagged, which check-boundaries emits on the manifest’s behalf', () => {
+    expect(MANIFEST_RULES.has('manifest-untagged')).toBe(true)
+  })
+
+  it('claims no rule id that nothing emits', () => {
+    const emitted = new Set([
+      ...ruleIdsIn('architecture-manifest.ts'),
+      ...ruleIdsIn('check-boundaries.ts'),
+    ])
+    for (const id of MANIFEST_RULES) {
+      expect(emitted.has(id), `MANIFEST_RULES claims '${id}', which nothing emits`).toBe(true)
+    }
+  })
+
+  it('claims none of the legacy rule ids', () => {
+    // The legacy eight are the complement — if one ever lands in MANIFEST_RULES
+    // its grandfathered entries would be checked against manifest violations and
+    // read as dead.
+    for (const legacy of [
+      'agent-bridge-consumers',
+      'no-app-to-app',
+      'leaf-package',
+      'packages-no-apps',
+      'restricted-package-deps',
+      'domain-single-home',
+      'runtime-browser-safety',
+      'server-role-tiers',
+    ]) {
+      expect(MANIFEST_RULES.has(legacy), `'${legacy}' is a legacy rule`).toBe(false)
+    }
+  })
+})
+
+describe('source encoding', () => {
+  // A single literal NUL byte makes a source file BINARY to `file`, grep and
+  // friends — and plain grep then reports NOTHING and exits 1 rather than
+  // erroring. This module carried one (in applyAllowlist's map key) for 8
+  // commits: greps for exports that were plainly present came back empty. Not a
+  // style nit; it silently blinds every text tool, including grep-based lints.
+  it.each([
+    'architecture-manifest.ts',
+    'boundary-allowlist.ts',
+    'check-boundaries.ts',
+  ])('%s contains no literal NUL byte', (file) => {
+    const bytes = readFileSync(join(REPO_ROOT, 'scripts', file))
+    expect(bytes.indexOf(0), `${file} has a NUL at byte ${bytes.indexOf(0)}`).toBe(-1)
   })
 })
 
