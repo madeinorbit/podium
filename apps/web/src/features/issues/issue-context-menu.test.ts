@@ -17,7 +17,12 @@ const handoffRepos = [
       { machineId: 'source', path: '/a' },
       { machineId: 'target', path: '/b' },
     ],
-    worktrees: [{ path: '/a/.worktrees/x', isMain: false, machineId: 'source' }],
+    // reposToViews always emits the repo root as a main worktree alongside the
+    // linked ones — the drift cases depend on it being here.
+    worktrees: [
+      { path: '/a', isMain: true, machineId: 'source' },
+      { path: '/a/.worktrees/x', isMain: false, machineId: 'source' },
+    ],
   },
 ]
 const handoffAgent = (state: 'in' | 'out' | 'unknown' = 'in', installed = true) => ({
@@ -208,6 +213,30 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     const result = resolveIssueHandoffSession(issue, [session], handoffRepos, handoffMachines)
     expect(result?.session.sessionId).toBe('s1')
     expect(result?.targets.map((m) => m.id)).toEqual(['target'])
+  })
+
+  it('still offers handoff after the session cwd drifted onto the main checkout', () => {
+    // The live shape POD-657 fixes: the agent ran a command against the repo
+    // root and got restamped there. The issue's worktree is still its home.
+    const drifted = makeSession({ sessionId: 's1', cwd: '/a' })
+    const issue = makeIssue({
+      sessions: [{ sessionId: 's1' } as SessionMeta],
+      branch: 'issue/1-x',
+      worktreePath: '/a/.worktrees/x',
+    })
+    expect(
+      resolveIssueHandoffSession(issue, [drifted], handoffRepos, handoffMachines)?.session
+        .sessionId,
+    ).toBe('s1')
+    // Without a worktree of its own the issue cannot anchor the drifted session.
+    expect(
+      resolveIssueHandoffSession(
+        makeIssue({ sessions: [{ sessionId: 's1' } as SessionMeta], worktreePath: null }),
+        [drifted],
+        handoffRepos,
+        handoffMachines,
+      ),
+    ).toBeNull()
   })
 
   it('looks up SessionMeta from the store by issue.sessions sessionId', () => {
