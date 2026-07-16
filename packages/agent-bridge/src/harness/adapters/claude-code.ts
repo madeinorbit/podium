@@ -156,4 +156,13 @@ export const claudeCodeAdapter: HarnessAdapter = {
       return fileChainSource(chain, recordToItemsForKind('claude-code'))
     },
   },
+
+  // Claude Code's own domains: only the OAuth authorize path is a login; every
+  // other claude.ai/console.anthropic.com URL the CLI opens (artifacts, docs,
+  // usage pages) is a plain link. Unknown hosts fall to the generic heuristic.
+  classifyBrowserOpen(url) {
+    const host = url.hostname.toLowerCase()
+    if (host !== 'claude.ai' && host !== 'console.anthropic.com') return undefined
+    return { intent: url.pathname.startsWith('/oauth/') ? 'login' : 'link' }
+  },
 }

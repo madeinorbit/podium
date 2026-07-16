@@ -254,6 +254,20 @@ export interface HarnessTranscript {
 }
 
 // ---------------------------------------------------------------------------
+// Browser-open classification — harness-specific intent, ahead of the daemon's
+// generic redirect_uri fallback. [spec:SP-a43e]
+// ---------------------------------------------------------------------------
+
+/** An adapter's verdict on a forwarded browser-open URL: 'login' keeps the
+ * pending-login affordance (callback paste-back when a loopback target is
+ * derivable); 'link' is a plain open — confirm toast only, no login card and
+ * no callback capability. `undefined` = the adapter doesn't recognize the URL
+ * and the generic heuristic decides. */
+export interface BrowserOpenClassification {
+  intent: 'login' | 'link'
+}
+
+// ---------------------------------------------------------------------------
 // The adapter — ONE object per harness; the registry is the only dispatch.
 // ---------------------------------------------------------------------------
 
@@ -285,6 +299,10 @@ export interface HarnessAdapter {
   /** Native-conversation discovery provider. */
   discovery: ConversationProvider
   transcript: HarnessTranscript
+  /** Harness-specific browser-open classification (this harness's known login
+   *  vs plain-link URLs), consulted BEFORE the daemon's generic redirect_uri
+   *  heuristic. Absent (or returning undefined) ⇒ generic fallback decides. */
+  classifyBrowserOpen?(url: URL): BrowserOpenClassification | undefined
 }
 
 /** 'auto' (or empty) is the sentinel for "no override" — the CLI decides. */

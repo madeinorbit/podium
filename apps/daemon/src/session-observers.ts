@@ -394,5 +394,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     clearSession,
     stopAllTails,
     disposeObservers,
+    /** The live observation's adapter — how sessionId-scoped services (browser-
+     *  open classification) reach harness-specific behavior. */
+    adapterFor: (sessionId: string): HarnessAdapter | undefined =>
+      observations.get(sessionId)?.adapter,
   }
 }

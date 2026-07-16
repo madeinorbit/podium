@@ -94,6 +94,46 @@ describe('browser-open callback capability', () => {
     expect(manager.pendingCount()).toBe(1)
   })
 
+  it('stamps intent from the generic heuristic when no adapter verdict exists', () => {
+    const sent: DaemonMessage[] = []
+    const manager = createBrowserOpenManager((message) => sent.push(message))
+    manager.capture(
+      's1',
+      'https://auth.example/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
+    )
+    manager.capture('s1', 'https://claude.ai/code/artifact/abc?via=auto_preview')
+    const [login, link] = sent as SessionOpenUrlMessage[]
+    expect(login?.intent).toBe('login')
+    expect(link?.intent).toBe('link')
+    expect(link?.callbackTarget).toBeUndefined()
+  })
+
+  it('prioritizes the adapter verdict and withholds the callback capability on links', () => {
+    const sent: DaemonMessage[] = []
+    const classify = vi.fn((_sessionId: string, url: URL) =>
+      url.hostname === 'known.example'
+        ? ({ intent: url.pathname.startsWith('/oauth/') ? 'login' : 'link' } as const)
+        : undefined,
+    )
+    const manager = createBrowserOpenManager((message) => sent.push(message), { classify })
+    // Adapter says link: even a loopback redirect_uri must not mint a target.
+    manager.capture(
+      's1',
+      'https://known.example/share?redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback',
+    )
+    // Adapter says login without a loopback redirect: pending login, no target.
+    manager.capture('s1', 'https://known.example/oauth/device')
+    // Unknown host: generic fallback still applies.
+    manager.capture('s1', 'https://other.example/page')
+    const [link, login, fallback] = sent as SessionOpenUrlMessage[]
+    expect(link).toMatchObject({ intent: 'link' })
+    expect(link?.callbackTarget).toBeUndefined()
+    expect(login).toMatchObject({ intent: 'login' })
+    expect(login?.callbackTarget).toBeUndefined()
+    expect(fallback).toMatchObject({ intent: 'link' })
+    expect(classify).toHaveBeenCalledTimes(3)
+  })
+
   it('replays pending requests after transport reconnect and drops expired ones', () => {
     let now = 100
     const sent: DaemonMessage[] = []

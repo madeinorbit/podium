@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { get } from 'node:http'
+import type { BrowserOpenClassification } from '@podium/agent-bridge'
 import type {
   BrowserOpenCallbackTarget,
+  BrowserOpenIntent,
   DaemonMessage,
   SessionOpenUrlCallbackMessage,
   SessionOpenUrlDismissMessage,
@@ -15,6 +17,7 @@ interface PendingBrowserOpen {
   sessionId: string
   requestId: string
   url: string
+  intent: BrowserOpenIntent
   callbackTarget?: BrowserOpenCallbackTarget
   expiresAt: number
 }
@@ -123,6 +126,9 @@ export function createBrowserOpenManager(
     now?: () => number
     ttlMs?: number
     execute?: (url: URL) => Promise<number>
+    /** Harness-specific classification for the session's URL, consulted ahead
+     *  of the generic redirect_uri heuristic (adapter.classifyBrowserOpen). */
+    classify?: (sessionId: string, url: URL) => BrowserOpenClassification | undefined
   } = {},
 ): BrowserOpenManager {
   const now = opts.now ?? Date.now
@@ -137,6 +143,7 @@ export function createBrowserOpenManager(
       sessionId: request.sessionId,
       requestId: request.requestId,
       url: request.url,
+      intent: request.intent,
       ...(request.callbackTarget ? { callbackTarget: request.callbackTarget } : {}),
       expiresAt: request.expiresAt,
     })
@@ -146,11 +153,17 @@ export function createBrowserOpenManager(
     capture(sessionId, rawUrl) {
       const url = parseForwardedUrl(rawUrl.trim())
       if (!url) return { ok: false, error: 'browser-open URL must be a valid HTTP(S) URL' }
+      // Adapter verdict first; the generic redirect_uri heuristic is the
+      // fallback. A 'link' verdict also withholds the callback capability —
+      // a plain link must not mint a paste-back target. [spec:SP-a43e]
+      const verdict = opts.classify?.(sessionId, url)
+      const callbackTarget = verdict?.intent === 'link' ? undefined : deriveCallbackTarget(url)
       const request: PendingBrowserOpen = {
         sessionId,
         requestId: randomUUID(),
         url: url.toString(),
-        callbackTarget: deriveCallbackTarget(url),
+        intent: verdict?.intent ?? (callbackTarget ? 'login' : 'link'),
+        ...(callbackTarget ? { callbackTarget } : {}),
         expiresAt: now() + ttlMs,
       }
       pending.set(key(sessionId, request.requestId), request)

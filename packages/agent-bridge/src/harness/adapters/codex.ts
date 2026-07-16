@@ -265,4 +265,14 @@ export const codexAdapter: HarnessAdapter = {
       return fileChainSource(chain, recordToItemsForKind('codex'))
     },
   },
+
+  // Codex login goes through auth.openai.com (loopback redirect to :1455);
+  // chatgpt.com / platform.openai.com opens are plain links. Unknown hosts
+  // fall to the generic heuristic.
+  classifyBrowserOpen(url) {
+    const host = url.hostname.toLowerCase()
+    if (host === 'auth.openai.com') return { intent: 'login' }
+    if (host === 'chatgpt.com' || host === 'platform.openai.com') return { intent: 'link' }
+    return undefined
+  },
 }

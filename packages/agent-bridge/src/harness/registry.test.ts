@@ -62,6 +62,28 @@ describe('harness adapter registry', () => {
     }
   })
 
+  it('classifies own-domain browser opens: oauth paths are logins, the rest links', () => {
+    const claude = HARNESS_ADAPTERS['claude-code']
+    expect(
+      claude.classifyBrowserOpen?.(new URL('https://claude.ai/oauth/authorize?client_id=x')),
+    ).toEqual({ intent: 'login' })
+    expect(
+      claude.classifyBrowserOpen?.(
+        new URL('https://claude.ai/code/artifact/abc?via=auto_preview'),
+      ),
+    ).toEqual({ intent: 'link' })
+    expect(claude.classifyBrowserOpen?.(new URL('https://example.com/'))).toBeUndefined()
+
+    const codex = HARNESS_ADAPTERS.codex
+    expect(codex.classifyBrowserOpen?.(new URL('https://auth.openai.com/oauth/authorize'))).toEqual(
+      { intent: 'login' },
+    )
+    expect(codex.classifyBrowserOpen?.(new URL('https://chatgpt.com/share/x'))).toEqual({
+      intent: 'link',
+    })
+    expect(codex.classifyBrowserOpen?.(new URL('https://example.com/'))).toBeUndefined()
+  })
+
   it('shell and unknown kinds have no adapter', () => {
     expect(harnessAdapterFor('shell')).toBeUndefined()
     expect(harnessAdapterFor('not-a-kind')).toBeUndefined()

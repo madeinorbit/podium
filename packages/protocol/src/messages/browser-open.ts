@@ -8,12 +8,21 @@ export const BrowserOpenCallbackTarget = z.object({
 })
 export type BrowserOpenCallbackTarget = z.infer<typeof BrowserOpenCallbackTarget>
 
+/** What the daemon believes the open is for: a login flow that may need the
+ * callback paste-back affordance, or a plain link the user just opens.
+ * Harness adapters classify first; the redirect_uri heuristic is the fallback.
+ * Optional for daemons predating the field — absent means "infer from
+ * callbackTarget presence". */
+export const BrowserOpenIntent = z.enum(['login', 'link'])
+export type BrowserOpenIntent = z.infer<typeof BrowserOpenIntent>
+
 /** Daemon -> server -> browser: a session asked its host OS to open a URL. */
 export const SessionOpenUrlMessage = z.object({
   type: z.literal('sessionOpenUrl'),
   sessionId: z.string(),
   requestId: z.string(),
   url: z.string().url(),
+  intent: BrowserOpenIntent.optional(),
   callbackTarget: BrowserOpenCallbackTarget.optional(),
   expiresAt: z.number().int().positive(),
 })

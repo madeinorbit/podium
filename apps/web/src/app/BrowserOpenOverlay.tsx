@@ -16,6 +16,11 @@ function requestKey(request: Pick<SessionOpenUrlMessage, 'sessionId' | 'requestI
   return `${request.sessionId}:${request.requestId}`
 }
 
+/** Older daemons don't send `intent`; a derived callback target implies login. */
+function isLogin(request: SessionOpenUrlMessage): boolean {
+  return request.intent ? request.intent === 'login' : Boolean(request.callbackTarget)
+}
+
 function displayHost(url: string): string {
   try {
     return new URL(url).host
@@ -44,22 +49,30 @@ export function BrowserOpenOverlay(): JSX.Element | null {
     }
     const open = (request: SessionOpenUrlMessage): void => {
       const opened = window.open(request.url, '_blank', 'noopener,noreferrer')
-      toast.dismiss(`browser-open-${requestKey(request)}`)
       if (!opened) {
         toast.error('Browser blocked the new tab', {
-          description: 'Allow popups for Podium, then use Open in the pending login card.',
+          description: 'Allow popups for Podium, then retry Open.',
         })
+        return
       }
+      toast.dismiss(`browser-open-${requestKey(request)}`)
+      // A plain link is done once opened — revoke the daemon-side request so
+      // it neither replays nor lingers. Logins stay pending for the callback.
+      if (!isLogin(request)) hub.dismissOpenUrl(request.sessionId, request.requestId)
     }
     const offOpen = hub.on('openUrl', (request) => {
       const key = requestKey(request)
-      setPending((current) => {
-        const next = new Map(current)
-        if (!next.has(key)) {
-          next.set(key, { request, callbackUrl: '', submitting: false })
-        }
-        return next
-      })
+      // Only login flows earn the persistent pending-login card; a plain link
+      // gets the confirm toast alone. [spec:SP-a43e]
+      if (isLogin(request)) {
+        setPending((current) => {
+          const next = new Map(current)
+          if (!next.has(key)) {
+            next.set(key, { request, callbackUrl: '', submitting: false })
+          }
+          return next
+        })
+      }
       const session = sessionsRef.current.find((item) => item.sessionId === request.sessionId)
       const label = session?.name || session?.title || 'Agent'
       toast(`${label} wants to open ${displayHost(request.url)}`, {

@@ -119,4 +119,36 @@ describe('BrowserOpenOverlay', () => {
     expect(screen.queryByLabelText('Pending agent browser requests')).toBeNull()
     expect(h.toast.success).toHaveBeenCalledWith('Login callback forwarded')
   })
+
+  it('shows no login card for a plain link and revokes the request on open', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    render(<BrowserOpenOverlay />)
+    const link: SessionOpenUrlMessage = {
+      type: 'sessionOpenUrl',
+      sessionId: 's1',
+      requestId: 'open-2',
+      url: 'https://claude.ai/code/artifact/abc?via=auto_preview',
+      intent: 'link',
+      expiresAt: Date.now() + 60_000,
+    }
+    emit('openUrl', link)
+
+    expect(screen.queryByLabelText('Pending agent browser requests')).toBeNull()
+    expect(h.toast).toHaveBeenCalledWith('Remote Codex wants to open claude.ai', expect.anything())
+
+    const options = h.toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
+    act(() => options.action.onClick())
+    expect(open).toHaveBeenCalledWith(link.url, '_blank', 'noopener,noreferrer')
+    expect(h.hub.dismissOpenUrl).toHaveBeenCalledWith('s1', 'open-2')
+  })
+
+  it('keeps a login request pending after opening (fallback: callbackTarget implies login)', () => {
+    vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    render(<BrowserOpenOverlay />)
+    emit('openUrl', request)
+    const options = h.toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
+    act(() => options.action.onClick())
+    expect(h.hub.dismissOpenUrl).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Paste the localhost callback URL')).not.toBeNull()
+  })
 })
