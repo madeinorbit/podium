@@ -46,7 +46,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 const FIXTURE = fileURLToPath(
   new URL('../../../packages/agent-bridge/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
@@ -1628,7 +1627,7 @@ describe('Codex identity receipt recovery', () => {
   it.skipIf(process.platform === 'win32')(
     'replays after authentication and removes only the server-acknowledged binding',
     async () => {
-      const settingsDir = await mkdtemp(join(tmpdir(), 'podium-hooks-'))
+      const settingsDir = trackTmp('podium-hooks-')
       const receiptDir = join(settingsDir, 'codex-identity-receipts')
       const receiptPath = join(receiptDir, 'pane-a.json')
       await mkdir(receiptDir, { recursive: true })

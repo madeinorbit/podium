@@ -22,7 +22,6 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-
 const LEGACY_PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$PODIUM_CODEX_HOOK_URL"; [ -n "$u" ] || exit 0; curl --data-binary @- "$u"'`
 
 const execFileAsync = promisify(execFile)
@@ -141,7 +140,7 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
   it.skipIf(process.platform === 'win32')(
     'retains the exact official payload when the daemon socket is unavailable',
     async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'podium-codex-hook-command-'))
+      const dir = trackTmp('podium-codex-hook-command-')
       const receiptDir = join(dir, 'receipts')
       const payload = JSON.stringify({ session_id: 'thread-a', hook_event_name: 'SessionStart' })
       const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
@@ -167,7 +166,7 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
   it.skipIf(process.platform === 'win32')(
     'prefers the stable socket even when the launch-time URL is stale',
     async () => {
-      const dir = await mkdtemp(join(tmpdir(), 'podium-codex-hook-command-'))
+      const dir = trackTmp('podium-codex-hook-command-')
       const socketPath = join(dir, 'hook.sock')
       const receiptDir = join(dir, 'receipts')
       let resolvePayload!: (payload: unknown) => void

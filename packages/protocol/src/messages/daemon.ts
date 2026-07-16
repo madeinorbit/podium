@@ -13,13 +13,13 @@ import {
   FileWriteResultMessage,
   ImageUploadResultMessage,
 } from './files'
-import { HarnessExecResultMessage } from './harness'
 import {
   HandoffChunkReadResultMessage,
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
 } from './handoff'
+import { HarnessExecResultMessage } from './harness'
 import {
   HeadlessBindResultMessage,
   HeadlessTurnEventMessage,
