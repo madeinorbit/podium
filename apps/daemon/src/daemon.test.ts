@@ -1956,7 +1956,7 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
     // (seedBootState / provider.bootEvents) runs identically and eagerly for
     // every reattached session — only the scrollback/tail PREFETCH is paced.
     // A held gate must therefore never delay the agentState seed.
-    const home = await mkdtemp(join(tmpdir(), 'podium-home-'))
+    const home = trackTmp('podium-home-')
     const cwd = '/tmp'
     const resumeValue = 'conv-seedgate-boot'
     const projDir = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
