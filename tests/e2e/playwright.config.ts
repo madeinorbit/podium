@@ -39,7 +39,7 @@ export default defineConfig({
       // refused, so the old two-server split no longer connects.) The specs load from the
       // baseURL (:8799) and pass `?server=ws://localhost:8799`; @podium/source runs TS source.
       command:
-        'bun run --filter @podium/protocol build && bun run --filter @podium/web build && node --conditions=@podium/source --import tsx serve-harness.ts',
+        'bun run --filter @podium/protocol build && bun run --filter @podium/web build && bun --conditions=@podium/source serve-harness.ts',
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       timeout: 180_000,

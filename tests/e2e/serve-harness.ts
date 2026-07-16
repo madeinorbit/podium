@@ -6,7 +6,7 @@
  *   - launches a real shell for `shell` sessions (wide output → reflow tests) and the
  *     keyecho echo jig for claude/codex kinds (deterministic keyboard/mouse fidelity).
  *
- * Run: node --conditions=@podium/source --import tsx tests/e2e/serve-harness.ts
+ * Run: bun --conditions=@podium/source tests/e2e/serve-harness.ts
  *      (the @podium/source condition resolves workspace packages to TS source; no build)
  * Port: PORT (default 8799). Health: GET /health. The playwright.config webServer starts
  * this automatically; the specs connect via `?server=ws://localhost:8799`.
@@ -39,12 +39,9 @@ import {
 } from './harness-env'
 
 /**
- * This harness runs under `node --import tsx`, where worker threads don't inherit the
- * TS loader — so the daemon's default `.ts` discovery worker can't resolve its own bare
- * imports ("Cannot find module ./discovery-jobs") and crash-loops, spamming the log.
- * Run discovery jobs INLINE on the main thread instead (it has the loader), mirroring
- * the worker's own message handler. The live daemon (Bun) still uses the real spawned
- * worker; this is harness-only.
+ * The browser harness keeps discovery jobs INLINE on its main thread so test runs do not
+ * depend on worker-loader behavior. The live daemon still uses the real spawned worker;
+ * this is harness-only.
  */
 function inlineWorkerClient(): DiscoveryWorkerClient {
   return new DiscoveryWorkerClient({
@@ -148,7 +145,7 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec =>
     ? agentLaunchCommand(kind, opts)
     : {
         cmd: process.execPath,
-        args: ['--import', 'tsx', KEYECHO_CLI, '--mode', 'both'],
+        args: [KEYECHO_CLI, '--mode', 'both'],
         cwd: KEYECHO_PKG,
       }
 
