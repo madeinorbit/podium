@@ -238,6 +238,32 @@ describe('createSessionCwdTracker', () => {
     expect(sent).toEqual([{ sessionId: 's1', cwd: OTHER }])
   })
 
+  it('a session that exits mid-resolve leaves no pin behind', async () => {
+    // The launch resolve is async, so a fast exit can clear() the session while it is
+    // in flight; re-adding the pin afterwards would strand an entry nothing clears.
+    let release: ((info: WorktreeInfo) => void) | undefined
+    const sent: SessionCwdUpdate[] = []
+    const tracker = createSessionCwdTracker({
+      resolver: createCwdResolver({
+        lookup: (cwd) =>
+          cwd === FEAT
+            ? new Promise((resolve) => {
+                release = resolve
+              })
+            : inRepo(cwd),
+      }),
+      branch: async () => null,
+      send: (u) => sent.push(u),
+    })
+    const launch = tracker.setLaunchCwd('s1', FEAT)
+    tracker.clear('s1')
+    release?.({ root: FEAT, kind: 'worktree', repoRoot: '/repo' })
+    await launch
+    // Nothing is pinned any more, so this id's hooks re-home it like a fresh session.
+    await tracker.onHookCwd('s1', OTHER)
+    expect(sent.map((u) => u.cwd)).toEqual([OTHER])
+  })
+
   it('an explicit declaration still moves a born-pinned session', async () => {
     const { sent, tracker } = make(inRepo)
     await tracker.setLaunchCwd('s1', FEAT)
@@ -452,6 +478,31 @@ describe('createSessionCwdTracker', () => {
     releaseHook?.()
     await hook
     expect(sent).toEqual([{ sessionId: 's1', cwd: '/explicit' }])
+  })
+
+  it('a superseded setExplicit does not send after the newer one', async () => {
+    // Both declarations resolve concurrently; the slower/older must not land last and
+    // leave the server on a stale worktree.
+    let releaseSlow: ((info: WorktreeInfo) => void) | undefined
+    const sent: SessionCwdUpdate[] = []
+    const tracker = createSessionCwdTracker({
+      resolver: createCwdResolver({
+        lookup: (cwd) =>
+          cwd === FEAT
+            ? new Promise((resolve) => {
+                releaseSlow = resolve
+              })
+            : Promise.resolve({ root: OTHER, kind: 'worktree', repoRoot: '/repo' }),
+      }),
+      branch: async () => null,
+      send: (u) => sent.push(u),
+    })
+    const slow = tracker.setExplicit('s1', FEAT)
+    await tracker.setExplicit('s1', OTHER)
+    releaseSlow?.({ root: FEAT, kind: 'worktree', repoRoot: '/repo' })
+    // The caller still learns what its path resolved to, even though it lost the race.
+    expect(await slow).toBe(FEAT)
+    expect(sent.map((u) => u.cwd)).toEqual([OTHER])
   })
 
   it('setExplicit marks its send explicit and re-sends even for an unchanged root', async () => {

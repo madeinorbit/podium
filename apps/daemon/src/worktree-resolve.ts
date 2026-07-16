@@ -222,7 +222,8 @@ export function createSessionCwdTracker(opts: {
       // Bump the sequence so an in-flight hook resolution can't overwrite this,
       // and reset the raw-cwd dedup so the NEXT hook cwd is re-evaluated (a hook
       // resolving to the same root then stays quiet via the root dedup below).
-      seq.set(sessionId, (seq.get(sessionId) ?? 0) + 1)
+      const mySeq = (seq.get(sessionId) ?? 0) + 1
+      seq.set(sessionId, mySeq)
       lastRawCwd.delete(sessionId)
       pinned.add(sessionId)
       const info = await opts.resolver.resolve(path)
@@ -230,6 +231,11 @@ export function createSessionCwdTracker(opts: {
       // the server stamps the worktree onto the session's attached issue — which
       // must happen even when the session is already grouped under this root.
       const next = await update(sessionId, info, true)
+      // …unless a NEWER declaration already superseded this one while we resolved:
+      // sending now would land the two out of order and leave the server on the
+      // stale one. The newer declaration does the stamping. Still return the root —
+      // the caller asked what `path` resolves to, and that answer is unchanged.
+      if (seq.get(sessionId) !== mySeq) return info.root
       lastSentRoot.set(sessionId, info.root)
       opts.send(next)
       return info.root
@@ -238,6 +244,10 @@ export function createSessionCwdTracker(opts: {
       const mySeq = (seq.get(sessionId) ?? 0) + 1
       seq.set(sessionId, mySeq)
       const info = await opts.resolver.resolve(cwd)
+      // Exited while we resolved: clear() dropped this session's state, so adding a
+      // pin now would resurrect it — an entry no clear() will ever come back for.
+      // A racing hook only BUMPS the sequence, so this tells the two apart.
+      if (!seq.has(sessionId)) return
       // Pin even if a hook raced ahead of this resolution: where podium launched the
       // session outranks whatever directory its first hook happened to observe.
       if (info.kind === 'worktree') pinned.add(sessionId)
