@@ -167,7 +167,7 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
 // changing its hash serialization. Skips when codex or auth is unavailable.
 describe('codex hooks real-binary smoke', () => {
   const auth = join(homedir(), '.codex', 'auth.json')
-  const enabled = process.env.PODIUM_SKIP_REAL_CLI !== '1' && existsSync(auth)
+  const enabled = process.env.PODIUM_REAL_CLI === '1' && existsSync(auth)
 
   it.skipIf(!enabled)(
     'trusted install fires UserPromptSubmit + Stop into the ingest URL',

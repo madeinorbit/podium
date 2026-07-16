@@ -25,7 +25,7 @@ const hasClaude = ((): boolean => {
 
 const bins: HarnessBins = { opencode: () => 'opencode', cursor: () => 'cursor' }
 
-describe.skipIf(!hasClaude)('real claude binary smoke (issue #84)', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)('real claude binary smoke (issue #84)', () => {
   it('runs one headless turn through the exact daemon argv + stdin and answers', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-harness-smoke-'))
     const mcpConfigPath = join(dir, 'mcp.json')

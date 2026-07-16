@@ -81,6 +81,8 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       # Root unit scope: everything except apps/web and the integration/e2e/PTY
       # suites — see vitest.unit.config.ts for the exclusion convention.
+      # Lane spec (drift guard): scripts/test-configuration.test.ts asserts the
+      # unit/integration/agent-smoke lane split and package.json script shape.
       - name: unit tests (root vitest)
         run: bun run test:unit
       # apps/web needs happy-dom + its own aliases, so it runs under its own config.

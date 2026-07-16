@@ -241,7 +241,7 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(!hasBun)('podium session real-binary smoke', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium session real-binary smoke', () => {
   it('renders help (status/read verbs included) without a server', () => {
     const out = execFileSync('bun', [cliEntry, 'session', '--help'], { encoding: 'utf8' })
     expect(out).toContain('podium session <command>')

@@ -15,7 +15,7 @@ describe('cursor cli', () => {
   })
 
   it('resolves a working agent binary when installed', () => {
-    if (!isCursorCliAvailable()) return
+    if (process.env.PODIUM_REAL_CLI !== '1' || !isCursorCliAvailable()) return
     expect(resolveCursorBin()).toMatch(/agent$/)
     expect(validateCursorCliHelp()).toBe(true)
   })

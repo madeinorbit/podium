@@ -90,7 +90,7 @@ describe('opencode discovery provider', () => {
 
   // The provider gates on the real CLI being installed (scanRoot returns [] with a
   // warning otherwise) — mirror cli.test.ts and self-skip on machines without it.
-  it.skipIf(!isOpencodeCliAvailable())(
+  it.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !isOpencodeCliAvailable())(
     'summarizes sessions from the opencode sqlite database',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'podium-opencode-home-'))

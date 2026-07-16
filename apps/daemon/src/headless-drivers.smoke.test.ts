@@ -35,7 +35,7 @@ afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
 })
 
-describe.skipIf(!hasBin('claude'))('ClaudeSdkDriver real-binary smoke', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('claude'))('ClaudeSdkDriver real-binary smoke', () => {
   it('runs two turns; turn 2 resumes and recalls a turn-1 token; partials stream', async () => {
     const cwd = tempCwd()
     const sessionUuid = randomUUID()
@@ -77,7 +77,7 @@ describe.skipIf(!hasBin('claude'))('ClaudeSdkDriver real-binary smoke', () => {
   }, 500_000)
 })
 
-describe.skipIf(!hasBin('codex'))('CodexExecDriver real-binary smoke', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBin('codex'))('CodexExecDriver real-binary smoke', () => {
   it('runs two turns; captures the thread id; `exec resume` retains context', async () => {
     const cwd = tempCwd()
     const token = `YAK-${Math.floor(Math.random() * 100000)}`

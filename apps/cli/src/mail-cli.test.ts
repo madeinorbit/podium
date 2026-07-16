@@ -139,7 +139,7 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(!hasBun)('podium mail real-binary smoke', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium mail real-binary smoke', () => {
   it('renders help without a server', () => {
     const out = execFileSync('bun', [cliEntry, 'mail', '--help'], { encoding: 'utf8' })
     expect(out).toContain('podium mail <command>')

@@ -35,7 +35,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // end-to-end proof that complements the deterministic keyecho/fixture matrix. cwd=HOME
 // is a trusted dir so claude renders its composer instead of a trust prompt. We type a
 // char but never submit it, so no model call is made.
-describe.skipIf(!ready)('real claude smoke (node-pty backend)', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !ready)('real claude smoke (node-pty backend)', () => {
   it('boots, renders a substantial frame, and echoes a keystroke', async () => {
     const s = spawnAgent(
       { cmd: 'claude', args: [], cols: 100, rows: 30, cwd: process.env.HOME ?? homedir() },

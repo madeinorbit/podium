@@ -141,7 +141,7 @@ const hasBun = (() => {
   }
 })()
 
-describe.skipIf(!hasBun)('podium agent real-binary smoke', () => {
+describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium agent real-binary smoke', () => {
   it('renders help without a server', () => {
     const out = execFileSync('bun', [cliEntry, 'agent', '--help'], { encoding: 'utf8' })
     expect(out).toContain('podium agent <command>')

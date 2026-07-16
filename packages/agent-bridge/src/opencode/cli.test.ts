@@ -11,12 +11,12 @@ const home = process.env.HOME ?? homedir()
 const homeInstall = join(home, '.opencode', 'bin', 'opencode')
 
 describe('opencode CLI detection', () => {
-  it.skipIf(!isOpencodeCliAvailable())('detects the installed opencode binary', () => {
+  it.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !isOpencodeCliAvailable())('detects the installed opencode binary', () => {
     expect(isOpencodeCliAvailable()).toBe(true)
     expect(validateOpencodeCliHelp()).toBe(true)
   })
 
-  it.skipIf(!existsSync(homeInstall))('prefers ~/.opencode/bin over bare opencode on PATH', () => {
+  it.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !existsSync(homeInstall))('prefers ~/.opencode/bin over bare opencode on PATH', () => {
     expect(resolveOpencodeBin(home)).toBe(homeInstall)
   })
 })
