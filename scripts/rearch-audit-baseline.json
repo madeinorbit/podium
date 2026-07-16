@@ -1,0 +1,27 @@
+{
+  "$schema": "Deletion audit baseline — see scripts/rearch-audit.ts and docs/rearch-deletion-audit.md.",
+  "$note": "Counts of v3-inventory items still present. Regenerate with: bun run audit:rearch --update-baseline. These may only go DOWN; every item must reach 0 before its phase issue closes.",
+  "counts": {
+    "adoption-backfill-heals": 9,
+    "agent-kind-enums": 2,
+    "capability-tables": 4,
+    "change-row-typings": 7,
+    "cli-launch-plan-debt": 1,
+    "composition-root-forward-refs": 1,
+    "durable-host-sync-async-twins": 4,
+    "issue-shapes": 8,
+    "local-placeholders": 12,
+    "mobile-client-value": 1,
+    "panel-mode-duality": 3,
+    "publish-computed-fanout": 12,
+    "reexport-shims": 13,
+    "router-triple-access": 119,
+    "send-turn-duplicate": 1,
+    "session-shapes": 9,
+    "state-dir-defs": 0,
+    "static-systemd-units": 11,
+    "superagent-shadow-types": 2,
+    "upstream-sync-forwarder": 4,
+    "web-storage-keys": 13
+  }
+}
