@@ -156,12 +156,31 @@ describe('scrubStack', () => {
     ])
   })
 
-  it('never lets the message line through — it is not even parsed as a frame', () => {
+  it('never lets the message line through', () => {
     const json = JSON.stringify(scrubStack(stack, INSTALL))
     expect(json).not.toContain('acme-corp')
     expect(json).not.toContain('secrets.json')
     expect(json).not.toContain('Cannot read properties')
     expect(json).not.toContain('alice')
+  })
+
+  it('drops frames a MULTI-LINE message smuggled into the stack', () => {
+    // The sharp case, and the reason the guarantee is containment + schema
+    // rather than line position: a wrapped error (`new Error(\`failed:\n${e.stack}\`)`
+    // — a common shape) puts message bytes on lines that DO parse as frames.
+    // Only the genuine Podium frame may survive.
+    const wrapped = [
+      'Error: upstream failed: token=sekrit-abc123',
+      '    at leak (/home/alice/private-repo/secrets.ts:1:1)',
+      '    at escape (apps/../../../home/alice/secrets.ts:2:2)',
+      `    at real (${INSTALL}/apps/server/src/router.ts:412:9)`,
+    ].join('\n')
+    const frames = scrubStack(wrapped, INSTALL)
+    expect(frames).toEqual([{ file: 'apps/server/src/router.ts', line: 412, fn: 'real' }])
+    const json = JSON.stringify(frames)
+    for (const leaked of ['sekrit', 'alice', 'private-repo', 'secrets']) {
+      expect(json, `"${leaked}" reached the payload`).not.toContain(leaked)
+    }
   })
 
   it('handles an undefined stack', () => {
