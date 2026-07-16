@@ -24,6 +24,11 @@ import { startServer } from '../apps/server/src/server'
 await bootProcess({
   name: 'server',
   bootTimeoutMs: null,
+  // Backstop only (POD-611): the server's close persists state first and then
+  // force-closes lingering sockets (closeServerFast), so a real close finishes
+  // well under a second. Don't rely on the kernel's 4s default — that race used
+  // to time out on nearly every stop. The kernel default stays 4s for the daemon.
+  closeTimeoutMs: 1000,
   start: () => startServer({ port: resolvePort() }),
   readyMessage: (server) =>
     `podium server up: relay on http://localhost:${server.port} (daemon connects separately)`,

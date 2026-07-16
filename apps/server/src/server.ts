@@ -31,6 +31,7 @@ import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { registerSetupRoute } from './setup-route'
+import { closeServerFast } from './shutdown'
 import { registerMobileRouting, registerWebStatic } from './static-web'
 import { SessionStore } from './store'
 import { attachWebSockets } from './wsServer'
@@ -428,27 +429,26 @@ export async function startServer(
           instanceId,
           registry,
           bootstrapToken,
+          // Deterministic fast shutdown (POD-611): terminate WS intake, persist
+          // state unconditionally, THEN force-close lingering http sockets —
+          // see closeServerFast for the full ordering rationale. Step order
+          // below matters: sync/outbox loops stop before the store closes (a
+          // late write against a closed DB would throw), dirty activity
+          // timestamps flush while the DB is open, registry.dispose() stops the
+          // periodic flush timer, and only then does the store close.
           close: () =>
-            ws.close().then(
-              () =>
-                new Promise<void>((res) => {
-                  ;(server as unknown as Server).close(() => {
-                    // Stop the upstream sync loop + outbox drain BEFORE the store
-                    // closes — a late cursor/issue/outbox write against a closed DB
-                    // would throw.
-                    messaging.stop()
-                    upstreamSync?.stop()
-                    upstreamForwarder?.stop()
-                    // Persist the last dirty activity timestamps while the DB is still
-                    // open, then stop the periodic flush timer (so a tick can't fire an
-                    // upsertSession against a closed DB), and only then close the store.
-                    registry.modules.sessions.flushActivity()
-                    registry.dispose()
-                    store.close()
-                    res()
-                  })
-                }),
-            ),
+            closeServerFast({
+              closeWebSockets: () => ws.close(),
+              server: server as unknown as Server,
+              persist: [
+                ['messaging.stop', () => messaging.stop()],
+                ['upstreamSync.stop', () => upstreamSync?.stop()],
+                ['upstreamForwarder.stop', () => upstreamForwarder?.stop()],
+                ['sessions.flushActivity', () => registry.modules.sessions.flushActivity()],
+                ['registry.dispose', () => registry.dispose()],
+                ['store.close', () => store.close()],
+              ],
+            }),
         })
       })
       // Node surfaces a failed listen() as an async 'error' event (Bun throws above).
