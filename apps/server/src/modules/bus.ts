@@ -63,6 +63,16 @@ export interface EventMap {
   /** The hub-reachability flag flipped (spec §2.3) — the conversation and issue
    *  mirrors rebroadcast their stale overlays on this. */
   'upstream.staleChanged': { stale: boolean }
+  /** A superagent turn finished (success or failure) — the messaging bridge
+   *  [spec:SP-5d81] relays `output` to external chat channels. Fired for EVERY
+   *  turn on the thread regardless of who dispatched it (web UI or a bridge). */
+  'superagent.turnEnded': {
+    threadId: string
+    podiumSessionId: string
+    ok: boolean
+    output?: string
+    error?: string
+  }
 }
 
 export type EventName = keyof EventMap

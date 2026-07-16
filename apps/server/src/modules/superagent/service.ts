@@ -565,6 +565,15 @@ export class SuperagentService {
       this.modules.headless.headlessTurnAck(pending.podiumSessionId, pending.turnId)
       this.turnInFlight.delete(pending.threadId)
       this.dispatchedTurnIds.delete(pending.turnId)
+      // After turnInFlight is released so a subscriber can immediately dispatch
+      // the thread's next turn [spec:SP-5d81].
+      this.modules.bus.emit('superagent.turnEnded', {
+        threadId: pending.threadId,
+        podiumSessionId: pending.podiumSessionId,
+        ok: result.ok,
+        ...(result.output ? { output: result.output } : {}),
+        ...(result.error ? { error: result.error } : {}),
+      })
     }
   }
 

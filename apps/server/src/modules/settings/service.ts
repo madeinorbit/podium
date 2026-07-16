@@ -219,6 +219,15 @@ export class SettingsService {
     return this.modelCatalog.get()
   }
 
+  /** True while a pairing window is open — the messaging bridge pauses its
+   *  getUpdates long-poll so the setup flow's polls don't 409 [spec:SP-5d81]. */
+  hasPendingTelegramSetup(): boolean {
+    for (const setup of this.telegramSetups.values()) {
+      if (this.now() <= setup.expiresAtMs) return true
+    }
+    return false
+  }
+
   async startTelegramSetup(): Promise<TelegramSetupStartResult> {
     const botToken = this.store.getSettings().notifications.telegramBotToken.trim()
     if (!botToken) throw new Error('Telegram bot token is required before setup')

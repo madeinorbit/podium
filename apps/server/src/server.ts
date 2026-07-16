@@ -22,6 +22,7 @@ import { IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
+import { MessagingService } from './modules/messaging'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
@@ -196,6 +197,16 @@ export async function startServer(
   }
   const repos = new RepoRegistry(registry, store)
   const superagent = new SuperagentService(registry.modules, repos, store)
+  // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
+  // superagent, riding the notification bot config. configure() is a no-op
+  // until a bot token + chat id are set; settings.changed re-arms it live.
+  const messaging = new MessagingService({
+    bus: registry.modules.bus,
+    getSettings: () => store.settings.getSettings(),
+    superagent,
+    telegramSetupPending: () => registry.modules.settings.hasPendingTelegramSetup(),
+  })
+  messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
@@ -335,6 +346,7 @@ export async function startServer(
     const failListen = (err: unknown): void => {
       if (settled) return
       settled = true
+      messaging.stop()
       upstreamSync?.stop()
       upstreamForwarder?.stop()
       registry.dispose()
@@ -389,6 +401,7 @@ export async function startServer(
                     // Stop the upstream sync loop + outbox drain BEFORE the store
                     // closes — a late cursor/issue/outbox write against a closed DB
                     // would throw.
+                    messaging.stop()
                     upstreamSync?.stop()
                     upstreamForwarder?.stop()
                     // Persist the last dirty activity timestamps while the DB is still
