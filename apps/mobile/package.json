@@ -40,6 +40,7 @@
     "web": "expo start --web --port 8082",
     "build:web": "expo export -p web",
     "typecheck": "tsc --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   }
 }

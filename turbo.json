@@ -1,10 +1,11 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": ["tooling/tsconfig/**"],
+  "daemon": false,
+  "globalDependencies": ["tooling/tsconfig/**", "package.json", "bun.lock"],
   "tasks": {
     "typecheck": {
       "dependsOn": ["^typecheck"],
-      "inputs": ["$TURBO_DEFAULT$", "tsconfig.json", "package.json"],
+      "inputs": ["$TURBO_DEFAULT$"],
       "outputs": []
     }
   }
