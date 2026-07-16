@@ -202,6 +202,16 @@ Contested files each have ONE owning phase/issue at any time. Anyone else touchi
 hot file coordinates with the owner (issue mail + `podium lock acquire hotfile:<name>`)
 and merges BEHIND the owner. Merge-order rule per file:
 
+**Parts of this ledger are machine-checked — it is documentation that can fail CI.**
+`scripts/architecture-manifest.test.ts` (POD-296) reads §8's tag table and asserts every
+tagged workspace has a matching ledger row, every declared same-layer edge is listed, and
+no row names an untagged workspace; it matches on `| \`packages/foo\` |` row prefixes and
+the `L0 model` / `L2 kernel` layer labels. `packages/telemetry/src/docs-drift.test.ts` is
+the same shape. So a phase that adds, renames or splits a package updates the manifest AND
+its ledger row in the same commit, and anyone reformatting §8 runs the unit lane before
+assuming a prose change is safe. Prefer adding a drift test to trusting a convention: a
+table that CANNOT silently drift is worth more than a rule saying it must not.
+
 | Hot file | Owner (phase/issue) | Merge-order rule |
 |---|---|---|
 | Protocol message unions + codec (`packages/protocol`) | Phase 1 POD-300 (schemas move out), then Phase 2 POD-308 (wire cutover), then Phase 4 POD-317/POD-387 (plane inventory) | Owner lands first each phase; additive message variants by others rebase onto the owner's union; no one but the owner changes codec/negotiation. |
@@ -211,6 +221,7 @@ and merges BEHIND the owner. Merge-order rule per file:
 | `scripts/check-boundaries.ts` (architecture manifest lint) | Phase 0 POD-296 (warn mode), then Phase 7 POD-335 (error level) | Between those, phases may ONLY shrink their own allowlist entries; rule changes go through the owner. |
 | Store migrations (global migration order) | Phase 2 POD-305 (app migration orchestrator owns global ordering) | One migration number at a time — `podium lock acquire migration-number` before allocating; feature-owned tables stay in their feature but register with the orchestrator. |
 | `turbo.json` (build orchestration; contested once POD-715 lands) | POD-715's agent, then each package-scaffolding issue for its own task entry | Every new package registers a typecheck task + correct workspace deps as part of scaffolding — otherwise turbo invalidation silently misses it. Cross-cutting pipeline changes only via the owner. |
+| **`docs/rearchitecture-v3.md` — THIS LEDGER** (contested by construction: §8 says every phase writes its own section) | POD-298 owns §1–§7 and §9 (the conventions); each phase owns ITS OWN §8 section and nothing else | **Append within your own section; never restructure another phase's.** Two phases appending at different seams auto-merge cleanly — that is the whole reason the rule is "append, don't reflow". Rebase onto the ledger's current head before editing (POD-296 and POD-298 both edited it on 2026-07-16 from different bases; it merged only because both were appends). Parts of §8 are DRIFT-TESTED (below) — a reflow that reads fine can still fail CI. |
 
 ---
 
@@ -272,8 +283,13 @@ code moves. Four children:
 - POD-295 — lock the migration oracle: green lane baseline (unit + integration + e2e +
   multi-instance) in CI, per the lane doctrine (§2). *In progress; waits on POD-619
   stable baseline — precondition now MET (landed 1b10357f).*
-- POD-296 — architecture manifest lint: layer/platform/role/feature constraints in
-  `scripts/check-boundaries.ts`, WARN mode, phase-mapped allowlist. *In progress.*
+- POD-296 — architecture manifest lint: layer/platform/role/feature constraints, WARN
+  mode, phase-mapped allowlist. *On its issue branch: the tag-derived matrix lives in
+  `scripts/architecture-manifest.ts`, today's 50 known violations are frozen with
+  per-(rule, file) counts in `scripts/boundary-allowlist.ts` and mapped to the phase that
+  removes each, and the ratchet runs as its OWN blocking CI step. It adds its layer/tag
+  table + the rule → legacy-rule retirement map POD-335 needs as a subsection here, drift-
+  tested against the manifest (§5) — that subsection arrives with POD-296's branch.*
 - POD-297 — deletion audit script (`scripts/rearch-audit.ts`): the Section-6 "what
   disappears" inventory encoded as grep/AST checks with per-item and total counts,
   counted in CI, must reach zero by POD-337. *Landed on its issue branch (bddfff78);
@@ -328,12 +344,13 @@ hypothetical: `bun run lint:boundaries` **exits 1 on current main** (two
 `agent-bridge-consumers` violations, `apps/server/src/accounts.ts` and `relay.ts`;
 verified 2026-07-16 at c577009d), tracked open as POD-740.
 
-The lesson for Phase 0: **POD-296 shipping the manifest lint is not the same as the
-manifest lint being able to fail a PR.** Gate POD-422 must confirm each Phase 0 guardrail
-is its OWN blocking step and that a deliberate violation actually fails CI — not merely
-that the script exists and is green when run by hand. The deletion audit is deliberately
-wired as its own blocking step for this reason; the two concerns must not share one
-`continue-on-error`.
+The lesson for Phase 0: **shipping a lint is not the same as the lint being able to fail a
+PR.** Gate POD-422 must confirm each Phase 0 guardrail is its OWN blocking step and that a
+deliberate violation actually fails CI — not merely that the script exists and is green
+when run by hand. Both Phase 0 ratchets are deliberately wired that way, each as its own
+step outside the `continue-on-error` one: the deletion audit (POD-297) and the
+architecture-manifest ratchet (`bun run lint:architecture`, POD-296). Known debt warns;
+only NEW violations fail. The two concerns must never share one `continue-on-error`.
 
 ### ADR gate (POD-359) + Walking skeleton (POD-351) — between Phase 0 and Phases 2–3
 
