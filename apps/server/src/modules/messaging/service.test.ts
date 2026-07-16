@@ -682,9 +682,9 @@ describe('MessagingService', () => {
     h.createForumTopic.mockRejectedValueOnce(new Error('Bad Request: the chat is not a forum'))
     h.inbound('', { callback: { id: 'cb3', data: 'i:iss_i2' } })
     await flush()
-    expect(h.answerCallback).toHaveBeenCalledWith('cb3', 'Enable Topics for this chat first')
+    expect(h.answerCallback).toHaveBeenCalledWith('cb3', 'Topic mode not enabled for this bot')
     expect(h.sent).toHaveLength(1)
-    expect(h.sent[0]!.text).toContain('Enable Topics')
+    expect(h.sent[0]!.text).toContain('topic mode')
     expect(h.sent[0]!.threadRef).toBeUndefined()
   })
 

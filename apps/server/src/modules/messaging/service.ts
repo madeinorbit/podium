@@ -391,12 +391,12 @@ export class MessagingService implements TelegramNoticePort {
         // USER enables topic mode for it — surface the one-time setup step
         // instead of a dead-end toast.
         if (isNotAForumError(err)) {
-          await this.adapter?.answerCallback?.(cb.id, 'Enable Topics for this chat first')
+          await this.adapter?.answerCallback?.(cb.id, 'Topic mode not enabled for this bot')
           await this.reply(
             { channel: msg.source.channel, chatId: msg.source.chatId },
-            'Telegram only lets me create topics after you enable topic mode for this chat: ' +
-              'open this chat’s profile (tap the bot name at the top) and choose "Enable Topics", ' +
-              'then tap the issue button again.',
+            'Telegram has not enabled topic mode for this bot yet (getMe.has_topics_enabled ' +
+              'is false — a bot-level Telegram setting still rolling out, not a chat setting). ' +
+              'Until it is available, issue topics need a Telegram group with Topics enabled.',
           )
           return
         }
