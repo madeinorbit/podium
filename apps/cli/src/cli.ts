@@ -139,6 +139,7 @@ export type LaunchPlan =
   | { kind: 'issue'; args: string[] }
   | { kind: 'session'; args: string[] }
   | { kind: 'mail'; args: string[] }
+  | { kind: 'offer'; args: string[] }
   | { kind: 'agent'; args: string[] }
   | { kind: 'spec'; args: string[] }
   | { kind: 'worktree'; args: string[] }
@@ -323,6 +324,7 @@ export function resolvePlan(
     'worktree',
     'workspace',
     'mail',
+    'offer',
     'agent',
     'workflow',
     // Renders its own usage, and `podium telemetry --help` should answer the
@@ -435,6 +437,7 @@ export function resolvePlan(
   if (argv[0] === 'issue') return { kind: 'issue', args: argv.slice(1) }
   if (argv[0] === 'session') return { kind: 'session', args: argv.slice(1) }
   if (argv[0] === 'mail') return { kind: 'mail', args: argv.slice(1) }
+  if (argv[0] === 'offer') return { kind: 'offer', args: argv.slice(1) }
   if (argv[0] === 'agent') return { kind: 'agent', args: argv.slice(1) }
   if (argv[0] === 'spec') return { kind: 'spec', args: argv.slice(1) }
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
@@ -994,6 +997,11 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       return
     }
     // `podium mail <command>`: the unified messaging surface (#237) [spec:SP-34d7].
+    case 'offer': {
+      const { offerCliMain } = await import('./offer-cli')
+      await offerCliMain(plan.args)
+      return
+    }
     case 'mail': {
       const { mailCliMain } = await import('./mail-cli')
       await mailCliMain(plan.args)

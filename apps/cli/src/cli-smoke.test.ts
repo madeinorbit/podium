@@ -21,7 +21,7 @@ const hasBun = (() => {
 })()
 
 describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasBun)('podium CLI real-binary smoke', () => {
-  for (const verb of ['mail', 'agent', 'session']) {
+  for (const verb of ['mail', 'offer', 'agent', 'session']) {
     it(`${verb} --help renders without a server`, () => {
       const out = execFileSync('bun', [cliEntry, verb, '--help'], { encoding: 'utf8' })
       expect(out).toContain(verb)
