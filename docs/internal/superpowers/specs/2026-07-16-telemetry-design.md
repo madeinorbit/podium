@@ -104,7 +104,7 @@ Hard kill switches, checked before anything else including the prompt:
   "arch": "x64",
   "installAge": "1-7d",
   "machines": "2-5",
-  "sessions": { "claude": 14, "codex": 2 },
+  "sessions": { "claude-code": 14, "codex": 2 },
   "features": { "issues": true, "spec": true, "handoff": false }
 }
 ```
@@ -259,7 +259,7 @@ All-in-one desktop gets the web flow above.
       "os": "linux", "arch": "x64",
       "installAge": "1-7d",
       "machines":   "2-5",
-      "sessions":   { "claude": 14, "codex": 2 },
+      "sessions":   { "claude-code": 14, "codex": 2 },
       "features":   { "issues": true, "spec": true, "handoff": false }
     }
 
