@@ -19,6 +19,7 @@ import {
   type Geometry,
   type IssueWire,
   type LiveServerMessage,
+  MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
   type ResumeRef,
   type ServerMessage,
@@ -81,15 +82,11 @@ const QUEUE_DRAIN_DEADLINE_MS = 25_000
 const QUEUE_MESSAGE_SPACING_MS = 400
 // Idempotency records outlive any sane replay horizon, then get pruned.
 const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-// A self-chosen session title (#490) is a sidebar label, not an essay: 3–5 words.
-// The cap is a sanity bound (an agent pasting a paragraph), not the style rule —
-// the style rule is the prime's, and lives in @podium/protocol's sessionTitleRule
-// (TITLE_RULE / sessionTitleRule) [spec:SP-eb60].
-export const MAX_AGENT_TITLE_LENGTH = 120
 
 /** Normalize an agent-set session name the same way setAgentName does — trim,
  *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
- *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60]. */
+ *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60].
+ *  Length cap: MAX_AGENT_TITLE_LENGTH from @podium/protocol/titles. */
 function normalizeAgentName(name: string): { ok: true; name: string } | { ok: false; reason: string } {
   const clean = name.trim().replace(/\s+/g, ' ')
   if (!clean) return { ok: false, reason: 'title is empty' }

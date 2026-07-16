@@ -4,6 +4,11 @@
  *  would drift; one does not. [spec:SP-eb60]
  */
 
+/** Sanity bound for a self-chosen / spawner-set session title (sidebar label,
+ *  not an essay: 3–5 words). Style rule lives in TITLE_RULE / sessionTitleRule;
+ *  this is only length. Used by setAgentName, createSession, and spawn gate. */
+export const MAX_AGENT_TITLE_LENGTH = 120
+
 /** How an agent must title an issue. Injected into the prime rules verbatim. */
 export const TITLE_RULE =
   'Issue titles: 3–5 words naming the thing or the outcome, not the activity. ' +
