@@ -74,6 +74,11 @@ function makeHarness(settingsDir: string): Harness {
   const ctx = {
     send: (m: DaemonMessage) => sent.push(m),
     // 'none' = a bare node-pty child. No durable master can survive this test.
+    machineId: 'local',
+    instanceId: 'blue',
+    durableLabels: new Map(),
+    durableLabelFor: (id: string) => `podium-blue-${id}`,
+    homeDir: home,
     backend: 'none',
     // The REAL launch table: agentKind 'shell' -> $SHELL, no args.
     launch: agentLaunchCommand,
@@ -194,6 +199,7 @@ async function spawnAndDumpEnv(
     // the negative case meaningful rather than merely a dump we failed to wait for.
     await waitFor(() => h.output().includes(`PODIUM_SESSION_ID=${sessionId}`))
     await h.settled()
+    expect(h.ctx.durableLabels.get(sessionId)).toBe(`podium-blue-${sessionId}`)
     return h.output()
   } finally {
     // Reap by explicit pid. Never pattern-kill: a `pkill -f bash` here would take the
@@ -217,6 +223,8 @@ describe('managed account -> real spawned process env (#216)', () => {
     expect(dump).toContain(`ANTHROPIC_API_KEY=${CREDENTIAL}`)
     // ...and the credential did not displace Podium's own per-session wiring.
     expect(dump).toContain('PODIUM_SESSION_ID=sess-managed')
+    expect(dump).toContain('PODIUM_INSTANCE=blue')
+    expect(dump).toContain('PODIUM_SESSION_INSTANCE=blue')
   })
 
   it('NEGATIVE: a native account (no env on the frame) injects NO ANTHROPIC_API_KEY', async () => {
