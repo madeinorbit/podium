@@ -600,18 +600,27 @@ export class SessionsService {
     // scope (pre-fix orphans, or any residual race). The daemon reattaches a live
     // master (→ a bind → markLive) or replies reattachFailed (→ it stays exited).
     // The durable host, not the persisted row, is the source of truth for liveness.
-    // Most-recently-used first: the daemon gates its spawn fan-out, so the order we
-    // send in decides who reattaches soonest. Prioritise the sessions the user most
-    // likely has open. lastActiveAt is an ISO string, so a reverse lexical sort is
-    // newest-first.
-    const probes = [...this.sessions.values()]
-      .filter(
-        (s) =>
-          s.machineId === machineId &&
-          !s.headless &&
-          (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)),
-      )
-      .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+    // View-priority first, then most-recently-used: the daemon gates its spawn
+    // fan-out, so the order we send in decides who reattaches soonest. A session
+    // some connected client is focused on / rendering (viewState is
+    // server-authoritative — the same tiers the output scheduler uses) must come
+    // back typable before the long unwatched tail (POD-612); within a tier,
+    // lastActiveAt is an ISO string, so a reverse lexical sort is newest-first.
+    const probes = [...this.sessions.values()].filter(
+      (s) =>
+        s.machineId === machineId &&
+        !s.headless &&
+        (s.status === 'reconnecting' || (s.status === 'exited' && !s.archived)),
+    )
+    const viewTiers = computePriorities(
+      [...this.clients.values()],
+      probes.map((s) => s.sessionId),
+    )
+    probes.sort(
+      (a, b) =>
+        (viewTiers.get(a.sessionId) ?? 3) - (viewTiers.get(b.sessionId) ?? 3) ||
+        (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
+    )
     for (const s of probes) {
       this.toMachine(machineId, {
         type: 'reattach',

@@ -38,6 +38,10 @@ export interface SessionObserversDeps {
   cwdTracker: Pick<SessionCwdTracker, 'onHookCwd'>
   /** Persist and replay an exact process-derived Codex P→T binding until acked. */
   onExactCodexBinding?: (sessionId: string, nativeId: string) => Promise<void>
+  /** Paces each tail's FIRST backfill read (the expensive part of a reattach
+   *  burst) — narrow concurrency, and held until the burst's bridge wiring has
+   *  settled (POD-612). Omitted (tests) = seeds run immediately. */
+  tailSeedGate?: (fn: () => Promise<void>) => Promise<void>
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -110,6 +114,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           recordToItems,
           // The agent's `/color` accent rides the same transcript tail.
           onColor: (color) => send({ type: 'agentColor', sessionId, color }),
+          ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
         },
       ),
     )

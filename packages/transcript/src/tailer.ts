@@ -38,6 +38,12 @@ export interface TranscriptTailOptions {
    *  alongside recordToItems; `onColor` fires when the value changes. */
   recordColor?: (record: unknown) => string | undefined
   onColor?: (color: string) => void
+  /** Runs the tail's FIRST read (the multi-MB backfill seed — the expensive one)
+   *  through a pacing gate; poll ticks hold off until the gated seed completes.
+   *  Lets a caller standing up many tails at once (daemon reattach burst,
+   *  POD-612) defer and serialize the seeds without delaying anything else.
+   *  Post-seed delta reads never go through the gate. */
+  seedGate?: (fn: () => Promise<void>) => Promise<void>
 }
 
 /** Metadata accompanying each `onItems` delta. */
@@ -226,9 +232,18 @@ export function tailTranscript(
     }
   }
 
-  const timer = setInterval(() => void readNew(), opts.pollMs ?? POLL_MS)
+  // The first read is the seed (bounded backfill); it may be deferred/paced by
+  // `seedGate`. Poll ticks skip until the gated seed has run so a queued seed's
+  // big read can't be stolen onto an ungated timer tick.
+  let seeded = false
+  const timer = setInterval(() => {
+    if (seeded) void readNew()
+  }, opts.pollMs ?? POLL_MS)
   timer.unref?.()
-  void readNew()
+  const seedGate = opts.seedGate ?? ((fn: () => Promise<void>) => fn())
+  void seedGate(() => readNew()).finally(() => {
+    seeded = true
+  })
 
   return {
     path,

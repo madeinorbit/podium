@@ -168,3 +168,42 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
     }
   })
 })
+
+describe('tailTranscript — seedGate (POD-612)', () => {
+  it('defers the first read behind the gate; poll ticks do not jump the queue', async () => {
+    const path = join(dir, 'tail-seedgate.jsonl')
+    writeFileSync(path, `${userRecord('g1', 'gated')}\n`)
+    const emissions: Emission[] = []
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    const tailer = tailTranscript(
+      path,
+      (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
+      {
+        pollMs: 5,
+        seedGate: async (fn) => {
+          await held
+          await fn()
+        },
+      },
+    )
+    try {
+      // Several poll intervals pass while the gate is held — no read may happen:
+      // neither the seed itself nor a timer tick stealing the big first read.
+      await new Promise((r) => setTimeout(r, 50))
+      expect(emissions).toEqual([])
+      release()
+      await new Promise((r) => setTimeout(r, 30))
+      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual(['gated'])
+      expect(emissions[0]?.reset).toBe(true)
+      // Post-seed live appends flow through ordinary (ungated) polls.
+      appendFileSync(path, `${userRecord('g2', 'after')}\n`)
+      await new Promise((r) => setTimeout(r, 50))
+      expect(emissions.flatMap((e) => e.items).map((i) => i.text)).toEqual(['gated', 'after'])
+    } finally {
+      tailer.stop()
+    }
+  })
+})

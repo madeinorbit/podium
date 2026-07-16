@@ -221,6 +221,15 @@ const RECONNECT_MAX_MS = 5_000
  * reattach — just over a few ticks instead of starving anything.
  */
 const REATTACH_CONCURRENCY = 6
+/**
+ * How many transcript-tail SEEDS (the first backfill read of a tailed JSONL) may
+ * run at once. Deliberately narrower than the reattach gate: seeds are the heavy
+ * part of a reattach burst (a multi-MB read + JSONL parse per session), while
+ * bridge wiring is a cheap fork/exec — splitting the two keeps every session
+ * typable within a couple of seconds of boot instead of queueing input behind
+ * transcript work (POD-612).
+ */
+const TAIL_SEED_CONCURRENCY = 2
 
 /**
  * Minimal async concurrency limiter: returns a runner that keeps at most `max`
@@ -242,6 +251,43 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
       if (active < max) run()
       else queue.push(run)
     })
+}
+
+/**
+ * The two gates a reattach burst runs through, split so bridge wiring is never
+ * queued behind transcript work (POD-612):
+ *
+ * - `reattachGate` bounds the cheap-but-forking part (abduco/tmux existence check,
+ *   attach-client spawn, wireBridge, bootEvents seed). Sessions become typable the
+ *   moment their bridge is wired, so this fan-out must finish fast for ALL of them.
+ * - `tailSeedGate` paces the heavy part (a tailed transcript's first backfill
+ *   read/parse). It additionally waits for the reattach burst to SETTLE — every
+ *   pending reattach's bridge wired — before letting the first seed run, so a
+ *   boot with ~100 sessions wires them all before any multi-MB tail read starts.
+ *
+ * Pending is counted at reattachGate CALL time (queued + running), so a seed
+ * created mid-burst waits for the whole burst's wiring, not just its own session's.
+ */
+export function createReattachGates(opts?: { reattachMax?: number; tailSeedMax?: number }): {
+  reattachGate: <T>(fn: () => Promise<T>) => Promise<T>
+  tailSeedGate: (fn: () => Promise<void>) => Promise<void>
+} {
+  const reattachLimit = createLimiter(opts?.reattachMax ?? REATTACH_CONCURRENCY)
+  const tailSeedLimit = createLimiter(opts?.tailSeedMax ?? TAIL_SEED_CONCURRENCY)
+  let reattachPending = 0
+  const settledWaiters: Array<() => void> = []
+  const reattachGate = <T>(fn: () => Promise<T>): Promise<T> => {
+    reattachPending++
+    return reattachLimit(fn).finally(() => {
+      reattachPending--
+      if (reattachPending === 0) for (const w of settledWaiters.splice(0)) w()
+    })
+  }
+  const whenReattachSettled = (): Promise<void> =>
+    reattachPending === 0 ? Promise.resolve() : new Promise((r) => settledWaiters.push(r))
+  const tailSeedGate = (fn: () => Promise<void>): Promise<void> =>
+    whenReattachSettled().then(() => tailSeedLimit(fn))
+  return { reattachGate, tailSeedGate }
 }
 
 export interface DaemonHandle {
@@ -331,6 +377,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       send({ type: 'sessionCwd', sessionId, cwd, ...(explicit ? { explicit: true } : {}) }),
   })
 
+  // Reattach fan-out gates (POD-612): wide gate for bridge wiring, narrow
+  // burst-settled gate for transcript-tail seeds. Created before the observers
+  // registry so tail seeds pace through it from the very first spawn/reattach.
+  const gates = createReattachGates()
+
   // Agent state observation: harness hooks POST to the ingest; the provider
   // translates payloads into normalized events; the reducer folds them; changes
   // go to the server as `agentState`. The observers registry owns all of that
@@ -346,6 +397,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // remains and the authentication path replays it after reconnect.
       await codexIdentityReceipts.replay(send)
     },
+    tailSeedGate: gates.tailSeedGate,
   })
 
   // Correlates daemon-initiated agent-relay requests (the loopback server originates
@@ -472,7 +524,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     observers,
     sessionCwdTracker,
     primeInjector,
-    reattachGate: createLimiter(REATTACH_CONCURRENCY),
+    reattachGate: gates.reattachGate,
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookSocketPath,
     codexReceiptDir,

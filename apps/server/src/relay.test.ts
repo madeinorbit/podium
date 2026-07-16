@@ -777,6 +777,31 @@ describe('SessionRegistry', () => {
     expect(order).toEqual(['newest', 'mid', 'oldest'])
   })
 
+  it('reattaches view-prioritised sessions before plain MRU (POD-612)', () => {
+    // After a daemon restart the reattach burst decides who becomes typable first
+    // (the daemon gates its fan-out). A session some connected client is focused
+    // on / rendering must beat a merely-recent one; within a tier the order stays
+    // most-recently-used.
+    const store = new SessionStore(':memory:')
+    store.sessions.upsertSession(exitedRow('recent', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
+    store.sessions.upsertSession(exitedRow('focused', { lastActiveAt: '2026-01-02T00:00:00.000Z' }))
+    store.sessions.upsertSession(exitedRow('visible', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
+    store.sessions.upsertSession(exitedRow('idle', { lastActiveAt: '2026-02-01T00:00:00.000Z' }))
+    const reg = new SessionRegistry(store)
+    // A client renders 'visible' + 'focused' and focuses 'focused' — viewState is
+    // server-authoritative, same tiers the output scheduler uses.
+    const clientId = reg.modules.sessions.attachClient(() => {})
+    reg.modules.sessions.onClientMessage(clientId, {
+      type: 'viewState',
+      visible: ['visible', 'focused'],
+      focused: 'focused',
+    })
+    const daemon: ControlMessage[] = []
+    reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+    const order = daemon.filter((m) => m.type === 'reattach').map((m) => m.sessionId)
+    expect(order).toEqual(['focused', 'visible', 'recent', 'idle'])
+  })
+
   it('daemon disconnect drops live sessions to reconnecting so the next daemon re-binds them', () => {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})

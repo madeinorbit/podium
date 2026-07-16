@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   abducoHasSession,
+  agentStateProviderFor,
   claudeProjectSlug,
   isAbducoAvailable,
   isTmuxAvailable,
@@ -25,12 +26,14 @@ import { WebSocketServer, type WebSocket as WS } from 'ws'
 import {
   controlFrameByteLength,
   createLimiter,
+  createReattachGates,
   type DaemonHandle,
   noDurableBackendWarning,
   normalizeAgentKind,
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
+import { createSessionObservers, type ReattachControl } from './session-observers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
@@ -1889,6 +1892,123 @@ describe('createLimiter (reattach spawn gate)', () => {
     await expect(limit(() => Promise.reject(new Error('boom')))).rejects.toThrow('boom')
     // A failure must release its slot so later work still runs.
     await expect(limit(() => Promise.resolve('ok'))).resolves.toBe('ok')
+  })
+})
+
+describe('createReattachGates (POD-612 typable-first split)', () => {
+  it('holds tail seeds until the whole reattach burst is wired, then paces them', async () => {
+    const gates = createReattachGates({ reattachMax: 2, tailSeedMax: 1 })
+    const log: string[] = []
+    // A burst of 5 reattaches; each schedules its tail seed mid-wire, exactly like
+    // handleReattach → initSessionObservers → tailFile does.
+    const wireReleases: Array<() => void> = []
+    const wires = Array.from({ length: 5 }, (_, i) =>
+      gates.reattachGate(async () => {
+        void gates.tailSeedGate(async () => {
+          log.push(`seed-${i}`)
+        })
+        await new Promise<void>((r) => wireReleases.push(r))
+        log.push(`wire-${i}`)
+      }),
+    )
+    // Release wires one by one; no seed may run before the LAST wire completes —
+    // the settle barrier counts queued reattaches, not just running ones.
+    while (wireReleases.length < 2) await new Promise((r) => setTimeout(r, 1))
+    for (let released = 0; released < 5; released++) {
+      expect(log.filter((e) => e.startsWith('seed-'))).toEqual([])
+      wireReleases.shift()?.()
+      await new Promise((r) => setTimeout(r, 5))
+    }
+    await Promise.all(wires)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(log.slice(0, 5)).toEqual(['wire-0', 'wire-1', 'wire-2', 'wire-3', 'wire-4'])
+    expect(log.slice(5).sort()).toEqual(['seed-0', 'seed-1', 'seed-2', 'seed-3', 'seed-4'])
+  })
+
+  it('runs a seed immediately when no reattach is pending (steady state)', async () => {
+    const gates = createReattachGates()
+    let ran = false
+    await gates.tailSeedGate(async () => {
+      ran = true
+    })
+    expect(ran).toBe(true)
+  })
+
+  it('keeps at most tailSeedMax seeds in flight', async () => {
+    const gates = createReattachGates({ tailSeedMax: 2 })
+    let active = 0
+    let peak = 0
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        gates.tailSeedGate(async () => {
+          active++
+          peak = Math.max(peak, active)
+          await new Promise((r) => setTimeout(r, 5))
+          active--
+        }),
+      ),
+    )
+    expect(peak).toBeLessThanOrEqual(2)
+  })
+
+  it('seeds bootEvents eagerly on reattach even while the tail seed is still gated', async () => {
+    // The SAFETY invariant behind the POD-612 split: state classification
+    // (seedBootState / provider.bootEvents) runs identically and eagerly for
+    // every reattached session — only the scrollback/tail PREFETCH is paced.
+    // A held gate must therefore never delay the agentState seed.
+    const home = await mkdtemp(join(tmpdir(), 'podium-home-'))
+    const cwd = '/tmp'
+    const resumeValue = 'conv-seedgate-boot'
+    const projDir = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
+    await mkdir(projDir, { recursive: true })
+    await writeFile(
+      join(projDir, `${resumeValue}.jsonl`),
+      `${JSON.stringify({
+        type: 'user',
+        uuid: 'u1',
+        timestamp: '2026-06-14T00:00:00.000Z',
+        message: { role: 'user', content: 'hello' },
+      })}\n`,
+    )
+    const prevHome = process.env.HOME
+    process.env.HOME = home // claudeBootEvents locates via $HOME (no homeDir opt)
+    const sent: DaemonMessage[] = []
+    try {
+      const observers = createSessionObservers({
+        send: (m) => sent.push(m),
+        homeDir: home,
+        onTranscriptDirty: () => {},
+        cwdTracker: { onHookCwd: async () => {} },
+        tailSeedGate: () => new Promise<never>(() => {}), // gate NEVER releases
+      })
+      const msg: ReattachControl = {
+        type: 'reattach',
+        sessionId: 'seedgate-1',
+        durableLabel: 'podium-seedgate-1',
+        agentKind: 'claude-code',
+        cwd,
+        geometry: G,
+        resume: { kind: 'claude-session', value: resumeValue },
+      }
+      observers.initSessionObservers(
+        msg,
+        // Session handle is unused on the reattach path (seedOnFrame: false).
+        { onFrame: () => () => {} } as never,
+        agentStateProviderFor('claude-code'),
+        { seedOnFrame: false },
+      )
+      const startedAt = Date.now()
+      while (!sent.some((m) => m.type === 'agentState' && m.sessionId === 'seedgate-1')) {
+        if (Date.now() - startedAt > 5000) throw new Error('agentState seed timed out')
+        await new Promise((r) => setTimeout(r, 10))
+      }
+      // The tail prefetch is still parked behind the gate — no transcript delta.
+      expect(sent.some((m) => m.type === 'transcriptDelta')).toBe(false)
+      observers.clearSession('seedgate-1')
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME
+      else process.env.HOME = prevHome
+    }
   })
 })
 
