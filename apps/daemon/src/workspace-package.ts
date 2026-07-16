@@ -3,13 +3,18 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { homedir, tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
-import { WorkspaceManifest, type WorkspaceManifest as WorkspaceManifestType } from '@podium/protocol'
+import {
+  WORKSPACE_PEEK_DIR,
+  WorkspaceManifest,
+  type WorkspaceManifest as WorkspaceManifestType,
+} from '@podium/protocol'
 import { buildSnapshotCommit } from './handoff-package'
 
 const runFile = promisify(execFile)
 /** Peek worktrees land under a dedicated directory so `workspace clean` can
- *  enumerate and remove exactly what fetch materialized, nothing else. */
-export const PEEK_DIR = '.worktrees/.peek'
+ *  enumerate and remove exactly what fetch materialized, nothing else — and so
+ *  git discovery can exclude them from repo scans (a peek is not a workspace). */
+export const PEEK_DIR = WORKSPACE_PEEK_DIR
 
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await runFile('git', args, { cwd })
@@ -17,7 +22,10 @@ async function git(cwd: string, args: string[]): Promise<string> {
 }
 
 /** Bases are verified on the FETCHER; `git bundle create ^<sha>` additionally
- *  needs each base present HERE on the source — keep the intersection. */
+ *  needs each base present HERE on the source — keep the intersection.
+ *  Deliberate duplicate of handoff-package.ts sourceKnownShas: that file is
+ *  under concurrent change (POD-657/665); unify once those land (POD-658
+ *  follow-up). */
 async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
   const known: string[] = []
   for (const sha of shas) {

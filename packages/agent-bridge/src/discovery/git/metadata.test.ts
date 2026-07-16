@@ -313,6 +313,26 @@ describe('inspectGitRepositoryPath', () => {
     ])
   })
 
+  test('excludes workspace-fetch peek worktrees from repo scans [spec:SP-6d57]', async () => {
+    const root = await createTempRoot()
+    const { main, worktree } = await writeLinkedWorktree(root)
+    // Register a peek exactly as `podium workspace fetch` materializes one:
+    // a detached worktree under <repo>/.worktrees/.peek/.
+    const peek = join(main, '.worktrees', '.peek', 'main-feature-abcdef123456')
+    const peekAdminDir = join(main, '.git', 'worktrees', 'main-feature-abcdef123456')
+    await mkdir(peek, { recursive: true })
+    await mkdir(peekAdminDir, { recursive: true })
+    await writeFile(join(peek, '.git'), `gitdir: ${peekAdminDir}\n`)
+    await writeFile(join(peekAdminDir, 'commondir'), '../..\n')
+    await writeFile(join(peekAdminDir, 'gitdir'), `${join(peek, '.git')}\n`)
+    await writeFile(join(peekAdminDir, 'HEAD'), `${featureSha}\n`)
+
+    const result = await readRegisteredWorktrees(join(main, '.git'))
+
+    expect(result.diagnostics).toEqual([])
+    expect(result.worktrees).toEqual([expect.objectContaining({ path: worktree })])
+  })
+
   test('skips stale registered worktrees whose target git file is missing', async () => {
     const root = await createTempRoot()
     const repo = await writeNormalRepo(root)

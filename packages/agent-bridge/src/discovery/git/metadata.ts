@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { WORKSPACE_PEEK_DIR } from '@podium/protocol'
 import { canonicalPath, isMissingPathError } from '../paths.js'
 import type { GitDiscoveryDiagnostic, GitRepositorySummary, GitWorktreeSummary } from './types.js'
 
@@ -86,7 +87,13 @@ export async function readRegisteredWorktrees(
 
     const gitDir = await canonicalPath(join(worktreesDir, entry.name))
     const worktree = await readRegisteredWorktree(gitDir, resolvedCommonGitDir, diagnostics)
-    if (worktree !== undefined) worktrees.push(worktree)
+    if (worktree === undefined) continue
+    // Workspace-fetch peeks [spec:SP-6d57] are read-only snapshot artifacts of
+    // ANOTHER machine's state, not workspaces: keep them out of every repo scan
+    // so they never surface in the sidebar, re-home a session, or count as a
+    // handoff-eligible worktree.
+    if (worktree.path.includes(`${sep}${WORKSPACE_PEEK_DIR.replaceAll('/', sep)}${sep}`)) continue
+    worktrees.push(worktree)
   }
 
   worktrees.sort((left, right) => compareStrings(left.path, right.path))

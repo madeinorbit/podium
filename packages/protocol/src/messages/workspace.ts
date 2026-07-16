@@ -7,6 +7,12 @@ import { z } from 'zod'
  * COPY semantics — the source session stays put; only its working tree is
  * snapshotted (temp index, ref deleted before the export reply goes out).
  */
+/** Where fetch materializes peek worktrees, relative to the repo root. Shared
+ *  so discovery can exclude peeks from repo scans — a peek is a read-only
+ *  artifact, not a workspace, and must never surface in the sidebar or count
+ *  as a session home. */
+export const WORKSPACE_PEEK_DIR = '.worktrees/.peek'
+
 export const WorkspaceManifest = z.object({
   format: z.literal(1),
   fetchId: z.string(),
