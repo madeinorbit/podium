@@ -1,7 +1,7 @@
 {
   "name": "podium",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2-edge.1",
   "description": "Mission control for coding agents \u2014 run, observe, and steer Claude Code, Codex, and other agent CLIs from one self-hosted web UI.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/madeinorbit/podium#readme",
