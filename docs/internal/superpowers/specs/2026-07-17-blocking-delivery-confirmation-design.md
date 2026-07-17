@@ -174,3 +174,35 @@ confirmed within the budget; CLI wording: "accepted — not yet confirmed; run
 4. ⏳ Re-inject cap — deferred to coordinator (ownership + durability).
 5. ⏳ Review by POD-834 author (offered); DONE to coordinator, who merges+deploys.
    Spec record in SP-34d7 pending the ownership answer.
+
+## Implementation status (POD-854 — urgency-gated blocking send)
+
+Landed the open decisions from this doc, rebased onto `afffbb43` (which carries
+POD-853 + the requeue cap + POD-835 + POD-865's composer-draft hold). TDD, in
+`apps/server/src/modules/messages/{service,gate}.ts` + `apps/cli/src/mail-cli.ts`:
+
+1. ✅ **Honest sync disposition** — an unconfirmed echo/pointer LIVE-PTY push
+   reports `queued`, not `delivered`; only confirmed-on-injection (unwrapped
+   operator / best-effort ack) is `delivered` synchronously. A durable boot-queue
+   push (`resumeAndSend` to an unbound session) stays `queued` — it types when the
+   session binds. This resolves the POD-852 "CLI prints delivered while row still
+   queued" overlap (nothing left there for that item).
+2. ✅ **`awaitDelivered(messageId, {timeoutMs})`** — bounded poll on the ledger
+   (leaves `queued` → delivered/read/dead_letter, or the deadline). Never hangs;
+   `now`/`sleep` injectable for deterministic clock tests.
+3. ✅ **`sendAndConfirm` at the gate send surface** — `interrupt` blocks to
+   `INTERRUPT_DELIVERY_CEILING_MS` (90s hang-guard), `next-turn` to
+   `NEXT_TURN_DELIVERY_BUDGET_MS` (25s) then `accepted`; `fyi` at queued;
+   held/spawning/dead_letter/operator-addressed pass straight through. Blocks on
+   BOTH `messages.send` surfaces (relay + tRPC); internal sends keep calling
+   `send()`. Budgets: 25s = queue-drain deadline, 90s = `ECHO_CONFIRM_WINDOW_MS`.
+4. ✅ **Composer-draft hold (POD-865) respected** — a draft-held row is `queued`
+   with no injection, so it outlasts the budget and returns the honest `accepted`
+   (never spins). Explicit test.
+5. ✅ **CLI** renders `accepted` and points the sender at `podium mail status <id>`.
+6. ⏳ Adversarial review + DONE to the POD-833 coordinator (merges+deploys); the
+   coordinator owns the live/deploy validation.
+
+Deferred (filed for another agent, not in POD-854 scope): `podium session send`
+(relay direct, always next-turn) stays non-blocking for now — a consistency
+follow-up, tracked as a discovered sub-issue.
