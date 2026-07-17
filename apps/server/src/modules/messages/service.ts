@@ -71,16 +71,41 @@ export const MAX_ECHO_REQUEUES = 2
  *  reflects the id back verbatim (transcript-echo confirmation, [POD-834]). */
 export const ECHO_ID_RE = /\bpodium message (msg_[0-9a-f-]+)\b/gi
 
+/** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
+ *  send blocks up to this budget for the transcript-observed `delivered`; a busy /
+ *  draft-held target that outlasts it returns `accepted` (still queued — the sender
+ *  queries `podium mail status`). 25s tracks the harness queue-drain deadline: long
+ *  enough to catch an idle or quickly-finishing target, short enough that the CLI
+ *  never hangs on a long turn. */
+export const NEXT_TURN_DELIVERY_BUDGET_MS = 25_000
+/** An `interrupt` send blocks until `delivered`; this ceiling is only a hang-guard
+ *  [spec:SP-cb9f] [POD-854]. An interrupt injects immediately (ESC + inject), so it
+ *  normally confirms within seconds at the ESC-cancelled turn boundary — but a
+ *  composer-draft hold [POD-865] or a dead PTY can legitimately keep the row queued,
+ *  so at this ceiling it returns the honest `accepted` rather than block forever.
+ *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation). */
+export const INTERRUPT_DELIVERY_CEILING_MS = 90_000
+
 /** What actually happened to a send, surfaced to the sender so a message that
  *  reached no one is never a bare success [POD-834 §04b]:
- *   - `delivered`   pushed to a live/idle target now (ledger confirms via echo);
- *   - `queued`      durably enqueued to a valid, reachable LIVE session — it
- *                   drains at the session's next turn boundary;
+ *   - `delivered`   CONFIRMED in the target's transcript (echo or turn boundary),
+ *                   or injection-is-delivery for an unwrapped operator body;
+ *   - `queued`      handed to the harness input queue (or held for a live target's
+ *                   next boundary) — NOT yet transcript-observed [spec:SP-cb9f];
+ *   - `accepted`    a blocking send's budget expired with the row still queued
+ *                   (busy / composer-draft-held / lost echo) — durably captured,
+ *                   not yet confirmed; the sender queries `podium mail status`;
  *   - `held`        issue-addressed, issue live but NO live session — held for
  *                   the issue's next session (delivered at its next boundary);
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
-export type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter'
+export type SendDisposition =
+  | 'delivered'
+  | 'queued'
+  | 'accepted'
+  | 'held'
+  | 'spawning'
+  | 'dead_letter'
 
 /** How a rendered message is confirmed as reaching the agent [POD-834]:
  *   - `echo`      enveloped body carrying the msg id → confirmed by transcript echo;
@@ -1168,6 +1193,54 @@ export class MessageDeliveryService {
       if (now() >= deadline) return m ?? null
       await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
     }
+  }
+
+  /**
+   * Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
+   * surface (the gate) calls this instead of `send()` so the sender waits for the
+   * trustworthy outcome instead of a bare `queued` that provably vanished. Internal
+   * sends (steward auto-ack, self-suppress, dead-letter notice) keep calling `send`
+   * and never block. Runs the synchronous `send()`, then blocks by the EFFECTIVE
+   * (post-clamp) urgency of the resulting row. `opts` threads the caller's injectable
+   * clock/sleep straight to `awaitDelivered` (production: real timers).
+   */
+  async sendAndConfirm(
+    from: MessageSender,
+    input: MessageSendInput,
+    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
+  ): Promise<MessageSendResult> {
+    const r = this.send(from, input)
+    return { ...r, disposition: await this.blockForDelivery(r, opts) }
+  }
+
+  /** Block by urgency until the send's outcome is trustworthy [spec:SP-cb9f]. Only a
+   *  `queued` push to a live target has an imminent turn to observe — `delivered`
+   *  (already confirmed-on-injection), `held` (no live session), `spawning` (a boot)
+   *  and `dead_letter` (gone) have nothing to wait on and pass straight through.
+   *  `fyi` confirms at queued (never blocks); an operator-addressed row is confirmed
+   *  by a HUMAN inbox read, not a turn boundary, so blocking would always time out —
+   *  it returns immediately too. `interrupt` blocks up to the hang-guard ceiling,
+   *  `next-turn` up to the shorter budget; either, on expiry with the row still
+   *  queued (busy / composer-draft-held / lost echo), returns `accepted` — durably
+   *  captured, not yet confirmed — never a bare `queued` and never an infinite block. */
+  private async blockForDelivery(
+    r: MessageSendResult,
+    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
+  ): Promise<SendDisposition> {
+    if (r.disposition !== 'queued') return r.disposition
+    const { urgency, toKind } = r.message
+    if (urgency === 'fyi' || toKind === 'operator') return r.disposition
+    const timeoutMs =
+      urgency === 'interrupt' ? INTERRUPT_DELIVERY_CEILING_MS : NEXT_TURN_DELIVERY_BUDGET_MS
+    const row = await this.awaitDelivered(r.message.id, {
+      timeoutMs,
+      ...(opts?.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
+      ...(opts?.sleep ? { sleep: opts.sleep } : {}),
+      ...(opts?.now ? { now: opts.now } : {}),
+    })
+    if (row?.status === 'delivered' || row?.status === 'read') return 'delivered'
+    if (row?.status === 'dead_letter') return 'dead_letter'
+    return 'accepted'
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */

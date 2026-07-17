@@ -781,6 +781,122 @@ describe('awaitDelivered (bounded poll on the delivered signal) [spec:SP-cb9f] [
   })
 })
 
+describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]', () => {
+  it('next-turn blocks until the turn boundary confirms, then reports delivered', async () => {
+    const { svc } = harness([session({ sessionId: 's1' })]) // live idle
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+      {
+        now: () => 0, // deadline (25s) never reached: the confirmation wins
+        pollMs: 5,
+        // The turn boundary lands during the first poll sleep and confirms the push.
+        sleep: async () => svc.onSessionIdle(session({ sessionId: 's1' })),
+      },
+    )
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('interrupt blocks until delivered (transcript-observed), then reports delivered', async () => {
+    const { svc } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'stop', urgency: 'interrupt' },
+      {
+        now: () => 0,
+        pollMs: 5,
+        // ESC cancels the turn → the session goes idle → the boundary confirms.
+        sleep: async () => {
+          polls += 1
+          if (polls === 1) svc.onSessionIdle(session({ sessionId: 's1' }))
+        },
+      },
+    )
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('next-turn to a busy target returns accepted at the budget (never spins)', async () => {
+    const { svc, store } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    let t = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+      { now: () => t, pollMs: 1_000_000, sleep: async (ms) => void (t += ms) },
+    )
+    // Held for the turn boundary, never confirmed within the 25s budget → accepted,
+    // and the row is honestly still queued (queryable via `podium mail status`).
+    expect(r.disposition).toBe('accepted')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(t).toBeGreaterThanOrEqual(25_000)
+  })
+
+  it('interrupt to a composer-draft-held session returns accepted (POD-865 hold, no spin)', async () => {
+    // The human has a live composer draft: injection is held at EVERY urgency,
+    // including interrupt — so a legitimately-queued row outlives the ceiling and
+    // the sender gets the honest accepted, never an infinite block [POD-865].
+    const { svc } = harness([
+      session({ sessionId: 's1', draftUpdatedAt: '2026-07-12T23:59:55.000Z' }),
+    ])
+    let t = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'stop', urgency: 'interrupt' },
+      { now: () => t, pollMs: 1_000_000, sleep: async (ms) => void (t += ms) },
+    )
+    expect(r.disposition).toBe('accepted')
+    expect(t).toBeGreaterThanOrEqual(90_000) // waited the interrupt ceiling, not forever
+  })
+
+  it('fyi returns at queued and never polls', async () => {
+    const { svc } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 's1' }, body: 'note', urgency: 'fyi' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('queued')
+    expect(polls).toBe(0)
+  })
+
+  it('a confirmed-on-injection push (unwrapped operator) returns delivered without polling', async () => {
+    const { svc } = harness([session({ sessionId: 's1' })]) // idle
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body: 'go', urgency: 'next-turn' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('delivered') // injection IS delivery — nothing to await
+    expect(polls).toBe(0)
+  })
+
+  it('passes a held disposition through without blocking (no live session)', async () => {
+    const { svc } = harness([]) // issue live, no session
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'x', urgency: 'next-turn' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('held')
+    expect(polls).toBe(0)
+  })
+
+  it('does not block an operator-addressed escalation (resolved by a human read, not a turn)', async () => {
+    const { svc } = harness([])
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'operator' }, body: 'help', urgency: 'next-turn' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('queued')
+    expect(polls).toBe(0)
+  })
+})
+
 describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () => {
   it('peer interrupt is downgraded to next-turn and ledgered as clamped', () => {
     const { svc, store, interrupted, queued } = harness([

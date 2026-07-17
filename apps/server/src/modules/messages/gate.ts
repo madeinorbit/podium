@@ -201,10 +201,10 @@ export class MessageGate {
     }
   }
 
-  private send(
+  private async send(
     caller: { capability: Capability; overrideScope?: boolean },
     input: z.infer<typeof sendInput>,
-  ): unknown {
+  ): Promise<unknown> {
     const svc = this.deps.messages()
     const to = this.resolveRecipient(input.to)
     if (to.kind === 'session') {
@@ -219,13 +219,26 @@ export class MessageGate {
       // write access to the target issue.
       checkIssueAccess(caller, this.deps.issues(), 'messages.send', 'write', to.id)
     }
-    const r = svc.send(senderFromCapability(caller.capability), {
-      to,
-      body: input.body,
-      ...(input.urgency ? { urgency: input.urgency } : {}),
-      ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
-      ...(input.expectResponse ? { expectsResponse: true } : {}),
-    })
+    // Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
+    // surface waits for the trustworthy outcome — interrupt until delivered
+    // (transcript-observed), next-turn until delivered within a budget then
+    // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
+    // that provably vanished. Only THIS surface blocks; internal sends use send().
+    const r = await svc.sendAndConfirm(
+      senderFromCapability(caller.capability),
+      {
+        to,
+        body: input.body,
+        ...(input.urgency ? { urgency: input.urgency } : {}),
+        ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+        ...(input.expectResponse ? { expectsResponse: true } : {}),
+      },
+      {
+        ...(this.deps.awaitPollMs !== undefined ? { pollMs: this.deps.awaitPollMs } : {}),
+        ...(this.deps.sleep ? { sleep: this.deps.sleep } : {}),
+        ...(this.deps.now ? { now: () => Date.parse(this.deps.now!()) } : {}),
+      },
+    )
     return {
       id: r.message.id,
       ok: r.ok,

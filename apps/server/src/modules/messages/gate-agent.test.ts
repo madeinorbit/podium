@@ -55,6 +55,8 @@ function harness(opts?: {
   spawnSession?: MessageGateDeps['spawnSession']
   resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
   awaitPollMs?: number
+  /** Poll-sleep seam (blocking-send / await tests drive confirmation here). */
+  sleep?: (ms: number) => Promise<void>
   /** Fake clock shared by service + gate (awaitAgent freshness tests). */
   now?: () => string
   /** Reuse a prior harness's store — simulates a server restart. */
@@ -104,7 +106,7 @@ function harness(opts?: {
     // follow-up issues.get() resolves it (mirrors the real IssueService).
     createIssue: (i) => (issues as unknown as { create(x: unknown): { id: string } }).create(i),
     appendEvent: (e) => store.events.appendEvent(e),
-    sleep: () => Promise.resolve(), // never actually blocks the test
+    sleep: opts?.sleep ?? (() => Promise.resolve()), // never actually blocks the test
     awaitPollMs: opts?.awaitPollMs ?? 1,
     ...(opts?.now ? { now: opts.now } : {}),
   })
@@ -402,6 +404,70 @@ describe('agent await (bounded, never hangs)', () => {
       timeoutSeconds: 0,
     })) as { result: string }
     expect(r.result).toBe('working')
+  })
+})
+
+describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', () => {
+  // A target on the PARENT's own issue subtree, so `messages.send` authz passes.
+  const target = (over: Partial<SessionMeta>): SessionMeta =>
+    ({
+      sessionId: 's1',
+      cwd: '/wt/b',
+      agentKind: 'claude-code',
+      status: 'live',
+      createdAt: 't',
+      issueId: SENDER_ISSUE.id,
+      agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+      ...over,
+    }) as SessionMeta
+
+  it('a next-turn mail send BLOCKS until the boundary confirms, then reports delivered', async () => {
+    const sessions = [target({})] // live idle
+    // The confirmation fires during the first poll sleep (turn boundary). The hook
+    // is late-bound because `svc` is created inside the harness.
+    let confirm: () => void = () => {}
+    const { gate, svc } = harness({
+      sessions,
+      awaitPollMs: 5,
+      now: () => new Date(0).toISOString(), // constant clock: deadline never reached
+      sleep: async () => confirm(),
+    })
+    confirm = () => svc.onSessionIdle(target({}))
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'x',
+      urgency: 'next-turn',
+    })) as { disposition: string }
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('a next-turn send to a BUSY target returns accepted at the budget (never spins)', async () => {
+    let t = 1_000
+    const { gate } = harness({
+      sessions: [target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } })],
+      now: () => new Date(t).toISOString(),
+      awaitPollMs: 1_000_000, // one sleep jumps past the 25s budget
+      sleep: async (ms) => void (t += ms),
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'x',
+      urgency: 'next-turn',
+    })) as { disposition: string }
+    expect(r.disposition).toBe('accepted')
+    expect(t).toBeGreaterThanOrEqual(26_000)
+  })
+
+  it('an fyi send returns at queued without blocking', async () => {
+    const { gate } = harness({
+      sessions: [target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } })],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'note',
+      urgency: 'fyi',
+    })) as { disposition: string }
+    expect(r.disposition).toBe('queued')
   })
 })
 
