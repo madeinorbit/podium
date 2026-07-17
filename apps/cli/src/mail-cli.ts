@@ -125,15 +125,20 @@ function renderRow(m: MessageWire): string {
   return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]\n  ${m.body}`
 }
 
-/** The send-time disposition, worded for the sender (#834). Sync send returns at
- *  queued: `delivered` = pushed to a live target now; `queued` = enqueued to a
- *  busy-but-live session; `held` = no live session (delivers at the issue's next
- *  session); `spawning` = a session is being woken. Falls back to the legacy
+/** The send disposition, worded for the sender (#834, [POD-854] blocking send).
+ *  A blocking send (interrupt / next-turn) waits for the trustworthy outcome:
+ *  `delivered` = CONFIRMED in the target's transcript; `accepted` = the budget
+ *  expired with the row still queued (busy / composer-draft-held / lost echo) —
+ *  durably captured, not yet confirmed, query `podium mail status`. `queued` = fyi
+ *  landed for the next pause; `held` = no live session (delivers at the issue's
+ *  next session); `spawning` = a session is being woken. Falls back to the legacy
  *  queued/delivered wording when a server predates the field. */
 function dispositionLabel(disposition: string | undefined, queued: boolean | undefined): string {
   switch (disposition) {
     case 'delivered':
       return 'delivered'
+    case 'accepted':
+      return 'accepted — not yet confirmed delivered'
     case 'queued':
       return 'queued for the target’s next turn'
     case 'held':
@@ -238,6 +243,9 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         dispositionLabel(r.disposition, r.queued),
         r.clamped ? 'downgraded to your authority cap' : null,
         r.expectsResponse ? 'response expected (pull-delivered)' : null,
+        // An accepted send is never a bare success [POD-854]: point the sender at
+        // the ledger so they can see it flip to delivered (or dead-lettered).
+        r.disposition === 'accepted' ? `run 'podium mail status ${r.id}' to track it` : null,
       ]
         .filter(Boolean)
         .join(', ')
