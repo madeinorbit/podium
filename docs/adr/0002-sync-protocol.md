@@ -755,16 +755,21 @@ relationship made explicit — POD-306 asks for exactly this reconciliation:
 |---|---|---|
 | Change retention | 20k rows / **3 days**, whichever deletes more (`change-log.ts:36-37`) | **ADR 2** (D5) — it is the feed's |
 | Receipt retention (`applied_mutations`) | **30 days** (`service.ts:84`) | **ADR 2** — it is the dedupe horizon of the feed's write path |
-| Outbox entry max age | **14 days**, with `SKEW_MARGIN_MS ≥ 2d` | **ADR 3** (D10) — it owns the outbox |
+| Outbox entry max age | `OUTBOX_MAX_AGE_MS` + `SKEW_MARGIN_MS` — **value not restated here** | **ADR 3** (D10) — it owns the outbox |
 
 **The rule this ADR owns: `outbox max age + skew margin` < `receipt retention`.** An
 outbox entry must never outlive the receipt that would dedupe it, or it replays as a
-fresh command. ADR 3's 14d + 2d < 30d satisfies it.
+fresh command. ADR 3 D10's values satisfy it with margin, and its lint invariant
+imports `APPLIED_MUTATIONS_MAX_AGE_MS` rather than hard-coding it — so the guard
+tracks the constant instead of rotting into a comment.
 
-**One number, one owner.** An earlier draft of this ADR decided 7 days here. That was
-an over-reach: ADR 3 owns the outbox lifecycle, so it owns the outbox's horizon, and
-it has specified the knob better than this ADR did — adding an explicit skew margin
-and making the inequality a lint/unit invariant rather than a sentence in a document.
+**One number, one owner.** An earlier draft of this ADR picked its own value for the
+outbox horizon. That was an over-reach: ADR 3 owns the outbox lifecycle, so it owns
+the outbox's horizon, and it has specified the knob better than this ADR did — adding
+an explicit skew margin and making the inequality a lint/unit invariant that *imports*
+the receipt constant rather than a hard-coded sentence in a document. (No superseded
+value is restated here, deliberately: a number in a durable record gets grepped out of
+context and believed, and ADR 3 D10 is the only place the outbox horizon lives.)
 **ADR 2 therefore defers the value to ADR 3 D10 and retains only the constraint and
 the two feed-side numbers it genuinely owns.** What this ADR contributes is the
 *reason* the inequality is not merely tidy — see below — and the third number
