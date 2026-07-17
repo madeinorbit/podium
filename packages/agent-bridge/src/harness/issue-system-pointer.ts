@@ -28,8 +28,8 @@ export const ISSUE_SYSTEM_POINTER =
   'sub-issue. Switch yourself to it only on the human\'s push; otherwise file it for another agent. ' +
   // Cross-issue reattach is blocked [spec:SP-8744]; only a draft may attach --id.
   'A session on a DRAFT may join the issue that covers its work: `podium issue attach --id <issue>`. ' +
-  'Once on a real issue you cannot reattach elsewhere — use `podium issue attach --subissue "<title>"` ' +
-  'for a new piece of work, or file it for another agent. ' +
+  'Once on a real issue you cannot reattach elsewhere — use `podium issue attach --subissue "<title>" --confirm-rehome` ' +
+  'for a new piece of work. A native subagent must not self-attach; its parent attaches it. Otherwise, file it for another agent. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
   // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.

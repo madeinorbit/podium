@@ -21,6 +21,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     sessionId: string
     targetId?: string
     newSubissue?: { title: string; origin: 'human' | 'agent' }
+    confirmRehome?: boolean
   }): IssueWire {
     const { getSessionIssueId, setSessionIssueId } = this.deps
     if (!getSessionIssueId || !setSessionIssueId) {
@@ -29,6 +30,17 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     const prevId = getSessionIssueId(opts.sessionId)
     let target: IssueRow | undefined
     if (opts.newSubissue) {
+      const prev = prevId ? this.rows.get(prevId) : undefined
+      // A native subagent inherits its parent's relay, so an unconfirmed attach
+      // could silently re-home the parent session [spec:SP-bab8].
+      if (prev && !prev.draft && !opts.confirmRehome) {
+        throw new Error(
+          `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue), ` +
+            'so this could re-home that session unexpectedly. A native subagent must not ' +
+            'self-attach; its parent must attach it. For a deliberate top-level move, re-run ' +
+            'with `--confirm-rehome`.',
+        )
+      }
       const title = opts.newSubissue.title.trim()
       if (!title) throw new Error('subissue title is empty')
       const parentId = prevId ?? (opts.targetId ? this.resolveRef(opts.targetId) : null)
@@ -61,7 +73,8 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
         throw new Error(
           `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue). ` +
             'Reassigning a session to a different issue is disabled; for new work use ' +
-            '`podium issue attach --subissue "<title>"` or file the issue for another agent.',
+            '`podium issue attach --subissue "<title>" --confirm-rehome` or file the issue ' +
+            'for another agent.',
         )
       }
     }

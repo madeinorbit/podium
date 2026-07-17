@@ -410,10 +410,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'attach',
-    summary: `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" (create a child of your current issue and move there). An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
+    summary: `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" --confirm-rehome (create a child of your current real issue and move there). A native subagent must not self-attach; its parent attaches it. Draft moves and self-attach no-ops need no confirmation. An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       id: idArg.optional(),
       subissue: z.string().min(1).optional(),
+      confirmRehome: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -423,6 +424,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const i = (await c.issues.attachSession.mutate({
         ...(a.id ? { targetId: a.id as string } : {}),
         ...(a.subissue ? { newSubissue: { title: a.subissue as string } } : {}),
+        ...(a.confirmRehome ? { confirmRehome: true } : {}),
       } as never)) as { seq: number; title: string }
       return { text: `attached to #${i.seq} ${i.title}`, data: i }
     },

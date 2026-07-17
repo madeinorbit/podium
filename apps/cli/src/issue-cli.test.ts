@@ -64,6 +64,17 @@ describe('runIssueCli', () => {
     await expect(runIssueCli(['claim', '--id', '1'], client)).rejects.toThrow(/assignee/)
   })
 
+  it('forwards --confirm-rehome on attach as a boolean', async () => {
+    const attachSession = vi.fn(async () => ({ seq: 2, title: 'Side quest' }))
+    const c = { issues: { attachSession: { mutate: attachSession } } } as any
+    const out = await runIssueCli(['attach', '--subissue', 'Side quest', '--confirm-rehome'], c)
+    expect(attachSession).toHaveBeenCalledWith({
+      newSubissue: { title: 'Side quest' },
+      confirmRehome: true,
+    })
+    expect(out).toContain('attached to #2 Side quest')
+  })
+
   it('unknown flags are rejected, never silently dropped (#345)', async () => {
     await expect(runIssueCli(['update', '1', '--totally-bogus', 'x'], client)).rejects.toThrow(
       /unknown flag --totally-bogus/,

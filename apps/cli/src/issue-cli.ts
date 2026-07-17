@@ -19,6 +19,7 @@ const BOOL_FLAGS = new Set([
   'clear',
   'nudge',
   'notify',
+  'confirmRehome',
   'help',
 ])
 

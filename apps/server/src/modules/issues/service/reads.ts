@@ -503,7 +503,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       'Nothing advances an issue for you: set the stage yourself as the work moves — `podium issue update --id <id> --stage planning|in_progress|review` — and `podium issue close <id>` when it is done. An issue you are actively working must never sit in `backlog`.',
       'Track durable/discovered/cross-session work as issues, not markdown TODO files.',
       // Issue identity is immutable [spec:SP-9c7b].
-      'Never reuse an existing issue for something completely different — an issue keeps its identity. If you start on new work, start a new issue and attach to it (`podium issue attach --subissue "<title>"`), and switch yourself only on the human\'s push; otherwise file a new issue/sub-issue for another agent to implement.',
+      'Never reuse an existing issue for something completely different — an issue keeps its identity. If you start on new work, start a new issue and attach to it (`podium issue attach --subissue "<title>" --confirm-rehome`), and switch yourself only on the human\'s push; otherwise file a new issue/sub-issue for another agent to implement. A native subagent must not self-attach; its parent attaches it.',
       TITLE_RULE,
       'Agents may repair lifecycle structure inside their issue subtree with `reparent`, `supersede`, `duplicate`, `dep-remove`, and `archive`; use `--outside-scope` to confirm a target elsewhere. `delete` and `restore` remain operator-only.',
       "Issues you create default to INTERNAL (audience: agent) — kept off the human's board. For a chunk the human should track, cut a human-facing issue (`podium issue create --audience human`) and hang your internal breakdown under it, so the human sees progress without your churn.",
@@ -560,7 +560,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
           me.stage === 'backlog'
             ? `This issue is still in \`backlog\` but you are working it — fix that now: \`podium issue update --id ${me.seq} --stage planning\` (designing/investigating) or \`--stage in_progress\` (changing code).`
             : null,
-          'If the user\'s request is NOT a continuation of this issue but a new piece of work, create a sub-issue and move there: podium issue attach --subissue "<title>".',
+          'If the user\'s request is NOT a continuation of this issue but a new piece of work, create a sub-issue and move there: podium issue attach --subissue "<title>" --confirm-rehome. A native subagent must not self-attach; its parent attaches it.',
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
           me.parentId
             ? `Parent epic: ${parent ? `${this.niceRef(parent)} (${parent.title})` : me.parentId}`

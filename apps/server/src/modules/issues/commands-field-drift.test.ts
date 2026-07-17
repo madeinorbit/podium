@@ -65,6 +65,7 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     const input = issueRegistry.defs.attachSession.input as z.ZodObject<z.ZodRawShape>
     const sub = input.shape.newSubissue as z.ZodOptional<z.ZodObject<z.ZodRawShape>>
     expect(Object.keys(sub.unwrap().shape)).toEqual(['title'])
+    expect(input.safeParse({ sessionId: 's1', confirmRehome: true }).success).toBe(true)
   })
 
   it('issue colour palette: the protocol wire enum mirrors the domain slot list [spec:SP-b4d1]', () => {

@@ -136,20 +136,35 @@ describe('attachSession', () => {
 
   // Cross-issue reattach is blocked [spec:SP-8744]: moving off a real issue
   // strands it session-less and it falls out of the sidebar.
-  it('blocks --id reattach off a real issue; --subissue still works', () => {
+  it('blocks unconfirmed re-home off a real issue; confirmed --subissue works', () => {
     const { svc, issueBySession } = harness([sess('s1')])
     const real = svc.create({ repoPath: '/r', title: 'R', startNow: false })
     issueBySession.set('s1', real.id)
     const other = svc.create({ repoPath: '/r', title: 'O', startNow: false })
+
     expect(() => svc.attachSession({ sessionId: 's1', targetId: other.id })).toThrow(
       /attach blocked/,
     )
     expect(issueBySession.get('s1')).toBe(real.id) // unmoved
-    // self-attach stays a no-op, and the subtree escape hatch stays open
+
+    // Self-attach stays a no-op without confirmation.
     expect(svc.attachSession({ sessionId: 's1', targetId: real.id }).id).toBe(real.id)
+
+    const unconfirmed = () =>
+      svc.attachSession({
+        sessionId: 's1',
+        newSubissue: { title: 'Side quest', origin: 'agent' },
+      })
+    expect(unconfirmed).toThrow(/native subagent must not self-attach/)
+    expect(unconfirmed).toThrow(/parent must attach it/)
+    expect(unconfirmed).toThrow(/--confirm-rehome/)
+    expect(issueBySession.get('s1')).toBe(real.id)
+    expect(svc.list('/r').filter((issue) => issue.parentId === real.id)).toHaveLength(0)
+
     const child = svc.attachSession({
       sessionId: 's1',
       newSubissue: { title: 'Side quest', origin: 'agent' },
+      confirmRehome: true,
     })
     expect(child.parentId).toBe(real.id)
     expect(issueBySession.get('s1')).toBe(child.id)
@@ -169,7 +184,11 @@ describe('attachSession', () => {
     const { svc, issueBySession } = harness([sess('s1')])
     const parent = svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issueBySession.set('s1', parent.id)
-    const w = svc.attachSession({ sessionId: 's1', newSubissue: { title: 'Side quest', origin: 'human' } })
+    const w = svc.attachSession({
+      sessionId: 's1',
+      newSubissue: { title: 'Side quest', origin: 'human' },
+      confirmRehome: true,
+    })
     expect(w.title).toBe('Side quest')
     expect(w.parentId).toBe(parent.id)
     expect(w.origin).toBe('human')
@@ -253,6 +272,8 @@ describe('prime draft/attach variants', () => {
     const text = svc.prime({ boundIssueId: a.id })
     expect(text).toContain('You are working on #1: A')
     expect(text).toContain('podium issue attach --subissue')
+    expect(text).toContain('--confirm-rehome')
+    expect(text).toContain('native subagent must not self-attach')
   })
 
   // Agents attached to their own freshly-retitled issue left it in `backlog`

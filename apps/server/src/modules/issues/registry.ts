@@ -730,6 +730,7 @@ const defs = {
     input: z.object({
       sessionId: z.string(),
       targetId: z.string().optional(),
+      confirmRehome: z.boolean().optional(),
       // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
       // from the caller below, exactly like issues.create, so it cannot be forged.
       newSubissue: z.object({ title: z.string().min(1) }).optional(),
