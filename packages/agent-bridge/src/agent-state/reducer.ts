@@ -17,8 +17,9 @@ function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
 /**
  * Pure transition. Returns `prev` (same reference) when the event changes
  * nothing, so callers can dedupe wire sends by identity. Detail fields
- * (idle/need/error) never leak across phases: each transition rebuilds the
- * state from scratch.
+ * (idle/need/error/awaitingSubagents) never leak across phases: each
+ * transition rebuilds the state from scratch via `base` (unless it deliberately
+ * spreads `prev`, as task_delta does while the count is still live).
  */
 /**
  * Stamp a record's source timestamp onto translated events so the reducer can use
@@ -42,6 +43,8 @@ export function reduceAgentState(
   now: string,
 ): AgentRuntimeState {
   const since = event.at ?? now
+  // Intentionally omits awaitingSubagents / idle / need / error so non-hold
+  // transitions clear the held-working flag and phase detail.
   const base = {
     since,
     workingMsTotal: workingMsAt(prev, since),
@@ -53,7 +56,11 @@ export function reduceAgentState(
     case 'prompt_submitted':
       return { phase: 'working', ...base }
     case 'activity':
-      return prev.phase === 'working' ? prev : { phase: 'working', ...base }
+      // Genuine tool activity while held (awaitingSubagents) means the parent
+      // is working again — clear the flag. Same-phase no-op only when already
+      // genuinely working.
+      if (prev.phase === 'working' && !prev.awaitingSubagents) return prev
+      return { phase: 'working', ...base }
     case 'needs_user':
       return {
         phase: 'needs_user',
@@ -66,13 +73,10 @@ export function reduceAgentState(
     case 'turn_completed': {
       // nativeSubagentCount is the live native-subagent count (Task hooks),
       // NOT open todos — the reducer has no openTodoCount. A positive count
-      // means the parent is still effectively working: do not go idle (and
-      // never invent idle.kind 'open_todos' from this signal). [spec:SP-dae6]
-      // When a later task_delta brings the count to 0 while we stay in this
-      // working hold, phase remains 'working' until the next turn boundary
-      // (simplest correct settle — no synthetic re-evaluation).
+      // means the parent is still effectively working: hold idle and mark
+      // awaitingSubagents so a later task_delta→0 can settle. [spec:SP-dae6]
       if (prev.nativeSubagentCount > 0) {
-        return { phase: 'working', ...base }
+        return { phase: 'working', ...base, awaitingSubagents: true }
       }
       const verdict = event.verdict ?? { kind: 'done' as const }
       return { phase: 'idle', ...base, idle: verdict }
@@ -90,6 +94,18 @@ export function reduceAgentState(
     case 'task_delta': {
       const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
       if (nativeSubagentCount === prev.nativeSubagentCount) return prev
+      // Turn already completed but idle was deferred for live subagents — once
+      // they all finish, settle to idle (hooks have no ordering guarantee, so
+      // TaskCompleted may arrive after turn_completed with no further turn).
+      if (nativeSubagentCount === 0 && prev.awaitingSubagents) {
+        return {
+          phase: 'idle',
+          since,
+          workingMsTotal: workingMsAt(prev, since),
+          nativeSubagentCount: 0,
+          idle: { kind: 'done' as const },
+        }
+      }
       return { ...prev, nativeSubagentCount }
     }
     case 'session_ended':

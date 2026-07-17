@@ -47,6 +47,10 @@ export const AgentRuntimeState = z.object({
    *  live `now - since` stretch; in a stopped phase this is the final total. */
   workingMsTotal: z.number().int().nonnegative().optional(),
   nativeSubagentCount: z.number().int().nonnegative(),
+  /** True when turn_completed already fired but idle was deferred because
+   *  native subagents were still running. Cleared on genuine work / settle /
+   *  terminal phases. Optional for back-compat with older daemons/rows. */
+  awaitingSubagents: z.boolean().optional(),
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'

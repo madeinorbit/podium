@@ -48,17 +48,65 @@ describe('reduceAgentState', () => {
     expect(idle).toMatchObject({ phase: 'idle', idle: { kind: 'done' }, nativeSubagentCount: 0 })
   })
 
-  it('turn_completed with nativeSubagentCount > 0 stays working (not idle/open_todos)', () => {
+  it('turn_completed with nativeSubagentCount > 0 stays working + awaitingSubagents', () => {
     let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
     s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
     s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
     s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T0)
     const next = reduceAgentState(s, { kind: 'turn_completed' }, T1)
-    expect(next.phase).toBe('working')
-    expect(next.nativeSubagentCount).toBe(1)
+    expect(next).toMatchObject({
+      phase: 'working',
+      nativeSubagentCount: 1,
+      awaitingSubagents: true,
+    })
     expect(next.idle).toBeUndefined()
     // Old bug: bare done + count>0 invented idle.kind 'open_todos'. Gone.
     expect(next).not.toMatchObject({ phase: 'idle', idle: { kind: 'open_todos' } })
+  })
+
+  it('task_delta→0 while awaitingSubagents settles to idle (done) and clears the flag', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s).toMatchObject({ phase: 'working', awaitingSubagents: true, nativeSubagentCount: 1 })
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
+    expect(s).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'done' },
+      nativeSubagentCount: 0,
+    })
+    expect(s.awaitingSubagents).toBeUndefined()
+  })
+
+  it('task_delta→0 without awaitingSubagents stays working (no spurious idle)', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
+    expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 0 })
+    expect(s.awaitingSubagents).toBeUndefined()
+    expect(s.idle).toBeUndefined()
+  })
+
+  it('awaitingSubagents is cleared when the session returns to genuine work', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s.awaitingSubagents).toBe(true)
+
+    // New turn before subagents finish.
+    s = reduceAgentState(s, { kind: 'prompt_submitted' }, T1)
+    expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 1 })
+    expect(s.awaitingSubagents).toBeUndefined()
+
+    // Re-hold, then tool activity also clears the hold flag.
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s.awaitingSubagents).toBe(true)
+    s = reduceAgentState(s, { kind: 'activity' }, T1)
+    expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 1 })
+    expect(s.awaitingSubagents).toBeUndefined()
+    // Mid-turn drain after the flag was cleared must not idle.
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
+    expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 0 })
   })
 
   it('turn_completed with count 0 passes question/approval/interrupted verdicts through', () => {
@@ -101,23 +149,13 @@ describe('reduceAgentState', () => {
     expect(next).toMatchObject({
       phase: 'working',
       nativeSubagentCount: 1,
+      awaitingSubagents: true,
     })
     expect(next.idle).toBeUndefined()
     expect(next.need).toBeUndefined()
   })
 
-  it('task_delta to zero while in the working-hold leaves phase working until next turn', () => {
-    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
-    s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
-    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
-    expect(s.phase).toBe('working')
-    s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
-    expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 0 })
-    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
-    expect(s).toMatchObject({ phase: 'idle', idle: { kind: 'done' }, nativeSubagentCount: 0 })
-  })
-
-  it('task_delta floors at zero and never changes phase', () => {
+  it('task_delta floors at zero and is a no-op when already zero', () => {
     const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
     const next = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
     expect(next).toBe(s) // 0 → 0 is a no-op
