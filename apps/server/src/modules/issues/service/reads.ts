@@ -10,6 +10,7 @@ import type {
   IssueWire,
   LintFinding,
   OrphanIssue,
+  SessionMeta,
 } from '@podium/protocol'
 import { DELEGATION_RULE, LOCK_RULE, TITLE_RULE, formatIssueRef } from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
@@ -406,9 +407,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     }
   }
 
-  get(id: string): IssueWire | null {
+  /** `sessionList` lets a caller in a loop share one listing [POD-817] —
+   *  toWire otherwise defaults to a fresh listSessions() per call. */
+  get(id: string, sessionList?: SessionMeta[]): IssueWire | null {
     const r = this.rows.get(this.resolveRef(id))
-    return r ? this.toWire(r) : null
+    return r ? this.toWire(r, sessionList) : null
   }
 
   /** One issue's comment thread, oldest-first (#175): comment BODIES left

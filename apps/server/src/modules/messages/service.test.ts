@@ -27,7 +27,7 @@ const ISSUE = {
 }
 const SENDER_ISSUE = { id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
-function fakeIssues() {
+function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[]) {
   const byId = new Map([
     [ISSUE.id, ISSUE],
     [SENDER_ISSUE.id, SENDER_ISSUE],
@@ -38,7 +38,10 @@ function fakeIssues() {
       if (ref === `#${ISSUE.seq}` || ref === String(ISSUE.seq)) return ISSUE.id
       throw new Error(`unknown ref ${ref}`)
     },
-    get: (id: string) => byId.get(id),
+    get: (id: string, sessionList?: SessionMeta[]) => {
+      getSessionLists?.push(sessionList)
+      return byId.get(id)
+    },
     ancestorIds: () => [],
   } as unknown as IssueService
 }
@@ -134,10 +137,11 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const interrupted: { sessionId: string; text: string }[] = []
   const attention: { messageId: string; reason: string }[] = []
   const listCalls = { n: 0 }
+  const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
     events: store.events,
-    issues: () => fakeIssues(),
+    issues: () => fakeIssues(issueGetLists),
     sessions: () => ({
       listSessions: () => {
         listCalls.n += 1
@@ -163,7 +167,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     notifyOperator: (i) => attention.push({ messageId: i.messageId, reason: i.reason }),
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),
   })
-  return { store, svc, sent, queued, interrupted, attention, listCalls }
+  return { store, svc, sent, queued, interrupted, attention, listCalls, issueGetLists }
 }
 
 const IDLE = { phase: 'idle', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
@@ -825,6 +829,25 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     listCalls.n = 0
     svc.sweep()
     expect(listCalls.n).toBe(1)
+  })
+
+  // POD-817 round 2: IssueService.get(id) DEFAULTS its sessionList to a fresh
+  // listSessions() inside toWire — so the sweep's per-row issue lookup was
+  // still O(sessions) per queued row after the first hoist (live: 8.4s → only
+  // 3.3s). The sweep must thread its one listing into every issue lookup.
+  it('threads the one session listing into every per-row issue lookup', () => {
+    const sessions: SessionMeta[] = []
+    const { svc, issueGetLists } = harness(sessions)
+    for (let i = 0; i < 3; i++) {
+      svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'issue', id: ISSUE.id }, body: `x${i}`, lifecycle: 'wait' },
+      )
+    }
+    issueGetLists.length = 0
+    svc.sweep()
+    expect(issueGetLists).toHaveLength(3)
+    for (const list of issueGetLists) expect(list).toBe(sessions)
   })
 
   // POD-817: wait-lifecycle rows with no explicit expiry queued FOREVER (the

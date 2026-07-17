@@ -430,7 +430,10 @@ export class MessageDeliveryService {
       target = all.find((s) => s.sessionId === message.toId)
       if (!target) return { ok: false, reason: 'unknown session' }
     } else {
-      const issue = this.deps.issues().get(message.toId ?? '')
+      // Share the sweep's session listing with the issue-wire build too
+      // [POD-817]: get() otherwise defaults to a fresh listSessions() inside
+      // toWire — the second per-row O(sessions) cost hiding behind the first.
+      const issue = this.deps.issues().get(message.toId ?? '', all)
       if (!issue) return { ok: false, reason: 'unknown issue' }
       const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
       const live = selectMailNudgeSession(members)
