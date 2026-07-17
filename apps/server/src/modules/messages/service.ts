@@ -708,22 +708,53 @@ export class MessageDeliveryService {
 
   /**
    * Drain trigger: a session's turn ended (phase → idle). Clears the hop
-   * context for the finished turn, then delivers what queued up while it was
-   * busy/parked — its session-addressed rows plus its issue's rows, FIFO, with
-   * fyi batches coalesced into one inbox pointer.
+   * context for the finished turn, confirms delivery of anything the just-ended
+   * turn consumed (turn-boundary backstop), then delivers what queued up while it
+   * was busy/parked — its session-addressed rows plus its issue's rows, FIFO,
+   * with fyi batches coalesced into one inbox pointer.
    */
   onSessionIdle(session: SessionMeta): void {
-    this.turnHop.delete(session.sessionId)
     const nowMs = this.nowMs()
-    const pending = [
+    const issueId = this.issueForSession(session)
+    const all = [
       ...this.deps.messages.pendingFor({ kind: 'session', id: session.sessionId }),
-      ...(this.issueForSession(session)
-        ? this.deps.messages.pendingFor({ kind: 'issue', id: this.issueForSession(session)! })
-        : []),
-      // Already pushed and awaiting its own confirmation (a pointer nudge waiting
-      // for the inbox read, or an echo still inside its window): don't re-deliver
-      // it — that was the POD-279 re-nudge loop [POD-834].
-    ].filter((m) => !this.awaitingConfirmation(m, nowMs))
+      ...(issueId ? this.deps.messages.pendingFor({ kind: 'issue', id: issueId }) : []),
+    ]
+    // Turn-boundary confirmation [POD-853]: the turn that just reached idle
+    // consumed every echo-mode row already pushed into THIS session's PTY — flip
+    // them delivered even though their envelope never echoed as a clean role=user
+    // turn. A mid-turn/busy injection is recorded isMeta:true / promptSource:
+    // system (both dropped by the transcript parser) or folded into a tool_result
+    // record, so ECHO_ID_RE never sees the id and the sweep would re-inject past
+    // the echo window = duplicate. The turn boundary is the RELIABLE backstop:
+    // no text matching, and it cannot duplicate. Transcript-echo stays the ~1s
+    // fast path. This runs BEFORE deliverBatch (which stamps injected_at=now on
+    // fresh pushes), so any injected_at present here is from a PRIOR turn — never
+    // one we push in this same idle. Pointer/pull-path rows are excluded (an
+    // inbox READ confirms those, not a turn boundary), and only rows pushed to
+    // THIS session (deliveredTo match) are confirmed — never a sibling session's
+    // in-flight push. onSessionIdle fires only on phase→idle (a cleanly finished
+    // turn); an errored turn is a distinct phase and re-queues via the sweep.
+    const confirmed = new Set<string>()
+    for (const m of all) {
+      if (!m.injectedAt || m.deliveredTo !== session.sessionId) continue
+      if (this.deliveryMode(m) === 'pointer') continue
+      this.markDelivered(m, session.sessionId)
+      confirmed.add(m.id)
+    }
+    // Clear the finished turn's hop context AFTER the confirm loop: markDelivered
+    // re-stamps turnHop (right for the echo path, which fires DURING the
+    // processing turn), but at a turn boundary that turn is over — anything the
+    // session sends next belongs to a fresh turn and must not inherit the hop.
+    // deliverBatch below re-stamps turnHop for genuinely new pushes, which is
+    // correct (those trigger the session's NEXT turn).
+    this.turnHop.delete(session.sessionId)
+    // Deliver what is still pending. A row awaiting its own confirmation (a
+    // pointer nudge waiting for the inbox read, or an echo still inside its
+    // window) is not re-delivered — that was the POD-279 re-nudge loop [POD-834].
+    const pending = all.filter(
+      (m) => !confirmed.has(m.id) && !this.awaitingConfirmation(m, nowMs),
+    )
     if (pending.length === 0) return
     pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     this.deliverBatch(session, pending)

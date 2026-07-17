@@ -2075,3 +2075,124 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 })
+
+describe('turn-boundary confirmation backstop [POD-853]', () => {
+  it('confirms a pushed message at the next turn boundary when its echo never comes', () => {
+    // The reported bug: a mid-turn/busy injection never reappears as a clean
+    // role=user turn (Claude Code tags it isMeta / promptSource:system, or folds
+    // it into a tool_result record), so ECHO_ID_RE never confirms it and the
+    // sweep re-injects past the window = duplicate. The turn boundary confirms it.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live = [session({ sessionId: 's1', issueId: ISSUE.id, agentState: WORKING })]
+    const { svc, sent, store } = harness(live, { now })
+    // A busy session: a next-turn message is held (queued, not injected yet).
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'mid-turn note', urgency: 'next-turn' },
+    )
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).toBeNull()
+    // The turn ends → the drain injects it into the PTY (still queued, awaiting proof).
+    const idle = session({ sessionId: 's1', issueId: ISSUE.id, agentState: IDLE })
+    svc.onSessionIdle(idle)
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // Past the echo window the OLD behavior re-injects at the next idle (duplicate);
+    // the turn boundary instead CONFIRMS delivery with no text matching.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.onSessionIdle(idle)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
+    expect(sent).toHaveLength(1) // never re-injected → no duplicate delivery
+    svc.sweep()
+    expect(sent).toHaveLength(1) // and the sweep never resurrects a delivered row
+  })
+
+  it('does not confirm a pointer (pull-path) row at a turn boundary — only an inbox read does', () => {
+    const live: SessionMeta[] = []
+    const { svc, sent, store } = harness(live)
+    const r1 = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'one' },
+    )
+    const r2 = svc.send({ kind: 'superagent' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'two' })
+    const s = session({ sessionId: 's1', issueId: ISSUE.id })
+    live.push(s)
+    svc.onSessionIdle(s) // coalesced pointer nudge — bodies/ids are NOT in the transcript
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r1.message.id)!.status).toBe('queued')
+    // A second turn boundary must NOT flip pointer rows delivered — they are the
+    // PULL path, confirmed by an inbox read, never by a turn ending.
+    svc.onSessionIdle(s)
+    expect(store.messages.getMessage(r1.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r2.message.id)!.status).toBe('queued')
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    expect(store.messages.getMessage(r1.message.id)!.status).toBe('read')
+    expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
+  })
+
+  it('confirms only rows pushed to THIS session, never another session on the same issue', () => {
+    const s1 = session({ sessionId: 's1', issueId: ISSUE.id })
+    const s2 = session({ sessionId: 's2', issueId: ISSUE.id, cwd: '/wt/a' })
+    const { svc, store } = harness([s1, s2])
+    // An issue-addressed row already pushed to s2 (injected, awaiting its echo).
+    store.messages.addMessage({
+      id: 'msg_s2',
+      threadId: 'msg_s2',
+      inReplyTo: null,
+      fromKind: 'agent',
+      fromSession: 'sX',
+      fromIssue: SENDER_ISSUE.id,
+      toKind: 'issue',
+      toId: ISSUE.id,
+      kind: 'message',
+      urgency: 'next-turn',
+      lifecycle: 'wait',
+      body: 'for s2',
+      expiresAt: null,
+      createdAt: '2026-07-13T00:00:00.000Z',
+      status: 'queued',
+      deliveredAt: null,
+      deliveredTo: null,
+      readAt: null,
+      injectedAt: null,
+      deadLetteredAt: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+    })
+    store.messages.markInjected('msg_s2', 's2', '2026-07-13T00:00:00.000Z')
+    // s1 reaches a turn boundary — must NOT confirm a row pushed to s2.
+    svc.onSessionIdle(s1)
+    expect(store.messages.getMessage('msg_s2')!.status).toBe('queued')
+    // s2's own boundary confirms it.
+    svc.onSessionIdle(s2)
+    expect(store.messages.getMessage('msg_s2')!.status).toBe('delivered')
+    expect(store.messages.getMessage('msg_s2')!.deliveredTo).toBe('s2')
+  })
+
+  it('onTranscriptDelta confirms EVERY id across a multi-id, multi-item delta', () => {
+    // Regression lock for the issue parenthetical: the global matchAll already
+    // loops all ids in every delta item — keep it that way (two ids concatenated
+    // in one item, a third in a second item, all confirmed).
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const mk = (body: string) =>
+      svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'session', id: 's1' }, body, urgency: 'next-turn' },
+      ).message.id
+    const a = mk('a')
+    const b = mk('b')
+    const c = mk('c')
+    svc.onTranscriptDelta('s1', [
+      { role: 'user', text: `[podium message ${a} · from x · to y] and [podium message ${b}]` },
+      { role: 'user', text: `[podium message ${c} · from x · to y]` },
+    ])
+    expect(store.messages.getMessage(a)!.status).toBe('delivered')
+    expect(store.messages.getMessage(b)!.status).toBe('delivered')
+    expect(store.messages.getMessage(c)!.status).toBe('delivered')
+  })
+})
