@@ -48,6 +48,11 @@ export const SPAWN_BUDGET_PER_DAY = 10
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000
+/** Implicit expiry for wait-lifecycle queued rows with no explicit expires_at
+ *  [POD-817]: without one, undeliverable issue mail queues forever and the
+ *  sweep re-attempts every row every minute. Expired rows stay readable in the
+ *  inbox/ledger — expiry only stops redelivery. */
+export const QUEUED_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** The authenticated sender principal — derived by the SURFACE from its caller
  *  identity (capability / in-process authority), never from client input. */
@@ -401,7 +406,14 @@ export class MessageDeliveryService {
    * messages stay `queued`; retriggers: session-goes-idle drain (onSessionIdle),
    * the daemon stop-hook (mailPending), and the slow sweep().
    */
-  private attemptDelivery(message: MessageRow): {
+  /** `allSessions` lets the sweep share one listing across its whole pass
+   *  [POD-817] — a per-call listSessions() builds a full wire meta for every
+   *  session. Within-pass staleness is fine: agent-state updates already lag
+   *  sendText, so a fresh list would race the same way. */
+  private attemptDelivery(
+    message: MessageRow,
+    allSessions?: SessionMeta[],
+  ): {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -411,7 +423,7 @@ export class MessageDeliveryService {
       return { ok: true, queued: true }
     }
     const sessions = this.deps.sessions()
-    const all = sessions.listSessions()
+    const all = allSessions ?? sessions.listSessions()
 
     let target: SessionMeta | undefined
     if (message.toKind === 'session') {
@@ -557,9 +569,19 @@ export class MessageDeliveryService {
   /** Slow sweep: expire what has expired, then re-attempt every queued row
    *  (delivery is state-resolved, so this is idempotent and cheap). */
   sweep(): void {
-    for (const expired of this.deps.messages.expireQueued(this.deps.now())) {
+    const now = this.deps.now()
+    // Implicit TTL for wait-lifecycle rows with no explicit expiry [POD-817]:
+    // issue mail with no live idle member re-queues forever otherwise, and the
+    // sweep's cost scales with the queue — the backlog made every sweep slower.
+    // Expiry only stops redelivery: the row stays readable in inbox/ledger.
+    const waitImplicitCutoff = new Date(Date.parse(now) - QUEUED_WAIT_TTL_MS).toISOString()
+    for (const expired of this.deps.messages.expireQueued(now, { waitImplicitCutoff })) {
       this.emitTransition(expired, 'message.expired')
     }
+    // One session listing per sweep pass [POD-817]: listSessions() builds a
+    // full wire meta for EVERY session, and a per-row call made the sweep
+    // O(queued × sessions) — 8s of main-loop CPU per minute on the live host.
+    const all = this.deps.sessions().listSessions()
     for (const m of this.deps.messages.listQueued()) {
       if (m.toKind === 'operator') continue
       // Cooldown-degraded wakes retry as wakes next window; skip while hot.
@@ -569,7 +591,7 @@ export class MessageDeliveryService {
       if (m.lifecycle === 'wake' && m.fromKind !== 'operator') {
         if (this.wakeCooldownHot(this.wakeKeyOfRow(m))) continue
       }
-      this.attemptDelivery(m)
+      this.attemptDelivery(m, all)
     }
   }
 

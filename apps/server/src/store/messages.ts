@@ -189,21 +189,23 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
-  /** Expire queued rows whose expires_at has passed; returns the expired rows. */
-  expireQueued(now: string): MessageRow[] {
+  /** Expire queued rows whose expires_at has passed; returns the expired rows.
+   *  `waitImplicitCutoff` [POD-817] additionally expires wait-lifecycle rows
+   *  with NO explicit expires_at created at or before the cutoff — the policy
+   *  (TTL) lives with the caller; an explicit expires_at always wins. */
+  expireQueued(now: string, opts?: { waitImplicitCutoff?: string }): MessageRow[] {
+    const cutoff = opts?.waitImplicitCutoff ?? null
+    const where = `status = 'queued' AND (
+           (expires_at IS NOT NULL AND expires_at <= ?1)
+           OR (?2 IS NOT NULL AND expires_at IS NULL AND lifecycle = 'wait' AND created_at <= ?2)
+         )`
     const rows = this.db
-      .prepare(
-        `SELECT * FROM messages
-         WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ?`,
-      )
-      .all(now) as Record<string, unknown>[]
+      .prepare(`SELECT * FROM messages WHERE ${where}`)
+      .all(now, cutoff) as Record<string, unknown>[]
     if (rows.length === 0) return []
     this.db
-      .prepare(
-        `UPDATE messages SET status = 'expired'
-         WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ?`,
-      )
-      .run(now)
+      .prepare(`UPDATE messages SET status = 'expired' WHERE ${where}`)
+      .run(now, cutoff)
     return rows.map(mapMessage).map((m) => ({ ...m, status: 'expired' as const }))
   }
 

@@ -133,12 +133,16 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const queued: { sessionId: string; text: string }[] = []
   const interrupted: { sessionId: string; text: string }[] = []
   const attention: { messageId: string; reason: string }[] = []
+  const listCalls = { n: 0 }
   const svc = new MessageDeliveryService({
     messages: store.messages,
     events: store.events,
     issues: () => fakeIssues(),
     sessions: () => ({
-      listSessions: () => sessions,
+      listSessions: () => {
+        listCalls.n += 1
+        return sessions
+      },
       sendText: (i) => {
         sent.push(i)
         return { ok: true }
@@ -159,7 +163,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     notifyOperator: (i) => attention.push({ messageId: i.messageId, reason: i.reason }),
     now: opts?.now ?? (() => '2026-07-13T00:00:00.000Z'),
   })
-  return { store, svc, sent, queued, interrupted, attention }
+  return { store, svc, sent, queued, interrupted, attention, listCalls }
 }
 
 const IDLE = { phase: 'idle', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
@@ -804,6 +808,68 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     svc.sweep()
     expect(sent).toHaveLength(1)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  // POD-817: the sweep ran listSessions() (full toMeta of EVERY session) once
+  // PER QUEUED ROW — 83 stuck rows × 588 sessions froze the server loop ~8s
+  // every minute on the live host. One list per sweep pass, not per row.
+  it('lists sessions once per sweep pass, not once per queued row', () => {
+    const { svc, listCalls } = harness([])
+    for (let i = 0; i < 5; i++) {
+      const r = svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'issue', id: ISSUE.id }, body: `x${i}`, lifecycle: 'wait' },
+      )
+      expect(r.message.status).toBe('queued')
+    }
+    listCalls.n = 0
+    svc.sweep()
+    expect(listCalls.n).toBe(1)
+  })
+
+  // POD-817: wait-lifecycle rows with no explicit expiry queued FOREVER (the
+  // forensics "black hole") and made every future sweep slower. They now expire
+  // after QUEUED_WAIT_TTL_MS; the row stays readable in inbox/ledger (expiry
+  // only stops redelivery attempts, listMessagesFor does not filter status).
+  it('expires a wait row with no explicit expiry after the implicit TTL', () => {
+    let clock = '2026-07-13T00:00:00.000Z'
+    const { svc, store } = harness([], { now: () => clock })
+    const old = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'old', lifecycle: 'wait' },
+    )
+    expect(old.message.expiresAt).toBeNull()
+    clock = '2026-07-18T00:00:00.000Z' // +5d — inside the 7d TTL
+    const young = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'young', lifecycle: 'wait' },
+    )
+    clock = '2026-07-21T00:00:00.000Z' // old is now 8d, young 3d
+    svc.sweep()
+    expect(store.messages.getMessage(old.message.id)!.status).toBe('expired')
+    expect(store.messages.getMessage(young.message.id)!.status).toBe('queued')
+    const events = store.events.listEventsSince(0, { kinds: ['message.expired'] })
+    expect(events.some((e) => e.subject === old.message.id)).toBe(true)
+    // Expired ≠ hidden: the row is still listed for its principal.
+    const listed = store.messages.listMessagesFor({ kind: 'issue', id: ISSUE.id })
+    expect(listed.some((m) => m.id === old.message.id)).toBe(true)
+  })
+
+  it('an explicit expires_at beyond the implicit TTL wins (no silent cap)', () => {
+    let clock = '2026-07-13T00:00:00.000Z'
+    const { svc, store } = harness([], { now: () => clock })
+    const r = svc.send(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'x',
+        lifecycle: 'wait',
+        expiresAt: '2026-08-13T00:00:00.000Z',
+      },
+    )
+    clock = '2026-07-21T00:00:00.000Z' // 8d old, but explicitly expires in August
+    svc.sweep()
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
   })
 })
 
