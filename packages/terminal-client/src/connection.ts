@@ -1,7 +1,9 @@
+import type { IssueProjection } from '@podium/protocol'
 import {
   type ApprovalWire,
   type AutomationRunWire,
   type AutomationWire,
+  CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
   type ConversationSummaryWire,
@@ -98,6 +100,28 @@ export interface SocketHubOptions {
    */
   initialCursor?: number | null
   /**
+   * Opt into the NORMALIZED issue projection [POD-796]: the hello advertises
+   * CAP_ISSUES_NORMALIZED and the hub populates `issueProjections` from the
+   * feed's 'issueProjection' rows.
+   *
+   * DEFAULT FALSE, DELIBERATELY, and this is a safety interlock rather than
+   * caution. The cap does not mean "I can also read projections" — it means "I
+   * NO LONGER NEED IssueWire". The server's D7.2 bypass keys off exactly that:
+   * once every delta client offers this cap, a session change stops rebuilding
+   * issue wire payloads at all. So a consumer that offers the cap while still
+   * rendering from `issues` would ask the server to stop maintaining the very
+   * data its UI reads, and the issue list would silently freeze — a bug that
+   * looks like a caching problem and is really a broken promise.
+   *
+   * Set it only when the consumer reads `issueProjections` (and resolves members
+   * by indexing sessions on `issueId`). Today nothing in apps/web does, because
+   * the replica-side views still need `deps` and `prefix`, which the projection
+   * does not carry and nothing replica-side can supply — POD-822. Only meaningful
+   * alongside `fetchChangesSince`; there is no delta frame to carry the rows
+   * otherwise.
+   */
+  issuesNormalized?: boolean
+  /**
    * Fired after each APPLIED metadata batch (bootstrap/heal snapshot, heal delta,
    * or live `metadataDelta`) with the hub's current lists + cursor — the web
    * store persists these into the replica (data first, cursor after). The arrays
@@ -111,6 +135,10 @@ export interface MetadataAppliedState {
   cursor: number
   sessions: SessionMeta[]
   issues: IssueWire[]
+  /** The normalized issues [POD-796] — empty unless the authority's
+   *  `issues-normalized-wire` flag is on. Additive: an embedder that ignores it
+   *  behaves exactly as before. */
+  issueProjections: IssueProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -238,6 +266,12 @@ export interface HubEvents {
   approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
   issues: [issues: IssueWire[]]
+  /** Full NORMALIZED issue list after any change [POD-796]. Fires only against
+   *  an authority with the `issues-normalized-wire` flag on, and only for a hub
+   *  that offered CAP_ISSUES_NORMALIZED. Carries no session data of any kind —
+   *  a consumer resolves members by indexing sessions on `issueId`. Emitted
+   *  ALONGSIDE `issues` during the transition, never instead of it. */
+  issueProjections: [issues: IssueProjection[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
@@ -274,6 +308,12 @@ export class SocketHub {
   private machinesList: MachineWire[] = []
   private approvalsList: ApprovalWire[] = []
   private issueList: IssueWire[] = []
+  /** The normalized issue list [POD-796]. Separate from `issueList` rather than
+   *  replacing it: the two shapes coexist for the whole transition, and the feed
+   *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
+   *  ledger stores one value per (kind, id). Empty unless the authority's flag
+   *  is on. */
+  private issueProjectionList: IssueProjection[] = []
   // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
   /** Last applied oplog seq; null until the first changesSince completes. */
   private metadataCursor: number | null = null
@@ -392,8 +432,18 @@ export class SocketHub {
         // the cursor can be ADR 2 D1's triple rather than a bare seq. Without it
         // a restored-from-backup authority is undetectable: `changesSince(500)`
         // answers "up to date" over 100 phantom rows, forever.
+        // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
+        // promises the server this client no longer needs IssueWire, which is
+        // what licenses the server to skip the O(issues x sessions) rebuild on
+        // session churn [POD-796].
         ...(this.opts.fetchChangesSince
-          ? { caps: [CAP_METADATA_DELTA, CAP_SYNC_FEED_IDENTITY] }
+          ? {
+              caps: [
+                CAP_METADATA_DELTA,
+                CAP_SYNC_FEED_IDENTITY,
+                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+              ],
+            }
           : {}),
       })
       // Catch up on whatever the metadata stream did while we were away (or take
@@ -1114,6 +1164,7 @@ export class SocketHub {
       cursor: this.metadataCursor,
       sessions: this.sessionList,
       issues: this.issueList,
+      issueProjections: this.issueProjectionList,
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
@@ -1180,6 +1231,14 @@ export class SocketHub {
         case 'issue':
           this.issueList = applyChange(this.issueList, c.op, c.value, (i) => i.id === c.id)
           break
+        case 'issueProjection':
+          this.issueProjectionList = applyChange(
+            this.issueProjectionList,
+            c.op,
+            c.value,
+            (i) => i.id === c.id,
+          )
+          break
         case 'conversation':
           this.conversationList = applyChange(
             this.conversationList,
@@ -1210,6 +1269,7 @@ export class SocketHub {
     }
     if (touched.has('session')) this.emit('sessions', this.sessionList)
     if (touched.has('issue')) this.emit('issues', this.issueList)
+    if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)

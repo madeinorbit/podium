@@ -1,8 +1,22 @@
+import { IssueProjection } from '@podium/model'
 import { z } from 'zod'
 import { AutomationRunWire, AutomationWire } from './automations'
 import { ConversationDiagnosticWire, ConversationSummaryWire } from './discovery'
 import { IssueWire } from './issues'
 import { SessionMeta } from './runtime-state'
+
+/**
+ * Re-exported from `@podium/model` [POD-796].
+ *
+ * `IssueProjection` is an arm of {@link MetadataChange}, so it IS a wire shape,
+ * and a peer that parses the feed must be able to name it without taking a
+ * dependency this layer does not permit it: `@podium/terminal-client` depends on
+ * protocol ONLY (ADR 8; protocol is the one near-leaf allowed to import model —
+ * see RESTRICTED_PACKAGE_DEPS in scripts/check-boundaries.ts). Re-exporting here
+ * keeps the vocabulary single-sourced in model while letting protocol's
+ * consumers stay on protocol.
+ */
+export { IssueProjection }
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and
@@ -81,6 +95,30 @@ export const MetadataChange = z.discriminatedUnion('entity', [
     op: MetadataChangeOp,
     value: IssueWire.optional(),
   }),
+  /** The NORMALIZED issue projection [POD-796, ADR 4 D7.1] — a SECOND kind
+   *  alongside 'issue', not a reshaping of it, and that is the whole transition
+   *  strategy.
+   *
+   *  The ledger stores one value per (kind, id), so 'issue' cannot carry two
+   *  payload shapes at once: flipping it in place would break every delta client
+   *  whose build still expects `IssueWire` — and a lagging PWA bundle is exactly
+   *  that client (see version.ts on rolling upgrades). A new kind is the
+   *  mechanism this file's own lenient-parsing note was written for: an older
+   *  build's `MetadataEntityKind` does not list 'issueProjection', so these rows
+   *  fall to {@link UnknownMetadataChange}, get ignored with a debug log, and the
+   *  cursor ADVANCES past them — no quarantine, no heal loop. Additive per ADR 2
+   *  D4; `WIRE_VERSION` stays 1.
+   *
+   *  Emitted only when the server's `issues-normalized-wire` feature flag is on;
+   *  consumed only by a client that offered CAP_ISSUES_NORMALIZED. Both sides
+   *  opt in, so the old path stays exactly one flag away. */
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('issueProjection'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: IssueProjection.optional(),
+  }),
   z.object({
     seq: z.number().int().positive(),
     entity: z.literal('conversation'),
@@ -107,6 +145,7 @@ export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
   'session',
   'issue',
+  'issueProjection',
   'conversation',
   'automation',
   'automationRun',

@@ -44,6 +44,7 @@ const lists = (
 ): Omit<MetadataAppliedState, 'cursor'> => ({
   sessions: [],
   issues: issues as unknown as MetadataAppliedState['issues'],
+  issueProjections: [],
   conversations: [],
   automations: [],
   automationRuns: [],

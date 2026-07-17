@@ -104,6 +104,7 @@
         "@podium/agent-bridge": "workspace:*",
         "@podium/domain": "workspace:*",
         "@podium/issue-client": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/sync": "workspace:*",
@@ -201,6 +202,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@podium/domain": "workspace:*",
+        "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/terminal-client": "workspace:*",
@@ -208,7 +210,6 @@
         "@tanstack/react-db": "^0.1.92",
       },
       "devDependencies": {
-        "@podium/model": "workspace:*",
         "@types/node": "^24.0.0",
         "@types/react": "^19.0.0",
         "react": "19.2.7",

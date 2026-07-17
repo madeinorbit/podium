@@ -8,7 +8,7 @@ import {
   issueSyncFields,
 } from './fields'
 import { IssueStorageRow, issueStorageOverrides } from './storage'
-import { IssueProjection, issueDerivedWireFields } from './wire'
+import { IssueProjection } from './wire'
 
 /**
  * COMPOSITION CHECKS [ADR 4 §7: "New entity fields land once in `packages/model`
@@ -42,11 +42,15 @@ const _needsHumanGroupReachesR1: {
 /** The revision token reaches R1 as a durable field (ADR 2 D3). */
 const _revisionIsDurable: (typeof issueDurableShape)['revision'] = issueSyncFields.revision
 
-/** R4's non-derived half is R1's field set with nulls turned to absences — so a
- *  field added to a group cannot fail to reach the wire. */
-type WireDurableKeys = Exclude<keyof IssueProjection, keyof typeof issueDerivedWireFields>
-const _r4CoversR1: Record<keyof Issue, true> = {} as Record<WireDurableKeys, true>
-const _r1CoversR4: Record<WireDurableKeys, true> = {} as Record<keyof Issue, true>
+/** R4 is R1's field set with nulls turned to absences — so a field added to a
+ *  group cannot fail to reach the wire.
+ *
+ *  Since [POD-796] deleted `memberSessionIds` there is no derived half left to
+ *  exclude, so these two now state the stronger property directly: R4 and R1
+ *  have the SAME keys. A derived field reintroduced on the projection fails
+ *  here, which is the D7.1/D7.2 guard — see `wire.ts`. */
+const _r4CoversR1: Record<keyof Issue, true> = {} as Record<keyof IssueProjection, true>
+const _r1CoversR4: Record<keyof IssueProjection, true> = {} as Record<keyof Issue, true>
 
 /** R3 is R1 plus the declared overrides — nothing else. */
 type StorageKeys = keyof IssueStorageRow
@@ -78,12 +82,14 @@ describe('representations compose from the vocabulary', () => {
     expect(Object.keys(Issue.shape).sort()).toEqual([...durableKeys].sort())
   })
 
-  it('R4 is exactly the durable field set plus the declared derived fields', () => {
-    // The teeth: an `.extend()` of a fresh field onto the projection fails here,
-    // which is what forces a new field to enter through a group instead.
-    expect(Object.keys(IssueProjection.shape).sort()).toEqual(
-      [...durableKeys, ...Object.keys(issueDerivedWireFields)].sort(),
-    )
+  it('R4 is exactly the durable field set — no derived fields at all [POD-796]', () => {
+    // The teeth, and they got sharper at the POD-796 cutover: R4 used to be
+    // "durable + the declared derived fields", so re-adding a derived field
+    // passed as long as it was declared. Now the projection is the durable set
+    // and nothing else, so ANY field that is not a function of the issue's own
+    // row — a re-added memberSessionIds, a rollup, a joined tree — fails here.
+    // That is D7.1/D7.2 enforced at the vocabulary rather than in review.
+    expect(Object.keys(IssueProjection.shape).sort()).toEqual([...durableKeys].sort())
   })
 
   it('R3 is exactly the durable field set — overrides re-encode, never add', () => {

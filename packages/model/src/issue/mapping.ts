@@ -1,4 +1,3 @@
-import type { SessionId } from '../ids'
 import { dropNullValues, restoreNullValues } from '../shape'
 import { Issue } from './aggregate'
 import { IssuePanel, issueDurableShape } from './fields'
@@ -33,34 +32,39 @@ import { IssueProjection } from './wire'
  * string is falsy, so a stored `''` reaches the wire as absent and reads back as
  * `null` — `'' → null` is a silent, lossy round-trip. This pair omits on `=== null`
  * instead, so `''` survives. That is a DELIBERATE divergence from today's wire
- * behaviour, and POD-796 must decide the disposition at cutover: either accept the
- * new (correct) behaviour, or normalise `''` → `null` on the WRITE path so the two
- * agree without the mapping having to lie.
+ * behaviour.
+ *
+ * SETTLED at the [POD-796] cutover: accept it. The divergence was measured against
+ * the live DB (793 issues) rather than argued — the whole surface is `assignee = ''`
+ * on 2 rows, where `''` and absent render identically under any truthiness check.
+ * (`description = ''` on 146 rows is NOT in scope: today's serializer passes
+ * description through unconditionally, so `''` already survives on both paths.)
+ * The mapping therefore does not have to lie, and the bijection stands.
+ *
+ * The honest fix — make `null` the ONE spelling for absent by normalising on the
+ * WRITE path — is POD-820, deliberately not done here: it is a data migration
+ * touching every nullable text field, and putting one inside a flag-gated wire
+ * cutover would cost the cutover its reversibility.
  */
 
 /**
- * Inputs a projection needs that the aggregate does not carry — kept as an
- * explicit parameter so every cross-entity dependency of the wire shape is
- * visible in `toWire`'s signature. If this grows past a couple of fields, that is
- * evidence the projection is drifting back toward the embedded-tree shape D7.1
- * forbids.
+ * R1 → R4. Nulls become absent keys. Nothing else: the projection is a pure
+ * function of the issue's OWN durable row.
+ *
+ * That total absence of a second parameter is the D7.2 property, not an
+ * accident of a small shape. An input this function does not take is a
+ * dependency the publish path cannot have: there is no session list to scan, so
+ * a session change cannot dirty an issue projection, so no amount of session
+ * churn can cost issue-wire work. The [POD-796] cutover deleted the last such
+ * parameter (`IssueDerivedInputs.memberSessionIds`) — see `wire.ts`.
+ *
+ * Keep it that way. A `toWire(issue, somethingElse)` is the shape D7.1/D7.2
+ * forbid growing back, and it will look reasonable the day it is proposed.
  */
-export interface IssueDerivedInputs {
-  /** The sessions working this issue, by id. See `wire.ts` for why ids only. */
-  memberSessionIds: readonly SessionId[]
-}
+export const toWire = (issue: Issue): IssueProjection =>
+  IssueProjection.parse(dropNullValues(issue))
 
-/** R1 → R4. Nulls become absent keys; derived inputs are grafted on. */
-export const toWire = (issue: Issue, derived: IssueDerivedInputs): IssueProjection =>
-  IssueProjection.parse({
-    ...dropNullValues(issue),
-    memberSessionIds: derived.memberSessionIds,
-  })
-
-/**
- * R4 → R1. Absent keys become nulls; derived fields are dropped (zod's default
- * `strip` removes `memberSessionIds`, which is not in the aggregate's shape).
- */
+/** R4 → R1. Absent keys become nulls. The inverse of `toWire`, total both ways. */
 export const fromWire = (projection: IssueProjection): Issue =>
   Issue.parse(restoreNullValues(projection, issueDurableShape))
 

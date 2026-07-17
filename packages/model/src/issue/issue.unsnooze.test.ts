@@ -23,8 +23,6 @@ import { describe, expect, it } from 'vitest'
 import { minimalIssue, populatedIssue } from './__fixtures__/issues'
 import { fromWire, toWire } from './mapping'
 
-const derived = { memberSessionIds: [] }
-
 /** What a replica hands back after a field was cleared through the change proxy:
  *  the wire payload, plus the cleared key present and holding `undefined`. */
 const asReplicaRow = <T extends object>(wire: T, cleared: string): T =>
@@ -36,7 +34,7 @@ describe('unsnooze: a cleared nullable arrives from the replica as present-with-
     // drop as `undefined`. Both mean null, and null is what the aggregate must
     // see. Under the old `!(key in out)` rule this threw
     // "expected string, received undefined".
-    const wire = toWire(populatedIssue, derived)
+    const wire = toWire(populatedIssue)
     expect(wire.deferUntil).toBe(populatedIssue.deferUntil)
 
     const issue = fromWire(asReplicaRow(wire, 'deferUntil'))
@@ -48,7 +46,7 @@ describe('unsnooze: a cleared nullable arrives from the replica as present-with-
     // payload for the SAME cleared field must produce the same aggregate. If
     // these ever diverge, the replica and the authority disagree about an
     // issue's state while every log line and payload dump looks identical.
-    const wire = toWire(populatedIssue, derived)
+    const wire = toWire(populatedIssue)
     const { deferUntil: _dropped, ...absent } = wire
     expect(fromWire(asReplicaRow(wire, 'deferUntil'))).toEqual(fromWire(absent as typeof wire))
   })
@@ -58,7 +56,7 @@ describe('unsnooze: a cleared nullable arrives from the replica as present-with-
     // It was never a deferUntil bug — it is a property of every nullable field,
     // and pinning only the field that happened to surface it leaves the other
     // ~25 free to break the same way.
-    const wire = toWire(populatedIssue, derived)
+    const wire = toWire(populatedIssue)
     for (const key of Object.keys(minimalIssue).filter(
       (k) => minimalIssue[k as keyof typeof minimalIssue] === null,
     )) {
@@ -69,7 +67,7 @@ describe('unsnooze: a cleared nullable arrives from the replica as present-with-
 
   it('a populated field is untouched — the fix must not null what is set', () => {
     // The over-broad fix nulls everything and passes every test above.
-    const issue = fromWire(toWire(populatedIssue, derived))
+    const issue = fromWire(toWire(populatedIssue))
     expect(issue).toEqual(populatedIssue)
   })
 })

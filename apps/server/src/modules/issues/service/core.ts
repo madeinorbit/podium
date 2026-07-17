@@ -1,8 +1,12 @@
 import { isIssueBlocked, isIssueClosed, isIssueColorSlot, isIssueDeferred } from '@podium/domain'
+import type { IssueProjection } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
+import { countIssueWireBuild } from '../instrumentation'
+import { issueProjectionRows, issueRowToProjection } from '../projection'
+import type { PublishSpec } from '../publish'
 import type { IssueDeps } from './types'
 
 // Member-session fields that DON'T feed issue wire data [POD-723] — the same
@@ -147,6 +151,11 @@ export abstract class IssueServiceCore {
     sessionList: SessionMeta[] = this.deps.listSessions(),
     commentCounts?: Map<string, number>,
   ): IssueWire {
+    // The D7.2 evidence seam [POD-796]. This line is the reason the bypass is
+    // provable rather than merely plausible: it counts the per-issue LEGACY wire
+    // build — the one that embeds SessionMeta[] and therefore couples issues to
+    // session churn. Diagnostic only; nothing branches on it.
+    countIssueWireBuild()
     const sessions = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
     const labels = this.deps.store.issues.getIssueLabels(row.id)
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
@@ -392,6 +401,64 @@ export abstract class IssueServiceCore {
   allWire(): IssueWire[] {
     return this.list()
   }
+
+  // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
+  //
+  // ADDITIVE, and flag-gated at every seam below: with `issues-normalized-wire`
+  // off, `projectionChanges`/`projectionRows` return nothing and this whole
+  // vertical is inert — not a branch that behaves differently, but zero extra
+  // rows appended and zero extra work done, which is what makes "flag off ⇒
+  // byte-identical legacy behaviour" a property rather than a hope.
+  //
+  // Both build from the ROW, never from the `IssueWire`. That is the D7.2
+  // discipline and not a stylistic preference: `IssueProjection` is a pure
+  // function of the issue's own durable row, so deriving it from the legacy wire
+  // would re-acquire the O(issues × sessions) dependency the projection exists
+  // to shed — and would quietly make the bypass in `runSessionsBroadcast`
+  // impossible. It is also cheap: O(1) per issue, no session list in sight.
+
+  /** True when this server emits normalized projections. Absent dep ⇒ off (test
+   *  deps literals predate the flag; off is the legacy path, so absent must mean
+   *  the old behaviour). */
+  protected get normalizedWire(): boolean {
+    return this.deps.issuesNormalizedWire?.() ?? false
+  }
+
+  /** The `issueProjection` change ONE issue's write declares, flag-gated.
+   *  Returned as an array so a call site can spread it into its `changes()` and
+   *  stay a single expression when the flag is off. */
+  protected projectionChanges(
+    row: IssueRow,
+  ): { entity: 'issueProjection'; id: string; op: 'upsert'; value: IssueProjection }[] {
+    if (!this.normalizedWire) return []
+    return [
+      { entity: 'issueProjection', id: row.id, op: 'upsert', value: issueRowToProjection(row) },
+    ]
+  }
+
+  /** Full LOCAL projection truth for a reconcile, flag-gated; `undefined` = do
+   *  not reconcile this kind (flag off, or a row that cannot be projected — see
+   *  {@link issueProjectionRows} on why that is all-or-nothing).
+   *
+   *  The normalized parallel to {@link allWire}, and public for the same reason:
+   *  the relay's write-less publish tail needs it. LOCAL only — like allWire(),
+   *  hub-mirrored issues are the publisher's union to make, and it cannot make
+   *  it here (see IssuePublisherDeps.allProjections). */
+  allProjections(): { id: string; value: IssueProjection }[] | undefined {
+    if (!this.normalizedWire) return undefined
+    return issueProjectionRows(this.rows.values())
+  }
+
+  /** THE full-list reconcile + fan-out tail every write-less issue publish runs
+   *  (broadcastList, purgeEmptyDraft). Both kinds reconcile against the same
+   *  truth in the same pass, so the legacy feed and the normalized feed can
+   *  never disagree about which issues exist. */
+  protected reconcileAndPublish(spec: PublishSpec): void {
+    this.deps.ledger.reconcile('issue', spec.rows)
+    const projections = this.allProjections()
+    if (projections) this.deps.ledger.reconcile('issueProjection', projections)
+    this.deps.funnel.publishComputed(spec.snapshot)
+  }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
   protected emitEvent(kind: string, subject: string, payload: Record<string, unknown>): void {
@@ -454,7 +521,16 @@ export abstract class IssueServiceCore {
           // OTHER rows), so it is safe to serialize before the map install below.
           return this.toWire(row)
         },
-        changes: (w) => [{ entity: 'issue', id: row.id, op: 'upsert', value: w }],
+        // Both kinds are declared by the SAME commit, so they land in one
+        // transact span: a cap client and a legacy client can never observe an
+        // issue at two different truths, and neither feed can record a write
+        // the other rolled back. The projection is built from `row` (post-write,
+        // so it carries the revision upsertIssue just assigned — the same
+        // ordering `w` depends on), not from `w`.
+        changes: (w) => [
+          { entity: 'issue', id: row.id, op: 'upsert', value: w },
+          ...this.projectionChanges(row),
+        ],
       }).result
     } catch (err) {
       if (backup) Object.assign(row, backup)
@@ -492,9 +568,7 @@ export abstract class IssueServiceCore {
     // write on them — bump BEFORE allWire so the memo rebuilds every row against
     // the new generation and no ripple is served from stale cache [POD-723].
     this.bumpIssueInputs()
-    const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
-    this.deps.ledger.reconcile('issue', spec.rows)
-    this.deps.funnel.publishComputed(spec.snapshot)
+    this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
   }
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {

@@ -175,6 +175,26 @@ export const CAP_METADATA_DELTA = 'metadataDelta'
  *  unconditionally. That is safe in the same way the whole additive rule is —
  *  zod objects STRIP unknown keys, so an older client's parse drops them. */
 export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
+/** Client capability: the client consumes the NORMALIZED issue projection
+ *  (`IssueProjection` from `@podium/model`) rather than `IssueWire` — issues
+ *  carry no embedded `sessions: SessionMeta[]`, no cross-entity rollups, and no
+ *  member ids at all; the client joins sessions locally by indexing them on
+ *  `issueId` (ADR 4 D7.1/D7.3). [POD-796]
+ *
+ *  This is THE cap that severs the issue↔session coupling: for a client that
+ *  offers it, a session change performs ZERO issue-wire work, because the
+ *  projection it gets is a pure function of each issue's own row (ADR 4 D7.2).
+ *  A client without the cap gets today's `IssueWire` payload byte-for-byte, off
+ *  the old pipeline, which is what keeps the old path exactly one flag away.
+ *
+ *  Additive per ADR 2 D4 — negotiated by capability, `WIRE_VERSION` stays 1.
+ *  Unlike {@link CAP_SYNC_FEED_IDENTITY}, this one does NOT merely stamp extra
+ *  fields onto an existing frame: it changes which payload shape the client is
+ *  sent, so the server must ALSO have the `issues-normalized-wire` feature flag
+ *  enabled. Cap = "this client can read it"; flag = "this server will emit it".
+ *  Both, or the client gets the legacy shape — see `apps/server/src/features.ts`.
+ */
+export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
 export const HelloMessage = z.object({
   type: z.literal('hello'),
   clientId: z.string(),

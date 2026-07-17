@@ -7,9 +7,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 // Hosts permitted by Vite's host check, comma-separated via PODIUM_ALLOWED_HOSTS. localhost and
 // IP-literal hosts are always allowed by Vite, so plain `localhost` dev needs nothing here; the
 // default keeps the maintainer's tailscale node working for the live instance.
-const allowedHosts = process.env.PODIUM_ALLOWED_HOSTS?.split(',')
-  .map((h) => h.trim())
-  .filter(Boolean) ?? []
+const allowedHosts =
+  process.env.PODIUM_ALLOWED_HOSTS?.split(',')
+    .map((h) => h.trim())
+    .filter(Boolean) ?? []
 
 // The app origin binds :55556 (plain http). `tailscale serve` terminates TLS on :55555 and
 // proxies here, so the primary URL is https://<host>:55555 — a secure context, which the
@@ -92,6 +93,19 @@ export default defineConfig({
       '@podium/protocol': fileURLToPath(
         new URL('../../packages/protocol/src/index.ts', import.meta.url),
       ),
+      // [POD-796] Model reaches the bundle at RUNTIME — `protocol/messages/sync.ts`
+      // imports the `IssueProjection` zod schema as a VALUE for the feed's
+      // 'issueProjection' arm — so it needs the same treatment as the others.
+      //
+      // Not redundant with `conditions: ['@podium/source']` below, for the same
+      // reason domain and protocol are aliased despite having that condition: the
+      // condition only chooses an entry point AFTER resolution finds the package,
+      // and a checkout with no local @podium symlink resolves by walking UP the
+      // filesystem — straight into a sibling checkout's node_modules, where the
+      // source condition faithfully resolves MAIN's src. The build exits 0 and
+      // bundles code that is not the code under review [POD-746]. Verify with the
+      // bundle-content grep, never the exit code.
+      '@podium/model': fileURLToPath(new URL('../../packages/model/src/index.ts', import.meta.url)),
       // Subpath alias must precede the bare-package one — the bare alias also
       // prefix-matches subpath imports and would resolve them to a path INSIDE
       // index.ts (`.../index.ts/terminal-view`), which fails at build time.

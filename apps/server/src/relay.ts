@@ -10,6 +10,7 @@ import type {
 } from '@podium/protocol'
 import { sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelProbe } from './model-catalog'
@@ -333,16 +334,57 @@ export class SessionRegistry {
       fanOutSnapshot: (snapshot, opts) => sessionsSvc.fanOutSnapshot(snapshot, opts),
       sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
     })
+    // `issues-normalized-wire` [POD-796] — THE flag for the normalized issue
+    // vertical, and the first production caller of the feature seam [spec:SP-f4b9].
+    //
+    // Resolved lazily and CACHED, because the session-broadcast bypass consults
+    // it on a hot path and resolving is not free: `isFeatureEnabled` defaults its
+    // config argument to `loadConfig()`, which is an uncached synchronous FILE
+    // read + zod parse on every call, over a settings read that is itself a
+    // sqlite point-read + a full `normalizeSettings` parse. Paying that per
+    // broadcast would add a real cost to the flag-OFF path — a regression, in a
+    // change whose entire purpose is to remove work from this path.
+    //
+    // The cache drops on `settings.changed`, which is the event SettingsService
+    // emits for the Settings → Experimental toggle — the intended way to flip
+    // this flag, and therefore live with no restart. A `features` override in
+    // config.json is read once at boot and needs a restart to take effect; that
+    // matches how config.json is treated everywhere else in this composition,
+    // and the flag's own UI path is the settings toggle.
+    //
+    // `??=` is correct for a boolean cache: it fills on null/undefined only, so
+    // a resolved `false` (the default state, and the common one) caches rather
+    // than re-resolving forever.
+    let normalizedWireFlag: boolean | undefined
+    const issuesNormalizedWire = (): boolean => {
+      normalizedWireFlag ??= isFeatureEnabled(
+        'issues-normalized-wire',
+        this.store.settings.getSettings(),
+      )
+      return normalizedWireFlag
+    }
+    this.bus.on('settings.changed', () => {
+      normalizedWireFlag = undefined
+    })
     const publisher = new IssuePublisher({
       allWire: () => issues?.allWire(),
+      allProjections: () => issues?.allProjections(),
       withUpstreamIssues: (local) => upstreamIssues.withUpstreamIssues(local),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
       // the committed changes out.
-      publishIssueList: (spec) => {
+      publishIssueList: (spec, projectionRows) => {
         // The reconcile's appends reach delta clients via the funnel's ordered
         // onAppended pipe; publishComputed carries only the legacy snapshot.
         ledger.reconcile('issue', spec.rows)
+        // The normalized kind rides the SAME onAppended pipe [POD-796] — no
+        // second emitter and no second ordering, which the client gap rule
+        // (seq !== cursor+1 → heal) makes non-negotiable. A delta client that
+        // did NOT offer CAP_ISSUES_NORMALIZED still receives these rows and
+        // ignores them via lenient parsing, advancing its cursor past them
+        // (protocol/messages/sync.ts) — that is why a new KIND is additive
+        // where reshaping 'issue' in place would not have been.
+        if (projectionRows) ledger.reconcile('issueProjection', projectionRows)
         funnel.publishComputed(spec.snapshot)
       },
     })
@@ -904,6 +946,7 @@ export class SessionRegistry {
       conversations: () => conversations,
       issues: () => issues,
       publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
+      issuesNormalizedWire,
       issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.safeIssuesList()),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
@@ -992,6 +1035,7 @@ export class SessionRegistry {
       funnel,
       ledger,
       publishSpecs: publisher,
+      issuesNormalizedWire,
       // Agent mail send-time nudge (issue #103): the sessions module subscribes
       // and picks the live member session to poke — see modules/sessions.
       onMailSent: (row) =>

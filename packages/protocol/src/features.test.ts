@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FEATURES,
   type FeatureDefinition,
   type FeatureResolveInput,
   type FeatureState,
-  FEATURES,
   resolveFeatureState,
 } from './features'
 
@@ -95,16 +95,27 @@ for (const visibility of ['hidden', 'edge', 'stable'] as const) {
 }
 
 describe('FEATURES registry', () => {
+  // Asserts CONTAINMENT, not the whole array. The equality form this replaces
+  // said "includes ..." in its name while demanding the registry hold nothing
+  // else — so it failed the first time a real flag landed (POD-796's
+  // issues-normalized-wire), which is the registry working, not breaking.
   it('includes the sample-experiment hidden flag', () => {
-    expect(FEATURES).toEqual([
-      {
-        id: 'sample-experiment',
-        name: 'Sample experiment',
-        description:
-          'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
-        visibility: 'hidden',
-      },
-    ])
+    expect(FEATURES).toContainEqual({
+      id: 'sample-experiment',
+      name: 'Sample experiment',
+      description:
+        'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
+      visibility: 'hidden',
+    })
+  })
+
+  // The invariant a flag registry actually has to hold: `id` is the key written
+  // into config.json and settings and is "never renamed" (see FeatureDefinition),
+  // so a duplicate id would make resolveFeatureState's `find` silently answer for
+  // the wrong flag.
+  it('has unique ids', () => {
+    const ids = FEATURES.map((f) => f.id)
+    expect(ids).toEqual([...new Set(ids)])
   })
 })
 

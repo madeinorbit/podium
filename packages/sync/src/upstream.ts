@@ -387,6 +387,21 @@ export class UpstreamSync {
       case 'automation':
       case 'automationRun':
         break
+      // The normalized issue projection [POD-796]. Ignored here, and safe to
+      // ignore for a reason worth stating rather than trusting: this client
+      // offers `caps: [CAP_METADATA_DELTA]` ONLY (see the hello below) — never
+      // CAP_ISSUES_NORMALIZED — so a hub never sends it, and the hub's D7.2
+      // bypass (which skips the legacy 'issue' rebuild once EVERY delta client
+      // can read projections) cannot fire while this mirror is attached. The
+      // node therefore keeps receiving 'issue' rows above, which carry the same
+      // truth. That interlock is the only thing making this arm harmless: if
+      // this client is ever taught to offer the cap, it must consume the
+      // projection HERE too, or a node would silently stop mirroring its hub's
+      // issues. Mirrored issues are not normalized today — a mirror has no local
+      // durable row to project from, and projecting the mirror's WIRE would be
+      // the second mapper ADR 4 D3.4 forbids.
+      case 'issueProjection':
+        break
       default:
         change satisfies never
     }

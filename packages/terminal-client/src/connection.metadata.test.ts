@@ -168,6 +168,37 @@ describe('SocketHub metadata delta mode', () => {
     expect(plain.parsed().find((m) => m.type === 'hello')?.caps).toBeUndefined()
   })
 
+  it('does NOT advertise issuesNormalized unless the embedder opts in [POD-796]', () => {
+    // The default is a SAFETY INTERLOCK, not a preference. The cap promises the
+    // server this client no longer needs IssueWire, and the server's D7.2 bypass
+    // believes it: offering it while the UI still renders from `issues` asks the
+    // server to stop maintaining the data the UI reads, and the issue list
+    // freezes. apps/web cannot opt in until POD-822 gives the replica-side views
+    // `deps` + `prefix`. If this test ever needs "fixing", read POD-822 first.
+    const { sock, hub } = setup([snapshot(0)])
+    hub.connect()
+    sock.open()
+    expect(sock.parsed().find((m) => m.type === 'hello')?.caps).not.toContain('issuesNormalized')
+  })
+
+  it('advertises issuesNormalized when the embedder opts in [POD-796]', () => {
+    const opted = new FakeSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      makeSocket: () => opted,
+      fetchChangesSince: async () => snapshot(0),
+      issuesNormalized: true,
+    })
+    hub.connect()
+    opted.open()
+    expect(opted.parsed().find((m) => m.type === 'hello')?.caps).toEqual([
+      'metadataDelta',
+      'syncFeedIdentity',
+      'issuesNormalized',
+    ])
+  })
+
   it('bootstraps lists + cursor from the snapshot, then applies deltas in order', async () => {
     const { sock, hub, calls } = setup([snapshot(5, [issue('a', 'one')])])
     const seen: string[][] = []

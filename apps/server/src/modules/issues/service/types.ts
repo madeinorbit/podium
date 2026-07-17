@@ -40,7 +40,14 @@ export interface IssueLedger {
     result: T
     changes: MetadataChange[]
   }
-  reconcile(entity: 'issue', rows: { id: string; value: unknown }[]): MetadataChange[]
+  /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
+   *  alongside 'issue', reconciled from the same truth in the same pass, never a
+   *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
+   *  cannot carry two payload shapes at once). */
+  reconcile(
+    entity: 'issue' | 'issueProjection',
+    rows: { id: string; value: unknown }[],
+  ): MetadataChange[]
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it
@@ -182,6 +189,13 @@ export interface IssueDeps {
   ledger: IssueLedger
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   publishSpecs: IssuePublishSpecs
+  /** `issues-normalized-wire` [POD-796]: when true, every issue publish ALSO
+   *  emits the normalized `IssueProjection` under the 'issueProjection' kind,
+   *  additively (the legacy 'issue' rows and snapshots are untouched). Injected
+   *  by the relay from {@link isFeatureEnabled}; optional so existing test deps
+   *  literals stay valid, and ABSENT MEANS OFF — the legacy path is the one a
+   *  caller that has never heard of this flag must get. */
+  issuesNormalizedWire?(): boolean
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace). Injected by
    *  the relay; optional so existing test deps literals stay valid. */

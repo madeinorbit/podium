@@ -251,3 +251,47 @@ describe('reading straight off the replica', () => {
     })
   })
 })
+
+describe('the POD-796 cutover seam: what IssueProjection does NOT carry', () => {
+  // These two tests are the evidence for POD-822. They are written to PASS,
+  // because they record the real (wrong) behaviour a naive cutover ships — the
+  // point is that this behaviour is reachable at all, silently, with a green
+  // typecheck. Delete them when the projection can supply deps + prefix; if they
+  // start failing, the gap they document has been closed and that is good news.
+
+  it('derives blocked=false for a genuinely blocked issue when deps are absent', () => {
+    const blockedByWire = deriveIssueViews(
+      [
+        { id: 'i1', seq: 13, stage: 'in_progress', deps: [{ id: 'i2', type: 'blocks' }] },
+        { id: 'i2', seq: 14, stage: 'in_progress' },
+      ],
+      [],
+    )
+    expect(blockedByWire.get('i1')).toMatchObject({ blocked: true, ready: false })
+
+    // The SAME issue as IssueProjection carries it: `deps` is a relation, not a
+    // column, so the normalized projection has no such key. `deps ?? []` then
+    // reads "no dependencies" instead of "dependencies unknown", and the issue
+    // reports itself ready to work on while it is in fact blocked.
+    const blockedByProjection = deriveIssueViews(
+      [
+        { id: 'i1', seq: 13, stage: 'in_progress' },
+        { id: 'i2', seq: 14, stage: 'in_progress' },
+      ],
+      [],
+    )
+    expect(blockedByProjection.get('i1')).toMatchObject({ blocked: false, ready: true })
+  })
+
+  it('derives #13 instead of POD-13 when prefix is absent', () => {
+    // `prefix` is a function of the REPO, not the issue, so D7.1 pushed it off
+    // the projection — but nothing replica-side supplies it yet, and there is no
+    // 'repo' entity kind on the feed.
+    expect(
+      deriveIssueViews([{ id: 'i1', seq: 13, stage: 'todo', prefix: 'POD' }], []).get('i1'),
+    ).toMatchObject({ displayRef: 'POD-13' })
+    expect(deriveIssueViews([{ id: 'i1', seq: 13, stage: 'todo' }], []).get('i1')).toMatchObject({
+      displayRef: '#13',
+    })
+  })
+})

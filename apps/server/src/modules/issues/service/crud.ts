@@ -452,9 +452,9 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
     this.reload()
-    const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
-    this.deps.ledger.reconcile('issue', spec.rows)
-    this.deps.funnel.publishComputed(spec.snapshot)
+    // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
+    // the normalized feed as the remove reconcile derives from full truth.
+    this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.deps.artifacts?.removeIssue(id).catch(() => {})
   }

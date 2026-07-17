@@ -14,6 +14,7 @@
     "@podium/runtime": "workspace:*",
     "@podium/domain": "workspace:*",
     "@podium/issue-client": "workspace:*",
+    "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/sync": "workspace:*",
     "@podium/telemetry": "workspace:*",

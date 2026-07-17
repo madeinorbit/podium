@@ -44,6 +44,7 @@
  * O(world) rebuild back, just on the client.
  */
 
+import type { IssueProjection } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { Replica } from './replica'
 
@@ -298,3 +299,41 @@ export function readViewInputs(replica: Replica): {
  *  view. */
 export type IssueWireSatisfiesViewInput = IssueWire extends IssueViewInput ? true : never
 export type SessionMetaSatisfiesViewInput = SessionMeta extends SessionViewInput ? true : never
+
+// The two aliases above were DECLARED but never instantiated, and a bare
+// `type X = A extends B ? true : never` reports nothing when the condition is
+// false — it silently becomes `never`. So the "breaks compilation here" the
+// comment promises did not happen. These two lines are what make them fire
+// [POD-796].
+const _issueWireSatisfies: IssueWireSatisfiesViewInput = true
+const _sessionMetaSatisfies: SessionMetaSatisfiesViewInput = true
+
+/**
+ * THE POD-796 CUTOVER GAP, pinned as a type [POD-822].
+ *
+ * Instantiating the assertions above is necessary but NOT sufficient, and the
+ * difference is the whole trap: `prefix` and `deps` are OPTIONAL on
+ * `IssueViewInput`, so `IssueProjection` — which carries neither — satisfies it
+ * anyway. Re-pointing `ReplicaRows.issues` at the projection therefore compiles
+ * clean and then quietly derives the WRONG ANSWER: `deps ?? []` reads a missing
+ * relation as "no dependencies", so every blocked issue reports `blocked: false,
+ * ready: true`, and `issueDisplayRef` falls back to `#13` for issues that should
+ * read `POD-13`. Both are demonstrated in `issue-views.test.ts`.
+ *
+ * Making the two fields REQUIRED would state the dependency honestly, but it
+ * cannot be done yet: nothing replica-side can supply them. `prefix` is a
+ * function of the REPO (there is no 'repo' entity kind on the feed at all) and
+ * `deps` is a relation in `issue_deps` that the feed does not carry. Until one
+ * of those arrives, the views must keep reading `IssueWire`.
+ *
+ * So this records the gap instead, and it is deliberately a TRIPWIRE: the moment
+ * `IssueProjection` gains `prefix` or `deps`, this stops compiling and whoever
+ * added it is told to finish the cutover here rather than discovering the
+ * fallback behaviour in a UI six months later.
+ */
+export type ViewFieldsMissingFromProjection = Exclude<'prefix' | 'deps', keyof IssueProjection>
+const _cutoverGapIsExactlyPrefixAndDeps: 'prefix' | 'deps' =
+  null as unknown as ViewFieldsMissingFromProjection
+const _gapHasNotSilentlyClosed: ViewFieldsMissingFromProjection = null as unknown as
+  | 'prefix'
+  | 'deps'

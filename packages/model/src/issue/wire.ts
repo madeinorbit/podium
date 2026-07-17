@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { SessionId } from '../ids'
 import { wireShape } from '../shape'
 import { issueDurableShape } from './fields'
 
@@ -24,14 +23,16 @@ import { issueDurableShape } from './fields'
  *   > A replicated entity references other entities by **branded id only**. An R4
  *   > wire/read projection MUST NOT embed another entity's projection.
  *
- * So: `sessions: SessionMeta[]` → `memberSessionIds: SessionId[]`. The client
- * already holds the session world; it joins locally (D7.3).
+ * So: `sessions: SessionMeta[]` → nothing at all. The client already holds the
+ * session world and indexes it by `issueId` locally (D7.3). The intermediate
+ * step — carrying `memberSessionIds: SessionId[]` — existed briefly and was
+ * deleted at the [POD-796] cutover; see the note above `durableWireFields`.
  *
  * ## Every field of `IssueWire` this projection drops, and where it went
  *
  * | Dropped | Why | Where it lives now |
  * |---|---|---|
- * | `sessions: SessionMeta[]` | D7.1 — embeds another entity's projection | `memberSessionIds` + a replica-side join |
+ * | `sessions: SessionMeta[]` | D7.1 — embeds another entity's projection | a replica-side join over `sessions.issueId` |
  * | `sessionSummary` | rollup OVER sessions: a session's phase change would recompute the issue (D7.2) | replica-side view (D7.3) |
  * | `unread` | derived from member sessions' `lastActiveAt` vs `readAt` — same cross-entity dependency | replica-side view over `readAt` (which IS durable and IS here) |
  * | `ready`, `blocked`, `deferred` | `blocked` reads OTHER issues' stages through `issue_deps`; closing issue B would recompute issue A | replica-side view (D7.3) |
@@ -48,37 +49,42 @@ import { issueDurableShape } from './fields'
  * them replica-side is not a feature regression: the client holds the world, so
  * the join is local and incremental, keyed by `(entityId, revision)` (D7.3).
  *
- * The one deliberate exception is `memberSessionIds` — see below.
+ * As of [POD-796] there is no exception: every field above is gone and none came
+ * back. See the note above `durableWireFields` for why the last one
+ * (`memberSessionIds`) did not survive either.
  */
 
 /**
- * Derived wire fields: not durable, not aggregate members, computed at
- * projection time from an explicitly-passed input (see `IssueDerivedInputs` in
- * `./mapping.ts`) so the dependency is visible in the type rather than reached
- * for through a service handle.
+ * There are NO derived wire fields, and that is the load-bearing property.
+ *
+ * `memberSessionIds: SessionId[]` lived here until the [POD-796] cutover, as the
+ * one deliberate exception — a reverse index over `sessions.issue_id`, O(1) per
+ * change rather than O(world), so never a D7.2 breach. It is gone anyway, on the
+ * rule this file's own docstring set for it: it "should be deleted rather than
+ * maintained" if the replica's local index proved sufficient. POD-795's
+ * `indexSessionsByIssue` (client-core/src/replica/issue-views.ts) is that index,
+ * it costs the publish path exactly nothing, and it is the edge's one true
+ * spelling of membership — the server-maintained copy could only ever disagree
+ * with it.
+ *
+ * The field's last argument for existing was that "the feed must be able to
+ * express issue→session membership for a replica that has not yet bootstrapped
+ * its sessions". ADR 2 D6 closed it: bootstrap is buffered and installed
+ * ATOMICALLY, so a replica that has issues but not sessions is not a state any
+ * observer can be in.
+ *
+ * What the emptiness buys, and why it is worth guarding: with no derived input,
+ * `toWire(issue)` is a pure function of the issue's own row. A session change
+ * therefore cannot dirty an issue projection — not as an optimization the
+ * publish path remembers to apply, but because the data to do otherwise is not
+ * reachable from the signature. That is D7.2 made structural instead of
+ * observed, and it is what the old `sessions: SessionMeta[]` embedding cost
+ * (p50 711ms ×2 per switch at 530-session scale).
+ *
+ * So: if a future field wants to live here, it is almost certainly a D7.3
+ * replica-side view or a D7.4 materialized entity instead. Adding one back
+ * re-opens the coupling this whole vertical exists to sever.
  */
-export const issueDerivedWireFields = {
-  /**
-   * The sessions working this issue, BY ID ONLY [ADR 4 D7.1].
-   *
-   * A reference, never an embedding: this is the field that replaces
-   * `IssueWire.sessions: SessionMeta[]` and it is the whole point of the
-   * normalization.
-   *
-   * Honest caveat for POD-795/POD-796: membership is stored on the SESSION side
-   * (`sessions.issue_id`), so this array is itself a reverse index — a session
-   * re-homing to another issue dirties two issue projections. That is O(1) per
-   * change, not O(world), so it does not breach D7.2's "no fan-out work
-   * proportional to the number of entities". But it is strictly WEAKER than
-   * deriving membership replica-side by indexing sessions on `issueId`, which
-   * costs the publish path nothing at all and which the replica can do because it
-   * already holds every session. If POD-795 finds the local index sufficient,
-   * this field should be deleted rather than maintained; it is here because the
-   * feed must be able to express issue→session membership for a replica that has
-   * not yet bootstrapped its sessions.
-   */
-  memberSessionIds: z.array(SessionId),
-} as const
 
 const durableWireFields = wireShape(issueDurableShape)
 
@@ -96,7 +102,5 @@ export const IssueProjection = z.object({
   // never silently swallow a value it does not understand.
   color: durableWireFields.color.catch(undefined),
   humanQuestionOptions: durableWireFields.humanQuestionOptions.catch(undefined),
-
-  ...issueDerivedWireFields,
 })
 export type IssueProjection = z.infer<typeof IssueProjection>

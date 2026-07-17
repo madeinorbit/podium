@@ -1,6 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { asSessionId } from '../ids'
 import { minimalIssue, populatedIssue } from './__fixtures__/issues'
 import { toWire } from './mapping'
 
@@ -12,7 +11,7 @@ import { toWire } from './mapping'
  * ## Provenance
  *
  * The `.json` files in `./__fixtures__/` are GENERATED, not hand-authored: they
- * are `JSON.stringify(toWire(fixture, derived), null, 2)` for the two aggregates
+ * are `JSON.stringify(toWire(fixture), null, 2)` for the two aggregates
  * in `./__fixtures__/issues.ts`. Regenerate with:
  *
  *     PODIUM_UPDATE_GOLDEN=1 bun --bun vitest run packages/model/src/issue/issue.golden.test.ts
@@ -80,18 +79,10 @@ const expectMatchesGolden = (name: string, actual: unknown): void => {
 
 describe('IssueProjection golden wire fixtures', () => {
   it('serializes a fully-populated issue exactly as recorded', () => {
-    expectMatchesGolden(
-      'issue-projection.populated.json',
-      toWire(populatedIssue, {
-        memberSessionIds: [asSessionId('sess_7b3e91'), asSessionId('sess_c40d2a')],
-      }),
-    )
+    expectMatchesGolden('issue-projection.populated.json', toWire(populatedIssue))
   })
 
   it('serializes an all-nulls issue exactly as recorded', () => {
-    expectMatchesGolden(
-      'issue-projection.minimal.json',
-      toWire(minimalIssue, { memberSessionIds: [] }),
-    )
+    expectMatchesGolden('issue-projection.minimal.json', toWire(minimalIssue))
   })
 })

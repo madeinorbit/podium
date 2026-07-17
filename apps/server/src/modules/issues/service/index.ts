@@ -43,6 +43,11 @@ export class IssueService extends IssueServiceWorkflow {
         'issue',
         this.allWire().map((i) => ({ id: i.id, value: i })),
       )
+      // The normalized kind seeds its baseline in the same boot pass [POD-796],
+      // so a projection feed that was enabled while the server was down starts
+      // from truth rather than replaying every issue as new on the first write.
+      const projections = this.allProjections()
+      if (projections) this.deps.ledger.reconcile('issueProjection', projections)
     } catch (err) {
       console.warn('[podium:issues] boot reconciliation record failed:', err)
     }
