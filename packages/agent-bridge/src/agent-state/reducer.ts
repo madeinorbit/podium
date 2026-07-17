@@ -23,10 +23,10 @@ function withSubagents(
 
 /**
  * Apply a task_delta to the identity list + count.
- * - With agentId: add/remove that entry; count = list length after the op
- *   (dedupe on +1; missing-id -1 is a no-op for the list and falls back to
- *   anonymous count adjust only when the list was empty).
- * - Without agentId: anonymous ±1 on the count; leave the list alone.
+ * Identity path (agentId set — Claude SubagentStart/Stop): list is the source
+ * of truth; nativeSubagentCount = list.length after the op so they never diverge.
+ * Anonymous path (no agentId — Grok / dead Claude TaskCreated): ±1 on the count
+ * only; list left alone.
  */
 function applyTaskDelta(
   prev: AgentRuntimeState,

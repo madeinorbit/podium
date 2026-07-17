@@ -41,11 +41,13 @@ export function claudeHookSettings(endpointUrl: string, opts?: { seedTheme?: boo
         Notification: [{ matcher: 'permission_prompt', ...h }],
         Stop: [h],
         StopFailure: [h],
+        // TaskCreated/Completed are DEAD on Claude Code 2.1.x (empirically never
+        // fire for Task/Agent spawns). Kept registered for forward-compat only;
+        // nativeSubagentCount is driven by SubagentStart/Stop below — without
+        // those the count stayed 0 and M4's →idle debounce had nothing to gate on.
         TaskCreated: [h],
         TaskCompleted: [h],
-        // Identity + lifecycle for native Task/Agent subagents. Empirically
-        // SubagentStart/Stop carry agent_id/agent_type; TaskCreated/Completed
-        // did not fire on Claude 2.1.x (kept for forward-compat).
+        // Live native-subagent lifecycle + identity (agent_id / agent_type).
         SubagentStart: [h],
         SubagentStop: [h],
         PreCompact: [h],
@@ -179,15 +181,17 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       return [{ kind: 'turn_failed', errorClass, retryable: RETRYABLE.has(errorClass) }]
     }
     case 'TaskCreated':
-      // Anonymous count (legacy). Prefer SubagentStart when the harness
-      // supplies agent_id — that path also names the subagent.
+      // Dead path on Claude 2.1.x (hooks never observed). task_delta event type
+      // stays — Grok still emits it. If this ever fires again it only bumps the
+      // anonymous count (no agent_id).
       return [{ kind: 'task_delta', delta: 1 }]
     case 'TaskCompleted':
       return [{ kind: 'task_delta', delta: -1 }]
     case 'SubagentStart': {
-      // Real shape (Claude 2.1.x capture): agent_id, agent_type, session_id
-      // (parent), transcript_path, cwd, prompt_id. agent_id is required for
-      // identity; absent → fall back to anonymous +1 so count still moves.
+      // COUNT REWIRE: this is the live ±1 for nativeSubagentCount on Claude.
+      // Captured shape (2.1.212): agent_id, agent_type, session_id (parent),
+      // transcript_path, cwd, prompt_id. agent_id names the subagent; reducer
+      // sets nativeSubagentCount = nativeSubagents.length after the add.
       const agentId = str(p.agent_id)
       const agentType = str(p.agent_type)
       return [
@@ -200,6 +204,7 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       ]
     }
     case 'SubagentStop': {
+      // Pair of SubagentStart: remove by agent_id, count = remaining list length.
       const agentId = str(p.agent_id)
       const agentType = str(p.agent_type)
       return [
