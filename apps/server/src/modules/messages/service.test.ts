@@ -2340,3 +2340,98 @@ describe('best-effort acks/notifications [POD-853]', () => {
     expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
   })
 })
+
+describe('composer-draft delivery guard [POD-865]', () => {
+  const drafting = (over: Partial<SessionMeta> = {}) =>
+    session({ draftUpdatedAt: '2026-07-12T23:59:55.000Z', ...over })
+
+  it('a non-empty draft holds EVERY urgency — including interrupt', () => {
+    for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
+      const { svc, sent, queued, interrupted, store } = harness([drafting()])
+      const r = svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: 's1' }, body: 'note', urgency },
+      )
+      expect(sent).toHaveLength(0)
+      expect(queued).toHaveLength(0)
+      expect(interrupted).toHaveLength(0)
+      expect(r.disposition).toBe('queued')
+      expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    }
+  })
+
+  it('holds a busy session at interrupt urgency too (draft beats the mid-turn path)', () => {
+    const { svc, interrupted, sent } = harness([drafting({ agentState: WORKING })])
+    const r = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body: 'urgent', urgency: 'interrupt' },
+    )
+    expect(interrupted).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+    expect(r.disposition).toBe('queued')
+  })
+
+  it('a freshly-updated draft (seconds old) holds', () => {
+    // draftUpdatedAt presence ⇔ non-empty text; a just-typed draft is simply the
+    // freshest instance of presence.
+    const { svc, sent } = harness([drafting({ draftUpdatedAt: '2026-07-12T23:59:59.000Z' })])
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'hi' })
+    expect(sent).toHaveLength(0)
+    expect(r.disposition).toBe('queued')
+  })
+
+  it('a cleared draft delivers at the next boundary (idle drain / sweep)', () => {
+    const sessions = [drafting()]
+    const { svc, sent, store } = harness(sessions)
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'held' })
+    expect(sent).toHaveLength(0)
+    // Draft submitted/emptied: the session meta loses draftUpdatedAt.
+    sessions[0] = session({ sessionId: 's1' })
+    svc.onSessionIdle(sessions[0]!)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toBe('held')
+    // Unwrapped operator body confirms on injection.
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('the sweep also delivers once the draft clears', () => {
+    const sessions = [drafting()]
+    const { svc, sent } = harness(sessions)
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'held' })
+    svc.sweep()
+    expect(sent).toHaveLength(0) // still drafting
+    sessions[0] = session({ sessionId: 's1' })
+    svc.sweep()
+    expect(sent).toHaveLength(1)
+  })
+
+  it('the idle-boundary drain skips a session whose human is mid-composition', () => {
+    // Message queued while busy; the turn ends but a draft is now present —
+    // the drain must not type into the composer.
+    const sessions = [session({ sessionId: 's1', agentState: WORKING })]
+    const { svc, sent } = harness(sessions)
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'later' })
+    expect(sent).toHaveLength(0)
+    svc.onSessionIdle(drafting({ agentState: IDLE }))
+    expect(sent).toHaveLength(0) // held: human is typing
+    svc.onSessionIdle(session({ sessionId: 's1' }))
+    expect(sent).toHaveLength(1)
+  })
+
+  it('an idle session with NO draft delivers normally (no false hold)', () => {
+    const { svc, sent } = harness([session({ sessionId: 's1' })])
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'go' })
+    expect(sent).toHaveLength(1)
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('issue-addressed mail honours the recipient session draft too', () => {
+    const { svc, sent } = harness([drafting()])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: `#${ISSUE.seq}` }, body: 'mail' },
+    )
+    expect(sent).toHaveLength(0)
+    expect(r.disposition).toBe('queued')
+  })
+})

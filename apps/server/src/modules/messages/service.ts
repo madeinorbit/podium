@@ -590,6 +590,21 @@ export class MessageDeliveryService {
       }
     }
 
+    // Composer-draft delivery guard [spec:SP-d716] [POD-865]: the human has a half-typed
+    // composer/native-prompt line on this session — injecting now merges the
+    // envelope into their input (and a trailing CR submits it). HOLD exactly
+    // like the busy-turn state, for EVERY urgency including interrupt:
+    // corrupting a human's live input is never acceptable. The row stays
+    // queued; onSessionIdle / the sweep deliver once the draft clears.
+    // `draftUpdatedAt` is the in-memory presence signal (set per keystroke,
+    // cleared the instant the draft empties or submits — fresher than the
+    // debounced session_drafts row), so presence ⇔ non-empty draft and the
+    // design's "updated within 10s" clause is subsumed: no timestamp survives
+    // a clear, and a non-empty draft holds regardless of age.
+    if (this.draftHoldActive(target)) {
+      return { ok: true, queued: true, disposition: 'queued' }
+    }
+
     const state = this.stateOf(target)
     if (state === 'idle') {
       // idle/live: inject now, every urgency.
@@ -771,8 +786,20 @@ export class MessageDeliveryService {
       (m) => !confirmed.has(m.id) && !this.awaitingConfirmation(m, nowMs),
     )
     if (pending.length === 0) return
+    // Composer-draft delivery guard [spec:SP-d716] [POD-865]: the boundary drain must not type
+    // into a session whose human is mid-composition either. Rows stay queued;
+    // the sweep (or the idle after the draft's own submit) delivers them.
+    if (this.draftHoldActive(session)) return
     pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     this.deliverBatch(session, pending)
+  }
+
+  /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human
+   *  has a non-empty composer/native-prompt draft (`draftUpdatedAt` present ⇔
+   *  non-empty text; cleared immediately on empty/submit). While true, nothing
+   *  is injected into the session's PTY — any urgency, any transport. */
+  private draftHoldActive(target: SessionMeta): boolean {
+    return target.draftUpdatedAt !== undefined
   }
 
   /** A queued row already pushed and awaiting its own confirmation must not be
