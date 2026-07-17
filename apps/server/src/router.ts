@@ -1071,15 +1071,41 @@ export const appRouter = t.router({
     // each registered root in place, never walking the filesystem), just with machineId added.
     refreshRepos: t.procedure.mutation(({ ctx }) => ctx.repos.scanReposAll()),
     // Discovery path: walk a user-picked folder (never all of $HOME) to a bounded
-    // depth and return candidates for the selection screen.
+    // depth and return candidates for the selection screen. machineId targets that
+    // machine's daemon (POD-787); omitted → default machine (legacy behavior).
     scanFolder: t.procedure
-      .input(z.object({ path: z.string(), maxDepth: z.number().int().positive().optional() }))
-      .mutation(({ ctx, input }) =>
-        ctx.registry.modules.rpc.scanRepos([input.path], {
-          includeHome: false,
-          maxDepth: input.maxDepth ?? 6,
+      .input(
+        z.object({
+          path: z.string(),
+          maxDepth: z.number().int().positive().optional(),
+          machineId: z.string().optional(),
         }),
+      )
+      .mutation(({ ctx, input }) =>
+        ctx.registry.modules.rpc.scanRepos(
+          [input.path],
+          {
+            includeHome: false,
+            maxDepth: input.maxDepth ?? 6,
+          },
+          input.machineId,
+        ),
       ),
+    // Tiered per-machine discovery (POD-787) [spec:SP-3701]: probes of other machines'
+    // repo paths + shallow walks around known repos; `deep` adds the bounded $HOME
+    // sweep. Origin matches are auto-registered; the rest come back as candidates.
+    scanMachine: t.procedure
+      .input(z.object({ machineId: z.string(), deep: z.boolean().optional() }))
+      .mutation(({ ctx, input }) => {
+        if (!ctx.discovery)
+          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
+        return ctx.discovery.scan(input.machineId, { deep: input.deep ?? true })
+      }),
+    // Most recent finished discovery for a machine (e.g. the automatic connect scan),
+    // so the picker can show results without re-scanning.
+    lastMachineScan: t.procedure
+      .input(z.object({ machineId: z.string() }))
+      .query(({ ctx, input }) => ctx.discovery?.lastResult(input.machineId) ?? null),
   }),
   machines: t.router({
     // Registered machines (online flag + last-seen), shown in Settings → Machines and

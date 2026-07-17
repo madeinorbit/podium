@@ -8,6 +8,41 @@ export type RepoCandidate = {
   hidden: boolean
   worktreeCount: number
   defaultSelected: boolean
+  /** Machine-scan classification (POD-787): registered rows render checked+locked. */
+  status?: 'registered' | 'auto-registered' | 'candidate'
+  /** Other machines that carry the same repo (origin match). */
+  alsoOn?: string[]
+}
+
+/** The wire shape of one discovered repo from discovery.scanMachine (POD-787). */
+export type MachineScanRepo = {
+  path: string
+  originUrl?: string
+  branch?: string
+  status: 'registered' | 'auto-registered' | 'candidate'
+  alsoOn: string[]
+}
+
+/** Rank tiered machine-scan results (POD-787): same ordering as a folder scan, but
+ *  registered/auto-registered rows are informational (locked) and only unregistered
+ *  candidates default to selected. */
+export function rankMachineScanRepos(repos: MachineScanRepo[]): RepoCandidate[] {
+  return repos
+    .map((repo): RepoCandidate => {
+      const hidden = isHiddenRepoPath(repo.path)
+      return {
+        path: repo.path,
+        name: repo.path.split('/').filter(Boolean).pop() ?? repo.path,
+        ...(repo.branch !== undefined ? { branch: repo.branch } : {}),
+        hasOrigin: typeof repo.originUrl === 'string' && repo.originUrl.length > 0,
+        hidden,
+        worktreeCount: 0,
+        defaultSelected: repo.status === 'candidate' && !hidden,
+        status: repo.status,
+        alsoOn: repo.alsoOn,
+      }
+    })
+    .sort(compareCandidates)
 }
 
 /**

@@ -27,6 +27,8 @@ import { MessagingService } from './modules/messaging'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
+import { LOCAL_MACHINE_ID } from './local-machine'
+import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
@@ -216,6 +218,19 @@ export async function startServer(
     machineCount: () => registry.modules.machines.listMachines().length,
   })
   const repos = new RepoRegistry(registry, store)
+  // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
+  // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
+  const repoDiscovery = new MachineRepoDiscovery({
+    listRepos: () => store.repos.listRepos(),
+    addRepo: (path, machineId, originUrl) => store.repos.addRepo(path, machineId, originUrl),
+    scanRepos: (roots, opts, machineId) => registry.modules.rpc.scanRepos(roots, opts, machineId),
+    machineName: (id) => registry.modules.machines.machineName(id),
+    localMachineId: LOCAL_MACHINE_ID,
+    log: (message) => console.log(`[podium:repo-discovery] ${message}`),
+  })
+  registry.modules.bus.on('machine.connected', ({ machineId }) =>
+    repoDiscovery.onMachineConnected(machineId),
+  )
   const superagent = new SuperagentService(registry.modules, repos, store)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
@@ -304,6 +319,7 @@ export async function startServer(
       createContext: () => ({
         registry,
         repos,
+        discovery: repoDiscovery,
         superagent,
         cloud,
         capability: OPERATOR,

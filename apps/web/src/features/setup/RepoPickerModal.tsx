@@ -32,6 +32,8 @@ export function RepoPickerModal({
   machines = [],
   selectedMachineId,
   onMachineChange,
+  onScanMachine,
+  lastMachineScan,
 }: {
   onClose: () => void
   /** Add exactly the browsed folder as a repo (for when you know the path). */
@@ -44,6 +46,11 @@ export function RepoPickerModal({
   machines?: RepoPickerMachine[]
   selectedMachineId?: string
   onMachineChange?: (machineId: string | undefined) => void
+  /** Tiered scan of the selected machine (POD-787). The parent transitions to the
+   *  results view on success and unmounts this modal. */
+  onScanMachine?: (machineId: string) => Promise<void>
+  /** Summary of the machine's most recent scan, shown as a shortcut. */
+  lastMachineScan?: { count: number; view: () => void } | null
 }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const isMobile = useIsMobile()
@@ -89,7 +96,21 @@ export function RepoPickerModal({
     void load(listing?.path, next)
   }
 
-  const busy = manualPathMode ? saving : loading || saving || scanning
+  const [machineScanning, setMachineScanning] = useState(false)
+  const busy = manualPathMode ? saving || machineScanning : loading || saving || scanning
+
+  async function scanSelectedMachine(): Promise<void> {
+    if (!selectedMachineId || !onScanMachine) return
+    setMachineScanning(true)
+    setError(null)
+    try {
+      // The parent transitions to the results view on success and unmounts this modal.
+      await onScanMachine(selectedMachineId)
+    } catch (e) {
+      setError(formatAppError(e, 'Could not scan machine'))
+      setMachineScanning(false)
+    }
+  }
 
   async function pickCurrent(): Promise<void> {
     if (!listing) return
@@ -283,10 +304,42 @@ export function RepoPickerModal({
           <div className="border-b border-border px-3.5 py-2 text-xs text-destructive">{error}</div>
         )}
         {manualPathMode ? (
-          <div className="flex min-h-[180px] flex-1 flex-col gap-3 p-3.5">
+          <div className="flex min-h-[180px] flex-1 flex-col gap-4 p-3.5">
+            {onScanMachine && selectedMachine?.online !== false && (
+              <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+                <div className="text-[13px] font-medium text-foreground">
+                  Scan {selectedMachine?.name ?? 'machine'} for repositories
+                </div>
+                <p className="max-w-[52ch] text-[12px] text-muted-foreground">
+                  Checks the paths of repos known from your other machines first, then sweeps
+                  the home folder for git repositories. Repos that match one already in Podium
+                  are added automatically; the rest are offered for selection.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void scanSelectedMachine()}
+                    className="max-md:w-full"
+                  >
+                    <Search size={16} />
+                    {machineScanning ? 'Scanning…' : 'Scan for repos'}
+                  </Button>
+                  {lastMachineScan && lastMachineScan.count > 0 && !machineScanning && (
+                    <button
+                      type="button"
+                      className="text-[12px] text-muted-foreground underline-offset-2 hover:underline"
+                      onClick={lastMachineScan.view}
+                    >
+                      Last scan found {lastMachineScan.count} — view
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label htmlFor="repo-machine-path" className="text-xs font-medium text-foreground">
-                {machinePathLabel}
+                {onScanMachine ? `Or add a path directly on ${selectedMachine?.name ?? 'the machine'}` : machinePathLabel}
               </label>
               <div className="flex gap-2 max-sm:flex-col">
                 <Input

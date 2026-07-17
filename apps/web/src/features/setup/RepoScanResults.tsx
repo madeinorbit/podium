@@ -26,6 +26,9 @@ export function RepoScanResults({
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(candidates.filter((c) => c.defaultSelected).map((c) => c.path)),
   )
+  // Machine-scan rows already on the server are shown for orientation but locked —
+  // selection (and the Add button) only ever applies to true candidates (POD-787).
+  const isLocked = (c: RepoCandidate) => c.status !== undefined && c.status !== 'candidate'
 
   const visible = useMemo(() => candidates.filter((c) => !c.hidden), [candidates])
   const hidden = useMemo(() => candidates.filter((c) => c.hidden), [candidates])
@@ -43,6 +46,7 @@ export function RepoScanResults({
     setSelected((prev) => {
       const next = new Set(prev)
       for (const c of group) {
+        if (isLocked(c)) continue
         if (on) next.add(c.path)
         else next.delete(c.path)
       }
@@ -145,7 +149,9 @@ function Section({
   onToggle: (path: string) => void
   onAll: (on: boolean) => void
 }): JSX.Element {
-  const allOn = group.every((c) => selected.has(c.path))
+  const locked = (c: RepoCandidate) => c.status !== undefined && c.status !== 'candidate'
+  const selectable = group.filter((c) => !locked(c))
+  const allOn = selectable.length > 0 && selectable.every((c) => selected.has(c.path))
   return (
     <div className="mb-2">
       <div className="sticky top-0 flex items-center justify-between bg-popover px-2 pt-2 pb-1">
@@ -161,12 +167,37 @@ function Section({
           key={c.path}
           className="grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted max-md:grid-cols-[auto_1fr_auto]"
         >
-          <Checkbox checked={selected.has(c.path)} onCheckedChange={() => onToggle(c.path)} />
+          <Checkbox
+            checked={locked(c) || selected.has(c.path)}
+            disabled={locked(c)}
+            onCheckedChange={() => !locked(c) && onToggle(c.path)}
+          />
           <span className="text-[13px] text-foreground">{c.name}</span>
           <span className="min-w-0 truncate text-[11px] text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">
             {c.path}
           </span>
           <span className="inline-flex items-center gap-1.5">
+            {c.status === 'registered' && (
+              <span className="whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground">
+                already added
+              </span>
+            )}
+            {c.status === 'auto-registered' && (
+              <span
+                className="whitespace-nowrap rounded border border-success/40 px-1.5 text-[10px] text-success"
+                title={c.alsoOn?.length ? `Same repo as on ${c.alsoOn.join(', ')}` : undefined}
+              >
+                added automatically
+              </span>
+            )}
+            {c.status === 'candidate' && (c.alsoOn?.length ?? 0) > 0 && (
+              <span
+                className="whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground"
+                title={`Same repo as on ${c.alsoOn?.join(', ')}`}
+              >
+                also on {c.alsoOn?.[0]}
+              </span>
+            )}
             {c.branch && (
               <span
                 className="inline-flex items-center gap-0.5 whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground"

@@ -6,6 +6,7 @@ import type { IssueCaller } from './modules/issues/registry'
 import { perf } from './modules/perf/registry'
 import type { SuperagentService } from './modules/superagent'
 import type { RegistryModules, SessionRegistry } from './relay'
+import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 
@@ -20,6 +21,9 @@ import type { ServerRoleConfig } from './roles'
 export interface Context {
   registry: SessionRegistry
   repos: RepoRegistry
+  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional so test
+   *  callers that don't exercise discovery need not construct one. */
+  discovery?: MachineRepoDiscovery
   superagent: SuperagentService
   cloud?: CloudRuntimeProvider
   /** What this caller may do with issues (authz, distinct from the login authn on /trpc).

@@ -17,8 +17,9 @@ vi.mock('@/app/store', () => ({
   useStoreSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
 }))
 
-// NetworkStep drags in the whole setup flow; the card/row tests never render it.
+// NetworkStep/RepoScanFlow drag in the whole setup flow; the card/row tests never render them.
 vi.mock('@/features/setup/SetupView', () => ({ NetworkStep: () => null }))
+vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
 
 import { MachinesPanel } from './MachinesPanel'
 

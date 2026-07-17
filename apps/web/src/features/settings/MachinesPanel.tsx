@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/SetupView'
 import { relativeTime } from '@/lib/home'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -43,6 +44,8 @@ export function MachinesPanel(): JSX.Element {
   const hosting = useEnableHosting(trpc)
   const thisMachineId = nativeDesktopBridge()?.machineId
   const alreadyPaired = thisMachineId != null && machines.some((m) => m.id === thisMachineId)
+  // Per-machine "Find repos" (POD-787): opens the scan flow preset to that machine.
+  const [findReposFor, setFindReposFor] = useState<string | null>(null)
 
   // Tick so relative times stay fresh.
   useEffect(() => {
@@ -164,9 +167,18 @@ export function MachinesPanel(): JSX.Element {
               // Inline "Enable": only on this device's own row, only while it is offline
               // (online means the daemon is already running) [spec:SP-3701].
               hosting={m.id === thisMachineId && !m.online ? hosting : null}
+              onFindRepos={m.online ? () => setFindReposFor(m.id) : null}
             />
           ))}
         </div>
+      )}
+
+      {findReposFor && (
+        <RepoScanFlow
+          initialMachineId={findReposFor}
+          onClose={() => setFindReposFor(null)}
+          onDone={() => setFindReposFor(null)}
+        />
       )}
     </div>
   )
@@ -338,6 +350,7 @@ function MachineRow({
   trpc,
   isThisMachine = false,
   hosting = null,
+  onFindRepos = null,
 }: {
   machine: MachineWire
   now: number
@@ -346,6 +359,8 @@ function MachineRow({
   isThisMachine?: boolean
   /** [spec:SP-3701] Set only when this offline row can be enabled as a host from here. */
   hosting?: EnableHosting | null
+  /** POD-787: open the repo scan flow preset to this (online) machine. */
+  onFindRepos?: (() => void) | null
 }): JSX.Element {
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)
@@ -446,6 +461,19 @@ function MachineRow({
       <span className="flex-none text-muted-foreground/70 text-[11px]">
         {machine.online ? 'now' : relativeTime(machine.lastSeenAt, now)}
       </span>
+
+      {/* Discover this machine's repos (POD-787) */}
+      {onFindRepos && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="flex-none text-muted-foreground"
+          onClick={onFindRepos}
+        >
+          Find repos
+        </Button>
+      )}
 
       {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
       {hosting && (
