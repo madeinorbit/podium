@@ -12,6 +12,7 @@ import type { IssueService } from '../issues/service'
 import { MessageGate } from './gate'
 import {
   ECHO_CONFIRM_WINDOW_MS,
+  MAX_ECHO_REQUEUES,
   HOP_LIMIT,
   INLINE_BODY_MAX,
   MessageDeliveryService,
@@ -2073,6 +2074,44 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     // And now its echo confirms it delivered.
     echo(svc, 's1', r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('caps lost-echo requeues and degrades to delivered instead of looping [POD-853 stopgap]', () => {
+    // A busy recipient consumes every injection mid-turn: no echo ever comes.
+    // Without the cap the sweep re-injects the same message forever (live
+    // regression 2026-07-17: 9 rows looping). After MAX_ECHO_REQUEUES lost
+    // echoes the row degrades to delivered-at-last-push and stops re-pushing.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const { svc, sent, store } = harness([session({ sessionId: 's1' })], { now })
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'mid-turn casualty', urgency: 'next-turn' },
+    )
+    expect(sent).toHaveLength(1)
+    // Each expired window re-pushes once, up to the cap.
+    for (let i = 0; i < MAX_ECHO_REQUEUES; i++) {
+      clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+      svc.sweep()
+    }
+    expect(sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // The next expiry does NOT push a further copy — it caps out as delivered.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.sweep()
+    expect(sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
+    const row = store.messages.getMessage(r.message.id)!
+    expect(row.status).toBe('delivered')
+    expect(row.deliveredTo).toBe('s1')
+    const kinds = store.events
+      .listEventsSince(0)
+      .filter((e) => e.subject === r.message.id)
+      .map((e) => e.kind)
+    expect(kinds).toContain('message.echo_capped')
+    // …and later sweeps leave it alone entirely.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.sweep()
+    expect(sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
   })
 })
 

@@ -60,6 +60,11 @@ export const QUEUED_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
  *  plus the ~1s transcript-tail latency so a slow-but-live drain is never
  *  mistaken for a loss. */
 export const ECHO_CONFIRM_WINDOW_MS = 90_000
+/** How many lost-echo requeues a pushed row gets before the sweep stops
+ *  re-injecting and degrades it to delivered-at-last-push [POD-853 stopgap]:
+ *  a mid-turn injection never echoes as a user turn, and an uncapped requeue
+ *  loop re-delivers the same message forever (observed live 2026-07-17). */
+export const MAX_ECHO_REQUEUES = 2
 /** Extracts every podium-message id an echoed transcript turn carries — the
  *  server-rendered envelope frames the body with `[podium message <id> …]` and
  *  `[end podium message <id>]`, so a user turn that pasted a delivered message
@@ -278,6 +283,9 @@ export class MessageDeliveryService {
    *  delivery, cleared when the session goes idle (turn ended). Messages the
    *  session sends within that turn carry hop + 1 (brake 3). */
   private readonly turnHop = new Map<string, number>()
+  /** Lost-echo requeues per message id [POD-853 stopgap]; in-memory is fine —
+   *  a restart resets the count and the row simply earns its cap again. */
+  private readonly requeueCounts = new Map<string, number>()
   /** last wake timestamp (ms) per `${senderKey}|${issueKey}` (brake 1) — a
    *  write-through cache over the durable rows: a cold key falls back to the
    *  delivered wake rows in `messages`, so a server restart (this repo
@@ -802,9 +810,23 @@ export class MessageDeliveryService {
         // (A pointer is never re-nudged — that was the POD-279 storm; the TTL
         // cleans up unread ones.)
         if (this.awaitingConfirmation(m, nowMs)) continue
+        // Requeue cap [POD-853 stopgap]: a busy recipient's mid-turn injection
+        // never produces a role=user echo, so an uncapped requeue re-injects the
+        // same message forever (observed live: 9 rows looping every sweep). After
+        // MAX_ECHO_REQUEUES lost echoes the pushes themselves are the evidence —
+        // the harness accepted N injections into that session's context — so
+        // degrade to delivered-at-last-push rather than spam a fourth copy. The
+        // turn-boundary confirmation (POD-853) replaces this with a real signal.
+        const requeues = this.requeueCounts.get(m.id) ?? 0
+        if (requeues >= MAX_ECHO_REQUEUES && m.deliveredTo) {
+          this.emitTransition(m, 'message.echo_capped')
+          this.markDelivered(m, m.deliveredTo, 'injection')
+          continue
+        }
         // The echo window passed with no confirmation — the push was lost. Clear
         // the marker so this attempt re-pushes (kills the POD-495 ghost delivery).
         if (this.deps.messages.clearInjected(m.id)) {
+          this.requeueCounts.set(m.id, requeues + 1)
           this.emitTransition(m, 'message.requeued')
         }
       }
@@ -1439,6 +1461,7 @@ export class MessageDeliveryService {
     via: 'echo' | 'boundary' | 'injection' | 'ack',
   ): void {
     const at = this.deps.now()
+    this.requeueCounts.delete(message.id)
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
       // Delivery consumes the legacy issue_messages mirror row too, or
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have
