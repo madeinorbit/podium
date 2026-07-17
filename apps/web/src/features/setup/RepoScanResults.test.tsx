@@ -34,7 +34,7 @@ function renderResults(candidates: RepoCandidate[], onApply = vi.fn()) {
   return onApply
 }
 
-/** Rows toggle by clicking anywhere on them (each row is one big <label>). */
+/** Rows toggle by clicking their label — anywhere on the row's text. */
 function toggleRow(c: RepoCandidate): void {
   fireEvent.click(screen.getByText(c.name))
 }
@@ -63,6 +63,15 @@ describe('RepoScanResults selection model', () => {
     expect(screen.getByLabelText(registered.path).hasAttribute('disabled')).toBe(false)
     toggleRow(registered)
     expect(checkState(registered)).toBe('false')
+  })
+
+  it('toggles from a click on the checkbox itself, not only on the row text', () => {
+    // A <label> wrapping the checkbox used to swallow this exact click: the box
+    // toggled twice (once itself, once via the label) and nothing moved.
+    renderResults([registered, fresh])
+    fireEvent.click(screen.getByLabelText(registered.path))
+    expect(checkState(registered)).toBe('false')
+    expect(footer().textContent).toBe('Add 1 · Remove 1')
   })
 
   it('reports the diff, not the checked count — a pristine machine scan has no changes', () => {

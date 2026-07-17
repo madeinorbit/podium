@@ -73,8 +73,10 @@ export function RepoPickerModal({
   const selectedMachine = selectedMachineId
     ? machines.find((machine) => machine.id === selectedMachineId)
     : undefined
-  /** A machine is picked and reachable — every action here needs both. */
-  const machineReady = selectedMachineId !== undefined && selectedMachine?.online !== false
+  /** A KNOWN, online machine is picked — every action here needs one. An id we
+   *  can't find in `machines` counts as not ready: nothing should be dispatched at
+   *  a machine whose liveness we can't confirm. */
+  const machineReady = selectedMachine?.online === true
   const machinePathLabel = `Repo path on ${selectedMachine?.name ?? selectedMachineId ?? 'machine'}`
   const headerPath = !selectedMachine
     ? 'No machine selected'

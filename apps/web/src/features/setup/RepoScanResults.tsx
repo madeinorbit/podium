@@ -1,6 +1,6 @@
 import { GitBranch, Globe } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -179,6 +179,7 @@ function Section({
   onAll: (on: boolean) => void
 }): JSX.Element {
   const allOn = group.length > 0 && group.every((c) => selected.has(c.path))
+  const rowIdBase = useId()
   return (
     <div className="mb-2">
       <div className="sticky top-0 flex items-center justify-between bg-popover px-2 pt-2 pb-1">
@@ -189,20 +190,27 @@ function Section({
           {allOn ? 'none' : 'all'}
         </Button>
       </div>
-      {group.map((c) => (
-        <label
+      {group.map((c, i) => (
+        // The checkbox sits BESIDE the label rather than inside it: a <label>
+        // wrapping a Base UI checkbox swallows clicks on the box itself (the
+        // hidden input's click bubbles back out and the label re-forwards it, so
+        // the two toggles cancel). `display: contents` keeps the row one grid.
+        <div
           key={c.path}
           className="grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted max-md:grid-cols-[auto_1fr_auto]"
         >
           <Checkbox
+            id={`${rowIdBase}-${i}`}
             aria-label={c.path}
             checked={selected.has(c.path)}
             onCheckedChange={() => onToggle(c.path)}
           />
-          <span className="text-[13px] text-foreground">{c.name}</span>
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">
-            {c.path}
-          </span>
+          <label htmlFor={`${rowIdBase}-${i}`} className="contents cursor-pointer">
+            <span className="text-[13px] text-foreground">{c.name}</span>
+            <span className="min-w-0 truncate text-[11px] text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">
+              {c.path}
+            </span>
+          </label>
           <span className="inline-flex items-center gap-1.5">
             {c.status === 'registered' && (
               <span className="whitespace-nowrap rounded border border-border px-1.5 text-[10px] text-muted-foreground">
@@ -247,7 +255,7 @@ function Section({
               </span>
             )}
           </span>
-        </label>
+        </div>
       ))}
     </div>
   )
