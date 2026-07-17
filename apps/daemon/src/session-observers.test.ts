@@ -1,6 +1,12 @@
+import type { AgentStateEvent, AgentStateProvider } from '@podium/agent-bridge'
+import type { DaemonMessage } from '@podium/protocol'
 import type { StatTick } from '@podium/transcript'
-import { describe, expect, it, vi } from 'vitest'
-import { createSessionObservers } from './session-observers'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  createSessionObservers,
+  IDLE_TRANSITION_DEBOUNCE_MS,
+  type SpawnControl,
+} from './session-observers'
 
 class ManualStatTick implements StatTick {
   readonly watchers = new Set<() => void>()
@@ -9,6 +15,66 @@ class ManualStatTick implements StatTick {
     this.watchers.add(watcher)
     return () => this.watchers.delete(watcher)
   }
+}
+
+const G = { cols: 80, rows: 24 }
+
+function agentStateMsgs(sent: DaemonMessage[], sessionId: string) {
+  return sent.filter(
+    (m): m is Extract<DaemonMessage, { type: 'agentState' }> =>
+      m.type === 'agentState' && m.sessionId === sessionId,
+  )
+}
+
+/**
+ * Stand up a tracker + observation with a mock provider so tests can feed
+ * exact AgentStateEvents through onHookPayload → applyAgentStateEvents.
+ */
+function setupControlledSession(sessionId = 's-idle') {
+  const sent: DaemonMessage[] = []
+  let nextEvents: AgentStateEvent[] = []
+  const provider: AgentStateProvider = {
+    instrumentation: () => ({ args: [] }),
+    translate: async () => {
+      const events = nextEvents
+      nextEvents = []
+      return events
+    },
+  }
+  const observers = createSessionObservers({
+    send: (m) => sent.push(m),
+    onTranscriptDirty: vi.fn(),
+    cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+  })
+  const msg: SpawnControl = {
+    type: 'spawn',
+    sessionId,
+    agentKind: 'claude-code',
+    cwd: '/tmp',
+    geometry: G,
+    durableLabel: `podium-${sessionId}`,
+  }
+  observers.initSessionObservers(
+    msg,
+    // seedOnFrame: false and no bootEvents → session handle unused.
+    { onFrame: () => () => {} } as never,
+    provider,
+    { seedOnFrame: false },
+  )
+
+  const apply = async (events: AgentStateEvent[]): Promise<void> => {
+    nextEvents = events
+    observers.onHookPayload(sessionId, {
+      session_id: 'harness-1',
+      transcript_path: '/tmp/t.jsonl',
+      hook_event_name: 'test',
+    })
+    // translate is async; flush the microtask that calls applyAgentStateEvents.
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  return { sent, apply, observers, sessionId }
 }
 
 describe('session observer stat polling', () => {
@@ -26,5 +92,90 @@ describe('session observer stat polling', () => {
 
     observers.clearSession('podium-session')
     expect(statTick.watchers.size).toBe(0)
+  })
+})
+
+describe('session observer →idle debounce', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('holds a transition into idle and emits only after the debounce window', async () => {
+    const { sent, apply, observers, sessionId } = setupControlledSession()
+    await apply([{ kind: 'prompt_submitted' }])
+    expect(agentStateMsgs(sent, sessionId).map((m) => m.state.phase)).toEqual(['working'])
+
+    await apply([{ kind: 'turn_completed' }])
+    // Still held — no idle on the wire yet.
+    expect(agentStateMsgs(sent, sessionId).map((m) => m.state.phase)).toEqual(['working'])
+    expect(observers.trackedState(sessionId)?.phase).toBe('idle')
+
+    await vi.advanceTimersByTimeAsync(IDLE_TRANSITION_DEBOUNCE_MS - 1)
+    expect(agentStateMsgs(sent, sessionId).map((m) => m.state.phase)).toEqual(['working'])
+
+    await vi.advanceTimersByTimeAsync(1)
+    const phases = agentStateMsgs(sent, sessionId).map((m) => m.state.phase)
+    expect(phases).toEqual(['working', 'idle'])
+    expect(agentStateMsgs(sent, sessionId).at(-1)?.state.idle).toEqual({ kind: 'done' })
+
+    observers.clearSession(sessionId)
+  })
+
+  it('cancels a pending idle emission when a non-idle event arrives within the window', async () => {
+    const { sent, apply, observers, sessionId } = setupControlledSession()
+    await apply([{ kind: 'prompt_submitted' }])
+    await apply([{ kind: 'turn_completed' }])
+    expect(agentStateMsgs(sent, sessionId).map((m) => m.state.phase)).toEqual(['working'])
+
+    // Resume working before the idle window elapses.
+    await apply([{ kind: 'prompt_submitted' }])
+    expect(agentStateMsgs(sent, sessionId).map((m) => m.state.phase)).toEqual([
+      'working',
+      'working',
+    ])
+    expect(observers.trackedState(sessionId)?.phase).toBe('working')
+
+    await vi.advanceTimersByTimeAsync(IDLE_TRANSITION_DEBOUNCE_MS + 50)
+    // Idle must never have been emitted.
+    expect(agentStateMsgs(sent, sessionId).every((m) => m.state.phase !== 'idle')).toBe(true)
+
+    observers.clearSession(sessionId)
+  })
+
+  it('emits non-idle transitions immediately (needs_user / errored)', async () => {
+    const { sent, apply, observers, sessionId } = setupControlledSession()
+    await apply([{ kind: 'prompt_submitted' }])
+    await apply([{ kind: 'needs_user', need: 'question', summary: 'pick' }])
+    expect(agentStateMsgs(sent, sessionId).at(-1)?.state).toMatchObject({
+      phase: 'needs_user',
+      need: { kind: 'question', summary: 'pick' },
+    })
+
+    await apply([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+    expect(agentStateMsgs(sent, sessionId).at(-1)?.state).toMatchObject({
+      phase: 'errored',
+      error: { class: 'rate_limit', retryable: true },
+    })
+    // No timers needed — non-idle was immediate.
+    expect(agentStateMsgs(sent, sessionId).map((m) => m.state.phase)).toEqual([
+      'working',
+      'needs_user',
+      'errored',
+    ])
+
+    observers.clearSession(sessionId)
+  })
+
+  it('clears pending idle timers on clearSession so teardown cannot leak emits', async () => {
+    const { sent, apply, observers, sessionId } = setupControlledSession()
+    await apply([{ kind: 'prompt_submitted' }])
+    await apply([{ kind: 'turn_completed' }])
+    observers.clearSession(sessionId)
+
+    await vi.advanceTimersByTimeAsync(IDLE_TRANSITION_DEBOUNCE_MS + 50)
+    expect(agentStateMsgs(sent, sessionId).every((m) => m.state.phase !== 'idle')).toBe(true)
   })
 })

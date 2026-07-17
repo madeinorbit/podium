@@ -60,6 +60,15 @@ export function pathHintOf(msg: SpawnControl | ReattachControl): string | undefi
 export type SessionObservers = ReturnType<typeof createSessionObservers>
 
 /**
+ * Hold before emitting a transition INTO phase `idle` on the wire.
+ * Delivery fires on idle; a false-idle beat causes premature mid-turn
+ * injection. Title quiet-window uses 500ms (apps/server title-filter); we sit
+ * slightly longer in the design's 500–1500ms range for delivery safety.
+ * [docs/agent-comms-target.html §04c]
+ */
+export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
+
+/**
  * All per-session observation state the daemon holds: agent-state trackers
  * (hook/observer events folded by the reducer), live transcript tails, and one
  * harness observation per session. The host is GENERIC (#249): everything
@@ -74,6 +83,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  // Per-session pending →idle wire emissions. Cancelled on non-idle transition
+  // or session teardown so timers never leak across sessions.
+  const pendingIdleEmits = new Map<string, ReturnType<typeof setTimeout>>()
   // Live structured-transcript tails, keyed by Podium session id. Adapters point
   // the tail at their harness's live file (claude via hook payloads and the
   // resume-transcript bootstrap; grok/codex/cursor once their observer learns
@@ -146,13 +158,42 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     tails.get(sessionId)?.stop()
     tails.delete(sessionId)
   }
+  const cancelPendingIdleEmit = (sessionId: string): void => {
+    const timer = pendingIdleEmits.get(sessionId)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    pendingIdleEmits.delete(sessionId)
+  }
   const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
     const tracker = trackers.get(sessionId)
     if (!tracker) return
     for (const event of events) {
-      const next = reduceAgentState(tracker.state, event, new Date().toISOString())
-      if (next === tracker.state) continue
+      const prev = tracker.state
+      const next = reduceAgentState(prev, event, new Date().toISOString())
+      if (next === prev) continue
       tracker.state = next
+
+      // Debounce only transitions INTO idle. Non-idle phases emit immediately
+      // so working/needs_user/errored stay snappy; a false-idle beat must not
+      // reach the wire (delivery fires on idle).
+      const enteringIdle = prev.phase !== 'idle' && next.phase === 'idle'
+      if (enteringIdle) {
+        cancelPendingIdleEmit(sessionId)
+        const timer = setTimeout(() => {
+          pendingIdleEmits.delete(sessionId)
+          const current = trackers.get(sessionId)?.state
+          // Still tracked and still idle → emit the authoritative current
+          // state (may differ from `next` if a later idle refined the verdict
+          // without leaving the phase; non-idle would have cancelled us).
+          if (current?.phase === 'idle') {
+            send({ type: 'agentState', sessionId, state: current })
+          }
+        }, IDLE_TRANSITION_DEBOUNCE_MS)
+        pendingIdleEmits.set(sessionId, timer)
+        continue
+      }
+
+      cancelPendingIdleEmit(sessionId)
       send({ type: 'agentState', sessionId, state: next })
     }
   }
@@ -384,6 +425,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
   /** Tear down every observer + tail + tracker one session holds (exit/kill path). */
   const clearSession = (sessionId: string): void => {
+    cancelPendingIdleEmit(sessionId)
     trackers.delete(sessionId)
     stopObservation(sessionId)
     stopTranscriptTail(sessionId)
@@ -396,6 +438,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   /** Stop every observation + tracker (daemon dispose). Tails are stopped
    *  separately by close() — matching the pre-split shutdown order. */
   const disposeObservers = (): void => {
+    for (const id of [...pendingIdleEmits.keys()]) cancelPendingIdleEmit(id)
     for (const id of [...observations.keys()]) stopObservation(id)
     trackers.clear()
   }
