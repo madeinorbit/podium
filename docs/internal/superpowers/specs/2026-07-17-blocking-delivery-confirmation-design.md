@@ -1,8 +1,18 @@
-# Reliable delivery confirmation + blocking sync send — design
+# Reliable delivery confirmation — design
 
 Issue: POD-853 (Mid-turn delivery misses transcript echo). Parent epic POD-833
 (Cross-agent communication rebuild). Builds on POD-834 (sync send + honest
 delivery lifecycle, `[spec:SP-34d7]`).
+
+> **Scope correction (coordinator, 2026-07-17):** the urgency-gated *blocking*
+> sync-send semantics moved to a sibling issue, **POD-854 (Urgency-gated blocking
+> send)**, which depends on POD-853 landing first (blocking-until-delivered is
+> only safe once `delivered` is reliable). POD-853's scope is the reliable
+> delivered signal itself: the turn-boundary backstop, best-effort acks, the
+> errored-turn guard, and (deferred) a re-inject cap — plus keeping the
+> delivered/injected surface clean enough that POD-854 can build a bounded
+> `awaitDelivered(budget)` poll on it (template: POD-834's `awaitAck`). The
+> blocking-send design below is retained for POD-854's reference.
 
 ## Problem
 
@@ -49,9 +59,10 @@ this in.
 
 ### Part 1 — Turn-boundary backstop (the reliable delivered signal)
 
-`onSessionIdle` fires only on `phase -> idle` (relay.ts:1136) — a cleanly
-completed turn. An errored turn is a distinct `errored` phase (steward.ts:52) and
-never triggers `onSessionIdle`, so it cannot false-confirm.
+`onSessionIdle` fires on `phase -> idle` (relay.ts:1136). A cleanly completed
+turn (working/needs_user -> idle) consumed what it was given; an **errored** turn
+(`errored` phase, steward.ts:52) did not, and `errored -> idle` fires
+`onSessionIdle` too — so the backstop is gated on the prior phase (see Part 3).
 
 At the top of `onSessionIdle`, **before** `deliverBatch` (which stamps
 `injectedAt = now` on newly-pushed rows), mark delivered every row that:
@@ -72,15 +83,45 @@ Ordering guarantees (from the POD-834 author's fix note):
   is from a PRIOR turn; `deliverBatch` in this same idle stamps `injectedAt` after
   we confirm, so we never confirm a row we push in this cycle.
 - **Exclude pointer rows** (`deliveryMode === 'pointer'`).
-- Re-fetch pending after the confirm loop so a just-confirmed past-window row is
-  not re-injected by `deliverBatch`.
+- The just-confirmed ids are collected in a `confirmed` set and excluded from the
+  deliver pass, so a past-window row is not re-injected by `deliverBatch`.
+- **Clear the hop context AFTER the confirm loop**: `markDelivered` re-stamps
+  `turnHop` (right for the echo path, which fires DURING the processing turn), but
+  at a boundary the turn is over — clearing after the loop stops a stale hop from
+  leaking into the session's next send.
 
-Errored / crash-resume: since `onSessionIdle` only fires on `phase -> idle`, an
-errored turn re-queues via the sweep for free (no idle-confirm runs). An
-already-injected row confirmed at a *later* clean idle is honest: the injected
-bytes persist in context across an error/resume. (Open Q2 to 834 author.)
+### Part 2 — Best-effort acks / notifications
 
-### Part 2 — Blocking sync send
+An `ack` is never itself acked and its ack-confirms-original side effect fires at
+send time regardless; a steward/subscription notification never expects an ack
+(SP-34d7). Chasing their transcript echo only feeds the re-inject loop — the live
+regression was dominated by `kind=ack` rows. So an **echo-mode** ack/notification
+is marked `delivered` on first injection (`confirmedOnInjection`) and the sweep
+never re-injects it. Pointer/pull-path rows are unaffected (a read confirms
+those). ack-confirms-original (send write path, c125318b) is untouched.
+
+### Part 3 — Errored-turn guard
+
+`errored -> idle` fires `onSessionIdle`, but that turn did not complete (API 529
+mid-turn is frequent right now) and may not have consumed its injected rows. The
+relay threads the phase the turn left from (`priorPhase`); the backstop skips
+confirmation when `priorPhase === 'errored'`, leaving the rows queued so the sweep
+re-queues them for a retry. A later clean idle confirms them. (The delivery drain
+still runs after an errored turn — delivering NEW queued mail to a now-idle
+session is fine.) Honors the coordinator's POD-833 caution (1).
+
+### Deferred — re-inject cap
+
+A general cap on sweep re-injection (N attempts then dead-letter) is a safety net
+for the residual case: a non-ack message injected to a recipient that repeatedly
+errors on it (never reaching a clean idle). After Parts 1-3 this is rare (a
+busy/parked target is never re-injected — the sweep holds; acks never loop;
+errored turns re-queue but a retry confirms). Deferred pending the coordinator's
+call on ownership (POD-853 vs POD-852) and durability (in-memory counter vs a
+messages-table column, which would need coordinating with POD-835). Recommendation:
+an in-memory cap now as a cheap stopgap, upgradeable to durable if desired.
+
+## For POD-854 reference — blocking sync send (NOT in POD-853 scope)
 
 Confirmation primitive: `awaitDelivered(messageId, {timeoutMs})`, analogous to the
 existing `awaitAck` — poll `getMessage(id).status` until it leaves `queued`
@@ -115,24 +156,21 @@ New disposition value: `accepted` — durably queued to a live target, not yet
 confirmed within the budget; CLI wording: "accepted — not yet confirmed; run
 `podium mail status <id>`".
 
-## Open decisions (routed to POD-834 author + coordinator)
+## Open decisions
 
-- **Q1 budgets**: `NEXT_TURN_DELIVERY_BUDGET_MS` = 25s (the queue-drain deadline);
-  `INTERRUPT_DELIVERY_CEILING_MS` = 90s (`ECHO_CONFIRM_WINDOW_MS`). Confirm.
-- **Q2 invariants**: does turn-boundary `markDelivered` break any invariant the
-  834 author relies on (ack-confirms-original-delivered c125318b, issue_messages
-  mirror mark-read, hop stamp)? Is confirming an already-injected row at ANY
-  subsequent idle safe given bytes persist across error/resume?
-- **Q3 POD-852 overlap**: making the sync `delivered` honest (`queued` at push)
-  is POD-852's wording item. Fold it here (blocking needs it) or keep POD-852
-  separate and have blocking only UPGRADE observed deliveries?
-- **Q4 spec ownership**: has POD-833/834 already recorded the updated §04d in
-  SP-34d7, or should POD-853 write it (avoid a double edit)?
+- **Re-inject cap** (deferred, see above): POD-853 vs POD-852; in-memory vs
+  durable column (coordinate schema with POD-835). Routed to the coordinator.
+- **Spec record**: has POD-833/834 already recorded the updated §04d in SP-34d7,
+  or should POD-853 write it? Routed to the coordinator (avoid a double edit).
+- **For POD-854**: budgets (`NEXT_TURN_DELIVERY_BUDGET_MS` = 25s / queue-drain
+  deadline; `INTERRUPT_DELIVERY_CEILING_MS` = 90s / `ECHO_CONFIRM_WINDOW_MS`); and
+  the sync-`delivered`-honest wording, which overlaps POD-852.
 
-## Implementation order
+## Implementation status (POD-853)
 
-1. Turn-boundary backstop + regression tests (uncontested foundation). TDD.
-2. `awaitDelivered` + blocking gate surface + `accepted` disposition + CLI
-   wording (after Q1-Q3 alignment). TDD.
-3. Record decision in SP-34d7 (after Q4). Review by 834 author. Rebase under merge
-   lock, ff-only land when authorized.
+1. ✅ Turn-boundary backstop + regression tests (65ffb6f4). TDD.
+2. ✅ Best-effort acks/notifications (935aca0a). TDD.
+3. ✅ Errored-turn guard + relay `priorPhase` thread (06365c6d). TDD.
+4. ⏳ Re-inject cap — deferred to coordinator (ownership + durability).
+5. ⏳ Review by POD-834 author (offered); DONE to coordinator, who merges+deploys.
+   Spec record in SP-34d7 pending the ownership answer.
