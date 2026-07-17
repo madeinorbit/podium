@@ -362,6 +362,16 @@ short and that is fine: re-bootstrap is correct, cheap after D6, and the alterna
 a large log to serve rare long-offline clients — pays a permanent cost for an
 exceptional case.
 
+**Scope: this is the CHANGE FEED's retention, not the bulk plane's.** ADR 1's matrix
+points at "retention/compaction ADR 2" for transcript **segments** as well. That is a
+different policy on a different plane: segments are verbatim byte lakes synced by
+offset cursors (`docs/spec/transcript-mirror.md`), not entities in the `changes` feed,
+and their retention is a *product* question (how much history does backup keep) rather
+than a protocol one (how long can a cursor heal). D5 governs the `changes` log only.
+Bulk-plane retention stays with the transcript-lake spec and its backup/export
+feature; ADR 7 owns the plane boundary. Recorded so the two ADRs do not point at each
+other across a gap.
+
 **Entity-level soft deletes are a different mechanism and stay that way.**
 `sessions.deletedAt` / `issues.deletedAt` are *domain* state (an issue is deleted but
 recoverable) and belong to ADR 1. A domain soft-delete is an `upsert` on the feed, not
