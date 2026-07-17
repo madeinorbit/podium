@@ -141,7 +141,11 @@ const APP_PACKAGES: Record<string, string> = {
   '@podium/web': 'apps/web',
 }
 
-const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/domain'])
+// packages/model is the L0 vocabulary (ADR 8): it imports nothing by design.
+// packages/protocol moved out of LEAF when L0 landed beneath it — ADR 8 D4.1
+// plans every entity schema moving to model, so protocol legitimately imports
+// model (and ONLY model; see RESTRICTED_PACKAGE_DEPS) [POD-808].
+const LEAF_PACKAGES = new Set<string>(['packages/model', 'packages/domain'])
 
 /**
  * Near-leaf packages: may import ONLY the listed workspace packages (plus node
@@ -152,6 +156,9 @@ const LEAF_PACKAGES = new Set<string>(['packages/protocol', 'packages/domain'])
  * must never depend on another app or a non-leaf package.
  */
 const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
+  // L1 frames compose the L0 vocabulary — and must never grow any other
+  // workspace dependency (the leaf property that actually matters) [POD-808].
+  'packages/protocol': new Set(['packages/model']),
   'packages/transcript': new Set(['packages/protocol']),
   'packages/runtime': new Set(['packages/protocol', 'packages/domain']),
   // The issue-client seam (IssueTrpc + the shared command table) sits between
