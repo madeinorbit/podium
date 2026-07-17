@@ -17,6 +17,7 @@
     "./join": "./src/join.ts",
     "./setup": "./src/setup.ts",
     "./loop-metrics": "./src/loop-metrics.ts",
+    "./time-budget": "./src/time-budget.ts",
     "./local-machine": "./src/local-machine.ts",
     "./auth-store": "./src/auth-store.ts",
     "./process-safety": "./src/process-safety.ts",
