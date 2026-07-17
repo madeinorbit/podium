@@ -1,5 +1,15 @@
 import { execFile } from 'node:child_process'
-import { copyFile, mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -155,6 +165,56 @@ async function sourceKnownShas(cwd: string, shas: string[]): Promise<string[]> {
   return known
 }
 
+/** Where both handoff packages (`<sessionId>.tgz`) and workspace-fetch packages
+ *  (`<fetchId>.tgz`, POD-658) are staged for transfer. */
+export function stageDirFor(home: string): string {
+  return join(home, '.podium', 'handoff')
+}
+
+/** How long a staged package may sit untouched before a sweep reclaims it.
+ *  Deliberately ~120x the worst in-flight window: a transfer pulls the file in
+ *  8MB chunks whose per-chunk RPC times out at 30s (machines/rpc.ts), and a
+ *  timed-out chunk aborts the whole transfer — so a package still legitimately
+ *  being read is at most 30s-per-remaining-chunk from its last write, never an
+ *  hour. Anything past this has no reader left. */
+export const STAGE_TTL_MS = 3600_000 // 1 hour
+
+/**
+ * Delete abandoned staged packages ([POD-742]).
+ *
+ * Only the happy path frees a stage file — the source's is deleted when the
+ * chunk reader hits EOF, the target's when the import succeeds. A handoff that
+ * dies AFTER export (transfer, import, or bundle verify) leaves the source's
+ * behind forever: the source never learns the transfer failed, so nothing there
+ * can delete it deterministically and only a TTL sweep can reclaim it.
+ *
+ * Files only, and only `.tgz`: an in-flight export's `packageDir` is an
+ * mkdtemp DIRECTORY in this same dir, removed by its own `finally`. Skipping
+ * directories keeps this sweep off it regardless of how long an export runs.
+ */
+export async function sweepHandoffStage(input?: {
+  homeDir?: string
+  ttlMs?: number
+  nowMs?: number
+}): Promise<string[]> {
+  const stageDir = stageDirFor(input?.homeDir ?? homedir())
+  const ttlMs = input?.ttlMs ?? STAGE_TTL_MS
+  const now = input?.nowMs ?? Date.now()
+  const entries = await readdir(stageDir).catch(() => [] as string[])
+  const removed: string[] = []
+  for (const entry of entries) {
+    if (!entry.endsWith('.tgz')) continue
+    const path = join(stageDir, entry)
+    const info = await stat(path).catch(() => null)
+    // Writes bump mtime, reads do not: age is time since the last chunk landed
+    // (target, mid-import) or since tar finished (source, awaiting transfer).
+    if (!info?.isFile() || now - info.mtimeMs <= ttlMs) continue
+    await rm(path, { force: true }).catch(() => undefined)
+    removed.push(path)
+  }
+  return removed
+}
+
 export async function exportHandoffPackage(input: {
   sessionId: string
   cwd: string
@@ -170,8 +230,12 @@ export async function exportHandoffPackage(input: {
   homeDir?: string
 }): Promise<{ manifest: HandoffManifestType; stagePath: string; sizeBytes: number }> {
   const home = input.homeDir ?? homedir()
-  const stageDir = join(home, '.podium', 'handoff')
+  const stageDir = stageDirFor(home)
   await mkdir(stageDir, { recursive: true, mode: 0o700 })
+  // Reclaim packages abandoned by earlier failed handoffs. Here (and at daemon
+  // start) rather than on a timer of its own: staging is the only thing that
+  // fills this dir, so an export is exactly when a stale neighbour matters.
+  await sweepHandoffStage({ homeDir: home })
   const packageDir = await mkdtemp(join(stageDir, `${input.sessionId}-`))
   const stagePath = join(stageDir, `${input.sessionId}.tgz`)
   // Every git operation below belongs to the WORKTREE, not the session's cwd:
@@ -233,7 +297,7 @@ export async function exportHandoffPackage(input: {
 }
 
 function stagePathFor(home: string, sessionId: string): string {
-  return join(home, '.podium', 'handoff', `${basename(sessionId)}.tgz`)
+  return join(stageDirFor(home), `${basename(sessionId)}.tgz`)
 }
 
 export async function appendImportChunk(input: {
@@ -397,7 +461,6 @@ export async function importHandoffPackage(input: {
       '-d',
       `${HANDOFF_REF_ROOT}/${manifest.sessionId}`,
     ]).catch(() => '')
-    await rm(archive, { force: true })
     return { manifest, newCwd }
   } catch (error) {
     // Only unwind a worktree WE created — a reused round-trip worktree predates
@@ -408,6 +471,12 @@ export async function importHandoffPackage(input: {
     }
     throw error
   } finally {
+    // The archive dies with the attempt, won or lost ([POD-742]) — deleting it
+    // only on success left every failed import (bundle verify, diverged branch,
+    // id mismatch) staged forever. Nothing resumes a half-done import: the
+    // server re-exports and re-transfers from offset 0 on the next try.
+    // Mirrors importWorkspaceSnapshot, which already frees it in its finally.
+    await rm(archive, { force: true })
     await rm(unpacked, { recursive: true, force: true })
   }
 }

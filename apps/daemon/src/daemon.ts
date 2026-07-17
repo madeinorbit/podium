@@ -47,6 +47,7 @@ import { reportInventory } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { ensurePodiumGrokHooks } from './grok-hooks'
+import { sweepHandoffStage } from './handoff-package'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
@@ -703,6 +704,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // Periodic GC for stale uploads (TTL 24h, runs hourly).
         uploadsGcTimer = setInterval(sweepUploads, UPLOADS_GC_INTERVAL_MS)
         uploadsGcTimer.unref?.()
+        // Reclaim handoff packages abandoned by a failed transfer/import
+        // ([POD-742]). Once, here: no transfer can be in flight through a daemon
+        // that has only just handshaked, and exports sweep from then on.
+        void sweepHandoffStage({ ...(homeDir ? { homeDir } : {}) }).catch(() => undefined)
       }
       // Machine inventory (#222): fire an unsolicited report after every successful
       // auth (paired AND every reconnect's helloOk) — off the handshake path, so a

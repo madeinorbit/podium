@@ -8,7 +8,7 @@ import {
   WorkspaceManifest,
   type WorkspaceManifest as WorkspaceManifestType,
 } from '@podium/protocol'
-import { buildSnapshotCommit } from './handoff-package'
+import { buildSnapshotCommit, stageDirFor, sweepHandoffStage } from './handoff-package'
 
 const runFile = promisify(execFile)
 /** Peek worktrees land under a dedicated directory so `workspace clean` can
@@ -54,8 +54,11 @@ export async function exportWorkspaceSnapshot(input: {
   homeDir?: string
 }): Promise<{ manifest: WorkspaceManifestType; stagePath: string; sizeBytes: number }> {
   const home = input.homeDir ?? homedir()
-  const stageDir = join(home, '.podium', 'handoff')
+  const stageDir = stageDirFor(home)
   await mkdir(stageDir, { recursive: true, mode: 0o700 })
+  // Fetch stages into the SAME dir as handoff, so it sweeps abandoned packages
+  // too ([POD-742]) — either export is a chance to reclaim the other's residue.
+  await sweepHandoffStage({ homeDir: home })
   const packageDir = await mkdtemp(join(stageDir, `${input.fetchId}-`))
   const stagePath = join(stageDir, `${input.fetchId}.tgz`)
   // fetchId is unique per request, so the snapshot ref can never collide with a
@@ -111,7 +114,7 @@ export async function importWorkspaceSnapshot(input: {
   homeDir?: string
 }): Promise<{ manifest: WorkspaceManifestType; path: string }> {
   const home = input.homeDir ?? homedir()
-  const archive = join(home, '.podium', 'handoff', `${basename(input.fetchId)}.tgz`)
+  const archive = join(stageDirFor(home), `${basename(input.fetchId)}.tgz`)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-workspace-import-'))
   const incomingRef = `refs/podium/workspace-incoming/${input.fetchId}`
   try {

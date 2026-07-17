@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { access, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, mkdtemp, readFile, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { claudeProjectSlug } from '@podium/agent-bridge'
@@ -11,6 +11,8 @@ import {
   importHandoffPackage,
   readExportChunk,
   resolveExportSource,
+  STAGE_TTL_MS,
+  sweepHandoffStage,
   transcriptPlacement,
 } from './handoff-package'
 
@@ -45,6 +47,21 @@ async function seedTranscript(home: string, cwd: string, resumeValue: string, bo
 async function home(name: string): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), `podium-home-${name}-`))
   roots.push(path)
+  return path
+}
+/** Bun resolves `access` to null where Node resolves undefined — assert on a boolean. */
+const exists = (path: string): Promise<boolean> =>
+  access(path).then(
+    () => true,
+    () => false,
+  )
+/** A staged package of a given age — the sweep reads mtime, so back-date it. */
+async function stageFile(home: string, name: string, ageMs: number): Promise<string> {
+  const path = join(home, '.podium', 'handoff', name)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, 'staged package\n')
+  const when = new Date(Date.now() - ageMs)
+  await utimes(path, when, when)
   return path
 }
 afterEach(() => {
@@ -449,5 +466,102 @@ describe('handoff source resolution ([spec:SP-3f7a])', () => {
       resumeValue,
     })
     expect(exported.manifest.branch).toBe('issue/657-actual')
+  })
+})
+
+describe('abandoned stage files ([POD-742])', () => {
+  it('sweeps packages past the TTL and keeps fresh ones', async () => {
+    const sourceHome = await home('sweep')
+    const abandoned = await stageFile(sourceHome, 'dead-handoff.tgz', 2 * STAGE_TTL_MS)
+    // A transfer still pulling this one keeps it well inside the TTL: chunk RPCs
+    // time out at 30s, so an in-flight package is never an hour untouched.
+    const inFlight = await stageFile(sourceHome, 'in-flight-fetch.tgz', 60_000)
+    expect(await sweepHandoffStage({ homeDir: sourceHome })).toEqual([abandoned])
+    expect(await exists(abandoned)).toBe(false)
+    expect(await exists(inFlight)).toBe(true)
+  })
+
+  it('never touches an in-flight export packageDir, however long the export runs', async () => {
+    // Both exports mkdtemp a packageDir INSIDE the stage dir and remove it in
+    // their own finally. Files only, .tgz only — so the sweep cannot race it.
+    const sourceHome = await home('sweep-dirs')
+    const packageDir = join(sourceHome, '.podium', 'handoff', 'session-abc-Xk29fp')
+    await mkdir(packageDir, { recursive: true })
+    const aged = new Date(Date.now() - 2 * STAGE_TTL_MS)
+    await utimes(packageDir, aged, aged)
+    const notAPackage = await stageFile(sourceHome, 'scratch.txt', 2 * STAGE_TTL_MS)
+    expect(await sweepHandoffStage({ homeDir: sourceHome })).toEqual([])
+    expect(await exists(packageDir)).toBe(true)
+    expect(await exists(notAPackage)).toBe(true)
+  })
+
+  it('tolerates a stage dir that does not exist yet', async () => {
+    expect(await sweepHandoffStage({ homeDir: await home('sweep-empty') })).toEqual([])
+  })
+
+  it('sweeps residue from an earlier failed handoff on the next export', async () => {
+    const origin = await repo('sweep-export')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const source = await worktree(origin, 'issue/742-sweep')
+    const sourceHome = await home('sweep-export')
+    const resumeValue = 'claude-sweep-export'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const abandoned = await stageFile(sourceHome, 'dead-handoff.tgz', 2 * STAGE_TTL_MS)
+    const recentFetch = await stageFile(sourceHome, 'recent-fetch.tgz', 5 * 60_000)
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-sweep-export',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    expect(await exists(abandoned)).toBe(false)
+    // A workspace fetch (POD-658) stages beside us — a live one must survive.
+    expect(await exists(recentFetch)).toBe(true)
+    expect(await exists(exported.stagePath)).toBe(true)
+  })
+
+  it('frees the target stage file when the import FAILS', async () => {
+    // The package only ever died with a WON import; a loss at bundle verify, a
+    // diverged branch, or an id mismatch left it staged forever. Nothing resumes
+    // a half-done import — the next attempt re-exports and re-transfers.
+    const origin = await repo('import-fail')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-target-import-fail-'))
+    roots.push(target)
+    execFileSync('git', ['clone', origin, target])
+    const source = await worktree(origin, 'issue/742-import-fail')
+    await writeFile(join(source, 'work.txt'), 'in progress\n')
+    const sourceHome = await home('import-fail')
+    const targetHome = await home('import-fail-target')
+    const resumeValue = 'claude-import-fail'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-import-fail',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    const stage = join(targetHome, '.podium', 'handoff', 'wrong-session.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    await copyFile(exported.stagePath, stage)
+    await expect(
+      importHandoffPackage({
+        sessionId: 'wrong-session',
+        repoPath: target,
+        worktreeName: exported.manifest.worktreeName,
+        homeDir: targetHome,
+      }),
+    ).rejects.toThrow(/package session id mismatch/)
+    expect(await exists(stage)).toBe(false)
   })
 })
