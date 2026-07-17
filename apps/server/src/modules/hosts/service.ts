@@ -1,4 +1,3 @@
-import type { PodiumSettings } from '@podium/runtime'
 import type {
   AgentRuntimeState,
   ControlMessage,
@@ -7,6 +6,7 @@ import type {
   LiveServerMessage,
   ServerMessage,
 } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
 import { LOCAL_PLACEHOLDER } from '../../local-machine'
 import type { EventBus } from '../bus'
 
@@ -17,6 +17,17 @@ export type MemoryBreakdown = Omit<
 >
 
 const MEMORY_BREAKDOWN_TIMEOUT_MS = 10_000
+const MEMORY_HIBERNATE_COOLDOWN_MS = 60_000
+const OUTPUT_QUIET_MS = 60_000
+// Four immediately, then four/minute: conservative enough to avoid a kill
+// cascade, but a 49-session overage converges in about 12 minutes rather than an hour.
+const COUNT_HIBERNATE_BURST = 4
+const COUNT_HIBERNATE_REFILL_MS = 15_000
+
+interface CountHibernateBudget {
+  tokens: number
+  lastRefillMs: number
+}
 
 /** The session fields the auto-hibernate candidate scan reads — a structural
  *  projection of Session so the service never touches the registry's map. */
@@ -67,6 +78,8 @@ export class HostsService {
   // Each machine has its own memory budget, so the cooldown and the candidate pool
   // are both scoped to the machine whose sample triggered this (sample.machineId).
   private readonly lastAutoHibernateMsByMachine = new Map<string, number>()
+  private readonly countHibernateBudgetByMachine = new Map<string, CountHibernateBudget>()
+  private readonly lastCapUnmetByMachine = new Map<string, string>()
   private readonly pendingBreakdowns = new Map<string, (r: MemoryBreakdown | undefined) => void>()
 
   constructor(
@@ -108,47 +121,168 @@ export class HostsService {
     for (const c of this.deps.clients()) c.send(msg)
   }
 
+  /** Apply memory and idle-count pressure independently [spec:SP-c29e]. */
   private maybeAutoHibernate(sample: HostMetricsWire): void {
     const cfg = this.deps.getSettings().hibernation
-    if (!cfg.enabled) return
     const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
-    const m = sample.memory
-    if (m.totalBytes <= 0) return
-    const usedPct = ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100
-    if (usedPct < cfg.memoryPct) return
+    if (!cfg.enabled) {
+      this.lastCapUnmetByMachine.delete(machineId)
+      return
+    }
+
     const now = Date.now()
-    if (now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) < 60_000) return
-    const idleCutoff = now - cfg.idleMinutes * 60_000
-    // A foreground turn can end (phase → idle) while a background agent or
-    // `&`-spawned task keeps running — and a running agent paints its TUI, so
-    // recent PTY output is the giveaway. Require the PTY to have been quiet for a
-    // full minute before parking, so we never hibernate work that's still going.
-    const OUTPUT_QUIET_MS = 60_000
-    const candidates = [...this.deps.sessions()]
-      .filter(
-        (s) =>
-          // Only this machine's sessions are bound by this machine's memory budget.
-          s.machineId === machineId &&
-          s.status === 'live' &&
-          s.resume !== undefined &&
-          // Only agents that are demonstrably done/idle. needs_user keeps its
-          // pending question; working agents are obviously off-limits.
-          (s.agentState?.phase === 'idle' || s.agentState?.phase === 'ended') &&
-          // "Idle since" is the latest of genuine agent activity (lastActiveAt),
-          // the last resume, and the last user input — any of them resets the idle
-          // timer WITHOUT restamping lastActiveAt (which owns recency ordering).
-          Math.max(Date.parse(s.lastActiveAt), s.lastResumedAtMs, s.lastInputAtMs) <= idleCutoff &&
-          // A running TUI repaints, so recent output means work is still going.
-          now - s.lastOutputAtMs >= OUTPUT_QUIET_MS,
+    const failed = new Set<string>()
+    const m = sample.memory
+    const usedPct =
+      m.totalBytes > 0 ? ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100 : undefined
+    const memoryReady =
+      usedPct !== undefined &&
+      usedPct >= cfg.memoryPct &&
+      now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) >= MEMORY_HIBERNATE_COOLDOWN_MS
+
+    if (memoryReady) {
+      // A raced/refused candidate must not spend the cooldown or block the next
+      // safely parkable session. Re-read the live projection after every attempt.
+      while (true) {
+        const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
+        if (!target) break
+        const result = this.deps.hibernateSession({ sessionId: target.sessionId })
+        if (!result.ok) {
+          failed.add(target.sessionId)
+          continue
+        }
+        this.lastAutoHibernateMsByMachine.set(machineId, now)
+        console.info(
+          `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
+        )
+        break
+      }
+    }
+
+    if (cfg.maxIdleSessions === null) {
+      this.lastCapUnmetByMachine.delete(machineId)
+      return
+    }
+    this.applyCountPressure(sample, cfg.idleMinutes, cfg.maxIdleSessions, now, failed)
+  }
+
+  private applyCountPressure(
+    sample: HostMetricsWire,
+    idleMinutes: number,
+    targetCount: number,
+    now: number,
+    failed: Set<string>,
+  ): void {
+    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
+    const budget = this.countBudgetFor(machineId, now)
+
+    while (true) {
+      // Re-read after every success: hibernateSession synchronously changes the
+      // session status, and the target is convergence rather than a snapshot batch.
+      const idleLive = this.idleLiveSessions(machineId)
+      const overage = idleLive.length - targetCount
+      if (overage <= 0) {
+        this.lastCapUnmetByMachine.delete(machineId)
+        return
+      }
+
+      const candidates = this.eligibleCandidates(machineId, idleMinutes, now, failed)
+      if (candidates.length === 0) {
+        this.reportCapUnmet(sample, targetCount, overage)
+        return
+      }
+
+      // Eligible work remains, so the target is merely rate-limited rather than
+      // blocked by protected sessions. A later host tick continues convergence.
+      if (budget.tokens === 0) {
+        this.lastCapUnmetByMachine.delete(machineId)
+        return
+      }
+
+      const target = candidates[0]
+      if (!target) return
+      const result = this.deps.hibernateSession({ sessionId: target.sessionId })
+      if (!result.ok) {
+        failed.add(target.sessionId)
+        continue
+      }
+      budget.tokens -= 1
+      console.info(
+        `[podium] idle-session target ${targetCount} on ${sample.hostname} — hibernating idle session ${target.sessionId}`,
       )
-      .sort((a, b) => a.lastActiveAt.localeCompare(b.lastActiveAt))
-    const target = candidates[0]
-    if (!target) return
-    this.lastAutoHibernateMsByMachine.set(machineId, now)
-    console.info(
-      `[podium] memory ${usedPct.toFixed(0)}% on ${sample.hostname} ≥ ${cfg.memoryPct}% — hibernating idle session ${target.sessionId}`,
+    }
+  }
+
+  private idleLiveSessions(machineId: string): HostSessionView[] {
+    return [...this.deps.sessions()].filter((session) => {
+      if (session.machineId !== machineId || session.status !== 'live') return false
+      const phase = session.agentState?.phase
+      // needs_user is idle fleet load too, but deliberately protected from parking.
+      return phase === 'idle' || phase === 'ended' || phase === 'needs_user'
+    })
+  }
+
+  private eligibleCandidates(
+    machineId: string,
+    idleMinutes: number,
+    now: number,
+    excluded: ReadonlySet<string>,
+  ): HostSessionView[] {
+    const idleCutoff = now - idleMinutes * 60_000
+    return this.idleLiveSessions(machineId)
+      .filter((session) => {
+        const phase = session.agentState?.phase
+        return (
+          !excluded.has(session.sessionId) &&
+          session.resume !== undefined &&
+          (phase === 'idle' || phase === 'ended') &&
+          this.effectiveIdleSinceMs(session) <= idleCutoff &&
+          // A foreground turn can end while a background task keeps painting its
+          // TUI. A full quiet minute keeps that work protected.
+          now - session.lastOutputAtMs >= OUTPUT_QUIET_MS
+        )
+      })
+      .sort((a, b) => this.effectiveIdleSinceMs(a) - this.effectiveIdleSinceMs(b))
+  }
+
+  private effectiveIdleSinceMs(session: HostSessionView): number {
+    // Any malformed timestamp is protected rather than accidentally treated as
+    // ancient. Session normally sanitizes these before the structural projection.
+    const timestamps = [
+      Date.parse(session.lastActiveAt),
+      session.lastResumedAtMs,
+      session.lastInputAtMs,
+    ]
+    return timestamps.every(Number.isFinite) ? Math.max(...timestamps) : Number.POSITIVE_INFINITY
+  }
+
+  private countBudgetFor(machineId: string, now: number): CountHibernateBudget {
+    let budget = this.countHibernateBudgetByMachine.get(machineId)
+    if (!budget) {
+      budget = { tokens: COUNT_HIBERNATE_BURST, lastRefillMs: now }
+      this.countHibernateBudgetByMachine.set(machineId, budget)
+      return budget
+    }
+
+    const refillCount = Math.max(
+      0,
+      Math.floor((now - budget.lastRefillMs) / COUNT_HIBERNATE_REFILL_MS),
     )
-    this.deps.hibernateSession({ sessionId: target.sessionId })
+    if (refillCount > 0) {
+      budget.tokens = Math.min(COUNT_HIBERNATE_BURST, budget.tokens + refillCount)
+      budget.lastRefillMs += refillCount * COUNT_HIBERNATE_REFILL_MS
+    }
+    return budget
+  }
+
+  private reportCapUnmet(sample: HostMetricsWire, targetCount: number, overage: number): void {
+    const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
+    const signature = `${targetCount}:${overage}`
+    if (this.lastCapUnmetByMachine.get(machineId) === signature) return
+    this.lastCapUnmetByMachine.set(machineId, signature)
+    console.info(
+      `[podium] idle-session cap unmet: ${overage} protected/ineligible on ${sample.hostname} (target ${targetCount})`,
+    )
   }
 
   /** Ask a daemon who owns the used memory. Resolves undefined when no daemon

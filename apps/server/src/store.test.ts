@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
@@ -593,6 +594,24 @@ describe('settings', () => {
     expect(s.roles.coding.accountId).toBe('') // '' = the role's default (claude-code)
     expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
     expect(s.hibernation.memoryPct).toBe(80)
+    expect(s.hibernation.maxIdleSessions).toBeNull()
+    store.close()
+  })
+
+  it('accepts zero as the idle-session target and rejects negative targets', () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
+      ...settings,
+      hibernation: { ...settings.hibernation, maxIdleSessions: 0 },
+    })
+    expect(store.settings.getSettings().hibernation.maxIdleSessions).toBe(0)
+    expect(() => {
+      PodiumSettings.parse({
+        ...settings,
+        hibernation: { ...settings.hibernation, maxIdleSessions: -1 },
+      })
+    }).toThrow()
     store.close()
   })
 

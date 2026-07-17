@@ -2431,7 +2431,7 @@ describe('hibernation', () => {
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
-      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: null, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
     // Mark the agent idle, with activity old enough to pass the idle cutoff.
@@ -2474,7 +2474,7 @@ describe('hibernation', () => {
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     store.settings.setSettings({
       ...store.settings.getSettings(),
-      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: null, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
     reg.modules.sessions.onDaemonMessageFrom('local', {
@@ -2509,7 +2509,7 @@ describe('hibernation', () => {
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     store.settings.setSettings({
       ...store.settings.getSettings(),
-      hibernation: { enabled: true, memoryPct: 80, idleMinutes: 1 },
+      hibernation: { enabled: true, memoryPct: 80, maxIdleSessions: null, idleMinutes: 1 },
     })
     const sessionId = liveSession(reg, daemon)
     reg.modules.sessions.onDaemonMessageFrom('local', {

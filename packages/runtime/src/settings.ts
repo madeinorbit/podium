@@ -254,6 +254,10 @@ export const PodiumSettings = z.object({
       enabled: z.boolean().default(true),
       /** Hibernate idle sessions once host memory use crosses this percentage. */
       memoryPct: z.number().int().min(50).max(95).default(80),
+      /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
+       * unlimited; zero is valid and parks every session that passes the safety
+       * gates. */
+      maxIdleSessions: z.number().int().min(0).nullable().default(null),
       /** A session counts as idle after this many minutes without activity. */
       idleMinutes: z
         .number()
