@@ -206,3 +206,22 @@ POD-853 + the requeue cap + POD-835 + POD-865's composer-draft hold). TDD, in
 Deferred (filed for another agent, not in POD-854 scope): `podium session send`
 (relay direct, always next-turn) stays non-blocking for now — a consistency
 follow-up, tracked as a discovered sub-issue.
+
+### Review round 1 (coordinator REQUEST-CHANGES) — fixed
+
+7. ✅ **Transport-timeout blocker.** The daemon loopback agent-relay hub timed out
+   EVERY relayed proc at 30s (`createAgentRelayHub` default), but the gate holds
+   `messages.send` open up to the 90s interrupt ceiling — so on the primary agent
+   surface the CLI threw `agent relay timed out` before the gate could return, and
+   the sender resent (the duplicate this milestone kills). Fix: a per-proc hub
+   timeout — `messages.send` gets `AGENT_RELAY_BLOCKING_TIMEOUT_MS` (new shared
+   `@podium/protocol` constant, 120s), normal RPCs keep 30s. Still bounded. A
+   server-side drift-guard test enforces `INTERRUPT_DELIVERY_CEILING_MS` (and the
+   next-turn budget) stay ≥20s under the transport timeout — dissolving the
+   secondary "25s sits only 5s under 30s" concern too. Daemon-seam tests cover the
+   discrimination + the longer bound. (ask/awaitAgent share the >30s latent issue —
+   POD-872.)
+8. ✅ **Terminal-undelivered honesty (NIT).** `blockForDelivery` now returns
+   `accepted` ONLY while the row is still queued at budget expiry; a row that went
+   terminal-undelivered mid-block (dead_letter / expired / cancelled) reports
+   `dead_letter`, never the pending-implying `accepted`.
