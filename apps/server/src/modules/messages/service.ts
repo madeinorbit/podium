@@ -1136,6 +1136,40 @@ export class MessageDeliveryService {
     }
   }
 
+  /**
+   * Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]:
+   * poll the ledger until the row leaves `queued` — `delivered` (transcript echo
+   * or turn boundary observed it), `read` (recipient pulled its inbox), or a
+   * terminal `dead_letter`/`expired`/`cancelled` — or the deadline passes. Returns
+   * the row in whatever state it reached (still `queued` on a budget expiry — the
+   * sender is TOLD it is not yet confirmed, never left guessing), or null for an
+   * unknown id. NEVER hangs — the every-wait-bounded rule shared with `awaitAck`.
+   * This is the primitive urgency-gated blocking send builds on: `queued` means
+   * only "handed to the harness input queue", and a harness-queued message can
+   * still be Esc-cancelled or draft-held, so only a non-`queued` status is trusted.
+   * `now`/`sleep` are injectable so tests drive a deterministic clock (no timers).
+   */
+  async awaitDelivered(
+    messageId: string,
+    opts: {
+      timeoutMs: number
+      pollMs?: number
+      sleep?(ms: number): Promise<void>
+      now?(): number
+    },
+  ): Promise<MessageRow | null> {
+    const pollMs = opts.pollMs ?? 250
+    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+    const now = opts.now ?? (() => Date.now())
+    const deadline = now() + opts.timeoutMs
+    for (;;) {
+      const m = this.deps.messages.getMessage(messageId)
+      if (m && m.status !== 'queued') return m
+      if (now() >= deadline) return m ?? null
+      await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
+    }
+  }
+
   /** Inbox listing for a set of recipient principals, oldest first. */
   inbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],

@@ -699,6 +699,88 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
   })
 })
 
+describe('awaitDelivered (bounded poll on the delivered signal) [spec:SP-cb9f] [POD-854]', () => {
+  it('resolves with the row the moment it leaves queued (echo confirms delivered)', async () => {
+    const { svc } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+    )
+    expect(r.message.status).toBe('queued')
+    // The transcript echo lands during the first poll sleep — the next poll sees it.
+    let polls = 0
+    const row = await svc.awaitDelivered(r.message.id, {
+      timeoutMs: 10_000,
+      pollMs: 5,
+      now: () => 0, // deadline (10_000) is never reached: confirmation wins
+      sleep: async () => {
+        polls += 1
+        if (polls === 1) echo(svc, 's1', r.message.id)
+      },
+    })
+    expect(row?.status).toBe('delivered')
+    expect(polls).toBe(1)
+  })
+
+  it('returns the still-queued row at the deadline instead of hanging', async () => {
+    // Busy target → held for the turn boundary, never confirmed within the budget.
+    const { svc } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+    )
+    expect(r.message.status).toBe('queued')
+    let t = 0
+    const row = await svc.awaitDelivered(r.message.id, {
+      timeoutMs: 100,
+      pollMs: 25,
+      now: () => t,
+      sleep: async (ms) => {
+        t += ms // advance the fake clock so the deadline is actually reached
+      },
+    })
+    expect(row?.status).toBe('queued')
+    expect(t).toBeGreaterThanOrEqual(100)
+  })
+
+  it('treats a pull-path read as a terminal confirmation (leaves queued)', async () => {
+    // An issue-addressed fyi is a pointer nudge: confirmed by an inbox READ, which
+    // also leaves 'queued' — awaitDelivered must resolve on any non-queued status.
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: `#${ISSUE.seq}` }, body: 'note', urgency: 'fyi' },
+    )
+    expect(r.message.status).toBe('queued')
+    let polls = 0
+    const row = await svc.awaitDelivered(r.message.id, {
+      timeoutMs: 10_000,
+      pollMs: 5,
+      now: () => 0,
+      sleep: async () => {
+        polls += 1
+        if (polls === 1) svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+      },
+    })
+    expect(row?.status).toBe('read')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
+  })
+
+  it('returns null for an unknown message id (still bounded)', async () => {
+    const { svc } = harness([])
+    let t = 0
+    const row = await svc.awaitDelivered('msg_nope', {
+      timeoutMs: 10,
+      pollMs: 5,
+      now: () => t,
+      sleep: async (ms) => {
+        t += ms
+      },
+    })
+    expect(row).toBeNull()
+  })
+})
+
 describe('clamp matrix (downgrade-never-reject, recorded) [spec:SP-34d7]', () => {
   it('peer interrupt is downgraded to next-turn and ledgered as clamped', () => {
     const { svc, store, interrupted, queued } = harness([
