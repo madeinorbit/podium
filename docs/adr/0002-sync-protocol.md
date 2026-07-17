@@ -306,10 +306,17 @@ drift refresh on POD-359 called out the risk explicitly and this is the answer.
    Peer-to-peer compatibility. Sent on the WS URL (`/client?v=`). Bumped ONLY on a
    breaking framing change.
 2. **Replica schema version** — the *client's local store* shape (IndexedDB object
-   stores / mobile SQLite, per ADR 6). Owned entirely by the client. On a bump, the
-   replica **discards and re-bootstraps** rather than migrating: the replica is a
-   cache of authority truth, and D6 makes re-bootstrap cheap. Client-side migration
-   code is the thing we are explicitly refusing to own.
+   stores / mobile SQLite). Owned entirely by the client, and **ADR 6 owns the
+   policy**: it mandates a bespoke `schema_version` with forward-only migrations and
+   a loud downgrade guard. ADR 2's only claim here is the **floor**: because the
+   replica is a cache of authority truth and D6 makes re-bootstrap cheap,
+   *discard-and-re-bootstrap is always a legal recovery* — so a client is never
+   obliged to migrate, and an unmigratable store is never a dead end. ADR 6 agrees on
+   the fallback ("unknown future schema that cannot be migrated" → clear and proceed
+   as a cold client). Migration is ADR 6's optimization to avoid a re-download;
+   re-bootstrap is this ADR's guarantee that the optimization is always optional.
+   **Subject to the outbox rule in D7 — a discard of the cache is never a discard of
+   queued user work.**
 3. **The server DB drizzle journal** — [spec:SP-4428]. **Server-internal. NEVER on the
    wire, never compared with a peer, never sent to a client.**
 
@@ -524,6 +531,40 @@ identity**. That is the whole design — one terminal recovery, reachable from e
 failure, exercised on every cold start, and therefore never a rarely-tested emergency
 path.
 
+**THE OUTBOX SURVIVES EVERY RUNG. A discard of the cache is never a discard of queued
+user work.** This is the most dangerous sentence in the ADR to get wrong, because the
+danger is invisible: ADR 6 puts entity data, the cursor, the overlay **and the outbox**
+in one transactional store (D10 requires exactly that), so "clear the store" reads as
+one innocent operation and is in fact two — throwing away a *cache*, which is free,
+and throwing away *the user's unsent writes*, which is data loss. ADR 3 D9 forbids
+silently discarding user-authored work, and rungs 4–6 would do it by accident.
+
+The distinction is ADR 1's, and it is not a nuance — it is a difference of *home*:
+entities and cursor are **replica cache** (home: the authority; re-derivable at will),
+while the outbox is **client-local** authored truth that exists *nowhere else*. Losing
+the cache costs a re-download. Losing the outbox loses something the user typed.
+
+So every rung reads: **discard the cache, re-bootstrap, keep the outbox.** After the
+bootstrap installs, queued entries drain against the new truth (their `mutationId`
+still dedupes; D11 still bounds their age; ADR 3's `expired`/`rejected` states still
+apply). Two corollaries:
+
+- **An epoch change (rung 4) does not invalidate the outbox.** A command is a request
+  against an entity, not against a feed position, and D8's `mutationId` is minted by
+  the client — it does not derive from the feed. What *may* be invalidated is an
+  entry's `expectedRevision` precondition (D3), and the correct outcome of a stale
+  precondition is an authority **rejection surfaced to the user** (ADR 3), never a
+  silent drop at the replica. The replica does not get to decide the command is moot;
+  that is arbitration, and D7's whole posture is that replicas never arbitrate.
+- **If the outbox itself is unreadable** (rung 5, genuine corruption), it cannot be
+  preserved — but its loss must be *surfaced*, never swallowed. That is the one case
+  where user work is lost, and it must be loud.
+
+POD-306's conformance suite must assert this directly: *offline writes queued →
+force an epoch bump → reconnect → the queued writes still drain or surface, and none
+vanish.* A suite that only checks entity convergence would pass while the outbox is
+being silently eaten.
+
 **Why the ladder must be strictly downward.** The loop hazard is real and already
 documented in shipped code: heal via `changesSince` returns the same rows and "loops
 forever" (`sync.ts` lenient-parsing note). A rung that resolves *sideways* — retrying
@@ -710,14 +751,24 @@ just the way to get it without a window.
 **Decide.** Three horizons exist and they are now stated in one place with their
 relationship made explicit — POD-306 asks for exactly this reconciliation:
 
-| Horizon | Value | Meaning |
+| Horizon | Value | Owner |
 |---|---|---|
-| Change retention | 20k rows / **3 days**, whichever deletes more | How long a cursor stays healable (D5) |
-| Receipt retention (`applied_mutations`) | **30 days** | How long a `mutationId` is remembered |
-| Outbox entry max age | **Decided here: 7 days** | How long a replica keeps retrying |
+| Change retention | 20k rows / **3 days**, whichever deletes more (`change-log.ts:36-37`) | **ADR 2** (D5) — it is the feed's |
+| Receipt retention (`applied_mutations`) | **30 days** (`service.ts:84`) | **ADR 2** — it is the dedupe horizon of the feed's write path |
+| Outbox entry max age | **14 days**, with `SKEW_MARGIN_MS ≥ 2d` | **ADR 3** (D10) — it owns the outbox |
 
-**The rule: `outbox max age` < `receipt retention`.** An outbox entry can never
-outlive the receipt that would dedupe it. 7 < 30 with a wide margin.
+**The rule this ADR owns: `outbox max age + skew margin` < `receipt retention`.** An
+outbox entry must never outlive the receipt that would dedupe it, or it replays as a
+fresh command. ADR 3's 14d + 2d < 30d satisfies it.
+
+**One number, one owner.** An earlier draft of this ADR decided 7 days here. That was
+an over-reach: ADR 3 owns the outbox lifecycle, so it owns the outbox's horizon, and
+it has specified the knob better than this ADR did — adding an explicit skew margin
+and making the inequality a lint/unit invariant rather than a sentence in a document.
+**ADR 2 therefore defers the value to ADR 3 D10 and retains only the constraint and
+the two feed-side numbers it genuinely owns.** What this ADR contributes is the
+*reason* the inequality is not merely tidy — see below — and the third number
+(3-day change retention) that ADR 3's table needs but cannot derive.
 
 **Why this is the decision.** The shipped invariant is a shrug:
 `outbox-write-path.md` invariant 1 — "a replay after pruning re-applies — acceptable
@@ -749,15 +800,22 @@ receipt does not get to send, whatever route it took to the queue.
 So: an outbox entry older than its max age **expires**. It does not send. It surfaces
 to the user as an expired write with recovery actions (retry / edit / discard), per
 POD-306's "poison handling must never silently discard user-authored work". A
-7-day-old queued message is not something to deliver silently to a running agent
+two-week-old queued message is not something to deliver silently to a running agent
 anyway — the world has moved on, and the user is the only one who can say whether it
-still means anything.
+still means anything. Expiry is a *rejection surfaced*, never a silent drop; D7's
+outbox rule says the same thing from the other direction.
 
 **Consequences.** The authority MAY reject a command whose `mutationId` predates its
 receipt horizon; expiry at the replica means it rarely has to. `expired` is already in
-POD-306's required outbox state list — D11 gives it a trigger and a bound. ADR 3 owns
-the outbox state machine; ADR 2 owns only the horizon arithmetic and the ordering rule
-between the three numbers.
+POD-306's required outbox state list, and ADR 3 D9 defines the state machine it sits
+in — D11 supplies only the *reason* the bound must exist and the feed-side numbers it
+is measured against.
+
+**The ownership cut, stated once so it is not re-litigated:** ADR 3 owns the outbox —
+its states, its horizon, its skew margin, and the lint invariant that enforces the
+inequality. ADR 2 owns the feed — change retention and receipt retention — and owns
+*why* the inequality is a correctness rule rather than a tidy-up. Neither ADR gets to
+restate the other's number; both must reference it.
 
 ---
 
@@ -772,7 +830,8 @@ restore (the [spec:SP-4428] backup-restore runbook is now part of this contract)
 
 **For POD-306 (Replica + Outbox):** cursor becomes the triple; implement the D7 ladder
 with re-bootstrap as the single terminal rung; chunked bootstrap install with delta
-buffering and atomic swap; outbox expiry at 7 days with surfaced recovery. The
+buffering and atomic swap; outbox expiry per ADR 3 D10's horizon, with surfaced
+recovery, and **the outbox preserved across every discard rung**. The
 conformance suite gains: epoch bump mid-session, bootstrap interrupted mid-chunk,
 slow-consumer demotion (asserting convergence, not just survival), and a receipt-pruned
 replay.
