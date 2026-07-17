@@ -50,6 +50,31 @@ export class NotificationFactsRepository {
     return row.changes === 1
   }
 
+  /** Retire every live claim for an exact fact_key (all targets). */
+  retireFactKey(factKey: string, consumedAt: string): number {
+    const row = this.db
+      .prepare(
+        `UPDATE notification_facts SET consumed_at = ?
+         WHERE fact_key = ? AND consumed_at IS NULL`,
+      )
+      .run(consumedAt, factKey)
+    return Number(row.changes)
+  }
+
+  /**
+   * Retire every live claim whose fact_key starts with `prefix` (all targets).
+   * Fact keys use only alphanumerics and `:` / `-` — no LIKE wildcards.
+   */
+  retireFactKeyPrefix(prefix: string, consumedAt: string): number {
+    const row = this.db
+      .prepare(
+        `UPDATE notification_facts SET consumed_at = ?
+         WHERE fact_key LIKE ? AND consumed_at IS NULL`,
+      )
+      .run(consumedAt, `${prefix}%`)
+    return Number(row.changes)
+  }
+
   retireByIssue(issueId: string): void {
     this.db.prepare('DELETE FROM notification_facts WHERE issue_id = ?').run(issueId)
   }
@@ -91,6 +116,16 @@ export class NotificationArbiter {
 
   retire(factKey: string, target: string, at = this.now()): boolean {
     return this.facts.retire(factKey, target, at)
+  }
+
+  /** Retire every live claim for an exact fact_key (all targets). */
+  retireFactKey(factKey: string, at = this.now()): number {
+    return this.facts.retireFactKey(factKey, at)
+  }
+
+  /** Retire every live claim whose fact_key starts with `prefix` (all targets). */
+  retireFactKeyPrefix(prefix: string, at = this.now()): number {
+    return this.facts.retireFactKeyPrefix(prefix, at)
   }
 
   retireByIssue(issueId: string): void {

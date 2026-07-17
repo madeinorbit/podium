@@ -377,7 +377,93 @@ export class StewardService {
       events.filter((e) => e.kind === 'issue.closed').map((e) => e.subject),
     )
     for (const issueId of closedIssues) this.arbiter.retireByIssue(issueId)
+    // Condition-clear retirement (POD-890 / POD-908) [spec:SP-ba61]: when the
+    // underlying condition ends, free the (fact,target) so a later genuine edge
+    // re-fires — without shortening the 24h cross-producer TTL ceiling.
+    this.retireClearedConditions(events)
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
+  }
+
+  /**
+   * Retire arbiter facts whose condition no longer holds, using the last
+   * observed transition per subject in this poll (so settle-then-leave in one
+   * tick retires; leave-then-settle keeps the fresh claim).
+   *
+   * Fact map (what each clear retires):
+   * - session leaves idle/errored → `settle:<sid>`,
+   *   `sessionparentnudge:phase-reported:<sid>`,
+   *   `sessionparentnudge:settle:<sid>:<eventId>` (prefix)
+   * - issue leaves review → `parentnudge:review:<parentId>:<seq>`,
+   *   `sub:issue.stage_changed:review:<issueId>`,
+   *   `sub:issue.stage_changed:<issueId>`
+   * - issue needs_human cleared → `parentnudge:needs_human:<parentId>:<seq>`,
+   *   `sub:issue.needs_human:<issueId>`
+   */
+  private retireClearedConditions(events: StewardEvent[]): void {
+    const lastPhaseBySession = new Map<string, StewardEvent>()
+    for (const e of events) {
+      if (e.kind === 'session.phase') lastPhaseBySession.set(e.subject, e)
+    }
+    for (const [sessionId, e] of lastPhaseBySession) {
+      const phase = (e.payload as { phase?: string } | null)?.phase
+      // Settled conditions that claim settle/sessionparent facts are idle and
+      // errored. Any other phase means the session left that condition.
+      if (phase && phase !== 'idle' && phase !== 'errored') {
+        this.retireSessionSettledFacts(sessionId)
+      }
+    }
+
+    for (const e of events) {
+      if (e.kind === 'issue.stage_changed') {
+        const p = e.payload as {
+          from?: string
+          to?: string
+          parentId?: string
+          seq?: number
+        } | null
+        if (p?.from === 'review' && p.to !== 'review') {
+          this.retireIssueReviewFacts(e.subject, p)
+        }
+      } else if (e.kind === 'issue.needs_human_cleared') {
+        const seq = (e.payload as { seq?: number } | null)?.seq
+        this.retireNeedsHumanFacts(e.subject, seq)
+      }
+    }
+  }
+
+  /** Session left idle/errored — free settle + session-parent sticky facts. */
+  private retireSessionSettledFacts(sessionId: string): void {
+    const at = this.now()
+    // Ack-fallback / settle fact (target is usually the session itself).
+    this.arbiter.retireFactKey(`settle:${sessionId}`, at)
+    // POD-907 sticky: exit-after-done silence is per completion cycle; a new
+    // work cycle (left idle) must re-arm exit-without-report detection.
+    this.arbiter.retireFactKey(`sessionparentnudge:phase-reported:${sessionId}`, at)
+    // Prior settle transition instances for this child (event-id suffix).
+    this.arbiter.retireFactKeyPrefix(`sessionparentnudge:settle:${sessionId}:`, at)
+  }
+
+  /** Issue left review — free review parentnudge + stage_changed sub facts. */
+  private retireIssueReviewFacts(
+    issueId: string,
+    p: { parentId?: string; seq?: number },
+  ): void {
+    const at = this.now()
+    if (p.parentId != null && p.seq != null) {
+      this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
+    }
+    this.arbiter.retireFactKey(`sub:issue.stage_changed:review:${issueId}`, at)
+    this.arbiter.retireFactKey(`sub:issue.stage_changed:${issueId}`, at)
+  }
+
+  /** needs_human cleared — free needs_human parentnudge + sub facts. */
+  private retireNeedsHumanFacts(issueId: string, seq: number | undefined): void {
+    const at = this.now()
+    const parentId = this.deps.issues.getMeta(issueId)?.parentId
+    if (parentId != null && seq != null) {
+      this.arbiter.retireFactKey(`parentnudge:needs_human:${parentId}:${seq}`, at)
+    }
+    this.arbiter.retireFactKey(`sub:issue.needs_human:${issueId}`, at)
   }
 
   /**
@@ -598,7 +684,7 @@ export class StewardService {
    * replayed reuses that id (no storm); a genuinely NEW later settle is a new
    * event id and re-fires. Exit-without-report is gated by a sticky
    * `phase-reported` claim set on done/errored so exit-after-done stays silent
-   * (POD-890 will generalize retire-when-clears later).
+   * within one completion cycle; leaving idle retires that sticky (POD-890).
    */
   private handleSessionParentNudge(
     childSessionId: string,
@@ -670,7 +756,6 @@ export class StewardService {
     if (!sub) return
     const parent = this.deps.issues.getMeta(parentId)
     if (!parent) return
-    let posted = false
     let lastChildSeq: number | undefined
     // Sessions that caused an event in this batch already know — the single
     // coalesced nudge excludes all of them (#116). Collected across the whole
@@ -697,12 +782,14 @@ export class StewardService {
       // The marker keeps its colon so replay dedup still matches.
       const excerpt = sub.excerpt(e, child, child ? this.deps.issues.comments(child.id) : [])
       this.deps.issues.addComment(parent.id, 'steward', excerpt ? `${marker} ${excerpt}` : marker)
-      posted = true
     }
-    // Nudge only when something new landed (crash-replayed batches stay silent),
-    // with counts re-read AFTER the comments so a multi-child batch reports the
-    // latest numbers. Same target filter as unblock: no resurrect, no shells.
-    if (!posted || lastChildSeq == null) return
+    // Nudge when this batch had a child event. Comment may already exist from a
+    // prior cycle of the same child (review→out→review / needs_human clear→set)
+    // after condition-clear retired the arbiter fact (POD-890). Crash-replay of
+    // the same transition still dedups via the live claim. Counts re-read AFTER
+    // any new comments so a multi-child batch reports the latest numbers.
+    // Same target filter as unblock: no resurrect, no shells.
+    if (lastChildSeq == null) return
     // Full wire is intentional: the nudge reports derived child completion counts.
     const fresh = this.deps.issues.get(parentId)
     const total = fresh?.childCount ?? 0

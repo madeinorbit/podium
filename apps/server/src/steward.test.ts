@@ -983,6 +983,219 @@ describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
   })
 })
 
+/**
+ * POD-890 / POD-908: retire arbiter facts when the underlying condition clears
+ * so a later genuine edge re-fires without shortening the 24h TTL.
+ */
+describe('StewardService condition-clear fact retirement (POD-890)', () => {
+  it('re-settling after leave-idle re-fires ackfallback (fact retired on leave; TTL unchanged)', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+
+    // First settle → claim settle:s9 + fire once.
+    h.store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    // Still settled (no leave): same-condition re-tick must NOT re-fire, and
+    // the fact remains live well before the 24h TTL ceiling.
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+    // A concurrent producer still loses while the fact is live (TTL not shortened).
+    expect(
+      h.arbiter.claim('settle:s9', 's9', { source: 'daemon.stop-hook' }),
+    ).toBe(false)
+
+    // Leave idle (working) → condition-clear retires settle:s9 (not TTL expiry).
+    h.store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+
+    // Second genuine settle → re-fires.
+    h.store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(2)
+  })
+
+  it('review→out→review re-fires the review parentnudge', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review')
+
+    // Enter review → first parentnudge.
+    issues.update(c1.id, { stage: 'review' })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('moved to review')
+
+    // Leave review (condition clear) without closing.
+    issues.update(c1.id, { stage: 'in_progress' })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Re-enter review → must re-fire (fact was retired on leave).
+    issues.update(c1.id, { stage: 'review' })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('plive')
+    expect((sendTextWhenReady.mock.calls[1] as [string, string])[1]).toContain('moved to review')
+  })
+
+  it('flapping within the same condition still dedups (no over-fire)', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+
+    // Two settle events in one poll (rapid re-tick / dual producer shape).
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    // Cursor rewind: still the same settled condition — no leave-idle — no re-fire.
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    // Review path: re-process the same review transition without leaving review.
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const rev = harness({ sessions })
+    const parent = rev.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    rev.issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = rev.issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    rev.issues.update(c1.id, { stage: 'review' })
+    await rev.steward.tick()
+    expect(rev.sendTextWhenReady).toHaveBeenCalledTimes(1)
+    rev.store.events.setStewardState('cursor', '0')
+    await rev.steward.tick()
+    expect(rev.sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves POD-907 exit-after-done silence within one completion cycle', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Exit in the SAME completion cycle (no leave-idle) stays silent.
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 0, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // A NEW work cycle: leave idle, settle again, exit after that settle —
+    // leave-idle retires phase-reported so exit-after-done silence re-arms for
+    // the new cycle (settle re-fires via event id; exit still suppressed).
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    store.events.appendEvent({
+      ts: 't4',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 0, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+  })
+
+  it('needs_human clear→set re-fires the needs_human parentnudge', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+
+    issues.setNeedsHuman(c1.id, 'which database?')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    issues.clearNeedsHuman(c1.id)
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    issues.setNeedsHuman(c1.id, 'which database again?')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('sessionSpawnerParentId', () => {
   it('extracts a session parent id and rejects other provenance', () => {
     expect(sessionSpawnerParentId('session:parent-1')).toBe('parent-1')
