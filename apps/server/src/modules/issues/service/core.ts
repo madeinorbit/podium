@@ -5,6 +5,20 @@ import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../iss
 import type { IssueRow } from '../../../store'
 import type { IssueDeps } from './types'
 
+// Member-session fields that DON'T feed issue wire data [POD-723] — the same
+// denylist modules/sessions applies (POD-722). IssueWire.sessions embeds each
+// SessionMeta verbatim, so a member's clientCount/controllerId/epoch change must
+// NOT invalidate the cached wire: it never surfaces as issue member state, and
+// the session broadcast already skips its own publish for that churn (POD-722).
+const NON_ISSUE_MEMBER_FIELDS = ['clientCount', 'controllerId', 'epoch'] as const
+
+/** Issue-relevant fingerprint of one member session, for the wire memo key. */
+function memberSessionFingerprint(s: SessionMeta): string {
+  const proj: Record<string, unknown> = { ...s }
+  for (const f of NON_ISSUE_MEMBER_FIELDS) delete proj[f]
+  return JSON.stringify(proj)
+}
+
 /**
  * IssueService layer 0 — shared state and primitives (issue #190 split).
  *
@@ -20,6 +34,29 @@ export abstract class IssueServiceCore {
    *  everything else lazily hydrates on first touch). */
   private hydrated: Map<string, IssueRow> | null = null
   constructor(protected readonly deps: IssueDeps) {}
+
+  // Dirty-scoped issue wire rebuild [POD-723]. One built IssueWire per issue,
+  // keyed by a fingerprint of that issue's OWN toWire inputs. On a session-driven
+  // publish (the O(issues×sessions) publishIssues path POD-701 measured), no issue
+  // row/label/dep/comment changed, so `issueInputsGen` is stable and only issues
+  // whose member sessions moved rebuild — everything else reuses its cached
+  // payload, skipping toWire's per-issue store queries + O(issues) children scan.
+  // Interim until POD-308 deletes the snapshot fan-out.
+  private readonly wireCache = new Map<string, { key: string; wire: IssueWire }>()
+  // Bumped on EVERY issue-side input change (row upsert, labels, deps, comments,
+  // read state, hierarchy, archive, delete). Coarse by design: any issue mutation
+  // invalidates the whole memo — that path already rebuilds the full list and is
+  // not the hot one. It is NEVER bumped by the session-driven publish, which is
+  // exactly where the memo pays off. Cross-issue derived ripples (a close flipping
+  // dependents' blocked/ready) are covered because the mutation that caused them
+  // bumps this counter, invalidating the affected rows' cache too.
+  private issueInputsGen = 0
+
+  /** Signal that some issue-side input feeding {@link toWire} changed, so cached
+   *  wire payloads must be rebuilt on the next list() [POD-723]. */
+  protected bumpIssueInputs(): void {
+    this.issueInputsGen++
+  }
 
   /** The in-memory row map, lazily hydrated. Row-level quarantine lives in the
    *  store (listIssueRows skips + logs + counts corrupt rows), so hydration is
@@ -46,6 +83,11 @@ export abstract class IssueServiceCore {
     const map = new Map<string, IssueRow>()
     for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
+    // Wholesale row replacement invalidates every cached wire, and dropping the
+    // map also prunes entries for purged issues (bounds memory to live issues)
+    // [POD-723].
+    this.wireCache.clear()
+    this.bumpIssueInputs()
   }
 
   /** Worktree paths of all issues (for cwd-based worker-role resolution). */
@@ -205,6 +247,22 @@ export abstract class IssueServiceCore {
   list(repoPath?: string): IssueWire[] {
     const sessionList = this.deps.listSessions()
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
+    // POD-723 memo inputs, computed ONCE per list() so the per-issue key stays
+    // cheap. Each session is projected to its issue-relevant slice (the same trio
+    // POD-722 ignores is dropped, so pure attach/detach churn can't force a
+    // rebuild). Prefixes feed displayRef and change out-of-band of any issue
+    // mutation, so they ride the key too — resolved once per repoPath (few repos).
+    const projById = new Map<string, string>()
+    for (const s of sessionList) projById.set(s.sessionId, memberSessionFingerprint(s))
+    const prefixByPath = new Map<string, string>()
+    const prefixFor = (p: string): string => {
+      let v = prefixByPath.get(p)
+      if (v === undefined) {
+        v = this.deps.store.repos.prefixForPath(p) ?? ''
+        prefixByPath.set(p, v)
+      }
+      return v
+    }
     return [...this.rows.values()]
       .filter((r) => this.inRepoScope(r, repoPath))
       .sort((a, b) => {
@@ -214,7 +272,31 @@ export abstract class IssueServiceCore {
         const gb = b.repoId ?? b.repoPath
         return ga === gb ? a.seq - b.seq : ga.localeCompare(gb)
       })
-      .map((r) => this.toWire(r, sessionList, commentCounts))
+      .map((r) => this.toWireMemo(r, sessionList, commentCounts, projById, prefixFor(r.repoPath)))
+  }
+
+  /** Cached {@link toWire} for the multi-issue list path [POD-723]. Reuses the last
+   *  built payload when this issue's own inputs (issueInputsGen + its member
+   *  sessions' issue-relevant projections + its repo prefix) are unchanged; only
+   *  the dirty issues pay the full per-issue store-query rebuild. Single-issue
+   *  toWire callers deliberately bypass this — they always want a fresh build. */
+  private toWireMemo(
+    row: IssueRow,
+    sessionList: SessionMeta[],
+    commentCounts: Map<string, number>,
+    projById: Map<string, string>,
+    prefix: string,
+  ): IssueWire {
+    const members = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
+    // sessionList order is stable, so the joined projection is a stable per-issue
+    // membership fingerprint (captures joins/leaves AND any member field change).
+    const memberKey = members.map((s) => projById.get(s.sessionId) ?? '').join('\u0001')
+    const key = `${this.issueInputsGen}\u0000${prefix}\u0000${memberKey}`
+    const cached = this.wireCache.get(row.id)
+    if (cached && cached.key === key) return cached.wire
+    const wire = this.toWire(row, sessionList, commentCounts)
+    this.wireCache.set(row.id, { key, wire })
+    return wire
   }
 
   /** Parse the stored panel JSON, tolerating legacy/garbage values (empty panel). */
@@ -372,6 +454,9 @@ export abstract class IssueServiceCore {
       if (backup) Object.assign(row, backup)
       throw err
     }
+    // The commit changed an issue-side input feeding toWire (row / label / dep /
+    // comment via extraWrite, or read state) — invalidate the wire memo [POD-723].
+    this.bumpIssueInputs()
     // Install into the map only AFTER the commit succeeded (#247): a throw in
     // the transact span (write or change append) rolls the durable state back,
     // and the map must not keep a row the store never accepted — a phantom row
@@ -396,6 +481,11 @@ export abstract class IssueServiceCore {
    *  snapshot carries (local ∪ hub-mirrored, unioned by the publisher), so the
    *  change log records exactly what legacy clients see. */
   protected broadcastList(): void {
+    // Cross-issue derived ripples (a close flipping dependents' blocked/ready,
+    // a re-parent moving childCount) change OTHER rows' wire output without a
+    // write on them — bump BEFORE allWire so the memo rebuilds every row against
+    // the new generation and no ripple is served from stale cache [POD-723].
+    this.bumpIssueInputs()
     const spec = this.deps.publishSpecs.issuesChanged(this.allWire())
     this.deps.ledger.reconcile('issue', spec.rows)
     this.deps.funnel.publishComputed(spec.snapshot)
