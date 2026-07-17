@@ -27,6 +27,6 @@
   "dependencies": {
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^4.4.3"
   }
 }
