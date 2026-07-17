@@ -427,6 +427,12 @@ export class MessageDeliveryService {
 
     let target: SessionMeta | undefined
     if (message.toKind === 'session') {
+      // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): a message must never be
+      // surfaced back to the session that sent it (the POD-279 15× self-echo
+      // loop). A session-addressed self-send has no other recipient — ledger-only.
+      if (message.fromSession && message.toId === message.fromSession) {
+        return this.suppressSelf(message)
+      }
       target = all.find((s) => s.sessionId === message.toId)
       if (!target) return { ok: false, reason: 'unknown session' }
     } else {
@@ -435,7 +441,12 @@ export class MessageDeliveryService {
       // toWire — the second per-row O(sessions) cost hiding behind the first.
       const issue = this.deps.issues().get(message.toId ?? '', all)
       if (!issue) return { ok: false, reason: 'unknown issue' }
-      const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
+      const allMembers = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
+      // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): exclude the sender's own
+      // session from issue-recipient resolution, so an agent mailing its own
+      // issue never picks itself. selectMailNudgeSession picks the single live
+      // idle member, which would otherwise BE the sender.
+      const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
       const live = selectMailNudgeSession(members)
       target = live
         ? members.find((s) => s.sessionId === live.sessionId)
@@ -445,6 +456,12 @@ export class MessageDeliveryService {
             .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
             .at(0)
       if (!target) {
+        // The sender was the only member: ledger-only, not queued — otherwise
+        // it lingers and the stop-hook nags the sender about its own note. It
+        // must also never spawn a fresh agent to receive the sender's own mail.
+        if (message.fromSession && allMembers.some((s) => s.sessionId === message.fromSession)) {
+          return this.suppressSelf(message)
+        }
         if (message.lifecycle === 'wake') return this.trySpawn(message, message.toId)
         return { ok: true, queued: true }
       }
@@ -601,8 +618,14 @@ export class MessageDeliveryService {
   /** Deliver a pending batch into an idle session. Inline rows go FIFO; fyi
    *  issue-addressed rows past one coalesce into a single pointer
    *  ("N messages from X, Y — run 'podium issue mail inbox'"). */
-  private deliverBatch(session: SessionMeta, rows: MessageRow[]): void {
+  private deliverBatch(session: SessionMeta, batch: MessageRow[]): void {
     const sessions = this.deps.sessions()
+    // Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): the idle drain pulls this
+    // session's issue-pending rows, which can include a note it sent to its own
+    // issue while another member was busy — never deliver those back to the
+    // sender. They stay queued for their real recipient's own idle drain.
+    const rows = batch.filter((m) => m.fromSession !== session.sessionId)
+    if (rows.length === 0) return
     const pointerRows = rows.filter(
       (m) => m.toKind === 'issue' && (m.urgency === 'fyi' || m.body.length > INLINE_BODY_MAX),
     )
@@ -1102,6 +1125,27 @@ export class MessageDeliveryService {
         'message.delivered',
       )
     }
+  }
+
+  /** Self-delivery suppression [spec:SP-a4ba] (§09-H, POD-836): a message whose only resolved
+   *  recipient is its own sender is consumed straight to the ledger —
+   *  delivered-to-nobody, legacy mirror marked read — so it never re-surfaces
+   *  via the sweep or the stop-hook, while the row stays visible in inbox
+   *  history. "The sender already knows it sent it." */
+  private suppressSelf(message: MessageRow): { ok: boolean; queued: boolean } {
+    const at = this.deps.now()
+    if (this.deps.messages.markDelivered(message.id, null, at)) {
+      if (message.toKind === 'issue' && message.toId) {
+        try {
+          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
+        } catch {}
+      }
+      this.emitTransition(
+        { ...message, status: 'delivered', deliveredAt: at, deliveredTo: null },
+        'message.self_suppressed',
+      )
+    }
+    return { ok: true, queued: false }
   }
 
   private legacyAuthor(from: MessageSender): string {

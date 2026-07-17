@@ -385,6 +385,80 @@ describe('MessageDeliveryService.send', () => {
   })
 })
 
+describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
+  it('an agent mailing its own issue never gets its own message back', () => {
+    // s1 is the sole member of ISSUE and also the sender: the POD-279 self-echo.
+    const { svc, sent, queued, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'status to self' },
+    )
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(0)
+    // Ledger-only: consumed (never queued), so no stop-hook / sweep re-surfaces it.
+    expect(r.message.status).toBe('delivered')
+    expect(r.message.deliveredTo).toBeNull()
+    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    // …and the legacy mirror is marked read so mailPending stops nagging too.
+    expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
+    // Observable as a distinct ledger transition, not a real delivery.
+    const kinds = store.events
+      .listEventsSince(0)
+      .filter((e) => e.subject === r.message.id)
+      .map((e) => e.kind)
+    expect(kinds).toContain('message.self_suppressed')
+  })
+
+  it('a message to an issue with OTHER sessions still reaches them, skipping the sender', () => {
+    // s1 = sender, s2 = another idle member of ISSUE. Delivery goes to s2 only.
+    const sender = session({ sessionId: 's1', lastActiveAt: 't9' })
+    const other = session({ sessionId: 's2', lastActiveAt: 't1' })
+    const { svc, sent } = harness([sender, other])
+    const r = svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'team note' },
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.sessionId).toBe('s2')
+    expect(r.message.status).toBe('delivered')
+    expect(r.message.deliveredTo).toBe('s2')
+  })
+
+  it('the idle drain never delivers a queued issue message back to its own sender', () => {
+    // Both members busy at send → the row holds queued for the turn boundary.
+    const sender = session({ sessionId: 's1', agentState: WORKING, lastActiveAt: 't1' })
+    const other = session({ sessionId: 's2', agentState: WORKING, lastActiveAt: 't9' })
+    const { svc, sent, store } = harness([sender, other])
+    const r = svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'held note', urgency: 'next-turn' },
+    )
+    expect(r.message.status).toBe('queued')
+    // The SENDER goes idle first: it must not receive its own message.
+    svc.onSessionIdle(session({ sessionId: 's1', issueId: ISSUE.id }))
+    expect(sent).toHaveLength(0)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // The other member goes idle: it gets the note.
+    svc.onSessionIdle(session({ sessionId: 's2', issueId: ISSUE.id }))
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.sessionId).toBe('s2')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('an agent addressing its own session id is ledger-only, never echoed', () => {
+    const { svc, sent, queued, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { to: { kind: 'session', id: 's1' }, body: 'note to self' },
+    )
+    expect(sent).toHaveLength(0)
+    expect(queued).toHaveLength(0)
+    expect(r.message.status).toBe('delivered')
+    expect(r.message.deliveredTo).toBeNull()
+    expect(store.messages.pendingFor({ kind: 'session', id: 's1' })).toHaveLength(0)
+  })
+})
+
 describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => {
   it('idle target: every urgency injects now via sendText', () => {
     for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
