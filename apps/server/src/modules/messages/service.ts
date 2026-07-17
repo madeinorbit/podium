@@ -653,8 +653,10 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
-    if (this.deliveryMode(message) === 'unwrapped') {
-      // No envelope id → no echo will ever come; the injection IS the delivery.
+    if (this.confirmedOnInjection(message)) {
+      // No echo will ever come (unwrapped operator body has no id), or chasing one
+      // is pure loop risk (a best-effort ack/notification) — the injection IS the
+      // delivery [POD-834, POD-853].
       this.markDelivered(message, sessionId)
     } else {
       // Enveloped (echo) or a coalesced pointer (read): record the push and wait
@@ -856,10 +858,11 @@ export class MessageDeliveryService {
   }
 
   /** Record an INLINE push whose body (and id) went into the transcript: an
-   *  unwrapped operator body can never echo, so it is confirmed now; everything
-   *  else is injected and awaits its echo [POD-834]. */
+   *  unwrapped operator body can never echo and a best-effort ack/notification is
+   *  never chased, so both are confirmed now; everything else is injected and
+   *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
   private recordPush(message: MessageRow, sessionId: string): void {
-    if (this.deliveryMode(message) === 'unwrapped') this.markDelivered(message, sessionId)
+    if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId)
     else this.markInjected(message, sessionId)
   }
 
@@ -1381,6 +1384,25 @@ export class MessageDeliveryService {
     }
     if (message.fromKind === 'operator' && message.kind !== 'question') return 'unwrapped'
     return 'echo'
+  }
+
+  /** A message whose push into the PTY is itself the confirmation — no transcript
+   *  echo is awaited and the sweep never re-injects it [POD-853]. Two cases: an
+   *  unwrapped operator body (no id to echo), and a best-effort ack/notification.
+   *  Pointer/pull-path rows are NOT confirmed on injection (an inbox read confirms
+   *  those), so best-effort applies only to inline echo-mode rows. */
+  private confirmedOnInjection(message: MessageRow): boolean {
+    const mode = this.deliveryMode(message)
+    return mode === 'unwrapped' || (mode === 'echo' && this.isBestEffort(message))
+  }
+
+  /** Fire-and-forget kinds [POD-853, spec:SP-34d7 acks & notifications]: an ack is
+   *  never itself acked and its ack-confirms-original side effect fires at send
+   *  time regardless; a steward/subscription notification never expects an ack.
+   *  Chasing their transcript echo only risks the mid-turn re-inject loop, so they
+   *  are delivered once (injection = confirmation) and never auto-requeued. */
+  private isBestEffort(message: MessageRow): boolean {
+    return message.kind === 'ack' || message.kind === 'notification'
   }
 
   /** Record a push toward a live PTY without claiming the agent saw it: stamps

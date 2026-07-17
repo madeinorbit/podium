@@ -2196,3 +2196,71 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect(store.messages.getMessage(c)!.status).toBe('delivered')
   })
 })
+
+describe('best-effort acks/notifications [POD-853]', () => {
+  it('an echo-mode ack is delivered on first injection, not left queued for its own echo', () => {
+    const { svc, store } = harness([
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+    ])
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
+    )
+    // s1 acks it → the ack is addressed back to the live, idle session sX.
+    const ack = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'done' },
+    )
+    // An ack is never itself acked and ack-confirms-original does not apply to it,
+    // so chasing its echo is pure loop risk — injection IS its delivery.
+    expect(store.messages.getMessage(ack.message.id)!.status).toBe('delivered')
+    expect(store.messages.getMessage(ack.message.id)!.deliveredTo).toBe('sX')
+    // The original is still confirmed delivered by the ack (send-write side effect).
+    expect(store.messages.getMessage(orig.message.id)!.status).toBe('delivered')
+  })
+
+  it('a best-effort ack to a busy recipient delivers at the turn boundary and never re-injects', () => {
+    // The live ack loop: an ack injected mid-turn never echoes, so the sweep
+    // re-injects it forever. Best-effort delivery breaks the loop at the source.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live = [
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b', agentState: WORKING }),
+    ]
+    const { svc, sent, store } = harness(live, { now })
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
+    )
+    const ack = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'done' },
+    )
+    // Busy recipient: the ack is queued, not injected yet.
+    expect(store.messages.getMessage(ack.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(ack.message.id)!.injectedAt).toBeNull()
+    // sX's turn ends → the ack injects and is delivered-once.
+    sent.length = 0
+    svc.onSessionIdle(session({ sessionId: 'sX', cwd: '/wt/b', agentState: IDLE }))
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(ack.message.id)!.status).toBe('delivered')
+    // Past the echo window the sweep must NEVER re-inject it (the unbounded loop).
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(0)
+  })
+
+  it('a regular message is NOT best-effort — it still waits for its echo/turn boundary', () => {
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 's1' }, body: 'a real request', urgency: 'next-turn' },
+    )
+    // Injected, but not yet confirmed — a plain message is not delivered on push.
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+  })
+})
