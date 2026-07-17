@@ -712,15 +712,19 @@ export class MessageDeliveryService {
       // for the agent's own signal (transcript echo → delivered, inbox → read).
       this.markInjected(message, sessionId)
     }
-    // Honest sync disposition [spec:SP-cb9f] [POD-854]: only a confirmed-on-injection
-    // push (unwrapped operator / best-effort ack) is `delivered` at send time —
-    // injection IS its delivery. An enveloped echo (or a pointer nudge) is merely in
-    // the harness input queue, not yet transcript-observed, so it reports `queued`;
-    // the blocking send surface (gate) upgrades it to `delivered` only when the echo
-    // / turn-boundary confirmation lands. A distinguished live-path disposition
-    // (`spawning` — a session was woken) still rides through so the sender learns of it.
-    if (okDisposition === 'spawning') return { ...r, disposition: 'spawning' }
-    return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
+    // Honest sync disposition [spec:SP-cb9f] [POD-854]. The optimistic `delivered`
+    // disposition is only ever passed for a LIVE-PTY push (via 'now' / 'interrupt',
+    // sendText/interruptText) — the bytes are on screen now — so it is honest only
+    // when the push is confirmed-on-injection (unwrapped operator body / best-effort
+    // ack). An enveloped echo is merely in the harness input queue, not yet
+    // transcript-observed, so it downgrades to `queued`; the blocking send surface
+    // upgrades it to `delivered` only when the echo / turn boundary confirms it. A
+    // durable boot-queue push ('queue') keeps its `queued`/`spawning` disposition
+    // untouched — the message rides the resume queue, delivered when the session binds.
+    if (okDisposition === 'delivered') {
+      return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
+    }
+    return { ...r, disposition: okDisposition }
   }
 
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
