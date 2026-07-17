@@ -5,7 +5,7 @@
 - **Deciders:** architecture rewrite ADR pack (POD-359); human sign-off before Phase 1
 - **Issue:** POD-749 (leaf of POD-359 item 3; supersedes the six-ADR scope of POD-354 for this topic)
 - **Consumers:** Phase 1 walking skeleton POD-351; Phase 2 Outbox POD-306 / POD-369–373 / POD-372; Phase 3 command framework POD-311, security POD-315, offline/outbox UX POD-316, secrets split POD-352 (and children POD-418–421)
-- **Related ADRs:** ADR 1 (authority/ownership matrix — conflict rules & secret classification), ADR 2 (sync protocol — mutation identity, transactional entity+cursor+outbox), ADR 4 (representation — optimistic overlay is not a representation role), ADR 5 (peer topology — role-specific auth strategies), ADR 6 (replica storage — outbox durability bounds), ADR 7 (plane inventory — command as control-plane request/reply class), ADR 8 (package topology — `packages/commands` placement)
+- **Related ADRs:** ADR 1 (authority/ownership matrix — conflict rules & secret classification), ADR 2 (sync protocol — mutation identity, feed/receipt horizons, heal-keeps-outbox, `expectedRevision` token), ADR 4 (representation — optimistic overlay is not a representation role), ADR 5 (peer topology — role-specific auth strategies), ADR 6 (replica storage — outbox durability bounds; shared transactional store with cursor/overlay), ADR 7 (plane inventory — command as control-plane request/reply class), ADR 8 (package topology — `packages/commands` placement)
 
 ---
 
@@ -22,8 +22,10 @@ A generic `MutationEnvelope` / `MutationResult` lives in
 yet. The client outbox (`packages/client-core/src/outbox.ts`,
 `docs/spec/outbox-write-path.md`) is a durable FIFO with stable `mutationId`s
 and a partial state model (`queued` plus post-resolution `awaiting-truth`).
-Authority-side idempotency uses `applied_mutations`, pruned at **30 days**
-(`APPLIED_MUTATIONS_MAX_AGE_MS` in `apps/server/src/modules/sessions/service.ts`).
+Authority-side idempotency uses `applied_mutations`, pruned by
+`APPLIED_MUTATIONS_MAX_AGE_MS` in `apps/server/src/modules/sessions/service.ts`
+(currently `30 * 24 * 60 * 60 * 1000` — **feed-side number owned by ADR 2**, not
+restated as a free constant here).
 
 That substrate is incomplete relative to the 2026-07-13 adversarial review
 (POD-279 disposition **findings 7 and 8**):
@@ -52,6 +54,24 @@ command contract. Security is declared on the contract; identity comes only
 from the authenticated transport; offline delivery has a full lifecycle that
 never silently discards user-authored work.**
 
+### Ownership cut with ADR 2 (one number, one owner)
+
+Cross-ADR settlement with POD-748 (ADR 2), so neither ADR re-litigates values:
+
+| Concern | Owner | Where |
+|---|---|---|
+| Outbox states, max entry age, skew margin, inequality **lint** | **ADR 3** | D9–D11 |
+| Change retention (feed) | **ADR 2** | ADR 2 D5 — currently 20k rows / 3 days, whichever deletes more |
+| Receipt retention (`applied_mutations`) | **ADR 2** | ADR 2 D11 — currently `APPLIED_MUTATIONS_MAX_AGE_MS` |
+| **Why** outbox age must stay under receipt retention | **ADR 2** | ADR 2 D11 — past the horizon a replay is a **fresh** command (e.g. double-type into a live PTY on `sessions.sendText`); the shipped "idempotent-ish" shrug in `docs/spec/outbox-write-path.md` is not a property |
+| Heal / re-bootstrap keeps the outbox | **ADR 2** D7, upholding **ADR 3** D9 | discard cache, re-bootstrap, **keep outbox** |
+| `expectedRevision` **token** (what a revision is, who assigns it) | **ADR 2** D3 | authority-assigned per-entity monotonic integer |
+| `expectedRevision` on the **command contract / envelope** | **ADR 3** | D1 / D13 — field name accepted as ADR 2 named it |
+
+Neither ADR restates the other's numbers; both **reference**. Lint that enforces
+the age inequality **imports** the receipt constant (D11) — it does not hard-code
+`30d`.
+
 ### D1 — Contract fields (L1 only)
 
 A command contract is pure data + pure functions. **Handlers do not live at L1**
@@ -72,6 +92,13 @@ Every contract **must** declare:
 | `delivery` | Offline / delivery class (D4). |
 | `redaction` | Sensitive-field metadata for logs, errors, receipts, and UI dumps (D5). |
 | `optimisticReducer?` | Optional pure reducer for replica overlay (D6). |
+
+**Envelope precondition (ADR 1 / ADR 2 delegation):** mutating commands that
+use expected-revision concurrency (which entities: ADR 1) carry
+**`expectedRevision: integer`** on the submit envelope — the name and token
+semantics are ADR 2 D3; this ADR places the field on the command/outbox
+envelope and treats a stale value as an authority **`rejected`** outcome
+surfaced through D9 (never a replica-side drop). See D13.
 
 Optional presentation hints (`cli` positional/summary, docs strings) remain
 non-security fields.
@@ -294,61 +321,87 @@ bold.
    attempt), **discard** → `cancelled`.
 4. Network / unreachable-authority failures stay in `queued` (or return to
    `queued` from `sending`); they are not `rejected`.
+5. **Replica heal / re-bootstrap never drops the outbox** (ADR 2 D7): discard
+   the cache, re-bootstrap, **keep the outbox**. An epoch/feed bump does not
+   invalidate queued commands (a command targets an entity, not a feed
+   position). A stale `expectedRevision` is an authority rejection **surfaced**
+   through this state machine, never a replica-side drop. The sole case where
+   user work is lost is a **genuinely unreadable** outbox store — and that loss
+   must be loud. (Invisible if either ADR is read alone: ADR 6 co-locates
+   entities+cursor+overlay+outbox in one transactional store, so "clear the
+   store" would otherwise eat unsent writes.)
 
 Maps onto today's `MutationResult` kinds: `applied` / `rejected` / `queued`
 (transport). Expand storage to carry the full state enum; `awaiting-truth`
 remains an overlay retention flag under `applied`.
 
-### D10 — Retry and age limits
+### D10 — Retry and age limits (ADR 3 owns these numbers)
 
 | Knob | Decision |
 |---|---|
 | Transient (network) retry | Unlimited attempts until age limit; exponential backoff with cap (implementation default: start 1s, factor 2, cap 60s). No global attempt ceiling that converts user work into silent failure. |
 | Definitive rejection | Zero automatic retries; dead-letter immediately. |
 | Validation poison | Dead-letter (same as rejection); never wedge the partition. |
-| **Default max entry age** | **14 days** from `queuedAt` (`OUTBOX_MAX_AGE_MS`). |
-| Per-command override | May **shorten** age (e.g. lock acquire). May **lengthen** only in the same change that raises receipt retention (D11) so the inequality holds. |
+| **Default max entry age** | **14 days** from `queuedAt` (`OUTBOX_MAX_AGE_MS`). **Sole owner: this ADR** (ADR 2 defers; do not restate 7d or any other value there). |
+| **Skew margin** | `SKEW_MARGIN_MS ≥ 2 days` — clock skew + drain delay buffer in the inequality (D11). |
+| Per-command override | May **shorten** age (e.g. lock acquire). May **lengthen** only in the same change that raises **receipt** retention (ADR 2's number) so the inequality still holds. |
 | Age exceeded | `queued`/`sending` → `expired` → `dead-letter` with reason `max-age`. |
 
-### D11 — Dedupe horizon vs receipt retention
+### D11 — Dedupe horizon vs receipt retention (constraint + outbox side)
 
-Authority receipts live in `applied_mutations` (and successors). Today:
+Authority receipts live in `applied_mutations` (and successors). **Receipt
+retention is owned by ADR 2** — currently the live constant:
 
 ```text
-APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000  // sessions/service.ts
+// apps/server/src/modules/sessions/service.ts
+const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 ```
 
-**Decisions:**
+This ADR does **not** restate "30 days" as an independent decision. It
+**consumes** that constant.
 
-1. **Receipt retention remains 30 days** by default
-   (`RECEIPT_RETENTION_MS = 30d`). This is the Authority dedupe horizon.
-2. **Client outbox max age is 14 days** (D10), strictly less than receipt
-   retention, with an explicit safety margin for clock skew and drain delay:
-   `OUTBOX_MAX_AGE_MS + SKEW_MARGIN_MS < RECEIPT_RETENTION_MS` (lint / unit
-   invariant; suggested `SKEW_MARGIN_MS ≥ 2d`).
-3. **Never re-mint `mutationId` while a receipt might still exist.** After
+**Decisions (outbox side + lint shape):**
+
+1. **Client outbox max age is 14 days** (D10), with `SKEW_MARGIN_MS ≥ 2d`.
+2. **Inequality (correctness rule — reason owned by ADR 2 D11):**
+   ```text
+   OUTBOX_MAX_AGE_MS + SKEW_MARGIN_MS < RECEIPT_RETENTION_MS
+   ```
+   An entry that outlives its receipt replays as a **fresh** command past the
+   dedupe horizon (not "idempotent-ish": `sessions.sendText` double-types into
+   a live PTY). Expiry at the replica is how we refuse that send.
+3. **Lint / unit invariant must import the receipt constant**, not hard-code
+   `30d`:
+   - Prefer exporting `APPLIED_MUTATIONS_MAX_AGE_MS` (or a renamed
+     `RECEIPT_RETENTION_MS`) from the module that owns the prune, and
+   - `import { APPLIED_MUTATIONS_MAX_AGE_MS as RECEIPT_RETENTION_MS } from '…'`
+     in the outbox package's invariant test.
+   - Hard-coding `30 * 24 * …` in the lint is a **comment that fails open** the
+     day someone tunes the service constant (lesson from POD-770: change-
+     retention **spec** promised 14d while **code** ships 3d). Deriving is a
+     guard; copying is drift.
+4. **Never re-mint `mutationId` while a receipt might still exist.** After
    `expired` / `cancelled`, a user re-issue **must** mint a new id.
-4. **Long-offline clients** offline longer than outbox max age: entries expire
+5. **Long-offline clients** offline longer than outbox max age: entries expire
    into dead-letter recovery; the user re-authors. We do **not** keep client
-   queues alive past the receipt horizon to "be nice" — that recreates
-   double-apply risk after prune (finding 8).
-5. If product later needs multi-month offline queues, **raise receipt retention
-   first** (or adopt tombstoned receipt digests) in the same ADR amendment —
-   never invert the inequality.
-6. Replay of an id **inside** the receipt window returns the stored result
+   queues alive past the receipt horizon to "be nice."
+6. If product later needs multi-month offline queues, **raise receipt retention
+   first** (ADR 2 amendment) **then** outbox age (this ADR) in one coordinated
+   change — never invert the inequality by touching only the outbox knob.
+7. Replay of an id **inside** the receipt window returns the stored result
    without re-running (today's `withMutation` / `getAppliedMutation` semantics).
-7. Replay of an id **after** prune is treated as a **new** apply if it ever
+8. Replay of an id **after** prune is treated as a **new** apply if it ever
    reaches the Authority — therefore clients must not send aged ids (enforced
-   by expiry). Domain handlers should still be idempotent-ish where cheap, but
-   security does not rely on that alone.
+   by expiry). Domain-level "idempotent-ish" is not a security property.
 
 **Rejected:**
 
 | Alternative | Why |
 |---|---|
-| Keep 30d receipts and unlimited offline outbox | Double-apply after prune |
-| Extend receipts to "forever" | Unbounded growth; not needed for local topology |
-| Re-mint id automatically on reconnect after long offline | Loses dedupe if the original did apply and receipt still exists; races |
+| Unlimited offline outbox under fixed receipts | Double-apply after prune (ADR 2 D11 hazard) |
+| ADR 2 also naming outbox max age (e.g. 7d) | Two owners → drift; settled: ADR 3 sole owner |
+| Lint hard-codes `30d` beside a separate service constant | Silent failure when the constant moves (POD-770 class) |
+| Re-mint id automatically on reconnect after long offline | Loses dedupe if the original applied and receipt still exists |
 
 ### D12 — Ordering partitions
 
@@ -368,6 +421,27 @@ partitions.
 
 A blocked / dead-lettered entry blocks **only its partition** until recovery
 or cancel.
+
+### D13 — `expectedRevision` on the command envelope
+
+ADR 1 requires mutating commands to carry an expected-revision precondition;
+it delegated the **wire field name** jointly to ADR 2 / ADR 3.
+
+**Accept ADR 2 D3's name and token:** `expectedRevision` (integer), matching
+the authority-assigned per-entity monotonic `revision`. Not `expectedUpdatedAt`
+(clock), not content etag (hash cost, no order).
+
+**This ADR's half:**
+
+1. The field lives on the command submit envelope / outbox entry (alongside
+   `mutationId`, `command`, `input`) for every contract whose ownership-matrix
+   row (ADR 1) uses expected-revision concurrency.
+2. Contracts that use a command-specific rejection/rebase rule instead (ADR 1)
+   omit or ignore it — declared per contract, not guessed.
+3. Stale `expectedRevision` ⇒ Authority returns **`rejected`** (conflict /
+   precondition failed) ⇒ D9 dead-letter recovery with a reason the UI can
+   render. The replica **must not** drop the entry because the feed healed or
+   the epoch bumped (ADR 2 D7 corollary).
 
 ---
 
@@ -397,7 +471,8 @@ or cancel.
 | Envelope | `MutationEnvelope` + `MutationResult` (unused on wire) | Outbox + authority submit path |
 | Authz | `authorize` + `Capability` + `IssueCaller` | Policy D2 + principal D7 + re-auth D8 |
 | Client outbox | `queued` + `awaiting-truth`; poison drop | Full D9 state machine + dead-letter UX (POD-316) |
-| Receipts | 30d prune | Keep 30d; outbox max age 14d (D10–D11) |
+| Receipts | `APPLIED_MUTATIONS_MAX_AGE_MS` prune (30d today) | ADR 2 owns value; ADR 3 imports it into D11 lint; outbox max age 14d + ≥2d skew |
+| Concurrency token | *(none on envelope today)* | `expectedRevision` integer (ADR 2 token; D13 on contract) |
 | Message class | `durable/live/command/bulk` | Migrates to ADR 7 plane-class vocabulary (control/stream/bulk + command message-class); delivery class stays separate (D4) |
 
 ---
@@ -430,7 +505,8 @@ No POD-359 drift item overturns findings 7–8; they remain the core of this ADR
 | Principal / re-auth / scopes / matrix suite | POD-315 | D2, D7, D8; four-transport matrix |
 | Offline classes + dead-letter UX | POD-316 | D4, D9 recovery runtime-verified |
 | Secrets / preferences split | POD-352 | D4 `online-sensitive`, D5, never-queue |
-| Receipt/outbox constants invariant | POD-306 / POD-315 | D10–D11 lint |
+| Receipt/outbox constants invariant | POD-306 / POD-315 | D10–D11 lint **imports** `APPLIED_MUTATIONS_MAX_AGE_MS` |
+| `expectedRevision` on envelope | POD-311 / POD-305 | D13 + ADR 2 D3 |
 
 ---
 
@@ -440,8 +516,8 @@ No POD-359 drift item overturns findings 7–8; they remain the core of this ADR
 
 - One security story for tRPC, CLI, MCP, relay, and offline apply.
 - Offline authoring no longer implies frozen privilege or silent data loss.
-- Clear constants prevent the 30-day receipt prune from double-applying
-  long-offline mutations.
+- Outbox max age + imported receipt constant prevent replay past the dedupe
+  horizon (double-apply / double-type).
 - Phase 3 can audit "no hand-written mutations" and "every contract has
   policy + exposure + delivery + redaction".
 
@@ -471,9 +547,12 @@ Human gate remains on POD-359. This document is accepted when reviewers agree:
 1. Contract field set (D1) is complete for Phase 3 scaffolding.
 2. Default-closed exposure + transport principal + apply-time re-auth are
    non-negotiable.
-3. Outbox state machine (D9) and 14d / 30d horizon split (D10–D11) are the
-   numbers implementers will code.
-4. Drift clauses above match the intended absorption (no silent skips).
+3. Outbox state machine (D9) and **14d outbox max age + ≥2d skew** (D10) are the
+   outbox numbers implementers will code; receipt retention stays ADR 2's, with
+   the inequality lint **importing** the live constant (D11).
+4. `expectedRevision` is the accepted envelope field name (D13).
+5. Drift clauses above match the intended absorption (no silent skips).
+6. Ownership cut with ADR 2 is recorded and not re-opened without both leaves.
 
 Phase issues (POD-311/315/316/306/351/352) must reference **ADR 3** in their
 descriptions when reconciled by POD-359.
