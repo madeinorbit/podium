@@ -16,9 +16,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import type { SessionMeta } from '@podium/protocol'
 import { Archive, Columns2, FileText, Pin, Plus, X } from 'lucide-react'
-import { type JSX, lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
@@ -37,20 +36,17 @@ import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContext
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
-import { type FileTab, useStoreSelector } from './store'
+import { PanelDeck } from './PanelDeck'
+import { composeDeck, type DeckTab } from './panel-deck'
+import { useStoreSelector } from './store'
 import type { WorktreeView } from './types'
 import { fileTabsForWorkspace } from './workspace-tabs'
 
-const FilePanel = lazy(() =>
-  import('@/features/files/FilePanel').then((m) => ({ default: m.FilePanel })),
-)
-
 // A tab in the strip is either an agent/shell session or an open file editor. Both are
 // first-class: same strip, same drag/select/close behaviour. paneA/paneB hold a tab id
-// (sessionId for sessions, the FileTab.id `file:…` for files).
-type WTab =
-  | { id: string; kind: 'session'; session: SessionMeta }
-  | { id: string; kind: 'file'; file: FileTab }
+// (sessionId for sessions, the FileTab.id `file:…` for files). The deck of mounted
+// panels (PanelDeck) spans issue switches; the tab STRIP still shows only these.
+type WTab = DeckTab
 
 const tabName = (t: WTab): string =>
   t.kind === 'file' ? (t.file.path.split('/').pop() ?? t.file.path) : ''
@@ -180,13 +176,23 @@ export function Workspace(): JSX.Element {
       : baseIds
   const allTabs: WTab[] = orderedIds.map((id) => byId.get(id)).filter((t): t is WTab => !!t)
 
-  // Cap how many session panels stay mounted: the active pane(s) plus the most
-  // recently viewed others up to an LRU limit (8 desktop / 3 mobile). Evicted
-  // session tabs render nothing (unmount → dispose → free WebGL/memory); clicking
-  // one re-activates it, re-entering the warm set so it remounts cold.
-  const sessionIds = allTabs.filter((t) => t.kind === 'session').map((t) => t.id)
+  // Warm panels span issue switches [POD-782] [spec:SP-0b2e]: issues are the MAIN
+  // way to own sessions, so the deck of mounted panels is the current workspace's
+  // tabs UNION the most-recently-viewed sessions from previously-viewed issues,
+  // kept warm up to an LRU cap (8 desktop / 3 mobile). Feeding the warm set the
+  // GLOBAL live-session universe (not just this workspace's tabs) is what lets a
+  // foreign session stay in the recency list across the switch instead of being
+  // pruned the moment its issue leaves the strip — so re-selecting it is a warm
+  // reveal (chat:cache-hit), not a cold panel:mount. Sorted so incidental
+  // reordering of the session list doesn't churn the warm-recompute key. Archived
+  // and dock-owned sessions are excluded (a killed session simply leaves
+  // `sessions`), so an archived/killed foreign panel drops from the deck.
+  const knownSessionIds = new Set(
+    sessions.filter((s) => !s.archived && !dockShellIds.has(s.sessionId)).map((s) => s.sessionId),
+  )
+  const warmUniverse = [...knownSessionIds].sort()
   const activeIds = [paneA, split ? paneB : null].filter((x): x is string => x != null)
-  const warm = useWarmSet(sessionIds, activeIds)
+  const warm = useWarmSet(warmUniverse, activeIds)
 
   // Keep pane A pointed at a valid tab.
   useEffect(() => {
@@ -368,44 +374,26 @@ export function Workspace(): JSX.Element {
           </button>
         </div>
       </div>
-      {/* Keep every tab's panel mounted; show only the active pane(s) and hide the
-          rest (display:none). `order` places the split panes A|B regardless of DOM order. */}
+      {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
+          plus the foreign warm sessions carried over from previously-viewed
+          issues — all mounted, only the active pane(s) visible (display:none for
+          the rest). Rendered as one flat keyed list (PanelDeck) so a session that
+          moves between the tab group and the foreign group keeps its component
+          identity — no remount, so re-selecting it is a warm reveal. `order`
+          places the split panes A|B regardless of DOM order. */}
       <div className="flex min-h-0 flex-1">
-        {allTabs.map((t) => {
-          const inA = t.id === paneA
-          const inB = split && t.id === paneB
-          const visible = inA || inB
-          // Evicted (cold) session tabs render nothing — clicking the tab makes it
-          // active → warm → it remounts. The `!visible` guard is load-bearing: the
-          // hook updates `warm` in an effect (one render behind), so a just-activated
-          // pane may not be in `warm` yet — always mount the visible pane regardless,
-          // or it blanks for a frame. File tabs are cheap and always render.
-          if (t.kind === 'session' && !visible && !warm.has(t.id)) return null
-          return (
-            <div
-              key={t.id}
-              className={cn(
-                'min-w-0 flex-1',
-                visible ? 'flex' : 'hidden',
-                split && inB && !inA && 'border-l border-border',
-              )}
-              data-session={t.id}
-              style={visible ? { order: inA ? 0 : 1 } : undefined}
-            >
-              {t.kind === 'session' ? (
-                <AgentPanel sessionId={t.id} active={visible} />
-              ) : (
-                <Suspense fallback={null}>
-                  <FilePanel
-                    scope={t.file.scope}
-                    path={t.file.path}
-                    onClose={() => closeFileTab(t.id)}
-                  />
-                </Suspense>
-              )}
-            </div>
-          )
-        })}
+        <PanelDeck
+          items={composeDeck({
+            tabs: allTabs,
+            warm,
+            knownSessionIds,
+            paneA,
+            paneB,
+            split,
+          })}
+          split={split}
+          onCloseFile={closeFileTab}
+        />
         {!paneA && (
           <div className="flex min-w-0 flex-1" style={{ order: 0 }}>
             <Empty />

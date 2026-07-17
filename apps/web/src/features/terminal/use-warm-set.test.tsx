@@ -49,4 +49,26 @@ describe('useWarmSet', () => {
     expect([...warm].sort()).toEqual(['s10', 's8', 's9'])
     expect(warm.has('s7')).toBe(false)
   })
+
+  it('(c) at desktop capacity (N=8) the 9th distinct session evicts the LRU-oldest', () => {
+    // Force DESKTOP capacity (max-width:768px does NOT match) — the warm cap is 8.
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false })),
+    )
+    // The universe is GLOBAL (every live session id, as Workspace now feeds it) so
+    // recency spans issue switches — the point of POD-782. Activating a 9th distinct
+    // session must evict the least-recently-viewed one, holding the mounted count at 8.
+    const all = Array.from({ length: 9 }, (_, i) => `s${i + 1}`)
+    for (let i = 1; i <= 9; i++) {
+      act(() => {
+        root.render(<P all={all} active={[`s${i}`]} />)
+      })
+    }
+    const warm = new Set(warmAttr().split(',').filter(Boolean))
+    expect(warm.size).toBe(8)
+    // s9 (active) + s8..s2 by recency; s1 (oldest) is evicted.
+    expect(warm.has('s1')).toBe(false)
+    expect([...warm].sort()).toEqual(['s2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'])
+  })
 })
