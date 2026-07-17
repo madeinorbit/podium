@@ -592,10 +592,13 @@ export class StewardService {
    * handleParentNudge, which is ISSUE-parent oriented and deliberately does NOT
    * resurrect parked sessions.
    *
-   * Dedup: one shared settle fact per child→parent (`sessionparentnudge:settle:
-   * <childId>` → parent). First terminal signal wins (done, errored, or exited);
-   * re-fire and later exit-after-done do not storm. Automated notice yields to a
-   * prior human/agent claim on the same (fact, target) via the arbiter.
+   * Dedup (mirrors handleParentNudge's `…:${lastChildSeq}` transition instance):
+   * fact key is `sessionparentnudge:settle:<childId>:<eventId>` — the durable
+   * podium_events id of the triggering event. Same settle re-ticked / crash-
+   * replayed reuses that id (no storm); a genuinely NEW later settle is a new
+   * event id and re-fires. Exit-without-report is gated by a sticky
+   * `phase-reported` claim set on done/errored so exit-after-done stays silent
+   * (POD-890 will generalize retire-when-clears later).
    */
   private handleSessionParentNudge(
     childSessionId: string,
@@ -604,13 +607,14 @@ export class StewardService {
   ): void {
     const sub = SESSION_PARENT_SUBS[group]
     if (!sub) return
+    const last = batch[batch.length - 1]
+    if (!last) return
     const sessions = this.deps.listSessions()
     const child = sessions.find((s) => s.sessionId === childSessionId)
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
     const spawnedBy =
-      child?.spawnedBy ??
-      (batch[batch.length - 1]?.payload as { spawnedBy?: string } | null)?.spawnedBy
+      child?.spawnedBy ?? (last.payload as { spawnedBy?: string } | null)?.spawnedBy
     const parentId = sessionSpawnerParentId(spawnedBy)
     if (!parentId) return
     // Never self-wake (a mis-tagged spawnedBy).
@@ -620,16 +624,28 @@ export class StewardService {
     // Unknown / fully deleted parent: nothing to wake.
     if (!parent) return
     if (parent.agentKind === 'shell') return
-    // Shared settle fact across done/errored/exited — exit-without-report only
-    // wakes when no prior settle already notified this parent for this child.
-    const factKey = `sessionparentnudge:settle:${childSessionId}`
-    if (
-      !this.arbiter.claim(factKey, parentId, {
-        source: `steward.session-parent-nudge:${group}`,
-        issueId: parent.issueId ?? child?.issueId ?? undefined,
-      })
-    ) {
-      return
+    const claimOpts = {
+      source: `steward.session-parent-nudge:${group}`,
+      issueId: parent.issueId ?? child?.issueId ?? undefined,
+    }
+    // Transition-instance: durable event id. New settle → new id → re-fires;
+    // same-event re-tick / crash-replay → same id → dedups.
+    const factKey = `sessionparentnudge:settle:${childSessionId}:${last.id}`
+    if (!this.arbiter.claim(factKey, parentId, claimOpts)) return
+    // Exit-without-report: only wake when no prior done/errored reported this
+    // child to the parent. done/errored claim the sticky; exit probes it.
+    if (group === 'exited') {
+      if (
+        !this.arbiter.claim(`sessionparentnudge:phase-reported:${childSessionId}`, parentId, {
+          ...claimOpts,
+          source: 'steward.session-parent-nudge:exited-probe',
+        })
+      ) {
+        return
+      }
+    } else {
+      // Best-effort sticky — ignore failure if already held from an earlier settle.
+      this.arbiter.claim(`sessionparentnudge:phase-reported:${childSessionId}`, parentId, claimOpts)
     }
     const rawLabel = child?.name || child?.title || childSessionId
     const label = firstLineCapped(rawLabel) || childSessionId
