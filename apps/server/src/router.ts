@@ -1123,11 +1123,22 @@ export const appRouter = t.router({
     // repo paths + shallow walks around known repos; `deep` adds the bounded $HOME
     // sweep. Origin matches are auto-registered; the rest come back as candidates.
     scanMachine: t.procedure
-      .input(z.object({ machineId: z.string(), deep: z.boolean().optional() }))
+      .input(
+        z.object({
+          machineId: z.string(),
+          deep: z.boolean().optional(),
+          // The folder the user is browsing — scanned as an extra root ("scan
+          // here", POD-855) [spec:SP-5eb6] alongside the always-on known-repo tiers.
+          atPath: z.string().optional(),
+        }),
+      )
       .mutation(({ ctx, input }) => {
         if (!ctx.discovery)
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
-        return ctx.discovery.scan(input.machineId, { deep: input.deep ?? true })
+        return ctx.discovery.scan(input.machineId, {
+          deep: input.deep ?? true,
+          ...(input.atPath === undefined ? {} : { atPath: input.atPath }),
+        })
       }),
     // Most recent finished discovery for a machine (e.g. the automatic connect scan),
     // so the picker can show results without re-scanning.

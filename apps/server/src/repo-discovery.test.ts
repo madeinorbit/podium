@@ -218,6 +218,44 @@ describe('MachineRepoDiscovery.scan', () => {
     expect(svc.lastResult('mac')).toBe(result)
   })
 
+  it('scans the browsed folder first when atPath is given (POD-855 "scan here")', async () => {
+    const scanRepos = vi.fn(
+      async (
+        roots: string[],
+        _opts: { includeHome?: boolean; maxDepth?: number },
+        _machineId: string,
+      ): Promise<ScanReposResult> => {
+        if (roots.includes('/Users/mike/projects/app'))
+          return scanResult([
+            { path: '/Users/mike/projects/app', originUrl: 'git@github.com:o/app.git' },
+          ])
+        return scanResult([])
+      },
+    )
+    const { svc } = makeService({ listRepos: () => [], scanRepos })
+
+    const result = await svc.scan('mac', { deep: false, atPath: '/Users/mike/projects/app' })
+
+    // T0 (the browsed folder) is the FIRST scan root, walked at folder-scan depth.
+    expect(scanRepos.mock.calls[0]?.[0]).toEqual(['/Users/mike/projects/app'])
+    expect(scanRepos.mock.calls[0]?.[1]).toMatchObject({ includeHome: false, maxDepth: 6 })
+    expect(result.repos.map((r) => r.path)).toContain('/Users/mike/projects/app')
+  })
+
+  it('does not coalesce scans of different folders', async () => {
+    let resolveScan: (r: ScanReposResult) => void = () => {}
+    const gate = new Promise<ScanReposResult>((r) => {
+      resolveScan = r
+    })
+    const { svc } = makeService({ listRepos: () => [], scanRepos: () => gate })
+
+    const a = svc.scan('mac', { deep: false, atPath: '/a' })
+    const b = svc.scan('mac', { deep: false, atPath: '/b' })
+    expect(b).not.toBe(a) // different folders → independent scans, not a shared result
+    resolveScan(scanResult([]))
+    await Promise.all([a, b])
+  })
+
   it('never fires the connect trigger for the local machine and throttles repeats', () => {
     vi.useFakeTimers()
     try {
