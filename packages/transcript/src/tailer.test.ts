@@ -5,7 +5,7 @@ import type { TranscriptItem } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec'
 import { fileIdFor } from './file-chain'
-import { tailTranscript } from './tailer'
+import { type TranscriptTailOptions, tailTranscript } from './tailer'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-tailer-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -53,14 +53,14 @@ const textsOf = (emissions: Emission[]): string[] => itemsOf(emissions).map((i) 
 /** Drive a tailer's poll deterministically: each `tick()` waits a hair longer
  *  than `pollMs` so exactly one `readNew` completes, then returns the emissions
  *  captured since the last tick. Mirrors the existing `opts.pollMs` test seam. */
-function makeTailHarness(path: string, pollMs = 10) {
+function makeTailHarness(path: string, pollMs = 10, opts: TranscriptTailOptions = {}) {
   const emissions: Emission[] = []
   const tailer = tailTranscript(
     path,
     (items, meta) => {
       emissions.push({ items, reset: meta.reset, tail: meta.tail })
     },
-    { pollMs },
+    { pollMs, ...opts },
   )
   let drained = 0
   const tick = async (): Promise<Emission[]> => {
@@ -151,26 +151,49 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
   it('caps a truncation/replacement re-read at the tail window instead of re-reading the whole file', async () => {
     // POD-601: the truncation path re-read the REPLACEMENT from byte 0 — an
     // uncapped one-shot allocation spike when the new file is huge. It must seek
-    // to the same bounded TAIL_BYTES window the first read uses (reset=true, the
-    // leading partial line at the seek point dropped).
+    // to the same bounded window the first read uses (reset=true, the leading
+    // partial line at the seek point dropped).
+    //
+    // The window is scaled down through the `initialWindowBytes` seam rather than
+    // left at the 16MB TAIL_BYTES default. Same code path either way
+    // (`windowBytes = opts.initialWindowBytes ?? TAIL_BYTES`), but the default
+    // needs a 35MB fixture plus a 17MB JSON.parse, which blew the lane's 20s
+    // timeout whenever CI was contended (POD-757). What this gives up is thin —
+    // the 16MB default is a constant, and the capping logic below is what POD-601
+    // actually regressed.
     const path = join(dir, 'tail-truncate-cap.jsonl')
-    // Initial file: ~18MB of blank lines (no items) so the tail is fully consumed
-    // past the replacement's size, which is what makes the swap read as truncation.
-    writeFileSync(path, '\n'.repeat(18 * 1024 * 1024))
+    const windowBytes = 512
+    // Initial file: blank lines (no items) so the tail is fully consumed past the
+    // replacement's size, which is what makes the swap read as truncation.
+    const initialBytes = 4 * 1024
+    writeFileSync(path, '\n'.repeat(initialBytes))
 
-    const { tailer, tick } = makeTailHarness(path, 50)
+    // Replacement: one HUGE valid record + a tiny one. The capped re-read seeks
+    // into the huge record, drops its partial fragment, and emits only the tiny
+    // one; the old uncapped behavior emitted BOTH.
+    const huge = userRecord('t-huge', 'x'.repeat(1024))
+    const tiny = userRecord('t-tiny', 'small-after-truncate')
+    const replacementBytes = Buffer.byteLength(`${huge}\n${tiny}\n`, 'utf8')
+    // Three size invariants make the cap OBSERVABLE; assert them, or a later edit
+    // could quietly shrink this into a test that passes without capping anything.
+    // 1. The replacement must exceed the window, else the re-read seeks to 0 and
+    //    a totally uncapped tailer would still emit exactly ['small-after-truncate'].
+    expect(replacementBytes).toBeGreaterThan(windowBytes)
+    // 2. The initial file must exceed the replacement, else the swap never reads
+    //    as a truncation and this exercises the plain-append path instead.
+    expect(initialBytes).toBeGreaterThan(replacementBytes)
+    // 3. The seek point must land INSIDE `huge`, so its fragment is the leading
+    //    partial that gets dropped.
+    expect(replacementBytes - windowBytes).toBeLessThan(Buffer.byteLength(huge, 'utf8'))
+
+    const { tailer, tick } = makeTailHarness(path, 10, { initialWindowBytes: windowBytes })
     try {
-      // Drain the initial (reset) read; retry until the big first scan settles.
+      // Drain the initial (reset) read.
       for (let i = 0; i < 40; i++) {
         const got = await tick()
         if (got.some((e) => e.reset)) break
       }
 
-      // Replace with ~17MB: one HUGE valid record + a tiny one. The capped re-read
-      // seeks past most of the huge record, drops its partial fragment, and emits
-      // only the tiny record; the old uncapped behavior emitted BOTH.
-      const huge = userRecord('t-huge', 'x'.repeat(17 * 1024 * 1024))
-      const tiny = userRecord('t-tiny', 'small-after-truncate')
       writeFileSync(path, `${huge}\n${tiny}\n`)
 
       const emissions: Emission[] = []
@@ -180,8 +203,7 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
       }
       const reset = emissions.find((e) => e.reset)
       expect(reset).toBeDefined()
-      const texts = emissions.flatMap((e) => e.items).map((i) => i.text)
-      expect(texts).toEqual(['small-after-truncate'])
+      expect(textsOf(emissions)).toEqual(['small-after-truncate'])
     } finally {
       tailer.stop()
     }
