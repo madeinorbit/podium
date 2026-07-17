@@ -1,0 +1,39 @@
+{
+  "name": "@podium/model",
+  "version": "0.0.0",
+  "private": true,
+  "description": "L0 semantic vocabulary [ADR 4]: the one authoritative definition of every entity field meaning (name, type, brand, nullability), the branded id family, the R1 durable aggregates, the R4 wire projections, and the one documented store-row/wire mapping pair per entity. Zero-dependency leaf apart from zod — model imports no other @podium package.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  }
+}

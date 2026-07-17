@@ -555,6 +555,7 @@ same commit.**
 
 | Workspace | Layer | Platform | Owns (features) | Transition |
 |---|---|---|---|---|
+| `packages/model` | L0 model | browser-safe | entity-vocabulary, entity-ids, entity-mapping | **created** POD-791 (Issue vocabulary: field groups, R1/R3/R4, one mapping pair); awaits POD-299 folding `packages/domain` in, and the session vocabulary (POD-365) |
 | `packages/domain` | L0 model | browser-safe | entity-predicates, issue-stage, issue-authz, session-dedup, git-identity | → **`packages/model`** (Phase 1 POD-299) |
 | `packages/protocol` | L1 wire | browser-safe | wire-schema, titles | Phase 1 POD-300 moves schemas out; Phase 2 POD-308 wire cutover |
 | `packages/issue-client` | L1 wire | node-only | issue-command-table | → folded into the command registry (Phase 3 POD-311) |

@@ -170,6 +170,19 @@ export interface WorkspaceTags {
  */
 export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   // L0 — model.
+  // The semantic vocabulary [ADR 4]: field schemas, branded ids, R1 aggregates,
+  // R4 projections, and the one store↔wire mapping pair per entity. Browser-safe
+  // and dependency-free apart from zod — L0 imports no other @podium workspace.
+  // ADR 8 D4 records `packages/domain` → `packages/model` as a rename+absorb owned
+  // by POD-299: this package is that rename's destination, standing up ahead of it
+  // so the Issues vertical (POD-790) has a vocabulary to compose from. The two
+  // coexist until POD-299 folds domain's pure predicates in here; their feature
+  // tags stay disjoint meanwhile, which is why none of domain's five is repeated.
+  'packages/model': {
+    layer: 0,
+    platform: 'browser-safe',
+    features: ['entity-vocabulary', 'entity-ids', 'entity-mapping'],
+  },
   'packages/domain': {
     layer: 0,
     platform: 'browser-safe',

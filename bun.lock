@@ -238,6 +238,17 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/model": {
+      "name": "@podium/model",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "^3.24.0",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/protocol": {
       "name": "@podium/protocol",
       "version": "0.0.0",
@@ -1011,6 +1022,8 @@
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
 
     "@podium/mobile": ["@podium/mobile@workspace:apps/mobile"],
+
+    "@podium/model": ["@podium/model@workspace:packages/model"],
 
     "@podium/protocol": ["@podium/protocol@workspace:packages/protocol"],
 

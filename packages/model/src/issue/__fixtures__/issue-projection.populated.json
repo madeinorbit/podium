@@ -1,0 +1,89 @@
+{
+  "id": "iss_2f8a1c",
+  "repoPath": "/home/mgw/src/other/podium",
+  "repoId": "repo_9d4e",
+  "seq": 791,
+  "title": "Issue model vocabulary — \"the\" one definition",
+  "description": "Stand up packages/model and compose the Issue representations from it.",
+  "design": "Field groups → R1 → {R3, R4} by rule, not by hand.",
+  "acceptance": "Round-trips green; no hand-restated field lists.",
+  "notes": "Sibling of POD-792.",
+  "stage": "in_progress",
+  "type": "task",
+  "priority": 2,
+  "pinned": true,
+  "color": "violet",
+  "estimateMin": 240,
+  "worktreePath": "/home/mgw/src/other/podium/.worktrees/issue-790",
+  "branch": "issue/790-issues-vertical-on-new-architecture",
+  "parentBranch": "main",
+  "defaultAgent": "claude",
+  "defaultModel": "auto",
+  "defaultEffort": "xhigh",
+  "machineId": "mach_ludovico",
+  "linearId": "lin_abc123",
+  "linearIdentifier": "",
+  "linearUrl": "https://linear.app/podium/issue/POD-791",
+  "activityNotes": "Scaffolded the package; wrote the field groups.",
+  "notesUpdatedAt": "2026-07-17T09:15:00.000Z",
+  "suggestedStage": "review",
+  "suggestedReason": "Tests are green and the diff is self-contained.",
+  "blockedBy": ["issue/792-issue-feed-revision-and-epoch"],
+  "dependencyNote": "Revision assignment lands with POD-792.",
+  "needsHuman": true,
+  "humanQuestion": "Keep memberSessionIds on the feed, or derive it replica-side?",
+  "humanQuestionOptions": ["Keep it on the feed", "Derive replica-side"],
+  "humanQuestionAskedBy": "sess_7b3e91",
+  "humanQuestionAskedAt": "2026-07-17T10:02:00.000Z",
+  "panel": {
+    "todos": [
+      {
+        "text": "Field groups",
+        "done": true
+      },
+      {
+        "text": "Golden fixtures",
+        "done": false
+      }
+    ],
+    "artifacts": [
+      {
+        "path": "packages/model/src/issue/wire.ts",
+        "title": "The normalized projection",
+        "addedAt": "2026-07-17T10:30:00.000Z",
+        "artifactId": "art_44f1",
+        "entry": "wire.ts",
+        "files": [
+          {
+            "path": "wire.ts",
+            "size": 4096
+          }
+        ]
+      }
+    ],
+    "deferred": [
+      {
+        "text": "Session vocabulary",
+        "addedAt": "2026-07-17T10:31:00.000Z"
+      }
+    ]
+  },
+  "assignee": "claude",
+  "parentId": "iss_790root",
+  "closedReason": "landed",
+  "supersededBy": "iss_796cut",
+  "duplicateOf": "iss_365land",
+  "prUrl": "https://github.com/podium/podium/pull/791",
+  "dueAt": "2026-07-18T00:00:00.000Z",
+  "deferUntil": "2026-07-19T00:00:00.000Z",
+  "origin": "human",
+  "audience": "agent",
+  "draft": false,
+  "createdAt": "2026-07-17T08:00:00.000Z",
+  "updatedAt": "2026-07-17T10:45:00.000Z",
+  "archived": false,
+  "deletedAt": "2026-07-17T11:00:00.000Z",
+  "readAt": "2026-07-17T10:40:00.000Z",
+  "revision": 17,
+  "memberSessionIds": ["sess_7b3e91", "sess_c40d2a"]
+}
