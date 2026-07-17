@@ -4,7 +4,7 @@ import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
-import { countIssueWireBuild } from '../instrumentation'
+import { countIssueMembershipScan, countIssueWireBuild } from '../instrumentation'
 import { issueProjectionRows, issueRowToProjection } from '../projection'
 import type { PublishSpec } from '../publish'
 import type { IssueDeps } from './types'
@@ -302,6 +302,11 @@ export abstract class IssueServiceCore {
     projById: Map<string, string>,
     prefix: string,
   ): IssueWire {
+    // The D7.2 unit: this issue is being TOUCHED by the list path, and the scan
+    // below filters the whole session list. Counted even on a memo HIT, because
+    // the scan happens either way — that is the point (POD-723 removes the
+    // rebuild, not the O(issues × sessions) scan). See instrumentation.ts.
+    countIssueMembershipScan()
     const members = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
     // sessionList order is stable, so the joined projection is a stable per-issue
     // membership fingerprint (captures joins/leaves AND any member field change).
