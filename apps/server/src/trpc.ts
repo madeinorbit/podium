@@ -2,6 +2,7 @@ import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { Capability } from './issue-authz'
+import { IssueRevisionConflict } from './modules/issues/conflict'
 import type { IssueCaller } from './modules/issues/registry'
 import { perf } from './modules/perf/registry'
 import type { SuperagentService } from './modules/superagent'
@@ -62,7 +63,21 @@ export function issueCaller(ctx: Context): IssueCaller {
   }
 }
 
-const core = initTRPC.context<Context>().create()
+const core = initTRPC.context<Context>().create({
+  /**
+   * Lift a refused expected-revision precondition onto `error.data.conflict`
+   * (ADR 3 D13.3). tRPC drops `cause` on the way out, so without this the
+   * authority's structured rejection — which revision it expected, which it is
+   * actually at — would reach the client only as prose in `message`, and a
+   * client that must rebase would be left parsing English. Additive: every
+   * other error keeps its default shape. Composed at rebase with POD-701's
+   * timing core: one create() call carries both concerns.
+   */
+  errorFormatter({ shape, error }) {
+    if (!(error.cause instanceof IssueRevisionConflict)) return shape
+    return { ...shape, data: { ...shape.data, conflict: error.cause.detail } }
+  },
+})
 
 /** Slow-call visibility [POD-701]: one console.warn when a procedure exceeds
  *  this, throttled per path so a storm can't flood the logs. */

@@ -1,11 +1,14 @@
 import {
+  type CommandConcurrency,
   type CommandDef,
+  CommandEnvelope,
   defineCommands,
   ISSUE_COMMAND_NAMES,
   IssueColor,
   type IssueCommandName,
   IssueStage,
   IssueType,
+  RevisionedCommandEnvelope,
   type SessionMeta,
 } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
@@ -13,6 +16,7 @@ import { z } from 'zod'
 import { authorize, type Capability, checkIssueAccess } from '../../issue-authz'
 import type { IssueProc, IssueTrpc } from '../../issue-client'
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
+import { enforceExpectedRevision } from './conflict'
 import type { IssueService } from './service'
 
 /**
@@ -91,19 +95,26 @@ export type IssueCommandKind = 'query' | 'mutation'
  * subscription*) and all reads. It feeds BOTH the capability guard's subtree
  * check ({@link guardIssueCommand}) and the viaHub forwarding detection
  * ({@link commandTarget}, consumed by modules/issues/upstream.ts).
+ *
+ * The trailing intersection makes `concurrency` REQUIRED on every mutation and
+ * absent on reads, enforced by the type rather than by review: ADR 3 D13.2 says
+ * a command's concurrency rule is "declared per contract, not guessed", and the
+ * only way to keep that true as commands are added is to make the omission not
+ * compile. Same doctrine as `action`/`target` living on the def — a new command
+ * cannot inherit a rule by accident.
  */
-export interface IssueCommandDef<
+export type IssueCommandDef<
   K extends IssueCommandKind = IssueCommandKind,
   In extends z.ZodTypeAny = z.ZodTypeAny,
   Out = unknown,
-> extends CommandDef<In, Out> {
+> = CommandDef<In, Out> & {
   /** tRPC procedure type this command mounts as. */
   kind: K
   /** Target EXISTING-issue id extractor (see interface doc). */
   target?: (input: Record<string, unknown>) => string | undefined
   /** The command body — calls IssueService directly (the logic lives THERE). */
   handler: (ctx: IssueCommandCtx, input: z.infer<In>) => Out
-}
+} & (K extends 'mutation' ? { concurrency: CommandConcurrency } : { concurrency?: never })
 
 /** The generics-erased wildcard shape (what heterogeneous collections of defs
  *  are typed as). Structural rather than `IssueCommandDef<…, any>` so zod's
@@ -113,6 +124,7 @@ export type AnyIssueCommandDef = {
   input: z.ZodTypeAny
   action: CommandDef['action']
   scope?: CommandDef['scope']
+  concurrency?: CommandConcurrency
   cli?: CommandDef['cli']
   target?: (input: Record<string, unknown>) => string | undefined
   // biome-ignore lint/suspicious/noExplicitAny: the wildcard def erases per-command generics on purpose
@@ -132,14 +144,45 @@ function def<K extends IssueCommandKind, In extends z.ZodTypeAny, Out>(
 // ---------------------------------------------------------------------------
 
 const repoScoped = z.object({ repoPath: z.string().optional() })
-const byId = z.object({ id: z.string() })
 const targetId = (i: Record<string, unknown>) => i.id as string
+
+/**
+ * The two mutating-command envelopes (ADR 3 D1 / D13), merged into every
+ * mutation's input schema so `mutationId` — and, on exp-rev rows,
+ * `expectedRevision` — are part of ONE validation source, exactly like the rest
+ * of the input. Both fields are optional: `mutationId` has always been
+ * client-minted and only present when a caller wants dedupe, and
+ * `expectedRevision` is declared ahead of any client that can supply one (see
+ * RevisionedCommandEnvelope).
+ *
+ * `env` = ADR 1's `append` and `cmd` rows · `rev` = its `exp-rev` rows. Which
+ * one a command merges is the schema-level shadow of its `concurrency`
+ * declaration; the registry test asserts the two agree, so a def cannot claim
+ * expected-revision concurrency while omitting the field a caller would send.
+ */
+const env = CommandEnvelope
+const rev = RevisionedCommandEnvelope
+
+const byId = z.object({ id: z.string() })
+/** `{ id }` + the exp-rev envelope — the shape most single-issue writes take. */
+const byIdRev = byId.merge(rev)
+
+/** The ADR 1 `exp-rev` row declaration, spelled once (see {@link CommandConcurrency}). */
+const EXPECTED_REVISION: CommandConcurrency = { kind: 'expected-revision' }
+/** The ADR 1 `append` row declaration (append-only creates + entity births). */
+const APPEND: CommandConcurrency = { kind: 'append' }
+/** An ADR 1 `cmd` / `field-LWW` row: `rule` must say what the rule IS. */
+const cmd = (rule: string): CommandConcurrency => ({ kind: 'command-specific', rule })
 
 /**
  * Per-call execution context handed to every command handler: the caller's
  * authz identity, the IssueService, and the cross-cutting helpers (viaHub write
- * forwarding, withMutation idempotency, mail identity, subscription scoping)
- * that used to be private methods of IssueCommandService.
+ * forwarding, mail identity, subscription scoping) that used to be private
+ * methods of IssueCommandService.
+ *
+ * Idempotency is NOT among them any more: `mutationId` is applied by the
+ * dispatcher around the whole handler ({@link IssueCommandDispatcher.run}), so
+ * a handler neither sees nor can forget it.
  */
 export class IssueCommandCtx {
   constructor(
@@ -159,9 +202,16 @@ export class IssueCommandCtx {
     return this.deps.restoreIssue(id)
   }
 
-  /** Idempotency wrapper bound to this command's wire name (issues.<name>). */
-  withMutation<T>(mutationId: string | undefined, fn: () => T): T {
-    return this.deps.withMutation(mutationId, `issues.${this.name}`, fn)
+  /**
+   * True when this command's target is a hub-mirrored issue, i.e. {@link
+   * issueWrite} will forward it upstream instead of writing locally. THE one
+   * predicate — the dispatcher asks it too (to keep a forwarded write out of the
+   * local receipt cache), and two copies of this branch would be two chances to
+   * drift.
+   */
+  forwardsToHub(input: Record<string, unknown>): boolean {
+    const target = this.targetOf?.(input)
+    return typeof target === 'string' && this.deps.isUpstreamIssue(target)
   }
 
   /**
@@ -175,8 +225,7 @@ export class IssueCommandCtx {
     input: Record<string, unknown>,
     local: () => R,
   ): R | Promise<Awaited<R> | { queued: true }> {
-    const target = this.targetOf?.(input)
-    if (typeof target === 'string' && this.deps.isUpstreamIssue(target)) {
+    if (this.forwardsToHub(input)) {
       if (this.caller.capability.scope.kind !== 'all') {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -513,37 +562,46 @@ const defs = {
   // agent-posted current state (activityNotes) — same nature as panelApply
   setState: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), text: z.string() }),
+    input: z.object({ id: z.string(), text: z.string() }).merge(rev),
     action: 'write',
     scope: 'issue',
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.setState(input.id, input.text)),
   }),
   // agent-published human panel (todos/artifacts/deferred) — part of doing the work
   panelApply: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      op: z.enum([
-        'todo-add',
-        'todo-done',
-        'todo-undone',
-        'todo-remove',
-        'todo-clear',
-        'artifact-add',
-        'artifact-remove',
-        'deferred-add',
-        'deferred-remove',
-      ]),
-      text: z.string().optional(),
-      index: z.number().int().min(1).optional(),
-      path: z.string().optional(),
-      title: z.string().optional(),
-      /** Extra file paths bundled with `path` into one artifact snapshot ([spec:SP-0fc9]). */
-      extraPaths: z.array(z.string()).optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        op: z.enum([
+          'todo-add',
+          'todo-done',
+          'todo-undone',
+          'todo-remove',
+          'todo-clear',
+          'artifact-add',
+          'artifact-remove',
+          'deferred-add',
+          'deferred-remove',
+        ]),
+        text: z.string().optional(),
+        index: z.number().int().min(1).optional(),
+        path: z.string().optional(),
+        title: z.string().optional(),
+        /** Extra file paths bundled with `path` into one artifact snapshot ([spec:SP-0fc9]). */
+        extraPaths: z.array(z.string()).optional(),
+      })
+      .merge(rev),
     action: 'write',
     scope: 'issue',
+    // ADR 1 files `panel` under issue core (exp-rev). The ops are index-based
+    // (`todo-done 3`), which is exactly why the precondition earns its keep here:
+    // an index read off a stale panel points at a different todo by the time it
+    // lands. Optional as everywhere else, so today's agents keep applying ops
+    // without one.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => {
@@ -581,33 +639,38 @@ const defs = {
   // not creation (no `target`).
   create: def({
     kind: 'mutation',
-    input: z.object({
-      repoPath: z.string(),
-      title: z.string().min(1),
-      description: z.string().optional(),
-      parentBranch: z.string().optional(),
-      defaultAgent: z.string().optional(),
-      defaultModel: z.string().optional(),
-      defaultEffort: z.string().optional(),
-      machineId: z.string().optional(),
-      startNow: z.boolean(),
-      linear: z
-        .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
-        .optional(),
-      priority: z.number().int().min(0).max(4).optional(),
-      type: IssueType.optional(),
-      assignee: z.string().optional(),
-      labels: z.array(z.string()).optional(),
-      parentId: z.string().optional(),
-      // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
-      color: IssueColor.optional(),
-      // #198: an agent opts a work item onto the human's top-level board with
-      // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
-      // caller (operator vs constrained agent), so provenance cannot be forged.
-      audience: z.enum(['human', 'agent']).optional(),
-      mutationId: z.string().max(128).optional(),
-    }),
+    input: z
+      .object({
+        repoPath: z.string(),
+        title: z.string().min(1),
+        description: z.string().optional(),
+        parentBranch: z.string().optional(),
+        defaultAgent: z.string().optional(),
+        defaultModel: z.string().optional(),
+        defaultEffort: z.string().optional(),
+        machineId: z.string().optional(),
+        startNow: z.boolean(),
+        linear: z
+          .object({ id: z.string().optional(), identifier: z.string(), url: z.string() })
+          .optional(),
+        priority: z.number().int().min(0).max(4).optional(),
+        type: IssueType.optional(),
+        assignee: z.string().optional(),
+        labels: z.array(z.string()).optional(),
+        parentId: z.string().optional(),
+        // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow).
+        color: IssueColor.optional(),
+        // #198: an agent opts a work item onto the human's top-level board with
+        // `audience: 'human'`. `origin` is NOT accepted — it is derived from the
+        // caller (operator vs constrained agent), so provenance cannot be forged.
+        audience: z.enum(['human', 'agent']).optional(),
+      })
+      .merge(env),
     action: 'write',
+    // An entity's birth: there is no prior revision to be stale against, so
+    // expectedRevision would be meaningless here. `mutationId` is the guard that
+    // matters — it is what stops a replayed create from minting a second issue.
+    concurrency: APPEND,
     handler: async (ctx, input) => {
       // issues.create ALWAYS creates locally in P7b (creating INTO the hub needs
       // repo mapping — spec §2.2). A repoPath that exists only among the hub's
@@ -633,39 +696,45 @@ const defs = {
       const isOperator = ctx.caller.capability.scope.kind === 'all'
       const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
       const audience: 'human' | 'agent' = isOperator ? 'human' : (input.audience ?? 'agent')
-      // The orphan-internal guard is computed INSIDE withMutation so it is cached
-      // with the result: a replayed create (same mutationId) returns the identical
-      // payload even if the tree changed in between. An audience:'agent' issue is
-      // visible only when its parent chain reaches an audience:'human' ancestor
+      // The orphan-internal guard is computed inside the handler, which the
+      // dispatcher runs INSIDE withMutation — so it is cached with the result and
+      // a replayed create (same mutationId) returns the identical payload even if
+      // the tree changed in between. An audience:'agent' issue is visible only
+      // when its parent chain reaches an audience:'human' ancestor
       // (filterBoardScope). With none it is invisible — warn (don't block) so an
       // unattached agent doesn't silently lose the issue.
-      return ctx.withMutation(input.mutationId, async () => {
-        const created = await ctx.issues.createAndMaybeStart(
-          { ...input, origin, audience },
-          { spawnedBy: ctx.spawnProvenance() },
-        )
-        if (audience === 'agent' && !ctx.hasHumanAudienceAncestor(created)) {
-          return {
-            ...created,
-            warning:
-              'This issue is invisible: it is internal (audience: agent) but has no ' +
-              'human-facing parent. Pass `--audience human`, or attach to an issue first ' +
-              'so it nests under a tracked parent.',
-          }
+      const created = await ctx.issues.createAndMaybeStart(
+        { ...input, origin, audience },
+        { spawnedBy: ctx.spawnProvenance() },
+      )
+      if (audience === 'agent' && !ctx.hasHumanAudienceAncestor(created)) {
+        return {
+          ...created,
+          warning:
+            'This issue is invisible: it is internal (audience: agent) but has no ' +
+            'human-facing parent. Pass `--audience human`, or attach to an issue first ' +
+            'so it nests under a tracked parent.',
         }
-        return created
-      })
+      }
+      return created
     },
   }),
   start: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      agentKind: z.string().optional(),
-      forceUnknownModel: z.boolean().optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        agentKind: z.string().optional(),
+        forceUnknownModel: z.boolean().optional(),
+      })
+      .merge(env),
     action: 'write',
     scope: 'issue',
+    // Spawns a session: ADR 1's sessions row makes spawn live-path-required, and
+    // the precondition that matters is the worktree/agent state at spawn time,
+    // not an issue revision the caller read. mutationId still guards the replay —
+    // spawning a second agent into one issue is the failure to avoid.
+    concurrency: cmd('live-path spawn; guarded by worktree/session state, not a revision'),
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
@@ -677,45 +746,48 @@ const defs = {
   }),
   update: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      patch: z.object({
-        title: z.string().optional(),
-        description: z.string().optional(),
-        stage: IssueStage.optional(),
-        parentBranch: z.string().optional(),
-        defaultAgent: z.string().optional(),
-        defaultModel: z.string().optional(),
-        defaultEffort: z.string().optional(),
-        machineId: z.string().nullable().optional(),
-        archived: z.boolean().optional(),
-        priority: z.number().int().min(0).max(4).optional(),
-        type: IssueType.optional(),
-        assignee: z.string().optional(),
-        parentId: z.string().optional(),
-        design: z.string().optional(),
-        acceptance: z.string().optional(),
-        notes: z.string().optional(),
-        dueAt: z.string().optional(),
-        deferUntil: z.string().optional(),
-        closedReason: z.string().optional(),
-        pinned: z.boolean().optional(),
-        // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
-        color: IssueColor.nullable().optional(),
-        estimateMin: z.number().int().optional(),
-      }),
-      mutationId: z.string().max(128).optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        patch: z.object({
+          title: z.string().optional(),
+          description: z.string().optional(),
+          stage: IssueStage.optional(),
+          parentBranch: z.string().optional(),
+          defaultAgent: z.string().optional(),
+          defaultModel: z.string().optional(),
+          defaultEffort: z.string().optional(),
+          machineId: z.string().nullable().optional(),
+          archived: z.boolean().optional(),
+          priority: z.number().int().min(0).max(4).optional(),
+          type: IssueType.optional(),
+          assignee: z.string().optional(),
+          parentId: z.string().optional(),
+          design: z.string().optional(),
+          acceptance: z.string().optional(),
+          notes: z.string().optional(),
+          dueAt: z.string().optional(),
+          deferUntil: z.string().optional(),
+          closedReason: z.string().optional(),
+          pinned: z.boolean().optional(),
+          // Colour slot name [spec:SP-b4d1]; null clears back to the slate flow.
+          color: IssueColor.nullable().optional(),
+          estimateMin: z.number().int().optional(),
+        }),
+      })
+      .merge(rev),
     action: 'write',
     scope: 'issue',
+    // THE canonical exp-rev row (ADR 1: "exp-rev on update"). A patch is by
+    // definition based on a state the caller read, so it is the command a stale
+    // precondition protects most directly.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () =>
-          ctx.issues.update(input.id, input.patch, {
-            actorSessionId: ctx.caller.capability.actorSessionId,
-          }),
-        ),
+        ctx.issues.update(input.id, input.patch, {
+          actorSessionId: ctx.caller.capability.actorSessionId,
+        }),
       ),
   }),
   // Agent self-organization (issue-as-workspace): re-home the calling session
@@ -727,18 +799,23 @@ const defs = {
   // (sessions are local).
   attachSession: def({
     kind: 'mutation',
-    input: z.object({
-      sessionId: z.string(),
-      targetId: z.string().optional(),
-      // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
-      // from the caller below, exactly like issues.create, so it cannot be forged.
-      newSubissue: z.object({ title: z.string().min(1) }).optional(),
-    }),
+    input: z
+      .object({
+        sessionId: z.string(),
+        targetId: z.string().optional(),
+        // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
+        // from the caller below, exactly like issues.create, so it cannot be forged.
+        newSubissue: z.object({ title: z.string().min(1) }).optional(),
+      })
+      .merge(env),
     action: 'write',
+    // Self-addressed re-homing (and, with newSubissue, an entity birth). No prior
+    // issue revision is being edited, so there is nothing to be stale against.
+    concurrency: APPEND,
     handler: (ctx, input) => {
       const origin: 'human' | 'agent' =
         ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
-      const { newSubissue, ...rest } = input
+      const { newSubissue, mutationId: _mutationId, ...rest } = input
       return ctx.issues.attachSession(
         newSubissue ? { ...rest, newSubissue: { title: newSubissue.title, origin } } : { ...rest },
       )
@@ -746,35 +823,46 @@ const defs = {
   }),
   archive: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     // Agent posture: allow in subtree; require --outside-scope confirmation
     // elsewhere. Archiving is reversible and no more destructive than close.
     action: 'write',
     scope: 'issue',
+    // issue core (`archived`).
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.archive(input.id)),
   }),
   delete: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     action: 'manage',
     scope: 'issue',
+    // issue core tombstone (`deletedAt`). The precondition is worth the most on
+    // the least reversible command: a delete decided from a stale read is the
+    // one you cannot undo by re-reading.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.deleteIssue(input.id)),
   }),
   restore: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     action: 'manage',
     scope: 'issue',
+    // issue core tombstone, inverse of delete.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.restoreIssue(input.id)),
   }),
   action: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }),
+    input: z.object({ id: z.string(), kind: z.enum(['rebase', 'pr', 'merge']) }).merge(env),
     action: 'write',
     scope: 'issue',
+    // Drives git (rebase/pr/merge) rather than writing issue fields. Its real
+    // precondition is the branch's state, which no issue revision describes.
+    concurrency: cmd('git action; guarded by branch/worktree state, not a revision'),
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.action(input.id, input.kind)),
   }),
@@ -787,9 +875,12 @@ const defs = {
   // here instead of falling through to a misleading local 'unknown issue'.
   cleanup: def({
     kind: 'mutation',
-    input: byId,
+    input: byId.merge(env),
     action: 'write',
     scope: 'issue',
+    // Removes a worktree + branch. Its preconditions are stated in the handler
+    // (closed + merged + clean) and are about git, not about an issue revision.
+    concurrency: cmd('local git cleanup; guarded by closed+merged+clean checks, not a revision'),
     target: targetId,
     handler: (ctx, input) => {
       if (ctx.deps.isUpstreamIssue(input.id)) {
@@ -809,9 +900,11 @@ const defs = {
   // worktree/branch via THIS node's daemon. Hub-mirrored issues get a hard refusal.
   integrate: def({
     kind: 'mutation',
-    input: byId,
+    input: byId.merge(env),
     action: 'write',
     scope: 'issue',
+    // Rebuilds a local integration worktree/branch — git state is the precondition.
+    concurrency: cmd('local git integrate; guarded by worktree/branch state, not a revision'),
     target: targetId,
     handler: (ctx, input) => {
       if (ctx.deps.isUpstreamIssue(input.id)) {
@@ -826,13 +919,17 @@ const defs = {
   }),
   addSession: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      agentKind: z.string().optional(),
-      forceUnknownModel: z.boolean().optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        agentKind: z.string().optional(),
+        forceUnknownModel: z.boolean().optional(),
+      })
+      .merge(env),
     action: 'write',
     scope: 'issue',
+    // Spawn — see `start`.
+    concurrency: cmd('live-path spawn; guarded by worktree/session state, not a revision'),
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
@@ -844,9 +941,11 @@ const defs = {
   }),
   addShell: def({
     kind: 'mutation',
-    input: byId,
+    input: byId.merge(env),
     action: 'write',
     scope: 'issue',
+    // Spawn — see `start`.
+    concurrency: cmd('live-path spawn; guarded by worktree/session state, not a revision'),
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
@@ -855,80 +954,107 @@ const defs = {
   }),
   applySuggestion: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     action: 'write',
     scope: 'issue',
+    // Writes issue core (stage) from the assistant's suggestion. Applying a
+    // suggestion computed against a state that has since moved is exactly the
+    // hazard exp-rev exists for.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.applySuggestion(input.id)),
   }),
   dismissSuggestion: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     action: 'write',
     scope: 'issue',
+    // issue core (clears the suggestion) — inverse of applySuggestion.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.dismissSuggestion(input.id)),
   }),
   refreshAssistant: def({
     kind: 'mutation',
-    input: byId,
+    input: byId.merge(env),
     action: 'write',
     scope: 'issue',
+    // Recomputes the suggestion FROM current issue state rather than writing a
+    // value the caller read — a revision precondition would only refuse work that
+    // wants the newest state anyway.
+    concurrency: cmd('assistant recompute; derives from current state, no caller-read baseline'),
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.refreshAssistant(input.id)),
   }),
   setLabels: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), labels: z.array(z.string()) }),
+    input: z.object({ id: z.string(), labels: z.array(z.string()) }).merge(rev),
     action: 'manage',
     scope: 'issue',
+    // ADR 1 issue graph: exp-rev. Whole-set replacement, so a stale write silently
+    // drops labels another writer added — the precondition is what makes that a
+    // refusal instead.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.setLabels(input.id, input.labels)),
   }),
   addComment: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      author: z.string(),
-      body: z.string().min(1),
-      mutationId: z.string().max(128).optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        author: z.string(),
+        body: z.string().min(1),
+      })
+      .merge(env),
     action: 'write',
     scope: 'issue',
+    // ADR 1: comments are an APPEND-only create. A comment is not based on the
+    // issue's prior state, so a revision precondition would refuse a perfectly
+    // good comment just because someone else edited the title. mutationId alone
+    // is the right guard — it stops the double-post.
+    concurrency: APPEND,
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () =>
-          ctx.issues.addComment(input.id, input.author, input.body),
-        ),
-      ),
+      ctx.issueWrite(input, () => ctx.issues.addComment(input.id, input.author, input.body)),
   }),
   depAdd: def({
     kind: 'mutation',
-    input: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
+    input: z
+      .object({ fromId: z.string(), toId: z.string(), type: z.string().optional() })
+      .merge(rev),
     action: 'write',
     scope: 'issue',
+    // ADR 1 issue graph: exp-rev PLUS the command's own invariant checks (cycle
+    // detection etc. in addDep) — the two stack, they are not alternatives.
+    concurrency: EXPECTED_REVISION,
     target: (i) => i.fromId as string,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.addDep(input.fromId, input.toId, input.type)),
   }),
   depRemove: def({
     kind: 'mutation',
-    input: z.object({ fromId: z.string(), toId: z.string(), type: z.string().optional() }),
+    input: z
+      .object({ fromId: z.string(), toId: z.string(), type: z.string().optional() })
+      .merge(rev),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // Removing a mistaken edge is the inverse of the already-agent-safe depAdd.
     action: 'write',
     scope: 'issue',
+    // ADR 1 issue graph — see depAdd.
+    concurrency: EXPECTED_REVISION,
     target: (i) => i.fromId as string,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.removeDep(input.fromId, input.toId, input.type)),
   }),
   defer: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), until: z.string().nullable() }),
+    input: z.object({ id: z.string(), until: z.string().nullable() }).merge(rev),
     action: 'write',
     scope: 'issue',
+    // issue core (`deferUntil`).
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.defer(input.id, input.until)),
   }),
@@ -937,9 +1063,11 @@ const defs = {
   // which quietly clears it. Distinct route so it emits issue.unsnoozed cleanly.
   undefer: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     action: 'write',
     scope: 'issue',
+    // issue core (`deferUntil`) — inverse of defer.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.undefer(input.id)),
   }),
@@ -949,33 +1077,42 @@ const defs = {
   // the wire.
   markRead: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), mutationId: z.string().max(128).optional() }),
+    input: byId.merge(env),
     action: 'read',
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.issues.markIssueRead(input.id)),
+    // ADR 1 files `readAt` as field-LWW: a read-stamp has no baseline to be stale
+    // against, and refusing one because the title moved would be absurd.
+    concurrency: cmd('field-LWW read-tracking; last stamp wins, no precondition'),
+    handler: (ctx, input) => ctx.issues.markIssueRead(input.id),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
   // `unread` back to true. Node-local like markRead (NOT issueWrite / never
   // hub-forwarded) — read-tracking needs only 'read'.
   markUnread: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), mutationId: z.string().max(128).optional() }),
+    input: byId.merge(env),
     action: 'read',
-    handler: (ctx, input) =>
-      ctx.withMutation(input.mutationId, () => ctx.issues.markIssueUnread(input.id)),
+    // field-LWW read-tracking — see markRead.
+    concurrency: cmd('field-LWW read-tracking; last stamp wins, no precondition'),
+    handler: (ctx, input) => ctx.issues.markIssueUnread(input.id),
   }),
   setNeedsHuman: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      question: z.string().optional(),
-      // Structured question metadata (issue #53): suggested answers rendered as
-      // Tray chips + the asking session (defaults to the caller's own session).
-      options: z.array(z.string().min(1)).max(20).optional(),
-      askedBy: z.string().optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        question: z.string().optional(),
+        // Structured question metadata (issue #53): suggested answers rendered as
+        // Tray chips + the asking session (defaults to the caller's own session).
+        options: z.array(z.string().min(1)).max(20).optional(),
+        askedBy: z.string().optional(),
+      })
+      .merge(rev),
     action: 'write',
     scope: 'issue',
+    // ADR 1: the needs-human group (needsHuman + question + options + askedBy +
+    // askedAt) moves TOGETHER under exp-rev — one precondition for the whole
+    // group is what keeps a half-updated question from existing.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => {
       // askedBy is SERVER-AUTHORITATIVE (#53 review): issues.answerQuestion later
@@ -1013,9 +1150,15 @@ const defs = {
    *  or dead session never silently drops the question. */
   answerQuestion: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), answer: z.string().trim().min(1) }),
+    input: z.object({ id: z.string(), answer: z.string().trim().min(1) }).merge(rev),
     action: 'write',
     scope: 'issue',
+    // Clears the needs-human group (exp-rev). The live-delivery preconditions the
+    // handler enforces (question pending, askedBy recorded, delivery succeeded)
+    // stack ON TOP of the revision check rather than replacing it: answering a
+    // question that has already been answered and re-asked is precisely a stale
+    // write, and the group is exp-rev per ADR 1.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, async () => {
@@ -1054,69 +1197,86 @@ const defs = {
   }),
   clearNeedsHuman: def({
     kind: 'mutation',
-    input: byId,
+    input: byIdRev,
     action: 'write',
     scope: 'issue',
+    // needs-human group — see setNeedsHuman.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.clearNeedsHuman(input.id)),
   }),
   reparent: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), parentId: z.string().nullable() }),
+    input: z.object({ id: z.string(), parentId: z.string().nullable() }).merge(rev),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // This lets an agent repair its own planning hierarchy without recreating issues.
     action: 'write',
     scope: 'issue',
+    // ADR 1 issue graph: exp-rev + the command's cycle/invariant checks.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.reparent(input.id, input.parentId)),
   }),
   claim: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), assignee: z.string() }),
+    input: z.object({ id: z.string(), assignee: z.string() }).merge(rev),
     action: 'write',
     scope: 'issue',
+    // issue core (`assignee`/`stage`). Two agents claiming one issue is the
+    // textbook lost update, and exp-rev is what turns the second into a refusal
+    // the caller can see rather than a silent steal.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.claim(input.id, input.assignee)),
   }),
   close: def({
     kind: 'mutation',
-    input: z.object({
-      id: z.string(),
-      reason: z.string().optional(),
-      mutationId: z.string().max(128).optional(),
-    }),
+    input: z
+      .object({
+        id: z.string(),
+        reason: z.string().optional(),
+      })
+      .merge(rev),
     action: 'write',
     scope: 'issue',
+    // A stage transition. ADR 1 says these "may be cmd" — permission, not a
+    // requirement. Taking exp-rev instead: close carries no precondition the
+    // stage machine enforces beyond what update already does, so the uniform rule
+    // is the simpler one and leaves one less bespoke rule to reason about.
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () =>
-          ctx.issues.close(input.id, input.reason, {
-            actorSessionId: ctx.caller.capability.actorSessionId,
-          }),
-        ),
+        ctx.issues.close(input.id, input.reason, {
+          actorSessionId: ctx.caller.capability.actorSessionId,
+        }),
       ),
   }),
   supersede: def({
     kind: 'mutation',
-    input: z.object({ oldId: z.string(), newId: z.string() }),
+    input: z.object({ oldId: z.string(), newId: z.string() }).merge(rev),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is oldId; newId remains a relation destination.
     action: 'write',
     scope: 'issue',
+    // ADR 1 issue graph (`supersededBy`). The precondition covers oldId, the
+    // subject — matching `target`.
+    concurrency: EXPECTED_REVISION,
     target: (i) => i.oldId as string,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.supersede(input.oldId, input.newId)),
   }),
   duplicate: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), canonicalId: z.string() }),
+    input: z.object({ id: z.string(), canonicalId: z.string() }).merge(rev),
     // Agent posture: allow in subtree; require --outside-scope confirmation.
     // The mutated subject is id; canonicalId remains a relation destination.
     action: 'write',
     scope: 'issue',
+    // ADR 1 issue graph (`duplicateOf`).
+    concurrency: EXPECTED_REVISION,
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.duplicate(input.id, input.canonicalId)),
@@ -1131,8 +1291,11 @@ const defs = {
   // no existing-target issue), so the role gate still applies.
   mailSend: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), body: z.string().min(1) }),
+    input: z.object({ id: z.string(), body: z.string().min(1) }).merge(env),
     action: 'write',
+    // ADR 1: issue messages are APPEND + a cmd status machine. The send is the
+    // append half — no baseline, mutationId guards the double-send.
+    concurrency: APPEND,
     // Unified substrate (#237) [spec:SP-34d7]: the send persists a `messages`
     // row + delivery ledger and mirrors the legacy issue_messages row (same
     // id), so the wire shape (IssueMessageRow) is unchanged for the CLI/MCP.
@@ -1148,8 +1311,11 @@ const defs = {
   // a 'read' — mailbox bookkeeping, not issue mutation. Viewers may check mail.
   mailInbox: def({
     kind: 'mutation',
-    input: z.object({ id: z.string().optional() }).optional(),
+    input: z.object({ id: z.string().optional() }).merge(env).optional(),
     action: 'read',
+    // Mailbox bookkeeping: listing marks the returned messages read. Not an issue
+    // write, so no revision applies.
+    concurrency: cmd('mailbox read-and-mark; per-message delivery state, not an issue revision'),
     handler: (ctx, input) => {
       const id = ctx.mailOwnIssue(input?.id)
       // Only the recipient consumes unread status: an agent reading its own
@@ -1169,9 +1335,13 @@ const defs = {
   // node-local).
   mailClaim: def({
     kind: 'mutation',
-    input: z.object({ messageId: z.string() }),
+    input: z.object({ messageId: z.string() }).merge(env),
     action: 'write',
     scope: 'issue',
+    // ADR 1: message status is a `cmd` machine. The subject is the MESSAGE, not
+    // the issue, so an issue revision is the wrong token to gate it with — the
+    // claim's own already-claimed check is the rule.
+    concurrency: cmd('message status machine; guarded by the claim check, not an issue revision'),
     target: () => undefined,
     handler: (ctx, input) => {
       const msg = ctx.issues.mailMessage(input.messageId)
@@ -1200,21 +1370,25 @@ const defs = {
 
   subscriptionAdd: def({
     kind: 'mutation',
-    input: z.object({
-      event: z.string().min(1),
-      source: z.object({
-        kind: z.enum(['relationship', 'issue', 'session']),
-        ref: z.string().min(1),
-      }),
-      deliver: z
-        .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
-        .optional(),
-      // Operator-only (#129 Phase C): the Automations UI creates a subscription for an
-      // explicit subscriber (which issue/session to notify). Ignored for constrained
-      // agents, who always subscribe themselves via deriveSubscriber.
-      subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
-    }),
+    input: z
+      .object({
+        event: z.string().min(1),
+        source: z.object({
+          kind: z.enum(['relationship', 'issue', 'session']),
+          ref: z.string().min(1),
+        }),
+        deliver: z
+          .object({ nudge: z.boolean().optional(), notify: z.boolean().optional() })
+          .optional(),
+        // Operator-only (#129 Phase C): the Automations UI creates a subscription for an
+        // explicit subscriber (which issue/session to notify). Ignored for constrained
+        // agents, who always subscribe themselves via deriveSubscriber.
+        subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
+      })
+      .merge(env),
     action: 'write',
+    // A new subscription row — an entity birth, not an issue edit.
+    concurrency: APPEND,
     handler: (ctx, input) => {
       // Operator (scope 'all') may create a subscription for an explicit subscriber
       // (#129 Phase C — the Automations UI); constrained agents always subscribe
@@ -1242,8 +1416,11 @@ const defs = {
   }),
   subscriptionRemove: def({
     kind: 'mutation',
-    input: byId,
+    input: byId.merge(env),
     action: 'write',
+    // Deletes the caller's OWN subscription row; the ownership check below is the
+    // rule. Not an issue write.
+    concurrency: cmd('own-row delete; guarded by the ownership check, not an issue revision'),
     handler: (ctx, input) => {
       // Constrained callers may only remove their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
@@ -1266,8 +1443,11 @@ const defs = {
    *  touches the built-in handlers — safe and reversible. */
   subscriptionSetEnabled: def({
     kind: 'mutation',
-    input: z.object({ id: z.string(), enabled: z.boolean() }),
+    input: z.object({ id: z.string(), enabled: z.boolean() }).merge(env),
     action: 'write',
+    // Toggles the caller's OWN subscription row — a reversible flag, ownership
+    // check as the rule. Not an issue write.
+    concurrency: cmd('own-row flag toggle; guarded by the ownership check, not an issue revision'),
     handler: (ctx, input) => {
       // Constrained callers may only toggle their OWN subscriptions.
       if (ctx.caller.capability.scope.kind !== 'all') {
@@ -1361,18 +1541,85 @@ export function guardIssueCommand(
 export class IssueCommandDispatcher {
   constructor(private readonly deps: IssueCommandDeps) {}
 
-  /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
-   *  derived middleware guarded, tRPC parsed `def.input`). */
+  /**
+   * Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
+   * derived middleware guarded, tRPC parsed `def.input`).
+   *
+   * THE choke point for every issue mutation: the derived tRPC router resolves
+   * through here and so does {@link dispatch} (relay + MCP + CLI), so the two
+   * envelope obligations of ADR 3 — the `expectedRevision` precondition (D13)
+   * and the `mutationId` receipt (D1/D11.7) — are applied HERE rather than by
+   * each handler. That is the same doctrine POD-792 used to put the revision
+   * bump at the single SQL writer: make it structural, and a new command cannot
+   * forget it. The alternative — 39 handlers each remembering to wrap
+   * themselves — is a rule that holds only until someone adds the 40th.
+   */
   run<D extends AnyIssueCommandDef>(
     caller: IssueCaller,
     name: string,
     def: D,
     input: z.infer<D['input']>,
   ): ReturnType<D['handler']> {
-    return def.handler(
-      new IssueCommandCtx(this.deps, caller, name, def.target),
-      input,
-    ) as ReturnType<D['handler']>
+    const ctx = new IssueCommandCtx(this.deps, caller, name, def.target)
+    const handle = () => def.handler(ctx, input) as ReturnType<D['handler']>
+    if (def.kind !== 'mutation') return handle()
+
+    const envelope = (input ?? {}) as { mutationId?: string; expectedRevision?: number }
+    this.checkExpectedRevision(name, def, envelope, input)
+
+    // A hub-forwarded write is NOT receipt-cached locally. The hub keeps its own
+    // receipt (it runs this same registry), and caching here would durably record
+    // the `{ queued: true }` TRANSPORT outcome as this mutationId's result —
+    // pinning every later replay to "queued" instead of letting it reach the hub.
+    // Mirrors the pre-registry behaviour, where withMutation sat INSIDE
+    // issueWrite's local branch for exactly this reason.
+    const mutationId = ctx.forwardsToHub((input ?? {}) as Record<string, unknown>)
+      ? undefined
+      : envelope.mutationId
+    return this.deps.withMutation(mutationId, `issues.${name}`, handle) as ReturnType<D['handler']>
+  }
+
+  /**
+   * Refuse a write whose `expectedRevision` no longer matches the authority
+   * (ADR 3 D13.3) — BEFORE the handler runs, so a stale write never reaches the
+   * store.
+   *
+   * Only exp-rev contracts are checked: a command declaring `append` or
+   * `command-specific` has no revision baseline by definition, and reading a
+   * field the contract does not carry would be guessing at its rule — the exact
+   * thing D13.2 forbids.
+   *
+   * A missing target issue is left to the handler: every issue write resolves its
+   * row and throws (`unknown issue …`), so nothing applies, and the caller is
+   * better served by that NOT_FOUND than by a conflict blaming a revision.
+   *
+   * HUB-MIRROR ORDERING (POD-796 must revisit): this pre-check runs BEFORE the
+   * hub-forward branch, so an expectedRevision write targeting a hub-mirrored
+   * issue is judged against the LOCAL mirror's revision (or refused
+   * 'revision-unavailable' when the mirror carries none) instead of being
+   * forwarded for the hub authority to decide. A lagging mirror can 409 a
+   * write the hub would accept. Fail-closed and unreachable until clients
+   * send expectedRevision (POD-795/796) — the cutover decides whether the
+   * check moves after the forward branch or the hub echoes its revision.
+   */
+  private checkExpectedRevision(
+    name: string,
+    def: AnyIssueCommandDef,
+    envelope: { expectedRevision?: number },
+    input: unknown,
+  ): void {
+    if (def.concurrency?.kind !== 'expected-revision') return
+    if (envelope.expectedRevision == null) return
+    const ref = def.target?.((input ?? {}) as Record<string, unknown>)
+    if (ref == null) return
+    const issue = this.deps.issues().get(ref)
+    if (!issue) return
+    enforceExpectedRevision({
+      command: `issues.${name}`,
+      issueId: issue.id,
+      expected: envelope.expectedRevision,
+      actual: issue.revision,
+    })
   }
 
   /**

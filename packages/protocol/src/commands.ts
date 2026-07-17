@@ -1,4 +1,6 @@
-import type { z } from 'zod'
+import { Revision } from '@podium/model'
+import { z } from 'zod'
+import { MutationId } from './ids'
 
 /**
  * Command-definition contract for the P3 command registry [spec:SP-3fe2]:
@@ -34,6 +36,62 @@ export type CommandAction = 'read' | 'write' | 'manage'
  */
 export type CommandScope = 'issue' | 'repo' | 'global'
 
+/**
+ * The concurrency rule a MUTATING command commits to [ADR 3 D13.2] — "declared
+ * per contract, not guessed". Each kind names one notation from ADR 1's
+ * ownership matrix, so a definition is traceable to the row that decided it:
+ *
+ * - `expected-revision` — ADR 1's `exp-rev`: the write is based on a specific
+ *   prior state, so the envelope carries {@link RevisionedCommandEnvelope}'s
+ *   `expectedRevision` and the authority refuses a stale one (ADR 3 D13.3).
+ * - `append` — ADR 1's `append`, plus an entity's birth: there is no prior
+ *   revision to be stale against. `mutationId` dedupe is the only guard, and it
+ *   is the RIGHT one (a replayed create must not mint a second issue).
+ * - `command-specific` — ADR 1's `cmd` (and `field-LWW`): the command's own
+ *   preconditions ARE the rule — a lease machine, a live-path spawn, a
+ *   last-write-wins flag. `rule` states it, because a reader must not have to
+ *   infer a concurrency posture from a handler body.
+ */
+export type CommandConcurrency =
+  | { kind: 'expected-revision' }
+  | { kind: 'append' }
+  | { kind: 'command-specific'; rule: string }
+
+/**
+ * The idempotency key on a mutating command envelope [ADR 3 D1]. Client-minted
+ * (the outbox PK) and the authority's `applied_mutations` dedupe key: a replay
+ * inside the receipt horizon returns the stored result instead of re-running
+ * (ADR 2 D11.7).
+ *
+ * Composed from {@link MutationId} rather than re-declared, with the 128-char
+ * bound the durable receipt PK has always carried.
+ */
+export const CommandMutationId = MutationId.refine(
+  (s) => s.length <= 128,
+  'mutationId must be at most 128 characters',
+)
+
+/** The envelope fields EVERY mutating command carries [ADR 3 D1]. */
+export const CommandEnvelope = z.object({
+  mutationId: CommandMutationId.optional(),
+})
+
+/**
+ * The envelope of a mutating command whose ADR 1 row uses expected-revision
+ * concurrency [ADR 3 D13.1]. `expectedRevision` composes @podium/model's
+ * {@link Revision} — the authority-assigned per-entity token of ADR 2 D3, not a
+ * clock and not a feed position.
+ *
+ * OPTIONAL, deliberately: the field is *declared* on every exp-rev contract now,
+ * but no caller can supply one until the replica carries revisions (POD-795) and
+ * the wire cuts over (POD-796). Supplied ⇒ the authority enforces it; omitted ⇒
+ * last-write-wins, exactly as today. Requiring it here would reject every
+ * shipped CLI/agent/MCP write on day one.
+ */
+export const RevisionedCommandEnvelope = CommandEnvelope.extend({
+  expectedRevision: Revision.optional(),
+})
+
 export interface CommandDef<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknown> {
   /** Input schema — the one validation source for tRPC/CLI/MCP alike. */
   input: In
@@ -41,6 +99,9 @@ export interface CommandDef<In extends z.ZodTypeAny = z.ZodTypeAny, Out = unknow
   action: CommandAction
   /** Existing-target scope class (see {@link CommandScope}); omit for additive commands. */
   scope?: CommandScope
+  /** The mutating command's concurrency rule (see {@link CommandConcurrency}).
+   *  Required on every mutation by the registry's own def helper; absent on reads. */
+  concurrency?: CommandConcurrency
   /** CLI derivation hints: positional argument order + one-line summary. */
   cli?: { positional?: string[]; summary?: string }
   /** Phantom output marker so `Out` survives inference; never set at runtime. */
