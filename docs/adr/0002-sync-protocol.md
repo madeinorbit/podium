@@ -93,9 +93,11 @@ Each of these was read out of the code that decides it, not inferred from a doc:
    cap client and sends every change for every entity, with no filtering
    (`apps/server/src/modules/sessions/service.ts:3221`). D2 decides whether that
    stays.
-5. **`WIRE_VERSION` is frozen at 1 with equality-only compatibility**
-   (`isProtocolCompatible(a, b) => a === b`), while `versionSupport()` implements a
-   range check nobody calls. Feature negotiation happens entirely through `caps`.
+5. **`WIRE_VERSION` is frozen at 1, and the two compatibility functions disagree.**
+   `versionSupport()` (a range) is the live WS gate at `wsServer.ts:277`;
+   `isProtocolCompatible()` (equality) has no production callers. They agree today
+   only because `MIN_SUPPORTED_VERSION === WIRE_VERSION === 1`. Feature negotiation
+   happens entirely through `caps`, not versions.
 6. **Bootstrap is a single monolithic response.** The `snapshot` arm of
    `SyncChangesSinceResult` carries every session, issue, conversation, diagnostic,
    automation and automation-run in one tRPC reply, as a product type that must grow
@@ -141,9 +143,11 @@ operation, and paying for a counter's ordering buys a collision instead.
 "a cursor from the future (server DB was reset)") catches the *easy* half of a reset
 and silently corrupts the hard half:
 
-> Restore the server from a pre-migration backup — **the officially sanctioned
-> rollback path under [spec:SP-4428]** ("rollback = restore the automatic
-> pre-migration backup; drizzle has NO down migrations"). Say the backup's log ends
+> Restore the server from a pre-migration backup — **the sanctioned rollback path**.
+> [spec:SP-4428] mandates the "pre-migration backup (#43)" as part of the operational
+> envelope wrapped around drizzle's migrator, and POD-305 spells out what it is for:
+> *"Rollback = restore the automatic pre-migration backup (backup.ts; free-space
+> preflight f07d2683) — drizzle has NO down migrations."* Say the backup's log ends
 > at seq 400 and a client holds cursor 500. If the client asks now, `500 > 400` →
 > snapshot → healed. But the server keeps working. After 100 more commits `max` is
 > 500 again. The client asks `changesSince(500)`, hits `cursor === max`, and gets
@@ -151,22 +155,42 @@ and silently corrupts the hard half:
 > a timeline that no longer exists, and it will never heal. Nothing in the protocol
 > can ever detect this.
 
+Worse, the client is wrong in *both* directions: it also missed changes 401–500 of the
+restored timeline while it was away. Divergence persists for every entity that is
+never touched again — for those, the phantom value is final.
+
 This is not a theoretical CAP-theorem hazard; it is reachable through the documented
-rollback procedure, and the failure is silent and permanent. An epoch costs one
-integer and one comparison and closes it completely.
+rollback procedure, and the failure is silent and permanent. An epoch costs one opaque
+id on the wire and one equality check, and closes it completely.
 
-**Consequences.** The authority persists `feedId`/`epoch` alongside the log. The
-backup-restore path MUST mint a new epoch — this ADR makes epoch maintenance part of
-the restore procedure, not an afterthought (POD-305 owns wiring it; the restore path
-lives in `backup.ts`). Replicas store the triple, not the integer. Epoch mismatch is
-cheap: it costs one re-bootstrap, and the alternative is silent divergence.
+**Consequences.** The authority persists `feedId`/`epoch` alongside the log. Replicas
+store the triple, not the integer. Epoch mismatch is cheap: it costs one re-bootstrap,
+and the alternative is silent divergence.
 
-Make the bump **automatic, not a runbook step.** A restore that forgets to re-mint is
-indistinguishable from no epoch at all, and it fails silently — the worst combination,
-and precisely the failure mode D1 exists to remove. So the re-mint belongs in the
-restore code path, and POD-306's conformance suite must cover *restore → keep writing →
-stale client reconnects at the same seq*, which is the scenario above and the one no
-current test can catch.
+**There is no restore code path to hook, and that is the hard part of D1.**
+`apps/server/src/migrations/backup.ts` exports `backupDatabase`, `freeDiskBytes` and
+`MIGRATION_BACKUPS_TO_KEEP` — and **nothing that restores**. There is no
+`restoreBackup` anywhere in the tree. Restore today is an operator copying a file over
+`podium.db`. So "the restore path re-mints the epoch" has nowhere to live, and a
+purely documented runbook step is exactly the thing that gets skipped at 2am during
+the incident the rollback exists for — leaving an epoch that lies, which is worse than
+no epoch, because it *looks* checked.
+
+POD-305 therefore owes one of these, and this ADR requires it to choose explicitly
+rather than write a runbook line:
+
+- **A restore command** (`podium db restore <backup>`) that copies *and* re-mints in
+  one step, making the correct path the easy path; the file-copy stays possible but
+  becomes the unsupported one. **Preferred** — it is the only option that makes the
+  guarantee hold by construction.
+- **Boot-time detection**, if a restore command is refused: the authority notices its
+  `changes` head sits below a high-water mark it has seen before and re-mints itself.
+  Note the mark cannot live in the same database — a restore would roll it back too —
+  so this needs an out-of-DB marker, which is its own reliability problem. Weaker, and
+  called out as such.
+
+POD-306's conformance suite must cover *restore → keep writing → stale client
+reconnects at the same seq*: the scenario above, and the one no current test can catch.
 
 **Seam note ([spec:SP-0371]).** `feedId` *is* the "authority/feed identity" the
 federation seam requires. A future hub distinguishes feeds by it; a node holds one
@@ -193,7 +217,7 @@ independent, so their feeds cannot be either).
 
 **Why unscoped, stated honestly.** This is a real limitation, recorded rather than
 hidden. Podium today is single-tenant-shaped (`docs/offline-sync-architecture.md`
-§4.3: "the store stays single-tenant-shaped... one SQLite + one transcript lake per
+§4, rule 3: "The store stays **single-tenant-shaped**... one SQLite + one transcript lake per
 tenant"), so every client of an authority is entitled to the whole feed. Authorization
 is therefore enforced at the **authority boundary** — what enters the feed at all, and
 who may open a connection to it (ADR 3 owns the principal; ADR 1 owns secret
@@ -233,20 +257,28 @@ every accepted write, carried on the wire projection and on the change payload.
 `revision` is authority-assigned and opaque to replicas — a replica never computes,
 compares-for-truth, or arbitrates on it. It only echoes it back in commands.
 
-**Naming ADR 1's precondition field — the delegation it hands us.** ADR 1 requires
-that "mutations carry an expected revision (or equivalent command precondition:
-`expectedUpdatedAt`, `expectedEpoch`, entity etag — **concrete field named in ADR 2**)".
+**Naming the precondition field — the delegation ADR 1 hands us.** ADR 1 requires:
+
+> Mutating commands carry an **expected revision** (concrete wire field named by ADR 2
+> / ADR 3 — e.g. `expectedUpdatedAt`, entity etag, or per-entity revision).
+
 Answering directly: **the field is `expectedRevision`, an integer, matching the
-entity's `revision`.** The rejected alternatives from ADR 1's own list, and why:
+entity's `revision`** — the third of the three candidates ADR 1 offers. (ADR 1
+delegates jointly to ADR 2 / ADR 3: ADR 2 defines the *token* — what a revision is,
+who assigns it, how it reaches the wire; ADR 3 owns the *command contract* the field
+sits in. Naming it here is the half this ADR owes.)
+
+Why not the other two candidates ADR 1 lists:
 
 - `expectedUpdatedAt` — a **clock**. Unreliable across peers, and per POD-279 finding
   3 "generic field-LWW has no clocks and can break aggregate invariants". `sessions`
   has no `updated_at` at all, so it cannot even be applied uniformly.
-- `expectedEpoch` — the epoch is *feed* identity (D1), not entity identity. It changes
-  for reasons that have nothing to do with an entity being edited.
 - entity etag — a content hash works, but costs a hash of the whole entity per compare
   and carries no ordering. `revision` is one integer, monotonic, and free to compute
   at the point the authority is already writing.
+
+Note the epoch (D1) is **not** a candidate: it is *feed* identity and changes for
+reasons that have nothing to do with an entity being edited.
 
 **Why a token is needed at all.** ADR 1's default posture is "ONE home authority +
 expected-revision / command-specific rejection or rebase". That posture is
@@ -312,13 +344,27 @@ kind" a non-event for old replicas, which is what lets D2's single feed grow. It
 now a protocol rule, not an implementation detail: **new entity kinds are additive and
 never bump `WIRE_VERSION`.**
 
-**Fix the inconsistency.** `isProtocolCompatible` requires equality while
-`versionSupport` implements a `[MIN_SUPPORTED_VERSION, WIRE_VERSION]` range and has no
-callers. Equality-only is the *de facto* shipped behavior; the range function is
-aspirational dead code. POD-305 picks one and deletes the other — this ADR's position
-is that the **range** is correct (it is what allows a rolling upgrade where server and
-client ship separately, which is already true of the PWA), and `isProtocolCompatible`
-should be implemented in terms of `versionSupport`.
+**Fix the inconsistency — and note which way round it actually is.**
+`packages/protocol/src/version.ts` ships two compatibility functions that disagree:
+`isProtocolCompatible(a, b) => a === b` (equality) and `versionSupport()`
+(a `[MIN_SUPPORTED_VERSION, WIRE_VERSION]` range returning `'ok' | 'too-old' |
+'too-new'`).
+
+The **range is the shipped behavior**: `versionSupport` is the live WS gate —
+`wsServer.ts:277` rejects a mismatched peer with HTTP 426. `isProtocolCompatible` has
+**no production callers at all** (only `version.test.ts` and version.ts's own
+docstring, which points peers at it). So the equality function is the dead
+aspirational one, and the docstring recommending it is actively misleading about what
+the server does.
+
+This ADR ratifies the **range** — it is both what ships and what is correct, since it
+allows a rolling upgrade where server and client deploy separately (already true of
+the PWA, whose bundle can lag the server across a redeploy). POD-305 deletes
+`isProtocolCompatible` or reimplements it in terms of `versionSupport`, and fixes the
+docstring. Today `MIN_SUPPORTED_VERSION === WIRE_VERSION === 1`, so the range is
+*numerically* equality right now — which is exactly why this drifted unnoticed and why
+it must be settled before the first bump makes the two functions disagree in
+production.
 
 ### D5 — Tombstones are feed rows; retention is a **liveness** parameter, not a correctness one
 
@@ -433,11 +479,12 @@ re-triggered the bootstrap. **A recovery path that consumes the whole loop turns
 slow client into an outage, and then repeats.** The mirror's fix is the precedent this
 ADR adopts: an **inter-chunk delay** (mirror default 25 ms) and a **per-pass byte
 budget** (mirror default 16 MB), so a big bootstrap deliberately spreads out. Its
-design stance generalizes verbatim — **the bootstrap must never own the loop.**
+design stance generalizes directly — swap the subject and it is our rule: **the
+bootstrap must never own the loop.**
 
 Entity bootstrap is warm data where transcripts are cold, so the *numbers* differ and
-belong to POD-337's measured thresholds (`sync lag, gap-heal time, bootstrap snapshot
-time, reconnect-storm behavior` — currently unfilled placeholders in the migration
+belong to POD-337's measured thresholds (`sync lag, outbox age + dead-letter count, gap-heal
+time, bootstrap snapshot time, reconnect-storm behavior` — currently unfilled placeholders in the migration
 ledger; this ADR does not invent them). The *requirement* is not negotiable: bootstrap
 is paced and yields, and POD-306's conformance suite must include a reconnect storm —
 N replicas bootstrapping at once must not starve the authority.
@@ -608,9 +655,9 @@ consumer, and this ADR requires it to assert *convergence*, not merely survival.
 **Authority side** — already shipped and hereby ratified: `Ledger.commit()` runs the
 entity write and the change append in one `transact()` span, and it actively refuses
 an async `write()` because a thenable "would smuggle a Promise past transact()'s
-thenable check: the change row would commit now while the entity write ran later,
-OUTSIDE the transaction — exactly the torn state commit() exists to prevent"
-(`ledger.ts:122`). This is [spec:SP-3fe2]'s "tables as truth + transactional change
+thenable check (it's wrapped in this object, not returned directly): the change row
+would commit now while the entity write ran later, OUTSIDE the transaction — exactly
+the torn state commit() exists to prevent" (`ledger.ts:122`). This is [spec:SP-3fe2]'s "tables as truth + transactional change
 log" realized, and it is why the feed can never disagree with the tables.
 
 Corollary, also shipped and now named: **durable messages may only be produced by the
@@ -646,8 +693,9 @@ with explicit, surfaced degradation".
 must express *field removal* correctly. The replica's `replaceContents` assigns
 `undefined` rather than `delete`-ing keys, because TanStack DB change proxies "record
 ASSIGNMENTS but ignore `delete draft[k]` — so a field that goes present→absent (an
-issue's `deferUntil` cleared on unsnooze) can't be removed by deletion; the stale value
-would survive and the row never reconciles" (`replica/replica.ts:242`, incident
+issue's `deferUntil` cleared on unsnooze, or any optional nulled) can't be removed by
+deletion; the stale value would survive and the row never reconciles"
+(`replica/replica.ts:242`, incident
 POD-170; the migration ledger's §7 scar registry lists it, with POD-378 carrying the
 regression test). D6's atomic install and any storage swap under ADR 6 inherit this
 obligation: **present→absent is a change like any other, and a "clean" rewrite that
@@ -734,7 +782,7 @@ replica-schema-version bump discards rather than migrates; cursor-after-data onl
 surfaced degraded mode.
 
 **For POD-289 (phase gate):** the acceptance criterion "feed epoch, cursor vs
-revision, tombstones/retention/compaction, chunked bootstrap with delta buffering,
+revision, tombstones/retention/compaction, chunked bootstrap snapshot with delta buffering,
 reset/gap healing, transactional entity+cursor+outbox persistence, slow-client
 backpressure" maps 1:1 onto D1–D11.
 
@@ -758,7 +806,10 @@ it is the shipped pattern and it kept the oplog rollout at zero breakage.
 - **Node↔hub replication.** Parked in POD-353 per [spec:SP-0371]. D1's `feedId` and
   D8's `originId` are the seam; nothing here builds the hop.
 - **Per-field LWW / CRDTs.** ADR 1 owns conflict rules. `changes.event_time` is
-  reserved for it and remains unused.
+  written on every append and already load-bearing for D5's age budget
+  (`sync-repository.ts:94`); it remains unused **for arbitration**, which is what
+  `oplog-read-path.md` reserved it for ("reserved for P3 LWW arbitration"). Nothing
+  here spends that reservation.
 
 ## References
 
