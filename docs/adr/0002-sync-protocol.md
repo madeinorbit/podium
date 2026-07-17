@@ -91,7 +91,7 @@ Each of these was read out of the code that decides it, not inferred from a doc:
    check against; D3 supplies it.
 4. **The feed is an unscoped firehose.** `sendMetadataDelta` loops over every
    cap client and sends every change for every entity, with no filtering
-   (`apps/server/src/modules/sessions/service.ts:3222`). D2 decides whether that
+   (`apps/server/src/modules/sessions/service.ts:3221`). D2 decides whether that
    stays.
 5. **`WIRE_VERSION` is frozen at 1 with equality-only compatibility**
    (`isProtocolCompatible(a, b) => a === b`), while `versionSupport()` implements a
@@ -178,8 +178,8 @@ future us.
 
 **Decide.** There is ONE feed per authority, with one globally monotonic `seq` across
 all entity kinds, and one cursor per replica. This ratifies the shipped design
-(`relay.ts:316`: "one table + one seq sequence — changesSince consumers see one
-unified feed").
+(`relay.ts:315`: "One changes table + one seq sequence — changesSince consumers see
+one unified feed").
 
 The feed is **unscoped**: every authorized replica receives every change. We do NOT
 add per-client filtering in Phase 2.
@@ -294,7 +294,7 @@ directions and would break both properties:
 The journal is a *migration ordering DAG for one database*. `WIRE_VERSION` is a
 *compatibility contract between peers*. They have different owners, different
 lifecycles, and different failure modes. The oplog already encodes the right instinct
-— "the oplog speaks protocol, not DB rows" (`sync.ts:8`), payloads are wire shapes.
+— "the oplog speaks protocol, not DB rows" (`sync.ts:10`), payloads are wire shapes.
 D4 makes that instinct a rule.
 
 **Feature negotiation stays capability-based, not version-based.** The shipped `caps`
@@ -303,7 +303,7 @@ additive features negotiate by capability; `WIRE_VERSION` moves only for breakin
 framing changes. This is why the oplog shipped with "no `WIRE_VERSION` bump required"
 (`oplog-read-path.md:82`) — a good outcome, and now a stated rule.
 
-**Ratify lenient consumer parsing as protocol law.** `sync.ts:60-115` — producers are
+**Ratify lenient consumer parsing as protocol law.** `sync.ts:62-118` — producers are
 strict, consumers accept unknown entity kinds with `value: unknown`, ignore them, and
 **advance the cursor past them**. The reasoning is not obvious and is hard-won: a
 quarantined delta element is an *invisible cursor gap*, and healing via `changesSince`
@@ -483,7 +483,7 @@ forever" (`sync.ts` lenient-parsing note). A rung that resolves *sideways* — r
 the same request that just failed — is an infinite loop. So rung 3 escalates to
 re-bootstrap rather than retrying the heal.
 
-**Ratify the shipped semantic validation.** `parseChangesSinceResult` (`sync.ts:174`)
+**Ratify the shipped semantic validation.** `parseChangesSinceResult` (`sync.ts:187`)
 already encodes rung 3, and its rules cite specific review rounds (#247 rounds 2/3):
 an embedded wire id must match the change id; seqs must be contiguous from
 `fromCursor`; an empty delta must not move the cursor; an explicit null cursor must
@@ -529,7 +529,7 @@ entities provenance-free", and this ADR ratifies it. Provenance is a fact about 
 truth arrived*, not a property of the truth. Putting `originId` in the entity payload
 would (a) make byte-equality dedup fire on provenance churn, re-recording entities
 whose *content* never changed — the exact class of bug the conversation projection
-exists to fix (the 81MB/day churn fix, `change-log.ts:41`), and (b) make provenance
+exists to fix (the 81MB/day churn fix, `change-log.ts:43`), and (b) make provenance
 part of every wire projection, which ADR 4 forbids.
 
 **Why now, with the hub deferred.** [spec:SP-0371] names "origin/causation fields on
@@ -579,7 +579,7 @@ cursor advance certifies data it never received. Demotion to resync is the only 
 shed load without lying.
 
 **Ratify pipe-before-bus while we are here**, because it is the same invariant and it
-is one line from being silently broken (`funnel.ts:52`): the ledger's `onAppended`
+is one line from being silently broken (`funnel.ts:54`): the ledger's `onAppended`
 enqueues the delta *before* emitting on the bus, since "a reentrant bus listener that
 commits again re-enters this bridge with LATER seqs before the outer batch would have
 queued — bus-first therefore delivered [N-1, N+1, N] and delta clients' cursors
@@ -610,7 +610,7 @@ entity write and the change append in one `transact()` span, and it actively ref
 an async `write()` because a thenable "would smuggle a Promise past transact()'s
 thenable check: the change row would commit now while the entity write ran later,
 OUTSIDE the transaction — exactly the torn state commit() exists to prevent"
-(`ledger.ts:108`). This is [spec:SP-3fe2]'s "tables as truth + transactional change
+(`ledger.ts:122`). This is [spec:SP-3fe2]'s "tables as truth + transactional change
 log" realized, and it is why the feed can never disagree with the tables.
 
 Corollary, also shipped and now named: **durable messages may only be produced by the
