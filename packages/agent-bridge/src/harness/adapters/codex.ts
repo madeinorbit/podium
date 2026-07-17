@@ -219,6 +219,7 @@ export const codexAdapter: HarnessAdapter = {
     ): { stop(): void } =>
       observeCodexState({
         cwd: input.cwd,
+        ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(input.podiumSessionId ? { podiumSessionId: input.podiumSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),

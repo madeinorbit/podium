@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
@@ -176,6 +177,7 @@ export function observeGrokState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  statTick?: StatTick
   onSession?: (sessionId: string) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): GrokStateObserver {
@@ -197,7 +199,7 @@ export function observeGrokState(opts: {
     attached = paths
     boundId = paths.sessionId
     opts.onSession?.(paths.sessionId)
-    updateTail = tailGrokUpdates(paths, opts.onEvents, { pollMs })
+    updateTail = tailGrokUpdates(paths, opts.onEvents, { pollMs, statTick: opts.statTick })
   }
 
   const discover = async (): Promise<void> => {
@@ -211,12 +213,14 @@ export function observeGrokState(opts: {
     if (paths && !stopped) attach(paths)
   }
 
-  let discoverTimer: ReturnType<typeof setInterval> | undefined
+  let stopDiscovery: (() => void) | undefined
   if (opts.resumeValue) {
     attach(grokSessionPaths({ cwd: opts.cwd, sessionId: opts.resumeValue, homeDir: opts.homeDir }))
   } else {
-    discoverTimer = setInterval(() => void discover(), pollMs)
-    discoverTimer.unref?.()
+    stopDiscovery = scheduleStatPoll(() => void discover(), {
+      statTick: opts.statTick,
+      pollMs,
+    })
     void discover()
   }
 
@@ -226,7 +230,7 @@ export function observeGrokState(opts: {
     },
     stop() {
       stopped = true
-      if (discoverTimer) clearInterval(discoverTimer)
+      stopDiscovery?.()
       updateTail?.stop()
     },
   }
@@ -340,7 +344,7 @@ function grokQuestionSummary(fields: Record<string, unknown>): string | undefine
 function tailGrokUpdates(
   paths: GrokSessionPaths,
   onEvents: (events: AgentStateEvent[]) => void,
-  opts: { pollMs?: number } = {},
+  opts: { pollMs?: number; statTick?: StatTick } = {},
 ): GrokStateObserver {
   let offset = 0
   const decoder = new LineDecoder()
@@ -412,15 +416,17 @@ function tailGrokUpdates(
     }
   }
 
-  const timer = setInterval(() => void readNew(), opts.pollMs ?? POLL_MS)
-  timer.unref?.()
+  const stopPolling = scheduleStatPoll(() => void readNew(), {
+    statTick: opts.statTick,
+    pollMs: opts.pollMs ?? POLL_MS,
+  })
   void readNew()
 
   return {
     path: paths.updatesPath,
     stop() {
       stopped = true
-      clearInterval(timer)
+      stopPolling()
     },
   }
 }

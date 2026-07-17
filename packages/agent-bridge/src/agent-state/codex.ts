@@ -3,6 +3,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import {
   cleanCodexTitle,
   codexPromptTitle,
@@ -450,6 +451,7 @@ export function observeCodexState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  statTick?: StatTick
   /** Test override for Linux process correlation. */
   procRoot?: string
   onSession?: (sessionId: string, rolloutPath: string, confidence: 'exact' | 'heuristic') => void
@@ -688,13 +690,15 @@ export function observeCodexState(opts: {
     }
   }
 
-  const timer = setInterval(() => void tick(), opts.pollMs ?? POLL_MS)
-  timer.unref?.()
+  const stopPolling = scheduleStatPoll(() => void tick(), {
+    statTick: opts.statTick,
+    pollMs: opts.pollMs ?? POLL_MS,
+  })
   void tick()
   return {
     stop() {
       stopped = true
-      clearInterval(timer)
+      stopPolling()
     },
   }
 }

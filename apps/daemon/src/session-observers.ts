@@ -12,7 +12,13 @@ import {
   reduceAgentState,
 } from '@podium/agent-bridge'
 import type { AgentKind, ControlMessage, DaemonMessage, TranscriptItem } from '@podium/protocol'
-import { recordToItemsForKind, type TranscriptTailer, tailTranscript } from '@podium/transcript'
+import {
+  createSharedStatTick,
+  recordToItemsForKind,
+  type StatTick,
+  type TranscriptTailer,
+  tailTranscript,
+} from '@podium/transcript'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionCwdTracker } from './worktree-resolve'
 
@@ -30,6 +36,8 @@ export interface SessionObserverInit {
 
 export interface SessionObserversDeps {
   send(msg: DaemonMessage): void
+  /** Test/embedding override; production creates one ticker for this registry. */
+  statTick?: StatTick
   /** Discovery homeDir override (tests / isolated HOME). */
   homeDir?: string | undefined
   /** A live transcript tail appended — mark the file dirty for the active index refresh. */
@@ -62,6 +70,9 @@ export type SessionObservers = ReturnType<typeof createSessionObservers>
  */
 export function createSessionObservers(deps: SessionObserversDeps) {
   const { send } = deps
+  // One timer fans out every transcript/native-state stat poll in this daemon;
+  // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
+  const statTick = deps.statTick ?? createSharedStatTick()
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
   // Live structured-transcript tails, keyed by Podium session id. Adapters point
   // the tail at their harness's live file (claude via hook payloads and the
@@ -121,6 +132,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         },
         {
           recordToItems,
+          statTick,
           // The agent's `/color` accent rides the same transcript tail.
           onColor: (color) => send({ type: 'agentColor', sessionId, color }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
@@ -261,6 +273,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       const pathHint = pathHintOf(msg)
       startObservation(msg.sessionId, adapter, {
         cwd: msg.cwd,
+        statTick,
         podiumSessionId: msg.sessionId,
         ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
@@ -307,6 +320,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (!adapter) throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
     startObservation(sessionId, adapter, {
       cwd,
+      statTick,
       resumeValue,
       ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
     })
