@@ -1593,14 +1593,15 @@ export class IssueCommandDispatcher {
    * row and throws (`unknown issue …`), so nothing applies, and the caller is
    * better served by that NOT_FOUND than by a conflict blaming a revision.
    *
-   * HUB-MIRROR ORDERING (POD-796 must revisit): this pre-check runs BEFORE the
-   * hub-forward branch, so an expectedRevision write targeting a hub-mirrored
-   * issue is judged against the LOCAL mirror's revision (or refused
-   * 'revision-unavailable' when the mirror carries none) instead of being
-   * forwarded for the hub authority to decide. A lagging mirror can 409 a
-   * write the hub would accept. Fail-closed and unreachable until clients
-   * send expectedRevision (POD-795/796) — the cutover decides whether the
-   * check moves after the forward branch or the hub echoes its revision.
+   * HUB-MIRRORED ISSUES are NOT arbitrated here, and that is correct (ADR 1:
+   * one home authority): mirrors live only in the in-memory upstream fold and
+   * IssueService.get() reads local rows alone, so get(mirrorId) is null, the
+   * `if (!issue) return` arm exits, and the write forwards to the hub with
+   * expectedRevision untouched — the home authority enforces against its own
+   * row (verified by probe, POD-811). CAUTION: this rests on get() EXCLUDING
+   * mirrors (list() folds them; get() does not). Folding upstream into get()
+   * would silently make this node arbitrate against a lagging mirror —
+   * POD-811 owns the regression test that pins all three facts.
    */
   private checkExpectedRevision(
     name: string,
