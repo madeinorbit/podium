@@ -374,6 +374,7 @@ export function PanelRow({
   dotRight = false,
   suppressUnread = false,
   trailingMeta,
+  coordinator = false,
 }: {
   session: SessionMeta
   pinned: boolean
@@ -393,6 +394,8 @@ export function PanelRow({
   suppressUnread?: boolean
   /** Small right-side stamp before the status dot (WORKING's elapsed timer). */
   trailingMeta?: ReactNode
+  /** M6: this session is the issue's designated coordinator/driver. */
+  coordinator?: boolean
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -476,6 +479,16 @@ export function PanelRow({
           <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
             <WorkerLabel session={session} chip />
           </span>
+          {/* M6 coordinator/driver badge — who is driving this issue. */}
+          {coordinator && (
+            <span
+              className="flex-none rounded border border-sky-500/50 bg-sky-500/10 px-1 text-[9px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+              data-testid="coordinator-badge"
+              title="Coordinator session — drives this issue"
+            >
+              coord
+            </span>
+          )}
           {/* Nested remote-subagent rows: surface the child's own issue linkage
               (sub-issue) when SessionMeta carries displayRef or issueId. */}
           {issueLinkage && (

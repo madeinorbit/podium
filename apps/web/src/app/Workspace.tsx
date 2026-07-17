@@ -24,6 +24,7 @@ import { useWarmSet } from '@/features/terminal/use-warm-set'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
+  isCoordinatorSession,
   orderTabs,
   orphanSessionFor,
   reposToViews,
@@ -166,14 +167,22 @@ export function Workspace(): JSX.Element {
     byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
   for (const f of fileList) byId.set(f.id, { id: f.id, kind: 'file', file: f })
   const baseIds = [
-    ...orderTabs(sessionList, undefined, pins).map((s) => s.sessionId),
+    ...orderTabs(sessionList, undefined, pins, issue?.coordinatorSessionId).map(
+      (s) => s.sessionId,
+    ),
     ...fileList.map((f) => f.id),
   ]
   const manual = orderKey ? tabOrders[orderKey] : undefined
-  const orderedIds =
+  let orderedIds =
     manual && manual.length
       ? [...manual.filter((id) => byId.has(id)), ...baseIds.filter((id) => !manual.includes(id))]
       : baseIds
+  // M6: keep the designated coordinator first even under a saved drag order so
+  // "who is driving" stays unambiguous in the strip.
+  const coordId = issue?.coordinatorSessionId
+  if (coordId && orderedIds.includes(coordId)) {
+    orderedIds = [coordId, ...orderedIds.filter((id) => id !== coordId)]
+  }
   const allTabs: WTab[] = orderedIds.map((id) => byId.get(id)).filter((t): t is WTab => !!t)
 
   // Warm panels span issue switches [POD-782] [spec:SP-0b2e]: issues are the MAIN
@@ -301,6 +310,11 @@ export function Workspace(): JSX.Element {
                   tab={t}
                   active={t.id === paneA}
                   pinned={t.kind === 'session' && pins.panels.includes(t.id)}
+                  coordinator={
+                    t.kind === 'session' &&
+                    !!issue &&
+                    isCoordinatorSession(issue, t.session.sessionId)
+                  }
                   onSelect={() => {
                     // Switch-latency trace [POD-701]: a tab click that changes the
                     // focused session starts a trace at the gesture (no-op switches
@@ -420,6 +434,7 @@ function SortableTab({
   tab,
   active,
   pinned,
+  coordinator = false,
   onSelect,
   onTogglePin,
   onClose,
@@ -427,6 +442,8 @@ function SortableTab({
   tab: WTab
   active: boolean
   pinned: boolean
+  /** M6: issue's designated coordinator session — elevated marker on the tab. */
+  coordinator?: boolean
   onSelect: () => void
   onTogglePin?: () => void
   onClose: () => void
@@ -514,6 +531,15 @@ function SortableTab({
           {tab.kind === 'session' ? (
             <>
               {issueDot} <WorkerLabel session={tab.session} />
+              {coordinator && (
+                <span
+                  className="flex-none rounded border border-sky-500/50 bg-sky-500/15 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+                  data-testid="coordinator-tab-badge"
+                  title="Coordinator session — drives this issue"
+                >
+                  coord
+                </span>
+              )}
               {/* Status grammar (§2.8): braille spinner while working, still
                   amber dot when waiting on you, nothing otherwise. Semantic
                   colours — never the issue colour. */}

@@ -161,7 +161,14 @@ export function SidebarRail(): JSX.Element {
               className="h-px w-[26px] flex-none bg-[#25252f]"
               title={group.label}
             />
-            {group.rows.map(renderRow)}
+            {group.rows.flatMap((row) => {
+              // Rail is flat: parent issue square then its started-by children
+              // so provenance-nested work stays reachable without the wide tree.
+              if (row.kind !== 'issue' || !row.startedByChildren?.length) {
+                return [renderRow(row)]
+              }
+              return [renderRow(row), ...row.startedByChildren.map((c) => renderRow(c))]
+            })}
           </Fragment>
         ))}
       </div>

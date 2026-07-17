@@ -457,23 +457,57 @@ export function sortSessionsForSidebar(
 }
 
 /**
- * Tab-strip order for one worktree. The user's manual (drag) order wins; sessions
- * it doesn't know about — panels opened after the last drag — append at the end
- * in the default pin-aware order.
+ * Tab-strip order for one worktree/issue. The user's manual (drag) order wins;
+ * sessions it doesn't know about — panels opened after the last drag — append
+ * at the end in the default pin-aware order. When `coordinatorSessionId` is set
+ * (issue workspace, M6), that session is elevated first so the driver is
+ * unambiguous among equal tabs.
  */
 export function orderTabs(
   sessions: SessionMeta[],
   manualOrder: string[] | undefined,
   pins: PinState,
+  coordinatorSessionId?: string | null,
 ): SessionMeta[] {
-  const base = sortSessionsForPins(sessions, pins)
+  const base = elevateCoordinatorSession(sortSessionsForPins(sessions, pins), coordinatorSessionId)
   if (!manualOrder || manualOrder.length === 0) return base
+  // Manual drag order wins, but still lift the coordinator to the front so a
+  // stale saved order can't bury the designated driver.
   const position = orderMap(manualOrder)
   const known = base
     .filter((s) => position.has(s.sessionId))
     .sort((a, b) => (position.get(a.sessionId) ?? 0) - (position.get(b.sessionId) ?? 0))
   const unknown = base.filter((s) => !position.has(s.sessionId))
-  return [...known, ...unknown]
+  return elevateCoordinatorSession([...known, ...unknown], coordinatorSessionId)
+}
+
+/**
+ * Move the designated coordinator session to the front of an issue's session
+ * list (M6 / docs/agent-comms-target.html §05 q1). No-op when unset or when
+ * the coordinator is not among the listed sessions (dangling-tolerant).
+ */
+export function elevateCoordinatorSession(
+  sessions: SessionMeta[],
+  coordinatorSessionId: string | undefined | null,
+): SessionMeta[] {
+  if (!coordinatorSessionId) return sessions
+  const i = sessions.findIndex((s) => s.sessionId === coordinatorSessionId)
+  if (i <= 0) return sessions
+  const next = sessions.slice()
+  const [coord] = next.splice(i, 1)
+  if (!coord) return sessions
+  next.unshift(coord)
+  return next
+}
+
+/** True when this session is the issue's designated coordinator (M6). */
+export function isCoordinatorSession(
+  issue: Pick<IssueWire, 'coordinatorSessionId'>,
+  sessionId: string,
+): boolean {
+  return (
+    typeof issue.coordinatorSessionId === 'string' && issue.coordinatorSessionId === sessionId
+  )
 }
 
 /** Sessions shown in the sidebar — shells never appear there (they stay in the
@@ -1118,11 +1152,24 @@ export function mostUrgentSession(
 /** Rank of rows with NO sessions — sinks below every session-bearing row. */
 export const UNIFIED_ROW_EMPTY_RANK = 4
 
+/** One issue row in the unified WORK LIST. Optional `startedByChildren` holds
+ *  top-level agent-started issues nested under this one via `startedBySession`
+ *  (M6 started-by tree — not a formal parentId edge). */
+export type UnifiedIssueRow = {
+  kind: 'issue'
+  issue: IssueWire
+  sessions: SessionMeta[]
+  activityAt: number
+  rank: number
+  /** Agent-started top-level issues nested under this row (started-by tree). */
+  startedByChildren?: UnifiedIssueRow[]
+}
+
 /** One row of the unified sidebar's WORK LIST: a human-origin issue (drafts
  *  included) or a with-session worktree not owned by any issue. `rank` is the
  *  min of the child sessions' urgency ranks (UNIFIED_ROW_EMPTY_RANK when none). */
 export type UnifiedWorkRow =
-  | { kind: 'issue'; issue: IssueWire; sessions: SessionMeta[]; activityAt: number; rank: number }
+  | UnifiedIssueRow
   | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number; rank: number }
 
 /** Whether a unified WORK/WORKING row should render with unread (email-style)
@@ -1157,6 +1204,8 @@ const rowRank = (sessions: SessionMeta[], now: number): number =>
  *   - nav worktrees owned by no issue that have ≥1 (non-shell) session.
  * Sessions attached to a live issue only render under that issue's row, so an
  * agent-created worktree whose issue never stamped worktreePath won't show twice.
+ * After the flat pass, top-level agent-started issues nest under the starter
+ * session's issue via {@link nestStartedByIssues} (M6 started-by tree).
  */
 function buildUnifiedRows(
   sections: SidebarSections,
@@ -1168,7 +1217,10 @@ function buildUnifiedRows(
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt) continue
-    const mine = sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now)
+    const mine = elevateCoordinatorSession(
+      sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now),
+      issue.coordinatorSessionId,
+    )
     // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
     // session-less issue into the list.
     if (mine.length === 0) continue
@@ -1208,7 +1260,109 @@ function buildUnifiedRows(
       rank: rowRank(unowned, now),
     })
   }
-  return rows
+  return nestStartedByIssues(rows, sessions, allWorktreePaths)
+}
+
+/**
+ * Resolve which issue (among `issues`) owns `sessionId`: explicit `issueId`
+ * first, else cwd containment via {@link sessionsForIssueNav}. Null when the
+ * session or its issue is not in the given sets (sidebar fallback: top-level).
+ */
+export function issueIdOwningSession(
+  sessionId: string,
+  sessions: readonly SessionMeta[],
+  issues: readonly IssueWire[],
+  allWorktreePaths: string[],
+): string | null {
+  const session = sessions.find((s) => s.sessionId === sessionId)
+  if (!session || session.archived || isHeadlessSession(session)) return null
+  if (session.issueId !== undefined) {
+    return issues.some((i) => i.id === session.issueId && !i.archived && !i.deletedAt)
+      ? session.issueId
+      : null
+  }
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt) continue
+    if (sessionsForIssueNav(issue, [session], allWorktreePaths).length > 0) return issue.id
+  }
+  return null
+}
+
+/**
+ * Nest top-level agent-started issues under the issue that owns their
+ * `startedBySession` (M6 started-by tree). Formal `parentId` edges are left
+ * alone — this is provenance grouping, not sub-issue hierarchy. If the starter
+ * session or its issue is not in the current sidebar view, the issue stays
+ * top-level (never hidden). Cycle-safe.
+ */
+export function nestStartedByIssues(
+  rows: UnifiedWorkRow[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: string[],
+): UnifiedWorkRow[] {
+  const issueRows = rows.filter((r): r is UnifiedIssueRow => r.kind === 'issue')
+  if (issueRows.length === 0) return rows
+  const issues = issueRows.map((r) => r.issue)
+  // childId → parentIssueId (proposed, then cycle-filtered).
+  const parentOf = new Map<string, string>()
+  for (const row of issueRows) {
+    const { issue } = row
+    // Only TOP-LEVEL issues (no formal parent) participate in the started-by tree.
+    if (issue.parentId || !issue.startedBySession) continue
+    const parentId = issueIdOwningSession(
+      issue.startedBySession,
+      sessions,
+      issues,
+      allWorktreePaths,
+    )
+    if (!parentId || parentId === issue.id) continue
+    if (!issueRows.some((r) => r.issue.id === parentId)) continue
+    // Reject edge if it would create a cycle in the parentOf chain.
+    let walk: string | undefined = parentId
+    const seen = new Set<string>([issue.id])
+    let cycle = false
+    while (walk) {
+      if (seen.has(walk)) {
+        cycle = true
+        break
+      }
+      seen.add(walk)
+      walk = parentOf.get(walk)
+    }
+    if (cycle) continue
+    parentOf.set(issue.id, parentId)
+  }
+  if (parentOf.size === 0) return rows
+
+  const byId = new Map(issueRows.map((r) => [r.issue.id, r]))
+  const childrenOf = new Map<string, string[]>()
+  for (const [childId, parentId] of parentOf) {
+    const list = childrenOf.get(parentId)
+    if (list) list.push(childId)
+    else childrenOf.set(parentId, [childId])
+  }
+
+  const attach = (row: UnifiedIssueRow): UnifiedIssueRow => {
+    const childIds = childrenOf.get(row.issue.id)
+    if (!childIds || childIds.length === 0) return row
+    const startedByChildren = childIds
+      .map((id) => byId.get(id))
+      .filter((c): c is UnifiedIssueRow => c !== undefined)
+      .map(attach)
+    return startedByChildren.length > 0 ? { ...row, startedByChildren } : row
+  }
+
+  const nested = new Set(parentOf.keys())
+  const out: UnifiedWorkRow[] = []
+  for (const row of rows) {
+    if (row.kind === 'worktree') {
+      out.push(row)
+      continue
+    }
+    if (nested.has(row.issue.id)) continue
+    out.push(attach(row))
+  }
+  return out
 }
 
 /** Band for the WORK list: pinned or returned-from-defer issues float to the top

@@ -38,6 +38,7 @@ import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import {
   draftIssueLabel,
   groupUnifiedWorkRows,
+  isCoordinatorSession,
   isIssueSnoozed,
   issueReturnedFromDefer,
   lastUsedMaps,
@@ -59,6 +60,7 @@ import {
   sessionsNeedChildRows,
   sidebarSections,
   spawnTargetForRepo,
+  type UnifiedIssueRow,
   type UnifiedWorkRow,
   unifiedWorkList,
 } from '@/lib/derive'
@@ -654,15 +656,15 @@ export function WorkSections(): JSX.Element {
         allWorktreePaths={allWorktreePaths}
         sessions={sessions}
         issues={issues}
-        active={selectedIssueId === row.issue.id}
+        selectedIssueId={selectedIssueId}
         paneA={paneA}
         now={now}
-        onSelect={() => selectIssue(row.issue)}
-        onSelectPanel={(sid) => selectPanelForIssue(row.issue, sid)}
+        onSelectIssue={selectIssue}
+        onSelectPanelForIssue={selectPanelForIssue}
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
         onOpenIssue={openIssuePage}
-        onRename={(title) => renameIssue(row.issue.id, title)}
-        onColorChange={(color) => setIssueColor(row.issue.id, color)}
+        onRenameIssue={renameIssue}
+        onColorChangeIssue={setIssueColor}
       />
     ) : (
       <UnifiedWorktreeRow
@@ -925,34 +927,37 @@ function UnifiedIssueRow({
   sessions: _all,
   issues,
   allWorktreePaths,
-  active,
+  selectedIssueId,
   paneA,
   now,
-  onSelect,
-  onSelectPanel,
+  onSelectIssue,
+  onSelectPanelForIssue,
   onPinned,
   onOpenIssue,
-  onRename,
-  onColorChange,
+  onRenameIssue,
+  onColorChangeIssue,
+  /** Visual nesting depth for started-by children (0 = top-level). */
+  startedByDepth = 0,
 }: {
-  row: Extract<UnifiedWorkRow, { kind: 'issue' }>
+  row: UnifiedIssueRow
   sessions: SessionMeta[]
   /** Whole issue list — the context menu's label pool / duplicate targets. */
   issues: IssueWire[]
   allWorktreePaths: string[]
-  active: boolean
+  selectedIssueId: string | null
   paneA: string | null
   now: number
-  onSelect: () => void
-  onSelectPanel: (sessionId: string) => void
+  onSelectIssue: (issue: IssueWire) => void
+  onSelectPanelForIssue: (issue: IssueWire, sessionId: string) => void
   onPinned: (sessionId: string, pinned: boolean) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: string) => void
-  /** Commit a renamed title (double-click / context-menu Rename, #170). */
-  onRename: (title: string) => void
-  onColorChange: (color: IssueColorSlot | null) => unknown
+  onRenameIssue: (id: string, title: string) => void
+  onColorChangeIssue: (id: string, color: IssueColorSlot | null) => unknown
+  startedByDepth?: number
 }): JSX.Element {
-  const { issue, sessions: mine } = row
+  const { issue, sessions: mine, startedByChildren = [] } = row
+  const active = selectedIssueId === issue.id
   const unread = rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-issue:${issue.id}`, false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
@@ -961,7 +966,7 @@ function UnifiedIssueRow({
   // an accidental double-click that changes nothing never fires a mutation (#170).
   const commitRename = (name: string) => {
     const next = name.trim()
-    if (next && next !== issue.title) onRename(next)
+    if (next && next !== issue.title) onRenameIssue(issue.id, next)
     setEditing(false)
   }
   const renameEditor = editing ? (
@@ -971,11 +976,12 @@ function UnifiedIssueRow({
       onCancel={() => setEditing(false)}
     />
   ) : undefined
-  // Expand when multi-agent / remote spawn children need nesting, or when a
-  // lone parent has live native subagents (count indicator under the row).
-  // A single agent with no subagents stays collapsed — the parent status line
-  // is that agent's indicator.
-  const showChildren = sessionsNeedChildRows(mine)
+  // Expand when multi-agent / remote spawn children need nesting, when a
+  // lone parent has live native subagents, or when started-by children nest
+  // under this issue (M6 provenance tree).
+  const showSessions = sessionsNeedChildRows(mine)
+  const hasStartedBy = startedByChildren.length > 0
+  const showChildren = showSessions || hasStartedBy
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   const waitingCount = rowWaitingCount(row)
@@ -987,7 +993,7 @@ function UnifiedIssueRow({
       state={phase}
       selected={active}
       badge={waitingCount > 0 ? { kind: 'dot' } : null}
-      onColorChange={onColorChange}
+      onColorChange={(color) => onColorChangeIssue(issue.id, color)}
     />
   )
   // Draft vessel whose only content is agents → clicking opens the session.
@@ -1022,15 +1028,16 @@ function UnifiedIssueRow({
       session={session}
       pinned={false}
       active={active && paneA === session.sessionId}
-      onSelect={() => onSelectPanel(session.sessionId)}
+      onSelect={() => onSelectPanelForIssue(issue, session.sessionId)}
       onPinned={(p) => onPinned(session.sessionId, p)}
       dotRight
+      coordinator={isCoordinatorSession(issue, session.sessionId)}
     />
   )
   return (
     <>
       <WorkRowShell
-        testId="unified-issue-row"
+        testId={startedByDepth > 0 ? 'unified-issue-row-started-by' : 'unified-issue-row'}
         square={square}
         label={label}
         statusLine={rowStatusLine(row, now)}
@@ -1053,7 +1060,11 @@ function UnifiedIssueRow({
         collapsed={draftAgentOnly || !showChildren ? true : collapsed}
         onToggle={toggle}
         // A draft is just its agent — clicking the row opens the session itself.
-        onSelect={draftAgentOnly && first ? () => onSelectPanel(first.sessionId) : onSelect}
+        onSelect={
+          draftAgentOnly && first
+            ? () => onSelectPanelForIssue(issue, first.sessionId)
+            : () => onSelectIssue(issue)
+        }
         onContextMenu={onContextMenu}
         onDoubleClick={() => setEditing(true)}
         editor={renameEditor}
@@ -1065,6 +1076,15 @@ function UnifiedIssueRow({
             <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
               {issueDisplayRef(issue)}
             </span>
+            {startedByDepth > 0 && (
+              <span
+                className="flex-none rounded border border-teal-500/45 bg-teal-500/10 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400"
+                data-testid="started-by-badge"
+                title="Started by an agent on the parent issue (provenance nest, not a formal sub-issue)"
+              >
+                started-by
+              </span>
+            )}
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}
@@ -1093,8 +1113,41 @@ function UnifiedIssueRow({
       >
         {!draftAgentOnly && showChildren && (
           <>
-            <GroupedSessionRows sessions={visible} render={renderRow} />
-            <StaleSection sessions={stale} render={renderRow} />
+            {/* Show member sessions when multi-agent/spawn nesting needs them,
+                or when the row expands for started-by children (so the driver
+                stays visible next to nested provenance issues). */}
+            {(showSessions || (hasStartedBy && mine.length > 0)) && (
+              <>
+                <GroupedSessionRows sessions={visible} render={renderRow} />
+                <StaleSection sessions={stale} render={renderRow} />
+              </>
+            )}
+            {hasStartedBy && (
+              <div
+                className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
+                data-testid="started-by-children"
+              >
+                {startedByChildren.map((child) => (
+                  <UnifiedIssueRow
+                    key={`issue:${child.issue.id}`}
+                    row={child}
+                    allWorktreePaths={allWorktreePaths}
+                    sessions={_all}
+                    issues={issues}
+                    selectedIssueId={selectedIssueId}
+                    paneA={paneA}
+                    now={now}
+                    onSelectIssue={onSelectIssue}
+                    onSelectPanelForIssue={onSelectPanelForIssue}
+                    onPinned={onPinned}
+                    onOpenIssue={onOpenIssue}
+                    onRenameIssue={onRenameIssue}
+                    onColorChangeIssue={onColorChangeIssue}
+                    startedByDepth={startedByDepth + 1}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
       </WorkRowShell>
