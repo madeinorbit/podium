@@ -114,6 +114,13 @@ export const BOUNDARY_ALLOWLIST: readonly AllowlistEntry[] = [
   },
   {
     rule: 'harness-branching',
+    file: 'apps/web/src/features/issues/issue-context-menu.ts',
+    count: 2,
+    phase: P5,
+    note: 'Handoff eligibility restricted to claude-code/codex (arrived from main fe822fff, unrecorded there because the lint chain is dead — POD-30). Same class as machine-selection above: a manifest capability predicate under POD-325.',
+  },
+  {
+    rule: 'harness-branching',
     file: 'apps/server/src/modules/superagent/service.ts',
     count: 2,
     phase: P5,
