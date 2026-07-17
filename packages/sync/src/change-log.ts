@@ -126,6 +126,32 @@ export class ChangeBaseline {
 }
 
 /**
+ * The lowest seq the authority can still DELIVER (ADR 2 D5) — the published
+ * retention horizon, so a replica can tell it must re-bootstrap BEFORE asking
+ * rather than after being refused.
+ *
+ * The `?? max + 1` fallback is what makes the number TOTAL. A fully-pruned log
+ * (every row aged out, `max` still 500 via sqlite_sequence) can deliver nothing
+ * that exists, and the next change it writes will be 501 — so 501 is both true
+ * and precise, where a null would need a special case at every consumer and a 0
+ * would claim it can serve a cursor it cannot.
+ *
+ * The exact replica predicate is `cursor + 1 < minAvailableSeq` ⇒ re-bootstrap,
+ * which is {@link readChangesSince}'s own servability rule read from the other
+ * side: it can serve a cursor iff every change in (cursor, max] is retained,
+ * i.e. iff `cursor + 1 >= minAvailableSeq`. Worth stating precisely because ADR
+ * 2 D7 rung 2 gives the shorthand `cursor < minAvailableSeq` — the same rule off
+ * by one, costing one needless re-bootstrap at exactly `cursor === min - 1`.
+ * Both are SAFE (the authority's answer is authoritative either way; a needless
+ * bootstrap is always legal), but the exact form is free.
+ */
+export function minAvailableSeq(
+  store: Pick<ChangeLogStore, 'maxChangeSeq' | 'minChangeSeq'>,
+): number {
+  return store.minChangeSeq() ?? store.maxChangeSeq() + 1
+}
+
+/**
  * Catch-up read for `sync.changesSince`. Returns null when the caller must fall
  * back to a snapshot: null cursor (bootstrap), a cursor from before the retained
  * range (compaction), a cursor from the future (server DB was reset), or a

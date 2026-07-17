@@ -127,3 +127,84 @@ describe('parseChangesSinceResult semantic validation', () => {
     expect(res?.kind).toBe('delta')
   })
 })
+
+/**
+ * Feed identity on the catch-up reply (ADR 2 D1/D5). The fields are additive, so
+ * the contract has two halves that must BOTH hold: a new consumer receives them
+ * intact, and the semantic rules at parseChangesSinceResult — which are protocol
+ * law, each one a class of silent permanent divergence — are untouched by them.
+ */
+describe('feed identity on changesSince (ADR 2 D1/D5)', () => {
+  const identity = { feedId: 'feed_1', epoch: 'epoch_1', minAvailableSeq: 3 }
+
+  it('passes feedId, epoch and minAvailableSeq through on a delta', () => {
+    const res = parseChangesSinceResult(
+      { ...delta([sessionUpsert(5, 'a')], 5), ...identity },
+      { fromCursor: 4 },
+    )
+    expect(res).toMatchObject(identity)
+  })
+
+  it('passes them through on a snapshot — the arm a re-bootstrap actually lands on', () => {
+    const res = parseChangesSinceResult({
+      kind: 'snapshot',
+      sessions: [],
+      issues: [],
+      conversations: [],
+      diagnostics: [],
+      cursor: 9,
+      ...identity,
+    })
+    expect(res).toMatchObject({ kind: 'snapshot', ...identity })
+  })
+
+  it('accepts a reply from an authority that predates them (consumers stay lenient)', () => {
+    // The fields are optional in the schema BECAUSE the schema is the consumer
+    // parser. A rolling upgrade deploys server and client separately, so a new
+    // client must not reject an old server's reply.
+    const res = parseChangesSinceResult(delta([sessionUpsert(5, 'a')], 5), { fromCursor: 4 })
+    expect(res).toMatchObject({ kind: 'delta' })
+    expect((res as { feedId?: string }).feedId).toBeUndefined()
+  })
+
+  it('rejects an EMPTY feedId or epoch — a blank id would compare equal to another blank', () => {
+    // The failure mode this guards: two authorities both stamping '' would look
+    // like the same feed forever, which is the exact divergence the id prevents.
+    for (const bad of [{ feedId: '' }, { epoch: '' }]) {
+      expect(
+        parseChangesSinceResult(
+          { ...delta([sessionUpsert(5, 'a')], 5), ...identity, ...bad },
+          {
+            fromCursor: 4,
+          },
+        ),
+      ).toBeNull()
+    }
+  })
+
+  it('does NOT weaken the semantic rules: a lying delta is still rejected WITH identity attached', () => {
+    // Stamping identity onto a malformed reply must not launder it. Each of
+    // these is a rejection the shipped parser already owed; the new fields are
+    // orthogonal and must stay that way.
+    const withId = (r: object) => ({ ...r, ...identity })
+    // non-contiguous seq run
+    expect(
+      parseChangesSinceResult(withId(delta([sessionUpsert(5, 'a'), sessionUpsert(7, 'b')], 7)), {
+        fromCursor: 4,
+      }),
+    ).toBeNull()
+    // embedded wire id disagreeing with the change id
+    expect(
+      parseChangesSinceResult(
+        withId(delta([sessionUpsert(5, 'a', sessionValue('SOMEONE_ELSE'))], 5)),
+        { fromCursor: 4 },
+      ),
+    ).toBeNull()
+    // empty delta moving the cursor
+    expect(parseChangesSinceResult(withId(delta([], 9)), { fromCursor: 4 })).toBeNull()
+    // a delta answering an explicitly-null (bootstrap) cursor
+    expect(
+      parseChangesSinceResult(withId(delta([sessionUpsert(1, 'a')], 1)), { fromCursor: null }),
+    ).toBeNull()
+  })
+})

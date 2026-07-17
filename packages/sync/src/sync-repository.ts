@@ -1,15 +1,45 @@
 /**
  * Sync aggregate — owns the durable read/write sync machinery:
- * the metadata oplog (`changes`, docs/spec/oplog-read-path.md), the outbox
- * write path (`applied_mutations` + `queued_messages`,
- * docs/spec/outbox-write-path.md) and the node⇄hub issue-write outbox
- * (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
+ * the feed's identity (`sync_feed`, ADR 2 D1), the metadata oplog (`changes`,
+ * docs/spec/oplog-read-path.md), the outbox write path (`applied_mutations` +
+ * `queued_messages`, docs/spec/outbox-write-path.md) and the node⇄hub
+ * issue-write outbox (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
  */
 
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import type { FeedIdentity } from './feed-identity'
 
 export class SyncRepository {
   constructor(private readonly db: SqlDatabase) {}
+
+  // ---- feed identity (ADR 2 D1) ----
+  //
+  // One row, guarded by `CHECK (id = 1)`: two identities in one database is a
+  // state the schema refuses to represent. It lives HERE, next to `changes`,
+  // because a restore that rolls the log back must roll the epoch back with it
+  // — that is what the restore path then notices and re-mints (feed-identity.ts).
+
+  /** The persisted identity, or null before it has ever been minted. */
+  readFeedIdentity(): FeedIdentity | null {
+    const row = this.db.prepare('SELECT feed_id, epoch FROM sync_feed WHERE id = 1').get() as
+      | { feed_id: string; epoch: string }
+      | undefined
+    return row ? { feedId: row.feed_id, epoch: row.epoch } : null
+  }
+
+  /** Persist the identity iff none exists. `INSERT OR IGNORE` on the singleton
+   *  key makes a second mint a durable no-op rather than a silent re-identify
+   *  of a live feed. */
+  initFeedIdentity(identity: FeedIdentity): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO sync_feed (id, feed_id, epoch) VALUES (1, ?, ?)')
+      .run(identity.feedId, identity.epoch)
+  }
+
+  /** Replace the epoch, keeping `feedId` — a new generation of the SAME feed. */
+  setEpoch(epoch: string): void {
+    this.db.prepare('UPDATE sync_feed SET epoch = ? WHERE id = 1').run(epoch)
+  }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
 

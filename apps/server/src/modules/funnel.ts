@@ -1,5 +1,5 @@
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
-import type { Ledger } from '@podium/sync'
+import type { FeedIdentity, Ledger } from '@podium/sync'
 import type { EventBus } from './bus'
 
 export interface WriteFunnelDeps {
@@ -16,7 +16,10 @@ export interface WriteFunnelDeps {
    *  writer of the durable `changes` table. The funnel bridges its appends onto
    *  the bus ('oplog.appended' fires for EVERY durable change) and into the
    *  ordered delta pipe, and serves cursor reads through it. */
-  ledger: Pick<Ledger, 'onAppended' | 'changesSince' | 'cursor'>
+  ledger: Pick<
+    Ledger,
+    'onAppended' | 'changesSince' | 'cursor' | 'feedIdentity' | 'minAvailableSeq'
+  >
 }
 
 /**
@@ -95,6 +98,18 @@ export class WriteFunnel {
 
   cursor(): number {
     return this.deps.ledger.cursor()
+  }
+
+  /** This feed's `(feedId, epoch)` (ADR 2 D1) — stamped onto every delta frame
+   *  and catch-up reply so a replica can compare the identity of the stream it
+   *  is reading, not just its position in it. */
+  feedIdentity(): FeedIdentity {
+    return this.deps.ledger.feedIdentity()
+  }
+
+  /** The published retention horizon (ADR 2 D5). */
+  minAvailableSeq(): number {
+    return this.deps.ledger.minAvailableSeq()
   }
 
   // ---- THE ordered metadataDelta pipe (#256) ----

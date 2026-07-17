@@ -2,14 +2,14 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from './sync-repository'
 
 /**
- * A `SyncRepository` over a fresh in-memory SQLite DB carrying just the four
- * tables it owns (`changes`, `applied_mutations`, `queued_messages`,
- * `upstream_outbox`). Test-only fixture: the real schema DDL lives in the
- * drizzle schema (apps/server/src/migrations/schema.ts) — schema ownership stays
- * with the app that runs the migrator — and this mirrors it so this package's
- * own unit tests can exercise the real repository/SQL without depending on
- * apps/server. Keep in sync with that schema if the sync tables' shape ever
- * changes.
+ * A `SyncRepository` over a fresh in-memory SQLite DB carrying just the five
+ * tables it owns (`sync_feed`, `changes`, `applied_mutations`,
+ * `queued_messages`, `upstream_outbox`). Test-only fixture: the real schema DDL
+ * lives in the drizzle schema (apps/server/src/migrations/schema.ts) — schema
+ * ownership stays with the app that runs the migrator — and this mirrors it so
+ * this package's own unit tests can exercise the real repository/SQL without
+ * depending on apps/server. Keep in sync with that schema if the sync tables'
+ * shape ever changes.
  */
 export function createTestSyncRepository(): SyncRepository {
   return new SyncRepository(createTestSyncDatabase())
@@ -20,6 +20,15 @@ export function createTestSyncRepository(): SyncRepository {
  *  which wraps entity writes and the change append in one transaction). */
 export function createTestSyncDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
+  // Feed identity (ADR 2 D1). `CHECK (id = 1)` is the singleton guard: two
+  // identities in one database is a state the schema refuses to represent.
+  db.exec(
+    `CREATE TABLE sync_feed (
+       id      INTEGER PRIMARY KEY CHECK (id = 1),
+       feed_id TEXT NOT NULL,
+       epoch   TEXT NOT NULL
+     )`,
+  )
   db.exec(
     `CREATE TABLE changes (
        seq        INTEGER PRIMARY KEY AUTOINCREMENT,

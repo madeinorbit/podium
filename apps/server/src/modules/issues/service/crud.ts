@@ -12,7 +12,18 @@ import { UNSNOOZE_BACKDATE_MS } from './types'
 export interface IssueLifecyclePlan {
   issueId: string
   worktreePath: string | null
-  wire: IssueWire
+  /** The committed wire projection. Valid ONLY after {@link write} — throws
+   *  before it, deliberately loudly.
+   *
+   *  A function rather than a field because the authority assigns `revision` at
+   *  the SQL write (ADR 2 D3, IssuesRepository.upsertIssue), so a projection
+   *  taken while building the plan would carry a stale token: it would ship a
+   *  revision the client then echoes in `expectedRevision`, and the authority
+   *  would reject the client's next write against state the client had been
+   *  handed. A field could hold that stale value silently; a call that throws
+   *  cannot. The ordering rule generalizes past revision — any
+   *  authority-assigned field has it. */
+  wire(): IssueWire
   write(): void
   changes(): EntityChangeSpec[]
   apply(): void
@@ -405,13 +416,24 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
     const deletedAt = this.now()
     const row: IssueRow = { ...current, deletedAt, updatedAt: deletedAt }
-    const wire = this.toWire(row, remainingSessions)
+    // Projected INSIDE write(), after upsertIssue has stamped row.revision —
+    // see IssueLifecyclePlan.wire for why taking it here would be a bug.
+    let committed: IssueWire | null = null
+    const wire = (): IssueWire => {
+      if (!committed) {
+        throw new Error(`prepareSoftDelete(${row.id}): wire() read before write() committed it`)
+      }
+      return committed
+    }
     return {
       issueId: row.id,
       worktreePath: row.worktreePath,
       wire,
-      write: () => this.deps.store.issues.upsertIssue(row),
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
+      write: () => {
+        this.deps.store.issues.upsertIssue(row)
+        committed = this.toWire(row, remainingSessions)
+      },
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
         this.rows.set(row.id, row)
         this.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
@@ -445,13 +467,23 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)
     const restoredAt = this.now()
     const row: IssueRow = { ...current, deletedAt: null, updatedAt: restoredAt }
-    const wire = this.toWire(row, restoredSessions)
+    // Projected INSIDE write() — see prepareSoftDelete / IssueLifecyclePlan.wire.
+    let committed: IssueWire | null = null
+    const wire = (): IssueWire => {
+      if (!committed) {
+        throw new Error(`prepareRestore(${row.id}): wire() read before write() committed it`)
+      }
+      return committed
+    }
     return {
       issueId: row.id,
       worktreePath: row.worktreePath,
       wire,
-      write: () => this.deps.store.issues.upsertIssue(row),
-      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire }],
+      write: () => {
+        this.deps.store.issues.upsertIssue(row)
+        committed = this.toWire(row, restoredSessions)
+      },
+      changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
         this.rows.set(row.id, row)
         this.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })

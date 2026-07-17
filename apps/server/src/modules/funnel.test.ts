@@ -29,6 +29,11 @@ function fakeLedger() {
     },
     changesSince: () => null,
     cursor: () => 0,
+    // Feed identity (ADR 2 D1/D5) — fixed values; these tests are about the
+    // ordered pipe, and the identity passthrough is asserted in the ledger and
+    // sessions-service suites.
+    feedIdentity: () => ({ feedId: 'feed_fake', epoch: 'epoch_fake' }),
+    minAvailableSeq: () => 1,
     emit: (changes: MetadataChange[]) => {
       for (const fn of listeners) fn(changes)
     },

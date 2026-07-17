@@ -159,6 +159,22 @@ export type SessionStatus = z.infer<typeof SessionStatus>
  *  must stop sending it the full-list snapshot rebroadcasts (it still gets the
  *  attach-time bootstrap snapshots — those are its initial paint). */
 export const CAP_METADATA_DELTA = 'metadataDelta'
+/** Client capability: the client understands feed identity (ADR 2 D1/D5) — it
+ *  holds the `(feedId, epoch, seq)` cursor TRIPLE rather than a bare seq, and
+ *  it acts on the published `minAvailableSeq`. The server stamps those three
+ *  fields onto this client's `metadataDelta` frames; a client without the cap
+ *  gets today's frame byte-for-byte.
+ *
+ *  Only meaningful alongside {@link CAP_METADATA_DELTA} (there is no frame to
+ *  stamp otherwise). Additive per ADR 2 D4 — new fields negotiate by
+ *  capability, `WIRE_VERSION` stays 1 and moves only for breaking FRAMING
+ *  changes.
+ *
+ *  Deliberately NOT the gate on `sync.changesSince`: that is a tRPC query with
+ *  no hello and therefore no caps context, so its reply carries the fields
+ *  unconditionally. That is safe in the same way the whole additive rule is —
+ *  zod objects STRIP unknown keys, so an older client's parse drops them. */
+export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
 export const HelloMessage = z.object({
   type: z.literal('hello'),
   clientId: z.string(),

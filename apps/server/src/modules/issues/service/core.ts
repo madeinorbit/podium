@@ -175,6 +175,12 @@ export abstract class IssueServiceCore {
       ...(row.repoId ? { repoId: row.repoId } : {}),
       ...(prefix ? { prefix } : {}),
       displayRef,
+      // Per-entity revision (ADR 2 D3) — assigned by upsertIssue at the SQL
+      // write, so this projection carries the COMMITTED token only when taken
+      // after the write. Spread-conditionally like the other optionals: a row
+      // that has never been written has no revision, and an absent field is
+      // honest where a fabricated 1 would claim a write that never happened.
+      ...(row.revision === undefined ? {} : { revision: row.revision }),
       seq: row.seq,
       title: row.title,
       description: row.description,

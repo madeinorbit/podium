@@ -9,6 +9,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260716083847_messaging-issue-topics", sql: "CREATE TABLE `messaging_issue_topics` (\n\t`issue_id` text NOT NULL,\n\t`chat_id` text NOT NULL,\n\t`thread_ref` text NOT NULL,\n\t`superagent_thread_id` text NOT NULL,\n\t`updated_at` text NOT NULL,\n\tCONSTRAINT `messaging_issue_topics_pk` PRIMARY KEY(`issue_id`, `chat_id`)\n);\n--> statement-breakpoint\nCREATE INDEX `idx_messaging_issue_topics_ref` ON `messaging_issue_topics` (`chat_id`,`thread_ref`);" },
   { name: "20260716134142_one-off-automation-schedules", sql: "ALTER TABLE `automations` ADD `schedule_kind` text DEFAULT 'cron' NOT NULL;--> statement-breakpoint\nALTER TABLE `automations` ADD `run_at` text;--> statement-breakpoint\nALTER TABLE `automations` ADD `target_session_id` text;" },
   { name: "20260716181038_agent-action-offers", sql: "CREATE TABLE `offers` (\n\t`session_id` text PRIMARY KEY,\n\t`message` text NOT NULL,\n\t`actions` text NOT NULL,\n\t`created_at` text NOT NULL\n);\n" },
+  { name: "20260717092407_issue-revision-and-feed-identity", sql: "CREATE TABLE `sync_feed` (\n\t`id` integer PRIMARY KEY,\n\t`feed_id` text NOT NULL,\n\t`epoch` text NOT NULL,\n\tCONSTRAINT \"sync_feed_check_1\" CHECK(id = 1)\n);\n--> statement-breakpoint\nALTER TABLE `issues` ADD `revision` integer DEFAULT 1 NOT NULL;" },
 ]
 
 /**

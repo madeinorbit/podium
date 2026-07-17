@@ -12,6 +12,7 @@ import {
   agentSupportsEffort,
   agentSupportsInitialPrompt,
   CAP_METADATA_DELTA,
+  CAP_SYNC_FEED_IDENTITY,
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
@@ -88,7 +89,9 @@ const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
  *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60].
  *  Length cap: MAX_AGENT_TITLE_LENGTH from @podium/protocol/titles. */
-function normalizeAgentName(name: string): { ok: true; name: string } | { ok: false; reason: string } {
+function normalizeAgentName(
+  name: string,
+): { ok: true; name: string } | { ok: false; reason: string } {
   const clean = name.trim().replace(/\s+/g, ' ')
   if (!clean) return { ok: false, reason: 'title is empty' }
   if (clean.length > MAX_AGENT_TITLE_LENGTH) {
@@ -547,7 +550,10 @@ export class SessionsService {
     snoozes: Record<string, string | null>,
     draftTimes: Record<string, string>,
     drafts: Record<string, string>,
-    offers: Record<string, { message: string; actions: { label: string; prompt: string }[]; createdAt: string }>,
+    offers: Record<
+      string,
+      { message: string; actions: { label: string; prompt: string }[]; createdAt: string }
+    >,
   ): void {
     this.sessions.set(session.sessionId, session)
     if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
@@ -1979,7 +1985,12 @@ export class SessionsService {
       },
       source.machineId,
     )
-    if (!exported.ok || !exported.stagePath || exported.sizeBytes === undefined || !exported.manifest)
+    if (
+      !exported.ok ||
+      !exported.stagePath ||
+      exported.sizeBytes === undefined ||
+      !exported.manifest
+    )
       throw new Error(exported.error ?? 'source failed to export its workspace')
     await transferHandoffPackage({
       rpc: this.rpc,
@@ -2669,7 +2680,10 @@ export class SessionsService {
    *  the guards below decide, and `explicit` only buys a send the daemon would otherwise
    *  dedup away. Both answer the same question — is the session working in a worktree
    *  its issue doesn't know about? */
-  private adoptWorktree(issueId: string, msg: Extract<DaemonMessage, { type: 'sessionCwd' }>): void {
+  private adoptWorktree(
+    issueId: string,
+    msg: Extract<DaemonMessage, { type: 'sessionCwd' }>,
+  ): void {
     const issue = this.issues().get(issueId)
     if (!issue || issue.archived || issue.worktreePath !== null) return
     // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a
@@ -3354,13 +3368,37 @@ export class SessionsService {
    *  with its last change's seq) to every delta-cap client. Called ONLY by the
    *  funnel's ordered pipe ([spec:SP-3fe2] #256) so batches reach every client
    *  in strict append order — the client gap rule (seq !== cursor+1 → heal)
-   *  turns any second emitter or reorder into a heal storm. */
+   *  turns any second emitter or reorder into a heal storm.
+   *
+   *  Clients that also sent `syncFeedIdentity` get the frame stamped with the
+   *  feed's `(feedId, epoch)` and the published `minAvailableSeq` (ADR 2
+   *  D1/D5), so their cursor is the full triple and an epoch bump is detectable
+   *  on the very next frame. Clients without the cap get today's frame,
+   *  byte-for-byte — the additive-by-capability rule of ADR 2 D4, which is why
+   *  none of this bumps WIRE_VERSION. */
   sendMetadataDelta(changes: MetadataChange[]): void {
     const last = changes[changes.length - 1]
     if (!last) return
     const delta: ServerMessage = { type: 'metadataDelta', seq: last.seq, changes }
+    let identityDelta: ServerMessage | undefined
     for (const c of this.clients.values()) {
-      if (c.caps.has(CAP_METADATA_DELTA)) c.send(delta)
+      if (!c.caps.has(CAP_METADATA_DELTA)) continue
+      if (!c.caps.has(CAP_SYNC_FEED_IDENTITY)) {
+        c.send(delta)
+        continue
+      }
+      // Built lazily and once per batch: minAvailableSeq is a SQL read, and the
+      // common case is that no client wants it.
+      if (!identityDelta) {
+        const { feedId, epoch } = this.funnel.feedIdentity()
+        identityDelta = {
+          ...delta,
+          feedId,
+          epoch,
+          minAvailableSeq: this.funnel.minAvailableSeq(),
+        } as ServerMessage
+      }
+      c.send(identityDelta)
     }
   }
 
@@ -3369,10 +3407,24 @@ export class SessionsService {
    * a compacted-away cursor, or a future cursor (server DB reset) falls back to a
    * full snapshot; the cursor is read in the same synchronous pass as the entity
    * lists, so nothing falls between the snapshot and the subsequent delta stream.
+   *
+   * BOTH arms carry the feed's `(feedId, epoch)` and `minAvailableSeq` (ADR 2
+   * D1/D5), unconditionally: this is a tRPC query, so unlike the WS frame there
+   * is no hello and therefore no caps to gate on. Stamping regardless is safe
+   * for the same reason the additive rule is — zod objects STRIP unknown keys,
+   * so a client that predates this drops them on parse.
+   *
+   * The snapshot arm needs the identity MOST, and that is the point rather than
+   * a bonus: a re-bootstrap is exactly where a replica learns which generation
+   * it is now on, and every rung of the D7 healing ladder terminates here.
+   * Reading the identity in this same synchronous pass keeps it consistent with
+   * the cursor beside it.
    */
   syncChangesSince(cursor: number | null): SyncChangesSinceResult {
+    const { feedId, epoch } = this.funnel.feedIdentity()
+    const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
     const changes = this.funnel.changesSince(cursor)
-    if (changes) return { kind: 'delta', changes, cursor: this.funnel.cursor() }
+    if (changes) return { kind: 'delta', changes, cursor: this.funnel.cursor(), ...identity }
     return {
       kind: 'snapshot',
       sessions: this.listSessions(),
@@ -3382,6 +3434,7 @@ export class SessionsService {
       automationRuns: this.deps.automationRunsWire(),
       diagnostics: this.conversations().diagnostics(),
       cursor: this.funnel.cursor(),
+      ...identity,
     }
   }
 }

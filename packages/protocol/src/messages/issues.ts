@@ -211,6 +211,24 @@ export const IssueWire = z.object({
   // Derived server-side at serialization (not persisted):
   sessions: z.array(SessionMeta),
   sessionSummary: IssueSessionSummary,
+  /** Per-entity revision (ADR 2 D3) — authority-assigned, monotonic, bumped on
+   *  every ACCEPTED issue write. This is the token `expectedRevision` echoes
+   *  back on a mutating command; it is opaque to replicas, which never compute
+   *  it, compare it for truth, or arbitrate on it.
+   *
+   *  Not a feed position: `seq` says where you are in the stream, `revision`
+   *  says whether your write is based on current truth. The two answer
+   *  different questions and are never interchangeable (ADR 2 D3's table).
+   *
+   *  Derived churn does NOT bump it: an issue's wire row also carries session
+   *  data and computed ready/blocked/childCount fields, which ripple when OTHER
+   *  rows change. Those re-publish through the write-less reconcile path, which
+   *  performs no issue write — so the wire value changes while `revision`
+   *  correctly stays put, and a client's in-flight expectedRevision survives.
+   *
+   *  Additive/optional: absent = an authority from before ADR 2 D3 (or an issue
+   *  mirrored from an upstream hub that does not assign one). */
+  revision: z.number().int().positive().optional(),
   /** True for an issue mirrored FROM this node's upstream hub (node⇄hub issues,
    *  docs/spec/node-hub-issues.md §2.1) — stamped at ingest, never on local
    *  issues. Derived fields (ready/blocked/deps) arrive hub-computed. Additive:

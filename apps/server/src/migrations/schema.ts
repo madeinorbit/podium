@@ -193,6 +193,20 @@ export const clientSessions = sqliteTable("client_sessions", {
 	expiresAt: text("expires_at").notNull(),
 });
 
+/** The feed's identity (ADR 2 D1) — the `(feedId, epoch)` half of a replica's
+ *  cursor triple. Single row: `CHECK (id = 1)` makes "two identities in one
+ *  database" unrepresentable. Lives next to `changes` on purpose — a restore
+ *  rolls the epoch back with the log, which is exactly what the restore path
+ *  (migrations/restore.ts) then notices and re-mints. Read/written only through
+ *  @podium/sync's SyncRepository. */
+export const syncFeed = sqliteTable("sync_feed", {
+	id: integer().primaryKey(),
+	feedId: text("feed_id").notNull(),
+	epoch: text().notNull(),
+},
+(table) => [check("sync_feed_check_1", sql`id = 1`),
+]);
+
 export const changes = sqliteTable("changes", {
 	seq: integer().primaryKey({ autoIncrement: true }),
 	entity: text().notNull(),
@@ -389,6 +403,14 @@ export const issues = sqliteTable("issues", {
 	readAt: text("read_at"),
 	audience: text().default("human").notNull(),
 	deletedAt: text("deleted_at"),
+	/** Per-entity revision (ADR 2 D3) — authority-assigned, monotonic, bumped on
+	 *  every ACCEPTED write by IssuesRepository.upsertIssue (the table's single
+	 *  SQL writer, so the bump is structural rather than per-call-site). The
+	 *  token `expectedRevision` echoes back on a mutating command. `DEFAULT 1
+	 *  NOT NULL` IS the ADR's "backfill revision = 1 for existing rows": SQLite's
+	 *  ALTER TABLE ... ADD COLUMN materializes the default into every existing
+	 *  row, so no separate data migration is needed. */
+	revision: integer().default(1).notNull(),
 },
 (table) => [index("idx_issues_deleted_at").on(table.deletedAt),
 uniqueIndex("idx_issues_repo_id_seq").on(table.repoId, table.seq),

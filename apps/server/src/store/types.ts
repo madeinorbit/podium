@@ -3,8 +3,8 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { Geometry } from '@podium/protocol'
 import type { IssueColorSlot } from '@podium/domain'
+import type { Geometry } from '@podium/protocol'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -156,6 +156,13 @@ export interface IssueRow {
   createdAt: string
   updatedAt: string
   archived: boolean
+  /** Per-entity revision (ADR 2 D3) — authority-assigned, monotonic, bumped on
+   *  every accepted write. ASSIGNED BY {@link IssuesRepository.upsertIssue},
+   *  never by a caller: it writes the next value onto the row it is given, so a
+   *  projection taken AFTER the write (toWire) carries the committed token and
+   *  one taken before carries a stale one. Optional so pre-existing row literals
+   *  stay valid; a row that has never been written has no revision yet. */
+  revision?: number
   /** Soft-delete tombstone. The row and its tracker history remain recoverable. */
   deletedAt?: string | null
   priority: number

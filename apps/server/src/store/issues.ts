@@ -37,6 +37,35 @@ export class IssuesRepository {
     const blockedBy = Array.isArray(row.blockedBy)
       ? row.blockedBy.filter((x): x is string => typeof x === 'string')
       : []
+    // THE revision assignment (ADR 2 D3). This is the issues table's only SQL
+    // writer, so putting the bump here makes it STRUCTURAL: every accepted write
+    // gets a fresh revision with no call-site cooperation, and a new write path
+    // cannot forget to bump one.
+    //
+    // Read the CURRENT value out of the DB rather than off `row`: the caller's
+    // copy may be stale (or a hand-built literal), and the value that matters is
+    // the one on the row actually being replaced. `?? 0` covers the first write
+    // of a new issue → revision 1, matching the migration's backfill of 1 for
+    // rows that predate the column.
+    //
+    // The assignment MUTATES the caller's row on purpose, mirroring how
+    // persistWith already stamps `row.updatedAt` in place before this call. That
+    // is what lets a post-write toWire(row) carry the committed token for free —
+    // and it is why a wire projected BEFORE the write is a bug (see
+    // IssueLifecyclePlan.wire, which enforces the ordering).
+    //
+    // Interaction with the ledger's byte-equality dedup, which this must NOT
+    // break: a bumped revision changes the wire JSON, so a write is never
+    // deduped away. That is correct and costs nothing, because the dedup's real
+    // job for issues is the WRITE-LESS reconcile path (derived ripples: closing
+    // X flips ready/blocked on its dependents without any write touching them).
+    // reconcile never reaches this method, so no revision burns on a no-op and
+    // the ripple republishes under an unchanged revision — leaving in-flight
+    // expectedRevision preconditions valid, which is the whole point of D3.
+    const current = this.db.prepare('SELECT revision FROM issues WHERE id = ?').get(row.id) as
+      | { revision: number | null }
+      | undefined
+    row.revision = (current?.revision ?? 0) + 1
     this.db
       .prepare(
         `INSERT INTO issues
@@ -48,8 +77,8 @@ export class IssuesRepository {
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, color, estimate_min,
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
-            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at, revision)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
@@ -77,7 +106,7 @@ export class IssuesRepository {
            updated_at = excluded.updated_at, archived = excluded.archived,
            origin = excluded.origin, audience = excluded.audience,
            draft = excluded.draft, read_at = excluded.read_at,
-           deleted_at = excluded.deleted_at`,
+           deleted_at = excluded.deleted_at, revision = excluded.revision`,
       )
       .run(
         row.id,
@@ -133,6 +162,7 @@ export class IssuesRepository {
         row.draft ? 1 : 0,
         row.readAt ?? null,
         row.deletedAt ?? null,
+        row.revision,
       )
   }
 
@@ -201,6 +231,10 @@ export class IssuesRepository {
       audience: (r.audience as string | null) ?? 'human',
       draft: r.draft === 1,
       readAt: (r.read_at as string | null) ?? null,
+      // ADR 2 D3. `?? 1` is defence in depth, not an expected path: the column
+      // is `DEFAULT 1 NOT NULL` and the migration materialized 1 into every
+      // pre-existing row, so a null here would mean a hand-mangled database.
+      revision: (r.revision as number | null) ?? 1,
     }
   }
 

@@ -6,8 +6,15 @@ import {
   ChangeBaseline,
   type ChangeLogStore,
   conversationProjection,
+  minAvailableSeq,
   readChangesSince,
 } from './change-log'
+import {
+  ensureFeedIdentity,
+  type FeedIdentity,
+  type FeedIdentityStore,
+  newFeedId,
+} from './feed-identity'
 
 /**
  * Ledger — the durable metadata change log at the WRITE seam [spec:SP-3fe2]
@@ -63,13 +70,18 @@ export function entityOverlayKey(entity: string, id: string): string {
 }
 
 export interface LedgerDeps {
-  repo: ChangeLogStore
+  repo: ChangeLogStore & FeedIdentityStore
   now: () => number
   /** Runs fn atomically with any ambient entity write. INJECTED — the Ledger
    *  never imports the sqlite helper; composition wires it later (to the
    *  nesting-safe `transaction(db, fn)` over the shared connection). Unit
    *  tests may pass a pass-through `(fn) => fn()`. */
   transact: <T>(fn: () => T) => T
+  /** Mints feed identity ids (ADR 2 D1) on an authority's first boot. Injected
+   *  ONLY so tests can be deterministic — production takes the default. The ids
+   *  must be opaque and never reused; see feed-identity.ts for why a counter is
+   *  actively broken here. */
+  newId?: () => string
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -93,6 +105,7 @@ export class Ledger {
   private readonly baseline = new ChangeBaseline()
   private appendsSincePrune = 0
   private readonly listeners = new Set<(changes: MetadataChange[]) => void>()
+  private readonly identity: FeedIdentity
 
   constructor(private readonly deps: LedgerDeps) {
     // Boot prune BEFORE folding the log: a bloated table self-heals on deploy
@@ -103,6 +116,25 @@ export class Ledger {
       now: deps.now(),
     })
     this.baseline.seed(deps.repo)
+    // Mint-on-first-sight (ADR 2 D1). The Ledger is constructed once per
+    // authority and is the log's single writer, so it is the one place that can
+    // promise "minted once per authority database". Read into a field: the
+    // identity is immutable for the process's life — an epoch re-mint happens
+    // OFFLINE, at restore, against a database no Ledger has open.
+    this.identity = ensureFeedIdentity(deps.repo, deps.newId ?? newFeedId)
+  }
+
+  /** This feed's `(feedId, epoch)` — the other two thirds of a replica's cursor
+   *  triple (ADR 2 D1). Stamped on every delta frame and catch-up reply; the
+   *  replica compares BOTH by equality on every exchange and treats any mismatch
+   *  as a reset, never a heal. */
+  feedIdentity(): FeedIdentity {
+    return this.identity
+  }
+
+  /** The lowest seq still deliverable (ADR 2 D5) — see {@link minAvailableSeq}. */
+  minAvailableSeq(): number {
+    return minAvailableSeq(this.deps.repo)
   }
 
   /**

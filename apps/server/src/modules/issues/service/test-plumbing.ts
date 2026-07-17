@@ -1,5 +1,5 @@
 import type { ServerMessage } from '@podium/protocol'
-import { Ledger, type LedgerDeps } from '@podium/sync'
+import { type FeedIdentity, Ledger, type LedgerDeps } from '@podium/sync'
 import type { IssueDeps } from './types'
 
 /**
@@ -42,9 +42,9 @@ export function issueTestPlumbing(
   }
 }
 
-/** In-memory ChangeLogStore (the shape LedgerDeps injects) — a plain array with
- *  an autoincrementing seq, enough for behavior tests that don't assert on
- *  durable SQL semantics. */
+/** In-memory ChangeLogStore + FeedIdentityStore (the shape LedgerDeps injects) —
+ *  a plain array with an autoincrementing seq, enough for behavior tests that
+ *  don't assert on durable SQL semantics. */
 export function memoryChangeLogStore(): LedgerDeps['repo'] {
   type Row = {
     seq: number
@@ -56,7 +56,18 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
   }
   const rows: Row[] = []
   let nextSeq = 1
+  // Feed identity (ADR 2 D1) — the Ledger mints on construction, so the stub
+  // must persist it like the real repository: init is once, and second writes
+  // are ignored rather than re-identifying a live feed.
+  let identity: FeedIdentity | null = null
   return {
+    readFeedIdentity: () => identity,
+    initFeedIdentity: (next) => {
+      identity ??= next
+    },
+    setEpoch: (epoch) => {
+      if (identity) identity = { ...identity, epoch }
+    },
     appendChanges(batch, eventTime) {
       return batch.map((r) => {
         const seq = nextSeq++

@@ -457,3 +457,118 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(folded.get(a.sessionId)).toEqual(live.find((s) => s.sessionId === a.sessionId))
   })
 })
+
+/**
+ * Feed identity on the wire (ADR 2 D1/D5) at the REAL registry, so these pin the
+ * production wiring rather than a stub: what `sync.changesSince` actually
+ * returns, and what a delta client actually receives.
+ */
+describe('feed identity on the wire (ADR 2 D1/D5)', () => {
+  const registries: SessionRegistry[] = []
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  function makeRegistry(): SessionRegistry {
+    const registry = new SessionRegistry()
+    registries.push(registry)
+    return registry
+  }
+
+  /** A client whose hello advertises exactly `caps`. */
+  function client(registry: SessionRegistry, caps: string[]): { inbox: ServerMessage[] } {
+    const inbox: ServerMessage[] = []
+    const id = registry.modules.sessions.attachClient((msg) => inbox.push(msg))
+    registry.modules.sessions.onClientMessage(id, {
+      type: 'hello',
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps,
+    })
+    return { inbox }
+  }
+
+  const deltas = (inbox: ServerMessage[]) =>
+    inbox.flatMap((m) => (m.type === 'metadataDelta' ? [m] : []))
+
+  it('(c) the bootstrap snapshot carries feedId, epoch and minAvailableSeq', () => {
+    // The snapshot arm needs the identity MOST: every rung of the D7 healing
+    // ladder terminates in a re-bootstrap, and this is where a replica learns
+    // which generation it landed on.
+    const registry = makeRegistry()
+    const boot = registry.modules.sessions.syncChangesSince(null)
+    expect(boot.kind).toBe('snapshot')
+    expect(boot.feedId).toBeTruthy()
+    expect(boot.epoch).toBeTruthy()
+    expect(boot.feedId).not.toBe(boot.epoch)
+    expect(boot.minAvailableSeq).toBeGreaterThanOrEqual(1)
+  })
+
+  it('(c) the delta arm carries the SAME identity as the snapshot arm', () => {
+    // One authority, one feed: a client that bootstraps and then catches up must
+    // not see the identity change under it, or it would re-bootstrap forever.
+    const registry = makeRegistry()
+    const boot = registry.modules.sessions.syncChangesSince(null)
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const catchUp = registry.modules.sessions.syncChangesSince(boot.cursor)
+    expect(catchUp.kind).toBe('delta')
+    expect(catchUp.feedId).toBe(boot.feedId)
+    expect(catchUp.epoch).toBe(boot.epoch)
+    expect(catchUp.minAvailableSeq).toBeGreaterThanOrEqual(1)
+  })
+
+  it('publishes minAvailableSeq consistently with what it will actually serve', () => {
+    const registry = makeRegistry()
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const reply = registry.modules.sessions.syncChangesSince(null)
+    const horizon = reply.minAvailableSeq as number
+    // Nothing has been pruned, so the whole log is servable and the horizon is
+    // the log's first seq — a replica at cursor 0 must NOT be told to re-bootstrap.
+    expect(horizon).toBe(1)
+    expect(registry.modules.sessions.syncChangesSince(0).kind).toBe('delta')
+  })
+
+  it('stamps the delta FRAME only for clients that asked (ADR 2 D4: additive by capability)', () => {
+    const registry = makeRegistry()
+    const withIdentity = client(registry, ['metadataDelta', 'syncFeedIdentity'])
+    const legacy = client(registry, ['metadataDelta'])
+    withIdentity.inbox.length = 0
+    legacy.inbox.length = 0
+
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.funnel.flushDeltas()
+
+    const mine = deltas(withIdentity.inbox)
+    const theirs = deltas(legacy.inbox)
+    expect(mine.length).toBeGreaterThan(0)
+    expect(theirs.length).toBe(mine.length)
+
+    const identity = registry.modules.sessions.syncChangesSince(null)
+    expect(mine[0]?.feedId).toBe(identity.feedId)
+    expect(mine[0]?.epoch).toBe(identity.epoch)
+    expect(mine[0]?.minAvailableSeq).toBeGreaterThanOrEqual(1)
+
+    // The legacy client's frame is today's frame, byte-for-byte. This is the
+    // whole reason WIRE_VERSION stays at 1.
+    expect(theirs[0]?.feedId).toBeUndefined()
+    expect(theirs[0]?.epoch).toBeUndefined()
+    expect(theirs[0]?.minAvailableSeq).toBeUndefined()
+    expect(Object.keys(theirs[0] ?? {}).sort()).toEqual(['changes', 'seq', 'type'])
+  })
+
+  it('both clients receive the SAME changes in the SAME order — the cap changes the envelope, never the feed', () => {
+    const registry = makeRegistry()
+    const withIdentity = client(registry, ['metadataDelta', 'syncFeedIdentity'])
+    const legacy = client(registry, ['metadataDelta'])
+    withIdentity.inbox.length = 0
+    legacy.inbox.length = 0
+
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.funnel.flushDeltas()
+    registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.funnel.flushDeltas()
+
+    const strip = (m: ServerMessage[]) => deltas(m).map((d) => ({ seq: d.seq, changes: d.changes }))
+    expect(strip(withIdentity.inbox)).toEqual(strip(legacy.inbox))
+  })
+})
