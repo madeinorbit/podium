@@ -164,6 +164,17 @@ export interface SessionCwdTracker {
    *  already has it — but a launch into a SUBDIRECTORY of one sends the root, because
    *  the pin taken here means no later hook can correct the server's view. */
   setLaunchCwd(sessionId: string, cwd: string): Promise<void>
+  /** Where the agent's shell actually IS — the last raw cwd reported, as opposed to
+   *  the worktree ROOT the session is grouped under.
+   *
+   *  The two diverge for every pinned session, because POD-665 deliberately normalises
+   *  the grouping key to the root. Handoff needs the difference back: an agent working
+   *  in `<worktree>/apps/web` should resume THERE on the target, not at the root
+   *  (POD-741). Kept daemon-local on purpose — the server's view of a session's cwd is
+   *  its grouping key and must not start following `cd`s again [spec:SP-4ef9].
+   *
+   *  Undefined until a hook reports; callers fall back to the root. */
+  rawCwd(sessionId: string): string | undefined
   /** Forget a session (on exit) so a respawn re-reports from scratch. */
   clear(sessionId: string): void
 }
@@ -220,9 +231,13 @@ export function createSessionCwdTracker(opts: {
 
   return {
     async onHookCwd(sessionId, cwd) {
-      if (pinned.has(sessionId)) return
-      if (lastRawCwd.get(sessionId) === cwd) return
+      // Record where the agent IS before the pin check, not after: a pinned session
+      // must not be RE-HOMED by wandering (POD-665), but handoff still needs to know
+      // the subdirectory it was working in (POD-741). Observing is not re-homing.
+      const known = lastRawCwd.get(sessionId) === cwd
       lastRawCwd.set(sessionId, cwd)
+      if (pinned.has(sessionId)) return
+      if (known) return
       const mySeq = (seq.get(sessionId) ?? 0) + 1
       seq.set(sessionId, mySeq)
       const info = await opts.resolver.resolve(cwd)
@@ -265,6 +280,11 @@ export function createSessionCwdTracker(opts: {
     async setLaunchCwd(sessionId, cwd) {
       const mySeq = (seq.get(sessionId) ?? 0) + 1
       seq.set(sessionId, mySeq)
+      // Where the agent starts IS where it is, before any hook says so: a session
+      // launched into `<worktree>/apps/web` and handed off before its first hook must
+      // still resume in apps/web (POD-741). Never overwrites a hook that raced ahead —
+      // that reports a LATER position than this launch.
+      if (!lastRawCwd.has(sessionId)) lastRawCwd.set(sessionId, cwd)
       const info = await opts.resolver.resolve(cwd)
       // Exited while we resolved: clear() dropped this session's state, so adding a
       // pin now would resurrect it — an entry no clear() will ever come back for.
@@ -300,6 +320,9 @@ export function createSessionCwdTracker(opts: {
       if (seq.get(sessionId) !== mySeq) return
       lastSentRoot.set(sessionId, info.root)
       opts.send(next)
+    },
+    rawCwd(sessionId) {
+      return lastRawCwd.get(sessionId)
     },
     clear(sessionId) {
       lastRawCwd.delete(sessionId)

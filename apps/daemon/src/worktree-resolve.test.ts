@@ -172,6 +172,43 @@ describe('createSessionCwdTracker', () => {
     expect(sent).toEqual([{ sessionId: 's1', cwd: FEAT }])
   })
 
+  // POD-741: the grouping key is the root (POD-665), so the agent's real subdirectory
+  // survives ONLY here. Handoff reads it back to resume the agent where it was working
+  // rather than at the root — without ever letting a cd re-home the session.
+  describe('rawCwd — where the agent actually is', () => {
+    it('keeps tracking the raw cwd of a PINNED session, while still refusing to re-home it', async () => {
+      const { sent, tracker } = make(inRepo)
+      await tracker.setLaunchCwd('s1', FEAT)
+      sent.length = 0
+      await tracker.onHookCwd('s1', `${FEAT}/apps/web`)
+      // The pin holds: no re-home, the server keeps grouping this session at the root.
+      expect(sent).toEqual([])
+      // But the subdirectory is not lost — this is what POD-741 recovers.
+      expect(tracker.rawCwd('s1')).toBe(`${FEAT}/apps/web`)
+    })
+
+    it('remembers a launch INTO a subdirectory before any hook has reported', async () => {
+      const { tracker } = make(inRepo)
+      await tracker.setLaunchCwd('s1', `${FEAT}/apps/web`)
+      expect(tracker.rawCwd('s1')).toBe(`${FEAT}/apps/web`)
+    })
+
+    it('tracks a wander OUT of the worktree, which the export must then refuse to follow', async () => {
+      const { tracker } = make(inRepo)
+      await tracker.setLaunchCwd('s1', FEAT)
+      await tracker.onHookCwd('s1', OTHER)
+      // Recorded faithfully; containment in the export handler is what makes it safe.
+      expect(tracker.rawCwd('s1')).toBe(OTHER)
+    })
+
+    it('forgets the raw cwd when the session exits', async () => {
+      const { tracker } = make(inRepo)
+      await tracker.setLaunchCwd('s1', `${FEAT}/apps/web`)
+      tracker.clear('s1')
+      expect(tracker.rawCwd('s1')).toBeUndefined()
+    })
+  })
+
   it('a cd within the same worktree does not re-send', async () => {
     const { sent, tracker } = make(inRepo)
     await tracker.onHookCwd('s1', FEAT)

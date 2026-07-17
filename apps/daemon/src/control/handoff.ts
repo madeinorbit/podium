@@ -1,3 +1,4 @@
+import { sep } from 'node:path'
 import type { ControlMessage } from '@podium/protocol'
 import type { ControlHandlers, DaemonContext } from './context'
 import {
@@ -6,6 +7,28 @@ import {
   importHandoffPackage,
   readExportChunk,
 } from '../handoff-package'
+
+/**
+ * The cwd to export FROM: the agent's real working directory when we know it, else
+ * the root the server holds.
+ *
+ * The server's `cwd` is a session's GROUPING key, which POD-665 pins to the worktree
+ * root — so by the time a handoff runs, the subdirectory the agent was actually
+ * working in survives only here, in the daemon's own hook tracking (POD-741).
+ * Recovering it is what lets the agent resume where it left off rather than at the
+ * root [spec:SP-3f7a], and it is what points the Claude transcript lookup at the
+ * bucket the agent actually ran in — Claude buckets by launch cwd.
+ *
+ * CONTAINMENT IS THE GUARD, and it is load-bearing: a raw cwd is trusted only INSIDE
+ * the root the server named. An agent that wandered into another checkout must never
+ * drag the export there — that is exactly what the pin exists to prevent, and honouring
+ * it here keeps "never hand off a main checkout" airtight [spec:SP-3f7a].
+ */
+function exportCwd(ctx: DaemonContext, sessionId: string, root: string): string {
+  const raw = ctx.sessionCwdTracker.rawCwd(sessionId)
+  if (!raw) return root
+  return raw === root || raw.startsWith(`${root}${sep}`) ? raw : root
+}
 
 async function exportPackage(
   ctx: DaemonContext,
@@ -16,6 +39,7 @@ async function exportPackage(
       throw new Error('unsupported handoff harness')
     const result = await exportHandoffPackage({
       ...msg,
+      cwd: exportCwd(ctx, msg.sessionId, msg.cwd),
       agentKind: msg.agentKind,
       homeDir: ctx.homeDir,
     })
