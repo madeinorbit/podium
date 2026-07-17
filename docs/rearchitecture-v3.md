@@ -287,6 +287,23 @@ not expose the dedicated acceptance field. Therefore `podium issue lint` AC chec
 **NOT a quality gate** for the rewrite issues until the CLI gap is fixed (tracked with
 POD-413's agent). Gate agents verify ACs by reading descriptions, not by lint output.
 
+### 3.6 "Recorded in the ledger" means a LEDGER-ENTRY comment
+
+An AC that says something is "recorded in the ledger" is satisfied by a comment on the
+issue prefixed `LEDGER-ENTRY`, carrying the text to record. **Only the phase's designated
+ledger owner edits this file**, folding LEDGER-ENTRY comments into the owning section.
+This keeps the hot-file rule (§5) workable: contributors never queue on the file, and the
+owner batches edits at natural seams (gate close-outs, phase exit). A LEDGER-ENTRY comment
+that never got folded in is the owner's defect, not the contributor's.
+
+### 3.7 Per-guardrail CI workflow files
+
+New CI guardrail steps MAY live in their own workflow file (`.github/workflows/`
+`ci-<guardrail>.yml`) instead of being added to `ci.yml`, to keep `ci.yml` out of
+hot-file contention. The non-negotiables travel with the step wherever it lives: blocking
+(never `continue-on-error` — §2.2's POD-744 lesson), and covered by the drift guard
+(`scripts/test-configuration.test.ts`) when it participates in the oracle lane set.
+
 ---
 
 ## 4. Decomposition discipline
@@ -419,18 +436,21 @@ drift refresh (§3.1) at phase entry, and verify ACs by reading descriptions (§
 code moves. Four children:
 
 - POD-295 — lock the migration oracle: green lane baseline (unit + integration + e2e +
-  multi-instance) in CI, per the lane doctrine (§2). *In progress; waits on POD-619
-  stable baseline — precondition now MET (landed 1b10357f).*
+  multi-instance) in CI, per the lane doctrine (§2). *Done — integrated at ca361327;
+  see the oracle-status paragraph below for the measured green.*
 - POD-296 — architecture manifest lint: layer/platform/role/feature constraints, WARN
-  mode, phase-mapped allowlist. *On its issue branch: the tag-derived matrix lives in
-  `scripts/architecture-manifest.ts`, today's 50 known violations are frozen with
+  mode, phase-mapped allowlist. *Done — integrated at ca361327: the tag-derived matrix lives in
+  `scripts/architecture-manifest.ts`, today's 50 known violations (48 under the manifest
+  rules + 2 legacy `agent-bridge-consumers` → POD-740; re-derive with
+  `bun run lint:boundaries` → "50 allowlisted, 0 new", `bun run lint:architecture` →
+  "48 allowlisted, 0 new") are frozen with
   per-(rule, file) counts in `scripts/boundary-allowlist.ts` and mapped to the phase that
-  removes each, and the ratchet runs as its OWN blocking CI step. It adds its layer/tag
-  table + the rule → legacy-rule retirement map POD-335 needs as a subsection here, drift-
-  tested against the manifest (§5) — that subsection arrives with POD-296's branch.*
+  removes each, and the ratchet runs as its OWN blocking CI step. Its layer/tag
+  table + the rule → legacy-rule retirement map POD-335 needs live as a subsection here,
+  drift-tested against the manifest (§5).*
 - POD-297 — deletion audit script (`scripts/rearch-audit.ts`): the Section-6 "what
   disappears" inventory encoded as grep/AST checks with per-item and total counts,
-  counted in CI, must reach zero by POD-337. *Landed on its issue branch (bddfff78);
+  counted in CI, must reach zero by POD-337. *Done — integrated at ca361327;
   all 21 inventory items encoded and mapped to their owning phase issue, wired as its
   OWN blocking CI step. Rule + rationale: `docs/rearch-deletion-audit.md`.*
 - POD-298 — this ledger. *This document.*
@@ -442,10 +462,18 @@ moves, no deletions. The audit script REPORTS counts; it does not fail CI on non
 **Oracle status:** baseline MEASURED at c577009d and **RED** — see §2.4 for the lane table.
 typecheck + e2e green; unit red (POD-743 — since FIXED by POD-295, no product change);
 integration + multi-instance red (POD-746, one file failing in both). Zero quarantines. The
-oracle command (`bun run oracle`) and the CI job are in place. **The baseline is not yet
-lockable GREEN: gate POD-422 stays shut on POD-746 (module duplication) and POD-757 (a ~40%
-flaky unit test — a retry-0 lane that flakes cannot certify anything).** Typecheck runs
-under tsgo via turbo (POD-715 landed).
+oracle command (`bun run oracle`) and the CI job are in place. Typecheck runs under tsgo
+via turbo (POD-715 landed).
+
+**Status at the integrated head `ca361327` (issue/279-integration, measured 2026-07-17,
+POD-422 evidence pack):** `bun run oracle` → **ORACLE GREEN, all five lanes** (typecheck /
+unit / integration / e2e / multi-instance), plus a second full unit run and five standalone
+`tailer.test.ts` runs, all green. POD-746 is **fixed and landed** in the integration train
+(968dee89 anchors `@podium/runtime` to the checkout under test; 106db154, 8bf0feed,
+ca361327 guard it). POD-757's fix is **committed on its branch (a1c5f0ef) but not yet
+integrated or proven** (standalone + under-load); the flake did not reproduce at ca361327
+in 5 standalone runs — recorded as measured fact, not as a fix. **Gate POD-422 stays open
+on POD-757's disposition alone.**
 
 **Audit counts:** baseline committed by POD-297 in `scripts/rearch-audit-baseline.json`
 — **21 items / 246 sites at fd4ea76b**. That is the before-count every later phase reads.
