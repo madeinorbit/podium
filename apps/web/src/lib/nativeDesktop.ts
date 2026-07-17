@@ -6,6 +6,8 @@ export type NativeDesktopLaunchMode = 'all-in-one' | 'server' | 'daemon' | 'clie
 export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
   launchMode?: NativeDesktopLaunchMode
+  /** This device's paired machine id (~/.podium/daemon.json), if it ever paired. [spec:SP-3701] */
+  machineId?: string
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
   close: () => Promise<void>

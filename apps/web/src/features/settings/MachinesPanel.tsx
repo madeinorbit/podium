@@ -37,6 +37,13 @@ export function MachinesPanel(): JSX.Element {
   const [addError, setAddError] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
 
+  // [spec:SP-3701] Hosting affordances (desktop shell, client mode only). A device that
+  // paired before gets the inline "Enable" action on its own machine row; the standalone
+  // card is for never-paired devices only.
+  const hosting = useEnableHosting(trpc)
+  const thisMachineId = nativeDesktopBridge()?.machineId
+  const alreadyPaired = thisMachineId != null && machines.some((m) => m.id === thisMachineId)
+
   // Tick so relative times stay fresh.
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000)
@@ -139,7 +146,7 @@ export function MachinesPanel(): JSX.Element {
         </Dialog>
       </div>
 
-      <HostThisDeviceCard trpc={trpc} />
+      {hosting && !alreadyPaired && <HostThisDeviceCard hosting={hosting} />}
 
       {machines.length === 0 ? (
         <p className="py-2 text-[12px] text-muted-foreground">
@@ -148,7 +155,16 @@ export function MachinesPanel(): JSX.Element {
       ) : (
         <div className="flex flex-col gap-1">
           {machines.map((m) => (
-            <MachineRow key={m.id} machine={m} now={now} trpc={trpc} />
+            <MachineRow
+              key={m.id}
+              machine={m}
+              now={now}
+              trpc={trpc}
+              isThisMachine={m.id === thisMachineId}
+              // Inline "Enable": only on this device's own row, only while it is offline
+              // (online means the daemon is already running) [spec:SP-3701].
+              hosting={m.id === thisMachineId && !m.online ? hosting : null}
+            />
           ))}
         </div>
       )}
@@ -156,14 +172,19 @@ export function MachinesPanel(): JSX.Element {
   )
 }
 
+/** State + action shared by the standalone card and the inline row button. [spec:SP-3701] */
+interface EnableHosting {
+  busy: boolean
+  error: string | null
+  enable: () => Promise<void>
+}
+
 /**
- * [spec:SP-3701] One-click "host sessions on this device" for the desktop app.
- * Rendered only inside the Tauri shell in client mode (the shell exposes `enableHosting`
- * on the bridge exactly then). Clicking mints a pairing code on this hub and hands it to
- * the shell, which flips the local config to daemon mode; the app then restarts, spawns
- * its bundled daemon, and this device pairs and appears in the machines list above.
+ * [spec:SP-3701] The one-click "host sessions on this device" flow: mint a pairing code on
+ * this hub, hand it to the shell (which flips the local config to daemon mode), restart.
+ * Returns null outside a client-mode desktop shell — the only place hosting can be enabled.
  */
-export function HostThisDeviceCard({ trpc }: { trpc: Store['trpc'] }): JSX.Element | null {
+function useEnableHosting(trpc: Store['trpc']): EnableHosting | null {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const bridge = nativeDesktopBridge()
@@ -196,6 +217,15 @@ export function HostThisDeviceCard({ trpc }: { trpc: Store['trpc'] }): JSX.Eleme
     }
   }
 
+  return { busy, error, enable }
+}
+
+/**
+ * [spec:SP-3701] Standalone hosting card, shown ONLY when this device never paired before —
+ * a previously-paired device gets the inline "Enable" action on its machine row instead.
+ */
+export function HostThisDeviceCard({ hosting }: { hosting: EnableHosting }): JSX.Element {
+  const { busy, error, enable } = hosting
   return (
     <div className="mb-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
       <div className="min-w-0 flex-1">
@@ -306,10 +336,16 @@ function MachineRow({
   machine,
   now,
   trpc,
+  isThisMachine = false,
+  hosting = null,
 }: {
   machine: MachineWire
   now: number
   trpc: Store['trpc']
+  /** [spec:SP-3701] True when this row is the device the app is running on. */
+  isThisMachine?: boolean
+  /** [spec:SP-3701] Set only when this offline row can be enabled as a host from here. */
+  hosting?: EnableHosting | null
 }): JSX.Element {
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)
@@ -392,6 +428,12 @@ function MachineRow({
         )}
       </div>
 
+      {isThisMachine && (
+        <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground uppercase tracking-wide">
+          this machine
+        </span>
+      )}
+
       {/* Hostname */}
       <span
         className="hidden flex-none max-w-[140px] truncate text-muted-foreground text-[12px] sm:block"
@@ -404,6 +446,30 @@ function MachineRow({
       <span className="flex-none text-muted-foreground/70 text-[11px]">
         {machine.online ? 'now' : relativeTime(machine.lastSeenAt, now)}
       </span>
+
+      {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
+      {hosting && (
+        <>
+          {hosting.error && (
+            <span
+              className="max-w-[24ch] truncate text-[11px] text-destructive"
+              title={hosting.error}
+            >
+              {hosting.error}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="flex-none"
+            disabled={hosting.busy}
+            onClick={() => void hosting.enable()}
+          >
+            {hosting.busy ? 'Enabling…' : 'Enable'}
+          </Button>
+        </>
+      )}
 
       {/* Revoke */}
       <Dialog open={revokeOpen} onOpenChange={setRevokeOpen}>

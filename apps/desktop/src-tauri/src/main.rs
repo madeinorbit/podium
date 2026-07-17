@@ -103,7 +103,7 @@ const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
 
-fn native_desktop_hook(launch_mode: &str) -> String {
+fn native_desktop_hook(launch_mode: &str, machine_id: Option<&str>) -> String {
     // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
     let enable_hosting = if launch_mode == "client" {
@@ -111,10 +111,16 @@ fn native_desktop_hook(launch_mode: &str) -> String {
     } else {
         ""
     };
+    // This device's paired machine identity (daemon.json), so the web UI can mark the
+    // matching row "this machine". serde_json escaping — the value comes from disk.
+    let machine_id = machine_id
+        .and_then(|id| serde_json::to_string(id).ok())
+        .map(|lit| format!(",\n            machineId: {lit}"))
+        .unwrap_or_default();
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
-            launchMode: "{launch_mode}",
+            launchMode: "{launch_mode}"{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
             close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){enable_hosting}
@@ -402,7 +408,8 @@ fn main() {
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
-            let native_desktop_hook = native_desktop_hook(launch_mode_tag);
+            let native_desktop_hook =
+                native_desktop_hook(launch_mode_tag, bootstrap::read_daemon_machine_id().as_deref());
             // External-link shim (ALL modes): route window.open/_blank to the OS browser.
             let init = format!(
                 "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}",
@@ -504,7 +511,7 @@ mod tests {
 
     #[test]
     fn native_hook_exposes_only_window_actions() {
-        let hook = native_desktop_hook("all-in-one");
+        let hook = native_desktop_hook("all-in-one", None);
         assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
         assert!(hook.contains("launchMode: \"all-in-one\""));
         assert!(hook.contains("plugin:window|minimize"));
@@ -513,18 +520,26 @@ mod tests {
         assert!(!hook.contains("plugin:process|restart"));
         // Hosting is inherent outside client mode — no toggle exposed.
         assert!(!hook.contains("enableHosting"));
+        assert!(!hook.contains("machineId"));
     }
 
     #[test]
     fn native_hook_exposes_hosting_toggle_only_in_client_mode() {
         // [spec:SP-3701]
-        let client = native_desktop_hook("client");
+        let client = native_desktop_hook("client", None);
         assert!(client.contains("launchMode: \"client\""));
         assert!(client.contains("enableHosting: (pairCode) =>"));
         assert!(client.contains("invoke('enable_hosting', { pairCode })"));
         for mode in ["daemon", "server", "all-in-one"] {
-            assert!(!native_desktop_hook(mode).contains("enableHosting"));
+            assert!(!native_desktop_hook(mode, None).contains("enableHosting"));
         }
+    }
+
+    #[test]
+    fn native_hook_embeds_the_paired_machine_id_when_known() {
+        // [spec:SP-3701] machineId lets the web UI mark "this machine" in the machines list.
+        let hook = native_desktop_hook("client", Some("m-abc"));
+        assert!(hook.contains("machineId: \"m-abc\""));
     }
 
     #[test]

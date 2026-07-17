@@ -99,6 +99,15 @@ fn state_dir() -> PathBuf {
     PathBuf::from(base)
 }
 
+/// [spec:SP-3701] This device's machine identity from a previous pairing
+/// (`~/.podium/daemon.json`), if any — lets the web UI mark "this machine" in the
+/// machines list and skip the standalone hosting card for already-paired devices.
+pub fn read_daemon_machine_id() -> Option<String> {
+    let text = std::fs::read_to_string(state_dir().join("daemon.json")).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&text).ok()?;
+    json.get("machineId")?.as_str().map(str::to_string)
+}
+
 /// [spec:SP-3701] Flip a client-mode config to daemon mode with the given pairing code — the
 /// whole write surface of the in-app "host sessions on this device" toggle. Deliberately
 /// NARROW: the webview content that can invoke this is served by the remote hub, so the only
@@ -527,6 +536,19 @@ mod tests {
             None => std::env::remove_var("PODIUM_STATE_DIR"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn read_daemon_machine_id_reads_and_tolerates_absence() {
+        with_state_dir("daemon-id", None, || {
+            assert_eq!(read_daemon_machine_id(), None);
+            std::fs::write(
+                state_dir().join("daemon.json"),
+                r#"{"machineId":"m-123","token":"t"}"#,
+            )
+            .unwrap();
+            assert_eq!(read_daemon_machine_id().as_deref(), Some("m-123"));
+        });
     }
 
     #[test]

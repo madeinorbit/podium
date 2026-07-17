@@ -1,14 +1,31 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { MachineWire } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
-import { HostThisDeviceCard } from './MachinesPanel'
 
-// [spec:SP-3701] The "host sessions on this device" card for the desktop shell.
+// [spec:SP-3701] Hosting affordances in the machines panel: standalone card for
+// never-paired devices, "this machine" badge + inline Enable for paired ones.
+
+const storeState: { machines: MachineWire[]; trpc: Store['trpc']; setSettingsTab: () => void } = {
+  machines: [],
+  trpc: {} as Store['trpc'],
+  setSettingsTab: () => {},
+}
+
+vi.mock('@/app/store', () => ({
+  useStoreSelector: (selector: (s: typeof storeState) => unknown) => selector(storeState),
+}))
+
+// NetworkStep drags in the whole setup flow; the card/row tests never render it.
+vi.mock('@/features/setup/SetupView', () => ({ NetworkStep: () => null }))
+
+import { MachinesPanel } from './MachinesPanel'
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  storeState.machines = []
   ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
   ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = undefined
 })
@@ -27,35 +44,74 @@ function stubBridge(overrides: Partial<NativeDesktopBridge> = {}): NativeDesktop
   return bridge
 }
 
-function stubTrpc(mutate: () => Promise<{ code: string; joinCommand: string | null }>) {
-  return { machines: { pairingCode: { mutate } } } as unknown as Store['trpc']
+function machine(overrides: Partial<MachineWire>): MachineWire {
+  return {
+    id: 'm-1',
+    name: 'mac',
+    hostname: 'mac.local',
+    online: false,
+    lastSeenAt: Date.now() - 60_000,
+    ...overrides,
+  } as MachineWire
 }
 
-describe('HostThisDeviceCard', () => {
-  it('renders nothing outside the desktop shell', () => {
-    const { container } = render(
-      <HostThisDeviceCard trpc={stubTrpc(vi.fn().mockResolvedValue({ code: 'X', joinCommand: null }))} />,
-    )
-    expect(container.innerHTML).toBe('')
+function setTrpc(mutate: () => Promise<{ code: string; joinCommand: string | null }>) {
+  storeState.trpc = {
+    machines: { pairingCode: { mutate } },
+    setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null }) } },
+  } as unknown as Store['trpc']
+}
+
+const enableCard = () => screen.queryByRole('button', { name: /host sessions on this device/i })
+
+describe('MachinesPanel hosting affordances', () => {
+  it('shows neither card nor badge outside the desktop shell', () => {
+    storeState.machines = [machine({})]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(enableCard()).toBeNull()
+    expect(screen.queryByText(/this machine/i)).toBeNull()
   })
 
-  it('renders nothing when the shell is not in client mode', () => {
-    // A daemon/all-in-one install already hosts; the shell also omits enableHosting there.
-    stubBridge({ launchMode: 'daemon', enableHosting: undefined })
-    const { container } = render(
-      <HostThisDeviceCard trpc={stubTrpc(vi.fn().mockResolvedValue({ code: 'X', joinCommand: null }))} />,
-    )
-    expect(container.innerHTML).toBe('')
+  it('shows the standalone card when this device never paired', () => {
+    stubBridge({ machineId: undefined })
+    storeState.machines = [machine({ id: 'other' })]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(enableCard()).toBeTruthy()
+    expect(screen.queryByText(/this machine/i)).toBeNull()
   })
 
-  it('mints a code, hands it to the shell, and restarts', async () => {
-    const bridge = stubBridge()
+  it('marks the paired row and offers inline Enable when offline, instead of the card', () => {
+    stubBridge({ machineId: 'm-1' })
+    storeState.machines = [machine({ id: 'm-1', online: false }), machine({ id: 'other' })]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(enableCard()).toBeNull()
+    expect(screen.getByText(/this machine/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
+  })
+
+  it('shows the badge but no Enable button when this device is online', () => {
+    stubBridge({ machineId: 'm-1' })
+    storeState.machines = [machine({ id: 'm-1', online: true })]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(enableCard()).toBeNull()
+    expect(screen.getByText(/this machine/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+  })
+
+  it('inline Enable mints a code, hands it to the shell, and restarts', async () => {
+    const bridge = stubBridge({ machineId: 'm-1' })
     const restart = vi.fn()
     ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = restart
     const mutate = vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
-    render(<HostThisDeviceCard trpc={stubTrpc(mutate)} />)
+    storeState.machines = [machine({ id: 'm-1', online: false })]
+    setTrpc(mutate)
+    render(<MachinesPanel />)
 
-    fireEvent.click(screen.getByRole('button', { name: /host sessions on this device/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
 
     await waitFor(() => expect(restart).toHaveBeenCalled())
     expect(mutate).toHaveBeenCalledTimes(1)
@@ -66,29 +122,30 @@ describe('HostThisDeviceCard', () => {
 
   it('falls back to manual-relaunch guidance when restart is refused', async () => {
     // Remote-loaded windows on older shells lack the process.restart grant; the config is
-    // already flipped by then, so the card must instruct rather than hang on "Enabling…".
-    stubBridge()
+    // already flipped by then, so the UI must instruct rather than hang on "Enabling…".
+    stubBridge({ machineId: 'm-1' })
     ;(window as unknown as { __PODIUM_RESTART__?: () => unknown }).__PODIUM_RESTART__ = vi
       .fn()
       .mockRejectedValue(new Error('process.restart not allowed'))
-    const mutate = vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
-    render(<HostThisDeviceCard trpc={stubTrpc(mutate)} />)
+    storeState.machines = [machine({ id: 'm-1', online: false })]
+    setTrpc(vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null }))
+    render(<MachinesPanel />)
 
-    fireEvent.click(screen.getByRole('button', { name: /host sessions on this device/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
 
     expect(await screen.findByText(/quit and reopen the app/i)).toBeTruthy()
   })
 
-  it('surfaces errors and re-enables the button', async () => {
-    stubBridge()
-    const mutate = vi.fn().mockRejectedValue(new Error('pairing is disabled on this server'))
-    render(<HostThisDeviceCard trpc={stubTrpc(mutate)} />)
+  it('surfaces errors and re-enables the card button', async () => {
+    stubBridge({ machineId: undefined })
+    setTrpc(vi.fn().mockRejectedValue(new Error('pairing is disabled on this server')))
+    render(<MachinesPanel />)
 
-    fireEvent.click(screen.getByRole('button', { name: /host sessions on this device/i }))
+    const button = enableCard()
+    if (!button) throw new Error('card missing')
+    fireEvent.click(button)
 
     expect(await screen.findByText(/pairing is disabled on this server/)).toBeTruthy()
-    expect(
-      screen.getByRole('button', { name: /host sessions on this device/i }),
-    ).toHaveProperty('disabled', false)
+    expect(enableCard()).toHaveProperty('disabled', false)
   })
 })
