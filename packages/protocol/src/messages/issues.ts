@@ -1,3 +1,4 @@
+import { Revision } from '@podium/model'
 import { z } from 'zod'
 import { SessionMeta } from './runtime-state'
 
@@ -228,7 +229,7 @@ export const IssueWire = z.object({
    *
    *  Additive/optional: absent = an authority from before ADR 2 D3 (or an issue
    *  mirrored from an upstream hub that does not assign one). */
-  revision: z.number().int().positive().optional(),
+  revision: Revision.optional(),
   /** True for an issue mirrored FROM this node's upstream hub (node⇄hub issues,
    *  docs/spec/node-hub-issues.md §2.1) — stamped at ingest, never on local
    *  issues. Derived fields (ready/blocked/deps) arrive hub-computed. Additive:
