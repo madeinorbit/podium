@@ -122,6 +122,20 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   // Guards re-entrant older-page loads (a single scroll fires onScroll repeatedly).
   const loadingOlderRef = useRef(false)
 
+  // Window health [POD-725]: true only while the held window is trustworthy for a
+  // skip-the-re-read warm activation — it's NON-EMPTY and its live subscription has
+  // stayed intact (no reset, no teardown, no read failure / offline copy) since the
+  // last successful read. A backgrounded-but-subscribed panel keeps catching deltas,
+  // so an intact window is already current; a broken one is potentially stale and
+  // must be re-read. Invalidated on every reset delta, subscription teardown, empty
+  // read, and the offline/replica fallback; restored by a successful non-empty read.
+  const windowHealthy = useRef(false)
+  // Held-window length mirrored into a ref so the activation effect can stamp the
+  // cache-hit mark's item count without depending on `items` (which would re-run it
+  // on every delta). Same render-time ref-mirror pattern as headCursorRef above.
+  const windowLenRef = useRef(0)
+  windowLenRef.current = items.length
+
   // Mirror the live sessionId so an in-flight read can bail if the session
   // switched out from under it (the held window now belongs to a different
   // session).
@@ -153,6 +167,10 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     // write the window through into the replica so an offline reopen can serve
     // it (bounded per spec §2.3; a no-op when persistence is unavailable).
     setOfflineAsOf(null)
+    // A fresh, non-empty server read with the subscription intact is a healthy
+    // window a later warm activation can reuse; an empty read is not (nothing to
+    // paint from — the next activation must re-read).
+    windowHealthy.current = r.items.length > 0
     // Optional-chained: some test harnesses mock a partial store without a replica.
     if (r.items.length > 0) replica?.putTranscriptWindow(sid, r.items)
     return r
@@ -181,6 +199,8 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     loadingOlderRef.current = false
     pinnedToBottom.current = true
     didInitialScroll.current = false
+    // Fresh session → no trustworthy window yet; the read below restores health.
+    windowHealthy.current = false
 
     ;(async () => {
       const r = await readNewest()
@@ -193,6 +213,9 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
           // in-flight tail, while a genuine roll still swaps to the new file.
           pinnedToBottom.current = true
           didInitialScroll.current = false
+          // A reset breaks subscription continuity — the held cursors may no longer
+          // be current, so the window is no longer skip-safe until the re-read heals it.
+          windowHealthy.current = false
           void readNewest().catch(() => {}) // transient failure — keep the held window
           return
         }
@@ -212,11 +235,17 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
         setHasMoreOlder(false)
         setOfflineAsOf(cached.savedAt)
       }
+      // A replica-served window is potentially stale (the server was unreachable),
+      // so it must NOT be reused on a warm activation — force a real re-read next time.
+      windowHealthy.current = false
       setInitialLoaded(true)
     })
 
     return () => {
       cancelled = true
+      // The live subscription is gone; whatever it was feeding can no longer be
+      // trusted as current until a fresh read + resubscribe restores it.
+      windowHealthy.current = false
       unsub()
     }
   }, [hub, sessionId, trpc, readNewest, replica])
@@ -239,8 +268,21 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
     prevLive.current = nowLive
     prevActive.current = active
     if (!initialLoaded) return // the read-then-subscribe effect owns the first load
+    // [POD-725] Warm-switch fast path: a pure re-activation (not a resume waking the
+    // session, which can fork a new transcript file) whose held window is healthy —
+    // non-empty and its live subscription unbroken since the last read — reuses the
+    // held window instead of re-reading 1000 items off disk. `chat:cache-hit` records
+    // the skip so a switch trace can tell the two paths apart (its absence of
+    // transcript:read-start/read-end IS the signal that no read happened); the
+    // quiesce sentinel chat:first-paint still fires from the paint effect below, which
+    // keys off `active`. Gated on isSwitchTraced so it's inert outside a traced switch.
+    if (becameActive && !wokeToLive && windowHealthy.current) {
+      if (isSwitchTraced(sessionId))
+        markSwitch(sessionId, 'chat:cache-hit', { items: windowLenRef.current })
+      return
+    }
     if (wokeToLive || becameActive) void readNewest().catch(() => {}) // keep the held window
-  }, [session?.status, active, initialLoaded, readNewest])
+  }, [session?.status, active, initialLoaded, readNewest, sessionId])
 
   // The full loaded list: older pages prepended to the held window. A small
   // cursor-dedupe at the seam guards a one-item paging/live overlap.
