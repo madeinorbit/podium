@@ -124,9 +124,11 @@ export function RepoPickerModal({
     void load(listing?.path, next)
   }
 
+  // `busy` gates the actions that need the CURRENT LISTING (navigate, add this
+  // folder, scan here). `writing` gates the ones that don't: the machine scan and
+  // the typed path stand on their own, and an in-flight listing (a read) must never
+  // block them — that is exactly when you reach for them on a slow machine.
   const busy = loading || saving || scanning || machineScanning
-  // The manual path is the escape hatch for when browsing is slow or unhelpful, so
-  // an in-flight LISTING (a read) must never gate it — only a write in flight does.
   const writing = saving || scanning || machineScanning
 
   async function scanSelectedMachine(): Promise<void> {
@@ -330,7 +332,7 @@ export function RepoPickerModal({
               <div className="flex items-center gap-3">
                 <Button
                   size="sm"
-                  disabled={busy}
+                  disabled={writing}
                   onClick={() => void scanSelectedMachine()}
                   className="max-md:w-full"
                 >

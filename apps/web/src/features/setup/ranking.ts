@@ -8,7 +8,8 @@ export type RepoCandidate = {
   hidden: boolean
   worktreeCount: number
   defaultSelected: boolean
-  /** Machine-scan classification (POD-787): registered rows render checked+locked. */
+  /** Machine-scan classification (POD-787). Registered rows start CHECKED and stay
+   *  toggleable — unchecking one removes that repo (POD-814). */
   status?: 'registered' | 'auto-registered' | 'candidate'
   /** Other machines that carry the same repo (origin match). */
   alsoOn?: string[]
@@ -23,9 +24,9 @@ export type MachineScanRepo = {
   alsoOn: string[]
 }
 
-/** Rank tiered machine-scan results (POD-787): same ordering as a folder scan, but
- *  registered/auto-registered rows are informational (locked) and only unregistered
- *  candidates default to selected. */
+/** Rank tiered machine-scan results (POD-787): same ordering as a folder scan.
+ *  `defaultSelected` covers unregistered candidates only — the results screen also
+ *  starts registered/auto-registered rows checked, since they are already there. */
 export function rankMachineScanRepos(repos: MachineScanRepo[]): RepoCandidate[] {
   return repos
     .map((repo): RepoCandidate => {

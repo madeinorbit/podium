@@ -5,6 +5,15 @@ import { RepoScanFlow } from './RepoScanFlow'
 
 const addRepo = vi.fn(async () => [])
 const addMany = vi.fn(async () => ({ repos: [], failed: [] }))
+const removeRepo = vi.fn(async () => [])
+const scanMachine = vi.fn(async () => ({
+  repos: [
+    { path: '/home/vmi34/known', status: 'registered', alsoOn: [] },
+    { path: '/home/vmi34/fresh', status: 'candidate', alsoOn: [] },
+  ],
+  diagnostics: [],
+}))
+const lastMachineScan = vi.fn(async () => null)
 const browse = vi.fn(async (input?: { path?: string; machineId?: string }) => ({
   path: input?.path ?? `/home/${input?.machineId ?? 'user'}`,
   homePath: `/home/${input?.machineId ?? 'user'}`,
@@ -35,10 +44,13 @@ const store = {
     repos: {
       add: { mutate: addRepo },
       addMany: { mutate: addMany },
+      remove: { mutate: removeRepo },
       browse: { query: browse },
     },
     discovery: {
       scanFolder: { mutate: scanFolder },
+      scanMachine: { mutate: scanMachine },
+      lastMachineScan: { query: lastMachineScan },
     },
   },
   refreshRepos,
@@ -116,6 +128,30 @@ describe('RepoScanFlow machine selection', () => {
     await waitFor(() =>
       expect(scanFolder).toHaveBeenCalledWith({ path: '/home/vmi34', machineId: 'vmi34' }),
     )
+  })
+
+  it('commits the scan-results diff to the selected machine: addMany for adds, remove per removal', async () => {
+    const onDone = vi.fn()
+    render(<RepoScanFlow onClose={() => {}} onDone={onDone} />)
+
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Scan for repos' }))
+
+    // The registered row arrives checked; unchecking it queues its removal, and the
+    // fresh candidate is queued as an add.
+    await screen.findByText('known')
+    fireEvent.click(screen.getByText('known'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 · Remove 1' }))
+
+    await waitFor(() =>
+      expect(addMany).toHaveBeenCalledWith({
+        paths: ['/home/vmi34/fresh'],
+        machineId: 'vmi34',
+      }),
+    )
+    expect(removeRepo).toHaveBeenCalledWith({ path: '/home/vmi34/known', machineId: 'vmi34' })
+    expect(refreshRepos).toHaveBeenCalled()
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
   })
 
   it('adds a manually entered repo path to the selected remote machine', async () => {

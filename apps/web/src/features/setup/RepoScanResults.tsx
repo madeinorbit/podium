@@ -7,31 +7,57 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import type { RepoCandidate } from './ranking'
 
+/** Rows the server already has: unchecking one asks for its REMOVAL. */
+function isRegistered(c: RepoCandidate): boolean {
+  return c.status === 'registered' || c.status === 'auto-registered'
+}
+
+/**
+ * Pick which repos this machine should have. Every checkbox states the DESIRED
+ * END STATE, and none are locked (POD-814): checking a candidate queues an add,
+ * unchecking an already-registered row queues a removal, and the footer commits
+ * the difference. Registered rows used to render as checkmarks the user could not
+ * clear, next to a button that said "Add 0 repos" — the list showed a truth you
+ * were not allowed to change. This is also how repos get REMOVED: rescan, uncheck,
+ * confirm.
+ */
 export function RepoScanResults({
   scannedPath,
   candidates,
-  adding,
+  saving,
   error,
-  onAdd,
+  onApply,
   onBack,
 }: {
   scannedPath: string
   candidates: RepoCandidate[]
-  adding: boolean
+  saving: boolean
   error: string | null
-  onAdd: (paths: string[]) => void
+  onApply: (changes: { add: string[]; remove: string[] }) => void
   onBack: () => void
 }): JSX.Element {
   const isMobile = useIsMobile()
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(candidates.filter((c) => c.defaultSelected).map((c) => c.path)),
+    () =>
+      new Set(candidates.filter((c) => isRegistered(c) || c.defaultSelected).map((c) => c.path)),
   )
-  // Machine-scan rows already on the server are shown for orientation but locked —
-  // selection (and the Add button) only ever applies to true candidates (POD-787).
-  const isLocked = (c: RepoCandidate) => c.status !== undefined && c.status !== 'candidate'
 
   const visible = useMemo(() => candidates.filter((c) => !c.hidden), [candidates])
   const hidden = useMemo(() => candidates.filter((c) => c.hidden), [candidates])
+
+  // The diff is measured against what the server had when the scan returned, not
+  // against the initial checkbox state: a candidate that starts checked is an ADD.
+  const { add, remove } = useMemo(() => {
+    const registered = new Set(candidates.filter(isRegistered).map((c) => c.path))
+    return {
+      add: candidates
+        .filter((c) => selected.has(c.path) && !registered.has(c.path))
+        .map((c) => c.path),
+      remove: candidates
+        .filter((c) => registered.has(c.path) && !selected.has(c.path))
+        .map((c) => c.path),
+    }
+  }, [candidates, selected])
 
   function toggle(path: string): void {
     setSelected((prev) => {
@@ -46,7 +72,6 @@ export function RepoScanResults({
     setSelected((prev) => {
       const next = new Set(prev)
       for (const c of group) {
-        if (isLocked(c)) continue
         if (on) next.add(c.path)
         else next.delete(c.path)
       }
@@ -55,6 +80,10 @@ export function RepoScanResults({
   }
 
   const selectedCount = selected.size
+  const changeLabel = [
+    ...(add.length > 0 ? [`Add ${add.length}`] : []),
+    ...(remove.length > 0 ? [`Remove ${remove.length}`] : []),
+  ].join(' · ')
 
   return (
     <Dialog
@@ -116,7 +145,7 @@ export function RepoScanResults({
             variant="secondary"
             size="sm"
             onClick={onBack}
-            disabled={adding}
+            disabled={saving}
             className="max-md:w-full"
           >
             Back
@@ -124,11 +153,11 @@ export function RepoScanResults({
           <Button
             type="button"
             size="sm"
-            disabled={adding || selectedCount === 0}
-            onClick={() => onAdd([...selected])}
+            disabled={saving || changeLabel === ''}
+            onClick={() => onApply({ add, remove })}
             className="max-md:w-full"
           >
-            {adding ? 'Adding...' : `Add ${selectedCount} repo${selectedCount === 1 ? '' : 's'}`}
+            {saving ? 'Saving...' : changeLabel === '' ? 'No changes' : changeLabel}
           </Button>
         </div>
       </DialogContent>
@@ -149,9 +178,7 @@ function Section({
   onToggle: (path: string) => void
   onAll: (on: boolean) => void
 }): JSX.Element {
-  const locked = (c: RepoCandidate) => c.status !== undefined && c.status !== 'candidate'
-  const selectable = group.filter((c) => !locked(c))
-  const allOn = selectable.length > 0 && selectable.every((c) => selected.has(c.path))
+  const allOn = group.length > 0 && group.every((c) => selected.has(c.path))
   return (
     <div className="mb-2">
       <div className="sticky top-0 flex items-center justify-between bg-popover px-2 pt-2 pb-1">
@@ -168,9 +195,9 @@ function Section({
           className="grid cursor-pointer grid-cols-[auto_auto_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted max-md:grid-cols-[auto_1fr_auto]"
         >
           <Checkbox
-            checked={locked(c) || selected.has(c.path)}
-            disabled={locked(c)}
-            onCheckedChange={() => !locked(c) && onToggle(c.path)}
+            aria-label={c.path}
+            checked={selected.has(c.path)}
+            onCheckedChange={() => onToggle(c.path)}
           />
           <span className="text-[13px] text-foreground">{c.name}</span>
           <span className="min-w-0 truncate text-[11px] text-muted-foreground/70 max-md:col-[2/4] max-md:row-2">

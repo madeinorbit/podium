@@ -36,7 +36,8 @@ export function RepoScanFlow({
   initialMachineId,
 }: {
   onClose: () => void
-  onDone: (addedCount: number) => void
+  /** Fired once the selection is committed; the count covers adds + removals. */
+  onDone: (changedCount: number) => void
   intro?: ReactNode
   /** Preselect a machine (e.g. the machines panel's per-row "Find repos"). */
   initialMachineId?: string
@@ -128,22 +129,34 @@ export function RepoScanFlow({
     await refreshRepos()
   }
 
-  async function addSelected(paths: string[]): Promise<void> {
+  /** Commit the results screen's desired end state: add what was checked, remove
+   *  what was unchecked. Removals go one per path — repos.remove is per-repo, and
+   *  a failure on one shouldn't abandon the rest. */
+  async function applyChanges({ add, remove }: { add: string[]; remove: string[] }): Promise<void> {
     setAdding(true)
     setAddError(null)
     try {
-      const res = await trpc.repos.addMany.mutate({ paths, ...repoMachineInput() })
+      const failed: string[] = []
+      if (add.length > 0) {
+        const res = await trpc.repos.addMany.mutate({ paths: add, ...repoMachineInput() })
+        failed.push(...res.failed.map((f) => f.path))
+      }
+      for (const path of remove) {
+        try {
+          await trpc.repos.remove.mutate({ path, ...repoMachineInput() })
+        } catch {
+          failed.push(path)
+        }
+      }
       await refreshRepos()
-      if (res.failed.length > 0) {
-        setAddError(
-          `${res.failed.length} could not be added: ${res.failed.map((f) => f.path).join(', ')}`,
-        )
+      if (failed.length > 0) {
+        setAddError(`${failed.length} could not be saved: ${failed.join(', ')}`)
         setAdding(false)
         return
       }
-      onDone(paths.length)
+      onDone(add.length + remove.length)
     } catch (e) {
-      setAddError(formatAppError(e, 'Could not add repos'))
+      setAddError(formatAppError(e, 'Could not save repos'))
       setAdding(false)
     }
   }
@@ -153,9 +166,9 @@ export function RepoScanFlow({
       <RepoScanResults
         scannedPath={results.path}
         candidates={results.candidates}
-        adding={adding}
+        saving={adding}
         error={addError}
-        onAdd={(paths) => void addSelected(paths)}
+        onApply={(changes) => void applyChanges(changes)}
         onBack={() => {
           setResults(null)
           setAddError(null)
