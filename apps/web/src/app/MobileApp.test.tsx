@@ -223,7 +223,7 @@ describe('MobileApp panel-menu status grammar (#45, mobile.md §2.3)', () => {
     state.selectedIssueId = 'iss'
     state.paneA = 'agent-one'
     state.sessions = [
-      sess('agent-one', { agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+      sess('agent-one', { agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
       sess('agent-two', { agentState: { phase: 'needs_user', need: { kind: 'question' } } }),
     ]
     const { container } = render(<MobileApp />)

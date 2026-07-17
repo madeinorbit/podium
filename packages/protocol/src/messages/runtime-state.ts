@@ -46,7 +46,7 @@ export const AgentRuntimeState = z.object({
    *  cumulative motion timer existed. While actively working, clients add the
    *  live `now - since` stretch; in a stopped phase this is the final total. */
   workingMsTotal: z.number().int().nonnegative().optional(),
-  openTaskCount: z.number().int().nonnegative(),
+  nativeSubagentCount: z.number().int().nonnegative(),
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'

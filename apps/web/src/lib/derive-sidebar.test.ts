@@ -20,7 +20,7 @@ function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): Se
     status: 'hibernated',
     busy: false,
     archived: false,
-    agentState: { phase: 'idle', since: '', openTaskCount: 0, idle: { kind: 'done' } },
+    agentState: { phase: 'idle', since: '', nativeSubagentCount: 0, idle: { kind: 'done' } },
     ...over,
   } as unknown as SessionMeta
 }
@@ -28,7 +28,7 @@ function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): Se
 const working = (id: string, hoursAgo: number): SessionMeta =>
   sess(id, hoursAgo, {
     status: 'live',
-    agentState: { phase: 'working', since: '', openTaskCount: 0 },
+    agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
   } as Partial<SessionMeta>)
 
 describe('worktreeForCwd', () => {

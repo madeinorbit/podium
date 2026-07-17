@@ -16,7 +16,7 @@ function session(sessionId: string, overrides: Partial<HostSessionView> = {}): H
     agentState: {
       phase: 'idle',
       since: new Date(NOW - HOUR).toISOString(),
-      openTaskCount: 0,
+      nativeSubagentCount: 0,
       idle: { kind: 'done' },
     },
     lastActiveAt: new Date(NOW - HOUR).toISOString(),
@@ -215,7 +215,7 @@ describe('idle-session cap', () => {
         agentState: {
           phase: 'needs_user',
           since: new Date(NOW - HOUR).toISOString(),
-          openTaskCount: 0,
+          nativeSubagentCount: 0,
         },
       }),
     ]

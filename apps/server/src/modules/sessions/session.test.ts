@@ -6,7 +6,7 @@ const geo: Geometry = { cols: 80, rows: 24 }
 const CREATED = '2026-06-03T00:00:00.000Z'
 
 function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeState {
-  return { phase, since, openTaskCount: 0 }
+  return { phase, since, nativeSubagentCount: 0 }
 }
 
 function makeSession(toDaemon = vi.fn()) {

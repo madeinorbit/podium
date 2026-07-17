@@ -2,7 +2,7 @@ import type { AgentRuntimeState } from '@podium/protocol'
 import type { AgentStateEvent } from './types.js'
 
 export function initialAgentState(now: string): AgentRuntimeState {
-  return { phase: 'unknown', since: now, workingMsTotal: 0, openTaskCount: 0 }
+  return { phase: 'unknown', since: now, workingMsTotal: 0, nativeSubagentCount: 0 }
 }
 
 function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
@@ -45,7 +45,7 @@ export function reduceAgentState(
   const base = {
     since,
     workingMsTotal: workingMsAt(prev, since),
-    openTaskCount: prev.openTaskCount,
+    nativeSubagentCount: prev.nativeSubagentCount,
   }
   switch (event.kind) {
     case 'session_started':
@@ -68,7 +68,7 @@ export function reduceAgentState(
       // Open todos outrank a bare "done" — the agent stopped mid-list. They do
       // NOT outrank question/approval: those already say why it stopped.
       const idle =
-        verdict.kind === 'done' && prev.openTaskCount > 0
+        verdict.kind === 'done' && prev.nativeSubagentCount > 0
           ? { kind: 'open_todos' as const }
           : verdict
       return { phase: 'idle', ...base, idle }
@@ -84,9 +84,9 @@ export function reduceAgentState(
         ? { phase: 'compacting', ...base }
         : { phase: 'working', ...base }
     case 'task_delta': {
-      const openTaskCount = Math.max(0, prev.openTaskCount + event.delta)
-      if (openTaskCount === prev.openTaskCount) return prev
-      return { ...prev, openTaskCount }
+      const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
+      if (nativeSubagentCount === prev.nativeSubagentCount) return prev
+      return { ...prev, nativeSubagentCount }
     }
     case 'session_ended':
       return { phase: 'ended', ...base }

@@ -519,7 +519,7 @@ describe('MessagingService', () => {
       return {
         phase,
         since: '2026-07-16T00:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         ...(phase === 'needs_user' ? { need: { kind: 'question' as const } } : {}),
         ...(phase === 'errored'
           ? { error: { class: 'server_error', retryable: true } }

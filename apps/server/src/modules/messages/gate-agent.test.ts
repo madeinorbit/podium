@@ -314,7 +314,7 @@ describe('agent await (bounded, never hangs)', () => {
       createdAt: 't',
       issueId: ISSUE.id,
       spawnedBy: 'session:sParent',
-      agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+      agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
       ...over,
     }) as SessionMeta
 
@@ -419,7 +419,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
       status: 'live',
       createdAt: 't',
       issueId: SENDER_ISSUE.id,
-      agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+      agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
       ...over,
     }) as SessionMeta
 
@@ -446,7 +446,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
   it('a next-turn send to a BUSY target returns accepted at the budget (never spins)', async () => {
     let t = 1_000
     const { gate } = harness({
-      sessions: [target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } })],
+      sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
       now: () => new Date(t).toISOString(),
       awaitPollMs: 1_000_000, // one sleep jumps past the 25s budget
       sleep: async (ms) => void (t += ms),
@@ -462,7 +462,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
 
   it('clears the stale queued flag when blocking upgrades a busy send to delivered', async () => {
     const sessions = [
-      target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } }),
+      target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } }),
     ]
     // First idle drains the held row into the PTY; the second confirms it at the
     // boundary. The sync send returned queued:true (busy-held) — the delivered
@@ -486,7 +486,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
 
   it('an fyi send returns at queued without blocking', async () => {
     const { gate } = harness({
-      sessions: [target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } })],
+      sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
     })
     const r = (await gate.dispatch(PARENT, undefined, 'send', {
       to: 's1',
@@ -508,7 +508,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
       createdAt: 't',
       issueId: ISSUE.id,
       spawnedBy: 'session:sParent',
-      agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+      agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
       ...over,
     }) as SessionMeta
 

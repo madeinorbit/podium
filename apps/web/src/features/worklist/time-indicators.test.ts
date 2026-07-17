@@ -43,7 +43,7 @@ function session(over: Partial<SessionMeta>): SessionMeta {
 }
 
 function agentState(phase: 'working' | 'idle', since: string): SessionMeta['agentState'] {
-  return { phase, since, openTaskCount: 0 }
+  return { phase, since, nativeSubagentCount: 0 }
 }
 
 describe('workingSinceMs', () => {

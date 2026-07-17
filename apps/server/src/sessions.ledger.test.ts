@@ -103,7 +103,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'agentState',
       sessionId,
-      state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', openTaskCount: 0 },
+      state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', nativeSubagentCount: 0 },
     })
     const healed = registry.modules.sessions.syncChangesSince(cursor)
     expect(healed.kind).toBe('delta')

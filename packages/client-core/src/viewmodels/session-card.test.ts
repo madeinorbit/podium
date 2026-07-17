@@ -81,7 +81,7 @@ describe('session card view model', () => {
         agentState: {
           phase: 'needs_user',
           since: '2026-07-01T01:00:00.000Z',
-          openTaskCount: 0,
+          nativeSubagentCount: 0,
           need: { kind: 'question', summary: 'Pick the navigation model' },
         },
       }),

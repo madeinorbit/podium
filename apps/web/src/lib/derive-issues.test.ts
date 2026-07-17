@@ -18,7 +18,7 @@ function sess(
     status: 'hibernated',
     busy: false,
     archived: false,
-    agentState: { phase: 'idle', since: '', openTaskCount: 0, idle: { kind: 'done' } },
+    agentState: { phase: 'idle', since: '', nativeSubagentCount: 0, idle: { kind: 'done' } },
     ...over,
   } as unknown as SessionMeta
 }

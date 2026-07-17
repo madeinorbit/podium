@@ -10,7 +10,7 @@ describe('reduceAgentState', () => {
     const s0 = initialAgentState(T0)
     expect(s0.phase).toBe('unknown')
     const s1 = reduceAgentState(s0, { kind: 'session_started' }, T1)
-    expect(s1).toMatchObject({ phase: 'idle', since: T1, openTaskCount: 0 })
+    expect(s1).toMatchObject({ phase: 'idle', since: T1, nativeSubagentCount: 0 })
   })
 
   it('prompt_submitted → working, clearing idle/need/error detail', () => {
@@ -50,7 +50,7 @@ describe('reduceAgentState', () => {
     s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T0)
     const idle = reduceAgentState(s, { kind: 'turn_completed' }, T1)
     expect(idle.idle?.kind).toBe('open_todos')
-    expect(idle.openTaskCount).toBe(1)
+    expect(idle.nativeSubagentCount).toBe(1)
   })
 
   it('a provider verdict (question/approval) outranks open todos', () => {
@@ -80,7 +80,7 @@ describe('reduceAgentState', () => {
     )
     expect(idle).toMatchObject({
       phase: 'idle',
-      openTaskCount: 1,
+      nativeSubagentCount: 1,
       idle: { kind: 'interrupted', summary: 'request interrupted by user' },
     })
     expect(idle.need).toBeUndefined()
@@ -117,10 +117,10 @@ describe('reduceAgentState', () => {
     )
   })
 
-  it('openTaskCount survives phase transitions', () => {
+  it('nativeSubagentCount survives phase transitions', () => {
     let s = reduceAgentState(initialAgentState(T0), { kind: 'task_delta', delta: 1 }, T0)
     s = reduceAgentState(s, { kind: 'prompt_submitted' }, T1)
-    expect(s.openTaskCount).toBe(1)
+    expect(s.nativeSubagentCount).toBe(1)
   })
 
   it('accumulates working and compacting stretches across waiting transitions', () => {
@@ -141,7 +141,7 @@ describe('reduceAgentState', () => {
   })
 
   it('starts accumulating from zero when a legacy state has no total', () => {
-    const legacy = { phase: 'working' as const, since: T0, openTaskCount: 0 }
+    const legacy = { phase: 'working' as const, since: T0, nativeSubagentCount: 0 }
     const stopped = reduceAgentState(legacy, { kind: 'turn_completed' }, T1)
     expect(stopped.workingMsTotal).toBe(1_000)
   })

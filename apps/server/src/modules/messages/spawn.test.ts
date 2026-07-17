@@ -155,7 +155,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
             agentKind: 'claude-code',
             status: 'live',
             createdAt: 't',
-            agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+            agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
             spawnedBy: i.spawnedBy,
             issueId: i.issueId,
           } as SessionMeta)

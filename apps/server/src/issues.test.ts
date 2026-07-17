@@ -50,7 +50,7 @@ const sess = (cwd: string, phase = 'working'): SessionMeta =>
     lastActiveAt: 't',
     origin: { kind: 'spawn' },
     archived: false,
-    agentState: { phase, since: 't', openTaskCount: 0 },
+    agentState: { phase, since: 't', nativeSubagentCount: 0 },
   }) as unknown as SessionMeta
 
 describe('IssueService repo_id scoping (#140)', () => {

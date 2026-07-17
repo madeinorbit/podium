@@ -16,7 +16,7 @@ function session(over: Partial<SessionMeta>): SessionMeta {
     status: 'live',
     createdAt: 't',
     machineId: 'm1',
-    agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+    agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
     ...over,
   } as SessionMeta
 }

@@ -353,7 +353,7 @@ describe('IssueService event emission', () => {
 
 describe('SessionRegistry session.phase events', () => {
   const st = (phase: string, idle?: { kind: string }) =>
-    ({ phase, since: 't', openTaskCount: 0, ...(idle ? { idle } : {}) }) as never
+    ({ phase, since: 't', nativeSubagentCount: 0, ...(idle ? { idle } : {}) }) as never
 
   it('skips the prev-undefined seed and logs only real phase transitions', () => {
     const store = new SessionStore(':memory:')

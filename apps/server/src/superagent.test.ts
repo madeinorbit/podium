@@ -315,7 +315,7 @@ describe('matchAnswerToOptions', () => {
 // callMcpTool, with a daemon fake that records inputs and answers transcript reads.
 describe('session-steering tool belt (issue #62)', () => {
   const st = (phase: string, extra?: object) =>
-    ({ phase, since: 't', openTaskCount: 0, ...extra }) as never
+    ({ phase, since: 't', nativeSubagentCount: 0, ...extra }) as never
   // The shape the claude-code classifier produces for a live on-screen
   // AskUserQuestion menu (agent-bridge ask_user_tool → needs_user/question).
   const pendingQuestion = st('needs_user', { need: { kind: 'question' } })

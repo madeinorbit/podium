@@ -50,7 +50,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     agentState: {
       phase: 'needs_user',
       since: min(2),
-      openTaskCount: 1,
+      nativeSubagentCount: 1,
       need: {
         kind: 'question',
         summary: 'Should refresh tokens rotate on every use, or only on expiry?',
@@ -65,7 +65,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     agentState: {
       phase: 'idle',
       since: min(11),
-      openTaskCount: 0,
+      nativeSubagentCount: 0,
       idle: {
         kind: 'approval',
         summary: 'Plan ready: add covering index + cache warm-up on deploy.',
@@ -77,7 +77,7 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     title: 'Deflake payments e2e suite',
     agentColor: 'purple',
     lastActiveAt: min(26),
-    agentState: { phase: 'working', since: min(26), openTaskCount: 3 },
+    agentState: { phase: 'working', since: min(26), nativeSubagentCount: 3 },
   }),
   session({
     sessionId: 'demo-docs',
@@ -86,14 +86,14 @@ export const DEMO_SESSIONS: SessionMeta[] = [
     lastActiveAt: min(95),
     status: 'hibernated',
     resumable: true,
-    agentState: { phase: 'idle', since: min(95), openTaskCount: 0, idle: { kind: 'done' } },
+    agentState: { phase: 'idle', since: min(95), nativeSubagentCount: 0, idle: { kind: 'done' } },
   }),
   session({
     sessionId: 'demo-migrate',
     title: 'Migrate CI to blacksmith runners',
     agentColor: 'blue',
     lastActiveAt: min(41),
-    agentState: { phase: 'working', since: min(41), openTaskCount: 1 },
+    agentState: { phase: 'working', since: min(41), nativeSubagentCount: 1 },
     queuedMessageCount: 1,
   }),
 ]

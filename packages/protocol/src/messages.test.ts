@@ -337,7 +337,7 @@ describe('ServerMessage', () => {
       state: {
         phase: 'errored',
         since: '2026-06-12T10:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         error: { class: 'rate_limit', retryable: true },
       },
     },
@@ -826,7 +826,7 @@ describe('agent runtime state', () => {
     phase: 'errored',
     since: '2026-06-12T10:00:00.000Z',
     workingMsTotal: 123_456,
-    openTaskCount: 2,
+    nativeSubagentCount: 2,
     error: { class: 'rate_limit', retryable: true },
   }
 
@@ -858,7 +858,7 @@ describe('agent runtime state', () => {
       agentState: {
         phase: 'idle',
         since: '2026-06-12T10:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         idle: { kind: 'question', summary: 'Should I migrate?' },
       },
     })

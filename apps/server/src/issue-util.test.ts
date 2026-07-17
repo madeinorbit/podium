@@ -7,7 +7,7 @@ const sess = (cwd: string, phase?: string): SessionMeta =>
     sessionId: cwd, agentKind: phase ? 'claude-code' : 'shell', title: 't', cwd,
     status: 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
     clientCount: 0, createdAt: 't', lastActiveAt: 't', origin: { kind: 'spawn' }, archived: false,
-    ...(phase ? { agentState: { phase, since: 't', openTaskCount: 0 } } : {}),
+    ...(phase ? { agentState: { phase, since: 't', nativeSubagentCount: 0 } } : {}),
   }) as unknown as SessionMeta
 
 describe('slugifyBranch', () => {
@@ -59,7 +59,7 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
       status: o.status ?? 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
       clientCount: 0, createdAt: 't', lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
       origin: { kind: 'spawn' }, archived: false,
-      ...(o.phase ? { agentState: { phase: o.phase, since: 't', openTaskCount: 0 } } : {}),
+      ...(o.phase ? { agentState: { phase: o.phase, since: 't', nativeSubagentCount: 0 } } : {}),
     }) as unknown as SessionMeta
 
   it('single idle live agent → immediate send', () => {

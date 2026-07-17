@@ -65,7 +65,7 @@ function session(over: Partial<SessionMeta>): SessionMeta {
     agentKind: 'claude-code',
     status: 'live',
     createdAt: 't',
-    agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+    agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
     ...over,
   } as SessionMeta
 }
@@ -184,12 +184,12 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   return { store, svc, sent, queued, interrupted, attention, listCalls, issueGetLists }
 }
 
-const IDLE = { phase: 'idle', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
-const WORKING = { phase: 'working', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
+const IDLE = { phase: 'idle', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
+const WORKING = { phase: 'working', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
 const NEEDS_USER = {
   phase: 'needs_user',
   since: 't',
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
 } as SessionMeta['agentState']
 
 /** Simulate the transcript echo that confirms a pushed message [POD-834]: the
@@ -369,12 +369,12 @@ describe('MessageDeliveryService.send', () => {
     const busy = [
       session({
         sessionId: 'sOld',
-        agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+        agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         lastActiveAt: 't1',
       }),
       session({
         sessionId: 'sNew',
-        agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+        agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         lastActiveAt: 't9',
       }),
     ]

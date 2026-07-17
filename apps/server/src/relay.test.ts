@@ -1179,7 +1179,7 @@ describe('SessionRegistry', () => {
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentState',
       sessionId,
-      state: { phase: 'working', since: future, openTaskCount: 0 },
+      state: { phase: 'working', since: future, nativeSubagentCount: 0 },
     })
     expect(store.sessions.loadSessions().at(0)?.lastActiveAt).toBe(future)
   })
@@ -1470,7 +1470,7 @@ describe('agent state', () => {
   const STATE = {
     phase: 'errored' as const,
     since: '2026-06-12T10:00:00.000Z',
-    openTaskCount: 0,
+    nativeSubagentCount: 0,
     error: { class: 'rate_limit', retryable: true },
   }
 
@@ -1512,7 +1512,7 @@ describe('agent state', () => {
           phase,
           since,
           workingMsTotal,
-          openTaskCount: 0,
+          nativeSubagentCount: 0,
           ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
         },
       })
@@ -1593,7 +1593,7 @@ describe('agent state', () => {
         state: {
           phase: 'needs_user',
           since: '2026-06-12T10:00:00.000Z',
-          openTaskCount: 0,
+          nativeSubagentCount: 0,
           need: { kind: 'question', summary: 'SQLite or Postgres?' },
         },
       })
@@ -1624,7 +1624,7 @@ describe('agent state', () => {
         state: {
           phase: 'errored',
           since: '2026-06-12T10:01:00.000Z',
-          openTaskCount: 0,
+          nativeSubagentCount: 0,
           error: { class: 'rate_limit', retryable: true },
         },
       })
@@ -1747,7 +1747,7 @@ describe('agent state', () => {
         state: {
           phase: 'needs_user',
           since: '2026-06-12T10:00:00.000Z',
-          openTaskCount: 0,
+          nativeSubagentCount: 0,
           need: { kind: 'question', summary: 'SQLite or Postgres?' },
         },
       })
@@ -2064,7 +2064,7 @@ describe('sendText (chat send path)', () => {
     ({
       type: 'agentState',
       sessionId,
-      state: { phase, since: '2026-01-01T00:00:00.000Z', openTaskCount: 0, ...extra },
+      state: { phase, since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
 
   it('wraps single-line text in bracketed paste, then submits with a DELAYED CR', () => {
@@ -2441,7 +2441,7 @@ describe('hibernation', () => {
       state: {
         phase: 'idle',
         since: '2026-06-12T00:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         idle: { kind: 'done' },
       },
     })
@@ -2483,7 +2483,7 @@ describe('hibernation', () => {
       state: {
         phase: 'idle',
         since: '2026-06-12T00:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         idle: { kind: 'done' },
       },
     })
@@ -2518,7 +2518,7 @@ describe('hibernation', () => {
       state: {
         phase: 'idle',
         since: '2026-06-12T00:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         idle: { kind: 'done' },
       },
     })
@@ -2753,7 +2753,7 @@ describe('SessionRegistry snooze', () => {
     ({
       type: 'agentState',
       sessionId,
-      state: { phase, since: '2026-06-19T00:00:00.000Z', openTaskCount: 0, ...extra },
+      state: { phase, since: '2026-06-19T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
 
   it('set/list/clear round-trips and shows on the session meta', () => {
@@ -2835,7 +2835,7 @@ describe('SessionRegistry — auto-continue', () => {
   const erroredState: AgentRuntimeState = {
     phase: 'errored',
     since: '2026-06-24T00:00:00Z',
-    openTaskCount: 0,
+    nativeSubagentCount: 0,
     error: { class: 'server_error', retryable: true },
   }
   const continueInput = expect.objectContaining({

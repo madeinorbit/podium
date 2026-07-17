@@ -23,13 +23,13 @@ function session(over: Partial<SessionMeta>): SessionMeta {
 }
 
 const working = session({
-  agentState: { phase: 'working', since: '2026-07-14T12:00:00.000Z', openTaskCount: 0 },
+  agentState: { phase: 'working', since: '2026-07-14T12:00:00.000Z', nativeSubagentCount: 0 },
 })
 const waiting = session({
   agentState: {
     phase: 'needs_user',
     since: '2026-07-14T12:00:00.000Z',
-    openTaskCount: 0,
+    nativeSubagentCount: 0,
     need: { kind: 'question' },
   },
 } as Partial<SessionMeta>)
@@ -37,7 +37,7 @@ const done = session({
   agentState: {
     phase: 'idle',
     since: '2026-07-14T12:00:00.000Z',
-    openTaskCount: 0,
+    nativeSubagentCount: 0,
     idle: { kind: 'done' },
   },
 })

@@ -11,7 +11,7 @@ const session = (over: Partial<SessionMeta>): SessionMeta =>
     createdAt: 't',
     lastActiveAt: 't',
     cwd: '/r/wt',
-    agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+    agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
     ...over,
   }) as SessionMeta
 
@@ -105,7 +105,7 @@ describe('workingSessionCount', () => {
         session({ sessionId: 'w1' }),
         session({
           sessionId: 'w2',
-          agentState: { phase: 'needs_user', since: 't', openTaskCount: 0 },
+          agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
         }),
         session({ sessionId: 'w3', agentKind: 'shell', busy: true }),
         session({ sessionId: 'w4', headless: true }),

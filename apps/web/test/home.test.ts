@@ -30,7 +30,7 @@ const state = (
   phase: NonNullable<SessionMeta['agentState']>['phase'],
   extra: Record<string, unknown> = {},
 ) =>
-  ({ phase, since: '2026-06-12T08:00:00.000Z', openTaskCount: 0, ...extra }) as NonNullable<
+  ({ phase, since: '2026-06-12T08:00:00.000Z', nativeSubagentCount: 0, ...extra }) as NonNullable<
     SessionMeta['agentState']
   >
 
