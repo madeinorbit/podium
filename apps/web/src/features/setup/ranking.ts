@@ -20,7 +20,6 @@ export type RepoCandidate = {
   hasOrigin: boolean
   hidden: boolean
   worktreeCount: number
-  defaultSelected: boolean
   /** Machine-scan classification (POD-787). Registered rows start CHECKED and stay
    *  toggleable — unchecking one removes that repo (POD-814). */
   status?: 'registered' | 'auto-registered' | 'candidate'
@@ -38,8 +37,8 @@ export type MachineScanRepo = {
 }
 
 /** Rank tiered machine-scan results (POD-787): same ordering as a folder scan.
- *  `defaultSelected` covers unregistered candidates only — the results screen also
- *  starts registered/auto-registered rows checked, since they are already there. */
+ *  Nothing is preselected — the results screen starts only already-registered rows
+ *  checked (that is their state) and lets you select the rest (POD-832). */
 export function rankMachineScanRepos(repos: MachineScanRepo[]): RepoCandidate[] {
   return repos
     .map((repo): RepoCandidate => {
@@ -51,7 +50,6 @@ export function rankMachineScanRepos(repos: MachineScanRepo[]): RepoCandidate[] 
         hasOrigin: typeof repo.originUrl === 'string' && repo.originUrl.length > 0,
         hidden,
         worktreeCount: 0,
-        defaultSelected: repo.status === 'candidate' && !hidden,
         status: repo.status,
         alsoOn: repo.alsoOn,
       }
@@ -78,8 +76,9 @@ function pathDepth(path: string): number {
 /**
  * Rank scan results for the selection screen. Real projects come first — those
  * with a remote, then shallower paths, then alphabetical — and hidden/system
- * repos sort last (and default unchecked). Worktree entries are dropped: the repo
+ * repos sort last. Worktree entries are dropped: the repo
  * root is the selectable unit, and its worktrees follow automatically once added.
+ * Hidden repos sort last; nothing is preselected (POD-832).
  */
 export function rankRepoCandidates(repos: GitRepositoryWire[]): RepoCandidate[] {
   return repos
@@ -93,7 +92,6 @@ export function rankRepoCandidates(repos: GitRepositoryWire[]): RepoCandidate[] 
         hasOrigin: typeof repo.originUrl === 'string' && repo.originUrl.length > 0,
         hidden,
         worktreeCount: repo.worktrees.length,
-        defaultSelected: !hidden,
       }
     })
     .sort(compareCandidates)

@@ -26,7 +26,7 @@ describe('rankRepoCandidates', () => {
     expect(ranked.map((c) => c.path)).toEqual(['/home/u/src/app'])
   })
 
-  it('sorts hidden repos last and defaults them unselected', () => {
+  it('sorts hidden repos last and flags them hidden', () => {
     const ranked = rankRepoCandidates([
       repo('/home/u/.claude/skills/hidden-tool'),
       repo('/home/u/src/app'),
@@ -35,7 +35,6 @@ describe('rankRepoCandidates', () => {
       '/home/u/src/app',
       '/home/u/.claude/skills/hidden-tool',
     ])
-    expect(ranked.map((c) => c.defaultSelected)).toEqual([true, false])
     expect(ranked.map((c) => c.hidden)).toEqual([false, true])
   })
 
@@ -66,7 +65,6 @@ describe('rankRepoCandidates', () => {
       hasOrigin: true,
       worktreeCount: 1,
       hidden: false,
-      defaultSelected: true,
     })
   })
 })
