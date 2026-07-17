@@ -33,7 +33,7 @@
     "@podium/terminal-client-react": "workspace:*",
     "@tanstack/db": "^0.6.16",
     "@tanstack/react-db": "^0.1.94",
-    "@tanstack/tauri-db-sqlite-persistence": "^0.2.8",
+    "@tanstack/db-sqlite-persistence-core": "^0.2.8",
     "@tauri-apps/plugin-sql": "^2.3.2",
     "@trpc/client": "^11.0.0",
     "class-variance-authority": "^0.7.1",

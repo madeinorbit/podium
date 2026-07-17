@@ -367,6 +367,8 @@ class TanstackReplica implements Replica {
    *  From then on entity persistence is in-memory only for this session and the
    *  persisted cursor is void (see degradeEntityWrites). */
   private entityWritesDegraded = false
+  /** Post-degrade sqlite failure logs kept visible, capped (see track). */
+  private entityPersistFailureLogs = 0
   /** Post-degrade backing for entity blobs, so the collections' storage sync
    *  keeps working over the same seam (values just stop being durable). */
   private readonly entityOverlay = new Map<string, string>()
@@ -1390,6 +1392,13 @@ class TanstackReplica implements Replica {
     const settled = tx.isPersisted.promise.catch((err) => {
       if (!this.persistedInit) return
       if (family === 'entity') {
+        // First failure flips the degrade flag with a full warning; keep a few
+        // follow-ups visible (failures should be rare — a silent stream of
+        // them would make "rows never persist" undiagnosable, POD-789).
+        if (this.entityWritesDegraded && this.entityPersistFailureLogs < 3) {
+          this.entityPersistFailureLogs++
+          console.warn('[podium] replica sqlite entity write failed (still degraded)', err)
+        }
         this.degradePersistedEntityWrites(err)
       } else if (family === 'outbox') {
         console.error(
