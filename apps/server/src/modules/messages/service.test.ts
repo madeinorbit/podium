@@ -350,7 +350,8 @@ describe('MessageDeliveryService.send', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0]!.sessionId).toBe('s1')
     expect(queued).toHaveLength(0)
-    expect(r.disposition).toBe('delivered')
+    // Honest [spec:SP-cb9f]: pushed to the harness queue, not yet echoed → 'queued'.
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s1')
     echo(svc, 's1', r.message.id)
@@ -459,8 +460,9 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     )
     expect(sent).toHaveLength(1)
     expect(sent[0]!.sessionId).toBe('s2')
-    // Pushed to s2, awaiting its echo (not the sender's own echo) [POD-834].
-    expect(r.disposition).toBe('delivered')
+    // Pushed to s2, awaiting its echo (not the sender's own echo) [POD-834]; the
+    // honest send disposition is therefore 'queued' until that echo [spec:SP-cb9f].
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s2')
     echo(svc, 's2', r.message.id)
@@ -515,8 +517,10 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       expect(sent).toHaveLength(1)
       expect(queued).toHaveLength(0)
       expect(interrupted).toHaveLength(0)
-      // Dispatched now (disposition delivered) but honestly still queued until echo.
-      expect(r.disposition).toBe('delivered')
+      // Honest disposition [spec:SP-cb9f, POD-854]: an echo-mode live push is in the
+      // harness queue, not yet transcript-observed — so the SEND returns 'queued',
+      // upgraded to 'delivered' only when the echo/turn-boundary confirms it.
+      expect(r.disposition).toBe('queued')
       expect(r.message.status).toBe('queued')
       expect(r.message.injectedAt).not.toBeNull()
       echo(svc, 's1', r.message.id)
@@ -586,7 +590,9 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(interrupted).toHaveLength(1)
     expect(queued).toHaveLength(0)
-    expect(r.disposition).toBe('delivered')
+    // Injected via ESC now, but honestly 'queued' until the echo/boundary confirms
+    // it [spec:SP-cb9f]; the blocking gate is what waits for the upgrade to delivered.
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.clampedFrom).toBeNull()
   })
@@ -626,7 +632,8 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(interrupted).toHaveLength(1)
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(0)
-    expect(r.disposition).toBe('delivered')
+    // Honest [spec:SP-cb9f]: ESC-injected into the harness, not yet echoed → 'queued'.
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
   })
 

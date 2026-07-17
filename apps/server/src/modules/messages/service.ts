@@ -676,7 +676,8 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
-    if (this.confirmedOnInjection(message)) {
+    const confirmed = this.confirmedOnInjection(message)
+    if (confirmed) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
       // delivery [POD-834, POD-853].
@@ -686,7 +687,15 @@ export class MessageDeliveryService {
       // for the agent's own signal (transcript echo → delivered, inbox → read).
       this.markInjected(message, sessionId)
     }
-    return { ...r, disposition: okDisposition }
+    // Honest sync disposition [spec:SP-cb9f] [POD-854]: only a confirmed-on-injection
+    // push (unwrapped operator / best-effort ack) is `delivered` at send time —
+    // injection IS its delivery. An enveloped echo (or a pointer nudge) is merely in
+    // the harness input queue, not yet transcript-observed, so it reports `queued`;
+    // the blocking send surface (gate) upgrades it to `delivered` only when the echo
+    // / turn-boundary confirmation lands. A distinguished live-path disposition
+    // (`spawning` — a session was woken) still rides through so the sender learns of it.
+    if (okDisposition === 'spawning') return { ...r, disposition: 'spawning' }
+    return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
   }
 
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
