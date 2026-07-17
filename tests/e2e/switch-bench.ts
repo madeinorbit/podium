@@ -43,7 +43,9 @@ await page.waitForSelector('[data-testid="unified-issue-row"]', { timeout: 60_00
 await page.waitForTimeout(4000)
 
 const rows = page.locator('[data-testid="unified-issue-row"]')
-const rowCount = Math.min(await rows.count(), 12)
+// Default 6 keeps the rotation inside the warm-set cap (8 on desktop) so warm
+// re-activations are actually exercised; raise via BENCH_ROWS to force cold churn.
+const rowCount = Math.min(await rows.count(), Number(process.env.BENCH_ROWS ?? 6))
 if (rowCount < 2) {
   console.error(`only ${rowCount} issue rows visible — nothing to switch between`)
   process.exit(1)
