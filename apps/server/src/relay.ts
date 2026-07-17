@@ -253,7 +253,7 @@ export class SessionRegistry {
           if (s.machineId === LOCAL_PLACEHOLDER) s.machineId = machineId
         }
       },
-      broadcastSessions: () => sessionsSvc.broadcastSessions(),
+      sessionsChangedForMachine: (machineId) => sessionsSvc.sessionsChangedForMachine(machineId),
       clients: () => clients().values(),
     })
     const rpc = new DaemonRpcService({

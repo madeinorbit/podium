@@ -115,6 +115,7 @@ export interface SessionLedger {
     result: T
     changes: MetadataChange[]
   }
+  capture(specs: EntityChangeSpec[]): MetadataChange[]
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
 }
 
@@ -254,13 +255,19 @@ export class SessionsService {
   // coalesces a burst of keystrokes into a single SQLite write.
   private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
-  // Last session-list payload broadcast to clients. broadcastSessions() fires on many
-  // events (activity bumps, attach/detach, resume refs) that often don't change any
-  // visible field; skipping a byte-identical re-broadcast avoids re-serializing the
-  // whole list and fanning it out to every client for nothing (audit P1-8). Existing
-  // clients already hold this state; a NEW client gets the current list via
-  // attachClient, so the dedup can never leave a client stale.
-  private lastSessionsBroadcast = ''
+  // Server-only dirty generation [spec:SP-c29e]. It schedules projection work and
+  // invalidates the legacy snapshot cache; ledger seq remains the sole durable and
+  // client-visible ordering/catch-up primitive. Every successful persisted or
+  // explicitly captured wire mutation bumps once. The value is never serialized.
+  private sessionsGeneration_ = 0
+  private readonly sessionsDirtyListeners = new Set<(generation: number) => void>()
+  // The generation whose legacy sessionsChanged snapshot completed successfully.
+  // Generation equality replaces byte-string equality so A→B→A inside one
+  // coalescing window still invalidates work even though the final bytes match.
+  private lastSessionsBroadcastGeneration = -1
+  // Generation currently being run. It is stamped before fan-out to preserve the
+  // old re-entrant same-state guard and restored if any broadcast body step throws.
+  private runningSessionsBroadcastGeneration = -1
   // Last issue-relevant session projection published to issue clients [POD-722].
   // runSessionsBroadcast compares this against the current projection to decide
   // whether the O(issues×sessions) publishIssues() rebuild is actually needed —
@@ -361,6 +368,73 @@ export class SessionsService {
     this.flushBroadcasts()
   }
 
+  /** Current server-local session projection generation. Never sent to clients. */
+  sessionsGeneration(): number {
+    return this.sessionsGeneration_
+  }
+
+  /** Subscribe projection schedulers to server-local dirty generations. */
+  onSessionsDirty(listener: (generation: number) => void): () => void {
+    this.sessionsDirtyListeners.add(listener)
+    return () => this.sessionsDirtyListeners.delete(listener)
+  }
+
+  private bumpSessionsGeneration(): void {
+    const generation = ++this.sessionsGeneration_
+    for (const listener of this.sessionsDirtyListeners) {
+      try {
+        listener(generation)
+      } catch (err) {
+        console.error('[sessions] dirty listener threw', err)
+      }
+    }
+  }
+
+  /** Explicit non-row capture seam [spec:SP-c29e]. */
+  private captureSessionSpecs(specs: EntityChangeSpec[]): MetadataChange[] {
+    if (specs.length === 0) return []
+    const changes = this.deps.ledger.capture(specs)
+    if (changes.some((change) => change.entity === 'session')) this.bumpSessionsGeneration()
+    return changes
+  }
+
+  private captureSessionWire(session: Session): MetadataChange[] {
+    return this.captureSessionSpecs([
+      {
+        entity: 'session',
+        id: session.sessionId,
+        op: 'upsert',
+        value: this.sessionWire(session),
+      },
+    ])
+  }
+
+  /**
+   * Central volatile Session-view mutation seam. It captures only the touched
+   * session and notifies projection schedulers iff its wire value changed.
+   */
+  private mutateSessionView(sessionId: string, mutate: (session: Session) => void): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    mutate(session)
+    return this.captureSessionWire(session).length > 0
+  }
+
+  /** Machine-owned derived fields changed (machineId and/or machineName). */
+  sessionsChangedForMachine(machineId: string): void {
+    this.captureSessionSpecs(
+      [...this.sessions.values()]
+        .filter((session) => session.machineId === machineId)
+        .map((session) => ({
+          entity: 'session' as const,
+          id: session.sessionId,
+          op: 'upsert' as const,
+          value: this.sessionWire(session),
+        })),
+    )
+    this.broadcastSessions()
+  }
+
   /**
    * THE session write seam ([spec:SP-3fe2] #256): every persist commits the
    * row write and its declared session change through the write-seam Ledger —
@@ -380,7 +454,7 @@ export class SessionsService {
    * authoritative recency delta clients order the sidebar by.
    */
   persist(session: Session): void {
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => this.store.sessions.upsertSession(session.toRow()),
       changes: () => [
         {
@@ -391,6 +465,7 @@ export class SessionsService {
         },
       ],
     })
+    if (changes.some((change) => change.entity === 'session')) this.bumpSessionsGeneration()
   }
 
   /** The exact wire shape broadcasts carry for this session — toMeta() plus the
@@ -584,6 +659,7 @@ export class SessionsService {
         session.resume.value,
       )
     }
+    this.bumpSessionsGeneration()
   }
 
   loadFromStore(): void {
@@ -630,9 +706,8 @@ export class SessionsService {
     // Boot ordering (#247): this runs BEFORE server.ts calls ensureLocalMachine,
     // so placeholder rows reconcile here with machineId '__local__'. That stale
     // baseline is unobservable and self-healing: adoption
-    // (ensureLocalMachine → adoptPlaceholderRows) triggers broadcastSessions,
-    // and runSessionsBroadcast reconciles the adopted union before its
-    // byte-skip — all before the server starts accepting connections.
+    // (ensureLocalMachine → adoptPlaceholderRows) explicitly captures affected
+    // sessions before its broadcast — all before the server accepts connections.
     this.deps.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
@@ -755,15 +830,25 @@ export class SessionsService {
     // 'live' but unattached: the server never re-asks and they orphan until a server
     // restart. (In the old single-process world the daemon never restarted alone, so
     // this gap couldn't surface.)
-    let changed = false
+    const changed: Session[] = []
     for (const s of this.sessions.values()) {
       if (s.machineId !== machineId) continue
       // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
       // lose; their tails re-establish via headlessBind on the next attach.
       if (s.headless) continue
-      if (s.markReconnecting()) changed = true
+      if (s.markReconnecting()) changed.push(s)
     }
-    if (changed) this.broadcastSessions()
+    if (changed.length > 0) {
+      this.captureSessionSpecs(
+        changed.map((session) => ({
+          entity: 'session',
+          id: session.sessionId,
+          op: 'upsert',
+          value: this.sessionWire(session),
+        })),
+      )
+      this.broadcastSessions()
+    }
     this.machines.broadcastMachines()
   }
 
@@ -801,7 +886,8 @@ export class SessionsService {
     // Local ∪ upstream (docs/spec/node-hub-sync.md §2.3). Upstream entries carry
     // viaHub (set at ingest) and, while the hub link is down, upstreamStale —
     // applied at read time so a staleness flip needs no rewrite of the mirror.
-    // A local id always wins a collision (defensive; ingest already excludes them).
+    // A local id always wins a collision; the retained upstream entry is revealed
+    // if that local session is later removed.
     const localIds = new Set(local.map((s) => s.sessionId))
     const upstream = [...this.upstreamSessions.values()]
       .filter((s) => !localIds.has(s.sessionId))
@@ -825,30 +911,57 @@ export class SessionsService {
 
   /** True when `sessionId` is a hub-mirrored (read-only) session. */
   isUpstreamSession(sessionId: string): boolean {
-    return this.upstreamSessions.has(sessionId)
+    return !this.sessions.has(sessionId) && this.upstreamSessions.has(sessionId)
   }
 
   /** `{ ok: false, reason }` for a hub-mirrored session, else null — the shared
    *  guard every ok/reason command path checks first. */
   private upstreamRejection(sessionId: string): { ok: false; reason: string } | null {
-    if (!this.upstreamSessions.has(sessionId)) return null
+    if (this.sessions.has(sessionId) || !this.upstreamSessions.has(sessionId)) return null
     return { ok: false, reason: UPSTREAM_COMMAND_REJECTION }
   }
 
   /**
    * Replace the mirrored session list with the hub's truth. Own-machine entries are
    * excluded (echo filter — this node's daemon registered with the hub would reflect
-   * its own sessions back), as is anything colliding with a local session id.
+   * its own sessions back). Entries colliding with a local session id are retained
+   * behind the local value so the latest upstream truth can be revealed later.
    * Entries are stamped `viaHub` at ingest so provenance travels with the value —
    * the P7b push path and the UI both key off it. Flows through the normal
    * broadcast/oplog pipeline so node clients see hub sessions live.
    */
+  private upstreamWire(session: SessionMeta): SessionMeta {
+    return this.upstreamStale ? { ...session, upstreamStale: true } : session
+  }
+
   setUpstreamSessions(list: SessionMeta[]): void {
+    const previous = new Map(this.upstreamSessions)
     this.upstreamSessions.clear()
-    for (const s of list) {
-      if (s.machineId !== undefined && this.upstreamOwnMachineIds.has(s.machineId)) continue
-      if (this.sessions.has(s.sessionId)) continue
-      this.upstreamSessions.set(s.sessionId, { ...s, viaHub: true })
+    for (const session of list) {
+      if (session.machineId !== undefined && this.upstreamOwnMachineIds.has(session.machineId)) {
+        continue
+      }
+      this.upstreamSessions.set(session.sessionId, { ...session, viaHub: true })
+    }
+    const specs: EntityChangeSpec[] = [...this.upstreamSessions.values()]
+      .filter((session) => !this.sessions.has(session.sessionId))
+      .map((session) => ({
+        entity: 'session',
+        id: session.sessionId,
+        op: 'upsert',
+        value: this.upstreamWire(session),
+      }))
+    for (const id of previous.keys()) {
+      if (!this.upstreamSessions.has(id) && !this.sessions.has(id)) {
+        specs.push({ entity: 'session', id, op: 'remove' })
+      }
+    }
+    try {
+      this.captureSessionSpecs(specs)
+    } catch (err) {
+      this.upstreamSessions.clear()
+      for (const [id, session] of previous) this.upstreamSessions.set(id, session)
+      throw err
     }
     this.broadcastSessions()
   }
@@ -862,7 +975,23 @@ export class SessionsService {
    */
   setUpstreamStale(stale: boolean): boolean {
     if (this.upstreamStale === stale) return false
+    const previous = this.upstreamStale
     this.upstreamStale = stale
+    try {
+      this.captureSessionSpecs(
+        [...this.upstreamSessions.values()]
+          .filter((session) => !this.sessions.has(session.sessionId))
+          .map((session) => ({
+            entity: 'session',
+            id: session.sessionId,
+            op: 'upsert',
+            value: this.upstreamWire(session),
+          })),
+      )
+    } catch (err) {
+      this.upstreamStale = previous
+      throw err
+    }
     if (this.upstreamSessions.size > 0) this.broadcastSessions()
     // The conversation/issue mirrors follow via the bus (they read the flag
     // through isUpstreamStale() at publish time and rebroadcast on the flip).
@@ -1815,7 +1944,9 @@ export class SessionsService {
       throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
     }
 
-    session.handoffTarget = targetMachine.name
+    this.mutateSessionView(session.sessionId, (current) => {
+      current.handoffTarget = targetMachine.name
+    })
     this.broadcastSessions()
 
     const branch = issue?.branch ?? basename(session.cwd)
@@ -1833,7 +1964,9 @@ export class SessionsService {
     )
     const baseShas = verifiedBundleBases(verified)
     if (baseShas.length === 0) {
-      session.handoffTarget = undefined
+      this.mutateSessionView(session.sessionId, (current) => {
+        current.handoffTarget = undefined
+      })
       this.broadcastSessions()
       throw new Error('target repository has no verified common bundle base')
     }
@@ -2166,6 +2299,21 @@ export class SessionsService {
     }
   }
 
+  /** Durable union transition for removing a local session. A retained upstream
+   *  collision is revealed in the same ordered append as the local remove. */
+  private sessionRemovalSpecs(sessionId: string): EntityChangeSpec[] {
+    const specs: EntityChangeSpec[] = [{ entity: 'session', id: sessionId, op: 'remove' }]
+    const revealedUpstream = this.upstreamSessions.get(sessionId)
+    if (revealedUpstream) {
+      specs.push({
+        entity: 'session',
+        id: sessionId,
+        op: 'upsert',
+        value: this.upstreamWire(revealedUpstream),
+      })
+    }
+    return specs
+  }
   /** Prepare deletion of every LOCAL session belonging to an issue. The caller
    *  commits `write` + `changes` together with the issue tombstone, then invokes
    *  `apply` only after that durable transaction succeeds. */
@@ -2180,8 +2328,7 @@ export class SessionsService {
         for (const sessionId of sessionIds)
           this.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
-      changes: () =>
-        sessionIds.map((id) => ({ entity: 'session' as const, id, op: 'remove' as const })),
+      changes: () => sessionIds.flatMap((sessionId) => this.sessionRemovalSpecs(sessionId)),
       apply: () => {
         for (const sessionId of sessionIds) this.removeSessionRuntime(sessionId)
       },
@@ -2241,6 +2388,7 @@ export class SessionsService {
       this.draftWriteTimers.delete(sessionId)
     }
     for (const c of this.clients.values()) c.attached.delete(sessionId)
+    if (session) this.bumpSessionsGeneration()
   }
 
   killSession(input: { sessionId: string }): void {
@@ -2266,7 +2414,7 @@ export class SessionsService {
         this.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
-      changes: () => [{ entity: 'session', id: input.sessionId, op: 'remove' }],
+      changes: () => this.sessionRemovalSpecs(input.sessionId),
     })
     this.removeSessionRuntime(input.sessionId)
     this.broadcastSessions()
@@ -2526,7 +2674,9 @@ export class SessionsService {
   detachClient(id: string): void {
     const client = this.clients.get(id)
     if (!client) return
-    for (const sessionId of client.attached) this.sessions.get(sessionId)?.detachClient(id)
+    for (const sessionId of client.attached) {
+      this.mutateSessionView(sessionId, (session) => session.detachClient(id))
+    }
     // Transcript subscriptions are independent of PTY attachment — sweep just the ones
     // THIS client made (audit P2-18), not every session on the host (the old full scan
     // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
@@ -2677,7 +2827,9 @@ export class SessionsService {
         const session = this.sessions.get(msg.sessionId)
         if (!session) return
         client.attached.add(msg.sessionId)
-        session.attachClient(client, msg.sinceSeq)
+        this.mutateSessionView(msg.sessionId, (current) =>
+          current.attachClient(client, msg.sinceSeq),
+        )
         this.broadcastSessions()
         this.pushPriorities()
         perf.record('phase', 'ws.attach', performance.now() - t0)
@@ -2686,7 +2838,7 @@ export class SessionsService {
       case 'detach': {
         const t0 = performance.now()
         client.attached.delete(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.detachClient(id)
+        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id))
         this.broadcastSessions()
         this.pushPriorities()
         perf.record('phase', 'ws.detach', performance.now() - t0)
@@ -2696,10 +2848,12 @@ export class SessionsService {
         this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
         break
       case 'resize':
-        this.sessions.get(msg.sessionId)?.handleResize(id, msg.cols, msg.rows)
+        this.mutateSessionView(msg.sessionId, (session) =>
+          session.handleResize(id, msg.cols, msg.rows),
+        )
         break
       case 'requestControl':
-        this.sessions.get(msg.sessionId)?.requestControl(id)
+        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id))
         this.broadcastSessions()
         break
       case 'redrawRequest':
@@ -2729,7 +2883,7 @@ export class SessionsService {
         // it renders these sessions, re-apply its last viewport where it's controller
         // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
         for (const sid of client.viewVisible) {
-          this.sessions.get(sid)?.reconcileGeometry(id)
+          this.mutateSessionView(sid, (session) => session.reconcileGeometry(id))
         }
         this.pushPriorities()
         break
@@ -3329,52 +3483,30 @@ export class SessionsService {
   }
 
   private runSessionsBroadcast(): void {
-    // Phase timings [POD-701]: each leg of the broadcast pipeline recorded
-    // separately so a slow switch can be attributed (list vs reconcile vs
-    // stringify vs fan-out). performance.now() calls are ~ns; no behavior change.
     const t0 = performance.now()
-    const sessions = this.listSessions()
-    const tList = performance.now()
-    perf.record('phase', 'sessionsBroadcast.list', tList - t0)
-    // Reconcile-at-broadcast ([spec:SP-3fe2] #247, on top of the #256 write-seam
-    // commits): the ledger re-captures the EXACT union the snapshot below
-    // carries — local rows AND the hub-mirrored upstream list, built by the same
-    // wire function — so every state change that reaches a broadcast without a
-    // persist() lands in the durable log too. That restores the old
-    // broadcast-seam capture sites the write-seam migration dropped: upstream
-    // mirror sets + staleness flips (setUpstreamSessions/setUpstreamStale), the
-    // daemon-disconnect status:'reconnecting' flip, machine-rename machineName,
-    // and startup-adoption machineId. It deliberately RETIRES the previous
-    // clientCount/controllerId/epoch exclusion — it was leaky anyway (those
-    // fields ride every persist()'s full wire payload) — so attach/detach churn
-    // volume equals the old broadcast-seam oplog's (known-acceptable). The
-    // reconcile runs BEFORE the byte-skip: the skip compares against the last
-    // BROADCAST payload, not the ledger baseline, so it could otherwise
-    // suppress a union that the baseline has not captured yet (e.g. a change
-    // that reverted between broadcasts). reconcile() itself dedups no-ops, so
-    // the common case appends nothing.
-    this.deps.ledger.reconcile(
-      'session',
-      sessions.map((s) => ({ id: s.sessionId, value: s })),
-    )
-    const tReconcile = performance.now()
-    perf.record('phase', 'sessionsBroadcast.reconcile', tReconcile - tList)
-    // Skip a byte-identical re-broadcast (audit P1-8) — every existing client already
-    // holds this exact list, and a new client gets it via attachClient, so re-sending
-    // it changes nothing and just burns CPU + bandwidth across all clients.
-    const key = JSON.stringify(sessions)
-    const tStringify = performance.now()
-    // bytes ≈ key.length (string length, not UTF-8 bytes — close enough, O(1)).
-    perf.record('phase', 'sessionsBroadcast.stringify', tStringify - tReconcile, key.length)
-    if (key === this.lastSessionsBroadcast) {
+    const generation = this.sessionsGeneration_
+    if (generation === this.lastSessionsBroadcastGeneration) {
       perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
       return
     }
-    this.lastSessionsBroadcast = key
+    if (this.runningSessionsBroadcastGeneration !== -1) {
+      this.broadcastPending = true
+      perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+      return
+    }
+    this.runningSessionsBroadcastGeneration = generation
     try {
+      const sessions = this.listSessions()
+      const tList = performance.now()
+      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
+      // Every non-boot mutation was already captured at its owning seam. This hot
+      // path only builds the legacy snapshot; full reconcile is boot/recovery-only.
+      const key = JSON.stringify(sessions)
+      const tStringify = performance.now()
+      perf.record('phase', 'sessionsBroadcast.stringify', tStringify - tList, key.length)
       // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
-      // captured above (write-seam commit or the reconcile) and ride the funnel's
-      // ordered onAppended pipe — recording here again would double-append.
+      // captured at their owning seams and ride the funnel's ordered onAppended
+      // pipe — recording here again would double-append.
       const tFanout0 = performance.now()
       this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
       // Snapshot receivers = the non-delta-cap clients (see fanOutSnapshot).
@@ -3413,23 +3545,16 @@ export class SessionsService {
       } else {
         const tIssues0 = performance.now()
         this.deps.publishIssues()
-        // Stamp only AFTER a clean publish: a throw drops through to the catch
-        // (which un-stamps the byte cache) and leaves this projection unchanged,
+        // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
         this.lastIssueSessionProjection = issueProjection
         perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
       }
-    } catch (err) {
-      // Un-stamp the byte-skip cache on ANY broadcast-body failure (#247): the
-      // cache is stamped up front so a reentrant same-bytes broadcast during the
-      // fan-out still early-returns, but if e.g. publishIssues()'s issue-ledger
-      // reconcile throws transiently with the stamp left in place, every later
-      // broadcast of the SAME session bytes would early-return and the embedded
-      // IssueWire SessionMeta[] would stay stale forever. Cleared, the next
-      // broadcast retries the whole body (reconcile dedups; clients tolerate a
-      // repeated snapshot). Coalescing semantics are otherwise unchanged.
-      if (this.lastSessionsBroadcast === key) this.lastSessionsBroadcast = ''
-      throw err
+      this.lastSessionsBroadcastGeneration = generation
+    } finally {
+      if (this.runningSessionsBroadcastGeneration === generation) {
+        this.runningSessionsBroadcastGeneration = -1
+      }
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
   }

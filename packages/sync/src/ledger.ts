@@ -21,7 +21,10 @@ import {
  * change append inside ONE injected `transact()` span, so "the entity row
  * changed" and "the change log says so" commit or roll back together.
  *
- * Mapping from the oplog's `partial` flag (issue #22):
+ * Mapping from the oplog.s `partial` flag (issue #22):
+ * - `capture()` explicitly appends non-row mutations owned by a service seam.
+ *   Like commit it never diffs a list; unlike commit it has no entity-row write
+ *   to share a transaction with.
  * - `commit()` NEVER diffs lists. The `changes()` callback declares exactly
  *   what the write touched; a declared `remove` is explicit. There is no
  *   subset/full-list ambiguity, so `partial` does not exist here.
@@ -149,6 +152,19 @@ export class Ledger {
   }
 
   /**
+   * Capture an explicitly owned mutation that has no durable entity-row write
+   * to bind to (for example volatile session view state or an upstream mirror).
+   * The caller supplies the exact upserts/removes; this never diffs a full list.
+   * Ledger seq remains the only durable/client-visible ordering primitive while
+   * service-local generations merely schedule projection work. [spec:SP-c29e]
+   */
+  capture(specs: EntityChangeSpec[]): MetadataChange[] {
+    const staged = this.stage(specs)
+    const seqs = staged.length > 0 ? this.deps.repo.appendChanges(staged, this.deps.now()) : []
+    return this.finalize(staged, seqs)
+  }
+
+  /**
    * Boot-only reconciliation: `rows` is the FULL truth for one entity kind.
    * Diffs against the baseline INCLUDING removes — the only surviving
    * full-list diff path — so changes made while the server was down land in
@@ -188,7 +204,7 @@ export class Ledger {
     this.shutdown.abort()
   }
 
-  /** Fires after commit/reconcile with the appended changes (never with an
+  /** Fires after commit/capture/reconcile with the appended changes (never with an
    *  empty batch). Per-listener try/catch so a listener throw can't break the
    *  committer. Returns an unsubscribe. */
   onAppended(listener: (changes: MetadataChange[]) => void): () => void {

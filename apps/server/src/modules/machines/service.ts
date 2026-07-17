@@ -8,8 +8,8 @@ import type {
   ServerMessage,
 } from '@podium/protocol'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
-import type { Send } from '../sessions/session'
 import type { MachineRecord, SessionStore } from '../../store'
+import type { Send } from '../sessions/session'
 
 /** sha-256 hex of a secret — matches the store's token-hash scheme. */
 export function sha256(s: string): string {
@@ -35,7 +35,7 @@ export interface MachinesDeps {
   /** Retarget in-memory sessions still on the `'__local__'` placeholder onto the
    *  adopting machine (the registry owns the sessions map). */
   retargetPlaceholderSessions(machineId: string): void
-  broadcastSessions(): void
+  sessionsChangedForMachine(machineId: string): void
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ send(msg: ServerMessage): void }>
 }
@@ -297,7 +297,7 @@ export class MachinesService {
   renameMachine(id: string, name: string): void {
     this.deps.store.machines.renameMachine(id, name)
     this.invalidateMachineCache()
-    this.deps.broadcastSessions() // sessions show machineName — refresh it
+    this.deps.sessionsChangedForMachine(id) // sessions show machineName — recapture + refresh
     this.broadcastMachines()
   }
 
@@ -305,6 +305,7 @@ export class MachinesService {
     this.deps.store.machines.deleteMachine(id)
     this.invalidateMachineCache()
     this.daemons.delete(id)
+    this.deps.sessionsChangedForMachine(id)
     this.broadcastMachines()
   }
 
@@ -328,7 +329,7 @@ export class MachinesService {
     // Parked (hibernated/exited) sessions aren't touched by the reattach loop, so
     // push the updated list now — this is what makes pre-existing sessions
     // reappear on upgrade.
-    this.deps.broadcastSessions()
+    this.deps.sessionsChangedForMachine(machineId)
   }
 
   /**

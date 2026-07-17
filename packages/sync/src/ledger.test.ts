@@ -94,6 +94,20 @@ describe('Ledger', () => {
     expect(ledger.reconcile('issue', [{ id: 'a', value: { id: 'a', title: 't2' } }])).toEqual([])
   })
 
+  it('capture() appends explicitly owned non-row changes without a full-list diff', () => {
+    const ledger = makeLedger()
+
+    expect(ledger.capture([issueSpec('a', 1)])).toEqual([
+      expect.objectContaining({ entity: 'issue', id: 'a', op: 'upsert', seq: 1 }),
+    ])
+    expect(ledger.capture([issueSpec('a', 1)])).toEqual([])
+    expect(ledger.capture([issueSpec('a', 2), removeSpec('a')]).map((c) => c.op)).toEqual([
+      'upsert',
+      'remove',
+    ])
+    expect(ledger.cursor()).toBe(3)
+  })
+
   it('serves changesSince within the retained range and rejects everything else', () => {
     const ledger = makeLedger()
     expect(ledger.changesSince(null)).toBeNull() // bootstrap -> snapshot

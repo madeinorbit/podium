@@ -9,7 +9,7 @@ function makeService(): MachinesService {
   const deps = {
     store: {} as MachinesDeps['store'],
     retargetPlaceholderSessions: () => {},
-    broadcastSessions: () => {},
+    sessionsChangedForMachine: () => {},
     clients: () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
@@ -74,7 +74,12 @@ describe('MachinesService inventory persistence (#222)', () => {
     arch: 'arm64',
     podiumVersion: '9.9.9',
     agents: [
-      { kind: 'claude-code', installed: true, version: '2.1.0', login: { state: 'in', account: 'a@b.c' } },
+      {
+        kind: 'claude-code',
+        installed: true,
+        version: '2.1.0',
+        login: { state: 'in', account: 'a@b.c' },
+      },
       { kind: 'opencode', installed: false, login: { state: 'unknown' } },
     ],
     tools: [{ name: 'gh', installed: true, version: 'gh version 2.40.0' }],
@@ -85,7 +90,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const svc = new MachinesService({
       store,
       retargetPlaceholderSessions: () => {},
-      broadcastSessions: () => {},
+      sessionsChangedForMachine: () => {},
       clients: () => [],
     } satisfies MachinesDeps)
     return { svc, store }
