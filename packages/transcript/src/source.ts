@@ -6,7 +6,7 @@ import { decodeCursor, encodeCursor } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
 import { grokRecordToItems } from './grok'
 import { type OpencodeMessagePartRow, opencodePartToItems } from './opencode'
-import { readTranscriptSlice, type SliceResult } from './slice'
+import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from './slice'
 
 /**
  * A read strategy for a single session's transcript. Storage varies wildly
@@ -25,6 +25,13 @@ export interface TranscriptSource {
     anchor?: string
     direction: 'before' | 'after'
     limit: number
+    /** Opt-in parsed-slice cache (POD-724): serve an unchanged file's prior parse
+     *  instead of re-reading. Byte-identical result, keyed on file size/mtime +
+     *  read shape. Only the hot on-switch legs (the daemon `transcriptRead` handler
+     *  and the server lake fallback) set this; the boot re-seed and indexer leave it
+     *  false so they never retain memory. File-chain sources honor it; the opencode
+     *  source is already in-memory and ignores it. */
+    cached?: boolean
   }): Promise<SliceResult>
 }
 
@@ -42,7 +49,10 @@ export function fileChainSource(
   recordToItems: (r: unknown) => TranscriptItem[],
 ): TranscriptSource {
   return {
-    readSlice: (opts) => readTranscriptSlice(chain, recordToItems, opts),
+    readSlice: ({ cached, ...opts }) =>
+      cached
+        ? readTranscriptSliceCached(chain, recordToItems, opts)
+        : readTranscriptSlice(chain, recordToItems, opts),
   }
 }
 

@@ -65,6 +65,12 @@ async function readTranscript(
       ...(msg.anchor ? { anchor: msg.anchor } : {}),
       direction: msg.direction,
       limit: msg.limit,
+      // POD-724: this on-switch read re-parses an unchanged file every switch
+      // (measured p50 458ms / p90 1s). Opt into the parsed-slice cache — an
+      // append changes size/mtime and misses naturally, so results stay
+      // byte-identical. The parallel boot re-seed (control/session.ts) leaves
+      // this off so it never retains memory.
+      cached: true,
     })
   } catch (err) {
     // A read failure (missing file/DB, decode error) must still answer the

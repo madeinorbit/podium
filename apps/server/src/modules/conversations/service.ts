@@ -374,6 +374,10 @@ export class ConversationsService {
       ...(input.anchor ? { anchor: input.anchor } : {}),
       direction: input.direction,
       limit: input.limit,
+      // POD-724: opt into the parsed-slice cache so the lake fallback leg
+      // (transcriptRead.lake) skips re-parsing an unchanged mirror file on
+      // repeat switches. Keyed on size/mtime, so a mirror-pull append misses.
+      cached: true,
     })
     return slice.items.length > 0 ? slice : undefined
   }

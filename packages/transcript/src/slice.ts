@@ -369,3 +369,161 @@ function findAnchorIndex(
     return c !== null && c.fileId === want.fileId && c.offset === want.offset && c.sub === want.sub
   })
 }
+
+// ---------------------------------------------------------------------------
+// Parsed-slice cache (POD-724).
+//
+// Every session switch re-runs `readTranscriptSlice`: it re-opens the JSONL,
+// re-reads a bounded doubling byte window, and re-`JSON.parse`s ~700-1000 items —
+// per switch, even when the file has not changed (measured p50 458ms / p90 1s in
+// POD-701). This cache stores the COMPLETED slice result keyed on the chain's
+// on-disk identity (path + size + mtime) plus the read shape (anchor, direction,
+// limit), so an unchanged file serves the prior parse instead of re-reading.
+//
+// FRESHNESS is a per-hit `fs.stat` of each chain file (~10µs, vs ~500ms to
+// re-parse). An APPEND — the only mutation transcript files take by contract
+// (append-only; the live tailer only ever grows them) — changes size and mtime,
+// so the key changes and the read naturally misses and re-parses. This covers the
+// hot "newest window" case (`direction: 'before'`, no anchor = tail): a grown file
+// has a new size, so a tail read of it MUST miss. Truncation / whole-file rewrite
+// also changes size (or mtime) → miss. RESIDUAL RISK: a same-size, same-mtime-ms
+// rewrite (a rewrite within the filesystem's mtime granularity that preserves byte
+// length) would serve a stale slice — accepted, as it cannot arise from the
+// append-only contract.
+//
+// IMMUTABILITY: a hit returns the SAME `SliceResult` object (and its `items`
+// array) that was parsed on the miss. Consumers MUST treat items as immutable —
+// both production callers (the daemon `transcriptRead` handler and the server's
+// lake fallback) only serialize the result over the wire, never mutate it. A
+// mutating consumer would corrupt every later hit; add a defensive copy at that
+// call site if one is ever introduced, not here.
+//
+// This is opt-in (`readTranscriptSliceCached`, wired by `fileChainSource` when the
+// caller passes `cached: true`) so the indexer, boot re-seed, and tests keep the
+// uncached path and never accidentally retain memory.
+// ---------------------------------------------------------------------------
+
+interface SliceCacheEntry {
+  result: SliceResult
+  /** Approximate retained bytes for the byte-bound accounting. */
+  bytes: number
+}
+
+/** Max distinct cached slices. */
+const SLICE_CACHE_MAX_ENTRIES = 64
+/** Max approximate retained bytes across all cached slices. */
+const SLICE_CACHE_MAX_BYTES = 64 * 1024 * 1024
+
+// Insertion-ordered map == the LRU queue: front is oldest, back is most-recent. A
+// hit re-inserts its key to the back; eviction drops from the front.
+const sliceCache = new Map<string, SliceCacheEntry>()
+let sliceCacheBytes = 0
+let sliceCacheHits = 0
+let sliceCacheMisses = 0
+
+/** Cache counters + current occupancy. Exported for tests (hit/miss assertions). */
+export function sliceCacheStats(): {
+  hits: number
+  misses: number
+  entries: number
+  bytes: number
+} {
+  return {
+    hits: sliceCacheHits,
+    misses: sliceCacheMisses,
+    entries: sliceCache.size,
+    bytes: sliceCacheBytes,
+  }
+}
+
+/** Drop all cached slices and zero the counters. Exported for test isolation. */
+export function resetSliceCache(): void {
+  sliceCache.clear()
+  sliceCacheBytes = 0
+  sliceCacheHits = 0
+  sliceCacheMisses = 0
+}
+
+/** Cheap approximate byte size of a parsed slice — the large fields only, plus a
+ *  fixed per-item overhead for cursor/id/small fields. Only ever run once, on a
+ *  miss (we already hold the parsed items), so it never touches the hit path. */
+function estimateSliceBytes(items: TranscriptItem[]): number {
+  let bytes = 0
+  for (const it of items) {
+    bytes +=
+      200 +
+      (it.text?.length ?? 0) +
+      (it.toolResult?.length ?? 0) +
+      (it.toolInput?.length ?? 0) +
+      (it.toolInputJson?.length ?? 0)
+  }
+  return bytes
+}
+
+/** Build the freshness-bearing cache key by stat-ing every chain file. Returns
+ *  null when any file is missing/unstattable — the caller then serves uncached
+ *  (we never cache against an absent file, whose read result is a degenerate
+ *  empty/partial). */
+async function sliceCacheKey(chain: ChainEntry[], opts: SliceOptions): Promise<string | null> {
+  const parts: string[] = []
+  for (const entry of chain) {
+    try {
+      const st = await stat(entry.path)
+      parts.push(`${entry.path}#${st.size}#${st.mtimeMs}`)
+    } catch {
+      return null
+    }
+  }
+  const initial = opts.initialWindowBytes ?? ''
+  return `${opts.direction}|${opts.limit}|${opts.anchor ?? ''}|${initial}|${parts.join(',')}`
+}
+
+/** Evict oldest entries until both the entry-count and byte bounds hold. */
+function evictSliceCache(): void {
+  while (
+    sliceCache.size > 0 &&
+    (sliceCache.size > SLICE_CACHE_MAX_ENTRIES || sliceCacheBytes > SLICE_CACHE_MAX_BYTES)
+  ) {
+    const oldest = sliceCache.keys().next()
+    if (oldest.done) break
+    const entry = sliceCache.get(oldest.value)
+    sliceCache.delete(oldest.value)
+    if (entry) sliceCacheBytes -= entry.bytes
+  }
+}
+
+/**
+ * Cached wrapper over {@link readTranscriptSlice}. Byte-identical results (the same
+ * completed `SliceResult`), only faster on a repeat read of an unchanged file. See
+ * the "Parsed-slice cache" block above for the freshness, immutability, and bounds
+ * contract. Wired by `fileChainSource` when a caller opts in with `cached: true`.
+ */
+export async function readTranscriptSliceCached(
+  chain: ChainEntry[],
+  recordToItems: (r: unknown) => TranscriptItem[],
+  opts: SliceOptions,
+): Promise<SliceResult> {
+  // Degenerate reads have nothing to cache and the underlying reader already
+  // short-circuits them cheaply.
+  if (chain.length === 0 || opts.limit <= 0) return readTranscriptSlice(chain, recordToItems, opts)
+
+  const key = await sliceCacheKey(chain, opts)
+  if (key === null) return readTranscriptSlice(chain, recordToItems, opts)
+
+  const hit = sliceCache.get(key)
+  if (hit) {
+    sliceCacheHits++
+    // LRU touch: re-insert at the back so it is the most-recent.
+    sliceCache.delete(key)
+    sliceCache.set(key, hit)
+    return hit.result
+  }
+
+  sliceCacheMisses++
+  const result = await readTranscriptSlice(chain, recordToItems, opts)
+  const bytes = estimateSliceBytes(result.items)
+  sliceCache.set(key, { result, bytes })
+  sliceCacheBytes += bytes
+  evictSliceCache()
+  return result
+}
