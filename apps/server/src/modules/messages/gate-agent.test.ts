@@ -33,6 +33,7 @@ function fakeIssues(created: Record<string, unknown>[] = []) {
       throw new Error(`unknown ref ${ref}`)
     },
     get: (id: string) => byId.get(id),
+    getMeta: (id: string) => byId.get(id),
     ancestorIds: () => [],
     create: (input: Record<string, unknown>) => {
       created.push(input)

@@ -400,7 +400,7 @@ export class MessageGate {
       // otherwise --repo names the repository explicitly.
       const scopeIssue =
         caller.capability.scope.kind === 'subtree'
-          ? issues.get(caller.capability.scope.rootId ?? '')
+          ? issues.getMeta(caller.capability.scope.rootId ?? '')
           : null
       const repoPath = input.repo ?? scopeIssue?.repoPath
       if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
@@ -414,7 +414,7 @@ export class MessageGate {
     } else {
       throw new Error('pass --issue <ref> or --new "title"')
     }
-    const issue = issues.get(issueId)
+    const issue = issues.getMeta(issueId)
     if (!issue) throw new Error(`unknown issue ${issueId}`)
     // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
     // the same per-issue daily budget as the spawn-on-wake seam, or a looping
@@ -701,7 +701,7 @@ export class MessageGate {
     const label = (kind: string, issueId: string | null, sessionId: string | null): string => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
-          const issue = issues.get(issueId)
+          const issue = issues.getMeta(issueId)
           if (issue) return `issue:#${issue.seq}`
           return issueId
         }

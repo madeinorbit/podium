@@ -162,7 +162,7 @@ export interface StewardDeps {
     | 'listEnabledSubscriptions'
     | 'markDelivered'
   >
-  issues: Pick<IssueService, 'get' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
+  issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
   /** Durable-queue a nudge into a live session (relay.queueText). */
   sendTextWhenReady: (sessionId: string, text: string) => void
@@ -347,7 +347,7 @@ export class StewardService {
     const anchor = this.subscriberIssueId(sub, sessions)
     if (!anchor) return false
     if (sub.sourceRef === 'my-children') {
-      return this.deps.issues.get(ev.srcIssueId)?.parentId === anchor
+      return this.deps.issues.getMeta(ev.srcIssueId)?.parentId === anchor
     }
     if (sub.sourceRef === 'my-subtree') {
       return this.deps.issues.ancestorIds(ev.srcIssueId).includes(anchor)
@@ -415,7 +415,7 @@ export class StewardService {
     if (sub.subscriberKind === 'session') {
       return sessions.filter((s) => s.sessionId === sub.subscriberId)
     }
-    const issue = this.deps.issues.get(sub.subscriberId)
+    const issue = this.deps.issues.getMeta(sub.subscriberId)
     if (!issue) return []
     return sessionsForIssue(issue.worktreePath, sessions, issue.id)
   }
@@ -430,7 +430,7 @@ export class StewardService {
       if (closedSeq == null) continue
       // The session that closed the blocker already knows — skip self-nudge (#116).
       const causedBy = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
-      const dependent = this.deps.issues.get(e.subject)
+      const dependent = this.deps.issues.getMeta(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
       // assumption: this read-then-write dedup is a cross-process race — fine
@@ -483,7 +483,7 @@ export class StewardService {
   ): Promise<void> {
     const sub = CHILD_PARENT_SUBS[group]
     if (!sub) return
-    const parent = this.deps.issues.get(parentId)
+    const parent = this.deps.issues.getMeta(parentId)
     if (!parent) return
     let posted = false
     let lastChildSeq: number | undefined

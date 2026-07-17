@@ -49,6 +49,10 @@ function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[], archivedIds
       // fixtures (which would leak across tests).
       return base ? { ...base, archived: archivedIds?.has(id) ?? false } : undefined
     },
+    getMeta: (id: string) => {
+      const base = byId.get(id)
+      return base ? { ...base, archived: archivedIds?.has(id) ?? false } : undefined
+    },
     ancestorIds: () => [],
   } as unknown as IssueService
 }

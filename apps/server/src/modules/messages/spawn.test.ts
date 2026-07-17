@@ -28,6 +28,7 @@ function fakeIssues(over?: Partial<typeof ISSUE>) {
       throw new Error(`unknown ref ${ref}`)
     },
     get: (id: string) => (id === issue.id ? issue : undefined),
+    getMeta: (id: string) => (id === issue.id ? issue : undefined),
     ancestorIds: () => [],
   } as unknown as IssueService
 }

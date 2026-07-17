@@ -1538,7 +1538,7 @@ export class MessageDeliveryService {
   private fromLabel(message: MessageRow): string {
     if (message.fromKind === 'agent') {
       if (message.fromIssue) {
-        const issue = this.deps.issues().get(message.fromIssue)
+        const issue = this.deps.issues().getMeta(message.fromIssue)
         return issue ? `issue:#${issue.seq}` : message.fromIssue
       }
       if (message.fromSession) return `session:${message.fromSession}`
@@ -1551,7 +1551,7 @@ export class MessageDeliveryService {
 
   private toLabel(message: MessageRow): string {
     if (message.toKind === 'issue') {
-      const issue = this.deps.issues().get(message.toId ?? '')
+      const issue = this.deps.issues().getMeta(message.toId ?? '')
       return issue ? `your issue #${issue.seq}` : `your issue ${message.toId}`
     }
     if (message.toKind === 'session') return 'your session'
@@ -1751,7 +1751,7 @@ export class MessageDeliveryService {
         return from.name ?? 'system'
       case 'agent': {
         if (from.issueId) {
-          const issue = this.deps.issues().get(from.issueId)
+          const issue = this.deps.issues().getMeta(from.issueId)
           if (issue) return `issue:#${issue.seq}`
         }
         return from.sessionId ? `session:${from.sessionId}` : 'agent'

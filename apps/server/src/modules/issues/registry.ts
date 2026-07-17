@@ -196,7 +196,7 @@ export class IssueCommandCtx {
    *  for a subtree-scoped agent, else 'operator'. */
   mailIdentity(): string {
     if (this.caller.capability.scope.kind === 'subtree') {
-      const me = this.issues.get(this.caller.capability.scope.rootId)
+      const me = this.issues.getMeta(this.caller.capability.scope.rootId)
       if (me) return `issue:#${me.seq}`
     }
     return 'operator'
@@ -318,7 +318,7 @@ export class IssueCommandCtx {
     let parentId: string | null | undefined = issue.parentId
     while (parentId && !seen.has(parentId)) {
       seen.add(parentId)
-      const parent = this.issues.get(parentId)
+      const parent = this.issues.getMeta(parentId)
       if (!parent) return false
       if (parent.audience === 'human') return true
       parentId = parent.parentId
@@ -1019,7 +1019,7 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, async () => {
-        const issue = ctx.issues.get(input.id)
+        const issue = ctx.issues.getMeta(input.id)
         if (!issue) {
           throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${input.id}` })
         }
@@ -1362,7 +1362,7 @@ export function guardIssueCommand(
     // own repo (#140).
     const scopeRepoPath =
       caller.capability.scope.kind === 'subtree'
-        ? (issues.get(caller.capability.scope.rootId)?.repoPath ?? undefined)
+        ? (issues.getMeta(caller.capability.scope.rootId)?.repoPath ?? undefined)
         : undefined
     targetId =
       typeof rawTarget === 'string' ? issues.resolveRef(rawTarget, scopeRepoPath) : rawTarget

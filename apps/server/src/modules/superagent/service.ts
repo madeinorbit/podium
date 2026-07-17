@@ -863,7 +863,7 @@ export class SuperagentService {
         repoPath,
         worktrees: new Set(all.map((i) => i.worktreePath).filter(Boolean)).size,
         issues: all.length,
-        ready: issues.readyList(repoPath).length,
+        ready: all.filter((i) => i.ready).length,
         inProgress: all.filter((i) => i.stage === 'in_progress').length,
         needsHuman: needsHuman.length,
       })

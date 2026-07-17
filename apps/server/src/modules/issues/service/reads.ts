@@ -414,6 +414,18 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     return r ? this.toWire(r, sessionList) : null
   }
 
+  /** Raw issue metadata for server-side readers that do not need the wire
+   *  projection. This deliberately avoids toWire() and session enumeration.
+   *  [spec:SP-fb7e] [spec:SP-c29e] */
+  getMeta(id: string): IssueRow | null {
+    return this.rows.get(this.resolveRef(id)) ?? null
+  }
+
+  /** Session-free existence check for server-side issue references. [spec:SP-fb7e] */
+  has(id: string): boolean {
+    return this.rows.has(this.resolveRef(id))
+  }
+
   /** One issue's comment thread, oldest-first (#175): comment BODIES left
    *  IssueWire (it carries only commentCount now), so clients fetch them lazily
    *  through this read (the `issues.comments` proc / CLI show). */
