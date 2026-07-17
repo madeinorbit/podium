@@ -77,7 +77,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     id: string,
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
-  ): Promise<IssueWire> {
+  ): Promise<
+    IssueWire &
+      Partial<{
+        agentId: string
+        harness: string
+        model: string | null
+        effort: string | null
+        machine: string
+      }>
+  > {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
     if (agentKind && agentKind !== row.defaultAgent) {
@@ -137,7 +146,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     // Hand the agent the description as its first prompt AT SPAWN. createSession
     // delivers it via argv for claude/codex/grok (`claude "<prompt>"` — consumed at
     // startup, no TUI-readiness race) or seeds the composer draft for other agents.
-    this.d.spawnSession({
+    const spawned = this.d.spawnSession({
       cwd: path,
       issueId: row.id,
       agentKind: row.defaultAgent,
@@ -148,7 +157,24 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
-    return wire
+    return {
+      ...wire,
+      agentId: spawned.agentId ?? spawned.sessionId,
+      harness: spawned.harness ?? row.defaultAgent,
+      model:
+        spawned.model === undefined
+          ? selection.model === 'auto'
+            ? null
+            : selection.model
+          : spawned.model,
+      effort:
+        spawned.effort === undefined
+          ? selection.effort === 'auto'
+            ? null
+            : selection.effort
+          : spawned.effort,
+      machine: spawned.machine ?? row.machineId ?? '__local__',
+    }
   }
 
   async createAndMaybeStart(

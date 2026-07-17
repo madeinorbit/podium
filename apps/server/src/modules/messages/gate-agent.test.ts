@@ -197,6 +197,43 @@ describe('agent spawn (gate)', () => {
     })
   })
 
+  it('returns and audits the placement actually produced by the spawn seam', async () => {
+    const { gate, store } = harness({
+      spawnSession: () => ({
+        sessionId: 'child-actual',
+        agentId: 'child-actual',
+        harness: 'codex',
+        model: 'fallback-model',
+        effort: 'medium',
+        machine: 'fallback-box',
+        machineId: 'machine-fallback',
+        accountId: 'native:codex',
+      }),
+    })
+    const result = await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'use actual placement',
+      harness: 'claude-code',
+      model: 'requested-model',
+      effort: 'low',
+    })
+    expect(result).toMatchObject({
+      agentId: 'child-actual',
+      harness: 'codex',
+      model: 'fallback-model',
+      effort: 'medium',
+      machine: 'fallback-box',
+    })
+    const events = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    expect(events[0]?.payload).toMatchObject({
+      harness: 'codex',
+      model: 'fallback-model',
+      effort: 'medium',
+      machineId: 'machine-fallback',
+      accountId: 'native:codex',
+    })
+  })
+
   it('authz: a subtree caller spawning onto ANOTHER issue needs --outside-scope', async () => {
     const { gate } = harness()
     await expect(

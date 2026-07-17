@@ -93,11 +93,30 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
 
 describe('session status (tier 1)', () => {
   it('returns phase, issue stage/todos, ≤5 commits, files, unacked count — no transcript', async () => {
-    const { toolkit, events } = harness()
+    const { toolkit, events } = harness({
+      sessions: [
+        session({
+          issueId: ISSUE.id,
+          machineName: 'buildbox',
+          model: 'claude-opus-4-8',
+          effort: 'high',
+          accountId: 'native:claude-code',
+          draftUpdatedAt: '2026-07-17T20:00:00.000Z',
+          agentState: { phase: 'working', since: 't', nativeSubagentCount: 2 },
+        }),
+      ],
+    })
     const s = await toolkit.status('s1', 'operator')
     expect(s).toMatchObject({
       sessionId: 's1',
       phase: 'working',
+      machine: 'buildbox',
+      model: 'claude-opus-4-8',
+      effort: 'high',
+      account: 'native:claude-code',
+      draft: true,
+      nativeSubagentCount: 2,
+      error: null,
       issue: { seq: 228, stage: 'in_progress', todos: ['[ ] a'] },
       unackedMessages: 2,
     })
@@ -107,6 +126,43 @@ describe('session status (tier 1)', () => {
     expect(events).toEqual([
       { kind: 'session.status_read', subject: 's1', payload: { reader: 'operator' } },
     ])
+  })
+
+  it('reports needs_user as blocked and includes errored details only for errors', async () => {
+    const blocked = harness({
+      sessions: [
+        session({
+          agentState: {
+            phase: 'needs_user',
+            since: 't',
+            nativeSubagentCount: 1,
+            need: { kind: 'question' },
+          },
+        }),
+      ],
+    })
+    expect(await blocked.toolkit.status('s1', 'operator')).toMatchObject({
+      phase: 'blocked',
+      error: null,
+      nativeSubagentCount: 1,
+    })
+
+    const errored = harness({
+      sessions: [
+        session({
+          agentState: {
+            phase: 'errored',
+            since: 't',
+            nativeSubagentCount: 0,
+            error: { class: 'rate_limit', retryable: true },
+          },
+        }),
+      ],
+    })
+    expect(await errored.toolkit.status('s1', 'operator')).toMatchObject({
+      phase: 'errored',
+      error: { class: 'rate_limit', retryable: true },
+    })
   })
 
   it('resolves an issue ref to its best member session', async () => {

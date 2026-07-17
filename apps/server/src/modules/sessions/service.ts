@@ -88,7 +88,9 @@ const APPLIED_MUTATIONS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
  *  collapse whitespace, reject empty / over-long. Shared by the agent self-title
  *  path and createSession's spawner-prescribed name [spec:SP-4ef9][spec:SP-eb60].
  *  Length cap: MAX_AGENT_TITLE_LENGTH from @podium/protocol/titles. */
-function normalizeAgentName(name: string): { ok: true; name: string } | { ok: false; reason: string } {
+function normalizeAgentName(
+  name: string,
+): { ok: true; name: string } | { ok: false; reason: string } {
   const clean = name.trim().replace(/\s+/g, ' ')
   if (!clean) return { ok: false, reason: 'title is empty' }
   if (clean.length > MAX_AGENT_TITLE_LENGTH) {
@@ -210,6 +212,17 @@ function issueRelevantSessionProjection(sessions: SessionMeta[]): string {
  * is the composition root that wires this to the other modules and keeps thin
  * public delegates.
  */
+export interface SessionSpawnResult {
+  sessionId: string
+  agentId: string
+  harness: AgentKind
+  model: string | null
+  effort: string | null
+  machine: string
+  machineId: string
+  accountId: string | null
+}
+
 export class SessionsService {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
@@ -524,6 +537,9 @@ export class SessionsService {
       // Survives a restart — otherwise a reboot would forget that the USER named this
       // session and the next agent title would sail straight through (#490).
       ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
+      ...(r.model ? { model: r.model } : {}),
+      ...(r.effort ? { effort: r.effort } : {}),
+      ...(r.accountId ? { accountId: r.accountId } : {}),
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
       ...(r.headless ? { headless: true } : {}),
       ...(r.issueId ? { issueId: r.issueId } : {}),
@@ -550,7 +566,10 @@ export class SessionsService {
     snoozes: Record<string, string | null>,
     draftTimes: Record<string, string>,
     drafts: Record<string, string>,
-    offers: Record<string, { message: string; actions: { label: string; prompt: string }[]; createdAt: string }>,
+    offers: Record<
+      string,
+      { message: string; actions: { label: string; prompt: string }[]; createdAt: string }
+    >,
   ): void {
     this.sessions.set(session.sessionId, session)
     if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
@@ -945,6 +964,8 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    /** Resolved account selection from an execution profile; never credential material. */
+    accountId?: string
     /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
      *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
      *  takes effect. */
@@ -968,9 +989,7 @@ export class SessionsService {
     sessionId?: string
     /** Explicit workflow override; absent = issue → repository → global default. */
     workflowRevisionId?: string
-  }): {
-    sessionId: string
-  } {
+  }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
     // the issue's `defaultAgent` `as AgentKind` at the boundary). 'auto' is NOT a
@@ -1024,6 +1043,7 @@ export class SessionsService {
         : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -2004,7 +2024,12 @@ export class SessionsService {
       },
       source.machineId,
     )
-    if (!exported.ok || !exported.stagePath || exported.sizeBytes === undefined || !exported.manifest)
+    if (
+      !exported.ok ||
+      !exported.stagePath ||
+      exported.sizeBytes === undefined ||
+      !exported.manifest
+    )
       throw new Error(exported.error ?? 'source failed to export its workspace')
     await transferHandoffPackage({
       rpc: this.rpc,
@@ -2120,7 +2145,7 @@ export class SessionsService {
         : {}),
       geometry: session.geometry,
       ...this.modelDefaults(session.agentKind),
-      ...this.accountEnv(session.agentKind),
+      ...this.accountEnv(session.agentKind, session.accountId),
     })
     preparedInstructions.commit()
     this.broadcastSessions()
@@ -2273,6 +2298,7 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    accountId?: string
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -2280,7 +2306,7 @@ export class SessionsService {
     issueId?: string
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
     sessionId?: string
-  }): { sessionId: string } {
+  }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let `sessions.set` overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn. `withMutation`
@@ -2290,11 +2316,24 @@ export class SessionsService {
     }
     const sessionId = input.sessionId ?? randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
+    const launch = this.modelDefaults(
+      input.agentKind,
+      input.model !== undefined || input.effort !== undefined
+        ? { model: input.model, effort: input.effort }
+        : undefined,
+    )
+    const accountId =
+      input.agentKind === 'shell'
+        ? undefined
+        : (input.accountId ?? resolveRole(this.store.settings.getSettings(), 'coding').accountId)
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title || basename(input.cwd) || input.cwd,
+      ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
+      ...(accountId ? { accountId } : {}),
       origin: input.origin,
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
@@ -2331,16 +2370,20 @@ export class SessionsService {
       ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
-      ...this.modelDefaults(
-        input.agentKind,
-        input.model !== undefined || input.effort !== undefined
-          ? { model: input.model, effort: input.effort }
-          : undefined,
-      ),
-      ...this.accountEnv(input.agentKind),
+      ...launch,
+      ...this.accountEnv(input.agentKind, accountId),
     })
     this.broadcastSessions()
-    return { sessionId }
+    return {
+      sessionId,
+      agentId: sessionId,
+      harness: input.agentKind,
+      model: launch.model ?? null,
+      effort: launch.effort ?? null,
+      machine: this.machines.machineName(machineId),
+      machineId,
+      accountId: accountId ?? null,
+    }
   }
 
   /**
@@ -2398,10 +2441,12 @@ export class SessionsService {
    *  browser and written into persisted scrollback. Only an agent harness — which
    *  is what the coding role's credential is FOR — gets it. (modelDefaults()
    *  special-cases shell for the same reason of shape: a shell is not an agent.) */
-  private accountEnv(agentKind: AgentKind): { env?: Record<string, string> } {
+  private accountEnv(
+    agentKind: AgentKind,
+    accountId = resolveRole(this.store.settings.getSettings(), 'coding').accountId,
+  ): { env?: Record<string, string> } {
     if (agentKind === 'shell') return {}
-    const role = resolveRole(this.store.settings.getSettings(), 'coding')
-    return resolveAccountEnv(this.store.accounts, role.accountId)
+    return resolveAccountEnv(this.store.accounts, accountId)
   }
 
   // ---- ws data plane: clients ----
@@ -2694,7 +2739,10 @@ export class SessionsService {
    *  the guards below decide, and `explicit` only buys a send the daemon would otherwise
    *  dedup away. Both answer the same question — is the session working in a worktree
    *  its issue doesn't know about? */
-  private adoptWorktree(issueId: string, msg: Extract<DaemonMessage, { type: 'sessionCwd' }>): void {
+  private adoptWorktree(
+    issueId: string,
+    msg: Extract<DaemonMessage, { type: 'sessionCwd' }>,
+  ): void {
     const issue = this.issues().getMeta(issueId)
     if (!issue || issue.archived || issue.worktreePath !== null) return
     // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a

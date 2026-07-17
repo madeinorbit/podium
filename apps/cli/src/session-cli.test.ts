@@ -9,6 +9,13 @@ const STATUS = {
   agentKind: 'claude-code',
   status: 'live',
   phase: 'working',
+  machine: 'buildbox',
+  model: 'claude-opus-4-8',
+  effort: 'high',
+  account: 'native:claude-code',
+  error: null,
+  draft: true,
+  nativeSubagentCount: 2,
   issue: { seq: 7, stage: 'in_progress', title: 'T', todos: ['[ ] a'] },
   commits: ['abc123 feat: x'],
   files: ['## branch', ' M a.ts'],
@@ -42,13 +49,14 @@ function client(
   result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true },
   ask: unknown = ASK,
   title: { ok: boolean; name?: string; reason?: string } = { ok: true, name: 'Named thing' },
+  status: unknown = STATUS,
 ) {
   return {
     sessions: {
       sendText: { mutate: vi.fn(async () => result) },
       resumeAndSend: { mutate: vi.fn(async () => result) },
       continue: { mutate: vi.fn(async () => result) },
-      status: { query: vi.fn(async (): Promise<unknown> => STATUS) },
+      status: { query: vi.fn(async (): Promise<unknown> => status) },
       read: { query: vi.fn(async (): Promise<unknown> => READ) },
       recap: { query: vi.fn(async (): Promise<unknown> => RECAP) },
       ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
@@ -154,10 +162,27 @@ describe('podium session status/read (#237 read toolkit)', () => {
     const out = await runSessionCli(['status', 's1'], c)
     expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 's1' })
     expect(out).toContain('live/working')
+    expect(out).toContain('machine=buildbox model=claude-opus-4-8 effort=high')
+    expect(out).toContain('account=native:claude-code')
+    expect(out).toContain('nativeSubagentCount=2 draft=yes')
     expect(out).toContain('issue #7 [in_progress] T')
     expect(out).toContain('abc123 feat: x')
     expect(out).toContain('unacked messages: 2')
     expect(out).not.toContain('transcript')
+  })
+
+  it('status visibly renders error state details', async () => {
+    const c = client(undefined, undefined, undefined, {
+      ...STATUS,
+      phase: 'errored',
+      error: { class: 'rate_limit', retryable: true },
+      draft: false,
+      nativeSubagentCount: 0,
+    })
+    const out = await runSessionCli(['status', 's1'], c)
+    expect(out).toContain('live/errored')
+    expect(out).toContain('error: rate_limit (retryable)')
+    expect(out).toContain('nativeSubagentCount=0 draft=no')
   })
 
   it('status accepts an issue ref and needs exactly one positional', async () => {

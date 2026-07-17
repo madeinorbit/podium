@@ -21,6 +21,10 @@ import { sql, desc } from "drizzle-orm"
 export const sessions = sqliteTable("sessions", {
 	id: text().primaryKey(),
 	agentKind: text("agent_kind").notNull(),
+	// Resolved launch placement, captured once at spawn [spec:SP-dae6].
+	model: text(),
+	effort: text(),
+	accountId: text("account_id"),
 	cwd: text().notNull(),
 	title: text().notNull(),
 	originKind: text("origin_kind").notNull(),

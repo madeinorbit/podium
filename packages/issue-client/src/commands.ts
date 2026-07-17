@@ -337,8 +337,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         seq: number
         worktreePath?: string | null
         branch?: string | null
+        agentId?: string
+        harness?: string
+        model?: string | null
+        effort?: string | null
+        machine?: string
       }
-      return { text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})`, data: i }
+      const placement = i.agentId
+        ? `\n  ${i.agentId} (${i.harness ?? 'unknown'}) model=${i.model ?? 'default'} effort=${i.effort ?? 'default'} machine=${i.machine ?? 'unknown'}`
+        : ''
+      return {
+        text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})${placement}`,
+        data: i,
+      }
     },
   },
   {

@@ -30,6 +30,13 @@ interface StatusWire {
   agentKind: string
   status: string
   phase: string
+  machine: string | null
+  model: string | null
+  effort: string | null
+  account: string | null
+  error: { class: string; retryable: boolean } | null
+  draft: boolean
+  nativeSubagentCount: number
   issue: { seq: number; stage: string; title: string; todos: string[] } | null
   commits: string[]
   files: string[]
@@ -66,6 +73,11 @@ interface ReadWire {
 function renderStatus(s: StatusWire): string {
   return [
     `${s.sessionId} (${s.agentKind}) ${s.status}/${s.phase}`,
+    `placement: machine=${s.machine ?? 'unknown'} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} account=${s.account ?? 'default'}`,
+    `state: nativeSubagentCount=${s.nativeSubagentCount} draft=${s.draft ? 'yes' : 'no'}`,
+    s.error
+      ? `error: ${s.error.class} (${s.error.retryable ? 'retryable' : 'not retryable'})`
+      : null,
     s.issue
       ? `issue #${s.issue.seq} [${s.issue.stage}] ${s.issue.title}` +
         (s.issue.todos.length
@@ -77,7 +89,9 @@ function renderStatus(s: StatusWire): string {
       ? `working tree:\n${s.files.map((f) => `  ${f}`).join('\n')}`
       : 'working tree: clean',
     `unacked messages: ${s.unackedMessages}`,
-  ].join('\n')
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n')
 }
 
 function renderRead(r: ReadWire): string {

@@ -79,6 +79,10 @@ export const SessionMeta = z.object({
   title: z.string(),
   /** Curated name. Wins over `title` (the live terminal title) wherever shown. */
   name: z.string().optional(),
+  /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  accountId: z.string().optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;
    *  'agent' = the session named itself (it may re-title itself). Absent = unnamed. */
   nameSource: z.enum(['user', 'agent']).optional(),

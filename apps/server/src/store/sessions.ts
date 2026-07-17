@@ -7,6 +7,8 @@
 import { AgentKind } from '@podium/protocol'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
+  OfferMap,
+  OfferRecord,
   PinKind,
   PinState,
   SessionDeletionSource,
@@ -14,7 +16,6 @@ import type {
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
-import type { OfferMap, OfferRecord } from './types'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -42,7 +43,7 @@ export class SessionsRepository {
   private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, agent_kind, cwd, title, name, name_source, origin_kind, conversation_id,
+        `SELECT id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total,
@@ -60,6 +61,9 @@ export class SessionsRepository {
     return {
       id: r.id as string,
       agentKind: r.agent_kind as string,
+      ...(r.model != null ? { model: r.model as string } : {}),
+      ...(r.effort != null ? { effort: r.effort as string } : {}),
+      ...(r.account_id != null ? { accountId: r.account_id as string } : {}),
       cwd: r.cwd as string,
       title: r.title as string,
       name: (r.name as string | null) ?? null,
@@ -120,7 +124,7 @@ export class SessionsRepository {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, agent_kind, cwd, title, name, name_source, origin_kind, conversation_id,
+           (id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total,
@@ -128,8 +132,11 @@ export class SessionsRepository {
             spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           model = excluded.model,
+           effort = excluded.effort,
+           account_id = excluded.account_id,
            title = excluded.title,
            name = excluded.name,
            name_source = excluded.name_source,
@@ -169,6 +176,9 @@ export class SessionsRepository {
       .run(
         row.id,
         row.agentKind,
+        row.model ?? null,
+        row.effort ?? null,
+        row.accountId ?? null,
         row.cwd,
         row.title,
         row.name,

@@ -33,6 +33,11 @@ export type SessionDeletionSource = 'issue' | 'standalone'
 export interface SessionRow {
   id: string
   agentKind: string
+  /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
+  model?: string | null
+  effort?: string | null
+  /** Account selection, not credential material. */
+  accountId?: string | null
   cwd: string
   title: string
   /** Curated display name; null = derive from title. Written by a human OR by the

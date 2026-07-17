@@ -96,6 +96,7 @@ export interface MessageGateDeps {
     initialPrompt?: string
     model?: string
     effort?: string
+    accountId?: string
     forceUnknownModel?: boolean
     issueId?: string
     spawnedBy?: string
@@ -105,7 +106,16 @@ export interface MessageGateDeps {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
-  }): { sessionId: string }
+  }): {
+    sessionId: string
+    agentId?: string
+    harness?: string
+    model?: string | null
+    effort?: string | null
+    machine?: string
+    machineId?: string
+    accountId?: string | null
+  }
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
   resolveExecutionProfile?(input: { profileId: string; runId?: string; stepId?: string }): {
@@ -457,7 +467,7 @@ export class MessageGate {
     const model = profile?.model ?? input.model
     const effort = profile?.effort ?? input.effort
     const machineId = profile?.machineId ?? issue.machineId
-    const { sessionId } = this.deps.spawnSession({
+    const spawned = this.deps.spawnSession({
       cwd,
       agentKind: harness,
       initialPrompt: input.prompt,
@@ -465,6 +475,7 @@ export class MessageGate {
       spawnedBy,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
+      ...(profile ? { accountId: profile.accountId } : {}),
       ...(input.force ? { forceUnknownModel: true } : {}),
       ...(machineId ? { machineId } : {}),
       // CLI `--title` → curated name slot (not derived title) [spec:SP-4ef9][spec:SP-eb60].
@@ -473,6 +484,13 @@ export class MessageGate {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
     })
+    const sessionId = spawned.sessionId
+    const actualHarness = spawned.harness ?? harness
+    const actualModel = spawned.model === undefined ? model : (spawned.model ?? undefined)
+    const actualEffort = spawned.effort === undefined ? effort : (spawned.effort ?? undefined)
+    const actualMachineId = spawned.machineId ?? machineId
+    const actualAccountId =
+      spawned.accountId === undefined ? profile?.accountId : (spawned.accountId ?? undefined)
     try {
       this.deps.appendEvent?.({
         ts: this.deps.now?.() ?? new Date().toISOString(),
@@ -485,18 +503,29 @@ export class MessageGate {
           // budgetIssue rides the durable event so brake 2 survives restarts
           // (spawnCountFor counts it); absent on unbudgeted operator spawns.
           ...(budgeted ? { budgetIssue: issueId } : {}),
-          harness,
-          ...(model ? { model } : {}),
-          ...(effort ? { effort } : {}),
-          ...(machineId ? { machineId } : {}),
-          ...(profile ? { accountId: profile.accountId } : {}),
+          harness: actualHarness,
+          ...(actualModel ? { model: actualModel } : {}),
+          ...(actualEffort ? { effort: actualEffort } : {}),
+          ...(actualMachineId ? { machineId: actualMachineId } : {}),
+          ...(actualAccountId ? { accountId: actualAccountId } : {}),
           ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
           ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
           ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
         },
       })
     } catch {}
-    return { ok: true, sessionId, issueId, issueSeq: issue.seq, cwd }
+    return {
+      ok: true,
+      sessionId,
+      issueId,
+      issueSeq: issue.seq,
+      cwd,
+      agentId: spawned.agentId ?? sessionId,
+      harness: actualHarness,
+      model: actualModel ?? null,
+      effort: actualEffort ?? null,
+      machine: spawned.machine ?? actualMachineId ?? null,
+    }
   }
 
   /**

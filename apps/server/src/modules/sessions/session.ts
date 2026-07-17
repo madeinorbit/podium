@@ -53,6 +53,10 @@ export interface SessionInit {
   agentKind: AgentKind
   cwd: string
   title: string
+  /** Resolved launch configuration, immutable for this session [spec:SP-dae6]. */
+  model?: string
+  effort?: string
+  accountId?: string
   origin: SessionOrigin
   createdAt: string
   geometry: Geometry
@@ -144,6 +148,10 @@ export class Session {
   readonly durableLabel: string
   /** Creation provenance (issue #60) — immutable for the life of the row. */
   readonly spawnedBy: string | undefined
+  /** Actual launch configuration captured once at spawn [spec:SP-dae6]. */
+  readonly model: string | undefined
+  readonly effort: string | undefined
+  readonly accountId: string | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
@@ -267,6 +275,9 @@ export class Session {
     this.origin = init.origin
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
+    this.model = init.model
+    this.effort = init.effort
+    this.accountId = init.accountId
     this.workflowRunId = init.workflowRunId
     this.workflowStepId = init.workflowStepId
     this.executionProfileId = init.executionProfileId
@@ -783,6 +794,9 @@ export class Session {
     return {
       id: this.sessionId,
       agentKind: this.agentKind,
+      model: this.model ?? null,
+      effort: this.effort ?? null,
+      accountId: this.accountId ?? null,
       cwd: this.cwd,
       title: this.title,
       name: this.name || null,
@@ -834,6 +848,9 @@ export class Session {
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
+      ...(this.model ? { model: this.model } : {}),
+      ...(this.effort ? { effort: this.effort } : {}),
+      ...(this.accountId ? { accountId: this.accountId } : {}),
       title: this.title,
       ...(this.name ? { name: this.name } : {}),
       ...(this.name && this.nameSource ? { nameSource: this.nameSource } : {}),

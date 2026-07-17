@@ -111,9 +111,21 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ...(typeof args['execution-profile-id'] === 'string'
           ? { executionProfileId: args['execution-profile-id'] }
           : {}),
-      })) as { ok: boolean; sessionId: string; issueId: string; issueSeq: number; cwd: string }
+      })) as {
+        ok: boolean
+        sessionId: string
+        issueId: string
+        issueSeq: number
+        cwd: string
+        agentId: string
+        harness: string
+        model: string | null
+        effort: string | null
+        machine: string | null
+      }
       return done(
-        `spawned ${r.sessionId} on issue #${r.issueSeq} (${r.cwd})\n` +
+        `spawned ${r.agentId} on issue #${r.issueSeq} (${r.cwd})\n` +
+          `  harness=${r.harness} model=${r.model ?? 'default'} effort=${r.effort ?? 'default'} machine=${r.machine ?? 'unknown'}\n` +
           `  drive:  podium mail send --to ${r.sessionId} --body "…"\n` +
           `  await:  podium agent await ${r.sessionId}`,
         r,

@@ -158,12 +158,20 @@ export interface IssueDeps {
     agentKind?: string
     model?: string
     effort?: string
+    accountId?: string
     /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
     forceUnknownModel?: boolean
     initialPrompt?: string
     spawnedBy?: string
     machineId?: string
-  }): { sessionId: string }
+  }): {
+    sessionId: string
+    agentId?: string
+    harness?: string
+    model?: string | null
+    effort?: string | null
+    machine?: string
+  }
   repoOp(
     op: RepoOp,
     cwd: string,

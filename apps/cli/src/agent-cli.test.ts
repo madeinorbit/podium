@@ -19,6 +19,11 @@ function client(over?: Partial<Record<'spawnAgent' | 'awaitAgent', unknown>>) {
           issueId: 'iss_a',
           issueSeq: 228,
           cwd: '/wt/a',
+          agentId: 'child1',
+          harness: 'codex',
+          model: 'gpt-5.7',
+          effort: 'high',
+          machine: 'buildbox',
         },
       ),
       awaitAgent: proc(
@@ -76,6 +81,7 @@ describe('podium agent spawn', () => {
       executionProfileId: 'prof_3',
     })
     expect(out).toContain('spawned child1 on issue #228')
+    expect(out).toContain('harness=codex model=gpt-5.7 effort=high machine=buildbox')
     expect(out).toContain('podium agent await child1')
   })
 
