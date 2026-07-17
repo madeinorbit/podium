@@ -1,2 +1,5 @@
 export * from './async-storage'
+export * from './bootstrap'
+export * from './feed'
+export * from './issue-views'
 export * from './replica'

@@ -208,6 +208,7 @@
         "@tanstack/react-db": "^0.1.92",
       },
       "devDependencies": {
+        "@podium/model": "workspace:*",
         "@types/node": "^24.0.0",
         "@types/react": "^19.0.0",
         "react": "19.2.7",

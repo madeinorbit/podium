@@ -3,6 +3,7 @@ import {
   type AutomationRunWire,
   type AutomationWire,
   CAP_METADATA_DELTA,
+  CAP_SYNC_FEED_IDENTITY,
   type ConversationSummaryWire,
   createDispatcher,
   encode,
@@ -113,6 +114,24 @@ export interface MetadataAppliedState {
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
+  /**
+   * Feed identity as of the batch that was just applied (ADR 2 D1/D5), when the
+   * authority stamped it — see `CAP_SYNC_FEED_IDENTITY` in the hello.
+   *
+   * The embedder persists `(feedId, epoch, cursor)` as the replica's cursor
+   * TRIPLE: a bare `cursor` cannot distinguish "up to date" from "holding
+   * entities off a timeline that no longer exists". Absent against an authority
+   * that predates POD-792, which is not a mismatch — see `identityVerdict` in
+   * client-core's `replica/feed.ts`, which is where this is judged.
+   *
+   * NOT applied by the hub itself: the hub still heals on a bare seq (rungs 0/1
+   * only), and POD-796 moves the full ladder onto this path when it cuts the
+   * wire over. Publishing the identity now is what lets the replica hold the
+   * real triple in the meantime.
+   */
+  feedId?: string
+  epoch?: string
+  minAvailableSeq?: number
 }
 
 function utf8ToBase64(text: string): string {
@@ -258,6 +277,10 @@ export class SocketHub {
   // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
   /** Last applied oplog seq; null until the first changesSince completes. */
   private metadataCursor: number | null = null
+  /** Feed identity as last stamped by the authority (ADR 2 D1/D5), forwarded to
+   *  the embedder with every applied batch so the replica's cursor can be the
+   *  triple. Empty against an authority that stamps nothing. See noteFeedStamp. */
+  private readonly feedStamp: { feedId?: string; epoch?: string; minAvailableSeq?: number } = {}
   /** The options' `initialCursor` is spent on the FIRST heal only — after that
    *  the live `metadataCursor` (or null → snapshot) is always the truth. */
   private initialCursorSpent = false
@@ -363,7 +386,15 @@ export class SocketHub {
         viewport: { ...this.opts.viewport },
         // Delta mode is negotiated per connection — advertise it only when the
         // embedder wired a changesSince fetcher (see SocketHubOptions).
-        ...(this.opts.fetchChangesSince ? { caps: [CAP_METADATA_DELTA] } : {}),
+        // CAP_SYNC_FEED_IDENTITY rides alongside it and is only meaningful with
+        // it (there is no frame to stamp otherwise): it asks the server to stamp
+        // `(feedId, epoch, minAvailableSeq)` onto this client's delta frames, so
+        // the cursor can be ADR 2 D1's triple rather than a bare seq. Without it
+        // a restored-from-backup authority is undetectable: `changesSince(500)`
+        // answers "up to date" over 100 phantom rows, forever.
+        ...(this.opts.fetchChangesSince
+          ? { caps: [CAP_METADATA_DELTA, CAP_SYNC_FEED_IDENTITY] }
+          : {}),
       })
       // Catch up on whatever the metadata stream did while we were away (or take
       // the bootstrap snapshot on a first connect). The attach-time snapshots the
@@ -1059,6 +1090,10 @@ export class SocketHub {
   /** Live `metadataDelta` intake. Queued while a heal is in flight (the heal's
    *  cursor decides what still applies); a seq gap aborts into a heal. */
   private ingestDelta(msg: MetadataDeltaMessageLenient): void {
+    // Record the identity even for a frame we go on to queue or heal past: the
+    // stamp describes the FEED, not this batch, so it is true regardless of what
+    // happens to the batch.
+    this.noteFeedStamp(msg)
     if (this.healInFlight || this.metadataCursor == null) {
       this.pendingDeltas.push(msg)
       // No cursor yet and no heal running (changesSince rejected and is waiting on
@@ -1082,7 +1117,25 @@ export class SocketHub {
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
+      ...this.feedStamp,
     })
+  }
+
+  /** Record the feed identity a stamped batch carried (ADR 2 D1/D5).
+   *
+   *  Fields are only overwritten when PRESENT: a mixed-version authority (one
+   *  node stamps, one does not) must not blank an identity an earlier reply
+   *  established, or the next stamped reply reads as a mismatch against nothing.
+   *  `minAvailableSeq` moves with the retention horizon and is simply the latest
+   *  the authority published. */
+  private noteFeedStamp(stamp: {
+    feedId?: string
+    epoch?: string
+    minAvailableSeq?: number
+  }): void {
+    if (stamp.feedId !== undefined) this.feedStamp.feedId = stamp.feedId
+    if (stamp.epoch !== undefined) this.feedStamp.epoch = stamp.epoch
+    if (stamp.minAvailableSeq !== undefined) this.feedStamp.minAvailableSeq = stamp.minAvailableSeq
   }
 
   /**
@@ -1206,6 +1259,12 @@ export class SocketHub {
     fetchValidated().then(
       (result) => {
         this.healInFlight = false
+        // The changesSince reply carries the identity on BOTH arms and
+        // unconditionally — it is a tRPC query, so there is no hello to
+        // negotiate on and stamping it is additive (an older client's zod parse
+        // strips the keys). The snapshot arm needs it most: a re-bootstrap is
+        // exactly where a replica learns which generation it is now on.
+        this.noteFeedStamp(result)
         if (result.kind === 'snapshot') {
           this.sessionList = result.sessions
           this.issueList = result.issues

@@ -145,11 +145,17 @@ function setup(
 // Delta-mode SocketHub (docs/spec/oplog-read-path.md §2.4): caps negotiation,
 // cursor bootstrap via changesSince, in-order delta application, and gap healing.
 describe('SocketHub metadata delta mode', () => {
-  it('advertises the cap in hello only when a fetcher is wired', () => {
+  it('advertises the caps in hello only when a fetcher is wired', () => {
     const { sock, hub } = setup([snapshot(0)])
     hub.connect()
     sock.open()
-    expect(sock.parsed().find((m) => m.type === 'hello')?.caps).toEqual(['metadataDelta'])
+    // `syncFeedIdentity` rides with delta mode and is only meaningful with it —
+    // it asks the server to stamp (feedId, epoch, minAvailableSeq) on this
+    // client's frames, and there is no frame to stamp without delta mode.
+    expect(sock.parsed().find((m) => m.type === 'hello')?.caps).toEqual([
+      'metadataDelta',
+      'syncFeedIdentity',
+    ])
 
     const plain = new FakeSocket()
     const legacy = new SocketHub({
@@ -598,6 +604,62 @@ describe('SocketHub metadata delta mode', () => {
       { cursor: 5, issues: ['one'] },
       { cursor: 6, issues: ['one', 'two'] },
     ])
+  })
+
+  it('forwards the feed identity to the embedder so the cursor can be the TRIPLE', async () => {
+    // Negotiating the cap buys nothing if the stamp stops at the hub: the
+    // replica persists (feedId, epoch, seq) and judges rung 4 on it, so the
+    // identity has to reach it. A bare seq cannot tell "up to date" from
+    // "holding rows off a timeline that no longer exists" (ADR 2 D1).
+    const applied: Array<Record<string, unknown>> = []
+    const { sock, hub } = setup(
+      [{ ...snapshot(5, [issue('a', 'one')]), feedId: 'feed_1', epoch: 'epoch_1' }],
+      {
+        onMetadataApplied: (s) =>
+          applied.push({
+            cursor: s.cursor,
+            feedId: s.feedId,
+            epoch: s.epoch,
+            min: s.minAvailableSeq,
+          }),
+      },
+    )
+    hub.connect()
+    sock.open()
+    await flush()
+    expect(applied).toEqual([{ cursor: 5, feedId: 'feed_1', epoch: 'epoch_1', min: undefined }])
+
+    // A stamped delta frame carries the retention horizon too (D5) — the
+    // replica needs it to know it must re-bootstrap BEFORE asking.
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 6,
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+      feedId: 'feed_1',
+      epoch: 'epoch_1',
+      minAvailableSeq: 3,
+    })
+    expect(applied[1]).toEqual({ cursor: 6, feedId: 'feed_1', epoch: 'epoch_1', min: 3 })
+  })
+
+  it('an UNSTAMPED reply does not blank an identity an earlier reply established', async () => {
+    // A mixed-version authority (one node stamps, one does not). Blanking here
+    // would make the next stamped reply read as a rung-4 mismatch against
+    // nothing — a permanent reset loop.
+    const applied: Array<Record<string, unknown>> = []
+    const { sock, hub } = setup([{ ...snapshot(5), feedId: 'feed_1', epoch: 'epoch_1' }], {
+      onMetadataApplied: (s) => applied.push({ feedId: s.feedId, epoch: s.epoch }),
+    })
+    hub.connect()
+    sock.open()
+    await flush()
+
+    sock.recv({
+      type: 'metadataDelta',
+      seq: 6,
+      changes: [{ seq: 6, entity: 'issue', id: 'b', op: 'upsert', value: issue('b', 'two') }],
+    })
+    expect(applied[1]).toEqual({ feedId: 'feed_1', epoch: 'epoch_1' })
   })
 
   it('a failed heal retries on a timer while the socket is up', async () => {
