@@ -1,3 +1,4 @@
+import { randomUUID } from '@podium/client-core/id'
 import { markSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import {
@@ -36,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
+import { OfferBar } from '@/features/chat/OfferBar'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
 import {
   defaultChatCapable,
@@ -268,6 +270,30 @@ export function AgentPanel({
     !exited &&
     (attentionGroup(session) !== 'working' || isSnoozed(session, snoozeNow))
   const canHibernate = !hibernated && !exited && session?.resumable === true
+  // Agent action offer [spec:SP-c7f1] in NATIVE mode: chat renders its own bar
+  // above the composer; this one sits beneath the PTY so an offer is visible in
+  // both views. Same optimistic-hide contract as chat: dismissed the moment a
+  // button is clicked (keyed by createdAt so a NEW offer re-shows), and the
+  // prompt goes out via sessions.sendText — the user-turn path the server
+  // auto-clears the offer on. Raw PTY keystrokes deliberately don't clear it.
+  const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
+  const nativeOffer =
+    effectiveMode === 'native' &&
+    !hibernated &&
+    !exited &&
+    session?.offer &&
+    session.offer.createdAt !== dismissedOfferAt
+      ? session.offer
+      : null
+  const sendOfferPrompt = async (prompt: string, offerAt: string) => {
+    setDismissedOfferAt(offerAt)
+    try {
+      await trpc.sessions.sendText.mutate({ sessionId, text: prompt, mutationId: randomUUID() })
+    } catch {
+      setDismissedOfferAt(null) // send failed — let the offer reappear
+      toast.error('Could not send the suggested action')
+    }
+  }
   // The terminal stays mounted across a chat<->native toggle (Task 6): it's kept
   // alive (hidden under the chat overlay) with eligibility flipped via `active`
   // instead of a remount — see useTerminalSession's own setActive effect.
@@ -833,6 +859,18 @@ export function AgentPanel({
                   <span className="ml-auto">? for shortcuts</span>
                 </div>
               )}
+            </div>
+          )}
+          {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
+              counterpart of the chat composer's bar, so offers aren't invisible
+              in native mode. Clicking a button sends its prompt as a user turn. */}
+          {nativeOffer && (
+            <div className="flex-none px-[13px] pt-1.5 pb-2" style={{ backgroundColor: termBg }}>
+              <OfferBar
+                offer={nativeOffer}
+                disabled={false}
+                onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+              />
             </div>
           )}
           {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the

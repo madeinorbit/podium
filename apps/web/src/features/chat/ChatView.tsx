@@ -10,7 +10,6 @@ import {
   Clock,
   CloudOff,
   Image as ImageIcon,
-  Lightbulb,
   Mic,
   Paperclip,
   ScrollText,
@@ -33,6 +32,7 @@ import { ChatBlockView } from './ChatBlockView'
 import { blockMatches, type PendingItem, reconcilePending, searchBlocks } from './chat'
 import { hasImageItems } from './image-items'
 import { Minimap } from './Minimap'
+import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
 import { ToolBatchView } from './ToolBatchView'
 import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
@@ -1065,27 +1065,12 @@ export function ChatView({
             message sits above compact buttons; a click sends the button's
             predefined prompt as a normal turn (and clears the offer). */}
         {offer && (
-          <div className="mb-2 rounded-xl border border-primary/40 bg-primary/[0.06] px-3 py-2">
-            <div className="flex items-start gap-1.5 text-xs text-foreground">
-              <Lightbulb size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
-              <span className="whitespace-pre-wrap">{offer.message}</span>
-            </div>
-            {offer.actions.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {offer.actions.map((action, ai) => (
-                  <button
-                    key={`${action.label}-${ai}`}
-                    type="button"
-                    disabled={!composerEnabled}
-                    onClick={() => void sendOfferPrompt(action.prompt, offer.createdAt)}
-                    title={action.prompt}
-                    className="rounded-md border border-primary/50 bg-primary/[0.12] px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-primary/20 disabled:cursor-default disabled:opacity-50"
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            )}
+          <div className="mb-2">
+            <OfferBar
+              offer={offer}
+              disabled={!composerEnabled}
+              onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+            />
           </div>
         )}
         {queuedCount > 0 && (
