@@ -177,6 +177,28 @@ interface SessionsServiceDeps {
   }): PreparedSessionInstructions
 }
 
+// Session fields that DON'T feed issue wire data [POD-722]. IssueWire.sessions
+// embeds each member SessionMeta VERBATIM (issue-util sessionsForIssue → toWire),
+// so every SessionMeta field is issue-relevant EXCEPT the connection-plumbing trio
+// a bare attach/detach/control-transfer moves: clientCount, controllerId, epoch.
+// Denylisting (strip these) rather than allow-picking keeps any newly-added
+// SessionMeta field issue-relevant by default — over-broadcast is safe, under-
+// broadcast leaves a stale issue panel. Interim until POD-308 deletes the
+// snapshot fan-out.
+const NON_ISSUE_SESSION_FIELDS = ['clientCount', 'controllerId', 'epoch'] as const
+
+/** Stable serialization of the issue-relevant slice of every session — the input
+ *  that decides whether a session broadcast must republish issues [POD-722]. */
+function issueRelevantSessionProjection(sessions: SessionMeta[]): string {
+  return JSON.stringify(
+    sessions.map((s) => {
+      const proj: Record<string, unknown> = { ...s }
+      for (const f of NON_ISSUE_SESSION_FIELDS) delete proj[f]
+      return proj
+    }),
+  )
+}
+
 /**
  * Core session lifecycle + PTY frame relay + scheduling (issue #13 Phase 2):
  * the sessions/clients maps, spawn/resume/park/kill command paths, the client
@@ -223,6 +245,14 @@ export class SessionsService {
   // clients already hold this state; a NEW client gets the current list via
   // attachClient, so the dedup can never leave a client stale.
   private lastSessionsBroadcast = ''
+  // Last issue-relevant session projection published to issue clients [POD-722].
+  // runSessionsBroadcast compares this against the current projection to decide
+  // whether the O(issues×sessions) publishIssues() rebuild is actually needed —
+  // a bare attach/detach/control-transfer moves only clientCount/controllerId/
+  // epoch, none of which feed issue wire data, so it can be skipped. Stamped only
+  // after a successful publishIssues(), so a throw retries on the next broadcast.
+  // Interim until POD-308 deletes the snapshot fan-out.
+  private lastIssueSessionProjection = ''
   private nextClientNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
@@ -3261,9 +3291,30 @@ export class SessionsService {
       // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
       // reconcile (publisher.publishIssueList), so the embedded copies heal at
       // the same cadence as before — no extra mechanism needed (#247).
-      const tIssues0 = performance.now()
-      this.deps.publishIssues()
-      perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
+      //
+      // POD-722: skip that O(issues×sessions) rebuild when this broadcast touched
+      // no field that feeds issue wire data. The session-switch hot path POD-701
+      // measured (attach + detach, ~2 broadcasts) moves only clientCount/
+      // controllerId/epoch — stripped from the projection below — so the issue
+      // payloads are byte-identical to the last publish and republishing them is
+      // pure waste. When a real issue-relevant field DID change (status, workState,
+      // activity, membership, …) the projection differs and publishIssues() runs
+      // as before. Issue-ROW changes take their own publish path (persist/
+      // broadcastList in modules/issues), unaffected by this skip. Interim until
+      // POD-308 deletes the snapshot fan-out.
+      const tSkip0 = performance.now()
+      const issueProjection = issueRelevantSessionProjection(sessions)
+      if (issueProjection === this.lastIssueSessionProjection) {
+        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
+      } else {
+        const tIssues0 = performance.now()
+        this.deps.publishIssues()
+        // Stamp only AFTER a clean publish: a throw drops through to the catch
+        // (which un-stamps the byte cache) and leaves this projection unchanged,
+        // so the next broadcast re-publishes instead of silently skipping.
+        this.lastIssueSessionProjection = issueProjection
+        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
+      }
     } catch (err) {
       // Un-stamp the byte-skip cache on ANY broadcast-body failure (#247): the
       // cache is stamped up front so a reentrant same-bytes broadcast during the

@@ -388,11 +388,14 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ])
   })
 
-  it('(l) a transient issue-append failure during an attach-driven broadcast is retried by the NEXT broadcast (#247)', () => {
+  it('(l) a transient issue-append failure during a session-driven broadcast is retried by the NEXT broadcast (#247)', () => {
     const registry = makeRegistry()
-    // An issue whose wire embeds the session (SessionMeta[] member data) — so a
-    // clientCount flip changes the ISSUE wire too, via the broadcast-tail
-    // publishIssues() reconcile, with no issue write of its own.
+    // An issue whose wire embeds the session (SessionMeta[] member data) — so an
+    // issue-RELEVANT session field change (workState) changes the ISSUE wire too,
+    // via the broadcast-tail publishIssues() reconcile, with no issue write of its
+    // own. (A bare attach moves only clientCount, which POD-722 excludes from the
+    // issue republish, so it deliberately would NOT drive this path — see
+    // modules/sessions/broadcast-issue-skip.test.ts.)
     const issue = registry.issues.create({ repoPath: '/r', title: 'watched', startNow: false })
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -401,20 +404,19 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     })
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
-    // Fail ONLY issue-entity appends: the attach-driven broadcast's session
-    // reconcile (clientCount 0→1) must land, then publishIssues()' issue
-    // reconcile throws — Codex's scenario. Before the fix the byte-skip cache
-    // was already stamped, so every later same-bytes broadcast early-returned
-    // and the embedded issue snapshot stayed stale FOREVER.
+    // Fail ONLY issue-entity appends: the broadcast's session reconcile (workState
+    // flip) must land, then publishIssues()' issue reconcile throws — Codex's
+    // scenario. Before the fix the byte-skip cache was already stamped, so every
+    // later same-bytes broadcast early-returned and the embedded issue snapshot
+    // stayed stale FOREVER.
     const sync = registry.sessionStore.sync
     const realAppend = sync.appendChanges.bind(sync)
     const spy = vi.spyOn(sync, 'appendChanges').mockImplementation((rows, eventTime) => {
       if (rows.some((r) => r.entity === 'issue')) throw new Error('transient issue append failure')
       return realAppend(rows, eventTime)
     })
-    const clientId = registry.modules.sessions.attachClient(() => {})
     expect(() =>
-      registry.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId }),
+      registry.modules.sessions.setWorkState({ sessionId, workState: 'testing' }),
     ).toThrow('transient issue append failure')
     spy.mockRestore()
     // The failed broadcast recorded the SESSION flip but no issue change yet.
@@ -431,8 +433,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     if (healed.kind !== 'delta') return
     const issueChange = healed.changes.find(
       (c) => c.entity === 'issue' && c.id === issue.id && c.op === 'upsert',
-    ) as { value?: { sessions?: Array<{ clientCount?: number }> } } | undefined
-    expect(issueChange?.value?.sessions?.[0]?.clientCount).toBe(1)
+    ) as { value?: { sessions?: Array<{ workState?: string }> } } | undefined
+    expect(issueChange?.value?.sessions?.[0]?.workState).toBe('testing')
   })
 
   it('replaying the whole durable log folds to the live session list', () => {
