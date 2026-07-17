@@ -258,6 +258,53 @@ version is distinct from the drizzle journal (ADR 2). Client replica stores
 | Treat drizzle schema as the one vocabulary | Couples domain meaning to one engine; clients and wire cannot share it. |
 | Ignore drizzle in representation discussions | Physical columns already diverge from SessionMeta (e.g. hibernation timestamps on `SessionRow` only). Mapping must be explicit. |
 
+### Decision D7 — Normalization and derivation locality (amendment 2026-07-17)
+
+*Added by human decision on POD-279 (2026-07-17), motivated by POD-701/POD-772 entry 1:
+`IssueWire` embeds derived member `SessionMeta[]`, so any one-field session change
+forces an O(world) rebuild of every issue's wire payload (p50 711ms ×2 per switch at
+530-session scale). This is the failure class every mature sync engine (Rocicorp Zero,
+ElectricSQL/PowerSync, Replicache/Linear) makes unrepresentable by construction. These
+rules make it unrepresentable here.*
+
+**D7.1 — Normalization law (wire).** A replicated entity references other entities by
+**branded id only**. An R4 wire/read projection MUST NOT embed another entity's
+projection (no entity-in-entity nesting on the feed). Cross-entity read models are not
+wire shapes; they are assembled at the replica (D7.3) or materialized as their own
+entity (D7.4). `IssueWire`'s embedded `SessionMeta[]` is the canonical
+non-compliance and is deleted at the Phase-2 cutover (POD-308).
+
+**D7.2 — Derivation locality (write/fan-out path).** A change to entity X may trigger
+recomputation only of projections **of X**. No code on the write, publish, or fan-out
+path may perform work O(number of entities) per change. This is a testable invariant:
+the switch-latency harness (POD-701/POD-736) gates it — publish cost must be
+independent of world size. Interim dirty-set shims (POD-722/723) are scar tissue on
+the pipeline POD-308 deletes, not compliance.
+
+**D7.3 — Derived views are replica-side queries.** Cross-entity read models (issue
+trees, boards, joined lists) are incrementally maintained views over the client
+replica. Invalidation is keyed by `(entityId, revision)` (ADR 2 D3's revision token is
+the dependency-tracking key). Implementation is Phase 6's call (POD-293): revision-keyed
+memoized selectors + `useSyncExternalStore` bindings, or TanStack DB 0.6 `includes`
+(one incremental query graph) pending the 0.6 re-evaluation. Either way the kernel
+replica stays UI-framework-agnostic; no transparent-reactivity framework (MobX etc.)
+is adopted without a measured-pain spike behind this seam.
+
+**D7.4 — Server-maintained deriveds are entities.** A derived value that cannot be a
+replica-side join (e.g. a rollup over data the client does not hold) becomes a
+first-class materialized entity: updated **incrementally by the command that changes
+its input**, inside the same `Ledger.commit()` transaction, carrying its own
+`revision`, flowing through the normal feed. It is never recomputed at fan-out or
+read time.
+
+**Rejected alternatives:**
+
+| Alternative | Why rejected |
+|---|---|
+| Keep composed wire trees + server dirty-tracking per consumer | POD-772 entry 1: every object type must hand-roll dirty tracking; O(world) recurs by default. |
+| Server-side IVM engine (Figma LiveGraph style) serving joined views | Pays for machinery replica-local joins get free at Podium scale; the client already holds the world. |
+| Adopt MobX/signals now for D7.3 | Two reactivity paradigms; proxy-semantics bugs are a shipped incident class (POD-170); revision keys suffice at current derivation-graph size. |
+
 ---
 
 ## 3. Drift-refresh clauses (POD-359 + Phase-1 issues) — explicit absorption
@@ -364,6 +411,9 @@ that bijection — not two hand-maintained shapes.
 - [ ] Provenance stays on the envelope; optimistic behavior stays on command contracts (ADR 3).
 - [ ] Store↔wire mapping remains one documented function pair per entity.
 - [ ] Wire golden fixtures stay green across re-derivation.
+- [ ] No R4 projection embeds another entity's projection; cross-entity references are branded ids (D7.1).
+- [ ] No write/publish/fan-out code path is O(entities) per change (D7.2; gated by the POD-736 harness).
+- [ ] Cross-entity read models live replica-side keyed by `(entityId, revision)`, or are D7.4 materialized entities.
 
 **Out of compliance:** a parallel `sessionId: string` (or equivalent) field list not
 derived from the shared schema — even “just for this module.”
