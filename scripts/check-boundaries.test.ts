@@ -199,10 +199,21 @@ describe('checkFile rules', () => {
     ).toEqual([])
   })
 
-  it('keeps protocol a leaf package', () => {
+  it('keeps protocol near-leaf: model only, nothing else [POD-808]', () => {
+    // The one allowed workspace edge: L1 frames compose the L0 vocabulary.
+    expect(
+      checkFile('packages/protocol/src/index.ts', `import { Revision } from '@podium/model'`),
+    ).toEqual([])
+    // Everything else stays refused — the leaf property that actually matters.
     const p = checkFile('packages/protocol/src/index.ts', `import { z } from '@podium/runtime'`)
     expect(p).toHaveLength(1)
-    expect(p[0].rule).toBe('leaf-package')
+    expect(p[0].rule).toBe('restricted-package-deps')
+  })
+
+  it('keeps model a true leaf [POD-808]', () => {
+    const m = checkFile('packages/model/src/index.ts', `import { x } from '@podium/protocol'`)
+    expect(m).toHaveLength(1)
+    expect(m[0].rule).toBe('leaf-package')
   })
 
   it('restricts @podium/runtime to the protocol/domain leaves', () => {
