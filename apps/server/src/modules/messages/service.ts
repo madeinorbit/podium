@@ -1232,6 +1232,12 @@ export class MessageDeliveryService {
     opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
   ): Promise<SendDisposition> {
     if (r.disposition !== 'queued') return r.disposition
+    // A push that FAILED at the transport (ok:false — the daemon dropped offline
+    // mid-send) put no bytes on screen, so no echo / turn boundary can confirm it
+    // within the budget; the row is durably queued and the sweep retries it. Return
+    // the honest `accepted` now instead of blocking the whole budget for a
+    // confirmation that provably cannot arrive.
+    if (!r.ok) return 'accepted'
     const { urgency, toKind } = r.message
     if (urgency === 'fyi' || toKind === 'operator') return r.disposition
     const timeoutMs =

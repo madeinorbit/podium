@@ -458,6 +458,30 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     expect(t).toBeGreaterThanOrEqual(26_000)
   })
 
+  it('clears the stale queued flag when blocking upgrades a busy send to delivered', async () => {
+    const sessions = [
+      target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } }),
+    ]
+    // First idle drains the held row into the PTY; the second confirms it at the
+    // boundary. The sync send returned queued:true (busy-held) — the delivered
+    // result must NOT still carry it.
+    let confirm: () => void = () => {}
+    const { gate, svc } = harness({
+      sessions,
+      awaitPollMs: 5,
+      now: () => new Date(0).toISOString(),
+      sleep: async () => confirm(),
+    })
+    confirm = () => svc.onSessionIdle(target({}))
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'x',
+      urgency: 'next-turn',
+    })) as { disposition: string; queued?: boolean }
+    expect(r.disposition).toBe('delivered')
+    expect(r.queued).not.toBe(true)
+  })
+
   it('an fyi send returns at queued without blocking', async () => {
     const { gate } = harness({
       sessions: [target({ agentState: { phase: 'working', since: 't', openTaskCount: 0 } })],

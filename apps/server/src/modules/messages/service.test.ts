@@ -884,6 +884,34 @@ describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]'
     expect(polls).toBe(0)
   })
 
+  it('a transport-failed push returns accepted immediately without blocking the budget', async () => {
+    // The session looks live but the push fails (daemon dropped offline mid-send):
+    // no bytes on screen → nothing can confirm within the budget, and the row is
+    // durably queued for the sweep, so accepted is the honest immediate answer.
+    const { svc } = harness([session({ sessionId: 's1', status: 'hibernated' })], {
+      queueText: () => ({ ok: false, reason: 'daemon offline mid-send' }),
+    })
+    // Advancing clock so that WITHOUT the ok:false short-circuit this would block to
+    // the budget (polls > 0) rather than hang — the guard makes it return at once.
+    let t = 0
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn', lifecycle: 'wake' },
+      {
+        now: () => t,
+        pollMs: 1_000_000,
+        sleep: async (ms) => {
+          polls += 1
+          t += ms
+        },
+      },
+    )
+    expect(r.ok).toBe(false)
+    expect(r.disposition).toBe('accepted')
+    expect(polls).toBe(0) // never entered the poll loop — the push already failed
+  })
+
   it('does not block an operator-addressed escalation (resolved by a human read, not a turn)', async () => {
     const { svc } = harness([])
     let polls = 0

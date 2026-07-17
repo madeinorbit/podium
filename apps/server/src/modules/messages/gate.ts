@@ -243,10 +243,14 @@ export class MessageGate {
         ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
       },
     )
+    // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
+    // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
+    // `delivered`, so it must not still report `queued: true` alongside it.
+    const queued = r.queued === true && r.disposition === 'delivered' ? false : r.queued
     return {
       id: r.message.id,
       ok: r.ok,
-      ...(r.queued !== undefined ? { queued: r.queued } : {}),
+      ...(queued !== undefined ? { queued } : {}),
       ...(r.reason !== undefined ? { reason: r.reason } : {}),
       // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
       // hidden behind a bare "queued" success.
