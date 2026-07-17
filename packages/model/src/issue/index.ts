@@ -1,4 +1,5 @@
 export * from './aggregate'
+export * from './dep'
 export * from './fields'
 export * from './mapping'
 export * from './storage'

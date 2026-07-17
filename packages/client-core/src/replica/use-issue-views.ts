@@ -85,8 +85,17 @@ function storeFor(replica: Replica): IssueViewsStore {
     store.snapshot = null
     for (const listener of [...store.listeners]) listener()
   }
-  // BOTH collections — see the module note on why one is not enough.
-  replica.subscribeRows('issues', invalidate)
+  // EVERY collection `readViewInputs` reads [POD-822], not just two: the views
+  // now join `issueProjections` (the issue rows) against `issueDeps` (blocked/
+  // ready/dependents) and `repos` (displayRef prefix), plus `sessions` for the
+  // membership rollups. A dep-edge add or a prefix change lands only in its own
+  // collection, so a binding that did not subscribe to it would render a stale
+  // `blocked` or `#13` with no error — the same silent-staleness failure the
+  // module note describes for sessions. `subscribeRows` coalesces per
+  // application, so a whole bootstrap/heal/delta still wakes each at most once.
+  replica.subscribeRows('issueProjections', invalidate)
+  replica.subscribeRows('issueDeps', invalidate)
+  replica.subscribeRows('repos', invalidate)
   replica.subscribeRows('sessions', invalidate)
   return store
 }

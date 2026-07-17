@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { IssueRow } from '../../store'
-import { issueProjectionRows, issueRowToProjection } from './projection'
+import {
+  issueDepProjectionRows,
+  issueDepToProjection,
+  issueProjectionRows,
+  issueRowToProjection,
+  repoProjectionRows,
+} from './projection'
 
 /**
  * `IssueRow` → `IssueProjection` [POD-796] — the server's adapter onto THE model
@@ -275,5 +281,66 @@ describe('issueProjectionRows: all-or-nothing [POD-796]', () => {
     } finally {
       warn.mockRestore()
     }
+  })
+})
+
+describe('issueDep projection [POD-822]', () => {
+  it("derives the edge id from its primary key, so the feed's identity is the store's", () => {
+    const p = issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })
+    // The composed key — not a minted id. Re-adding the same edge produces a
+    // byte-identical row the ledger dedups, so a no-op add appends nothing.
+    expect(p).toEqual({ id: 'iss_1|iss_2|blocks', fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })
+    expect(issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })).toEqual(p)
+  })
+
+  it('rows: keys each edge by its composed id, stable order', () => {
+    const rows = issueDepProjectionRows([
+      { fromId: 'iss_1', toId: 'iss_2', type: 'blocks' },
+      { fromId: 'iss_1', toId: 'iss_3', type: 'related' },
+    ])
+    expect(rows?.map((r) => r.id)).toEqual(['iss_1|iss_2|blocks', 'iss_1|iss_3|related'])
+  })
+
+  it('returns undefined — NOT a partial list — when an edge id cannot be composed', () => {
+    // Same reconcile-remove hazard as issueProjectionRows: a partial list would
+    // diff every missing edge as a REMOVE, flipping genuinely-blocked issues to
+    // blocked=false on every replica. A `|` in an id is the only reachable throw.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const rows = issueDepProjectionRows([
+        { fromId: 'iss_1', toId: 'iss_2', type: 'blocks' },
+        { fromId: 'iss_a|b', toId: 'iss_2', type: 'blocks' },
+      ])
+      expect(rows).toBeUndefined()
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+describe('repo projection [POD-822]', () => {
+  it('keys by the LOGICAL repoId and collapses sibling checkouts to one row', () => {
+    // repos.listRepos() returns one row per (machine, path); the entity is the
+    // logical repo, so two checkouts of repo_a with the same prefix are ONE row.
+    const rows = repoProjectionRows([
+      { repoId: 'repo_a', prefix: 'POD' },
+      { repoId: 'repo_a', prefix: 'POD' },
+      { repoId: 'repo_b', prefix: null },
+    ])
+    expect(rows).toEqual([
+      { id: 'repo_a', value: { id: 'repo_a', prefix: 'POD' } },
+      // prefix: null becomes an ABSENT key on the wire (the null↔absent
+      // convention), which is what makes displayRef fall back to #13.
+      { id: 'repo_b', value: { id: 'repo_b' } },
+    ])
+  })
+
+  it('drops rows with no repoId — an unidentified repo has no stable id to address', () => {
+    const rows = repoProjectionRows([
+      { repoId: null, prefix: 'POD' },
+      { repoId: 'repo_a', prefix: 'POD' },
+    ])
+    expect(rows.map((r) => r.id)).toEqual(['repo_a'])
   })
 })

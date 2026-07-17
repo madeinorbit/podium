@@ -507,6 +507,20 @@ export class IssuesRepository {
     ).map((r) => ({ toId: r.to_id, type: r.type }))
   }
 
+  /** EVERY dep edge, for the ledger's full-truth reconcile of the 'issueDep'
+   *  kind [POD-822]. Ordered so the row set is stable across calls — reconcile
+   *  diffs by id, but a stable order keeps the change log's appends readable and
+   *  the tests' expectations deterministic. */
+  listAllIssueDeps(): { fromId: string; toId: string; type: string }[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT from_id, to_id, type FROM issue_deps ORDER BY from_id ASC, to_id ASC, type ASC',
+        )
+        .all() as { from_id: string; to_id: string; type: string }[]
+    ).map((r) => ({ fromId: r.from_id, toId: r.to_id, type: r.type }))
+  }
+
   listDependents(toId: string): { fromId: string; type: string }[] {
     return (
       this.db

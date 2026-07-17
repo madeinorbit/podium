@@ -3421,7 +3421,13 @@ export class SessionsService {
    * diff on the next publish — which is `reconcile`'s whole job — never a lost
    * update.
    */
-  private legacyIssueWireNeeded(): boolean {
+  // PUBLIC as of [POD-822]: the issue service needs the same answer for its own
+  // D7.2 bypass (a dep-edge ripple rebuilds the legacy list for exactly the same
+  // reason a session change did). It is exposed rather than reimplemented there
+  // because the answer depends on `this.clients`, which lives here — two copies
+  // of this rule could disagree about whether a legacy client is connected, and
+  // the copy that said "no" would silently freeze that client's issue list.
+  legacyIssueWireNeeded(): boolean {
     if (!this.deps.issuesNormalizedWire?.()) return true
     for (const c of this.clients.values()) {
       if (!c.caps.has(CAP_METADATA_DELTA) || !c.caps.has(CAP_ISSUES_NORMALIZED)) return true

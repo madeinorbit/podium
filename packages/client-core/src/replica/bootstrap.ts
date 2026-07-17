@@ -53,6 +53,14 @@ import type { Replica, ReplicaKind, ReplicaRows } from './replica'
 const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   session: 'sessions',
   issue: 'issues',
+  // The three POD-796/POD-822 kinds the replica holds. Mapped here so a
+  // bootstrap/heal that carries them installs them into the right collection
+  // rather than dropping them (a kind absent from this map is silently skipped
+  // by the installer — `kind === undefined → continue`). Empty until the cap
+  // flips, but the map is where they must be listed when they arrive.
+  issueProjection: 'issueProjections',
+  issueDep: 'issueDeps',
+  repo: 'repos',
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',
@@ -230,6 +238,9 @@ export function snapshotToChunks(
   snapshot: {
     sessions?: unknown[]
     issues?: unknown[]
+    issueProjections?: unknown[]
+    issueDeps?: unknown[]
+    repos?: unknown[]
     conversations?: unknown[]
     automations?: unknown[]
     automationRuns?: unknown[]
@@ -239,6 +250,9 @@ export function snapshotToChunks(
   const entities: Array<[string, unknown[] | undefined, (row: unknown) => string]> = [
     ['session', snapshot.sessions, (r) => (r as { sessionId: string }).sessionId],
     ['issue', snapshot.issues, (r) => (r as { id: string }).id],
+    ['issueProjection', snapshot.issueProjections, (r) => (r as { id: string }).id],
+    ['issueDep', snapshot.issueDeps, (r) => (r as { id: string }).id],
+    ['repo', snapshot.repos, (r) => (r as { id: string }).id],
     ['conversation', snapshot.conversations, (r) => (r as { id: string }).id],
     ['automation', snapshot.automations, (r) => (r as { id: string }).id],
     ['automationRun', snapshot.automationRuns, (r) => (r as { id: string }).id],

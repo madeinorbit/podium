@@ -9,6 +9,7 @@
  * which MUTATES a session and re-reads the issue can see.
  */
 
+import type { IssueProjection } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssueBoard,
@@ -235,10 +236,13 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
 describe('reading straight off the replica', () => {
   it('derives views from real replica rows', () => {
     const replica = createReplica({ storage: memoryStorage() })
-    replica.applySnapshot('issues', [
-      { id: 'i1', seq: 13, prefix: 'POD', stage: 'in_progress' } as never,
-      { id: 'i2', seq: 14, prefix: 'POD', stage: 'done', parentId: 'i1' } as never,
+    // POD-822: the source is `issueProjections` (own row, `repoId` not `prefix`)
+    // joined against `repos` for the prefix — never the legacy embedded field.
+    replica.applySnapshot('issueProjections', [
+      { id: 'i1', seq: 13, repoId: 'repo_a', stage: 'in_progress' } as never,
+      { id: 'i2', seq: 14, repoId: 'repo_a', stage: 'done', parentId: 'i1' } as never,
     ])
+    replica.applySnapshot('repos', [{ id: 'repo_a', prefix: 'POD' } as never])
     replica.applySnapshot('sessions', [{ sessionId: 's1', issueId: 'i1' } as never])
 
     const { issues, sessions } = readViewInputs(replica)
@@ -252,46 +256,69 @@ describe('reading straight off the replica', () => {
   })
 })
 
-describe('the POD-796 cutover seam: what IssueProjection does NOT carry', () => {
-  // These two tests are the evidence for POD-822. They are written to PASS,
-  // because they record the real (wrong) behaviour a naive cutover ships — the
-  // point is that this behaviour is reachable at all, silently, with a green
-  // typecheck. Delete them when the projection can supply deps + prefix; if they
-  // start failing, the gap they document has been closed and that is good news.
+describe('the POD-822 cutover: the projection + join supplies deps and prefix', () => {
+  // These two tests were the EVIDENCE for POD-822, written to record the wrong
+  // behaviour a naive cutover shipped — a blocked issue reading `blocked: false`
+  // and `#13` instead of `POD-13`, silently, with a green typecheck. POD-822
+  // closed the gap by giving the replica the two kinds the projection cannot
+  // carry (dep edges, repo prefixes) and joining them in `readViewInputs`. So
+  // they are FLIPPED: they now drive the real cutover path — replica in,
+  // `readViewInputs` join, `deriveIssueViews` — and assert the RIGHT answer. If
+  // either regresses, the join broke.
+  //
+  // A partial `IssueProjection` is cast rather than fully built: the view path
+  // reads only id/seq/parentId/repoId/stage/deferUntil/readAt off it, and the
+  // collection does not validate — the join is what is under test, not the
+  // projection's full shape (that is `issue.mapping.test.ts`'s job).
+  const projection = (o: {
+    id: string
+    seq: number
+    stage: string
+    repoId?: string
+  }): IssueProjection => o as unknown as IssueProjection
 
-  it('derives blocked=false for a genuinely blocked issue when deps are absent', () => {
-    const blockedByWire = deriveIssueViews(
-      [
-        { id: 'i1', seq: 13, stage: 'in_progress', deps: [{ id: 'i2', type: 'blocks' }] },
-        { id: 'i2', seq: 14, stage: 'in_progress' },
-      ],
-      [],
-    )
-    expect(blockedByWire.get('i1')).toMatchObject({ blocked: true, ready: false })
+  it('derives blocked=true from the joined issueDep edges [POD-822]', () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issueProjections', [
+      projection({ id: 'i1', seq: 13, stage: 'in_progress' }),
+      projection({ id: 'i2', seq: 14, stage: 'in_progress' }),
+    ])
+    // The edge lives in its OWN collection now — a first-class entity, not a
+    // field on either issue. Its id is the composed key the server emits.
+    replica.applySnapshot('issueDeps', [
+      { id: 'i1|i2|blocks', fromId: 'i1', toId: 'i2', type: 'blocks' } as never,
+    ])
 
-    // The SAME issue as IssueProjection carries it: `deps` is a relation, not a
-    // column, so the normalized projection has no such key. `deps ?? []` then
-    // reads "no dependencies" instead of "dependencies unknown", and the issue
-    // reports itself ready to work on while it is in fact blocked.
-    const blockedByProjection = deriveIssueViews(
-      [
-        { id: 'i1', seq: 13, stage: 'in_progress' },
-        { id: 'i2', seq: 14, stage: 'in_progress' },
-      ],
-      [],
-    )
-    expect(blockedByProjection.get('i1')).toMatchObject({ blocked: false, ready: true })
+    const { issues } = readViewInputs(replica)
+    const views = deriveIssueViews(issues, [])
+    // i1 depends on i2, which is not done ⇒ blocked. Before POD-822 the missing
+    // relation read as "no deps" and this was `blocked: false, ready: true`.
+    expect(views.get('i1')).toMatchObject({ blocked: true, ready: false })
   })
 
-  it('derives #13 instead of POD-13 when prefix is absent', () => {
-    // `prefix` is a function of the REPO, not the issue, so D7.1 pushed it off
-    // the projection — but nothing replica-side supplies it yet, and there is no
-    // 'repo' entity kind on the feed.
-    expect(
-      deriveIssueViews([{ id: 'i1', seq: 13, stage: 'todo', prefix: 'POD' }], []).get('i1'),
-    ).toMatchObject({ displayRef: 'POD-13' })
-    expect(deriveIssueViews([{ id: 'i1', seq: 13, stage: 'todo' }], []).get('i1')).toMatchObject({
-      displayRef: '#13',
-    })
+  it('derives POD-13 from the joined repo prefix [POD-822]', () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issueProjections', [
+      projection({ id: 'i1', seq: 13, stage: 'in_progress', repoId: 'repo_a' }),
+    ])
+    replica.applySnapshot('repos', [{ id: 'repo_a', prefix: 'POD' } as never])
+
+    const { issues } = readViewInputs(replica)
+    expect(deriveIssueViews(issues, []).get('i1')).toMatchObject({ displayRef: 'POD-13' })
+  })
+
+  it('falls back to #13 when the repo has no prefix — an honest absence, not the gap', () => {
+    // The `#13` fallback is still CORRECT for a genuinely prefix-less repo; the
+    // POD-822 bug was reaching it for a repo that HAD a prefix. A repo row with
+    // `prefix: null`, or an issue whose repo the replica does not hold, is the
+    // real absent case and must still read `#13`.
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issueProjections', [
+      projection({ id: 'i1', seq: 13, stage: 'in_progress', repoId: 'repo_a' }),
+    ])
+    replica.applySnapshot('repos', [{ id: 'repo_a', prefix: null } as never])
+
+    const { issues } = readViewInputs(replica)
+    expect(deriveIssueViews(issues, []).get('i1')).toMatchObject({ displayRef: '#13' })
   })
 })

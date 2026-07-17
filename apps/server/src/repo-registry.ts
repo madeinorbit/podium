@@ -107,6 +107,9 @@ export class RepoRegistry {
     // when the path exists on this host (remote repos get it later via scan).
     // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
     this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined, prefix?.toUpperCase())
+    // A new repo mints a prefix (addRepo → ensurePrefixForRepoId), so it is a
+    // new 'repo' entity on the feed [POD-822].
+    this.publishRepos()
   }
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
@@ -114,6 +117,36 @@ export class RepoRegistry {
   setPrefix(path: string, prefix: string, machineId?: string): void {
     const mid = machineId ?? this.sessionReg.modules.machines.defaultMachine()
     this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
+    this.publishRepos()
+  }
+
+  /**
+   * Publish the repo truth onto the feed [POD-822].
+   *
+   * The prefix is the join input for every `displayRef` a replica derives, and
+   * this registry is the ONLY thing that writes it. Without this call the write
+   * would land in sqlite and stop there: no ledger commit, no change row, and the
+   * replica keeps rendering `POD-13` under the old prefix until some unrelated
+   * issue write happened to trigger a full reconcile. That is a bug that presents
+   * as a caching problem and is really a missing emitter, so it is a call at the
+   * write, not a periodic sweep.
+   *
+   * The whole cost is a reconcile over the LOGICAL repos — a handful of rows,
+   * deduped to no-op by the ledger when nothing changed. It is deliberately NOT
+   * O(the repo's issues): keeping the prefix on its own entity rather than
+   * materializing `displayRef` onto every issue is what buys that, and is the
+   * D7.2 decision POD-822 recorded (see model's `repo/fields.ts`).
+   *
+   * Best-effort by construction: the store write already succeeded, and a feed
+   * that missed one publish self-heals on the next boot reconcile. Never let it
+   * fail the mutation that triggered it.
+   */
+  private publishRepos(): void {
+    try {
+      this.sessionReg.modules.issues.publishRepos()
+    } catch (err) {
+      console.warn('[podium:repos] repo projection publish failed', err)
+    }
   }
 
   async remove(path: string, machineId?: string): Promise<void> {

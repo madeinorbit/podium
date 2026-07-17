@@ -253,6 +253,48 @@ describe('issueProjection emission is flag-gated and ADDITIVE [POD-796]', () => 
     expect(value?.revision).toBe(2)
   })
 
+  it('flag ON appends issueDep and repo rows; flag OFF is a rollback that REMOVES them [POD-822]', () => {
+    // The flag is the cutover's rollback switch, and this pins that it actually
+    // rolls back. `allDepProjections`/`allRepoProjections` return EMPTY (not
+    // undefined) with the flag off, so the boot reconcile against a baseline that
+    // HAD rows diffs every one as a REMOVE. If they returned undefined instead,
+    // the rows would sit frozen in the ledger and in every client's replica, and
+    // flipping the flag off would NOT restore the legacy path.
+    const { store } = world({ flag: true, issues: 2, sessions: 0 })
+    // Give iss_0 a dep and a prefix so there is something to roll back.
+    store.issues.addIssueDep('iss_0', 'iss_1', 'blocks')
+
+    const onReg = new SessionRegistry(store)
+    registries.push(onReg)
+    onReg.modules.issues.addDep('iss_0', 'iss_1') // no-op re-add, forces a publish
+    onReg.modules.sessions.flushBroadcasts()
+    const onDeps = onReg.modules.sessions.syncChangesSince(0)
+    const depsWhileOn =
+      onDeps.kind === 'delta'
+        ? onDeps.changes.filter((c) => c.entity === 'issueDep' && c.op === 'upsert')
+        : []
+    expect(depsWhileOn.length).toBeGreaterThan(0)
+
+    // Flip the flag OFF and reboot the service against the SAME store (baseline
+    // carries the edge/repo rows from the on-run).
+    store.settings.setSettings({
+      ...normalizeSettings(undefined),
+      experimental: { 'issues-normalized-wire': false },
+    })
+    const offReg = new SessionRegistry(store)
+    registries.push(offReg)
+    offReg.modules.sessions.flushBroadcasts()
+    // The boot reconcile diffed the now-empty normalized truth against the
+    // baseline and appended REMOVEs. Read the whole log: the last op for the
+    // edge id must be a remove.
+    const all = offReg.modules.sessions.syncChangesSince(0)
+    const edgeOps =
+      all.kind === 'delta'
+        ? all.changes.filter((c) => c.entity === 'issueDep' && c.id === 'iss_0|iss_1|blocks')
+        : []
+    expect(edgeOps.at(-1)?.op, 'flag OFF must roll the edge back to a REMOVE').toBe('remove')
+  })
+
   it('flag ON: the write-less publish tail heals a projection changed behind the service’s back', () => {
     // Pins the relay's `publishIssueList` projection reconcile — the write-less
     // full-list tail (relay.ts), which no other test here reaches. It is hard to
@@ -444,5 +486,90 @@ describe('a legacy client is never starved by a bypass window [POD-796]', () => 
         `BEFORE the bypass window. A client arriving after a bypass would render a stale ` +
         `session world with no event to heal it.`,
     ).toBe('testing')
+  })
+})
+
+describe('THE D7.2 bypass for dep edges: a dep change is O(1), not O(issues) [POD-822]', () => {
+  // The dep-edge twin of the session-broadcast bypass above. On the LEGACY wire,
+  // `deps`/`blocked`/`dependents` are FIELDS of the issue, so a dep add between
+  // A and B changed B's payload with no write on B — and only a full-list rebuild
+  // (O(issues), each scanning its member sessions) found it. A replica that reads
+  // the 'issueDep' kind derives all four itself from the edge row, so the edge IS
+  // the ripple: O(1). This measures that the rebuild is skipped exactly when no
+  // legacy client needs it, using the same production-wired scan counter.
+  const depWork = (registry: SessionRegistry, from: string, to: string): number => {
+    registry.modules.sessions.flushBroadcasts()
+    resetIssueWireBuildCount()
+    registry.modules.issues.addDep(from, to)
+    registry.modules.sessions.flushBroadcasts()
+    return issueMembershipScanCount()
+  }
+
+  const depChangesAppended = (registry: SessionRegistry) => {
+    const all = registry.modules.sessions.syncChangesSince(0)
+    return all.kind === 'delta' ? all.changes.filter((c) => c.entity === 'issueDep') : []
+  }
+
+  it('flag ON + only cap clients: a dep add scans O(1) issues, not all 300', () => {
+    // 300 issues seeded; add ONE edge. The membership-scan count must not scale
+    // with the issue count — the whole point of the edge being its own entity.
+    const { registry } = world({ flag: true })
+    capClient(registry)
+    capClient(registry)
+    const scans = depWork(registry, 'iss_1', 'iss_2')
+    // O(1): the ONLY issue touched is the fromId's own persist (the additive
+    // legacy 'issue' change still builds one wire — POD-797 removes even that
+    // when it deletes the legacy kind). Emphatically NOT the O(issues) rebuild.
+    expect(
+      scans,
+      `D7.2 VIOLATED: a single dep add touched ${scans} issues (${ISSUE_COUNT} seeded). The ` +
+        `edge is its own entity; a replica derives blocked/ready/dependents from it, so the ` +
+        `legacy full-list rebuild must be skipped when no client needs the embedded wire.`,
+    ).toBeLessThan(ISSUE_COUNT)
+    expect(scans).toBeLessThanOrEqual(1)
+  })
+
+  it('flag ON + only cap clients: the dep add appends exactly ONE issueDep row (O(1))', () => {
+    const { registry } = world({ flag: true })
+    capClient(registry)
+    registry.modules.sessions.flushBroadcasts()
+    const before = depChangesAppended(registry).length
+    registry.modules.issues.addDep('iss_1', 'iss_2')
+    registry.modules.sessions.flushBroadcasts()
+    const appended = depChangesAppended(registry)
+    // One edge in → one edge row out, carrying the composed key and both
+    // endpoints. Not a full re-emit of the edge set.
+    expect(appended.length - before).toBe(1)
+    const edge = appended.at(-1)
+    const value = edge?.op === 'upsert' ? (edge.value as Record<string, unknown>) : undefined
+    expect(value).toMatchObject({ fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })
+    expect(edge?.id).toBe('iss_1|iss_2|blocks')
+  })
+
+  it('flag OFF: the SAME dep add still rebuilds every issue (the coupling, measured)', () => {
+    // The control that keeps the test honest, mirroring the session-bypass
+    // control: with the flag off there is no edge kind for a replica to read, so
+    // the legacy rebuild MUST still run and touch every issue.
+    const { registry } = world({ flag: false })
+    client(registry, ['metadataDelta'])
+    const scans = depWork(registry, 'iss_1', 'iss_2')
+    expect(
+      scans,
+      `the flag-OFF control touched ${scans} issues; it must touch at least ${ISSUE_COUNT} — ` +
+        `without the edge entity the legacy blocked/dependents derivation has nowhere else to live.`,
+    ).toBeGreaterThanOrEqual(ISSUE_COUNT)
+  })
+
+  it('flag ON but a LEGACY DELTA client is connected: the rebuild stays on', () => {
+    // Fail-safe, exactly as the session bypass: a client that still reads the
+    // embedded wire keeps the rebuild alive, or its blocked/dependents freeze.
+    const { registry } = world({ flag: true })
+    capClient(registry)
+    client(registry, ['metadataDelta']) // no issuesNormalized
+    const scans = depWork(registry, 'iss_1', 'iss_2')
+    expect(
+      scans,
+      `a legacy delta client needs the rebuild after a dep add; got ${scans} touches`,
+    ).toBeGreaterThanOrEqual(ISSUE_COUNT)
   })
 })

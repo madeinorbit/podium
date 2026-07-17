@@ -1,11 +1,17 @@
 import { isIssueBlocked, isIssueClosed, isIssueColorSlot, isIssueDeferred } from '@podium/domain'
-import type { IssueProjection } from '@podium/model'
+import type { IssueDepProjection, IssueProjection, RepoProjection } from '@podium/model'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
 import { countIssueMembershipScan, countIssueWireBuild } from '../instrumentation'
-import { issueProjectionRows, issueRowToProjection } from '../projection'
+import {
+  issueDepProjectionRows,
+  issueDepToProjection,
+  issueProjectionRows,
+  issueRowToProjection,
+  repoProjectionRows,
+} from '../projection'
 import type { PublishSpec } from '../publish'
 import type { IssueDeps } from './types'
 
@@ -15,6 +21,34 @@ import type { IssueDeps } from './types'
 // NOT invalidate the cached wire: it never surfaces as issue member state, and
 // the session broadcast already skips its own publish for that churn (POD-722).
 const NON_ISSUE_MEMBER_FIELDS = ['clientCount', 'controllerId', 'epoch'] as const
+
+/**
+ * THE FLAG-OFF TRUTH for the three normalized kinds [POD-822]: an EMPTY feed,
+ * not "no answer".
+ *
+ * The distinction is the difference between a rollback that works and one that
+ * does not, and it only became load-bearing when POD-822 taught a client to READ
+ * these rows. `undefined` means "I cannot state the truth — leave the baseline
+ * alone" (an unprojectable row; the service not constructed yet). Flag-off is not
+ * that. It is a positive statement: the normalized feed carries nothing.
+ *
+ * Returning `undefined` for it would leave the rows the flag had already
+ * published sitting in the ledger baseline AND in every client's PERSISTENT
+ * replica — so flipping the flag off would not restore the legacy path, it would
+ * freeze every client on whatever the normalized feed last said, across reloads.
+ * A flag whose off position does not roll back is not a flag, and this one is the
+ * rollback switch for the whole cutover.
+ *
+ * POD-796's "flag off ⇒ byte-identical legacy behaviour" survives intact, by
+ * construction rather than by assertion: on a server where the flag was never on,
+ * the baseline for these kinds is empty, and `reconcile(kind, [])` against an
+ * empty baseline stages nothing and appends nothing (ledger.ts `reconcile` →
+ * `stage([])` → no `appendChanges`). It is also strictly CHEAPER than before —
+ * the rows are never built. The only server that appends anything here is one
+ * that HAD the flag on, and what it appends is exactly the removes that undo it,
+ * once.
+ */
+const EMPTY_NORMALIZED_TRUTH: [] = []
 
 /** Issue-relevant fingerprint of one member session, for the wire memo key. */
 function memberSessionFingerprint(s: SessionMeta): string {
@@ -441,17 +475,98 @@ export abstract class IssueServiceCore {
     ]
   }
 
-  /** Full LOCAL projection truth for a reconcile, flag-gated; `undefined` = do
-   *  not reconcile this kind (flag off, or a row that cannot be projected — see
-   *  {@link issueProjectionRows} on why that is all-or-nothing).
+  /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
+   *  this kind (a row that cannot be projected — see {@link issueProjectionRows}
+   *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
+   *  the difference is the rollback — see {@link EMPTY_NORMALIZED_TRUTH}.
    *
    *  The normalized parallel to {@link allWire}, and public for the same reason:
    *  the relay's write-less publish tail needs it. LOCAL only — like allWire(),
    *  hub-mirrored issues are the publisher's union to make, and it cannot make
    *  it here (see IssuePublisherDeps.allProjections). */
   allProjections(): { id: string; value: IssueProjection }[] | undefined {
-    if (!this.normalizedWire) return undefined
+    if (!this.normalizedWire) return EMPTY_NORMALIZED_TRUTH
     return issueProjectionRows(this.rows.values())
+  }
+
+  // ---- The two kinds the replica JOINS against [POD-822] ----
+  //
+  // `deps` and `prefix` are the two fields the replica's issue views READ that
+  // `IssueProjection` does not carry and — per D7.2 — must not: an edge belongs
+  // to two issues, a prefix belongs to a repo, and folding either onto the issue
+  // makes a write to something else rewrite issues. So each is its own kind, and
+  // `blocked` / `ready` / `dependents` / `displayRef` are joined replica-side
+  // (D7.3). Same flag gate as the projection: with `issues-normalized-wire` off
+  // these emit nothing at all.
+
+  /** The `issueDep` change ONE edge write declares, flag-gated. O(1) per edge —
+   *  this is what makes a dep add cost nothing per issue. Returned as an array so
+   *  a call site can spread it and stay a single expression when the flag is off. */
+  protected depChanges(
+    deps: readonly { fromId: string; toId: string; type: string }[],
+    op: 'upsert' | 'remove',
+  ): { entity: 'issueDep'; id: string; op: 'upsert' | 'remove'; value?: IssueDepProjection }[] {
+    if (!this.normalizedWire) return []
+    return deps.map((dep) => {
+      const value = issueDepToProjection(dep)
+      // A remove carries no value (the ledger drops it; the row is gone). An
+      // upsert carries the whole edge — there is no partial edge.
+      return op === 'upsert'
+        ? { entity: 'issueDep' as const, id: value.id, op, value }
+        : { entity: 'issueDep' as const, id: value.id, op }
+    })
+  }
+
+  /** Full LOCAL dep-edge truth for a reconcile, flag-gated. Flag OFF returns
+   *  EMPTY truth (the reconcile runs and removes previously-published rows —
+   *  the rollback); `undefined` means only "cannot project, do not touch the
+   *  kind" (an edge that cannot be projected — all-or-nothing, see
+   *  {@link issueDepProjectionRows}).
+   *
+   *  O(edges), and it runs only on the full-truth paths (boot, write-less
+   *  rebroadcast) that are already O(issues) — never per dep change, which
+   *  declares its one row through {@link depChanges} instead. This is also what
+   *  catches the removes no write declares: `issue_deps` has `ON DELETE CASCADE`
+   *  from `issues`, so deleting an issue silently vaporises its edges, and only a
+   *  full-truth diff can notice rows that left without anyone saying so. */
+  allDepProjections(): { id: string; value: IssueDepProjection }[] | undefined {
+    if (!this.normalizedWire) return EMPTY_NORMALIZED_TRUTH
+    return issueDepProjectionRows(this.deps.store.issues.listAllIssueDeps())
+  }
+
+  /** Full LOCAL repo truth for a reconcile, flag-gated. O(repos) — a handful of
+   *  rows, deduped to the LOGICAL repo (several checkouts, one entity). */
+  allRepoProjections(): { id: string; value: RepoProjection }[] | undefined {
+    if (!this.normalizedWire) return EMPTY_NORMALIZED_TRUTH
+    return repoProjectionRows(this.deps.store.repos.listRepos())
+  }
+
+  /**
+   * Publish the repo truth [POD-822] — called by the repo registry after a
+   * prefix write, which is the ONLY thing that moves this entity today.
+   *
+   * A prefix change has no issue write to ride along with, and without this the
+   * replica's `displayRef`s would not move until someone happened to touch an
+   * issue — a bug that would look like caching and would in fact be a missing
+   * emitter. Reconcile rather than a declared change because the registry writes
+   * through the store directly (no ledger commit to hang a declaration on), and
+   * because at O(repos) the full-truth diff is cheaper than the machinery to
+   * avoid it. The ledger's byte-equality dedup means a no-op prefix write
+   * appends nothing.
+   *
+   * NOT a D7.2 breach, and worth being precise about why: this is O(repos), not
+   * O(issues). Materializing `displayRef` onto issues instead — the D7.4 option
+   * this slice rejected — is what would make a prefix change O(repo's issues) on
+   * the write path. The whole point of the repo entity is that this stays one row.
+   */
+  publishRepos(): void {
+    const repos = this.allRepoProjections()
+    if (!repos) return
+    try {
+      this.deps.ledger.reconcile('repo', repos)
+    } catch (err) {
+      console.warn('[podium:issues] repo projection publish failed', err)
+    }
   }
 
   /** THE full-list reconcile + fan-out tail every write-less issue publish runs
@@ -462,6 +577,12 @@ export abstract class IssueServiceCore {
     this.deps.ledger.reconcile('issue', spec.rows)
     const projections = this.allProjections()
     if (projections) this.deps.ledger.reconcile('issueProjection', projections)
+    // The edges reconcile on the same full-truth passes [POD-822], for the same
+    // reason the projections do: this path exists to catch what no write
+    // declared, and a CASCADE delete (an issue removed takes its edges with it)
+    // is exactly that. Skipped entirely when the flag is off.
+    const depProjections = this.allDepProjections()
+    if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
     this.deps.funnel.publishComputed(spec.snapshot)
   }
   /** Append to the durable event log. Best-effort: a log failure must never
@@ -496,7 +617,27 @@ export abstract class IssueServiceCore {
   protected persistWith(
     row: IssueRow,
     extraWrite?: () => void,
-    opts?: { touch?: boolean },
+    opts?: {
+      touch?: boolean
+      /**
+       * Extra entity changes this write declares, beyond the issue's own two
+       * kinds [POD-822]. Today: the `issueDep` rows an edge write touches, built
+       * by {@link depChanges} (empty when the flag is off).
+       *
+       * They ride the SAME `changes()` callback, so they land in the SAME
+       * transact span as the row upsert and the `extraWrite` that produced them.
+       * That is the whole point rather than a tidiness preference: `addIssueDep`
+       * and the edge's change row must commit or roll back together, or the feed
+       * can claim an edge the store rejected — a permanently `blocked` issue on
+       * every replica, healed by nothing.
+       */
+      extraChanges?: readonly {
+        entity: 'issueDep'
+        id: string
+        op: 'upsert' | 'remove'
+        value?: IssueDepProjection
+      }[]
+    },
   ): IssueWire {
     // In-place rollback seam (#247): for an EXISTING issue, `row` is the
     // MAP-OWNED object and every mutation path (update()'s Object.assign,
@@ -535,6 +676,7 @@ export abstract class IssueServiceCore {
         changes: (w) => [
           { entity: 'issue', id: row.id, op: 'upsert', value: w },
           ...this.projectionChanges(row),
+          ...(opts?.extraChanges ?? []),
         ],
       }).result
     } catch (err) {
@@ -574,6 +716,37 @@ export abstract class IssueServiceCore {
     // the new generation and no ripple is served from stale cache [POD-723].
     this.bumpIssueInputs()
     this.reconcileAndPublish(this.deps.publishSpecs.issuesChanged(this.allWire()))
+  }
+
+  /**
+   * THE D7.2 BYPASS for dep-edge ripples [POD-822], the issue-side twin of
+   * POD-796's session-broadcast bypass.
+   *
+   * `broadcastList()` after an edge write exists for ONE reason: on the legacy
+   * wire, `deps` / `dependents` / `blocked` / `ready` are fields of the ISSUE, so
+   * an edge between A and B changes B's payload with no write on B — and only a
+   * full-list rebuild finds that. The rebuild is O(issues), and every one of them
+   * scans its member sessions (see instrumentation.ts on why a memo does not save
+   * it), so a single `depAdd` costs O(issues × sessions).
+   *
+   * A replica that reads the 'issueDep' kind derives all four itself from the
+   * edge set it holds, keyed by the two endpoints — so the edge row IS the
+   * ripple, already declared by the write, already O(1). When no connected client
+   * still needs the legacy shape, the rebuild recomputes a payload nobody will
+   * read: pure waste, and precisely the "work O(number of entities) per change"
+   * D7.2 forbids.
+   *
+   * The skip is safe in the same way POD-796's is, and unsafe in none of the ways
+   * that matter: `legacyIssueWireNeeded()` answers TRUE for every uncertainty
+   * (flag off, dep absent, a pre-hello client), so this only ever skips when
+   * every connected client has positively said it reads the normalized shape. A
+   * client attaching later takes a freshly built list at attach; a delta client
+   * re-bases through `sync.changesSince`. What a skip leaves behind is at most a
+   * stale 'issue' baseline in the ledger, which costs one extra reconcile diff on
+   * the next publish — never a lost update.
+   */
+  protected broadcastListForDerivedRipple(): void {
+    if (this.deps.legacyIssueWireNeeded?.() ?? true) this.broadcastList()
   }
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {

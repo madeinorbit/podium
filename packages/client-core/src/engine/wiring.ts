@@ -96,6 +96,14 @@ export function createEngineHub(args: {
         if (mismatch) replica.resetCache()
         replica.applySnapshot('sessions', state.sessions)
         replica.applySnapshot('issues', state.issues)
+        // The three POD-796/POD-822 kinds ride the same atomic batch [POD-822].
+        // Empty arrays until the authority's flag is on and this client offered
+        // the cap — an empty applySnapshot is the correct rollback (it removes
+        // any rows a previously-enabled flag left behind), and the views read
+        // from these collections regardless of whether they are populated.
+        replica.applySnapshot('issueProjections', state.issueProjections)
+        replica.applySnapshot('issueDeps', state.issueDeps)
+        replica.applySnapshot('repos', state.repos)
         replica.applySnapshot('conversations', state.conversations)
         replica.applySnapshot('automations', state.automations)
         replica.applySnapshot('automationRuns', state.automationRuns)

@@ -45,6 +45,8 @@ const lists = (
   sessions: [],
   issues: issues as unknown as MetadataAppliedState['issues'],
   issueProjections: [],
+  issueDeps: [],
+  repos: [],
   conversations: [],
   automations: [],
   automationRuns: [],

@@ -175,6 +175,43 @@ describe('UpstreamSync kind tolerance', () => {
     debug.mockRestore()
   })
 
+  it('skips the POD-822 issueDep/repo rows it declines to consume, and advances the cursor [POD-822]', async () => {
+    // The node mirror offers CAP_METADATA_DELTA only — never
+    // CAP_ISSUES_NORMALIZED — so the hub never sends it these, but the ADDITIVE
+    // contract must hold even if one leaks through: a consumer that does not act
+    // on 'issueDep'/'repo' must skip them WITHOUT corrupting the issue mirror and
+    // WITHOUT healing, advancing its cursor past them exactly as it does for a
+    // genuinely-unknown kind. This is the faithful stand-in for a pre-822 client:
+    // it declines the cap for the same reason an old build lacks the kinds.
+    const { mirror, cursors, heals, frame, lastCursor } = makeSync({
+      issuesJson: JSON.stringify([{ id: 'a' }]),
+    })
+    // Contiguous from the held cursor (5): seqs 6,7,8, no gap.
+    frame({
+      type: 'metadataDelta',
+      seq: 8,
+      changes: [
+        {
+          seq: 6,
+          entity: 'issueDep',
+          id: 'a|b|blocks',
+          op: 'upsert',
+          value: { id: 'a|b|blocks', fromId: 'a', toId: 'b', type: 'blocks' },
+        },
+        { seq: 7, entity: 'repo', id: 'repo_a', op: 'upsert', value: { id: 'repo_a', prefix: 'POD' } },
+        { seq: 8, entity: 'issue', id: 'a', op: 'remove' },
+      ],
+    })
+    await flush()
+    // The 'issue' remove applied; the edge/repo rows folded into NOTHING — the
+    // issue mirror is not a dumping ground for kinds this consumer ignores.
+    expect(mirror.issues.at(-1)).toEqual([])
+    // Cursor advanced to the batch seq; no heal loop.
+    expect(cursors).toEqual([8])
+    expect(lastCursor()).toBe(8)
+    expect(heals).toEqual([])
+  })
+
   // Must satisfy the real IssueWire zod schema — the snapshot arm of the heal
   // result parses STRICTLY now (#247); a sloppy fixture would fail the parse
   // and silently test the wrong path.

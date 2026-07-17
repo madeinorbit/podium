@@ -402,6 +402,21 @@ export class UpstreamSync {
       // the second mapper ADR 4 D3.4 forbids.
       case 'issueProjection':
         break
+      // The two kinds the replica joins the projections against [POD-822]:
+      // dependency edges and repo prefixes. Ignored here under exactly the
+      // interlock spelled out for 'issueProjection' above — this client never
+      // offers CAP_ISSUES_NORMALIZED, so it keeps receiving the legacy 'issue'
+      // rows, which carry `deps` and `prefix` as fields and are the same truth.
+      //
+      // Same conditional on teaching this client the cap: it would then have to
+      // consume ALL THREE kinds here, not just the projection. Consuming the
+      // projection alone would be the worse of the two failures — issues would
+      // still mirror, so nothing would look broken, while every mirrored issue
+      // silently read `blocked: false` and `#13`. That is the POD-822 gap
+      // arriving on the node path, and this comment is the tripwire for it.
+      case 'issueDep':
+      case 'repo':
+        break
       default:
         change satisfies never
     }

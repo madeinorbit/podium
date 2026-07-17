@@ -1,4 +1,4 @@
-import type { IssueProjection } from '@podium/protocol'
+import type { IssueDepProjection, IssueProjection, RepoProjection } from '@podium/protocol'
 import {
   type ApprovalWire,
   type AutomationRunWire,
@@ -139,6 +139,15 @@ export interface MetadataAppliedState {
    *  `issues-normalized-wire` flag is on. Additive: an embedder that ignores it
    *  behaves exactly as before. */
   issueProjections: IssueProjection[]
+  /** The issue dependency EDGES [POD-822] — `issue_deps` as first-class rows.
+   *  A consumer of `issueProjections` needs these: the projection carries no
+   *  `deps` (an edge belongs to two issues, so it cannot be a field on either
+   *  without putting cross-entity work on the write path), and without them
+   *  `blocked` derives as `false` for every blocked issue. Same flag gate. */
+  issueDeps: IssueDepProjection[]
+  /** The logical repos [POD-822] — `(repoId, prefix)`. The `displayRef` join:
+   *  without them every issue reads `#13` instead of `POD-13`. Same flag gate. */
+  repos: RepoProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -272,6 +281,11 @@ export interface HubEvents {
    *  a consumer resolves members by indexing sessions on `issueId`. Emitted
    *  ALONGSIDE `issues` during the transition, never instead of it. */
   issueProjections: [issues: IssueProjection[]]
+  /** Full dep-EDGE list after any change [POD-822]. Same gating as
+   *  `issueProjections`; the replica joins these to derive blocked/ready/dependents. */
+  issueDeps: [deps: IssueDepProjection[]]
+  /** Full logical-repo list after any change [POD-822] — the `displayRef` prefix join. */
+  repos: [repos: RepoProjection[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   issueUpdated: [issue: IssueWire]
   connectionHealth: [health: ConnectionHealth]
@@ -314,6 +328,14 @@ export class SocketHub {
    *  ledger stores one value per (kind, id). Empty unless the authority's flag
    *  is on. */
   private issueProjectionList: IssueProjection[] = []
+  /** The dep EDGES and the repos [POD-822] — the two kinds the replica joins the
+   *  projections against to get back `blocked`/`ready`/`dependents` (edges) and
+   *  `displayRef` (repo prefix). Separate lists for the same reason
+   *  `issueProjectionList` is separate from `issueList`: they are separate feed
+   *  kinds, because the ledger stores one value per (kind, id). Empty unless the
+   *  authority's flag is on. */
+  private issueDepList: IssueDepProjection[] = []
+  private repoList: RepoProjection[] = []
   // ---- metadata-oplog cursor state (delta mode only; see SocketHubOptions) ----
   /** Last applied oplog seq; null until the first changesSince completes. */
   private metadataCursor: number | null = null
@@ -744,6 +766,9 @@ export class SocketHub {
   seedMetadata(seed: {
     sessions: SessionMeta[]
     issues: IssueWire[]
+    issueProjections?: IssueProjection[]
+    issueDeps?: IssueDepProjection[]
+    repos?: RepoProjection[]
     conversations: ConversationSummaryWire[]
     automations?: AutomationWire[]
     automationRuns?: AutomationRunWire[]
@@ -751,11 +776,25 @@ export class SocketHub {
     if (this.metadataCursor !== null) return
     this.sessionList = seed.sessions
     this.issueList = seed.issues
+    // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
+    // from the persisted replica so a warm-reload DELTA applies onto them rather
+    // than onto empty lists. Optional + `?? []` so an embedder that predates them
+    // seeds exactly as before.
+    this.issueProjectionList = seed.issueProjections ?? []
+    this.issueDepList = seed.issueDeps ?? []
+    this.repoList = seed.repos ?? []
     this.conversationList = seed.conversations
     this.automationList = seed.automations ?? []
     this.automationRunList = seed.automationRuns ?? []
     this.emit('sessions', this.sessionList)
     this.emit('issues', this.issueList)
+    // Emit-only-when-non-empty, unlike sessions/issues above: consumers default
+    // these three kinds to empty, so an empty seed emit is a no-op — and after a
+    // server-side flag rollback a stale persisted replica gets its emptying
+    // event from the next delta/reconcile, not from the seed [POD-822].
+    if (this.issueProjectionList.length > 0) this.emit('issueProjections', this.issueProjectionList)
+    if (this.issueDepList.length > 0) this.emit('issueDeps', this.issueDepList)
+    if (this.repoList.length > 0) this.emit('repos', this.repoList)
     this.emit('conversations', this.conversationList)
     this.emit('automations', this.automationList)
     this.emit('automationRuns', this.automationRunList)
@@ -1165,6 +1204,8 @@ export class SocketHub {
       sessions: this.sessionList,
       issues: this.issueList,
       issueProjections: this.issueProjectionList,
+      issueDeps: this.issueDepList,
+      repos: this.repoList,
       conversations: this.conversationList,
       automations: this.automationList,
       automationRuns: this.automationRunList,
@@ -1239,6 +1280,12 @@ export class SocketHub {
             (i) => i.id === c.id,
           )
           break
+        case 'issueDep':
+          this.issueDepList = applyChange(this.issueDepList, c.op, c.value, (d) => d.id === c.id)
+          break
+        case 'repo':
+          this.repoList = applyChange(this.repoList, c.op, c.value, (r) => r.id === c.id)
+          break
         case 'conversation':
           this.conversationList = applyChange(
             this.conversationList,
@@ -1270,6 +1317,8 @@ export class SocketHub {
     if (touched.has('session')) this.emit('sessions', this.sessionList)
     if (touched.has('issue')) this.emit('issues', this.issueList)
     if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
+    if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
+    if (touched.has('repo')) this.emit('repos', this.repoList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
     if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)

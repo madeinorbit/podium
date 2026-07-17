@@ -48,6 +48,15 @@ export class IssueService extends IssueServiceWorkflow {
       // from truth rather than replaying every issue as new on the first write.
       const projections = this.allProjections()
       if (projections) this.deps.ledger.reconcile('issueProjection', projections)
+      // The two kinds the replica joins against seed here too [POD-822]. Boot is
+      // the only pass that can heal them: edges and prefixes both change through
+      // paths with no ledger commit of their own (an issue delete CASCADEs its
+      // edges away; a prefix is written by the repo registry), so a change made
+      // while the server was down is invisible to every declared-change path and
+      // only a full-truth diff finds it.
+      const depProjections = this.allDepProjections()
+      if (depProjections) this.deps.ledger.reconcile('issueDep', depProjections)
+      this.publishRepos()
     } catch (err) {
       console.warn('[podium:issues] boot reconciliation record failed:', err)
     }

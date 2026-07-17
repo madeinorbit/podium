@@ -1,4 +1,16 @@
-import { fromStorage, type IssueProjection, IssueStorageRow, toWire } from '@podium/model'
+import {
+  fromStorage,
+  IssueDep,
+  type IssueDepProjection,
+  type IssueProjection,
+  IssueStorageRow,
+  issueDepId,
+  issueDepToWire,
+  Repo,
+  type RepoProjection,
+  repoToWire,
+  toWire,
+} from '@podium/model'
 import type { IssueRow } from '../../store'
 
 /**
@@ -155,4 +167,101 @@ export function issueProjectionRows(
     }
   }
   return out
+}
+
+// ---- The two kinds the replica JOINS against [POD-822] ----
+//
+// Neither can be a field on `IssueProjection`, and the reason is the same one
+// twice (ADR 4 D7.2 — "a change to entity X may trigger recomputation only of
+// projections of X"): a dep edge belongs to two issues, and a prefix belongs to
+// a repo. Fold either onto the issue and a write to something else has to
+// rewrite issues — an edge add would dirty both endpoints, a prefix change would
+// dirty every issue in the repo. As their own kinds, each change is ONE row, and
+// the replica does the join where it is free (D7.3). See model's `issue/dep.ts`
+// and `repo/fields.ts` for the decisions; this file only spells the server's
+// rows in the model's vocabulary.
+
+/** One `issue_deps` row → its projection. The edge's id is DERIVED from its
+ *  primary key (`issueDepId`), so the feed's identity and the store's are the
+ *  same identity — see model's `issue/dep.ts` on why a minted id would leak
+ *  phantom edges the store could never remove. */
+export function issueDepToProjection(dep: {
+  fromId: string
+  toId: string
+  type: string
+}): IssueDepProjection {
+  // `.parse()` rather than a cast, for the reason the file docstring gives above:
+  // it VALIDATES and BRANDS, so the IssueId/IssueDepId arrive honestly instead of
+  // through an `as`. It also refuses an empty id or type here rather than letting
+  // one reach the feed as a well-typed lie.
+  return issueDepToWire(
+    IssueDep.parse({
+      id: issueDepId(dep.fromId, dep.toId, dep.type),
+      fromId: dep.fromId,
+      toId: dep.toId,
+      type: dep.type,
+    }),
+  )
+}
+
+/**
+ * Full-truth `issueDep` reconcile rows.
+ *
+ * All-or-nothing on failure for exactly the reason {@link issueProjectionRows}
+ * documents at length: `Ledger.reconcile` diffs the FULL truth, so a partial
+ * list is not a smaller truth — every edge missing from it is diffed as a
+ * REMOVE and durably recorded as one. `undefined` leaves the baseline alone and
+ * the next publish heals it; a partial list would tell every replica that real
+ * dependencies had been deleted, and `blocked` would flip to `false` on issues
+ * that are genuinely blocked. That is the POD-822 failure mode arriving by
+ * another road, which is precisely why this degrades the same way.
+ *
+ * The only reachable throw is `issueDepId`'s separator guard (a `|` in an issue
+ * id or dep type), i.e. an id whose grammar is not ours.
+ */
+export function issueDepProjectionRows(
+  deps: Iterable<{ fromId: string; toId: string; type: string }>,
+): { id: string; value: IssueDepProjection }[] | undefined {
+  const out: { id: string; value: IssueDepProjection }[] = []
+  for (const dep of deps) {
+    try {
+      const value = issueDepToProjection(dep)
+      out.push({ id: value.id, value })
+    } catch (err) {
+      console.warn(
+        `[podium:issues] dep ${dep.fromId} -> ${dep.toId} (${dep.type}) could not be projected — ` +
+          'skipping the whole issueDep publish so reconcile cannot mistake a partial list for ' +
+          'deleted dependencies',
+        err,
+      )
+      return undefined
+    }
+  }
+  return out
+}
+
+/**
+ * Full-truth `repo` reconcile rows — the LOGICAL repos, keyed by `repoId`.
+ *
+ * `listRepos()` returns one row per `(machineId, path)`; the entity is the
+ * logical repo, so sibling checkouts of one repo collapse to ONE row here. That
+ * is not a convenience: `repo_prefixes` is keyed by `repo_id` precisely because
+ * checkouts share a prefix (store/repos.ts), so emitting per-checkout rows would
+ * publish the same prefix under several ids and give the replica's join two
+ * answers. Rows with no `repoId` are dropped — an unidentified repo has no
+ * prefix to join against and no stable id to address.
+ *
+ * O(repos) — a handful of rows, and the ledger's byte-equality dedup means an
+ * unchanged set appends nothing. This never runs per-issue.
+ */
+export function repoProjectionRows(
+  repos: Iterable<{ repoId: string | null; prefix: string | null }>,
+): { id: string; value: RepoProjection }[] {
+  const byId = new Map<string, RepoProjection>()
+  for (const repo of repos) {
+    if (!repo.repoId) continue
+    // `.parse()` brands the RepoId — see issueDepToProjection.
+    byId.set(repo.repoId, repoToWire(Repo.parse({ id: repo.repoId, prefix: repo.prefix })))
+  }
+  return [...byId].map(([id, value]) => ({ id, value }))
 }

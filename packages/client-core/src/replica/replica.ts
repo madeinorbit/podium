@@ -35,7 +35,10 @@ import type {
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
+  IssueDepProjection,
+  IssueProjection,
   IssueWire,
+  RepoProjection,
   SessionMeta,
   TranscriptItem,
 } from '@podium/protocol'
@@ -49,7 +52,23 @@ export type { StorageApi, StorageEventApi }
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
   sessions: SessionMeta
+  /** The LEGACY embedded issue wire. Still held through the transition [POD-796]:
+   *  the rich issue UI reads it directly, and it carries `deps`/`prefix`/derived
+   *  fields as columns. POD-797 deletes it once every surface reads the views. */
   issues: IssueWire
+  /** The NORMALIZED issue projection [POD-796] — the issue's own durable row,
+   *  nothing derived. The replica-side issue VIEWS read this, joined against the
+   *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
+   *  on and this client offered the cap. */
+  issueProjections: IssueProjection
+  /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
+   *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
+   *  projection cannot carry them (an edge belongs to two issues). */
+  issueDeps: IssueDepProjection
+  /** Logical repos [POD-822] — `(id, prefix)`. The views join `issue.repoId →
+   *  repo.prefix` for `displayRef`; a prefix change moves every `POD-13` in the
+   *  repo without rewriting an issue (D7.2). */
+  repos: RepoProjection
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
@@ -59,6 +78,12 @@ export type ReplicaKind = keyof ReplicaRows
 export interface ReplicaHydrateResult {
   sessions: SessionMeta[]
   issues: IssueWire[]
+  /** The three POD-796/POD-822 kinds, persisted like every other collection so a
+   *  warm reload paints the views from local data and re-seeds the hub's
+   *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
+  issueProjections: IssueProjection[]
+  issueDeps: IssueDepProjection[]
+  repos: RepoProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -314,6 +339,9 @@ const NOOP_STORAGE_EVENTS: StorageEventApi = {
 const ENTITY_STORE_KINDS = [
   'sessions',
   'issues',
+  'issueProjections',
+  'issueDeps',
+  'repos',
   'conversations',
   'automations',
   'automationRuns',
@@ -411,6 +439,19 @@ class TanstackReplica implements Replica {
         guardedEvents,
       ),
       issues: this.makeCollection<IssueWire>('issues', (i) => i.id, guarded, guardedEvents),
+      issueProjections: this.makeCollection<IssueProjection>(
+        'issueProjections',
+        (i) => i.id,
+        guarded,
+        guardedEvents,
+      ),
+      issueDeps: this.makeCollection<IssueDepProjection>(
+        'issueDeps',
+        (d) => d.id,
+        guarded,
+        guardedEvents,
+      ),
+      repos: this.makeCollection<RepoProjection>('repos', (r) => r.id, guarded, guardedEvents),
       conversations: this.makeCollection<ConversationSummaryWire>(
         'conversations',
         (c) => c.id,
@@ -452,6 +493,9 @@ class TanstackReplica implements Replica {
     const empty: ReplicaHydrateResult = {
       sessions: [],
       issues: [],
+      issueProjections: [],
+      issueDeps: [],
+      repos: [],
       conversations: [],
       automations: [],
       automationRuns: [],
@@ -479,6 +523,9 @@ class TanstackReplica implements Replica {
       return {
         sessions: this.cols.sessions.toArray as SessionMeta[],
         issues: this.cols.issues.toArray as IssueWire[],
+        issueProjections: this.cols.issueProjections.toArray as IssueProjection[],
+        issueDeps: this.cols.issueDeps.toArray as IssueDepProjection[],
+        repos: this.cols.repos.toArray as RepoProjection[],
         conversations: this.cols.conversations.toArray as ConversationSummaryWire[],
         automations: this.cols.automations.toArray as AutomationWire[],
         automationRuns: this.cols.automationRuns.toArray as AutomationRunWire[],

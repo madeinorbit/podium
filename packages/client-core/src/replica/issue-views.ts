@@ -45,7 +45,7 @@
  */
 
 import type { IssueProjection } from '@podium/model'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
 import type { Replica } from './replica'
 
 /**
@@ -281,59 +281,89 @@ export function buildIssueBoard(
   return board
 }
 
-/** Read the replica's issue + session rows as view inputs. The casts are the one
- *  place the wire shape meets the view shape; POD-796 re-points them at
- *  `IssueProjection` and nothing else in this file moves. */
+/**
+ * Assemble the views' inputs from the replica [POD-822 — THE cutover].
+ *
+ * Before POD-822 this cast one collection — `rows('issues') as IssueViewInput` —
+ * because the legacy `IssueWire` carried `deps` and `prefix` as its own fields.
+ * That cast compiled clean against `IssueProjection` too, and THAT was the trap
+ * the deleted `ViewFieldsMissingFromProjection` tripwire guarded: the projection
+ * carries neither field (an edge belongs to two issues, a prefix to a repo — see
+ * model's `issue/dep.ts` and `repo/fields.ts`), so `deps ?? []` read "no
+ * dependencies" and every blocked issue derived `blocked: false`.
+ *
+ * The three-collection JOIN is the fix, and it is where D7.3 actually happens:
+ *
+ *  - `issueProjections` — the issue's own durable row. The source now.
+ *  - `issueDeps` — the edges, indexed by `fromId`. Issue X's `deps` are the
+ *    edges leaving X, each `{ id: toId, type }` — exactly what `deriveIssueViews`
+ *    reads. An edge add/remove touches ONE row here and re-derives `blocked` on
+ *    both endpoints for free; no issue was rewritten to make that happen.
+ *  - `repos` — `(id, prefix)`, indexed by `id`. `displayRef` joins
+ *    `issue.repoId → repo.prefix`. A prefix change moves one repo row and every
+ *    `POD-13` in the repo follows; no issue was rewritten.
+ *
+ * The join is O(issues + deps + repos), not O(issues × anything): the two
+ * indexes below are built once. `deriveIssueViews` and `IssueViewInput` did not
+ * change — only their SOURCE did — which is the whole reason the cutover is this
+ * one function.
+ *
+ * Empty collections (the cap not yet flipped) yield empty views, not wrong ones:
+ * no issues in, no views out. Nothing renders from these views today; POD-797
+ * flips the cap and deletes the legacy `issues` collection this no longer reads.
+ */
 export function readViewInputs(replica: Replica): {
   issues: IssueViewInput[]
   sessions: SessionViewInput[]
 } {
+  const projections = replica.rows('issueProjections')
+  const prefixByRepoId = new Map<string, string | null>()
+  for (const repo of replica.rows('repos')) prefixByRepoId.set(repo.id, repo.prefix ?? null)
+  const depsByFrom = new Map<string, { id: string; type: string }[]>()
+  for (const dep of replica.rows('issueDeps')) {
+    const list = depsByFrom.get(dep.fromId)
+    const edge = { id: dep.toId, type: dep.type }
+    if (list) list.push(edge)
+    else depsByFrom.set(dep.fromId, [edge])
+  }
   return {
-    issues: replica.rows('issues') as unknown as IssueViewInput[],
+    issues: projections.map((p) => projectionToViewInput(p, prefixByRepoId, depsByFrom)),
     sessions: replica.rows('sessions') as unknown as SessionViewInput[],
   }
 }
 
-/** Type-level proof that the view inputs are satisfied by today's wire shapes —
- *  so the POD-796 cutover breaks compilation here rather than at runtime in a
- *  view. */
-export type IssueWireSatisfiesViewInput = IssueWire extends IssueViewInput ? true : never
-export type SessionMetaSatisfiesViewInput = SessionMeta extends SessionViewInput ? true : never
-
-// The two aliases above were DECLARED but never instantiated, and a bare
-// `type X = A extends B ? true : never` reports nothing when the condition is
-// false — it silently becomes `never`. So the "breaks compilation here" the
-// comment promises did not happen. These two lines are what make them fire
-// [POD-796].
-const _issueWireSatisfies: IssueWireSatisfiesViewInput = true
-const _sessionMetaSatisfies: SessionMetaSatisfiesViewInput = true
-
 /**
- * THE POD-796 CUTOVER GAP, pinned as a type [POD-822].
+ * One `IssueProjection` + the two joins → one `IssueViewInput`.
  *
- * Instantiating the assertions above is necessary but NOT sufficient, and the
- * difference is the whole trap: `prefix` and `deps` are OPTIONAL on
- * `IssueViewInput`, so `IssueProjection` — which carries neither — satisfies it
- * anyway. Re-pointing `ReplicaRows.issues` at the projection therefore compiles
- * clean and then quietly derives the WRONG ANSWER: `deps ?? []` reads a missing
- * relation as "no dependencies", so every blocked issue reports `blocked: false,
- * ready: true`, and `issueDisplayRef` falls back to `#13` for issues that should
- * read `POD-13`. Both are demonstrated in `issue-views.test.ts`.
- *
- * Making the two fields REQUIRED would state the dependency honestly, but it
- * cannot be done yet: nothing replica-side can supply them. `prefix` is a
- * function of the REPO (there is no 'repo' entity kind on the feed at all) and
- * `deps` is a relation in `issue_deps` that the feed does not carry. Until one
- * of those arrives, the views must keep reading `IssueWire`.
- *
- * So this records the gap instead, and it is deliberately a TRIPWIRE: the moment
- * `IssueProjection` gains `prefix` or `deps`, this stops compiling and whoever
- * added it is told to finish the cutover here rather than discovering the
- * fallback behaviour in a UI six months later.
+ * Written as an explicit object rather than a spread-and-override so the return
+ * is CHECKED against `IssueViewInput` field by field — this is what replaces the
+ * deleted tripwire. If a field the views read leaves `IssueProjection`, this
+ * stops compiling HERE, at the join, rather than deriving a wrong answer in a UI.
+ * `prefix` and `deps` are supplied by the joins, never read off the projection —
+ * the projection has neither, by construction.
  */
-export type ViewFieldsMissingFromProjection = Exclude<'prefix' | 'deps', keyof IssueProjection>
-const _cutoverGapIsExactlyPrefixAndDeps: 'prefix' | 'deps' =
-  null as unknown as ViewFieldsMissingFromProjection
-const _gapHasNotSilentlyClosed: ViewFieldsMissingFromProjection = null as unknown as
-  | 'prefix'
-  | 'deps'
+function projectionToViewInput(
+  p: IssueProjection,
+  prefixByRepoId: Map<string, string | null>,
+  depsByFrom: Map<string, { id: string; type: string }[]>,
+): IssueViewInput {
+  return {
+    id: p.id,
+    seq: p.seq,
+    parentId: p.parentId ?? null,
+    prefix: p.repoId ? (prefixByRepoId.get(p.repoId) ?? null) : null,
+    stage: p.stage,
+    deferUntil: p.deferUntil ?? null,
+    readAt: p.readAt ?? null,
+    deps: depsByFrom.get(p.id) ?? [],
+  }
+}
+
+/** Type-level proof that a session row satisfies the view input — the sessions
+ *  collection is still cast (sessions are not modelled yet), so this is the one
+ *  cast left and the assertion that keeps it honest [POD-796/POD-822]. The
+ *  issue side no longer needs a satisfies-assertion: `projectionToViewInput`
+ *  builds a checked `IssueViewInput` directly, so the compiler proves the same
+ *  property at the construction site. */
+export type SessionMetaSatisfiesViewInput = SessionMeta extends SessionViewInput ? true : never
+const _sessionMetaSatisfies: SessionMetaSatisfiesViewInput = true

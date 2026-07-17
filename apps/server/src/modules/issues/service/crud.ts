@@ -564,8 +564,18 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         )
       }
     }
-    const wire = this.persistWith(row, () => this.deps.store.issues.addIssueDep(fromId, toId, type))
-    this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
+    // The edge's own change row rides the SAME commit as the row upsert and the
+    // INSERT that creates it [POD-822] — one transact span, so the feed can never
+    // claim an edge the store rolled back. O(1): one edge, one row.
+    const wire = this.persistWith(
+      row,
+      () => this.deps.store.issues.addIssueDep(fromId, toId, type),
+      { extraChanges: this.depChanges([{ fromId, toId, type }], 'upsert') },
+    )
+    // The TARGET's dependents/blocked derivation changed too (#22) — on the
+    // LEGACY wire, where they are fields of the issue. A normalized client
+    // derives them from the edge row above; see broadcastListForDerivedRipple.
+    this.broadcastListForDerivedRipple()
     return wire
   }
 
@@ -577,10 +587,23 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     fromId = this.resolveRef(fromId)
     toId = this.resolveRef(toId)
     const row = this.rowOrThrow(fromId)
-    const wire = this.persistWith(row, () =>
-      this.deps.store.issues.removeIssueDep(fromId, toId, type),
+    // Enumerate what is about to go BEFORE deleting it [POD-822]. `type` is
+    // optional and an absent one deletes EVERY type between the two issues
+    // (removeIssueDep's second branch), so the edges removed are not derivable
+    // from the arguments — read them from the store while they still exist, or
+    // the feed keeps rows the store no longer has and the issue stays blocked on
+    // every replica forever.
+    const removed = this.deps.store.issues
+      .listIssueDeps(fromId)
+      .filter((d) => d.toId === toId && (type === undefined || d.type === type))
+      .map((d) => ({ fromId, toId, type: d.type }))
+    const wire = this.persistWith(
+      row,
+      () => this.deps.store.issues.removeIssueDep(fromId, toId, type),
+      { extraChanges: this.depChanges(removed, 'remove') },
     )
-    this.broadcastList() // the TARGET's dependents/blocked derivation changed too (#22)
+    // See addDep: legacy-wire ripple only.
+    this.broadcastListForDerivedRipple()
     return wire
   }
 

@@ -1,4 +1,4 @@
-import { IssueProjection } from '@podium/model'
+import { IssueDepProjection, IssueProjection, RepoProjection } from '@podium/model'
 import { z } from 'zod'
 import { AutomationRunWire, AutomationWire } from './automations'
 import { ConversationDiagnosticWire, ConversationSummaryWire } from './discovery'
@@ -6,9 +6,9 @@ import { IssueWire } from './issues'
 import { SessionMeta } from './runtime-state'
 
 /**
- * Re-exported from `@podium/model` [POD-796].
+ * Re-exported from `@podium/model` [POD-796, POD-822].
  *
- * `IssueProjection` is an arm of {@link MetadataChange}, so it IS a wire shape,
+ * Each of these is an arm of {@link MetadataChange}, so each IS a wire shape,
  * and a peer that parses the feed must be able to name it without taking a
  * dependency this layer does not permit it: `@podium/terminal-client` depends on
  * protocol ONLY (ADR 8; protocol is the one near-leaf allowed to import model —
@@ -16,7 +16,7 @@ import { SessionMeta } from './runtime-state'
  * keeps the vocabulary single-sourced in model while letting protocol's
  * consumers stay on protocol.
  */
-export { IssueProjection }
+export { IssueDepProjection, IssueProjection, RepoProjection }
 
 // ---- Metadata oplog (docs/spec/oplog-read-path.md) ----
 // One row of the server's metadata change log. `seq` is server-assigned and
@@ -119,6 +119,42 @@ export const MetadataChange = z.discriminatedUnion('entity', [
     op: MetadataChangeOp,
     value: IssueProjection.optional(),
   }),
+  /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
+   *  first-class entities, keyed by their own primary key (`issueDepId`).
+   *
+   *  The relation the feed never carried. `IssueProjection` cannot hold `deps`
+   *  without re-acquiring the cross-entity coupling it exists to shed (an edge
+   *  belongs to two issues; see model's `issue/dep.ts`), so the edge is its own
+   *  kind and the replica joins it. That is what makes `depAdd` cost O(1)
+   *  server-side and still move `blocked` on both endpoints.
+   *
+   *  Same additive contract as 'issueProjection': gated on the server's
+   *  `issues-normalized-wire` flag + the client's CAP_ISSUES_NORMALIZED, and
+   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
+   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
+   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('issueDep'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: IssueDepProjection.optional(),
+  }),
+  /** A logical repo [POD-822] — today just `(repoId, prefix)`, the join input
+   *  for `displayRef`.
+   *
+   *  `prefix` is a function of the REPO, so materializing it onto every issue
+   *  would make a prefix change rewrite every issue in the repo on the write
+   *  path (D7.2). One repo row instead; the replica joins `issue.repoId →
+   *  repo.prefix` and every `POD-13` in the repo moves at once. Same additive
+   *  contract as the two kinds above. */
+  z.object({
+    seq: z.number().int().positive(),
+    entity: z.literal('repo'),
+    id: z.string(),
+    op: MetadataChangeOp,
+    value: RepoProjection.optional(),
+  }),
   z.object({
     seq: z.number().int().positive(),
     entity: z.literal('conversation'),
@@ -146,6 +182,8 @@ export const MetadataEntityKind = z.enum([
   'session',
   'issue',
   'issueProjection',
+  'issueDep',
+  'repo',
   'conversation',
   'automation',
   'automationRun',

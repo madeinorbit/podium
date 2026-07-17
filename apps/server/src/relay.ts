@@ -385,6 +385,15 @@ export class SessionRegistry {
         // (protocol/messages/sync.ts) — that is why a new KIND is additive
         // where reshaping 'issue' in place would not have been.
         if (projectionRows) ledger.reconcile('issueProjection', projectionRows)
+        // The edges reconcile on the same full-truth pass [POD-822]. Additive and
+        // flag-gated exactly like the projections above: with the flag OFF,
+        // `allDepProjections()` returns EMPTY truth (not undefined), so this
+        // reconcile RUNS and emits removes for any previously-published edge
+        // rows — that is the rollback. `undefined` means only "cannot project;
+        // do not touch the kind". A build that has never heard of the
+        // 'issueDep' kind ignores the rows and advances its cursor.
+        const depRows = issues?.allDepProjections()
+        if (depRows) ledger.reconcile('issueDep', depRows)
         funnel.publishComputed(spec.snapshot)
       },
     })
@@ -1036,6 +1045,13 @@ export class SessionRegistry {
       ledger,
       publishSpecs: publisher,
       issuesNormalizedWire,
+      // THE D7.2 bypass predicate [POD-822] — ONE definition, on the service that
+      // owns the client map it reads. A dep-edge write rebuilds the whole legacy
+      // issue list only to move OTHER issues' deps/blocked/dependents; a
+      // normalized client derives those from the 'issueDep' rows instead, so when
+      // nobody needs the legacy shape the rebuild is O(issues × sessions) of pure
+      // waste. Fails safe: every uncertainty answers true.
+      legacyIssueWireNeeded: () => sessionsSvc.legacyIssueWireNeeded(),
       // Agent mail send-time nudge (issue #103): the sessions module subscribes
       // and picks the live member session to poke — see modules/sessions.
       onMailSent: (row) =>
