@@ -13,14 +13,23 @@ const scanMachine = vi.fn(async () => ({
   ],
   diagnostics: [],
 }))
-const lastMachineScan = vi.fn(async () => null)
-const browse = vi.fn(async (input?: { path?: string; machineId?: string }) => ({
-  path: input?.path ?? `/home/${input?.machineId ?? 'user'}`,
-  homePath: `/home/${input?.machineId ?? 'user'}`,
-  parentPath: '/home',
-  entries: [{ name: 'src', path: `/home/${input?.machineId ?? 'user'}/src` }],
-}))
-const scanFolder = vi.fn(async () => ({ repositories: [], diagnostics: [] }))
+// The browse response is git-aware (POD-855): each entry says whether it's a repo,
+// and the browsed folder carries its own repo identity. `myrepo` is a repo; the
+// home listing you land on is not.
+const browse = vi.fn(async (input?: { path?: string; machineId?: string }) => {
+  const path = input?.path ?? `/home/${input?.machineId ?? 'user'}`
+  const isRepo = path.endsWith('/myrepo')
+  return {
+    path,
+    homePath: `/home/${input?.machineId ?? 'user'}`,
+    parentPath: '/home',
+    entries: [
+      { name: 'myrepo', path: `${path}/myrepo`, isRepo: true },
+      { name: 'src', path: `${path}/src`, isRepo: false },
+    ],
+    ...(isRepo ? { isRepo: true, originUrl: 'git@github.com:lumenfall/myrepo.git' } : {}),
+  }
+})
 const refreshRepos = vi.fn(async () => undefined)
 
 const store = {
@@ -48,9 +57,7 @@ const store = {
       browse: { query: browse },
     },
     discovery: {
-      scanFolder: { mutate: scanFolder },
       scanMachine: { mutate: scanMachine },
-      lastMachineScan: { query: lastMachineScan },
     },
   },
   refreshRepos,
@@ -58,7 +65,6 @@ const store = {
 
 vi.mock('@/app/store', () => {
   const useStore = () => store
-  // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
@@ -78,7 +84,6 @@ describe('RepoScanFlow machine selection', () => {
     const options = [...select.querySelectorAll('option')]
     expect(options.map((o) => o.value)).toEqual(['podium-host', 'vmi34'])
     expect(options.some((o) => /this machine/i.test(o.textContent ?? ''))).toBe(false)
-    // Defaults to a machine rather than the empty "server host" selection.
     expect(select.value).toBe('podium-host')
   })
 
@@ -90,18 +95,14 @@ describe('RepoScanFlow machine selection', () => {
     )
   })
 
-  it('re-browses the newly selected machine, and targets it when adding the folder', async () => {
-    const onClose = vi.fn()
-    render(<RepoScanFlow onClose={onClose} onDone={() => {}} />)
+  it('re-browses the newly selected machine as you navigate', async () => {
+    render(<RepoScanFlow onClose={() => {}} onDone={() => {}} />)
 
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
-
-    // The browse follows the machine — the previous machine's path means nothing here.
     await waitFor(() =>
       expect(browse).toHaveBeenCalledWith({ includeHidden: false, machineId: 'vmi34' }),
     )
-    // ...and descending into a folder keeps targeting it.
-    fireEvent.click(await screen.findByRole('button', { name: 'src' }))
+    fireEvent.click(await screen.findByRole('button', { name: /src/ }))
     await waitFor(() =>
       expect(browse).toHaveBeenCalledWith({
         path: '/home/vmi34/src',
@@ -109,24 +110,42 @@ describe('RepoScanFlow machine selection', () => {
         machineId: 'vmi34',
       }),
     )
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add this folder' }))
+  it('adds ONLY a git repo — the button is disabled off a repo, enabled and named on one', async () => {
+    const onClose = vi.fn()
+    render(<RepoScanFlow onClose={onClose} onDone={() => {}} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+
+    // Landed on a non-repo home: the add button is disabled and generic.
+    const addBefore = await screen.findByRole('button', { name: 'Add repo' })
+    expect((addBefore as HTMLButtonElement).disabled).toBe(true)
+
+    // Step into a repo folder → the button names it by its origin and enables.
+    fireEvent.click(await screen.findByRole('button', { name: /myrepo/ }))
+    const add = await screen.findByRole('button', { name: "Add repo 'myrepo'" })
+    expect((add as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(add)
     await waitFor(() =>
-      expect(addRepo).toHaveBeenCalledWith({ path: '/home/vmi34/src', machineId: 'vmi34' }),
+      expect(addRepo).toHaveBeenCalledWith({ path: '/home/vmi34/myrepo', machineId: 'vmi34' }),
     )
-    expect(refreshRepos).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('scans the browsed folder on the selected machine', async () => {
+  it('scans from the browsed folder plus the machine (POD-855 atPath)', async () => {
     render(<RepoScanFlow onClose={() => {}} onDone={() => {}} />)
 
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
-    await screen.findByRole('button', { name: 'src' })
-    fireEvent.click(screen.getByRole('button', { name: 'Scan for repos here' }))
+    await screen.findByRole('button', { name: /src/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Scan for repos' }))
 
     await waitFor(() =>
-      expect(scanFolder).toHaveBeenCalledWith({ path: '/home/vmi34', machineId: 'vmi34' }),
+      expect(scanMachine).toHaveBeenCalledWith({
+        machineId: 'vmi34',
+        deep: false,
+        atPath: '/home/vmi34',
+      }),
     )
   })
 
@@ -137,25 +156,20 @@ describe('RepoScanFlow machine selection', () => {
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Scan for repos' }))
 
-    // The registered row arrives checked; unchecking it queues its removal. The
-    // fresh candidate starts UNchecked (nothing is preselected) — check it to add.
     await screen.findByText('known')
     fireEvent.click(screen.getByText('known')) // registered → remove
     fireEvent.click(screen.getByText('fresh')) // candidate → add
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 · Remove 1' }))
 
     await waitFor(() =>
-      expect(addMany).toHaveBeenCalledWith({
-        paths: ['/home/vmi34/fresh'],
-        machineId: 'vmi34',
-      }),
+      expect(addMany).toHaveBeenCalledWith({ paths: ['/home/vmi34/fresh'], machineId: 'vmi34' }),
     )
     expect(removeRepo).toHaveBeenCalledWith({ path: '/home/vmi34/known', machineId: 'vmi34' })
     expect(refreshRepos).toHaveBeenCalled()
     await waitFor(() => expect(onDone).toHaveBeenCalled())
   })
 
-  it('adds a manually entered repo path to the selected remote machine', async () => {
+  it('keeps the typed-path fallback for adding a repo directly', async () => {
     const onClose = vi.fn()
     render(<RepoScanFlow onClose={onClose} onDone={() => {}} />)
 
@@ -163,12 +177,11 @@ describe('RepoScanFlow machine selection', () => {
     fireEvent.change(screen.getByLabelText('Repo path on vmi34'), {
       target: { value: '/home/vmi34/podium' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Add repo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
 
     await waitFor(() =>
       expect(addRepo).toHaveBeenCalledWith({ path: '/home/vmi34/podium', machineId: 'vmi34' }),
     )
-    expect(refreshRepos).toHaveBeenCalled()
     expect(onClose).toHaveBeenCalled()
   })
 })

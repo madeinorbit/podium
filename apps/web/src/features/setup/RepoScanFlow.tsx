@@ -6,28 +6,19 @@ import { useStoreSelector } from '@/app/store'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { RepoPickerModal } from './RepoPickerModal'
 import { RepoScanResults } from './RepoScanResults'
-import {
-  type MachineScanRepo,
-  type RepoCandidate,
-  rankMachineScanRepos,
-  rankRepoCandidates,
-} from './ranking'
+import { type MachineScanRepo, type RepoCandidate, rankMachineScanRepos } from './ranking'
 
 type Results = { path: string; candidates: RepoCandidate[] }
 
 /**
- * The reusable scan-and-select flow: browse to a folder, scan it for repos, pick
- * from the ranked results, and persist the selection. Used by the onboarding wizard
- * and the sidebar's "+ Add repo". The directory browser also keeps a direct
- * "Add this folder" path for when you already know the repo's path.
+ * The reusable scan-and-select flow: pick a machine, browse ITS directories, and
+ * either add the repo you're standing in or scan for repos from here. The scan
+ * covers the browsed folder AND this machine's known repo locations (POD-855)
+ * [spec:SP-5eb6], returning one grouped result view (already-added / found).
  *
- * Machine-aware (POD-787): selecting a machine offers the tiered machine scan
- * (probes of known repo paths → shallow adjacent walk → bounded home sweep) with the
- * results in the same selection screen; a direct path field remains as fallback.
- *
- * Every action names its machine (POD-814) [spec:SP-3701] — browse included, which
- * runs on that machine's daemon. One machine is always selected: there is no
- * server-host filesystem to fall back to.
+ * Machine-aware (POD-814) [spec:SP-3701]: every action names its machine and runs
+ * on that machine's daemon. One machine is always selected — there is no server-host
+ * filesystem to fall back to.
  */
 export function RepoScanFlow({
   onClose,
@@ -50,9 +41,6 @@ export function RepoScanFlow({
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
   const [selectedMachineId, setSelectedMachineId] = useState<string | undefined>(initialMachineId)
-  const [lastScan, setLastScan] = useState<{ machineId: string; repos: MachineScanRepo[] } | null>(
-    null,
-  )
 
   // Settle on a machine as soon as the fleet is known: the picker browses a
   // machine's daemon, so "none selected" is not a usable state. Preference order —
@@ -69,61 +57,28 @@ export function RepoScanFlow({
     if (preferred) setSelectedMachineId(preferred.id)
   }, [machines, selectedMachineId])
 
-  // Surface the machine's most recent discovery (e.g. the automatic connect scan)
-  // as a "view results" shortcut instead of forcing a rescan.
-  useEffect(() => {
-    setLastScan(null)
-    if (!selectedMachineId) return
-    let cancelled = false
-    void Promise.resolve()
-      .then(() => trpc.discovery.lastMachineScan.query({ machineId: selectedMachineId }))
-      .then((res) => {
-        if (!cancelled && res)
-          setLastScan({ machineId: selectedMachineId, repos: res.repos as MachineScanRepo[] })
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [trpc, selectedMachineId])
-
-  async function scanFolder(path: string): Promise<void> {
-    const res = await trpc.discovery.scanFolder.mutate({ path, ...repoMachineInput() })
-    const fatal = res.diagnostics.find((d) => d.severity === 'error')
-    if (res.repositories.length === 0 && fatal) throw new Error(fatal.message || 'Scan failed')
-    setResults({ path, candidates: rankRepoCandidates(res.repositories) })
-  }
-
-  function machineLabel(machineId: string): string {
-    return machines.find((m) => m.id === machineId)?.name ?? machineId
-  }
-
-  async function scanMachine(machineId: string): Promise<void> {
-    const res = await trpc.discovery.scanMachine.mutate({ machineId, deep: true })
-    // Origin matches were auto-registered server-side — reflect them in the sidebar.
-    await refreshRepos()
-    const fatal = res.diagnostics.find((d) => d.severity === 'error')
-    if (res.repos.length === 0 && fatal) throw new Error(fatal.message || 'Scan failed')
-    setResults({
-      path: machineLabel(machineId),
-      candidates: rankMachineScanRepos(res.repos as MachineScanRepo[]),
-    })
-  }
-
-  function viewLastScan(): void {
-    if (!lastScan) return
-    setResults({
-      path: machineLabel(lastScan.machineId),
-      candidates: rankMachineScanRepos(lastScan.repos),
-    })
-  }
-
   function repoMachineInput(): { machineId?: string } {
     return selectedMachineId ? { machineId: selectedMachineId } : {}
   }
 
-  // Direct single-folder add. The picker closes itself afterward (its onClose),
-  // and refreshRepos has already updated the sidebar, so no onDone is needed here.
+  // "Scan for repos": the tiered discovery rooted at the browsed folder plus this
+  // machine's known repo locations (POD-855). Origin matches are auto-registered
+  // server-side; refresh so the sidebar reflects them, then show the grouped view.
+  async function scanFrom(path: string): Promise<void> {
+    if (!selectedMachineId) return
+    const res = await trpc.discovery.scanMachine.mutate({
+      machineId: selectedMachineId,
+      deep: false,
+      atPath: path,
+    })
+    await refreshRepos()
+    const fatal = res.diagnostics.find((d) => d.severity === 'error')
+    if (res.repos.length === 0 && fatal) throw new Error(fatal.message || 'Scan failed')
+    setResults({ path, candidates: rankMachineScanRepos(res.repos as MachineScanRepo[]) })
+  }
+
+  // Direct add of the browsed repo. The picker closes itself afterward (its
+  // onClose), and refreshRepos has already updated the sidebar.
   async function addThisFolder(path: string): Promise<void> {
     await trpc.repos.add.mutate({ path, ...repoMachineInput() })
     await refreshRepos()
@@ -177,21 +132,14 @@ export function RepoScanFlow({
     )
   }
 
-  const lastForSelected =
-    lastScan && lastScan.machineId === selectedMachineId
-      ? { count: lastScan.repos.length, view: viewLastScan }
-      : null
-
   return (
     <RepoPickerModal
       onClose={onClose}
       onPick={addThisFolder}
-      onScan={scanFolder}
+      onScan={scanFrom}
       machines={machines}
       selectedMachineId={selectedMachineId}
       onMachineChange={setSelectedMachineId}
-      onScanMachine={scanMachine}
-      lastMachineScan={lastForSelected}
       {...(intro ? { intro } : {})}
     />
   )
