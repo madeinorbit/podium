@@ -34,7 +34,11 @@ import { LockService } from './modules/lock/service'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes, sha256 } from './modules/machines/service'
 import { MessageGate } from './modules/messages/gate'
-import { MessageDeliveryService, senderFromCapability } from './modules/messages/service'
+import {
+  DELIVERY_RETRY_BACKSTOP_MS,
+  MessageDeliveryService,
+  senderFromCapability,
+} from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { TelegramNoticePort } from './modules/messaging/types'
 import {
@@ -1055,6 +1059,22 @@ export class SessionRegistry {
       machineName: (id) => machines.listMachines().find((m) => m.id === id)?.name ?? id,
       now: () => new Date(this.now()).toISOString(),
     })
+    // Event-complete delivery eligibility [spec:SP-c29e]: every durable session
+    // or issue metadata transition lands here after commit. Session upserts cover
+    // bind/live, resume-ref, attachment/CWD and draft changes; issue upserts cover
+    // worktree/archive/target-resolution changes. The service coalesces by target.
+    this.bus.on('oplog.appended', ({ changes }) => {
+      for (const change of changes) {
+        if (change.entity === 'session') {
+          messagesSvc.onSessionEligibilityChanged(
+            change.id,
+            change.op === 'upsert' ? (change.value as SessionMeta) : undefined,
+          )
+        } else if (change.entity === 'issue') {
+          messagesSvc.onIssueEligibilityChanged(change.id)
+        }
+      }
+    })
     messageGate = new MessageGate({
       messages: () => messagesSvc,
       issues: () => issues,
@@ -1105,6 +1125,9 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping), the leaked-draft reap, and the issue ledger boot reconcile.
     issues.boot()
+    // One durable queued-row pass repairs events missed while the server was down
+    // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
+    messagesSvc.reconcileQueued()
     this.steward = new StewardService({
       store: this.store.events,
       facts: this.store.notificationFacts,
@@ -1156,6 +1179,7 @@ export class SessionRegistry {
       // not complete, so the turn-boundary backstop must not confirm its injected
       // rows [POD-853].
       if (meta) messagesSvc.onSessionIdle(meta, { priorPhase: prev?.phase })
+      else messagesSvc.onSessionEligibilityChanged(sessionId)
     })
     // Transcript-echo confirmation (#834) [POD-834 §04d]: a message the substrate
     // typed into a PTY reappears as a user turn carrying its `[podium message
@@ -1164,7 +1188,7 @@ export class SessionRegistry {
     this.bus.on('transcript.delta', ({ sessionId, items }) => {
       messagesSvc.onTranscriptDelta(sessionId, items)
     })
-    this.messageSweep = setInterval(() => messagesSvc.sweep(), 60_000)
+    this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
     this.eventRetention = new EventLogRetention(this.store.events, {
       onMetrics: (metrics) => {
@@ -1300,6 +1324,7 @@ export class SessionRegistry {
     this.eventRetention.dispose()
     this.ledger.dispose()
     clearInterval(this.messageSweep)
+    this.modules.messages.dispose()
     this.issueAutoArchive.dispose()
     this.automationScheduler.dispose()
     // Also drains any coalesced session broadcast + pending delta batch (the

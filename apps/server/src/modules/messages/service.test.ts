@@ -4,7 +4,7 @@
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
 import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type SessionMeta } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
@@ -13,10 +13,10 @@ import type { IssueService } from '../issues/service'
 import { MessageGate } from './gate'
 import {
   ECHO_CONFIRM_WINDOW_MS,
-  MAX_ECHO_REQUEUES,
   HOP_LIMIT,
   INLINE_BODY_MAX,
   INTERRUPT_DELIVERY_CEILING_MS,
+  MAX_ECHO_REQUEUES,
   MessageDeliveryService,
   NEXT_TURN_DELIVERY_BUDGET_MS,
   SPAWN_BUDGET_PER_DAY,
@@ -2908,5 +2908,163 @@ describe('composer-draft delivery guard [POD-865]', () => {
     )
     expect(sent).toHaveLength(0)
     expect(r.disposition).toBe('queued')
+  })
+})
+
+describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
+  it('delivers when a starting session binds live without an idle edge', () => {
+    const sessions = [
+      session({ sessionId: 's1', status: 'starting', agentState: WORKING, issueId: ISSUE.id }),
+    ]
+    const { svc, sent } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'ready on bind' },
+    )
+    expect(sent).toHaveLength(0)
+
+    sessions[0] = session({ sessionId: 's1', status: 'live', issueId: ISSUE.id })
+    svc.onSessionEligibilityChanged('s1')
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toContain('ready on bind')
+  })
+
+  it('retries a queued wake when its session acquires a resume ref without an idle edge', () => {
+    let resumable = false
+    const sessions = [
+      session({ sessionId: 's1', status: 'starting', agentState: WORKING, issueId: ISSUE.id }),
+    ]
+    const { svc, queued } = harness(sessions, {
+      queueText: () =>
+        resumable ? { ok: true, queued: true } : { ok: false, reason: 'no resume ref' },
+    })
+    svc.send(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'resume-bound',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+      },
+    )
+    expect(queued).toHaveLength(1)
+
+    resumable = true
+    sessions[0] = session({
+      sessionId: 's1',
+      status: 'starting',
+      agentState: WORKING,
+      issueId: ISSUE.id,
+      resume: { kind: 'claude', value: 'native-1' },
+    })
+    svc.onSessionEligibilityChanged('s1')
+    svc.flushDeliveryTriggers()
+
+    expect(queued).toHaveLength(2)
+  })
+
+  it('delivers held issue mail when session membership changes without an idle edge', () => {
+    const sessions: SessionMeta[] = []
+    const { svc, sent } = harness(sessions)
+    const result = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'membership changed' },
+    )
+    expect(result.disposition).toBe('held')
+
+    sessions.push(session({ sessionId: 's1', issueId: ISSUE.id }))
+    svc.onSessionEligibilityChanged('s1')
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toContain('membership changed')
+  })
+
+  it('reconciles queued rows once at startup without waiting for an idle edge', () => {
+    const first = harness([])
+    first.svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'survived restart' },
+    )
+
+    const recovered = harness([session({ sessionId: 's1', issueId: ISSUE.id })], {
+      store: first.store,
+    })
+    recovered.svc.reconcileQueued()
+
+    expect(recovered.sent).toHaveLength(1)
+    expect(recovered.sent[0]!.text).toContain('survived restart')
+  })
+
+  it('recovers a queued wake with a one-shot trigger when its durable cooldown expires', () => {
+    vi.useFakeTimers()
+    try {
+      let clock = Date.parse('2026-07-13T00:00:00.000Z')
+      let transportReady = false
+      const sessions = [
+        session({
+          sessionId: 's1',
+          status: 'hibernated',
+          agentState: undefined,
+          issueId: ISSUE.id,
+          resume: { kind: 'claude', value: 'native-1' },
+        }),
+      ]
+      const first = harness(sessions, {
+        now: () => new Date(clock).toISOString(),
+        queueText: () =>
+          transportReady ? { ok: true, queued: true } : { ok: false, reason: 'offline' },
+      })
+      first.svc.send(
+        { kind: 'superagent' },
+        {
+          to: { kind: 'session', id: 's1' },
+          body: 'after cooldown',
+          urgency: 'next-turn',
+          lifecycle: 'wake',
+        },
+      )
+      expect(first.queued).toHaveLength(1)
+      first.svc.dispose()
+
+      // Fresh service, same durable rows: startup reconcile must restore the
+      // remaining cooldown as a one-shot timer rather than waiting for a sweep.
+      transportReady = true
+      const recovered = harness(sessions, {
+        store: first.store,
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: true, queued: true }),
+      })
+      recovered.svc.reconcileQueued()
+      expect(recovered.queued).toHaveLength(0)
+
+      clock += WAKE_COOLDOWN_MS + 1
+      vi.advanceTimersByTime(WAKE_COOLDOWN_MS + 1)
+      recovered.svc.flushDeliveryTriggers()
+
+      expect(recovered.queued).toHaveLength(1)
+      recovered.svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('coalesces duplicate eligibility triggers into one delivery attempt', () => {
+    const sessions: SessionMeta[] = []
+    const { svc, sent } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'exactly once' },
+    )
+    sessions.push(session({ sessionId: 's1', issueId: ISSUE.id }))
+
+    svc.onSessionEligibilityChanged('s1')
+    svc.onSessionEligibilityChanged('s1')
+    svc.onIssueEligibilityChanged(ISSUE.id)
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
   })
 })

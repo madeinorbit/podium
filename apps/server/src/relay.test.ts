@@ -3070,3 +3070,47 @@ describe('listDir routing', () => {
     expect(r.entries).toEqual([{ name: 'src', isDir: true }])
   })
 })
+
+describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
+  it('delivers once when bind/live metadata makes queued issue mail eligible', () => {
+    const registry = new SessionRegistry()
+    try {
+      const daemon: ControlMessage[] = []
+      registry.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
+      const issue = registry.issues.create({
+        repoPath: '/repo',
+        title: 'Mail target',
+        startNow: false,
+      })
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo',
+        issueId: issue.id,
+      })
+      const sent = registry.modules.messages.send(
+        { kind: 'superagent' },
+        { to: { kind: 'issue', id: issue.id }, body: 'deliver after bind' },
+      )
+      expect(sent.message.status).toBe('queued')
+      expect(
+        daemon.some(
+          (message) =>
+            message.type === 'input' &&
+            Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
+        ),
+      ).toBe(false)
+
+      registry.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      registry.modules.messages.flushDeliveryTriggers()
+
+      const deliveredInputs = daemon.filter(
+        (message) =>
+          message.type === 'input' &&
+          Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
+      )
+      expect(deliveredInputs).toHaveLength(1)
+    } finally {
+      registry.dispose()
+    }
+  })
+})

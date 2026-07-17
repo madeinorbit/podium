@@ -304,6 +304,16 @@ export function senderFromCapability(capability: {
 /** How the target session presents at delivery time. */
 type TargetState = 'idle' | 'running' | 'parked'
 
+type DeliveryTarget = { kind: 'session' | 'issue'; id: string }
+
+/** The low-frequency sweep remains a bounded safety net while event coverage is
+ * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
+export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
+/** Five minutes: event triggers are primary; this only heals a missed edge. */
+export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
+
+const deliveryTargetKey = (target: DeliveryTarget): string => `${target.kind}:${target.id}`
+
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 
 const URGENCY_ORDER: MessageUrgency[] = ['fyi', 'next-turn', 'interrupt']
@@ -336,6 +346,150 @@ export class MessageDeliveryService {
 
   constructor(private readonly deps: MessageDeliveryDeps) {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
+  }
+
+  /** Eligibility changes coalesce by durable recipient key. A session event may
+   *  enqueue both its session principal and its resolved issue principal; a burst
+   *  of bind/resume/membership events still scans and attempts each row once. */
+  private readonly pendingDeliveryTargets = new Map<string, DeliveryTarget>()
+  private readonly pendingPreferredSessions = new Map<string, SessionMeta>()
+  private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
+  /** One restart-recoverable wake-cooldown timer per sender+target brake key.
+   *  Targets are durable message principals derived again by reconcileQueued(). */
+  private readonly wakeCooldownTimers = new Map<
+    string,
+    {
+      deadline: number
+      timer: ReturnType<typeof setTimeout>
+      targets: Map<string, DeliveryTarget>
+    }
+  >()
+
+  /** Queue the delivery principals affected by a session metadata transition
+   *  (bind/live, resume-ref acquisition, issue attachment, cwd/draft change).
+   *  The zero-delay timer folds same-turn metadata bursts into one keyed pass. */
+  onSessionEligibilityChanged(
+    sessionId: string,
+    changed?: SessionMeta,
+    opts?: { preferThisIdleSession?: boolean },
+  ): void {
+    // Durable metadata events already carry the post-commit SessionMeta. Using it
+    // avoids rebuilding the full session wire list on every state/bind mutation.
+    const session =
+      changed ??
+      this.deps
+        .sessions()
+        .listSessions()
+        .find((candidate) => candidate.sessionId === sessionId)
+    const preferred =
+      opts?.preferThisIdleSession && session && this.stateOf(session) === 'idle'
+        ? session
+        : undefined
+    this.queueDeliveryTarget({ kind: 'session', id: sessionId }, preferred)
+    const issueId = this.issueForSession(session)
+    if (issueId) this.queueDeliveryTarget({ kind: 'issue', id: issueId }, preferred)
+  }
+
+  /** Queue delivery rows whose issue resolution changed (worktree, archive,
+   *  lifecycle, or any future issue-side targeting input). */
+  onIssueEligibilityChanged(issueId: string): void {
+    this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+  }
+
+  /** One-time boot reconcile: derive pending principals and cooldown timers from
+   *  durable queued rows, then immediately attempt everything currently eligible. */
+  reconcileQueued(): void {
+    for (const message of this.deps.messages.listQueued(2_000)) {
+      const target = this.deliveryTargetOf(message)
+      if (target) this.queueDeliveryTarget(target)
+    }
+    for (const session of this.deps.sessions().listSessions()) {
+      this.onSessionEligibilityChanged(session.sessionId, session)
+    }
+    this.flushDeliveryTriggers()
+  }
+
+  /** Deterministic test/shutdown seam for the coalesced trigger. */
+  flushDeliveryTriggers(): void {
+    if (this.deliveryTriggerTimer) {
+      clearTimeout(this.deliveryTriggerTimer)
+      this.deliveryTriggerTimer = null
+    }
+    if (this.pendingDeliveryTargets.size === 0) return
+    const targets = [...this.pendingDeliveryTargets.values()]
+    const preferredByTarget = new Map(this.pendingPreferredSessions)
+    this.pendingDeliveryTargets.clear()
+    this.pendingPreferredSessions.clear()
+    const selected = new Map<string, MessageRow>()
+    const preferredGroups = new Map<
+      string,
+      { session: SessionMeta; messages: Map<string, MessageRow> }
+    >()
+    for (const target of targets) {
+      const preferred = preferredByTarget.get(deliveryTargetKey(target))
+      for (const message of this.deps.messages.pendingFor(target)) {
+        selected.set(message.id, message)
+        if (!preferred) continue
+        let group = preferredGroups.get(preferred.sessionId)
+        if (!group) {
+          group = { session: preferred, messages: new Map() }
+          preferredGroups.set(preferred.sessionId, group)
+        }
+        group.messages.set(message.id, message)
+      }
+    }
+    if (selected.size === 0) return
+    const all = this.deps.sessions().listSessions()
+    const nowMs = this.nowMs()
+    const handled = new Set<string>()
+    for (const group of preferredGroups.values()) {
+      const session = group.session
+      if (this.stateOf(session) !== 'idle') continue
+      const messages = [...group.messages.values()]
+      for (const message of messages) handled.add(message.id)
+      if (this.draftHoldActive(session)) continue
+      const eligible = messages.filter((message) => this.prepareQueuedAttempt(message, nowMs))
+      eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      this.deliverBatch(session, eligible)
+      for (const message of eligible) this.scheduleQueuedWakeRetry(message)
+    }
+    for (const message of selected.values()) {
+      if (handled.has(message.id)) continue
+      if (!this.prepareQueuedAttempt(message, nowMs)) continue
+      this.attemptDelivery(message, all, { viaSweep: true })
+      this.scheduleQueuedWakeRetry(message)
+    }
+  }
+
+  dispose(): void {
+    if (this.deliveryTriggerTimer) clearTimeout(this.deliveryTriggerTimer)
+    this.deliveryTriggerTimer = null
+    for (const pending of this.wakeCooldownTimers.values()) clearTimeout(pending.timer)
+    this.wakeCooldownTimers.clear()
+    this.pendingDeliveryTargets.clear()
+    this.pendingPreferredSessions.clear()
+  }
+
+  private queueDeliveryTarget(target: DeliveryTarget, preferred?: SessionMeta): void {
+    if (this.deps.messages.countPending(target) === 0) return
+    const key = deliveryTargetKey(target)
+    this.pendingDeliveryTargets.set(key, target)
+    if (preferred) this.pendingPreferredSessions.set(key, preferred)
+    if (this.deliveryTriggerTimer) return
+    this.deliveryTriggerTimer = setTimeout(() => {
+      this.deliveryTriggerTimer = null
+      try {
+        this.flushDeliveryTriggers()
+      } catch (error) {
+        console.warn('[podium] coalesced message delivery trigger failed', error)
+      }
+    }, 0)
+    this.deliveryTriggerTimer.unref?.()
+  }
+
+  private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
+    if (message.toKind === 'operator' || !message.toId) return null
+    return { kind: message.toKind, id: message.toId }
   }
 
   /**
@@ -543,6 +697,7 @@ export class MessageDeliveryService {
     }
 
     const outcome = this.attemptDelivery(message)
+    this.scheduleQueuedWakeRetry(message)
     return { message: this.deps.messages.getMessage(id) ?? message, ...outcome, legacy }
   }
 
@@ -813,7 +968,6 @@ export class MessageDeliveryService {
    * left to become idle; an `errored` turn did not complete, so it must not confirm.
    */
   onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): void {
-    const nowMs = this.nowMs()
     const issueId = this.issueForSession(session)
     const all = [
       ...this.deps.messages.pendingFor({ kind: 'session', id: session.sessionId }),
@@ -836,13 +990,11 @@ export class MessageDeliveryService {
     // have consumed its injected rows — and errored→idle still fires here, so gate
     // the confirm on a clean turn: an errored turn leaves the rows queued and the
     // sweep re-queues them for a retry [coordinator caution POD-833].
-    const confirmed = new Set<string>()
     if (opts?.priorPhase !== 'errored') {
       for (const m of all) {
         if (!m.injectedAt || m.deliveredTo !== session.sessionId) continue
         if (this.deliveryMode(m) === 'pointer') continue
         this.markDelivered(m, session.sessionId, 'boundary')
-        confirmed.add(m.id)
       }
     }
     // Clear the finished turn's hop context AFTER the confirm loop: markDelivered
@@ -852,19 +1004,14 @@ export class MessageDeliveryService {
     // deliverBatch below re-stamps turnHop for genuinely new pushes, which is
     // correct (those trigger the session's NEXT turn).
     this.turnHop.delete(session.sessionId)
-    // Deliver what is still pending. A row awaiting its own confirmation (a
-    // pointer nudge waiting for the inbox read, or an echo still inside its
-    // window) is not re-delivered — that was the POD-279 re-nudge loop [POD-834].
-    const pending = all.filter(
-      (m) => !confirmed.has(m.id) && !this.awaitingConfirmation(m, nowMs),
-    )
-    if (pending.length === 0) return
-    // Composer-draft delivery guard [spec:SP-d716] [POD-865]: the boundary drain must not type
-    // into a session whose human is mid-composition either. Rows stay queued;
-    // the sweep (or the idle after the draft's own submit) delivers them.
-    if (this.draftHoldActive(session)) return
-    pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    this.deliverBatch(session, pending)
+    // Idle is one eligibility transition among bind/resume/membership/startup:
+    // enqueue the same durable target keys and synchronously flush so existing
+    // turn-boundary ordering remains exact. The keyed gate handles confirmation,
+    // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
+    this.onSessionEligibilityChanged(session.sessionId, session, {
+      preferThisIdleSession: true,
+    })
+    this.flushDeliveryTriggers()
   }
 
   /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human
@@ -885,6 +1032,44 @@ export class MessageDeliveryService {
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
   }
 
+  /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
+   *  Duplicate eligibility events cannot re-push an injected row, and a queued
+   *  wake gets a one-shot retry at the exact durable cooldown boundary. */
+  private prepareQueuedAttempt(message: MessageRow, nowMs: number): boolean {
+    if (message.toKind === 'operator') return false
+    if (message.injectedAt) {
+      if (this.awaitingConfirmation(message, nowMs)) return false
+      const requeues = this.requeueCounts.get(message.id) ?? 0
+      if (requeues >= MAX_ECHO_REQUEUES && message.deliveredTo) {
+        this.emitTransition(message, 'message.echo_capped')
+        this.markDelivered(message, message.deliveredTo, 'injection')
+        return false
+      }
+      if (this.deps.messages.clearInjected(message.id)) {
+        this.requeueCounts.set(message.id, requeues + 1)
+        this.emitTransition(message, 'message.requeued')
+      }
+    }
+    if (message.lifecycle === 'wake' && message.fromKind !== 'operator') {
+      const key = this.wakeKeyOfRow(message)
+      if (this.wakeCooldownHot(key)) {
+        this.scheduleWakeCooldown(key, message)
+        return false
+      }
+    }
+    return true
+  }
+
+  /** If an attempted wake remains durable and un-injected, arm its next allowed
+   *  attempt. Successful queue/spawn paths carry injectedAt and need no timer. */
+  private scheduleQueuedWakeRetry(message: MessageRow): void {
+    if (message.lifecycle !== 'wake' || message.fromKind === 'operator') return
+    const current = this.deps.messages.getMessage(message.id)
+    if (!current || current.status !== 'queued' || current.injectedAt) return
+    const key = this.wakeKeyOfRow(current)
+    if (this.wakeCooldownHot(key)) this.scheduleWakeCooldown(key, current)
+  }
+
   /** Slow sweep: expire what has expired, then re-attempt every queued row
    *  (delivery is state-resolved, so this is idempotent and cheap). */
   sweep(): void {
@@ -902,42 +1087,10 @@ export class MessageDeliveryService {
     // O(queued × sessions) — 8s of main-loop CPU per minute on the live host.
     const all = this.deps.sessions().listSessions()
     const nowMs = Date.parse(now)
-    for (const m of this.deps.messages.listQueued()) {
-      if (m.toKind === 'operator') continue
-      // Auto-requeue gate [POD-834]: a row we already pushed carries injected_at.
-      if (m.injectedAt) {
-        // Pointer nudge awaiting a read, or echo still inside its window: leave it.
-        // (A pointer is never re-nudged — that was the POD-279 storm; the TTL
-        // cleans up unread ones.)
-        if (this.awaitingConfirmation(m, nowMs)) continue
-        // Requeue cap [POD-853 stopgap]: a busy recipient's mid-turn injection
-        // never produces a role=user echo, so an uncapped requeue re-injects the
-        // same message forever (observed live: 9 rows looping every sweep). After
-        // MAX_ECHO_REQUEUES lost echoes the pushes themselves are the evidence —
-        // the harness accepted N injections into that session's context — so
-        // degrade to delivered-at-last-push rather than spam a fourth copy. The
-        // turn-boundary confirmation (POD-853) replaces this with a real signal.
-        const requeues = this.requeueCounts.get(m.id) ?? 0
-        if (requeues >= MAX_ECHO_REQUEUES && m.deliveredTo) {
-          this.emitTransition(m, 'message.echo_capped')
-          this.markDelivered(m, m.deliveredTo, 'injection')
-          continue
-        }
-        // The echo window passed with no confirmation — the push was lost. Clear
-        // the marker so this attempt re-pushes (kills the POD-495 ghost delivery).
-        if (this.deps.messages.clearInjected(m.id)) {
-          this.requeueCounts.set(m.id, requeues + 1)
-          this.emitTransition(m, 'message.requeued')
-        }
-      }
-      // Cooldown-degraded wakes retry as wakes next window; skip while hot.
-      // The key MUST match recordWake's (session targets resolve to their
-      // issue) or session-addressed wakes re-attempt every sweep, burning the
-      // spawn budget within minutes.
-      if (m.lifecycle === 'wake' && m.fromKind !== 'operator') {
-        if (this.wakeCooldownHot(this.wakeKeyOfRow(m))) continue
-      }
+    for (const m of this.deps.messages.listQueued(DELIVERY_RETRY_BACKSTOP_LIMIT)) {
+      if (!this.prepareQueuedAttempt(m, nowMs)) continue
       this.attemptDelivery(m, all, { viaSweep: true })
+      this.scheduleQueuedWakeRetry(m)
     }
   }
 
@@ -1541,6 +1694,38 @@ export class MessageDeliveryService {
     } catch {}
     this.lastWakeAt.set(key, derived)
     return derived >= cutoff
+  }
+
+  /** Arm one timer for every queued target sharing a sender+issue cooldown key.
+   *  The deadline comes from lastWakeAt, whose cold-path value is reconstructed
+   *  from durable message rows, so reconcileQueued() restores this after restart. */
+  private scheduleWakeCooldown(key: string, message: MessageRow): void {
+    const target = this.deliveryTargetOf(message)
+    if (!target) return
+    const last = this.lastWakeAt.get(key)
+    if (last === undefined) return
+    const deadline = last + WAKE_COOLDOWN_MS + 1
+    const existing = this.wakeCooldownTimers.get(key)
+    if (existing && existing.deadline === deadline) {
+      existing.targets.set(deliveryTargetKey(target), target)
+      return
+    }
+    if (existing) clearTimeout(existing.timer)
+    const targets = existing?.targets ?? new Map<string, DeliveryTarget>()
+    targets.set(deliveryTargetKey(target), target)
+    const timer = setTimeout(
+      () => {
+        const pending = this.wakeCooldownTimers.get(key)
+        if (!pending || pending.deadline !== deadline) return
+        this.wakeCooldownTimers.delete(key)
+        for (const retryTarget of pending.targets.values()) {
+          this.queueDeliveryTarget(retryTarget)
+        }
+      },
+      Math.max(1, deadline - this.nowMs()),
+    )
+    timer.unref?.()
+    this.wakeCooldownTimers.set(key, { deadline, timer, targets })
   }
 
   private recordWake(message: MessageRow, target: SessionMeta | undefined): void {
