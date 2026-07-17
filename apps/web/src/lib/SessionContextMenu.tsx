@@ -1,12 +1,12 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { handoffTargets } from '@podium/domain'
-import type { SessionMeta } from '@podium/protocol'
+import { type HandoffBlocker, type HandoffRejection, handoffAvailability } from '@podium/domain'
+import type { AgentKind, SessionMeta } from '@podium/protocol'
 import {
   AlarmClock,
-  ArrowRightLeft,
   AlarmClockOff,
   Archive,
   ArchiveRestore,
+  ArrowRightLeft,
   ChevronRight,
   Mail,
   MailOpen,
@@ -23,7 +23,13 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { isSnoozed, reposToViews, snoozeUntil1h, snoozeUntilTomorrow5am } from './derive'
+import {
+  isSnoozed,
+  panelLabel,
+  reposToViews,
+  snoozeUntil1h,
+  snoozeUntilTomorrow5am,
+} from './derive'
 import { useNow } from './useNow'
 
 export interface ContextMenuAnchor {
@@ -57,6 +63,43 @@ export function sessionMenuEligibility(session: SessionMeta): {
     // an unread one offers "mark read". (`unread` is always a boolean on the wire.)
     canMarkRead: session.unread === true,
     canMarkUnread: !session.unread,
+  }
+}
+
+/**
+ * Why this session can't be handed off at all (POD-821). The Handoff item is
+ * always offered and states its case rather than disappearing: a hidden item is
+ * indistinguishable from a broken eligibility gate, which is how a stale repo
+ * list went unnoticed after a successful handoff.
+ */
+export function handoffBlockerText(blocker: HandoffBlocker, agentKind: AgentKind): string {
+  switch (blocker) {
+    case 'harness':
+      return `${panelLabel(agentKind)} sessions can't be handed off`
+    case 'no-worktree':
+      return 'Only sessions in a worktree can be handed off'
+    case 'repo-unregistered':
+      return "This repo isn't registered on another machine"
+    default: {
+      const exhaustive: never = blocker
+      return exhaustive
+    }
+  }
+}
+
+/** Why one machine can't take this session — shown beside its (disabled) row. */
+export function handoffRejectionText(rejection: HandoffRejection, agentKind: AgentKind): string {
+  switch (rejection) {
+    case 'offline':
+      return 'offline'
+    case 'harness-missing':
+      return `no ${panelLabel(agentKind)}`
+    case 'logged-out':
+      return `${panelLabel(agentKind)} logged out`
+    default: {
+      const exhaustive: never = rejection
+      return exhaustive
+    }
   }
 }
 
@@ -117,7 +160,7 @@ export function SessionContextMenu({
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
   const issue = issues.find((i) => i.id === session.issueId)
-  const targets = handoffTargets(session, reposToViews(repos), machines, issue)
+  const { blocker, candidates } = handoffAvailability(session, reposToViews(repos), machines, issue)
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [handoffTop, setHandoffTop] = useState<number | null>(null)
@@ -282,7 +325,23 @@ export function SessionContextMenu({
           <Play size={14} aria-hidden="true" /> Resume
         </button>
       )}
-      {targets.length > 0 && (
+      {/* Always offered (POD-821). A blocker disables it and says why inline; with
+          no blocker the submenu names every other repo machine, eligible or not. */}
+      {blocker ? (
+        <button
+          type="button"
+          role="menuitem"
+          disabled
+          className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+        >
+          <span className="flex items-center gap-2">
+            <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
+          </span>
+          <span className="pl-6 text-[11px] text-muted-foreground">
+            {handoffBlockerText(blocker, session.agentKind)}
+          </span>
+        </button>
+      ) : (
         <button
           type="button"
           role="menuitem"
@@ -337,18 +396,39 @@ export function SessionContextMenu({
             top: handoffTop - 4,
           }}
         >
-          {targets.map((machine) => (
-            <button
-              key={machine.id}
-              type="button"
-              role="menuitem"
-              className={itemCls}
-              onClick={() => handoff(machine.id, machine.name)}
-            >
-              <span className="size-2 rounded-full bg-live" aria-hidden="true" />
-              {machine.name}
-            </button>
-          ))}
+          {candidates.length === 0 && (
+            <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+              No other machine has this repo
+            </div>
+          )}
+          {candidates.map(({ machine, rejection }) =>
+            rejection ? (
+              <button
+                key={machine.id}
+                type="button"
+                role="menuitem"
+                disabled
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+              >
+                <span className="size-2 rounded-full bg-muted-foreground" aria-hidden="true" />
+                {machine.name}
+                <span className="ml-auto pl-2 text-[11px] text-muted-foreground">
+                  {handoffRejectionText(rejection, session.agentKind)}
+                </span>
+              </button>
+            ) : (
+              <button
+                key={machine.id}
+                type="button"
+                role="menuitem"
+                className={itemCls}
+                onClick={() => handoff(machine.id, machine.name)}
+              >
+                <span className="size-2 rounded-full bg-live" aria-hidden="true" />
+                {machine.name}
+              </button>
+            ),
+          )}
         </div>
       )}
     </div>,

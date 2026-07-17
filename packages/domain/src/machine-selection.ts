@@ -123,6 +123,69 @@ export function handoffSource<R extends HandoffRepo>(
   return null
 }
 
+/**
+ * Why a session cannot be handed off ANYWHERE — a property of the session, not of
+ * any one machine, so it disables the whole menu.
+ *  - `harness`: only claude-code/codex can be exported and resumed elsewhere.
+ *  - `no-worktree`: neither the cwd nor the attached issue resolves to a worktree
+ *    (a bare main-checkout session has no self-contained tree to move).
+ *  - `repo-unregistered`: the worktree's repo has no stable cross-machine identity,
+ *    so no other machine's checkout can be matched to it.
+ */
+export type HandoffBlocker = 'harness' | 'no-worktree' | 'repo-unregistered'
+/** Why one machine cannot receive this session. */
+export type HandoffRejection = 'offline' | 'harness-missing' | 'logged-out'
+export interface HandoffCandidate<M> {
+  machine: M
+  /** `undefined` = eligible; otherwise why this machine is refused. */
+  rejection?: HandoffRejection
+}
+export interface HandoffAvailability<M> {
+  /** Set when nothing about the machine list matters — the session itself can't move. */
+  blocker?: HandoffBlocker
+  /** Every OTHER machine holding this repo, eligible or not (empty when blocked). */
+  candidates: HandoffCandidate<M>[]
+}
+
+/**
+ * The full handoff picture for a session: whether it can move at all, and every
+ * other machine that holds its repo WITH the reason each is or isn't a valid
+ * target ([spec:SP-3f7a]).
+ *
+ * Returns reasons rather than a filtered list because the menu states its case
+ * instead of vanishing (POD-821): a silently-hidden Handoff item is
+ * indistinguishable from a broken eligibility gate, which is exactly how a stale
+ * repo list went unnoticed after a successful handoff.
+ */
+export function handoffAvailability<M extends HandoffMachine>(
+  session: HandoffSession,
+  repos: HandoffRepo[],
+  machines: M[],
+  issue?: HandoffIssue,
+): HandoffAvailability<M> {
+  if (session.agentKind !== 'claude-code' && session.agentKind !== 'codex')
+    return { blocker: 'harness', candidates: [] }
+  const source = handoffSource(session, repos, issue)
+  if (!source) return { blocker: 'no-worktree', candidates: [] }
+  if (!source.repo.repoId) return { blocker: 'repo-unregistered', candidates: [] }
+  const candidates = machinesWithRepo(source.repo, machines)
+    .filter((machine) => machine.id !== session.machineId)
+    .map((machine) => {
+      const harness = machine.inventory?.agents.find((agent) => agent.kind === session.agentKind)
+      // Offline first: an offline machine's inventory is a stale snapshot, so
+      // "no Claude there" would be a guess. Being offline is the actionable fact.
+      const rejection: HandoffRejection | undefined = !machine.online
+        ? 'offline'
+        : harness?.installed !== true
+          ? 'harness-missing'
+          : harness.login.state === 'out'
+            ? 'logged-out'
+            : undefined
+      return { machine, ...(rejection ? { rejection } : {}) }
+    })
+  return { candidates }
+}
+
 /** Eligible move targets for a handoff-capable session ([spec:SP-3f7a]). */
 export function handoffTargets<M extends HandoffMachine>(
   session: HandoffSession,
@@ -130,14 +193,9 @@ export function handoffTargets<M extends HandoffMachine>(
   machines: M[],
   issue?: HandoffIssue,
 ): M[] {
-  if (session.agentKind !== 'claude-code' && session.agentKind !== 'codex') return []
-  const source = handoffSource(session, repos, issue)
-  if (!source?.repo.repoId) return []
-  return machinesWithRepo(source.repo, machines).filter((machine) => {
-    if (!machine.online || machine.id === session.machineId) return false
-    const harness = machine.inventory?.agents.find((agent) => agent.kind === session.agentKind)
-    return harness?.installed === true && harness.login.state !== 'out'
-  })
+  return handoffAvailability(session, repos, machines, issue)
+    .candidates.filter((candidate) => candidate.rejection === undefined)
+    .map((candidate) => candidate.machine)
 }
 
 /** The machineId of the most recently created session among the given machines. */

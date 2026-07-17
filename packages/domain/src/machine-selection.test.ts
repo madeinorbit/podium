@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { handoffSource, handoffTargets } from './machine-selection'
+import { handoffAvailability, handoffSource, handoffTargets } from './machine-selection'
 
 const repos = [
   {
@@ -128,5 +128,92 @@ describe('handoffSource ([spec:SP-3f7a])', () => {
 
   it('returns null when the cwd is outside every known repo', () => {
     expect(handoffSource(at('/tmp/scratch'), repos, issue)).toBeNull()
+  })
+})
+
+describe('handoffAvailability (POD-821)', () => {
+  const session = { cwd: '/a/.worktrees/x', machineId: 'source', agentKind: 'codex' }
+
+  it('names the blocker that stops a session moving anywhere', () => {
+    const machines = [{ id: 'target', online: true, inventory: { agents: [agent('in')] } }]
+    expect(handoffAvailability({ ...session, agentKind: 'shell' }, repos, machines)).toEqual({
+      blocker: 'harness',
+      candidates: [],
+    })
+    // Main checkout, no issue to anchor on.
+    expect(handoffAvailability({ ...session, cwd: '/a' }, repos, machines)).toEqual({
+      blocker: 'no-worktree',
+      candidates: [],
+    })
+    const noId = [{ ...repos[0]!, repoId: undefined }]
+    expect(handoffAvailability(session, noId, machines)).toEqual({
+      blocker: 'repo-unregistered',
+      candidates: [],
+    })
+  })
+
+  it('reports every other repo machine with its rejection, and none for the eligible', () => {
+    const machines = [
+      { id: 'source', online: true, inventory: { agents: [agent('in')] } },
+      { id: 'target', online: true, inventory: { agents: [agent('in')] } },
+    ]
+    // The session's own machine is never a candidate — it is not a refusal to explain.
+    expect(handoffAvailability(session, repos, machines)).toEqual({
+      candidates: [{ machine: machines[1] }],
+    })
+    const rejected = <T>(list: T[]): unknown[] =>
+      handoffAvailability(session, repos, list as never).candidates.map((c) => c.rejection)
+    expect(
+      rejected([{ id: 'target', online: false, inventory: { agents: [agent('in')] } }]),
+    ).toEqual(['offline'])
+    expect(
+      rejected([{ id: 'target', online: true, inventory: { agents: [agent('out')] } }]),
+    ).toEqual(['logged-out'])
+    expect(
+      rejected([{ id: 'target', online: true, inventory: { agents: [agent('in', false)] } }]),
+    ).toEqual(['harness-missing'])
+    // No inventory at all reads as "the harness isn't there", not as eligible.
+    expect(rejected([{ id: 'target', online: true }])).toEqual(['harness-missing'])
+    // Offline wins over a stale inventory: being offline is the actionable fact.
+    expect(
+      rejected([{ id: 'target', online: false, inventory: { agents: [agent('out')] } }]),
+    ).toEqual(['offline'])
+  })
+
+  it('offers no candidates when no other machine has the repo', () => {
+    expect(
+      handoffAvailability(session, repos, [
+        { id: 'source', online: true, inventory: { agents: [agent('in')] } },
+        { id: 'stranger', online: true, inventory: { agents: [agent('in')] } },
+      ]),
+    ).toEqual({ candidates: [] })
+  })
+
+  it('a session on a worktree the scan has not seen yet is blocked, not silently empty', () => {
+    // POD-821 live repro: the handoff import ran `git worktree add` on the target,
+    // so the moved session's cwd is a worktree absent from the client's repo list.
+    // Its cwd is then merely CONTAINED by the target's main checkout, and the issue
+    // still anchors on the SOURCE machine's worktree — the gate finds no source.
+    const macSession = { cwd: '/b/.worktrees/x', machineId: 'target', agentKind: 'codex' }
+    const staleIssue = { branch: 'issue/1-x', worktreePath: '/a/.worktrees/x' }
+    const machines = [{ id: 'source', online: true, inventory: { agents: [agent('in')] } }]
+    expect(handoffAvailability(macSession, repos, machines, staleIssue)).toEqual({
+      blocker: 'no-worktree',
+      candidates: [],
+    })
+    // Once the worktree is known, the cwd layer resolves it and the stale issue
+    // anchor stops mattering — a refreshed repo list alone restores the menu.
+    const fresh = [
+      {
+        ...repos[0]!,
+        worktrees: [
+          ...repos[0]!.worktrees,
+          { path: '/b/.worktrees/x', isMain: false, machineId: 'target' },
+        ],
+      },
+    ]
+    expect(handoffAvailability(macSession, fresh, machines, staleIssue)).toEqual({
+      candidates: [{ machine: machines[0] }],
+    })
   })
 })

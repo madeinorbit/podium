@@ -887,6 +887,19 @@ export class SessionRegistry {
       broadcastSessions: () => sessionsSvc.broadcastSessions(),
       clients: () => clients().values(),
     })
+    // POD-665: fan out the invalidation raw (imitating MachinesService.
+    // broadcastMachines) — no repo payload, just "go re-fetch" (see
+    // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
+    // Shared by every path that creates or destroys a worktree behind the
+    // clients' backs: issue start, and handoff import (POD-821).
+    const broadcastWorktreesChanged = (repoPath: string, machineId?: string): void => {
+      const msg: LiveServerMessage = {
+        type: 'worktreesChanged',
+        repoPath,
+        ...(machineId ? { machineId } : {}),
+      }
+      for (const c of clients().values()) c.send(msg)
+    }
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
@@ -908,6 +921,7 @@ export class SessionRegistry {
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
       runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),
+      onWorktreesChanged: broadcastWorktreesChanged,
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
@@ -972,17 +986,7 @@ export class SessionRegistry {
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
-      // POD-665: fan out the invalidation raw (imitating MachinesService.
-      // broadcastMachines) — no repo payload, just "go re-fetch" (see
-      // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
-      onWorktreesChanged: (repoPath, machineId) => {
-        const msg: LiveServerMessage = {
-          type: 'worktreesChanged',
-          repoPath,
-          ...(machineId ? { machineId } : {}),
-        }
-        for (const c of clients().values()) c.send(msg)
-      },
+      onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
       // out via the funnel's publishComputed tail; the PublishSpecs are built

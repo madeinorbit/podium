@@ -162,6 +162,9 @@ interface SessionsServiceDeps {
   automationRunsWire(): AutomationRunWire[]
   /** Relayed agent op (modules/issues/relay-gate). */
   runAgentRelay(machineId: string, msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>): void
+  /** POD-665: a worktree appeared/vanished out from under connected clients —
+   *  nudge them to re-fetch repos. Raw invalidation, no payload. */
+  onWorktreesChanged(repoPath: string, machineId?: string): void
   /** Approval broker [spec:SP-edbb]: daemon execution outcome + attach snapshot. */
   onApprovalExecResult(msg: Extract<DaemonMessage, { type: 'approvalExecResult' }>): void
   approvalsPending(): ApprovalWire[]
@@ -1876,6 +1879,15 @@ export class SessionsService {
       session.cwd = imported.newCwd
       session.status = 'hibernated'
       this.persist(session)
+      // The import just ran `git worktree add` on the target, so `imported.newCwd`
+      // names a worktree no client has ever scanned. Clients only re-fetch repos on
+      // boot / a machine coming online / this invalidation, and the handoff gate
+      // resolves a session's cwd against that list — so without this the moved
+      // session has no known worktree and its own Handoff menu disappears until a
+      // reload (POD-821). Both sides: the target gained a worktree, and the source
+      // keeps its residue but is no longer where this session lives.
+      this.deps.onWorktreesChanged(targetRepo.path, input.machineId)
+      this.deps.onWorktreesChanged(sourceRepo.path, source.machineId)
       const resumed = this.resumeSession({
         agentKind: session.agentKind,
         cwd: session.cwd,

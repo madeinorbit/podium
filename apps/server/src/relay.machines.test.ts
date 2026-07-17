@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { ControlMessage } from '@podium/protocol'
+import type { ControlMessage, ServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -307,6 +307,29 @@ describe('session handoff orchestration', () => {
       expect(target).toContainEqual(
         expect.objectContaining({ type: 'spawn', sessionId, cwd: '/target/repo/.worktrees/x' }),
       )
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = prior
+    }
+  })
+
+  it('invalidates the repo lists on both machines so the moved session stays handoff-eligible', async () => {
+    // POD-821: the import runs `git worktree add` on the target, so the moved
+    // session's new cwd is a worktree NO client has scanned. Clients re-fetch repos
+    // only on boot / a machine coming online / this invalidation, and the handoff
+    // gate resolves a session's cwd against that list — without it the session that
+    // just arrived cannot be handed back until a reload.
+    const prior = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
+    try {
+      const { reg, sessionId } = handoffRegistry()
+      const client: ServerMessage[] = []
+      reg.modules.sessions.attachClient((message) => client.push(message))
+      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+      expect(client.filter((m) => m.type === 'worktreesChanged')).toEqual([
+        { type: 'worktreesChanged', repoPath: '/target/repo', machineId: 'm2' },
+        { type: 'worktreesChanged', repoPath: '/source/repo', machineId: 'm1' },
+      ])
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prior
