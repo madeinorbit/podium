@@ -16,6 +16,7 @@ import {
   machinesForRepo,
   machinesWithRepo,
   normalizeOriginUrl,
+  repoNameFromOrigin,
   resolveTargetMachine,
   returnedFromSnooze,
   snoozeUntil1h,
@@ -50,6 +51,7 @@ export {
   machinesForRepo,
   machinesWithRepo,
   normalizeOriginUrl,
+  repoNameFromOrigin,
   resolveTargetMachine,
   returnedFromSnooze,
   snoozeUntil1h,
@@ -210,7 +212,13 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
 
     views.push({
       path: first.path,
-      name: first.path.split('/').pop() || first.path,
+      // Name the repo by its ORIGIN, not the folder it happens to sit in: a backup
+      // clone at ~/bak_podium of .../podium.git is still "podium", and this name is
+      // what the sidebar's "New <agent> in <repo>" and the rail/palette show. Only
+      // an originless repo is named after its folder — that is all we know about it.
+      // `originUrl` here is already normalized (host/owner/repo); the helper is
+      // idempotent over that. [spec:SP-3701]
+      name: repoNameFromOrigin(originUrl) ?? (first.path.split('/').pop() || first.path),
       worktrees,
       machines,
       ...(originUrl !== undefined ? { originUrl } : {}),
