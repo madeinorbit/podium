@@ -3,6 +3,7 @@ import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useStoreSelector } from '@/app/store'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { RepoPickerModal } from './RepoPickerModal'
 import { RepoScanResults } from './RepoScanResults'
 import {
@@ -23,6 +24,10 @@ type Results = { path: string; candidates: RepoCandidate[] }
  * Machine-aware (POD-787): selecting a machine offers the tiered machine scan
  * (probes of known repo paths → shallow adjacent walk → bounded home sweep) with the
  * results in the same selection screen; a direct path field remains as fallback.
+ *
+ * Every action names its machine (POD-814) [spec:SP-3701] — browse included, which
+ * runs on that machine's daemon. One machine is always selected: there is no
+ * server-host filesystem to fall back to.
  */
 export function RepoScanFlow({
   onClose,
@@ -48,6 +53,21 @@ export function RepoScanFlow({
     null,
   )
 
+  // Settle on a machine as soon as the fleet is known: the picker browses a
+  // machine's daemon, so "none selected" is not a usable state. Preference order —
+  // the caller's pick, then the device the user is sitting at (the desktop shell
+  // knows its own machineId), then any online machine, then the first known one.
+  // A single-machine install has exactly one, and lands on it.
+  useEffect(() => {
+    if (selectedMachineId !== undefined || machines.length === 0) return
+    const thisDevice = nativeDesktopBridge()?.machineId
+    const preferred =
+      machines.find((m) => m.id === thisDevice && m.online) ??
+      machines.find((m) => m.online) ??
+      machines[0]
+    if (preferred) setSelectedMachineId(preferred.id)
+  }, [machines, selectedMachineId])
+
   // Surface the machine's most recent discovery (e.g. the automatic connect scan)
   // as a "view results" shortcut instead of forcing a rescan.
   useEffect(() => {
@@ -67,7 +87,7 @@ export function RepoScanFlow({
   }, [trpc, selectedMachineId])
 
   async function scanFolder(path: string): Promise<void> {
-    const res = await trpc.discovery.scanFolder.mutate({ path })
+    const res = await trpc.discovery.scanFolder.mutate({ path, ...repoMachineInput() })
     const fatal = res.diagnostics.find((d) => d.severity === 'error')
     if (res.repositories.length === 0 && fatal) throw new Error(fatal.message || 'Scan failed')
     setResults({ path, candidates: rankRepoCandidates(res.repositories) })

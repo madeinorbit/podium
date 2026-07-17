@@ -1016,7 +1016,9 @@ export const appRouter = t.router({
         if (input?.machineId) {
           const res = await mods(ctx).rpc.browseDirs(
             input.path,
-            { ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }) },
+            {
+              ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }),
+            },
             input.machineId,
           )
           if (!res.listing)
