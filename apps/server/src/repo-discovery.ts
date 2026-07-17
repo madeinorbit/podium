@@ -206,6 +206,17 @@ export class MachineRepoDiscovery {
       byOrigin.set(origin, list)
     }
 
+    // Copies of the same origin found on THIS machine (backup clones, extra
+    // checkouts). Auto-registering is only unambiguous when there is exactly one
+    // copy — with several, the user must pick which copy is "the" repo here, so
+    // all of them stay candidates (POD-779 feedback: a ~/bak_podium clone got
+    // registered over the real one).
+    const foundByOrigin = new Map<string, number>()
+    for (const repo of found.values()) {
+      const origin = normalizeOriginUrl(repo.originUrl ?? null)
+      if (origin) foundByOrigin.set(origin, (foundByOrigin.get(origin) ?? 0) + 1)
+    }
+
     const repos: DiscoveredRepo[] = []
     for (const [path, repo] of found) {
       const origin = normalizeOriginUrl(repo.originUrl ?? null)
@@ -213,10 +224,16 @@ export class MachineRepoDiscovery {
         (r) => r.machineId !== machineId,
       )
       const alsoOn = [...new Set(elsewhere.map((r) => this.deps.machineName(r.machineId)))]
+      const copiesHere = origin ? (foundByOrigin.get(origin) ?? 0) : 0
+      // A copy of this origin is already registered on this machine (under any
+      // path) — a second copy must never be auto-added next to it.
+      const originAlreadyRegisteredHere =
+        origin !== null &&
+        rows.some((r) => r.machineId === machineId && normalizeOriginUrl(r.originUrl) === origin)
       let status: DiscoveredRepo['status']
       if (registeredHere.has(path)) {
         status = 'registered'
-      } else if (elsewhere.length > 0) {
+      } else if (elsewhere.length > 0 && copiesHere === 1 && !originAlreadyRegisteredHere) {
         await this.deps.addRepo(path, machineId, repo.originUrl)
         status = 'auto-registered'
         this.deps.log?.(

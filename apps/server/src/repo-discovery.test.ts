@@ -162,6 +162,44 @@ describe('MachineRepoDiscovery.scan', () => {
     ])
   })
 
+  it('keeps ALL copies as candidates when the machine has several clones of one origin', async () => {
+    // POD-779 feedback: a ~/bak_podium backup clone was auto-registered over the
+    // real one. Multiple same-origin copies → the user picks, nothing auto-adds.
+    const rows = [row('hub', '/home/mgw/src/podium', 'git@github.com:o/podium.git')]
+    const scanRepos = vi.fn(
+      async (): Promise<ScanReposResult> =>
+        scanResult([
+          { path: '/Users/mike/src/podium', originUrl: 'git@github.com:o/podium.git' },
+          { path: '/Users/mike/bak_podium', originUrl: 'git@github.com:o/podium.git' },
+        ]),
+    )
+    const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
+
+    const result = await svc.scan('mac', { deep: false })
+
+    expect(added).toEqual([])
+    expect(result.repos.map((r) => r.status)).toEqual(['candidate', 'candidate'])
+  })
+
+  it('never auto-adds a second copy when one copy of the origin is already registered', async () => {
+    const rows = [
+      row('hub', '/home/mgw/src/podium', 'git@github.com:o/podium.git'),
+      row('mac', '/Users/mike/src/podium', 'git@github.com:o/podium.git'),
+    ]
+    const scanRepos = vi.fn(
+      async (): Promise<ScanReposResult> =>
+        scanResult([{ path: '/Users/mike/bak_podium', originUrl: 'git@github.com:o/podium.git' }]),
+    )
+    const { svc, added } = makeService({ listRepos: () => rows, scanRepos })
+
+    const result = await svc.scan('mac', { deep: false })
+
+    expect(added).toEqual([])
+    expect(result.repos).toEqual([
+      expect.objectContaining({ path: '/Users/mike/bak_podium', status: 'candidate' }),
+    ])
+  })
+
   it('coalesces concurrent scans and records lastResult', async () => {
     let resolveScan: (r: ScanReposResult) => void = () => {}
     const gate = new Promise<ScanReposResult>((resolve) => {
