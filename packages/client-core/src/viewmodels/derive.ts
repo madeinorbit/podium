@@ -672,6 +672,59 @@ export function isConsumedChild(s: SessionMeta): boolean {
   return s.status === 'exited'
 }
 
+/** Live native (in-process Task) subagent count on a session, or 0 if absent. */
+export function nativeSubagentCountOf(s: SessionMeta): number {
+  return s.agentState?.nativeSubagentCount ?? 0
+}
+
+/** True when the session currently has one or more native subagents running. */
+export function sessionHasNativeSubagents(s: SessionMeta): boolean {
+  return nativeSubagentCountOf(s) > 0
+}
+
+/**
+ * Sidebar label for a nested native-subagent indicator under a parent session
+ * (count-only — named per-subagent identity is a separate deferred stream).
+ */
+export function nativeSubagentLabel(count: number): string {
+  if (count <= 0) return ''
+  return count === 1 ? '1 subagent' : `${count} subagents`
+}
+
+/**
+ * Human-facing issue linkage for a session row: prefer the permanent birth
+ * `displayRef` (e.g. `POD-13-A`), fall back to raw `issueId` when present.
+ * Null when the session carries no issue attachment data.
+ */
+export function sessionIssueLinkage(s: SessionMeta): string | null {
+  const ref = s.displayRef?.trim()
+  if (ref) return ref
+  const id = s.issueId?.trim()
+  return id || null
+}
+
+/**
+ * Whether a sidebar issue/worktree row should expand to show nested session
+ * rows (remote spawn children and/or native-subagent indicators).
+ *
+ * - A genuine remote spawn-child must nest under its spawner even when it is
+ *   the only extra session (parent + 1 child) — never hide it behind the
+ *   parent status line just because the list is short.
+ * - A lone parent with `nativeSubagentCount > 0` still expands so the native
+ *   indicator is visible.
+ * - Unrelated multi-agent rows keep expanding as before.
+ */
+export function sessionsNeedChildRows(sessions: SessionMeta[]): boolean {
+  if (sessions.length === 0) return false
+  // Native Task subagents: expand even for a lone parent session so the
+  // nested "N subagents" indicator is visible under the parent row.
+  if (sessions.some(sessionHasNativeSubagents)) return true
+  // Multi-session list: expand so remote spawn children and sibling agents
+  // are visible as rows. Parent + a single remote child is length 2 — never
+  // collapse that genuine spawn-child into the parent status line.
+  return sessions.length >= 2
+}
+
 /**
  * Group a row's sessions by spawn parentage so cross-harness fan-out doesn't
  * flatten into an unusable list: a session whose spawner is ALSO in the list

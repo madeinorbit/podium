@@ -56,6 +56,7 @@ import {
   rowWaitingCount,
   sessionsForIssueNav,
   sessionsForWorktree,
+  sessionsNeedChildRows,
   sidebarSections,
   spawnTargetForRepo,
   type UnifiedWorkRow,
@@ -970,9 +971,11 @@ function UnifiedIssueRow({
       onCancel={() => setEditing(false)}
     />
   ) : undefined
-  // A single agent underneath = nothing worth a second line: the parent row's
-  // status line IS that agent's indicator. Child rows only exist from 2 agents up.
-  const showChildren = mine.length >= 2
+  // Expand when multi-agent / remote spawn children need nesting, or when a
+  // lone parent has live native subagents (count indicator under the row).
+  // A single agent with no subagents stays collapsed — the parent status line
+  // is that agent's indicator.
+  const showChildren = sessionsNeedChildRows(mine)
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   const waitingCount = rowWaitingCount(row)
@@ -1141,9 +1144,8 @@ function UnifiedWorktreeRow({
   const { worktree } = row
   const unread = rowUnreadEmphasized(row)
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
-  // A single agent underneath = nothing worth a second line: the parent row's
-  // status line IS that agent's indicator. Child rows only exist from 2 agents up.
-  const showChildren = worktree.sessions.length >= 2
+  // Same expand rule as issue rows: multi-agent / remote spawn / native count.
+  const showChildren = sessionsNeedChildRows(worktree.sessions)
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
   const phase = rowMotionPhase(row)
   const timing = rowMotionTiming(row)
