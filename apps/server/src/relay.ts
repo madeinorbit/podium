@@ -1135,7 +1135,10 @@ export class SessionRegistry {
     this.bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
       if (next.phase !== 'idle' || prev?.phase === 'idle') return
       const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
-      if (meta) messagesSvc.onSessionIdle(meta)
+      // Pass the phase the turn left from: an errored turn (prev='errored') did
+      // not complete, so the turn-boundary backstop must not confirm its injected
+      // rows [POD-853].
+      if (meta) messagesSvc.onSessionIdle(meta, { priorPhase: prev?.phase })
     })
     // Transcript-echo confirmation (#834) [POD-834 §04d]: a message the substrate
     // typed into a PTY reappears as a user turn carrying its `[podium message

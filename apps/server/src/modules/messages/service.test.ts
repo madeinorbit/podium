@@ -2133,6 +2133,37 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
   })
 
+  it('an ERRORED turn does not confirm its injected rows — they re-queue via the sweep', () => {
+    // API 529 mid-turn is frequent: an errored turn (errored→idle fires here too)
+    // did not complete, so it must NOT confirm what it may not have consumed
+    // [coordinator caution]. The row stays queued; the sweep re-queues it.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live = [session({ sessionId: 's1', issueId: ISSUE.id, agentState: WORKING })]
+    const { svc, sent, store } = harness(live, { now })
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'work item', urgency: 'next-turn' },
+    )
+    // The turn ends → injected (queued, awaiting proof).
+    const idle = session({ sessionId: 's1', issueId: ISSUE.id, agentState: IDLE })
+    svc.onSessionIdle(idle)
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+    // The turn that would consume it ERRORS (errored→idle): do NOT confirm it.
+    live[0] = idle // the session is now reachable/idle again (post-error retry)
+    svc.onSessionIdle(idle, { priorPhase: 'errored' })
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // Past the window the sweep re-queues it (a lost push), never a false delivered.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // A later CLEAN idle confirms it (the retry turn consumed it).
+    svc.onSessionIdle(idle)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
   it('confirms only rows pushed to THIS session, never another session on the same issue', () => {
     const s1 = session({ sessionId: 's1', issueId: ISSUE.id })
     const s2 = session({ sessionId: 's2', issueId: ISSUE.id, cwd: '/wt/a' })

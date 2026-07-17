@@ -26,7 +26,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { SessionMeta } from '@podium/protocol'
+import type { AgentPhase, SessionMeta } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -709,13 +709,14 @@ export class MessageDeliveryService {
   // ---- retriggers ----
 
   /**
-   * Drain trigger: a session's turn ended (phase → idle). Clears the hop
-   * context for the finished turn, confirms delivery of anything the just-ended
-   * turn consumed (turn-boundary backstop), then delivers what queued up while it
-   * was busy/parked — its session-addressed rows plus its issue's rows, FIFO,
-   * with fyi batches coalesced into one inbox pointer.
+   * Drain trigger: a session's turn ended (phase → idle). Confirms delivery of
+   * anything the just-ended turn consumed (turn-boundary backstop), clears the hop
+   * context for the finished turn, then delivers what queued up while it was
+   * busy/parked — its session-addressed rows plus its issue's rows, FIFO, with fyi
+   * batches coalesced into one inbox pointer. `priorPhase` is the phase the session
+   * left to become idle; an `errored` turn did not complete, so it must not confirm.
    */
-  onSessionIdle(session: SessionMeta): void {
+  onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): void {
     const nowMs = this.nowMs()
     const issueId = this.issueForSession(session)
     const all = [
@@ -735,14 +736,18 @@ export class MessageDeliveryService {
     // one we push in this same idle. Pointer/pull-path rows are excluded (an
     // inbox READ confirms those, not a turn boundary), and only rows pushed to
     // THIS session (deliveredTo match) are confirmed — never a sibling session's
-    // in-flight push. onSessionIdle fires only on phase→idle (a cleanly finished
-    // turn); an errored turn is a distinct phase and re-queues via the sweep.
+    // in-flight push. An ERRORED turn (API 529 &c) did NOT complete — it may not
+    // have consumed its injected rows — and errored→idle still fires here, so gate
+    // the confirm on a clean turn: an errored turn leaves the rows queued and the
+    // sweep re-queues them for a retry [coordinator caution POD-833].
     const confirmed = new Set<string>()
-    for (const m of all) {
-      if (!m.injectedAt || m.deliveredTo !== session.sessionId) continue
-      if (this.deliveryMode(m) === 'pointer') continue
-      this.markDelivered(m, session.sessionId)
-      confirmed.add(m.id)
+    if (opts?.priorPhase !== 'errored') {
+      for (const m of all) {
+        if (!m.injectedAt || m.deliveredTo !== session.sessionId) continue
+        if (this.deliveryMode(m) === 'pointer') continue
+        this.markDelivered(m, session.sessionId)
+        confirmed.add(m.id)
+      }
     }
     // Clear the finished turn's hop context AFTER the confirm loop: markDelivered
     // re-stamps turnHop (right for the echo path, which fires DURING the
