@@ -250,7 +250,7 @@ React stays a thin binding (`engine/react` subpath or sibling). Today’s `packa
 | `apps/server` | `apps/node` | `@podium/node` | Authority composition root (“node” in offline-sync vocabulary); role tiers core/hub/cloud remain **inside** the app |
 | `apps/daemon` | `apps/host` | `@podium/host` | Machine host (PTY/harness, pairing client, control) |
 
-**When:** after the internal decomposition of each app is stable enough that a path rename is not fighting a god-file split — default **Phase 4 close (node)** / **Phase 5 close (host)**, or a single POD-356 cut with a redirect map. Until rename, docs may say **node (`apps/server`)** / **host (`apps/daemon`)** on first mention.
+**When:** after the internal decomposition of each app is stable enough that a path rename is not fighting a god-file split — default **Phase 4 close (node)** / **Phase 5 close (host)**, or a single POD-356 cut with a redirect map. Until rename, docs may say **node (`apps/server`)** / **host (`apps/daemon`)** on first mention. Naming note (reconciliation): `apps/node` here is the LOCAL Authority composition root in the offline-sync vocabulary; it is distinct from ADR 5’s reserved H2 peer ROLE `node` (a future federation peer) — the collision is acknowledged and intentional, disambiguated by context (package path vs peer-hello role field).
 
 **Rejected:** rename on day one of Phase 1 (max churn, min value); keep `server`/`daemon` forever (permanent translation tax against L4 vocabulary).
 
