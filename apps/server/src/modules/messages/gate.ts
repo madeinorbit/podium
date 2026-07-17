@@ -224,6 +224,10 @@ export class MessageGate {
     // (transcript-observed), next-turn until delivered within a budget then
     // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
     // that provably vanished. Only THIS surface blocks; internal sends use send().
+    // Capture the poll seams as consts so the `now` adapter narrows without a
+    // non-null assertion (tests inject a fake clock/sleep; production uses timers).
+    const { sleep, awaitPollMs } = this.deps
+    const nowIso = this.deps.now
     const r = await svc.sendAndConfirm(
       senderFromCapability(caller.capability),
       {
@@ -234,9 +238,9 @@ export class MessageGate {
         ...(input.expectResponse ? { expectsResponse: true } : {}),
       },
       {
-        ...(this.deps.awaitPollMs !== undefined ? { pollMs: this.deps.awaitPollMs } : {}),
-        ...(this.deps.sleep ? { sleep: this.deps.sleep } : {}),
-        ...(this.deps.now ? { now: () => Date.parse(this.deps.now!()) } : {}),
+        ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
+        ...(sleep ? { sleep } : {}),
+        ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
       },
     )
     return {
