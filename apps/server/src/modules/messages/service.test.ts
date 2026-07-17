@@ -2108,6 +2108,12 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
     expect(sent).toHaveLength(1) // never re-injected → no duplicate delivery
     svc.sweep()
     expect(sent).toHaveLength(1) // and the sweep never resurrects a delivered row
+    // The ledger records HOW it was confirmed, so a boundary-confirm is
+    // distinguishable from an echo when debugging delivery [POD-853].
+    const delivered = store.events
+      .listEventsSince(0, { kinds: ['message.delivered'] })
+      .find((e) => e.subject === r.message.id)
+    expect((delivered?.payload as { confirmedVia?: string }).confirmedVia).toBe('boundary')
   })
 
   it('does not confirm a pointer (pull-path) row at a turn boundary — only an inbox read does', () => {

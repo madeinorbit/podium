@@ -459,7 +459,7 @@ export class MessageDeliveryService {
       // on status='queued' in the store, so a already-delivered original is a
       // no-op; deliveredTo is always set once a row was injected.
       if (original.status === 'queued' && original.deliveredTo) {
-        this.markDelivered(original, original.deliveredTo)
+        this.markDelivered(original, original.deliveredTo, 'ack')
       }
     }
     this.emitTransition(message, 'message.queued')
@@ -657,7 +657,7 @@ export class MessageDeliveryService {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
       // delivery [POD-834, POD-853].
-      this.markDelivered(message, sessionId)
+      this.markDelivered(message, sessionId, 'injection')
     } else {
       // Enveloped (echo) or a coalesced pointer (read): record the push and wait
       // for the agent's own signal (transcript echo → delivered, inbox → read).
@@ -745,7 +745,7 @@ export class MessageDeliveryService {
       for (const m of all) {
         if (!m.injectedAt || m.deliveredTo !== session.sessionId) continue
         if (this.deliveryMode(m) === 'pointer') continue
-        this.markDelivered(m, session.sessionId)
+        this.markDelivered(m, session.sessionId, 'boundary')
         confirmed.add(m.id)
       }
     }
@@ -867,7 +867,7 @@ export class MessageDeliveryService {
    *  never chased, so both are confirmed now; everything else is injected and
    *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
   private recordPush(message: MessageRow, sessionId: string): void {
-    if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId)
+    if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId, 'injection')
     else this.markInjected(message, sessionId)
   }
 
@@ -1427,9 +1427,17 @@ export class MessageDeliveryService {
     }
   }
 
-  /** queued → delivered: the PUSH is confirmed [POD-834]. Called on a transcript
-   *  echo, or immediately for an unwrapped operator body that can never echo. */
-  private markDelivered(message: MessageRow, sessionId: string): void {
+  /** queued → delivered: the PUSH is confirmed [POD-834]. `via` records HOW it was
+   *  confirmed so the ledger can tell an echo-confirmed row from one confirmed at a
+   *  turn boundary / on injection / by an ack — invaluable when debugging delivery
+   *  [POD-853]: 'echo' (transcript), 'boundary' (turn ended), 'injection' (unwrapped
+   *  or best-effort — the push IS the confirmation), 'ack' (an ack proves the
+   *  original was received). */
+  private markDelivered(
+    message: MessageRow,
+    sessionId: string,
+    via: 'echo' | 'boundary' | 'injection' | 'ack',
+  ): void {
     const at = this.deps.now()
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
       // Delivery consumes the legacy issue_messages mirror row too, or
@@ -1444,6 +1452,7 @@ export class MessageDeliveryService {
       this.emitTransition(
         { ...message, status: 'delivered', deliveredAt: at, deliveredTo: sessionId },
         'message.delivered',
+        { confirmedVia: via },
       )
     }
   }
@@ -1499,7 +1508,7 @@ export class MessageDeliveryService {
         // branch kills [POD-834 review]. injectedAt always co-sets deliveredTo,
         // so requiring the push target to match closes the loophole.
         if (!row.injectedAt || row.deliveredTo !== sessionId) continue
-        this.markDelivered(row, sessionId)
+        this.markDelivered(row, sessionId, 'echo')
       }
     }
   }
