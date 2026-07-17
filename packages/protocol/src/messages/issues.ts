@@ -336,3 +336,14 @@ export const AgentRelayResultMessage = z.object({
   result: z.unknown().optional(),
   error: z.string().optional(),
 })
+
+/** How long the loopback agent-relay hub holds a request open for procs that
+ *  legitimately BLOCK server-side, before giving up with `agent relay timed out`
+ *  [POD-854]. The urgency-gated blocking send waits up to the server's
+ *  INTERRUPT_DELIVERY_CEILING_MS (90s) for a transcript-observed confirmation; if
+ *  the transport gives up first, the agent's `podium mail send` THROWS before the
+ *  gate can return its honest `delivered`/`accepted`, the sender resends, and we
+ *  get the duplicate delivery the milestone exists to kill. This must exceed that
+ *  ceiling with margin (the normal-RPC hub timeout stays 30s). Shared here so the
+ *  daemon transport and the server's budget invariant agree on one number. */
+export const AGENT_RELAY_BLOCKING_TIMEOUT_MS = 120_000
