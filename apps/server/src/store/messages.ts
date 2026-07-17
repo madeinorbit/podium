@@ -42,6 +42,7 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     hop: (r.hop as number | null) ?? 0,
     clampedFrom: (r.clamped_from as string | null) ?? null,
     remindedAt: (r.reminded_at as string | null) ?? null,
+    expectsResponse: Boolean(r.expects_response),
   }
 }
 
@@ -54,8 +55,9 @@ export class MessagesRepository {
         `INSERT INTO messages
            (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
             to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
-            created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
+            expects_response)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -79,6 +81,7 @@ export class MessagesRepository {
         m.ackedBy,
         m.hop,
         m.clampedFrom,
+        m.expectsResponse ? 1 : 0,
       )
   }
 
@@ -272,17 +275,20 @@ export class MessagesRepository {
     return r.changes === 1
   }
 
-  /** Delivered-to-`sessionId`, unacked, unexpired rows that still expect an ack
-   *  (kinds message/question — acks and notifications never expect one). The
-   *  stop-hook reminder and the steward's deterministic fallback both read this
-   *  set (#237) [spec:SP-34d7 acks]. */
+  /** Delivered-to-`sessionId`, unfulfilled, unexpired rows that REQUESTED a
+   *  response [POD-835 §04b] — `expects_response = 1` is the sole gate (a
+   *  `--expect-response` send or a `question`); an ordinary message owes no reply,
+   *  so receipt alone never lands here. `acked_by IS NULL` is the unfulfilled test:
+   *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
+   *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
+   *  both read this set (#237) [spec:SP-34d7 acks]. */
   listDeliveredUnacked(sessionId: string, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         // The agent has it either way — pushed (delivered) or pulled (read).
         `SELECT * FROM messages
          WHERE status IN ('delivered','read') AND delivered_to = ? AND acked_by IS NULL
-           AND kind IN ('message','question')
+           AND expects_response = 1
            AND (expires_at IS NULL OR expires_at > ?)
          ORDER BY created_at ASC, id ASC`,
       )
@@ -290,21 +296,22 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
-  /** The steward settle-fallback set (#468) [spec:SP-34d7 acks]: delivered,
-   *  unacked, unexpired rows for `sessionId` that (a) actually asked for something
-   *  — a `question`, or a non-`fyi` message; a `fyi` is a courtesy note and never
-   *  demands an ack — and (b) have not already produced a settle notice. The
-   *  once-guard is structural: a settle notice is a `notification` row whose
-   *  `in_reply_to` is the original, so "already notified" == such a row exists.
-   *  No column needed; the notice itself is the marker. This is why the notice
-   *  fires at most ONCE per message instead of on every settle. */
+  /** The steward settle-fallback set (#468, [spec:SP-bf44] [POD-835 §04b]): delivered,
+   *  unfulfilled, unexpired rows for `sessionId` that (a) REQUESTED a response — `expects_response
+   *  = 1`, the opt-in flag; an ordinary message (even next-turn) owes no reply and
+   *  never nags, killing the 49% ack traffic — and (b) have not already produced a
+   *  settle notice. `acked_by` is the fulfilment marker, stamped by ANY in-thread
+   *  reply (semantic-reply-as-ack), so a thorough reply clears the nag; the false
+   *  "finished without acking" notices are gone. The once-guard is structural: a
+   *  settle notice is a `notification` row whose `in_reply_to` is the original, so
+   *  "already notified" == such a row exists. No column needed; the notice itself is
+   *  the marker. This is why the notice fires at most ONCE per requested response. */
   listSettleNotifiable(sessionId: string, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages m
          WHERE m.status IN ('delivered','read') AND m.delivered_to = ? AND m.acked_by IS NULL
-           AND m.kind IN ('message','question')
-           AND NOT (m.kind = 'message' AND m.urgency = 'fyi')
+           AND m.expects_response = 1
            AND (m.expires_at IS NULL OR m.expires_at > ?)
            AND NOT EXISTS (
              SELECT 1 FROM messages n

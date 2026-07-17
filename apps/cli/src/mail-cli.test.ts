@@ -71,6 +71,28 @@ describe('podium mail CLI (argv shape)', () => {
     })
   })
 
+  it('[POD-835] --expect-response is a bool flag, forwarded, and surfaced on the receipt', async () => {
+    const c = client({
+      send: { id: 'msg_9', ok: true, queued: true, expectsResponse: true },
+    })
+    const out = await runMailCli(
+      ['send', '--to', '#1', '--body', 'confirm the shape?', '--expect-response'],
+      c,
+    )
+    expect(c.messages.send.mutate).toHaveBeenCalledWith({
+      to: '#1',
+      body: 'confirm the shape?',
+      expectResponse: true,
+    })
+    expect(out).toContain('response expected')
+  })
+
+  it('[POD-835] no --expect-response means no flag forwarded (receipt is mechanical)', async () => {
+    const c = client()
+    await runMailCli(['send', '--to', '#1', '--body', 'landed the fix'], c)
+    expect(c.messages.send.mutate).toHaveBeenCalledWith({ to: '#1', body: 'landed the fix' })
+  })
+
   it('surfaces the clamp note on a downgraded send', async () => {
     const c = client({ send: { id: 'msg_9', ok: true, queued: true, clamped: true } })
     await expect(runMailCli(['send', '--to', '#1', '--body', 'x'], c)).resolves.toContain(

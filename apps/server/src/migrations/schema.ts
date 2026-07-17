@@ -490,6 +490,11 @@ export const messages = sqliteTable("messages", {
 	readAt: text("read_at"),
 	injectedAt: text("injected_at"),
 	deadLetteredAt: text("dead_lettered_at"),
+	// A response is OPT-IN [POD-835 §04b]: only a `--expect-response` send (or a
+	// `question`) sets this. It is the sole trigger for the stop-hook reminder and
+	// the steward settle-nag — an ordinary message owes no reply, so receipt alone
+	// (mechanically proven by the ledger, POD-834) never generates ack traffic.
+	expectsResponse: integer("expects_response").default(0).notNull(),
 },
 (table) => [index("idx_messages_delivered_to").on(table.deliveredTo),
 index("idx_messages_thread").on(table.threadId),

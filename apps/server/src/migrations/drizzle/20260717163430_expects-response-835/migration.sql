@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `expects_response` integer DEFAULT 0 NOT NULL;

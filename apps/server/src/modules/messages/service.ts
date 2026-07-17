@@ -103,6 +103,10 @@ export interface MessageSendInput {
   threadId?: string
   inReplyTo?: string
   expiresAt?: string
+  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Only then does the
+   *  system expect (and, on settle, nag about) a response. A `question` implies it;
+   *  an `ack`/`notification` can never set it. Omitted = false (receipt-only). */
+  expectsResponse?: boolean
 }
 
 export interface MessageSendResult {
@@ -362,6 +366,29 @@ export class MessageDeliveryService {
       if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
     }
 
+    // A response is OPT-IN [spec:SP-bf44] [POD-835 §04b]: a plain message owes no reply —
+    // receipt is proven mechanically by the ledger (POD-834), no ack traffic. Only an
+    // explicit `--expect-response` (or a `question`, which always wants an answer)
+    // arms the stop-hook reminder + steward settle-nag. An `ack`/`notification` can
+    // never expect one — an ack is never itself ackable (kills the 243 ack-of-acks).
+    const kind = input.kind ?? 'message'
+    const expectsResponse =
+      kind === 'question'
+        ? true
+        : kind === 'ack' || kind === 'notification'
+          ? false
+          : (input.expectsResponse ?? false)
+
+    // Semantic-reply-as-ack [POD-835 §04b]: a reply back to the requester within
+    // the thread SATISFIES a requested response — not only a `kind:'ack'`. So a
+    // thorough substantive reply clears the nag (the 36 false "finished without
+    // acking" notices came from treating such a reply as "no ack"). We stamp
+    // acked_by (the fulfilment marker the settle set reads) when this message is an
+    // explicit ack, OR when it replies to a message that expected a response.
+    const respondsToRequest =
+      !!original && original.expectsResponse === true && !this.sameSenderAs(from, original)
+    const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
+
     const id = `msg_${randomUUID()}`
     const message: MessageRow = {
       id,
@@ -373,7 +400,7 @@ export class MessageDeliveryService {
       fromIssue: from.kind === 'agent' ? (from.issueId ?? null) : null,
       toKind: input.to.kind,
       toId,
-      kind: input.kind ?? 'message',
+      kind,
       urgency,
       lifecycle,
       body: input.body,
@@ -392,20 +419,21 @@ export class MessageDeliveryService {
           })
         : null,
       remindedAt: null,
+      expectsResponse,
     }
-    // The ack row and the acked_by stamp on the original commit atomically —
+    // The reply row and the acked_by stamp on the original commit atomically —
     // the steward's suppression check can never observe one without the other.
     const write = (): void => {
       this.deps.messages.addMessage(message)
-      if (message.kind === 'ack' && message.inReplyTo) {
+      if (stampsAck && message.inReplyTo) {
         this.deps.messages.markAcked(message.inReplyTo, id)
       }
     }
     if (this.deps.transact) this.deps.transact(write)
     else write()
-    if (message.kind === 'ack' && original) {
+    if (stampsAck && original) {
       this.emitTransition({ ...original, ackedBy: id }, 'message.acked')
-      // An ack PROVES the recipient received the original — a stronger signal than
+      // A reply PROVES the recipient received the original — a stronger signal than
       // a transcript echo. Confirm it delivered so a missed echo never keeps the
       // sweep re-injecting an already-answered message [POD-834 review]. Guarded
       // on status='queued' in the store, so a already-delivered original is a
@@ -838,7 +866,12 @@ export class MessageDeliveryService {
 
   /** Reply to a message: the recipient is computed server-side from the
    *  original's sender (never caller-supplied). Default kind 'ack' — writing it
-   *  stamps acked_by on the original in the same transaction (see send). */
+   *  stamps acked_by on the original in the same transaction (see send).
+   *
+   *  A response is PULL-delivered [POD-835 §04b]: the default urgency is `fyi`, so
+   *  the reply lands in the requester's mailbox and surfaces at its next natural
+   *  stop — it is NEVER pushed as a next-turn that starts a fresh turn (an ack is
+   *  never itself ackable, and every ack used to burn a recipient turn). */
   sendReply(
     from: MessageSender,
     input: {
@@ -857,7 +890,7 @@ export class MessageDeliveryService {
       kind: input.kind ?? 'ack',
       inReplyTo: original.id,
       threadId: original.threadId,
-      urgency: input.urgency ?? 'next-turn',
+      urgency: input.urgency ?? 'fyi',
       lifecycle: input.lifecycle ?? 'wait',
     })
   }
@@ -875,16 +908,17 @@ export class MessageDeliveryService {
   }
 
   /**
-   * The stop-hook's single-reminder set: delivered-but-unacked NON-fyi messages
-   * this session has never been reminded about. Marking happens here — each
-   * message earns exactly ONE reminder, persisted, then the steward fallback
-   * owns it. Returns render-ready rows for the daemon's block reason.
+   * The stop-hook's single-reminder set: delivered-but-unfulfilled messages that
+   * REQUESTED a response [POD-835 §04b] (expects_response — the store gates it;
+   * urgency no longer decides, since a `--expect-response fyi` note still owes a
+   * reply), never reminded about before. Marking happens here — each message earns
+   * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
+   * render-ready rows for the daemon's block reason.
    */
   pendingReminders(sessionId: string): { id: string; from: string; body: string }[] {
     const at = this.deps.now()
     const out: { id: string; from: string; body: string }[] = []
     for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
-      if (m.urgency === 'fyi') continue
       if (!this.deps.messages.markReminded(m.id, at)) continue
       out.push({ id: m.id, from: this.fromLabel(m), body: m.body })
     }
@@ -1095,6 +1129,13 @@ export class MessageDeliveryService {
     if (m.fromKind === 'agent') return `agent:${m.fromSession ?? m.fromIssue ?? '?'}`
     if (m.fromKind === 'system') return `system:${m.fromName ?? '?'}`
     return m.fromKind
+  }
+
+  /** Whether `from` is the same principal that sent `original` — guards
+   *  semantic-reply-as-ack [POD-835] so a requester can never satisfy its OWN
+   *  requested response (only the other party's reply fulfils it). */
+  private sameSenderAs(from: MessageSender, original: MessageRow): boolean {
+    return this.senderKey(from) === this.senderKeyOfRow(original)
   }
 
   private nowMs(): number {

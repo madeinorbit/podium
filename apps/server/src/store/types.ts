@@ -299,6 +299,13 @@ export interface MessageRow {
   clampedFrom: string | null
   /** When the stop-hook's ONE unacked-message reminder was issued (never repeats). */
   remindedAt: string | null
+  /** A response is OPT-IN [POD-835 §04b]: true only for a `--expect-response` send
+   *  or a `question`. Receipt is mechanically proven by the ledger (POD-834), so an
+   *  ordinary message owes no reply and generates no ack traffic; this flag is the
+   *  SOLE trigger for the stop-hook reminder and the steward settle-nag. `ack` and
+   *  `notification` never set it — an ack is never itself ackable. Optional in TS
+   *  (the column is NOT NULL DEFAULT 0; a missing field reads as false). */
+  expectsResponse?: boolean
 }
 
 /** A durable event subscription (event-subscriptions design, Phase B). The steward

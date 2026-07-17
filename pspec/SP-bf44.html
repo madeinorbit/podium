@@ -1,0 +1,41 @@
+<!-- pspec v1 — edit via Podium Specs; id is stable, referenced from code as [spec:SP-bf44] -->
+<section data-spec="SP-bf44" data-title="Opt-in response, mechanical acks" data-parent="SP-34d7" data-order="3" data-status="active" data-updated="1784306999045">
+<p>Decided by Michael in the POD-833 cross-agent communication rebuild
+(design: <code>docs/agent-comms-target.html</code> §04b / §09-A; POD-279 field
+forensics). This supersedes the earlier "receivers are asked to ack with context;
+the steward fallback fires unless an agent ack preceded it" rule in the parent —
+that model produced 49% ack traffic, 243 acks-of-acks, and 36 false "finished
+without acking" notices.</p>
+
+<p><b>Receipt is mechanical; a response is opt-in.</b></p>
+<ul>
+  <li><b>No receipt acks.</b> Synchronous send (POD-834) already proves receipt —
+    the ledger records delivery and the sender pulls status
+    (<code>podium mail status &lt;id&gt;</code>). No ack message is ever generated or
+    pushed for mere receipt.</li>
+  <li><b>A response is requested, not reflexive.</b> Only <code>mail send
+    --expect-response</code> (or a <code>question</code>, which always wants an
+    answer) sets <code>expects_response</code>. An <code>ack</code>/<code>notification</code>
+    can never set it — an ack is never itself ackable.</li>
+  <li><b>Responses are pull-delivered.</b> A reply defaults to <code>fyi</code>
+    urgency: it lands in the requester's mailbox and surfaces at its next natural
+    stop / on pull — never a next-turn that starts a fresh turn.</li>
+  <li><b>The settle-nag fires only for an unfulfilled requested response.</b> The
+    stop-hook reminder and the steward settle-fallback read only
+    <code>expects_response = 1</code> rows; an ordinary message (even next-turn)
+    owes no reply and never nags.</li>
+  <li><b>Semantic-reply-as-ack.</b> Any reply back to the requester within the
+    thread — not only a <code>kind:'ack'</code> — satisfies the request (stamps
+    <code>acked_by</code>). A thorough substantive reply clears the nag. A reply
+    still confirms the original <code>delivered</code> (preserves the POD-834
+    echo-miss fix).</li>
+</ul>
+
+<p>Implemented [spec:SP-bf44] in <code>apps/server/src/store/messages.ts</code>
+(the <code>expects_response</code> column + the <code>listDeliveredUnacked</code> /
+<code>listSettleNotifiable</code> gates), <code>modules/messages/service.ts</code>
+(derivation, semantic-reply stamping, <code>sendReply</code> fyi default),
+<code>modules/messages/gate.ts</code> + <code>apps/cli/src/mail-cli.ts</code>
+(<code>--expect-response</code>). Part of the arbiter/dedup work (edge-trigger,
+fact-dedup) is a later milestone (M3).</p>
+</section>

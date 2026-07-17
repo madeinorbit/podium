@@ -18,6 +18,9 @@ const sendInput = z.object({
   body: z.string().min(1).max(32_768),
   urgency: z.enum(['fyi', 'next-turn', 'interrupt']).optional(),
   lifecycle: z.enum(['wait', 'wake']).optional(),
+  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Off = receipt-only, no
+   *  ack traffic (receipt is proven by the ledger). A `question` implies it. */
+  expectResponse: z.boolean().optional(),
 })
 const inboxInput = z.object({ issue: z.string().optional() }).optional()
 const showInput = z.object({ id: z.string() })
@@ -156,6 +159,9 @@ export interface MessageWire {
   // "what happened to my message" answer that `podium mail status` renders.
   readAt: string | null
   deadLetteredAt: string | null
+  /** A reply was requested [POD-835 §04b]: the recipient owes a response and the
+   *  settle-nag will fire if none comes. Lets a reader see it must reply. */
+  expectsResponse: boolean
 }
 
 export class MessageGate {
@@ -218,6 +224,7 @@ export class MessageGate {
       body: input.body,
       ...(input.urgency ? { urgency: input.urgency } : {}),
       ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+      ...(input.expectResponse ? { expectsResponse: true } : {}),
     })
     return {
       id: r.message.id,
@@ -230,6 +237,9 @@ export class MessageGate {
       urgency: r.message.urgency,
       lifecycle: r.message.lifecycle,
       ...(r.message.clampedFrom ? { clamped: true } : {}),
+      // Confirm a response was requested [POD-835 §04b] so the sender knows a reply
+      // (and a settle-nag if none) is expected — otherwise receipt is mechanical.
+      ...(r.message.expectsResponse ? { expectsResponse: true } : {}),
     }
   }
 
@@ -706,6 +716,7 @@ export class MessageGate {
       hop: m.hop,
       readAt: m.readAt ?? null,
       deadLetteredAt: m.deadLetteredAt ?? null,
+      expectsResponse: m.expectsResponse ?? false,
     }
   }
 }

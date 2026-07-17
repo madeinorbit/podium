@@ -222,6 +222,7 @@ describe('MessagesRepository (store CRUD)', () => {
       hop: 0,
       clampedFrom: null,
       remindedAt: null,
+      expectsResponse: false,
     }
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)
@@ -1179,13 +1180,89 @@ describe('acks', () => {
   })
 })
 
+describe('opt-in response [POD-835 §04b]', () => {
+  it('derives expects_response: opt-in flag / question yes, plain / ack / notification no', () => {
+    const { svc } = harness([
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+    ])
+    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' } as const
+    const plain = svc.send(from, {
+      to: { kind: 'session', id: 's1' },
+      body: 'a',
+      urgency: 'next-turn',
+    })
+    expect(plain.message.expectsResponse).toBe(false)
+    const asked = svc.send(from, {
+      to: { kind: 'session', id: 's1' },
+      body: 'b',
+      urgency: 'next-turn',
+      expectsResponse: true,
+    })
+    expect(asked.message.expectsResponse).toBe(true)
+    const q = svc.send(from, { to: { kind: 'session', id: 's1' }, body: 'c?', kind: 'question' })
+    expect(q.message.expectsResponse).toBe(true)
+    // An ack is never itself ackable — even if a caller smuggles the flag in.
+    const ack = svc.send(from, {
+      to: { kind: 'session', id: 's1' },
+      body: 'ok',
+      kind: 'ack',
+      inReplyTo: asked.message.id,
+      expectsResponse: true,
+    })
+    expect(ack.message.expectsResponse).toBe(false)
+    const note = svc.send(
+      { kind: 'system', name: 'steward' },
+      { to: { kind: 'session', id: 's1' }, body: 'n', kind: 'notification', expectsResponse: true },
+    )
+    expect(note.message.expectsResponse).toBe(false)
+  })
+
+  it('a reply is PULL-delivered (fyi) and never pushed as a fresh turn to a running requester', () => {
+    // The requester sX is mid-turn (running) when the reply comes back.
+    const sessions = [
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b', agentState: WORKING }),
+    ]
+    const { svc, sent, queued, interrupted } = harness(sessions)
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'please check X',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    const reply = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'checked, all good' },
+    )
+    // fyi by default — surfaces at the requester's next stop, not a burned turn.
+    expect(reply.message.urgency).toBe('fyi')
+    expect(reply.disposition).toBe('queued')
+    // NOTHING was typed into the running requester: not queueText (next-turn), not
+    // interruptText, and not an inline sendText push.
+    const toSx = (rows: { sessionId: string }[]) => rows.filter((r) => r.sessionId === 'sX')
+    expect(toSx(queued)).toHaveLength(0)
+    expect(toSx(interrupted)).toHaveLength(0)
+    expect(toSx(sent)).toHaveLength(0)
+  })
+})
+
 describe('stop-hook single reminder (pendingReminders)', () => {
-  it('returns each delivered-unacked non-fyi message exactly once, ever', () => {
+  it('returns each delivered-unfulfilled REQUESTED response exactly once, ever', () => {
     const sessions = [session({ sessionId: 's1' })]
     const { svc } = harness(sessions)
     const m = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'needs reply', urgency: 'next-turn' },
+      // Only an explicit --expect-response owes a reply [POD-835].
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'needs reply',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     // The stop-hook only reminds about messages the agent DEMONSTRABLY has
     // (echo-confirmed delivered) — never a push we couldn't confirm [POD-834].
@@ -1196,20 +1273,43 @@ describe('stop-hook single reminder (pendingReminders)', () => {
     expect(svc.pendingReminders('s1')).toHaveLength(0) // persisted — never repeats
   })
 
-  it('skips fyi messages and acked ones', () => {
+  it('never reminds about a message that did not request a response [POD-835]', () => {
     const sessions = [session({ sessionId: 's1' })]
     const { svc } = harness(sessions)
+    // An ordinary next-turn message owes no reply — receipt is mechanical.
+    const m = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'heads up, no reply needed',
+        urgency: 'next-turn',
+      },
+    )
+    echo(svc, 's1', m.message.id)
+    expect(svc.pendingReminders('s1')).toHaveLength(0)
+  })
+
+  it('skips a requested response once a reply (any kind) has fulfilled it', () => {
+    const sessions = [session({ sessionId: 's1' })]
+    const { svc } = harness(sessions)
+    // A courtesy note that owes nothing.
     svc.send(
       { kind: 'superagent' },
       { to: { kind: 'session', id: 's1' }, body: 'fyi', urgency: 'fyi' },
     )
+    // A request that IS fulfilled by a substantive (non-ack) semantic reply.
     const asked = svc.send(
       { kind: 'superagent' },
-      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn' },
+      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn', expectsResponse: true },
     )
     svc.send(
       { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
-      { to: { kind: 'operator' }, body: 'done', kind: 'ack', inReplyTo: asked.message.id },
+      {
+        to: { kind: 'operator' },
+        body: 'done, here is what I found',
+        kind: 'message',
+        inReplyTo: asked.message.id,
+      },
     )
     expect(svc.pendingReminders('s1')).toHaveLength(0)
   })
@@ -1228,21 +1328,37 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     return [...new Map(all.map((m) => [m.id, m])).values()]
   }
 
-  it('sends ONE system notification PER MESSAGE, stitched with issue state', () => {
+  it('sends ONE system notification PER requested response, stitched with issue state', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
-    // Two messages from the same sender + one from the superagent, all delivered to s1.
+    // Two requests from the same sender + one from the superagent, all delivered to
+    // s1. Only --expect-response messages are notifiable [POD-835].
     const m1 = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'm1', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm1',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     const m2 = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'm2', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm2',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     const m3 = svc.send(
       { kind: 'superagent' },
-      { to: { kind: 'session', id: 's1' }, body: 'm3', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm3',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     // Echo-confirm all three so the settle fallback sees them as delivered.
     echo(svc, 's1', m1.message.id, m2.message.id, m3.message.id)
@@ -1269,12 +1385,17 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     expect(agentNotice.lifecycle).toBe('wait')
   })
 
-  it('#468: fires at most ONCE per message — a second settle synthesizes nothing new', () => {
+  it('#468: fires at most ONCE per requested response — a second settle synthesizes nothing new', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const m1 = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'm1', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm1',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     echo(svc, 's1', m1.message.id)
     svc.systemAckFallback('s1', { outcome: 'finished' })
@@ -1283,6 +1404,19 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     svc.systemAckFallback('s1', { outcome: 'finished' })
     svc.systemAckFallback('s1', { outcome: 'errored' })
     expect(systemNotices(store)).toHaveLength(1)
+  })
+
+  it('[POD-835] an ordinary message (no --expect-response) NEVER produces a settle notice', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    // Even a next-turn message owes no reply — receipt is mechanical, no ack traffic.
+    const m1 = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'FYI I landed the fix', urgency: 'next-turn' },
+    )
+    echo(svc, 's1', m1.message.id)
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(0)
   })
 
   it('#468: an fyi courtesy note NEVER produces a settle notice', () => {
@@ -1313,7 +1447,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const { svc, store } = harness(sessions)
     const orig = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn' },
+      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn', expectsResponse: true },
     )
     svc.sendReply(
       { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
@@ -1325,6 +1459,55 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const before = store.messages.listQueued(100).length
     svc.systemAckFallback('s1', { outcome: 'finished' })
     expect(store.messages.listQueued(100).length).toBe(before) // nothing synthesized
+  })
+
+  it('[POD-835] a SEMANTIC reply (a substantive non-ack message in the thread) clears the nag', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'can you rebase before merging?',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    echo(svc, 's1', orig.message.id)
+    // A thorough reply in the thread — kind 'message', NOT a bare ack. The old model
+    // counted this as "no ack" (the 36 false notices); now it satisfies the request.
+    svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      {
+        inReplyTo: orig.message.id,
+        body: 'Rebased onto main at abc123 and merged.',
+        kind: 'message',
+      },
+    )
+    expect(store.messages.getMessage(orig.message.id)!.ackedBy).not.toBeNull()
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(0)
+  })
+
+  it('[POD-835] --expect-response with NO reply produces exactly ONE settle notice across settles', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const req = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'please confirm the API shape',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    echo(svc, 's1', req.message.id)
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback('s1', { outcome: 'errored' })
+    const notices = systemNotices(store)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.inReplyTo).toBe(req.message.id)
   })
 })
 
