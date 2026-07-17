@@ -1,4 +1,17 @@
+import { repoNameFromOrigin } from '@podium/domain'
 import type { GitRepositoryWire } from '@podium/protocol'
+
+/** Display name for a scanned repo: its ORIGIN's repo name, since a clone's
+ *  folder is not its identity (~/bak_podium of .../podium.git lists as "podium").
+ *  Only a repo with no usable origin is named after its folder — that is all we
+ *  know about it. The full path stays on the row as the disambiguator. */
+function repoDisplayName(path: string, originUrl?: string): string {
+  return repoNameFromOrigin(originUrl) ?? folderName(path)
+}
+
+function folderName(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? path
+}
 
 export type RepoCandidate = {
   path: string
@@ -33,7 +46,7 @@ export function rankMachineScanRepos(repos: MachineScanRepo[]): RepoCandidate[] 
       const hidden = isHiddenRepoPath(repo.path)
       return {
         path: repo.path,
-        name: repo.path.split('/').filter(Boolean).pop() ?? repo.path,
+        name: repoDisplayName(repo.path, repo.originUrl),
         ...(repo.branch !== undefined ? { branch: repo.branch } : {}),
         hasOrigin: typeof repo.originUrl === 'string' && repo.originUrl.length > 0,
         hidden,
@@ -75,7 +88,7 @@ export function rankRepoCandidates(repos: GitRepositoryWire[]): RepoCandidate[] 
       const hidden = isHiddenRepoPath(repo.path)
       return {
         path: repo.path,
-        name: repo.path.split('/').filter(Boolean).pop() ?? repo.path,
+        name: repoDisplayName(repo.path, repo.originUrl),
         ...(repo.branch !== undefined ? { branch: repo.branch } : {}),
         hasOrigin: typeof repo.originUrl === 'string' && repo.originUrl.length > 0,
         hidden,

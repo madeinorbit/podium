@@ -31,3 +31,27 @@ export function normalizeOriginUrl(raw: string | undefined): string {
   const path = s.slice(slash + 1).replace(/\.git$/, '')
   return `${host}/${path}`
 }
+
+/**
+ * The repository's OWN name: the last segment of its normalized origin
+ * (`host/owner/repo` → `repo`). A clone's folder is not its identity — a backup
+ * clone at ~/bak_podium of .../podium.git is still "podium" — so display surfaces
+ * name a repo by its origin and keep the path as the disambiguator.
+ *
+ * Null when the origin yields no repo segment (absent, or a bare host with no
+ * path): the caller falls back to the folder name, which is all we know then.
+ */
+export function repoNameFromOrigin(originUrl: string | undefined): string | null {
+  const normalized = normalizeOriginUrl(originUrl)
+  // No '/' means no path segment — a bare host, or unparseable junk returned
+  // as-is. Neither names a repo.
+  const slash = normalized.indexOf('/')
+  if (slash === -1) return null
+  return (
+    normalized
+      .slice(slash + 1)
+      .split('/')
+      .filter(Boolean)
+      .pop() ?? null
+  )
+}
