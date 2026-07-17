@@ -340,7 +340,12 @@ fn main() {
                     .permission("core:window:allow-internal-toggle-maximize")
                     .permission("core:window:allow-toggle-maximize")
                     .permission("core:window:allow-minimize")
-                    .permission("core:window:allow-close");
+                    .permission("core:window:allow-close")
+                    // __PODIUM_RESTART__ must also work from remote-loaded (client/daemon)
+                    // windows — the static capability file only covers local URLs, so without
+                    // this a mode change from a remote page (SetupGate, the hosting toggle
+                    // [spec:SP-3701]) throws "process.restart not allowed".
+                    .permission("process:allow-restart");
             // External-link opener for the injected shim (see bootstrap::opener_shim_script).
             // Runtime-granted next to the window-controls capability so remote-mode windows
             // (which load the relay origin directly) get it too.

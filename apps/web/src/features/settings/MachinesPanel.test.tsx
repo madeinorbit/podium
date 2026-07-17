@@ -64,6 +64,21 @@ describe('HostThisDeviceCard', () => {
     expect(screen.getByRole('button', { name: /enabling/i })).toHaveProperty('disabled', true)
   })
 
+  it('falls back to manual-relaunch guidance when restart is refused', async () => {
+    // Remote-loaded windows on older shells lack the process.restart grant; the config is
+    // already flipped by then, so the card must instruct rather than hang on "Enabling…".
+    stubBridge()
+    ;(window as unknown as { __PODIUM_RESTART__?: () => unknown }).__PODIUM_RESTART__ = vi
+      .fn()
+      .mockRejectedValue(new Error('process.restart not allowed'))
+    const mutate = vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
+    render(<HostThisDeviceCard trpc={stubTrpc(mutate)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /host sessions on this device/i }))
+
+    expect(await screen.findByText(/quit and reopen the app/i)).toBeTruthy()
+  })
+
   it('surfaces errors and re-enables the button', async () => {
     stubBridge()
     const mutate = vi.fn().mockRejectedValue(new Error('pairing is disabled on this server'))

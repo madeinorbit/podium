@@ -176,12 +176,20 @@ export function HostThisDeviceCard({ trpc }: { trpc: Store['trpc'] }): JSX.Eleme
     try {
       const { code } = await trpc.machines.pairingCode.mutate()
       await enableHosting(code)
-      // Relaunch so the shell re-reads the config and spawns the daemon. Keep `busy` set —
-      // the app is about to go away; re-enabling the button would invite a double-enroll.
-      const restart = (window as unknown as { __PODIUM_RESTART__?: () => void })
+      // Relaunch so the shell re-reads the config and spawns the daemon. Keep `busy` set on
+      // success — the app is about to go away; re-enabling the button would invite a
+      // double-enroll. The config IS already flipped at this point, so if restart is missing
+      // or refused (older shells didn't grant process.restart to remote pages), tell the
+      // user to relaunch manually instead of hanging on "Enabling…".
+      const restart = (window as unknown as { __PODIUM_RESTART__?: () => unknown })
         .__PODIUM_RESTART__
-      if (restart) restart()
-      else setError('Hosting enabled — restart the app to finish.')
+      try {
+        if (!restart) throw new Error('no restart hook')
+        await Promise.resolve(restart())
+      } catch {
+        setBusy(false)
+        setError('Hosting enabled — quit and reopen the app to finish pairing.')
+      }
     } catch (e) {
       setBusy(false)
       setError(e instanceof Error ? e.message : String(e))
