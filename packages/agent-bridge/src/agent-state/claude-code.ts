@@ -43,6 +43,11 @@ export function claudeHookSettings(endpointUrl: string, opts?: { seedTheme?: boo
         StopFailure: [h],
         TaskCreated: [h],
         TaskCompleted: [h],
+        // Identity + lifecycle for native Task/Agent subagents. Empirically
+        // SubagentStart/Stop carry agent_id/agent_type; TaskCreated/Completed
+        // did not fire on Claude 2.1.x (kept for forward-compat).
+        SubagentStart: [h],
+        SubagentStop: [h],
         PreCompact: [h],
         PostCompact: [h],
         SessionEnd: [h],
@@ -174,9 +179,38 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       return [{ kind: 'turn_failed', errorClass, retryable: RETRYABLE.has(errorClass) }]
     }
     case 'TaskCreated':
+      // Anonymous count (legacy). Prefer SubagentStart when the harness
+      // supplies agent_id — that path also names the subagent.
       return [{ kind: 'task_delta', delta: 1 }]
     case 'TaskCompleted':
       return [{ kind: 'task_delta', delta: -1 }]
+    case 'SubagentStart': {
+      // Real shape (Claude 2.1.x capture): agent_id, agent_type, session_id
+      // (parent), transcript_path, cwd, prompt_id. agent_id is required for
+      // identity; absent → fall back to anonymous +1 so count still moves.
+      const agentId = str(p.agent_id)
+      const agentType = str(p.agent_type)
+      return [
+        {
+          kind: 'task_delta',
+          delta: 1,
+          ...(agentId ? { agentId } : {}),
+          ...(agentType ? { agentType } : {}),
+        },
+      ]
+    }
+    case 'SubagentStop': {
+      const agentId = str(p.agent_id)
+      const agentType = str(p.agent_type)
+      return [
+        {
+          kind: 'task_delta',
+          delta: -1,
+          ...(agentId ? { agentId } : {}),
+          ...(agentType ? { agentType } : {}),
+        },
+      ]
+    }
     case 'PreCompact':
       return [{ kind: 'compaction', phase: 'start' }]
     case 'PostCompact':

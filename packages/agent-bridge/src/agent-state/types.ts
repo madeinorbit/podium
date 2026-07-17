@@ -21,7 +21,10 @@ export type AgentStateEvent = (
     }
   | { kind: 'turn_failed'; errorClass: string; retryable: boolean }
   | { kind: 'compaction'; phase: 'start' | 'end' }
-  | { kind: 'task_delta'; delta: 1 | -1 }
+  /** Live native-subagent count change. Optional agentId/agentType carry the
+   *  harness identity (Claude SubagentStart/Stop `agent_id`/`agent_type`) so
+   *  the reducer can name active subagents, not only count them. */
+  | { kind: 'task_delta'; delta: 1 | -1; agentId?: string; agentType?: string }
   | { kind: 'session_ended' }
 ) & {
   /** Event-time (ISO 8601) of the source record/hook, when the provider can supply

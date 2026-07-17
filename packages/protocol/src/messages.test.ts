@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
   AgentQuotaResultMessage,
+  AgentRuntimeState,
   ApprovalOp,
   ClientMessage,
   type ControlMessage,
@@ -863,6 +864,24 @@ describe('agent runtime state', () => {
       },
     })
     expect(meta.agentState?.phase).toBe('idle')
+  })
+
+  it('AgentRuntimeState accepts optional nativeSubagents identity list', () => {
+    const withIds = {
+      phase: 'working' as const,
+      since: '2026-06-12T10:00:00.000Z',
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'ad7e66922f0d8ff7a', type: 'Explore' }],
+    }
+    expect(AgentRuntimeState.parse(withIds)).toEqual(withIds)
+    // Absent list still valid (back-compat with count-only daemons).
+    expect(
+      AgentRuntimeState.parse({
+        phase: 'working',
+        since: '2026-06-12T10:00:00.000Z',
+        nativeSubagentCount: 1,
+      }).nativeSubagents,
+    ).toBeUndefined()
   })
 
   it('SessionMeta carries an optional, nullable snoozedUntil', () => {

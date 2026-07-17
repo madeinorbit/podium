@@ -14,6 +14,54 @@ function workingMsAt(prev: AgentRuntimeState, nextSince: string): number {
   return total + Math.max(0, to - from)
 }
 
+/** Carry the identity list only when non-empty (field is optional/additive). */
+function withSubagents(
+  list: NonNullable<AgentRuntimeState['nativeSubagents']> | undefined,
+): { nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } {
+  return list && list.length > 0 ? { nativeSubagents: list } : {}
+}
+
+/**
+ * Apply a task_delta to the identity list + count.
+ * - With agentId: add/remove that entry; count = list length after the op
+ *   (dedupe on +1; missing-id -1 is a no-op for the list and falls back to
+ *   anonymous count adjust only when the list was empty).
+ * - Without agentId: anonymous ±1 on the count; leave the list alone.
+ */
+function applyTaskDelta(
+  prev: AgentRuntimeState,
+  event: Extract<AgentStateEvent, { kind: 'task_delta' }>,
+): { nativeSubagentCount: number; nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } | null {
+  const prevList = prev.nativeSubagents ?? []
+  if (event.agentId) {
+    if (event.delta > 0) {
+      if (prevList.some((s) => s.id === event.agentId)) return null // duplicate start
+      const nextList = [
+        ...prevList,
+        {
+          id: event.agentId,
+          ...(event.agentType !== undefined ? { type: event.agentType } : {}),
+        },
+      ]
+      return { nativeSubagentCount: nextList.length, ...withSubagents(nextList) }
+    }
+    // delta < 0
+    if (!prevList.some((s) => s.id === event.agentId)) {
+      // Unknown id: if we were identity-tracking, ignore; else anonymous floor.
+      if (prevList.length > 0) return null
+      const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
+      if (nativeSubagentCount === prev.nativeSubagentCount) return null
+      return { nativeSubagentCount }
+    }
+    const nextList = prevList.filter((s) => s.id !== event.agentId)
+    return { nativeSubagentCount: nextList.length, ...withSubagents(nextList) }
+  }
+  // Anonymous count-only path (legacy TaskCreated/Completed).
+  const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
+  if (nativeSubagentCount === prev.nativeSubagentCount) return null
+  return { nativeSubagentCount, ...withSubagents(prevList) }
+}
+
 /**
  * Pure transition. Returns `prev` (same reference) when the event changes
  * nothing, so callers can dedupe wire sends by identity. Detail fields
@@ -44,11 +92,13 @@ export function reduceAgentState(
 ): AgentRuntimeState {
   const since = event.at ?? now
   // Intentionally omits awaitingSubagents / idle / need / error so non-hold
-  // transitions clear the held-working flag and phase detail.
+  // transitions clear the held-working flag and phase detail. Identity list
+  // and count both survive phase transitions (subagents outlive a single phase).
   const base = {
     since,
     workingMsTotal: workingMsAt(prev, since),
     nativeSubagentCount: prev.nativeSubagentCount,
+    ...withSubagents(prev.nativeSubagents),
   }
   switch (event.kind) {
     case 'session_started':
@@ -92,11 +142,12 @@ export function reduceAgentState(
         ? { phase: 'compacting', ...base }
         : { phase: 'working', ...base }
     case 'task_delta': {
-      const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
-      if (nativeSubagentCount === prev.nativeSubagentCount) return prev
+      const applied = applyTaskDelta(prev, event)
+      if (!applied) return prev
+      const { nativeSubagentCount } = applied
       // Turn already completed but idle was deferred for live subagents — once
       // they all finish, settle to idle (hooks have no ordering guarantee, so
-      // TaskCompleted may arrive after turn_completed with no further turn).
+      // TaskCompleted/SubagentStop may arrive after turn_completed with no further turn).
       if (nativeSubagentCount === 0 && prev.awaitingSubagents) {
         return {
           phase: 'idle',
@@ -106,7 +157,12 @@ export function reduceAgentState(
           idle: { kind: 'done' as const },
         }
       }
-      return { ...prev, nativeSubagentCount }
+      return {
+        ...prev,
+        nativeSubagentCount,
+        // Drop the key when empty so wire payloads stay lean / back-compat.
+        nativeSubagents: applied.nativeSubagents,
+      }
     }
     case 'session_ended':
       return { phase: 'ended', ...base }

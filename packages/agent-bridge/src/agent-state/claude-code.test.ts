@@ -61,6 +61,8 @@ describe('claude-code instrumentation', () => {
       'StopFailure',
       'TaskCreated',
       'TaskCompleted',
+      'SubagentStart',
+      'SubagentStop',
       'PreCompact',
       'PostCompact',
       'SessionEnd',
@@ -118,6 +120,73 @@ describe('translateClaudeHookPayload', () => {
     expect(await t({ hook_event_name: 'TaskCompleted' })).toEqual([
       { kind: 'task_delta', delta: -1 },
     ])
+  })
+
+  it('SubagentStart/Stop carry agent_id + agent_type into task_delta', async () => {
+    // Captured shape (Claude 2.1.212): SubagentStart/Stop include agent_id +
+    // agent_type; parent session_id is shared (no separate subagent session).
+    expect(
+      await t({
+        hook_event_name: 'SubagentStart',
+        agent_id: 'ad7e66922f0d8ff7a',
+        agent_type: 'Explore',
+      }),
+    ).toEqual([
+      {
+        kind: 'task_delta',
+        delta: 1,
+        agentId: 'ad7e66922f0d8ff7a',
+        agentType: 'Explore',
+      },
+    ])
+    expect(
+      await t({
+        hook_event_name: 'SubagentStop',
+        agent_id: 'ad7e66922f0d8ff7a',
+        agent_type: 'Explore',
+        agent_transcript_path: '/tmp/subagents/agent-ad7e66922f0d8ff7a.jsonl',
+      }),
+    ).toEqual([
+      {
+        kind: 'task_delta',
+        delta: -1,
+        agentId: 'ad7e66922f0d8ff7a',
+        agentType: 'Explore',
+      },
+    ])
+  })
+
+  it('SubagentStart without agent_id still emits anonymous task_delta', async () => {
+    expect(await t({ hook_event_name: 'SubagentStart' })).toEqual([
+      { kind: 'task_delta', delta: 1 },
+    ])
+  })
+
+  it('agent_id from SubagentStart flows into nativeSubagents and clears on stop', async () => {
+    let state = initialAgentState('2026-07-18T00:00:00.000Z')
+    const start = await t({
+      hook_event_name: 'SubagentStart',
+      agent_id: 'abb71646a07e32e0d',
+      agent_type: 'general-purpose',
+    })
+    for (const event of start) {
+      state = reduceAgentState(state, event, '2026-07-18T00:00:01.000Z')
+    }
+    expect(state.nativeSubagentCount).toBe(1)
+    expect(state.nativeSubagents).toEqual([
+      { id: 'abb71646a07e32e0d', type: 'general-purpose' },
+    ])
+
+    const stop = await t({
+      hook_event_name: 'SubagentStop',
+      agent_id: 'abb71646a07e32e0d',
+      agent_type: 'general-purpose',
+    })
+    for (const event of stop) {
+      state = reduceAgentState(state, event, '2026-07-18T00:00:02.000Z')
+    }
+    expect(state.nativeSubagentCount).toBe(0)
+    expect(state.nativeSubagents).toBeUndefined()
   })
 
   it('AskUserQuestion PreToolUse → needs_user question with the question text', async () => {

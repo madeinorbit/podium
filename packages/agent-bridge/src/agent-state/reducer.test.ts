@@ -192,6 +192,88 @@ describe('reduceAgentState', () => {
     expect(s.nativeSubagentCount).toBe(1)
   })
 
+  it('task_delta with agentId tracks nativeSubagents and keeps count consistent', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: 1, agentId: 'ad7e66922f0d8ff7a', agentType: 'Explore' },
+      T0,
+    )
+    expect(s).toMatchObject({
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'ad7e66922f0d8ff7a', type: 'Explore' }],
+    })
+
+    // Second distinct subagent.
+    s = reduceAgentState(
+      s,
+      {
+        kind: 'task_delta',
+        delta: 1,
+        agentId: 'abb71646a07e32e0d',
+        agentType: 'general-purpose',
+      },
+      T0,
+    )
+    expect(s.nativeSubagentCount).toBe(2)
+    expect(s.nativeSubagents).toEqual([
+      { id: 'ad7e66922f0d8ff7a', type: 'Explore' },
+      { id: 'abb71646a07e32e0d', type: 'general-purpose' },
+    ])
+
+    // Duplicate start is a no-op (same reference).
+    const again = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: 1, agentId: 'ad7e66922f0d8ff7a', agentType: 'Explore' },
+      T1,
+    )
+    expect(again).toBe(s)
+
+    // Remove one; count matches remaining list.
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: -1, agentId: 'ad7e66922f0d8ff7a' },
+      T1,
+    )
+    expect(s).toMatchObject({
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'abb71646a07e32e0d', type: 'general-purpose' }],
+    })
+
+    // Last stop clears the list key.
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: -1, agentId: 'abb71646a07e32e0d' },
+      T1,
+    )
+    expect(s.nativeSubagentCount).toBe(0)
+    expect(s.nativeSubagents).toBeUndefined()
+  })
+
+  it('identity list survives phase transitions and settles idle with the last stop', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: 1, agentId: 'agent-1', agentType: 'Explore' },
+      T0,
+    )
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s).toMatchObject({
+      phase: 'working',
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'agent-1', type: 'Explore' }],
+    })
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'agent-1' }, T1)
+    expect(s).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'done' },
+      nativeSubagentCount: 0,
+    })
+    expect(s.nativeSubagents).toBeUndefined()
+    expect(s.awaitingSubagents).toBeUndefined()
+  })
+
   it('accumulates working and compacting stretches across waiting transitions', () => {
     let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
     s = reduceAgentState(s, { kind: 'compaction', phase: 'start' }, T1)

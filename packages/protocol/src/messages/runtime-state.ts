@@ -38,6 +38,15 @@ export const AgentError = z.object({
 })
 export type AgentError = z.infer<typeof AgentError>
 
+/** One live native harness subagent (Claude Task/Agent tool, etc.).
+ *  Identity rides the hook channel (`agent_id` / `agent_type` on SubagentStart
+ *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
+export const NativeSubagent = z.object({
+  id: z.string(),
+  type: z.string().optional(),
+})
+export type NativeSubagent = z.infer<typeof NativeSubagent>
+
 export const AgentRuntimeState = z.object({
   phase: AgentPhase,
   since: z.string(), // ISO 8601 of the last phase change
@@ -47,6 +56,10 @@ export const AgentRuntimeState = z.object({
    *  live `now - since` stretch; in a stopped phase this is the final total. */
   workingMsTotal: z.number().int().nonnegative().optional(),
   nativeSubagentCount: z.number().int().nonnegative(),
+  /** Active native subagents with harness identity (agent_id + optional type).
+   *  Additive/optional for back-compat; when present, length matches
+   *  nativeSubagentCount for identity-tracked spawns. M6 consumes for naming. */
+  nativeSubagents: z.array(NativeSubagent).optional(),
   /** True when turn_completed already fired but idle was deferred because
    *  native subagents were still running. Cleared on genuine work / settle /
    *  terminal phases. Optional for back-compat with older daemons/rows. */
