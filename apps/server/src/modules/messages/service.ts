@@ -405,6 +405,14 @@ export class MessageDeliveryService {
     else write()
     if (message.kind === 'ack' && original) {
       this.emitTransition({ ...original, ackedBy: id }, 'message.acked')
+      // An ack PROVES the recipient received the original — a stronger signal than
+      // a transcript echo. Confirm it delivered so a missed echo never keeps the
+      // sweep re-injecting an already-answered message [POD-834 review]. Guarded
+      // on status='queued' in the store, so a already-delivered original is a
+      // no-op; deliveredTo is always set once a row was injected.
+      if (original.status === 'queued' && original.deliveredTo) {
+        this.markDelivered(original, original.deliveredTo)
+      }
     }
     this.emitTransition(message, 'message.queued')
     if (message.clampedFrom) {

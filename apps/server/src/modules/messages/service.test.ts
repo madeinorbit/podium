@@ -1780,6 +1780,29 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
   })
 
+  it('an ack confirms the original delivered even if its echo was missed (no re-inject storm)', () => {
+    const { svc, sent, store } = harness([
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+    ])
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
+    )
+    // Pushed to s1 but its echo never registered (empty-text paste, detached tail…).
+    expect(store.messages.getMessage(orig.message.id)!.status).toBe('queued')
+    // s1 answers it — the ack is stronger proof of receipt than an echo.
+    svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'done' },
+    )
+    // The original is now delivered, so the sweep will never re-inject it.
+    expect(store.messages.getMessage(orig.message.id)!.status).toBe('delivered')
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(0)
+  })
+
   it('auto-requeues a pushed message whose echo never comes (POD-495 ghost delivery)', () => {
     let clock = Date.parse('2026-07-13T00:00:00.000Z')
     const now = () => new Date(clock).toISOString()
