@@ -630,20 +630,42 @@ const defs = {
       //  - audience = WHO IT IS FOR: operator creates are always human-facing; an
       //    agent's creates default to 'agent' (internal working detail) and are
       //    opted onto the board only when the agent passes audience: 'human'.
+      //
+      // M6 / decision q6 (docs/agent-comms-target.html §11): an agent may create a
+      // top-level issue with NO approval gate — it lands on the human board
+      // immediately, flagged for attention (force audience:'human' + needsHuman).
+      // Sub-issues (parentId set) stay internal by default; human creates unchanged.
       const isOperator = ctx.caller.capability.scope.kind === 'all'
       const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
-      const audience: 'human' | 'agent' = isOperator ? 'human' : (input.audience ?? 'agent')
+      const isAgentTopLevel = origin === 'agent' && !input.parentId
+      const audience: 'human' | 'agent' = isOperator
+        ? 'human'
+        : isAgentTopLevel
+          ? 'human'
+          : (input.audience ?? 'agent')
       // The orphan-internal guard is computed INSIDE withMutation so it is cached
       // with the result: a replayed create (same mutationId) returns the identical
       // payload even if the tree changed in between. An audience:'agent' issue is
       // visible only when its parent chain reaches an audience:'human' ancestor
       // (filterBoardScope). With none it is invisible — warn (don't block) so an
       // unattached agent doesn't silently lose the issue.
+      // Agent top-level creates never hit that path: audience is forced human above.
       return ctx.withMutation(input.mutationId, async () => {
         const created = await ctx.issues.createAndMaybeStart(
           { ...input, origin, audience },
           { spawnedBy: ctx.spawnProvenance() },
         )
+        // Flag for attention so the human notices agent-filed top-level work.
+        // Reuses needsHuman — no new column (S3 owns issues-table schema).
+        if (isAgentTopLevel) {
+          return ctx.issues.setNeedsHuman(
+            created.id,
+            'Agent created a top-level issue — review, claim, or reparent.',
+            ctx.caller.capability.actorSessionId
+              ? { askedBy: ctx.caller.capability.actorSessionId }
+              : undefined,
+          )
+        }
         if (audience === 'agent' && !ctx.hasHumanAudienceAncestor(created)) {
           return {
             ...created,
