@@ -529,11 +529,14 @@ export class MessageGate {
   }
 
   /**
-   * `podium agent await <sessionId>`: bounded wait for the child. Returns the
-   * child's ack (a `kind: ack` row from that session addressed back to the
-   * caller since the wait began) or its settle state — or, at the deadline,
-   * "still working" plus a status snapshot. NEVER hangs (every wait bounded —
-   * the codex-plugin-cc lesson).
+   * `podium agent await <sessionId>`: bounded wait for the child. Returns an
+   * actionable result the parent can branch on — never a false "still working"
+   * when the child is blocked, done, or gone (docs/agent-comms-target.html
+   * §09-D/§09-E; overnight-stall fix). NEVER hangs (every wait bounded).
+   *
+   * Precedence each poll: (1) session missing → gone; (2) fresh ack since
+   * waitStart → acked; (3) phase/status → blocked | done | gone (exited with no
+   * report); (4) deadline → working. Only acks since waitStart count.
    */
   private async awaitAgent(
     caller: { capability: Capability; overrideScope?: boolean },
@@ -562,7 +565,8 @@ export class MessageGate {
       const s = this.deps.listSessions().find((x) => x.sessionId === input.sessionId)
       if (!s) return { done: true, result: 'gone', snapshot: null }
       // Rich agent ack first (it carries WHAT the child did): the child's most
-      // recent ack addressed back to this caller since the wait began.
+      // recent ack addressed back to this caller since the wait began. Wins over
+      // exit/settle classification — reported-then-exited is acked, not gone.
       const ack = svc
         .inbox(principals, { limit: 50 })
         .filter(
@@ -570,17 +574,20 @@ export class MessageGate {
         )
         .at(-1)
       if (ack) return { done: true, result: 'acked', ack: this.wire(ack), snapshot: snap(s) }
-      // … else a settle (parked, or the harness reports a settled phase).
+      // Actionable phase/status — parent must never read these as "working".
       const phase = s.agentState?.phase
-      if (
-        s.status === 'hibernated' ||
-        s.status === 'exited' ||
-        phase === 'idle' ||
-        phase === 'needs_user' ||
-        phase === 'errored' ||
-        phase === 'ended'
-      ) {
-        return { done: true, result: 'settled', snapshot: snap(s) }
+      // Exit without a fresh report: process gone, nothing for the parent to
+      // re-prompt on this session (the other overnight-stall case).
+      if (s.status === 'exited') {
+        return { done: true, result: 'gone', snapshot: snap(s) }
+      }
+      // Blocked: needs parent/human (question menu) or escalation (error).
+      if (phase === 'needs_user' || phase === 'errored') {
+        return { done: true, result: 'blocked', snapshot: snap(s) }
+      }
+      // Clean finish: idle/ended harness phase, or hibernated (parked cleanly).
+      if (s.status === 'hibernated' || phase === 'idle' || phase === 'ended') {
+        return { done: true, result: 'done', snapshot: snap(s) }
       }
       if (Date.now() >= deadline) return { done: false, result: 'working', snapshot: snap(s) }
       await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
@@ -590,6 +597,9 @@ export class MessageGate {
         sessionId: s.sessionId,
         status: s.status,
         ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
+        // Carry need/error so a blocked parent can act without a second lookup.
+        ...(s.agentState?.need ? { need: s.agentState.need } : {}),
+        ...(s.agentState?.error ? { error: s.agentState.error } : {}),
         title: s.title,
         ...(s.issueId ? { issueId: s.issueId } : {}),
         ...(s.lastActiveAt ? { lastActiveAt: s.lastActiveAt } : {}),

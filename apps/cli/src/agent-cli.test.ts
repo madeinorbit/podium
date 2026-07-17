@@ -126,7 +126,7 @@ describe('podium agent await (bounded)', () => {
     expect(out).toContain('still working (live/working)')
   })
 
-  it('renders the ack body and the settle state', async () => {
+  it('renders the ack body', async () => {
     const acked = client({
       awaitAgent: {
         done: true,
@@ -136,10 +136,64 @@ describe('podium agent await (bounded)', () => {
       },
     })
     expect(await runAgentCli(['await', 'child1'], acked)).toContain('acked (msg_a): done: merged')
-    const settled = client({
-      awaitAgent: { done: true, result: 'settled', snapshot: { status: 'exited' } },
+  })
+
+  it('renders blocked (needs_user / errored) distinctly', async () => {
+    const needsUser = client({
+      awaitAgent: {
+        done: true,
+        result: 'blocked',
+        snapshot: {
+          status: 'live',
+          phase: 'needs_user',
+          need: { kind: 'question', summary: 'which model?' },
+        },
+      },
     })
-    expect(await runAgentCli(['await', 'child1'], settled)).toContain('settled (exited)')
+    expect(await runAgentCli(['await', 'child1'], needsUser)).toContain(
+      'blocked: which model? [live/needs_user]',
+    )
+    const errored = client({
+      awaitAgent: {
+        done: true,
+        result: 'blocked',
+        snapshot: {
+          status: 'live',
+          phase: 'errored',
+          error: { class: 'rate_limit', retryable: true },
+        },
+      },
+    })
+    expect(await runAgentCli(['await', 'child1'], errored)).toContain(
+      'blocked: child errored — rate_limit (retryable) [live/errored]',
+    )
+  })
+
+  it('renders done, gone (exited without report), and missing session', async () => {
+    const finished = client({
+      awaitAgent: {
+        done: true,
+        result: 'done',
+        snapshot: { status: 'live', phase: 'idle' },
+      },
+    })
+    expect(await runAgentCli(['await', 'child1'], finished)).toContain('done (live/idle)')
+    const exited = client({
+      awaitAgent: {
+        done: true,
+        result: 'gone',
+        snapshot: { status: 'exited' },
+      },
+    })
+    expect(await runAgentCli(['await', 'child1'], exited)).toContain(
+      'gone (exited without reporting)',
+    )
+    const missing = client({
+      awaitAgent: { done: true, result: 'gone', snapshot: null },
+    })
+    expect(await runAgentCli(['await', 'child1'], missing)).toContain(
+      'gone: session no longer exists',
+    )
   })
 
   it('validates --timeout bounds and requires a session id', async () => {

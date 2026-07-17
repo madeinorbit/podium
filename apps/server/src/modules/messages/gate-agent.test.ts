@@ -366,16 +366,121 @@ describe('agent await (bounded, never hangs)', () => {
     expect(r.snapshot).toMatchObject({ sessionId: 'child1', status: 'live', phase: 'working' })
   })
 
-  it('returns a settle immediately when the child is parked/idle', async () => {
-    const { gate } = harness({ sessions: [child({ status: 'exited' })] })
+  // Actionable result split (docs/agent-comms-target.html §09-D/§09-E): parent
+  // must never get a false "working" when the child is blocked/done/gone.
+  it('phase needs_user → blocked (overnight-stall: child waiting on a question)', async () => {
+    const { gate } = harness({
+      sessions: [
+        child({
+          agentState: {
+            phase: 'needs_user',
+            since: 't',
+            nativeSubagentCount: 0,
+            need: { kind: 'question', summary: 'pick a model' },
+          },
+        }),
+      ],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; snapshot: { phase?: string; need?: unknown } }
+    expect(r).toMatchObject({
+      done: true,
+      result: 'blocked',
+      snapshot: {
+        phase: 'needs_user',
+        need: { kind: 'question', summary: 'pick a model' },
+      },
+    })
+  })
+
+  it('phase errored → blocked (needs escalation)', async () => {
+    const { gate } = harness({
+      sessions: [
+        child({
+          agentState: {
+            phase: 'errored',
+            since: 't',
+            nativeSubagentCount: 0,
+            error: { class: 'rate_limit', retryable: true },
+          },
+        }),
+      ],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; snapshot: { phase?: string; error?: unknown } }
+    expect(r).toMatchObject({
+      done: true,
+      result: 'blocked',
+      snapshot: {
+        phase: 'errored',
+        error: { class: 'rate_limit', retryable: true },
+      },
+    })
+  })
+
+  it('phase idle → done', async () => {
+    const { gate } = harness({
+      sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
+    })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: 'child1',
       timeoutSeconds: 300,
     })) as { done: boolean; result: string }
-    expect(r).toMatchObject({ done: true, result: 'settled' })
+    expect(r).toMatchObject({ done: true, result: 'done' })
   })
 
-  it('surfaces the child ack (rich result wins over settle)', async () => {
+  it('phase ended → done', async () => {
+    const { gate } = harness({
+      sessions: [child({ agentState: { phase: 'ended', since: 't', nativeSubagentCount: 0 } })],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+  })
+
+  it('status hibernated → done (parked cleanly)', async () => {
+    const { gate } = harness({ sessions: [child({ status: 'hibernated' })] })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+  })
+
+  it('status exited with NO ack since waitStart → gone (exit-without-report)', async () => {
+    const { gate } = harness({ sessions: [child({ status: 'exited' })] })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; snapshot: { status?: string } }
+    expect(r).toMatchObject({ done: true, result: 'gone', snapshot: { status: 'exited' } })
+  })
+
+  it('session missing mid-await → gone', async () => {
+    // Authz sees the child (parent provenance); the row vanishes before the
+    // next poll — the documented "session missing → gone" path inside the loop.
+    const sessions = [child({})]
+    const { gate } = harness({
+      sessions,
+      awaitPollMs: 1,
+      sleep: async () => {
+        sessions.length = 0
+      },
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 5,
+    })) as { done: boolean; result: string; snapshot: null }
+    expect(r).toMatchObject({ done: true, result: 'gone', snapshot: null })
+  })
+
+  it('surfaces the child ack (rich result wins over settle / exit)', async () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
     const sessions = [child({})] // live + working: the await actually waits
@@ -403,6 +508,31 @@ describe('agent await (bounded, never hangs)', () => {
     expect(r.ack?.body).toBe('done: merged 3 commits')
   })
 
+  it('status exited WITH a fresh ack → acked (reported-then-exited, not gone)', async () => {
+    let t = 1_000
+    const now = () => new Date(t).toISOString()
+    const sessions = [child({ status: 'exited' })]
+    const { gate, svc } = harness({ sessions, now })
+    const sent = svc.send(
+      { kind: 'agent', sessionId: 'sParent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 'child1' }, body: 'report in' },
+    )
+    sessions.push(child({ sessionId: 'sParent', status: 'live', spawnedBy: undefined }))
+    // Ack after waitStart but child already exited — ack wins over gone.
+    t = 2_000
+    svc.sendReply(
+      { kind: 'agent', sessionId: 'child1', issueId: ISSUE.id },
+      { inReplyTo: sent.message.id, body: 'shipped; exiting' },
+    )
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; ack?: { body: string } }
+    expect(r.done).toBe(true)
+    expect(r.result).toBe('acked')
+    expect(r.ack?.body).toBe('shipped; exiting')
+  })
+
   it('a stale ack from a previous round never satisfies a NEW await', async () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
@@ -419,12 +549,13 @@ describe('agent await (bounded, never hangs)', () => {
       { inReplyTo: sent.message.id, body: 'round 1 done' },
     )
     // Round 2: a NEW await must not be satisfied by the round-1 ack.
+    // Child is exited with no fresh report → gone (not a false working/settled).
     t = 600_000
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: 'child1',
       timeoutSeconds: 0,
     })) as { done: boolean; result: string }
-    expect(r).toMatchObject({ done: true, result: 'settled' })
+    expect(r).toMatchObject({ done: true, result: 'gone' })
   })
 
   it('the parent relationship alone authorizes await; strangers hit the scope gate', async () => {
