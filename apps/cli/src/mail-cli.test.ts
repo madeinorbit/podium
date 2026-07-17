@@ -16,7 +16,7 @@ const WIRE = {
   ackedBy: null,
 }
 
-function client(over?: Partial<Record<'send' | 'inbox' | 'show' | 'reply', unknown>>) {
+function client(over?: Partial<Record<'send' | 'inbox' | 'show' | 'status' | 'reply', unknown>>) {
   const proc = (result: unknown) => ({
     mutate: vi.fn(async () => result),
     query: vi.fn(async () => result),
@@ -26,6 +26,7 @@ function client(over?: Partial<Record<'send' | 'inbox' | 'show' | 'reply', unkno
       send: proc(over?.send ?? { id: 'msg_9', ok: true, queued: true }),
       inbox: proc(over?.inbox ?? [WIRE]),
       show: proc(over?.show ?? WIRE),
+      status: proc(over?.status ?? WIRE),
       reply: proc(over?.reply ?? { id: 'msg_r', ok: true, acked: true }),
     },
   } satisfies MailClient

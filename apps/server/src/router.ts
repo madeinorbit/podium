@@ -429,7 +429,7 @@ export const appRouter = t.router({
       // ride the substrate as OPERATOR — unwrapped, unclamped, ledgered.
       .mutation(({ ctx, input }) =>
         mods(ctx).sessions.withMutation(input.mutationId, 'sessions.sendText', () => {
-          const { ok, queued, reason } = mods(ctx).messages.send(
+          const { ok, queued, reason, disposition } = mods(ctx).messages.send(
             { kind: 'operator' },
             {
               to: { kind: 'session', id: input.sessionId },
@@ -442,6 +442,7 @@ export const appRouter = t.router({
             ok,
             ...(queued !== undefined ? { queued } : {}),
             ...(reason !== undefined ? { reason } : {}),
+            disposition,
           }
         }),
       ),
@@ -472,7 +473,7 @@ export const appRouter = t.router({
       // target (operator wakes are never cooldown-braked).
       .mutation(({ ctx, input }) =>
         mods(ctx).sessions.withMutation(input.mutationId, 'sessions.resumeAndSend', () => {
-          const { ok, queued, reason } = mods(ctx).messages.send(
+          const { ok, queued, reason, disposition } = mods(ctx).messages.send(
             { kind: 'operator' },
             {
               to: { kind: 'session', id: input.sessionId },
@@ -485,6 +486,7 @@ export const appRouter = t.router({
             ok,
             ...(queued !== undefined ? { queued } : {}),
             ...(reason !== undefined ? { reason } : {}),
+            disposition,
           }
         }),
       ),
@@ -1322,6 +1324,14 @@ export const appRouter = t.router({
       .query(
         ({ ctx, input }) =>
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'show', input)!,
+      ),
+    // Sender-queryable message lifecycle (#834) [POD-834 §04d]: "what happened to
+    // msg X" — mayView-gated in the gate (sender/recipient/operator), a pure read.
+    status: t.procedure
+      .input(z.unknown())
+      .query(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'status', input)!,
       ),
     // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
     // delivery ledger — pure read, operator-only (enforced in the gate).

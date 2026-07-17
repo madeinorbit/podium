@@ -3,8 +3,8 @@
  * re-exported from `../store` so existing importers keep working.
  */
 
-import type { Geometry } from '@podium/protocol'
 import type { IssueColorSlot } from '@podium/domain'
+import type { Geometry } from '@podium/protocol'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -235,7 +235,24 @@ export type MessageToKind = 'issue' | 'session' | 'operator'
 export type MessageKind = 'message' | 'ack' | 'notification' | 'question'
 export type MessageUrgency = 'fyi' | 'next-turn' | 'interrupt'
 export type MessageLifecycle = 'wait' | 'wake'
-export type MessageStatus = 'queued' | 'delivered' | 'expired' | 'cancelled'
+/** The message delivery lifecycle [spec:SP-34d7, POD-834] — an honest, sender-
+ *  queryable position, NOT "did the CLI accept it":
+ *   - `queued`      captured + durably waiting for a valid, reachable target;
+ *   - `delivered`   its envelope appeared as a turn in the target's transcript
+ *                   (PUSH confirmed by transcript echo) — the agent has it in context;
+ *   - `read`        the recipient opened its inbox and consumed it (PULL confirmed);
+ *   - `dead_letter` the target was gone before it could land (told the sender once);
+ *   - `expired`     the queued TTL passed without delivery;
+ *   - `cancelled`   withdrawn.
+ *  `delivered` used to fire on mere enqueue — that lie (POD-495 defect B, 70 lost
+ *  POD-279 messages) is what this redefinition kills. */
+export type MessageStatus =
+  | 'queued'
+  | 'delivered'
+  | 'read'
+  | 'dead_letter'
+  | 'expired'
+  | 'cancelled'
 
 /** One row in the unified `messages` table: the message AND its delivery
  *  ledger (status, delivered_at/to, acked_by are the ledger columns). */
@@ -259,9 +276,19 @@ export interface MessageRow {
   expiresAt: string | null
   createdAt: string
   status: MessageStatus
+  /** When status reached `delivered` — the transcript echo, NOT the enqueue. */
   deliveredAt: string | null
-  /** The session that actually received it. */
+  /** The session that actually received it (set on inject; confirmed at delivered). */
   deliveredTo: string | null
+  /** When status reached `read` — the recipient opened its inbox (PULL path). */
+  readAt?: string | null
+  /** When the message was last dispatched toward a live PTY (bytes typed). An
+   *  INTERNAL cursor, not a sender-facing state: the row stays `queued` until an
+   *  echo confirms `delivered`. Drives auto-requeue — an injected row with no echo
+   *  within the window was a ghost push and is re-attempted [POD-834]. */
+  injectedAt?: string | null
+  /** When status reached `dead_letter` — the target was gone. */
+  deadLetteredAt?: string | null
   /** Ack message id (denormalized for the steward's suppression check). */
   ackedBy: string | null
   /** Chain-depth counter [spec:SP-34d7 brakes]: messages sent from a

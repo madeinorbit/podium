@@ -1140,8 +1140,28 @@ const defs = {
       const send = ctx.deps.sendMessage
       if (!send) return ctx.issues.sendMail(input.id, ctx.mailIdentity(), input.body)
       const r = send(ctx.messageSender(), { to: { kind: 'issue', id: input.id }, body: input.body })
-      if (!r.legacy) throw new Error('issue-addressed send produced no mail row')
-      return r.legacy
+      // Surface the honest disposition (#834): held / dead_letter must never be a
+      // bare success. The old code discarded r.ok/queued/reason and returned only
+      // r.legacy — the exact silent-drop that lost 70 POD-279 messages. When the
+      // target was gone there is no mirror row, so synthesize one from the real
+      // message so the sender still gets the id AND the disposition.
+      const base = r.legacy ?? {
+        id: r.message.id,
+        issueId: r.message.toId ?? input.id,
+        fromAuthor: '',
+        body: input.body,
+        createdAt: r.message.createdAt,
+        status: 'unread' as const,
+        claimedBy: null,
+        readAt: null,
+        claimedAt: null,
+      }
+      return {
+        ...base,
+        ok: r.ok,
+        disposition: r.disposition,
+        ...(r.reason ? { reason: r.reason } : {}),
+      }
     },
   }),
   // A mutation (listing marks the returned unread messages read), but authz-wise

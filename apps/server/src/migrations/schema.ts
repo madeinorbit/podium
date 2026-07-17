@@ -487,6 +487,9 @@ export const messages = sqliteTable("messages", {
 	clampedFrom: text("clamped_from"),
 	remindedAt: text("reminded_at"),
 	fromName: text("from_name"),
+	readAt: text("read_at"),
+	injectedAt: text("injected_at"),
+	deadLetteredAt: text("dead_lettered_at"),
 },
 (table) => [index("idx_messages_delivered_to").on(table.deliveredTo),
 index("idx_messages_thread").on(table.threadId),
@@ -496,7 +499,7 @@ check("messages_check_6", sql`to_kind IN ('issue','session','operator')`),
 check("messages_check_7", sql`kind IN ('message','ack','notification','question')`),
 check("messages_check_8", sql`urgency IN ('fyi','next-turn','interrupt')`),
 check("messages_check_9", sql`lifecycle IN ('wait','wake')`),
-check("messages_check_10", sql`status IN ('queued','delivered','expired','cancelled')`),
+check("messages_check_10", sql`status IN ('queued','delivered','read','dead_letter','expired','cancelled')`),
 ]);
 
 export const recapWatermarks = sqliteTable("recap_watermarks", {

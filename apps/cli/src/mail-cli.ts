@@ -4,6 +4,7 @@
  *        [--lifecycle wait|wake]
  *   inbox [--issue <ref>]
  *   show <id>
+ *   status <id>
  *   reply <id> --body "…" [--kind ack|message]
  *
  * Speaks to the `messages` relay router (agents, via PODIUM_AGENT_RELAY) or the
@@ -25,6 +26,7 @@ export interface MailClient {
     send: MailProc
     inbox: MailProc
     show: MailProc
+    status: MailProc
     reply: MailProc
   }
 }
@@ -75,6 +77,9 @@ function helpText(): string {
     '      Read your mailbox (marks messages received). --issue peeks at another box.',
     '  show <id>',
     '      One message in full (sender/recipient/thread/ledger).',
+    '  status <id>',
+    '      What happened to a message you sent: queued / delivered (in the target’s',
+    '      transcript) / read (inbox-pulled) / dead-lettered, with timestamps.',
     '  reply <id> --body "…" [--kind ack|message]',
     '      Reply to a message — routed to its sender. Default kind ack: records',
     '      that you handled it (do this before going idle when a message asked for something).',
@@ -94,6 +99,12 @@ interface MessageWire {
   ackedBy: string | null
   threadId: string
   inReplyTo: string | null
+  // Lifecycle timestamps (#834) — present on show/status.
+  deliveredAt?: string | null
+  deliveredTo?: string | null
+  readAt?: string | null
+  deadLetteredAt?: string | null
+  expiresAt?: string | null
 }
 
 function renderRow(m: MessageWire): string {
@@ -101,6 +112,53 @@ function renderRow(m: MessageWire): string {
     Boolean,
   )
   return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]\n  ${m.body}`
+}
+
+/** The send-time disposition, worded for the sender (#834). Sync send returns at
+ *  queued: `delivered` = pushed to a live target now; `queued` = enqueued to a
+ *  busy-but-live session; `held` = no live session (delivers at the issue's next
+ *  session); `spawning` = a session is being woken. Falls back to the legacy
+ *  queued/delivered wording when a server predates the field. */
+function dispositionLabel(disposition: string | undefined, queued: boolean | undefined): string {
+  switch (disposition) {
+    case 'delivered':
+      return 'delivered'
+    case 'queued':
+      return 'queued for the target’s next turn'
+    case 'held':
+      return 'HELD for the issue’s next session (no live session now)'
+    case 'spawning':
+      return 'waking a session to receive it'
+    case 'dead_letter':
+      return 'dead-lettered'
+    default:
+      return queued ? 'queued' : 'delivered'
+  }
+}
+
+/** The message-lifecycle line for `podium mail status` (#834) [POD-834 §04d]:
+ *  the honest "what happened", with a one-line gloss so `queued` reads as "landed,
+ *  not yet seen" and `delivered` as "in the agent's transcript". */
+function renderLifecycle(m: MessageWire): string {
+  const gloss: Record<string, string> = {
+    queued: 'captured + waiting for the target (not yet in its context)',
+    delivered: 'appeared in the target’s transcript — the agent has it',
+    read: 'the recipient opened its inbox and read it',
+    dead_letter: 'target was gone — dead-lettered, not dropped',
+    expired: 'sat undelivered past its TTL',
+    cancelled: 'withdrawn',
+  }
+  const stamps = [
+    m.deliveredAt ? `delivered=${m.deliveredAt}` : null,
+    m.readAt ? `read=${m.readAt}` : null,
+    m.deadLetteredAt ? `dead-lettered=${m.deadLetteredAt}` : null,
+    m.deliveredTo ? `to-session=${m.deliveredTo}` : null,
+  ].filter(Boolean)
+  return [
+    `${m.id} ${m.from} -> ${m.to}`,
+    `  status: ${m.status} — ${gloss[m.status] ?? ''}`,
+    `  captured=${m.createdAt}${stamps.length ? ` ${stamps.join(' ')}` : ''}`,
+  ].join('\n')
 }
 
 export async function runMailCli(argv: string[], client: MailClient): Promise<string> {
@@ -149,10 +207,19 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         body,
         ...(args.urgency ? { urgency: args.urgency } : {}),
         ...(args.lifecycle ? { lifecycle: args.lifecycle } : {}),
-      })) as { id: string; ok: boolean; queued?: boolean; reason?: string; clamped?: boolean }
+      })) as {
+        id: string
+        ok: boolean
+        queued?: boolean
+        reason?: string
+        clamped?: boolean
+        disposition?: string
+      }
       if (!r.ok) throw new MailCliError(r.reason ?? 'send was not accepted')
+      // The honest, sender-facing outcome (#834): held / spawning are named
+      // explicitly so a message with no live target is never a bare "sent".
       const note = [
-        r.queued ? 'queued' : 'delivered',
+        dispositionLabel(r.disposition, r.queued),
         r.clamped ? 'downgraded to your authority cap' : null,
       ]
         .filter(Boolean)
@@ -179,6 +246,12 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         .filter(Boolean)
         .join(' ')
       return done(`${renderRow(m)}\n  ${meta}`, m)
+    }
+    case 'status': {
+      const id = positionals[0]
+      if (!id) throw new MailCliError('status needs a message id')
+      const m = (await client.messages.status.query({ id })) as MessageWire
+      return done(renderLifecycle(m), m)
     }
     case 'reply': {
       const id = positionals[0]

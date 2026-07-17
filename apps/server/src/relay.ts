@@ -830,16 +830,23 @@ export class SessionRegistry {
             // at delivery (operator stays unwrapped), row + ledger durable.
             // sendText → next-turn/wait, resumeAndSend → next-turn/wake.
             return sessionsSvc.withMutation(commandInput.mutationId, `sessions.${proc}`, () => {
-              const { ok, queued, reason } = messagesSvc.send(senderFromCapability(capability), {
-                to: { kind: 'session', id: commandInput.sessionId },
-                body: commandInput.text,
-                urgency: 'next-turn',
-                lifecycle: proc === 'resumeAndSend' ? 'wake' : 'wait',
-              })
+              const { ok, queued, reason, disposition } = messagesSvc.send(
+                senderFromCapability(capability),
+                {
+                  to: { kind: 'session', id: commandInput.sessionId },
+                  body: commandInput.text,
+                  urgency: 'next-turn',
+                  lifecycle: proc === 'resumeAndSend' ? 'wake' : 'wait',
+                },
+              )
               return {
                 ok,
                 ...(queued !== undefined ? { queued } : {}),
                 ...(reason !== undefined ? { reason } : {}),
+                // Honest outcome (#834): a session send to a gone target dead-letters
+                // (ok:false) rather than silently queueing; `podium session send`
+                // surfaces the disposition.
+                disposition,
               }
             })
           })()
@@ -1129,6 +1136,13 @@ export class SessionRegistry {
       if (next.phase !== 'idle' || prev?.phase === 'idle') return
       const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
       if (meta) messagesSvc.onSessionIdle(meta)
+    })
+    // Transcript-echo confirmation (#834) [POD-834 §04d]: a message the substrate
+    // typed into a PTY reappears as a user turn carrying its `[podium message
+    // <id>]` frame — seeing that echo is what flips the ledger queued → delivered
+    // (an honest "the agent has it", never the old enqueue-time lie).
+    this.bus.on('transcript.delta', ({ sessionId, items }) => {
+      messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), 60_000)
     this.messageSweep.unref?.()

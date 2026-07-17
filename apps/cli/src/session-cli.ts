@@ -1,7 +1,7 @@
 import { makeIssueClient, makeRelayIssueClient } from '@podium/issue-client'
 import { resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 
-type SessionResult = { ok: boolean; queued?: boolean; reason?: string }
+type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
 type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
 
@@ -296,9 +296,26 @@ export async function runSessionCli(
   }
 
   if (!result.ok) throw new SessionCliError(result.reason ?? `${action} was not accepted`)
-  const text = result.queued ? 'queued for delivery' : action === 'continue' ? 'continued' : 'sent'
+  // Honest outcome (#834): `held` (issue-addressed with no live session) and
+  // `spawning` are named; a plain session send resolves to delivered/queued.
+  const text =
+    result.disposition === 'held'
+      ? 'held for the issue’s next session'
+      : result.disposition === 'spawning'
+        ? 'waking a session to receive it'
+        : result.queued || result.disposition === 'queued'
+          ? 'queued for delivery'
+          : action === 'continue'
+            ? 'continued'
+            : 'sent'
   return args.json === true
-    ? JSON.stringify({ command: action, ok: true, sessionId, queued: result.queued === true })
+    ? JSON.stringify({
+        command: action,
+        ok: true,
+        sessionId,
+        queued: result.queued === true,
+        ...(result.disposition ? { disposition: result.disposition } : {}),
+      })
     : text
 }
 
