@@ -1752,6 +1752,34 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
   })
 
+  it('a NEVER-injected held row is not flipped by a foreign transcript quoting its id [POD-834 review]', () => {
+    // A HELD issue message (no live session) was never pushed → injectedAt null,
+    // deliveredTo null. Some OTHER agent's user turn pasting its id (an operator
+    // relaying it) must NOT confirm it delivered — that would strand the real
+    // target (the issue's next session) and lie in the ledger.
+    const live: SessionMeta[] = []
+    const { svc, store } = harness(live)
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'held note', urgency: 'next-turn' },
+    )
+    expect(r.disposition).toBe('held')
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).toBeNull()
+    // A completely unrelated session echoes the id — must be ignored.
+    svc.onTranscriptDelta('someOtherSession', [
+      { role: 'user', text: `look at [podium message ${r.message.id} · from x · to y]` },
+    ])
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r.message.id)!.deliveredAt).toBeNull()
+    // It still delivers legitimately once a session picks it up and echoes.
+    const s = session({ sessionId: 's1', issueId: ISSUE.id })
+    live.push(s)
+    svc.onSessionIdle(s)
+    echo(svc, 's1', r.message.id)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
+  })
+
   it('auto-requeues a pushed message whose echo never comes (POD-495 ghost delivery)', () => {
     let clock = Date.parse('2026-07-13T00:00:00.000Z')
     const now = () => new Date(clock).toISOString()

@@ -1148,7 +1148,7 @@ const defs = {
       const base = r.legacy ?? {
         id: r.message.id,
         issueId: r.message.toId ?? input.id,
-        fromAuthor: '',
+        fromAuthor: ctx.mailIdentity(),
         body: input.body,
         createdAt: r.message.createdAt,
         status: 'unread' as const,

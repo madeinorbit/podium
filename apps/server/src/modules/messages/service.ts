@@ -590,6 +590,12 @@ export class MessageDeliveryService {
         : via === 'interrupt'
           ? sessions.interruptText({ sessionId, text })
           : sessions.queueText({ sessionId, text })
+    // Transport rejected the push (e.g. the daemon dropped offline mid-send). The
+    // row was still captured + durably queued, so the SWEEP will re-attempt it —
+    // `disposition: 'queued'` describes that row position, while `ok: false`
+    // reports THIS push attempt failed. The one caller whose ok:false carries a
+    // recoverable path — a parked 'no resume ref' — is intercepted upstream and
+    // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
     if (this.deliveryMode(message) === 'unwrapped') {
       // No envelope id → no echo will ever come; the injection IS the delivery.
@@ -1327,10 +1333,16 @@ export class MessageDeliveryService {
         const id = m[1]
         if (!id) continue
         const row = this.deps.messages.getMessage(id)
-        // Confirm only a real, still-in-flight push to THIS session — never let a
-        // transcript that quotes some other session's id flip a foreign row.
         if (!row || row.status !== 'queued') continue
-        if (row.deliveredTo && row.deliveredTo !== sessionId) continue
+        // Confirm ONLY a push WE made to THIS session. A row we never injected
+        // (injectedAt null — e.g. a HELD issue message with no live session, or
+        // one waiting for a boundary) has deliveredTo null; some OTHER session's
+        // transcript merely quoting its id (an operator pasting it into a
+        // different agent) must NOT flip it delivered-to-the-wrong-place and
+        // silently strand the real target — the exact silent-drop class this
+        // branch kills [POD-834 review]. injectedAt always co-sets deliveredTo,
+        // so requiring the push target to match closes the loophole.
+        if (!row.injectedAt || row.deliveredTo !== sessionId) continue
         this.markDelivered(row, sessionId)
       }
     }
