@@ -40,6 +40,16 @@ export class NotificationFactsRepository {
     return row !== undefined
   }
 
+  retire(factKey: string, target: string, consumedAt: string): boolean {
+    const row = this.db
+      .prepare(
+        `UPDATE notification_facts SET consumed_at = ?
+         WHERE fact_key = ? AND target = ? AND consumed_at IS NULL`,
+      )
+      .run(consumedAt, factKey, target)
+    return row.changes === 1
+  }
+
   retireByIssue(issueId: string): void {
     this.db.prepare('DELETE FROM notification_facts WHERE issue_id = ?').run(issueId)
   }
@@ -77,6 +87,10 @@ export class NotificationArbiter {
       createdAt,
       expiresAt: new Date(Date.parse(createdAt) + ttlMs).toISOString(),
     })
+  }
+
+  retire(factKey: string, target: string, at = this.now()): boolean {
+    return this.facts.retire(factKey, target, at)
   }
 
   retireByIssue(issueId: string): void {

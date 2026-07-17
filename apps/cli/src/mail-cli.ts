@@ -5,6 +5,7 @@
  *   inbox [--issue <ref>]
  *   show <id>
  *   status <id>
+ *   dismiss <id>
  *   reply <id> --body "…" [--kind ack|message]
  *
  * Speaks to the `messages` relay router (agents, via PODIUM_AGENT_RELAY) or the
@@ -27,6 +28,7 @@ export interface MailClient {
     inbox: MailProc
     show: MailProc
     status: MailProc
+    dismiss: MailProc
     reply: MailProc
   }
 }
@@ -84,6 +86,8 @@ function helpText(): string {
     '  status <id>',
     '      What happened to a message you sent: queued / delivered (in the target’s',
     '      transcript) / read (inbox-pulled) / dead-lettered, with timestamps.',
+    '  dismiss <id>',
+    '      Clear a message without opening the inbox; a new transition may notify again.',
     '  reply <id> --body "…" [--kind ack|message]',
     '      Reply to a message that asked for a response — routed to its sender and',
     '      pull-delivered (surfaces at their next stop, never a fresh turn). Any',
@@ -278,6 +282,12 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       if (!id) throw new MailCliError('status needs a message id')
       const m = (await client.messages.status.query({ id })) as MessageWire
       return done(renderLifecycle(m), m)
+    }
+    case 'dismiss': {
+      const id = positionals[0]
+      if (!id) throw new MailCliError('dismiss needs a message id')
+      const m = (await client.messages.dismiss.mutate({ id })) as MessageWire
+      return done('dismissed ' + m.id, m)
     }
     case 'reply': {
       const id = positionals[0]

@@ -37,6 +37,8 @@ import type {
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
 import type { MessagesRepository } from '../../store/messages'
+import { NotificationArbiter } from '../../store/notification-facts'
+import type { NotificationFactsRepository } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
@@ -141,6 +143,8 @@ export interface MessageSendInput {
    *  system expect (and, on settle, nag about) a response. A `question` implies it;
    *  an `ack`/`notification` can never set it. Omitted = false (receipt-only). */
   expectsResponse?: boolean
+  /** Internal-only arbiter identity for message-backed notifications. */
+  notificationFact?: { factKey: string; target: string }
 }
 
 export interface MessageSendResult {
@@ -180,6 +184,7 @@ export interface SpawnOnWake {
 
 export interface MessageDeliveryDeps {
   messages: MessagesRepository
+  notificationFacts: NotificationFactsRepository
   events: EventsRepository
   issues(): IssueService
   sessions(): {
@@ -327,7 +332,11 @@ export class MessageDeliveryService {
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
 
-  constructor(private readonly deps: MessageDeliveryDeps) {}
+  private readonly notificationArbiter: NotificationArbiter
+
+  constructor(private readonly deps: MessageDeliveryDeps) {
+    this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
+  }
 
   /**
    * Persist + attempt delivery of one message. `from` is the surface's
@@ -476,6 +485,8 @@ export class MessageDeliveryService {
           })
         : null,
       remindedAt: null,
+      factKey: input.notificationFact?.factKey ?? null,
+      factTarget: input.notificationFact?.target ?? null,
       expectsResponse,
     }
     // The reply row and the acked_by stamp on the original commit atomically —
@@ -1116,6 +1127,8 @@ export class MessageDeliveryService {
       /** #285 pass-through: the settled session's assigned workflow step, when
        *  one was stamped at spawn — the notice flags it as unresolved. */
       workflowStepId?: string
+      /** Fact claimed by the steward for this notification emission. */
+      notificationFact?: { factKey: string; target: string }
     },
   ): void {
     // #468 / [POD-835]: only messages that REQUESTED a response (expects_response)
@@ -1152,6 +1165,7 @@ export class MessageDeliveryService {
             `(you sent it --expect-response).` +
             (stitch.length ? ` ${stitch.join(' · ')}.` : '') +
             ` Use the read toolkit (podium session status/read) if you need more.`,
+          ...(context.notificationFact ? { notificationFact: context.notificationFact } : {}),
         },
       )
     }
@@ -1311,6 +1325,7 @@ export class MessageDeliveryService {
     return rows.map((m) => {
       if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
       if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
+      this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
           this.deps.mirrorMarkIssueMailRead?.(m.toId, [m.id])
@@ -1325,6 +1340,33 @@ export class MessageDeliveryService {
       this.emitTransition(read, 'message.read')
       return read
     })
+  }
+
+  /** Explicitly clear one recipient-owned message without opening the inbox.
+   * Reuses `read`, the existing cleared terminal state [spec:SP-ba61]. */
+  dismiss(messageId: string, consume: string | null): MessageRow {
+    const message = this.deps.messages.getMessage(messageId)
+    if (!message) throw new Error('unknown message ' + messageId)
+    const at = this.deps.now()
+    if (message.status === 'queued' || message.status === 'delivered') {
+      this.deps.messages.markRead(message.id, consume, at)
+      if (message.toKind === 'issue' && message.toId) {
+        try {
+          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
+        } catch {}
+      }
+    }
+    const dismissed = this.deps.messages.getMessage(messageId) ?? message
+    if (dismissed.status === 'read' && message.status !== 'read') {
+      this.emitTransition(dismissed, 'message.read')
+    }
+    this.retireNotificationFact(message, at)
+    return dismissed
+  }
+
+  private retireNotificationFact(message: MessageRow, at: string): void {
+    if (!message.factKey || !message.factTarget) return
+    this.notificationArbiter.retire(message.factKey, message.factTarget, at)
   }
 
   // ---- clamp matrix / relationships ----

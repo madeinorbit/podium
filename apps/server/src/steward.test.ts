@@ -847,8 +847,14 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     })
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(2)
-    expect(ackFallback).toHaveBeenCalledWith('s9', 'finished')
-    expect(ackFallback).toHaveBeenCalledWith('s8', 'errored')
+    expect(ackFallback).toHaveBeenCalledWith('s9', 'finished', {
+      factKey: 'settle:s9',
+      target: 's9',
+    })
+    expect(ackFallback).toHaveBeenCalledWith('s8', 'errored', {
+      factKey: 'settle:s8',
+      target: 's8',
+    })
     // Replays past the advanced cursor never re-fire.
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(2)

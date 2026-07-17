@@ -173,7 +173,11 @@ export interface StewardDeps {
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
    *  the composition root; suppression = the acked_by null-check at query time. */
   messaging?: {
-    ackFallback(sessionId: string, outcome: 'finished' | 'errored'): void
+    ackFallback(
+      sessionId: string,
+      outcome: 'finished' | 'errored',
+      notificationFact: { factKey: string; target: string },
+    ): void
   }
   /** External notification seam (#470) [spec:SP-17db]: the delivery behind a
    *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
@@ -597,15 +601,19 @@ export class StewardService {
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
     const issueId = this.deps.listSessions().find((s) => s.sessionId === sessionId)?.issueId
+    const factKey = `settle:${sessionId}`
     if (
-      !this.arbiter.claim(`settle:${sessionId}`, sessionId, {
+      !this.arbiter.claim(factKey, sessionId, {
         source: 'steward.ack-fallback',
         issueId: issueId ?? undefined,
       })
     ) {
       return
     }
-    this.deps.messaging.ackFallback(sessionId, p?.phase === 'errored' ? 'errored' : 'finished')
+    this.deps.messaging.ackFallback(sessionId, p?.phase === 'errored' ? 'errored' : 'finished', {
+      factKey,
+      target: sessionId,
+    })
   }
 
   /** P1: needs-human only leaves a breadcrumb in the log (briefs are P3). */

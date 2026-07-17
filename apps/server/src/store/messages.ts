@@ -42,6 +42,8 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     hop: (r.hop as number | null) ?? 0,
     clampedFrom: (r.clamped_from as string | null) ?? null,
     remindedAt: (r.reminded_at as string | null) ?? null,
+    factKey: (r.fact_key as string | null) ?? null,
+    factTarget: (r.fact_target as string | null) ?? null,
     expectsResponse: Boolean(r.expects_response),
   }
 }
@@ -56,8 +58,8 @@ export class MessagesRepository {
            (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
             to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
             created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
-            expects_response)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            expects_response, fact_key, fact_target)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -82,6 +84,8 @@ export class MessagesRepository {
         m.hop,
         m.clampedFrom,
         m.expectsResponse ? 1 : 0,
+        m.factKey ?? null,
+        m.factTarget ?? null,
       )
   }
 

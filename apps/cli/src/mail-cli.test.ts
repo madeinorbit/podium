@@ -16,7 +16,9 @@ const WIRE = {
   ackedBy: null,
 }
 
-function client(over?: Partial<Record<'send' | 'inbox' | 'show' | 'status' | 'reply', unknown>>) {
+function client(
+  over?: Partial<Record<'send' | 'inbox' | 'show' | 'status' | 'dismiss' | 'reply', unknown>>,
+) {
   const proc = (result: unknown) => ({
     mutate: vi.fn(async () => result),
     query: vi.fn(async () => result),
@@ -27,6 +29,7 @@ function client(over?: Partial<Record<'send' | 'inbox' | 'show' | 'status' | 're
       inbox: proc(over?.inbox ?? [WIRE]),
       show: proc(over?.show ?? WIRE),
       status: proc(over?.status ?? WIRE),
+      dismiss: proc(over?.dismiss ?? { ...WIRE, status: 'read' }),
       reply: proc(over?.reply ?? { id: 'msg_r', ok: true, acked: true }),
     },
   } satisfies MailClient
@@ -130,6 +133,14 @@ describe('podium mail CLI (argv shape)', () => {
     expect(c.messages.show.query).toHaveBeenCalledWith({ id: 'msg_1' })
   })
 
+  it('dismiss requires an id and clears through its mutation', async () => {
+    const c = client()
+    await expect(runMailCli(['dismiss'], c)).rejects.toThrow(/message id/)
+    const out = await runMailCli(['dismiss', 'msg_1'], c)
+    expect(out).toBe('dismissed msg_1')
+    expect(c.messages.dismiss.mutate).toHaveBeenCalledWith({ id: 'msg_1' })
+  })
+
   it('reply defaults to an ack and validates --kind', async () => {
     const c = client()
     await expect(runMailCli(['reply', 'msg_1'], c)).rejects.toThrow(/--body/)
@@ -151,9 +162,9 @@ describe('podium mail CLI (argv shape)', () => {
     expect(JSON.parse(out)).toMatchObject({ command: 'reply', ok: true })
   })
 
-  it('help documents all four verbs', async () => {
+  it('help documents all mail verbs', async () => {
     const out = await runMailCli(['help'], client())
-    for (const verb of ['send --to', 'inbox', 'show <id>', 'reply <id>'])
+    for (const verb of ['send --to', 'inbox', 'show <id>', 'dismiss <id>', 'reply <id>'])
       expect(out).toContain(verb)
   })
 })

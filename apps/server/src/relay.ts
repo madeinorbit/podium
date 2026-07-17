@@ -1030,6 +1030,7 @@ export class SessionRegistry {
     // keep working until those readers migrate.
     messagesSvc = new MessageDeliveryService({
       messages: this.store.messages,
+      notificationFacts: this.store.notificationFacts,
       events: this.store.events,
       issues: () => issues,
       sessions: () => sessionsSvc,
@@ -1118,7 +1119,7 @@ export class SessionRegistry {
       // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: stitch issue
       // stage + last commit (best-effort daemon git) into the system notice.
       messaging: {
-        ackFallback: (sessionId, outcome) =>
+        ackFallback: (sessionId, outcome, notificationFact) =>
           void (async () => {
             if (messagesSvc.settleNotifiable(sessionId).length === 0) return
             const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
@@ -1133,6 +1134,7 @@ export class SessionRegistry {
             }
             messagesSvc.systemAckFallback(sessionId, {
               outcome,
+              notificationFact,
               ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
               ...(lastCommit ? { lastCommit } : {}),
               // #285 pass-through: a worker that settles without reporting its

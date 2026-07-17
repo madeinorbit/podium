@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
+import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import { MessageGate } from './gate'
 import {
@@ -173,6 +174,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
+    notificationFacts: store.notificationFacts,
     events: store.events,
     issues: () => fakeIssues(issueGetLists, opts?.archivedIds, opts?.coordinatorByIssue),
     sessions: () => ({
@@ -249,6 +251,8 @@ describe('MessagesRepository (store CRUD)', () => {
       hop: 0,
       clampedFrom: null,
       remindedAt: null,
+      factKey: null,
+      factTarget: null,
       expectsResponse: false,
     }
     store.messages.addMessage(m)
@@ -1259,10 +1263,7 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
       { kind: 'agent', issueId: SENDER_ISSUE.id },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'one' },
     )
-    const r2 = svc.send(
-      { kind: 'superagent' },
-      { to: { kind: 'issue', id: ISSUE.id }, body: 'two' },
-    )
+    const r2 = svc.send({ kind: 'superagent' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'two' })
     expect(r1.message.status).toBe('queued')
     expect(r2.message.status).toBe('queued')
     const s = session({ sessionId: 's1', issueId: ISSUE.id })
@@ -1969,6 +1970,82 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     )
     expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
   })
+
+  it('reading a settle notification retires its fact so a new settle can re-fire', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const arbiter = new NotificationArbiter(
+      store.notificationFacts,
+      () => '2026-07-13T00:00:00.000Z',
+    )
+    const notificationFact = { factKey: 'settle:s1', target: 's1' }
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+
+    const request = (body: string) => {
+      const sent = svc.send(
+        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+        {
+          to: { kind: 'session', id: 's1' },
+          body,
+          urgency: 'next-turn',
+          expectsResponse: true,
+        },
+      )
+      echo(svc, 's1', sent.message.id)
+    }
+
+    request('first')
+    svc.systemAckFallback('s1', { outcome: 'finished', notificationFact })
+    const first = systemNotices(store)[0]!
+    expect(first).toMatchObject({ factKey: 'settle:s1', factTarget: 's1' })
+    svc.readInbox([{ kind: 'session', id: 'sX' }], { consume: 'sX' })
+    expect(store.messages.getMessage(first.id)!.status).toBe('read')
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+
+    request('second')
+    svc.systemAckFallback('s1', { outcome: 'finished', notificationFact })
+    expect(systemNotices(store)).toHaveLength(2)
+  })
+
+  it('dismiss clears unread mail and retires an arbiter-backed fact', () => {
+    const { svc, store } = harness([])
+    const arbiter = new NotificationArbiter(
+      store.notificationFacts,
+      () => '2026-07-13T00:00:00.000Z',
+    )
+    const notificationFact = { factKey: 'settle:s1', target: 's1' }
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+    const notice = svc.send(
+      { kind: 'system', name: 'steward' },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'settled',
+        kind: 'notification',
+        notificationFact,
+      },
+    )
+    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(1)
+    expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(1)
+
+    expect(svc.dismiss(notice.message.id, 's1').status).toBe('read')
+    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+  })
+
+  it('messages without a fact reference dismiss and read without error', () => {
+    const { svc } = harness([])
+    const dismissed = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'plain dismiss' },
+    )
+    expect(() => svc.dismiss(dismissed.message.id, 's1')).not.toThrow()
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'plain read' },
+    )
+    expect(() => svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })).not.toThrow()
+  })
 })
 
 describe('readInbox (podium mail inbox)', () => {
@@ -2557,7 +2634,10 @@ describe('turn-boundary confirmation backstop [POD-853]', () => {
       { kind: 'agent', issueId: SENDER_ISSUE.id },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'one' },
     )
-    const r2 = svc.send({ kind: 'superagent' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'two' })
+    const r2 = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'two' },
+    )
     const s = session({ sessionId: 's1', issueId: ISSUE.id })
     live.push(s)
     svc.onSessionIdle(s) // coalesced pointer nudge — bodies/ids are NOT in the transcript

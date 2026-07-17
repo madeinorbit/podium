@@ -72,6 +72,7 @@ function harness(opts?: {
   const sent: { fn: string; sessionId: string; text: string }[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
+    notificationFacts: store.notificationFacts,
     events: store.events,
     issues: () => fakeIssues(),
     sessions: () => ({
@@ -855,5 +856,28 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
     await expect(gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
       /neither sent nor received/,
     )
+  })
+})
+
+describe('mail dismiss — recipient-only clear', () => {
+  it('marks recipient mail read and removes it from the unread queue', async () => {
+    const { gate, svc, store } = harness()
+    const sent = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sParent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'dismiss me' },
+    )
+    const recipient: Capability = {
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: ISSUE.id },
+      actorSessionId: 'sRecipient',
+    }
+    const wire = (await gate.dispatch(recipient, undefined, 'dismiss', {
+      id: sent.message.id,
+    })) as Record<string, unknown>
+    expect(wire).toMatchObject({ id: sent.message.id, status: 'read' })
+    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    await expect(
+      gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
+    ).rejects.toThrow(/only the recipient/)
   })
 })

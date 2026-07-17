@@ -521,6 +521,10 @@ export const messages = sqliteTable("messages", {
 	// the steward settle-nag — an ordinary message owes no reply, so receipt alone
 	// (mechanically proven by the ledger, POD-834) never generates ack traffic.
 	expectsResponse: integer("expects_response").default(0).notNull(),
+	// Message-backed notification identity [spec:SP-ba61]. Both are null for
+	// ordinary mail; consume/dismiss retires the matching arbiter fact.
+	factKey: text("fact_key"),
+	factTarget: text("fact_target"),
 },
 (table) => [index("idx_messages_delivered_to").on(table.deliveredTo),
 index("idx_messages_thread").on(table.threadId),

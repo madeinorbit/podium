@@ -1333,6 +1333,12 @@ export const appRouter = t.router({
         ({ ctx, input }) =>
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'inbox', input)!,
       ),
+    dismiss: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'dismiss', input)!,
+      ),
     show: t.procedure
       .input(z.unknown())
       .query(

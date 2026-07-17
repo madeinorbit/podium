@@ -24,6 +24,7 @@ const sendInput = z.object({
 })
 const inboxInput = z.object({ issue: z.string().optional() }).optional()
 const showInput = z.object({ id: z.string() })
+const dismissInput = z.object({ id: z.string() })
 // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
 // delivery ledger. Operator-only — it exposes other principals' traffic.
 const ledgerInput = z.object({
@@ -192,6 +193,8 @@ export class MessageGate {
         return Promise.resolve().then(() => this.inbox(caller, inboxInput.parse(input)))
       case 'show':
         return Promise.resolve().then(() => this.show(caller, showInput.parse(input)))
+      case 'dismiss':
+        return Promise.resolve().then(() => this.dismiss(caller, dismissInput.parse(input)))
       case 'status':
         return Promise.resolve().then(() => this.status(caller, statusInput.parse(input)))
       case 'ledger':
@@ -330,6 +333,19 @@ export class MessageGate {
       throw new Error('not allowed to view a message you neither sent nor received')
     }
     return this.wire(m)
+  }
+
+  private dismiss(
+    caller: { capability: Capability },
+    input: z.infer<typeof dismissInput>,
+  ): MessageWire {
+    const svc = this.deps.messages()
+    const message = svc.message(input.id)
+    if (!message) throw new Error('unknown message ' + input.id)
+    if (caller.capability.scope.kind !== 'all' && !this.isRecipient(caller.capability, message)) {
+      throw new Error('only the recipient of a message may dismiss it')
+    }
+    return this.wire(svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
   }
 
   /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web]:

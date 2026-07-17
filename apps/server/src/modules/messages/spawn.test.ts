@@ -130,6 +130,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     const interrupted: { sessionId: string; text: string }[] = []
     const deps: MessageDeliveryDeps = {
       messages: store.messages,
+      notificationFacts: store.notificationFacts,
       events: store.events,
       issues: () => fakeIssues(),
       sessions: () => ({

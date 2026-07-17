@@ -312,6 +312,10 @@ export interface MessageRow {
   clampedFrom: string | null
   /** When the stop-hook's ONE unacked-message reminder was issued (never repeats). */
   remindedAt: string | null
+  /** Notification-arbiter identity [spec:SP-ba61]. Reading or dismissing a
+   *  message with both fields retires its live fact; ordinary messages are null. */
+  factKey?: string | null
+  factTarget?: string | null
   /** A response is OPT-IN [POD-835 §04b]: true only for a `--expect-response` send
    *  or a `question`. Receipt is mechanically proven by the ledger (POD-834), so an
    *  ordinary message owes no reply and generates no ack traffic; this flag is the
