@@ -1106,6 +1106,7 @@ export class SessionRegistry {
     issues.boot()
     this.steward = new StewardService({
       store: this.store.events,
+      facts: this.store.notificationFacts,
       issues,
       listSessions: () => sessionsSvc.listSessions(),
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.

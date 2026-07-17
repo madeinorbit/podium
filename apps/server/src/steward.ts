@@ -3,6 +3,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
 import type { SessionStore, Subscription } from './store'
+import { NotificationArbiter } from './store/notification-facts'
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -162,6 +163,7 @@ export interface StewardDeps {
     | 'listEnabledSubscriptions'
     | 'markDelivered'
   >
+  facts: SessionStore['notificationFacts']
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
   /** Durable-queue a nudge into a live session (relay.queueText). */
@@ -213,8 +215,11 @@ function completionNote(closed: IssueWire | undefined, comments: IssueComment[])
  */
 export class StewardService {
   private timer: ReturnType<typeof setInterval> | undefined
+  private readonly arbiter: NotificationArbiter
 
-  constructor(private readonly deps: StewardDeps) {}
+  constructor(private readonly deps: StewardDeps) {
+    this.arbiter = new NotificationArbiter(deps.facts, () => this.now())
+  }
 
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
@@ -254,6 +259,8 @@ export class StewardService {
    *  tests drive it directly instead of waiting on real timers. */
   async tick(): Promise<void> {
     if (!this.deps.getSettings().steward?.enabled) return
+    // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
+    this.arbiter.retireExpired(this.now())
     const cursor = this.resolveCursor()
     const events = this.deps.store.listEventsSince(cursor)
     if (events.length === 0) return
@@ -290,6 +297,12 @@ export class StewardService {
     // top without disturbing them. Dedup is per (subscription, event) via the store,
     // so a cursor-rewind replay re-matches but never re-delivers.
     this.dispatchSubscriptions(events)
+    // Retire after dispatch so the close transition itself can be announced, but
+    // no recipient-scoped fact for the closed issue survives the tick.
+    const closedIssues = new Set(
+      events.filter((e) => e.kind === 'issue.closed').map((e) => e.subject),
+    )
+    for (const issueId of closedIssues) this.arbiter.retireByIssue(issueId)
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
   }
 
@@ -373,6 +386,9 @@ export class StewardService {
   private deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): void {
     // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
     if (!this.deps.store.markDelivered(sub.id, e.id)) return
+    const factKey = `sub:${sub.event}:${e.subject}`
+    const issueId = this.subscriberIssueId(sub, sessions)
+    let subscriberClaimed = false
     if (sub.deliverNudge) {
       const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
       const text = subscriptionNudge(sub, e)
@@ -382,9 +398,26 @@ export class StewardService {
           s.agentKind !== 'shell' &&
           s.sessionId !== causer,
       )
-      for (const s of targets) this.deps.sendTextWhenReady(s.sessionId, text)
+      for (const s of targets) {
+        const claimed = this.arbiter.claim(factKey, s.sessionId, {
+          source: `subscription:${sub.id}`,
+          issueId,
+        })
+        if (!claimed) continue
+        if (s.sessionId === sub.subscriberId) subscriberClaimed = true
+        this.deps.sendTextWhenReady(s.sessionId, text)
+      }
     }
-    if (sub.deliverNotify) {
+    // A session subscriber's single claim authorizes both configured delivery
+    // channels from this producer; issue notifications claim the issue target.
+    if (
+      sub.deliverNotify &&
+      (subscriberClaimed ||
+        this.arbiter.claim(factKey, sub.subscriberId, {
+          source: `subscription:${sub.id}`,
+          issueId,
+        }))
+    ) {
       this.deps.store.appendEvent({
         ts: this.now(),
         kind: 'steward.notify',
@@ -462,6 +495,14 @@ export class StewardService {
           s.sessionId !== causedBy,
       )
       for (const s of targets) {
+        if (
+          !this.arbiter.claim(`unblock:${dependent.id}:${closedSeq}`, s.sessionId, {
+            source: 'steward.unblock',
+            issueId: dependent.id,
+          })
+        ) {
+          continue
+        }
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
@@ -533,6 +574,14 @@ export class StewardService {
         !causedBy.has(s.sessionId),
     )
     for (const s of targets) {
+      if (
+        !this.arbiter.claim(`parentnudge:${group}:${parentId}:${lastChildSeq}`, s.sessionId, {
+          source: 'steward.parent-nudge',
+          issueId: parent.id,
+        })
+      ) {
+        continue
+      }
       this.deps.sendTextWhenReady(s.sessionId, sub.nudge(lastChildSeq, { remaining, total }))
     }
   }
@@ -547,6 +596,15 @@ export class StewardService {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
+    const issueId = this.deps.listSessions().find((s) => s.sessionId === sessionId)?.issueId
+    if (
+      !this.arbiter.claim(`settle:${sessionId}`, sessionId, {
+        source: 'steward.ack-fallback',
+        issueId: issueId ?? undefined,
+      })
+    ) {
+      return
+    }
     this.deps.messaging.ackFallback(sessionId, p?.phase === 'errored' ? 'errored' : 'finished')
   }
 

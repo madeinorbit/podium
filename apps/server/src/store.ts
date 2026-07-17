@@ -25,6 +25,7 @@
  *  - machines                                            → store/machines.ts
  *  - events/steward (podium_events/steward_state/subscriptions)
  *                                                        → store/events.ts
+ *  - notification fact claims                            → store/notification-facts.ts
  *  - automations (automations/automation_runs)           → store/automations.ts
  */
 
@@ -46,6 +47,7 @@ import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { MessagesRepository } from './store/messages'
+import { NotificationFactsRepository } from './store/notification-facts'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
@@ -77,6 +79,8 @@ export class SessionStore {
   readonly accounts: AccountsRepository
   readonly machines: MachinesRepository
   readonly events: EventsRepository
+  /** Cross-producer notification deduplication [spec:SP-ba61]. */
+  readonly notificationFacts: NotificationFactsRepository
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
   readonly messages: MessagesRepository
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
@@ -136,6 +140,7 @@ export class SessionStore {
     this.accounts = new AccountsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.events = new EventsRepository(this.db)
+    this.notificationFacts = new NotificationFactsRepository(this.db)
     this.messages = new MessagesRepository(this.db)
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)

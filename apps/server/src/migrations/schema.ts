@@ -294,6 +294,20 @@ export const subscriptionDeliveries = sqliteTable("subscription_deliveries", {
 (table) => [primaryKey({ columns: [table.subscriptionId, table.eventId], name: "subscription_deliveries_pk"}),
 ]);
 
+export const notificationFacts = sqliteTable("notification_facts", {
+	factKey: text("fact_key").notNull(),
+	target: text().notNull(),
+	source: text(),
+	issueId: text("issue_id"),
+	createdAt: text("created_at").notNull(),
+	expiresAt: text("expires_at"),
+	consumedAt: text("consumed_at"),
+},
+(table) => [index("idx_notification_facts_issue").on(table.issueId),
+index("idx_notification_facts_expires").on(table.expiresAt),
+primaryKey({ columns: [table.factKey, table.target], name: "notification_facts_pk"}),
+]);
+
 export const issueLabels = sqliteTable("issue_labels", {
 	issueId: text("issue_id").notNull().references(() => issues.id, { onDelete: "cascade" } ),
 	label: text().notNull(),

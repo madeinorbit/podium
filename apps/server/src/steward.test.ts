@@ -5,6 +5,7 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { type StewardDeps, StewardService, TRIGGER_RULES } from './steward'
 import { SessionStore } from './store'
+import { NotificationArbiter } from './store/notification-facts'
 
 function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
   const store = new SessionStore(':memory:')
@@ -22,6 +23,9 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   // created_at, so order assertions fell to the cmt_<uuid> tie-break (flaky).
   let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
   const now = () => new Date(clockMs++).toISOString()
+  const advanceTime = (ms: number) => {
+    clockMs += ms
+  }
   const issueDeps: IssueDeps = {
     store,
     listSessions: () => sessions,
@@ -38,6 +42,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   const notify = vi.fn()
   const deps: StewardDeps = {
     store: store.events,
+    facts: store.notificationFacts,
     issues,
     listSessions: () => sessions,
     sendTextWhenReady,
@@ -45,7 +50,16 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     getSettings: () => settings,
     now,
   }
-  return { store, issues, sendTextWhenReady, notify, deps, steward: new StewardService(deps) }
+  return {
+    store,
+    issues,
+    sendTextWhenReady,
+    notify,
+    deps,
+    arbiter: new NotificationArbiter(store.notificationFacts, now),
+    advanceTime,
+    steward: new StewardService(deps),
+  }
 }
 
 const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
@@ -840,6 +854,76 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     expect(ackFallback).toHaveBeenCalledTimes(2)
   })
 
+  it('coalesces and replay-suppresses repeated events for one settle transition', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    for (let i = 0; i < 2; i++) {
+      h.store.events.appendEvent({
+        ts: 't',
+        kind: 'session.phase',
+        subject: 's9',
+        payload: { phase: 'idle', verdict: 'done' },
+      })
+    }
+
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+  })
+
+  it('suppresses a second producer claiming the same settle fact and target', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+
+    expect(
+      h.arbiter.claim('settle:s9', 's9', {
+        source: 'daemon.stop-hook',
+      }),
+    ).toBe(true)
+    expect(
+      h.arbiter.claim('settle:s9', 's9', {
+        source: 'subscription:session.finished',
+      }),
+    ).toBe(false)
+
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).not.toHaveBeenCalled()
+  })
+
+  it('allows a replayed settle transition to re-fire after the fact TTL expires', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    h.advanceTime(24 * 60 * 60 * 1000 + 1)
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(2)
+  })
+
   it('is inert without the seam (unwired deployments)', async () => {
     const h = harness()
     h.store.events.appendEvent({
@@ -849,5 +933,35 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
       payload: { phase: 'errored' },
     })
     await expect(h.steward.tick()).resolves.toBeUndefined()
+  })
+})
+
+describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
+  it('retires facts scoped to an issue when issue.closed is consumed', async () => {
+    const h = harness()
+    const issue = h.issues.create({ repoPath: '/r', title: 'Closing', startNow: false })
+
+    expect(
+      h.arbiter.claim('sub:issue.ready:iss_source', 'target-session', {
+        source: 'subscription:issue.ready',
+        issueId: issue.id,
+      }),
+    ).toBe(true)
+    expect(
+      h.arbiter.claim('sub:issue.ready:iss_source', 'target-session', {
+        source: 'steward.unblock',
+        issueId: issue.id,
+      }),
+    ).toBe(false)
+
+    h.issues.close(issue.id)
+    await h.steward.tick()
+
+    expect(
+      h.arbiter.claim('sub:issue.ready:iss_source', 'target-session', {
+        source: 'subscription:issue.ready',
+        issueId: issue.id,
+      }),
+    ).toBe(true)
   })
 })
