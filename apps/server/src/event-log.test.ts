@@ -74,6 +74,22 @@ describe('SessionStore event log retention (pruneEvents)', () => {
     expect(store.events.listEventsSince(0).map((e) => e.id)).toEqual(ids.slice(3))
   })
 
+  it('bounds each delete unit before the retention owner starts another', () => {
+    const store = new SessionStore(':memory:')
+    for (let i = 0; i < 5; i++) {
+      store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
+    }
+
+    expect(
+      store.events.pruneEvents({ maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
+    ).toBe(2)
+    expect(store.events.listEventsSince(0)).toHaveLength(3)
+    expect(
+      store.events.pruneEvents({ maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
+    ).toBe(2)
+    expect(store.events.listEventsSince(0)).toHaveLength(1)
+  })
+
   it('a cursor pointing into a pruned range still works — returns only retained rows', () => {
     const store = new SessionStore(':memory:')
     const id1 = store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })

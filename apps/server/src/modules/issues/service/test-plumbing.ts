@@ -67,7 +67,7 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
     maxChangeSeq: () => nextSeq - 1,
     minChangeSeq: () => rows[0]?.seq ?? null,
     changesSince: (cursor) => rows.filter((r) => r.seq > cursor),
-    pruneChanges: () => {},
+    pruneChanges: () => 0,
     latestChangeStates: () => {
       const latest = new Map<string, Row>()
       for (const r of rows) latest.set(`${r.entity} ${r.entityId}`, r)

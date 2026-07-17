@@ -24,6 +24,11 @@ function rowToSubscription(r: Record<string, unknown>): Subscription {
   }
 }
 
+export interface EventPrunePlan {
+  cutoff: string
+  capThroughId: number
+}
+
 export class EventsRepository {
   constructor(private readonly db: SqlDatabase) {}
 
@@ -107,17 +112,44 @@ export class EventsRepository {
    * That is BY DESIGN — first-enable seeds the cursor to MAX(id) ("now") anyway,
    * so replaying deep history was never part of the contract.
    */
-  pruneEvents(opts: { maxAgeDays: number; maxRows: number }): number {
+  planEventPrune(opts: { maxAgeDays: number; maxRows: number }): EventPrunePlan {
+    if (!Number.isInteger(opts.maxRows) || opts.maxRows < 0) {
+      throw new RangeError('maxRows must be a non-negative integer')
+    }
+
     // ts is an ISO-8601 string, so lexicographic comparison == chronological.
     const cutoff = new Date(Date.now() - opts.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
-    const byAge = this.db.prepare('DELETE FROM podium_events WHERE ts < ?').run(cutoff)
-    // Row cap: keep only the newest maxRows rows (highest ids), regardless of age.
-    const byCap = this.db
+    // Compute the cap threshold once per job. Repeating this OFFSET scan before
+    // every delete unit made a 50k-row retention pass itself monopolize the loop.
+    // Rows appended after this snapshot are intentionally handled by the next pass.
+    const cap = this.db
+      .prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?')
+      .get(opts.maxRows) as { id: number } | undefined
+    return { cutoff, capThroughId: cap?.id ?? 0 }
+  }
+
+  /** [spec:SP-c29e] One bounded synchronous DELETE unit from a fixed plan. */
+  pruneEventBatch(plan: EventPrunePlan, batchSize = 500): number {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new RangeError('batchSize must be a positive integer')
+    }
+    const result = this.db
       .prepare(
-        'DELETE FROM podium_events WHERE id NOT IN (SELECT id FROM podium_events ORDER BY id DESC LIMIT ?)',
+        `DELETE FROM podium_events
+         WHERE id IN (
+           SELECT id FROM podium_events
+           WHERE ts < ? OR id <= ?
+           ORDER BY id ASC
+           LIMIT ?
+         )`,
       )
-      .run(opts.maxRows)
-    return Number(byAge.changes) + Number(byCap.changes)
+      .run(plan.cutoff, plan.capThroughId, batchSize)
+    return Number(result.changes)
+  }
+
+  /** Convenience for one bounded unit; retention owners should reuse the plan. */
+  pruneEvents(opts: { maxAgeDays: number; maxRows: number; batchSize?: number }): number {
+    return this.pruneEventBatch(this.planEventPrune(opts), opts.batchSize)
   }
 
   // ---- steward state ----

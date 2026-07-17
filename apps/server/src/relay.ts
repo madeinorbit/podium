@@ -211,6 +211,8 @@ export class SessionRegistry {
   private readonly steward: StewardService
   /** Event-log retention timers (issue #61) — modules/events. */
   private readonly eventRetention: EventLogRetention
+  /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
+  private readonly ledger: Ledger
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
@@ -322,7 +324,12 @@ export class SessionRegistry {
       repo: this.store.sync,
       now: () => this.now(),
       transact: (fn) => this.store.transact(fn),
+      onPruneMetrics: (metrics) => {
+        perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs)
+        perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs)
+      },
     })
+    this.ledger = ledger
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -1155,7 +1162,12 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), 60_000)
     this.messageSweep.unref?.()
-    this.eventRetention = new EventLogRetention(this.store.events)
+    this.eventRetention = new EventLogRetention(this.store.events, {
+      onMetrics: (metrics) => {
+        perf.record('phase', 'eventLogPrune.total', metrics.totalDurationMs)
+        perf.record('phase', 'eventLogPrune.maxSlice', metrics.maxUninterruptedSliceMs)
+      },
+    })
     this.eventRetention.start()
     this.issueAutoArchive = new IssueAutoArchive(issues)
     this.issueAutoArchive.start()
@@ -1282,6 +1294,7 @@ export class SessionRegistry {
 
   dispose(): void {
     this.eventRetention.dispose()
+    this.ledger.dispose()
     clearInterval(this.messageSweep)
     this.issueAutoArchive.dispose()
     this.automationScheduler.dispose()

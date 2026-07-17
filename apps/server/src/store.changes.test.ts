@@ -60,6 +60,25 @@ describe('SessionStore changes table', () => {
     expect(store.sync.minChangeSeq()).toBe(5)
   })
 
+  it('bounds each head-prune delete unit and reports its row count', () => {
+    const store = new SessionStore(':memory:')
+    for (let i = 1; i <= 5; i++) {
+      store.sync.appendChanges(
+        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        1000,
+      )
+    }
+
+    expect(
+      store.sync.pruneChanges({ keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
+    ).toBe(2)
+    expect(store.sync.minChangeSeq()).toBe(3)
+    expect(
+      store.sync.pruneChanges({ keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
+    ).toBe(2)
+    expect(store.sync.minChangeSeq()).toBe(5)
+  })
+
   it('age pruning deletes from the head only, keeping the retained range contiguous', () => {
     const store = new SessionStore(':memory:')
     // Out-of-order event times: row 2 is "old", rows 1 and 3 are "young". A naive

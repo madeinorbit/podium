@@ -85,17 +85,37 @@ export class SyncRepository {
    * AND-policy never pruned under sustained write rates (rows aged past 14 days
    * only after the table had grown unboundedly for weeks). Deletion is still
    * head-only: we compute the highest seq that satisfies either budget and delete
-   * everything at-or-below it, so the retained seq range stays contiguous (an
-   * aged row can never be removed from the middle of the range).
+   * at most `batchSize` rows at-or-below it, so the retained seq range stays
+   * contiguous (an aged row can never be removed from the middle of the range).
+   *
+   * [spec:SP-c29e] This method is one bounded synchronous unit. The change-log
+   * owner applies the cross-unit time budget.
    */
-  pruneChanges(opts: { keepRows: number; maxAgeMs: number; now: number }): void {
+  pruneChanges(opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+    batchSize?: number
+  }): number {
     const rowCapSeq = this.maxChangeSeq() - opts.keepRows
     const aged = this.db
       .prepare('SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?')
       .get(opts.now - opts.maxAgeMs) as { seq: number | null }
     const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
-    if (thresholdSeq <= 0) return
-    this.db.prepare('DELETE FROM changes WHERE seq <= ?').run(thresholdSeq)
+    if (thresholdSeq <= 0) return 0
+    const batchSize = opts.batchSize ?? 500
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new RangeError('batchSize must be a positive integer')
+    }
+    const result = this.db
+      .prepare(
+        `DELETE FROM changes
+         WHERE seq IN (
+           SELECT seq FROM changes WHERE seq <= ? ORDER BY seq ASC LIMIT ?
+         )`,
+      )
+      .run(thresholdSeq, batchSize)
+    return Number(result.changes)
   }
 
   /**
