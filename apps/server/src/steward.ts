@@ -29,6 +29,12 @@ export interface StewardEvent {
  * subscription in CHILD_PARENT_SUBS. New child→parent notifications are a data
  * entry there plus a rule line here — no new handler.
  *
+ * Session-spawner edge (M4 / POD-904, docs/agent-comms-target.html §07b):
+ * `sessionparentnudge:<group>:<childSessionId>` is the SESSION→SESSION twin of
+ * issue parentnudge. Parent is resolved from the child's `spawnedBy =
+ * session:<parentId>` (not an issue parentId). Delivery carries wake rights so
+ * a parked parent resumes (POD-279) — see handleSessionParentNudge.
+ *
  * Follow-up rule slots (NOT this phase):
  * - session.* semantic events (started/finished/errored) → subscription delivery
  * - a periodic tidy tick (stale/doctor sweeps)
@@ -48,11 +54,22 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
   // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: a session that
   // settles (finished/errored) with delivered-but-unacked messages triggers one
   // system notification per sender, so the sender ALWAYS learns the outcome.
+  // M4 / POD-904: ALSO fan out a session-parent wake (resolved via spawnedBy in
+  // the handler — pure rules cannot look up sessions). Keep ackfallback always.
   'session.phase': (e) => {
     const p = e.payload as { phase?: string; verdict?: string } | null
-    const settled = (p?.phase === 'idle' && p.verdict === 'done') || p?.phase === 'errored'
-    return settled ? `ackfallback:${e.subject}` : undefined
+    if (p?.phase === 'idle' && p.verdict === 'done') {
+      return [`ackfallback:${e.subject}`, `sessionparentnudge:done:${e.subject}`]
+    }
+    if (p?.phase === 'errored') {
+      return [`ackfallback:${e.subject}`, `sessionparentnudge:errored:${e.subject}`]
+    }
+    return undefined
   },
+  // Child process gone (exit-without-report half of §09-D). Handler skips when
+  // the child already settled done/errored (shared settle fact) or has no
+  // session-spawner parent.
+  'session.exited': (e) => `sessionparentnudge:exited:${e.subject}`,
   'issue.needs_human': (e) => {
     // Always leave the breadcrumb; ALSO notify the parent when the child has one.
     const breadcrumb = `needshuman:${e.subject}`
@@ -122,6 +139,48 @@ export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
 }
 
 /**
+ * Session-spawner child→parent wake groups (M4 / POD-904). Sibling of
+ * CHILD_PARENT_SUBS for the SESSION→SESSION edge (`spawnedBy = session:<id>`).
+ * No issue comment — the parent may be parked with no live issue surface; the
+ * nudge itself is the signal and is delivered WITH wake rights via
+ * sendTextWhenReady → queueText → resurrectSession.
+ */
+interface SessionParentSub {
+  /** Single-line wake text: which child + terminal state. Backtick-free. */
+  nudge: (childSessionId: string, childLabel: string) => string
+}
+
+const SESSION_PARENT_NUDGE_TAIL = 'Your child session needs attention.'
+
+export const SESSION_PARENT_SUBS: Record<string, SessionParentSub> = {
+  done: {
+    nudge: (id, label) =>
+      firstLineCapped(
+        `Child session ${label} (${id}) finished (done). ${SESSION_PARENT_NUDGE_TAIL}`,
+      ).replace(/`/g, ''),
+  },
+  errored: {
+    nudge: (id, label) =>
+      firstLineCapped(
+        `Child session ${label} (${id}) errored. ${SESSION_PARENT_NUDGE_TAIL}`,
+      ).replace(/`/g, ''),
+  },
+  exited: {
+    nudge: (id, label) =>
+      firstLineCapped(
+        `Child session ${label} (${id}) exited without reporting. ${SESSION_PARENT_NUDGE_TAIL}`,
+      ).replace(/`/g, ''),
+  },
+}
+
+/** Parse `session:<parentSessionId>` from a child's spawnedBy; else undefined. */
+export function sessionSpawnerParentId(spawnedBy: string | null | undefined): string | undefined {
+  if (!spawnedBy || !spawnedBy.startsWith('session:')) return undefined
+  const parentId = spawnedBy.slice('session:'.length)
+  return parentId.length > 0 ? parentId : undefined
+}
+
+/**
  * The subscription-event kind(s) a raw log event qualifies as, or [] if it is not
  * subscribable (see the event-subscriptions design). Two derivations:
  *  - `session.phase` → a SEMANTIC session kind so subscriptions stay filter-free:
@@ -139,6 +198,7 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
     if (p?.phase === 'needs_user') return ['session.waiting']
     return []
   }
+  if (e.kind === 'session.exited') return ['session.exited']
   if (e.kind.startsWith('issue.')) {
     if (e.kind === 'issue.stage_changed') {
       const to = (e.payload as { to?: string } | null)?.to
@@ -166,7 +226,11 @@ export interface StewardDeps {
   facts: SessionStore['notificationFacts']
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
-  /** Durable-queue a nudge into a live session (relay.queueText). */
+  /** Durable-queue a nudge into a session (relay.queueText). For live sessions
+   *  this is next-turn delivery; for parked/hibernated/exited sessions with a
+   *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
+   *  filters to live/starting; session-parent wake does not — a parked parent
+   *  must be woken (POD-904 / POD-279). */
   sendTextWhenReady: (sessionId: string, text: string) => void
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
@@ -282,8 +346,14 @@ export class StewardService {
     for (const [key, batch] of batches) {
       try {
         if (key.startsWith('unblock:')) await this.handleUnblock(batch)
-        else if (key.startsWith('parentnudge:')) {
+        else if (key.startsWith('sessionparentnudge:')) {
+          // key = sessionparentnudge:<group>:<childSessionId>; ids never contain ':'.
+          const rest = key.slice('sessionparentnudge:'.length)
+          const sep = rest.indexOf(':')
+          this.handleSessionParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
+        } else if (key.startsWith('parentnudge:')) {
           // key = parentnudge:<group>:<parentId>; ids never contain ':'.
+          // ISSUE-parent edge (payload.parentId) — live/starting only, no wake.
           const rest = key.slice('parentnudge:'.length)
           const sep = rest.indexOf(':')
           await this.handleParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
@@ -323,7 +393,7 @@ export class StewardService {
     for (const e of events) {
       const kinds = subscriptionEventKinds(e)
       if (kinds.length === 0) continue
-      const isSession = e.kind === 'session.phase'
+      const isSession = e.kind === 'session.phase' || e.kind === 'session.exited'
       // Session events carry a sessionId subject; resolve its bound issue so an
       // issue/relationship source can match on the work, not the raw session id.
       const srcSession = isSession ? sessions.find((s) => s.sessionId === e.subject) : undefined
@@ -515,12 +585,66 @@ export class StewardService {
     }
   }
 
+  /**
+   * Session-spawner parent wake (M4 / POD-904) [docs/agent-comms-target.html §07b]:
+   * when a child settles (done/errored) or exits without a prior settle report,
+   * wake its SESSION parent (`spawnedBy = session:<parentId>`). Distinct from
+   * handleParentNudge, which is ISSUE-parent oriented and deliberately does NOT
+   * resurrect parked sessions.
+   *
+   * Dedup: one shared settle fact per child→parent (`sessionparentnudge:settle:
+   * <childId>` → parent). First terminal signal wins (done, errored, or exited);
+   * re-fire and later exit-after-done do not storm. Automated notice yields to a
+   * prior human/agent claim on the same (fact, target) via the arbiter.
+   */
+  private handleSessionParentNudge(
+    childSessionId: string,
+    group: string,
+    batch: StewardEvent[],
+  ): void {
+    const sub = SESSION_PARENT_SUBS[group]
+    if (!sub) return
+    const sessions = this.deps.listSessions()
+    const child = sessions.find((s) => s.sessionId === childSessionId)
+    // Prefer live meta; fall back to the event payload (session.exited stamps
+    // spawnedBy so a race that drops the row still finds the parent).
+    const spawnedBy =
+      child?.spawnedBy ??
+      (batch[batch.length - 1]?.payload as { spawnedBy?: string } | null)?.spawnedBy
+    const parentId = sessionSpawnerParentId(spawnedBy)
+    if (!parentId) return
+    // Never self-wake (a mis-tagged spawnedBy).
+    if (parentId === childSessionId) return
+    const parent = sessions.find((s) => s.sessionId === parentId)
+    // Parent must still exist as a session row (parked is fine — queueText wakes).
+    // Unknown / fully deleted parent: nothing to wake.
+    if (!parent) return
+    if (parent.agentKind === 'shell') return
+    // Shared settle fact across done/errored/exited — exit-without-report only
+    // wakes when no prior settle already notified this parent for this child.
+    const factKey = `sessionparentnudge:settle:${childSessionId}`
+    if (
+      !this.arbiter.claim(factKey, parentId, {
+        source: `steward.session-parent-nudge:${group}`,
+        issueId: parent.issueId ?? child?.issueId ?? undefined,
+      })
+    ) {
+      return
+    }
+    const rawLabel = child?.name || child?.title || childSessionId
+    const label = firstLineCapped(rawLabel) || childSessionId
+    // WAKE: no live/starting filter — sendTextWhenReady → queueText resurrects
+    // hibernated/exited parents with a resume ref (issue parentnudge must not).
+    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label))
+  }
+
   /** A child event notifies its parent issue (default 'my-children' subscription):
    *  one steward comment per child (deduped on its colon-anchored marker, same
    *  lesson as unblock/#59) plus ONE coalesced nudge to the parent's live non-shell
    *  sessions. `group` selects the CHILD_PARENT_SUBS entry (closed / review /
    *  needs_human) that supplies the marker, comment excerpt, and nudge text. The
-   *  excerpt lives in the COMMENT only; the nudge is a fixed single line. */
+   *  excerpt lives in the COMMENT only; the nudge is a fixed single line.
+   *  ISSUE-parent only — no parked-session wake (see handleSessionParentNudge). */
   private async handleParentNudge(
     parentId: string,
     group: string,

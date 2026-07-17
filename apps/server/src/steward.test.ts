@@ -3,7 +3,12 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { type StewardDeps, StewardService, TRIGGER_RULES } from './steward'
+import {
+  type StewardDeps,
+  sessionSpawnerParentId,
+  StewardService,
+  TRIGGER_RULES,
+} from './steward'
 import { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 
@@ -814,18 +819,24 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 })
 
 describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
-  it('maps settled session.phase events to an ackfallback key (finished + errored only)', () => {
+  it('maps settled session.phase events to ackfallback + sessionparentnudge (finished + errored only)', () => {
     const e = { id: 1, ts: 't', kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
     expect(
       TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'done' } }),
-    ).toBe('ackfallback:s9')
-    expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'errored' } })).toBe(
+    ).toEqual(['ackfallback:s9', 'sessionparentnudge:done:s9'])
+    expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'errored' } })).toEqual([
       'ackfallback:s9',
-    )
+      'sessionparentnudge:errored:s9',
+    ])
     expect(
       TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'needs_user' } }),
     ).toBeUndefined()
     expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'working' } })).toBeUndefined()
+  })
+
+  it('maps session.exited to a sessionparentnudge:exited key', () => {
+    const e = { id: 1, ts: 't', kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
+    expect(TRIGGER_RULES['session.exited']!(e)).toBe('sessionparentnudge:exited:s9')
   })
 
   it('invokes the messaging seam once per settled session with the outcome', async () => {
@@ -969,5 +980,236 @@ describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
         issueId: issue.id,
       }),
     ).toBe(true)
+  })
+})
+
+describe('sessionSpawnerParentId', () => {
+  it('extracts a session parent id and rejects other provenance', () => {
+    expect(sessionSpawnerParentId('session:parent-1')).toBe('parent-1')
+    expect(sessionSpawnerParentId('issue:iss_1')).toBeUndefined()
+    expect(sessionSpawnerParentId('user')).toBeUndefined()
+    expect(sessionSpawnerParentId('session:')).toBeUndefined()
+    expect(sessionSpawnerParentId(null)).toBeUndefined()
+    expect(sessionSpawnerParentId(undefined)).toBeUndefined()
+  })
+})
+
+/**
+ * M4 / POD-904: session-spawner edge wakes a parked parent when its child
+ * settles (done/errored) or exits without a prior settle report. Distinct from
+ * ISSUE parentnudge (needs_human/closed/review), which stays live-only.
+ */
+describe('StewardService session-parent wake (POD-904 / §07b)', () => {
+  it('wakes a PARKED session parent when the child settles idle+done', async () => {
+    const sessions = [
+      // Parked parent — issue parentnudge would skip this; session-parent wake must not.
+      fakeSession({
+        sessionId: 'parent',
+        status: 'hibernated',
+        cwd: '/r/parent',
+        title: 'Coordinator',
+      }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/child',
+        title: 'Worker',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('parent')
+    expect(text).toContain('child')
+    expect(text).toMatch(/finished \(done\)/i)
+    // Wake path = sendTextWhenReady (wired to queueText → resurrect), not a
+    // breadcrumb-only steward.observed row.
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] })).toHaveLength(0)
+  })
+
+  it('wakes a parked session parent when the child errors', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'exited', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'errored' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('parent')
+    expect(text).toMatch(/errored/i)
+  })
+
+  it('wakes a session parent on child exit-without-report (session.exited)', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'exited',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 1, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('parent')
+    expect(text).toMatch(/exited without reporting/i)
+  })
+
+  it('resolves parent from event payload spawnedBy when the child row is gone', async () => {
+    // killSession removes the child before agentExit; payload carries spawnedBy.
+    const sessions = [fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' })]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'gone-child',
+      payload: { code: -1, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+  })
+
+  it('is silent when the child has no session-spawner parent', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'issue:iss_x', // issue provenance — not the session edge
+      }),
+      fakeSession({ sessionId: 'orphan', status: 'live', cwd: '/r/o' }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'orphan',
+      payload: { phase: 'errored' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
+
+  it('dedups: re-fire and exit-after-done do not storm the parent', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Cursor rewind + same settle event: arbiter fact holds.
+    store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Exit after a clean done settle is not exit-without-report — shared settle
+    // fact suppresses a second wake.
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 0, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('issue needs_human parentnudge path is unchanged (issue parent, live targets)', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.setNeedsHuman(c1.id, 'which database?')
+    await steward.tick()
+    const posted = stewardComments(issues, parent.id)
+    expect(posted.length).toBe(1)
+    expect(posted[0]!.body).toBe(`Child #${c1.seq} needs a human: which database?`)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('needs a human')
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+  })
+
+  it('keeps ackfallback alongside session-parent wake on the same settle', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'live', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const h = harness({ sessions })
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledWith('child', 'finished', {
+      factKey: 'settle:child',
+      target: 'child',
+    })
+    expect(h.sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((h.sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
   })
 })

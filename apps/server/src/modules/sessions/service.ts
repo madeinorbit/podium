@@ -2277,10 +2277,36 @@ export class SessionsService {
     // kill deletes the row from the map BEFORE the daemon's agentExit arrives,
     // so the agentExit-path emit would be skipped — fire it here. killSession
     // is never the hibernate path (hibernateSession only flips status).
-    this.bus.emit('session.exited', {
-      sessionId: input.sessionId,
-      code: session?.exitCode ?? -1,
-    })
+    // Capture spawnedBy before the row is gone so the steward can still resolve
+    // a session-spawner parent wake (POD-904 / exit-without-report).
+    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy)
+  }
+
+  /**
+   * Real process death: bus fan-out (locks, messaging) AND a durable
+   * `session.exited` row for the steward's session-parent wake (POD-904).
+   * Hibernate does not land here. Best-effort log write — a store throw must
+   * not undo the exit side-effects already applied.
+   */
+  private emitSessionExited(
+    sessionId: string,
+    code: number,
+    spawnedBy?: string | null,
+  ): void {
+    this.bus.emit('session.exited', { sessionId, code })
+    try {
+      this.store.events.appendEvent({
+        ts: new Date(this.now()).toISOString(),
+        kind: 'session.exited',
+        subject: sessionId,
+        payload: {
+          code,
+          ...(spawnedBy ? { spawnedBy } : {}),
+        },
+      })
+    } catch {
+      // Durable log is best-effort; bus subscribers already ran.
+    }
   }
 
   private spawn(input: {
@@ -2841,9 +2867,10 @@ export class SessionsService {
         this.maybeReapDraftIssue(s?.issueId)
         // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
         // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
-        // and the session's leases with it.
+        // and the session's leases with it. Also durable for steward parent-wake
+        // (POD-904).
         if (s?.status === 'exited') {
-          this.bus.emit('session.exited', { sessionId: msg.sessionId, code: msg.code })
+          this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
         }
         break
       }
@@ -2854,7 +2881,7 @@ export class SessionsService {
         this.broadcastSessions()
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
         // [spec:SP-85d1] like any other real death.
-        if (s) this.bus.emit('session.exited', { sessionId: s.sessionId, code: -1 })
+        if (s) this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
         break
       }
       case 'reattachFailed': {
@@ -2872,7 +2899,7 @@ export class SessionsService {
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
           // lookup: the narrowed `s.status` above would defeat the compare.)
           if (this.sessions.get(msg.sessionId)?.status === 'exited') {
-            this.bus.emit('session.exited', { sessionId: s.sessionId, code: -1 })
+            this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
           }
         }
         this.broadcastSessions()
