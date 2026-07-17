@@ -83,7 +83,11 @@ export const NEXT_TURN_DELIVERY_BUDGET_MS = 25_000
  *  normally confirms within seconds at the ESC-cancelled turn boundary — but a
  *  composer-draft hold [POD-865] or a dead PTY can legitimately keep the row queued,
  *  so at this ceiling it returns the honest `accepted` rather than block forever.
- *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation). */
+ *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation).
+ *  INVARIANT: must stay under @podium/protocol's AGENT_RELAY_BLOCKING_TIMEOUT_MS —
+ *  the loopback relay hub gives `messages.send` that long before it times out, and
+ *  a block that outlives the transport makes the agent CLI throw instead of getting
+ *  this disposition (a drift-guard test enforces the gap). */
 export const INTERRUPT_DELIVERY_CEILING_MS = 90_000
 
 /** What actually happened to a send, surfaced to the sender so a message that
@@ -1249,8 +1253,12 @@ export class MessageDeliveryService {
       ...(opts?.now ? { now: opts.now } : {}),
     })
     if (row?.status === 'delivered' || row?.status === 'read') return 'delivered'
-    if (row?.status === 'dead_letter') return 'dead_letter'
-    return 'accepted'
+    // `accepted` is the honest "durably queued, not yet confirmed — query mail
+    // status" ONLY while the row is still queued at the budget expiry. Any other
+    // outcome is terminal-undelivered — dead-lettered, expired past its TTL, or
+    // cancelled — and reporting the pending `accepted` for it would lie [POD-854].
+    if (row?.status === 'queued') return 'accepted'
+    return 'dead_letter'
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */

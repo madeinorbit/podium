@@ -3,7 +3,7 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import type { SessionMeta } from '@podium/protocol'
+import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow, MessageRow } from '../../store'
@@ -15,7 +15,9 @@ import {
   MAX_ECHO_REQUEUES,
   HOP_LIMIT,
   INLINE_BODY_MAX,
+  INTERRUPT_DELIVERY_CEILING_MS,
   MessageDeliveryService,
+  NEXT_TURN_DELIVERY_BUDGET_MS,
   SPAWN_BUDGET_PER_DAY,
   sanitizeBody,
   senderFromCapability,
@@ -912,6 +914,28 @@ describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]'
     expect(polls).toBe(0) // never entered the poll loop — the push already failed
   })
 
+  it('reports terminal-undelivered honestly: a row that expires mid-block is dead_letter, not accepted', async () => {
+    const { svc, store } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'x',
+        urgency: 'next-turn',
+        expiresAt: '2026-07-12T00:00:00.000Z', // already past deps.now
+      },
+      {
+        now: () => 0,
+        pollMs: 5,
+        // The row's TTL lapses during the block — a terminal, undelivered state that
+        // must NOT be reported as the pending 'accepted'.
+        sleep: async () => void store.messages.expireQueued('2026-07-13T00:00:00.000Z'),
+      },
+    )
+    expect(r.disposition).toBe('dead_letter')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('expired')
+  })
+
   it('does not block an operator-addressed escalation (resolved by a human read, not a turn)', async () => {
     const { svc } = harness([])
     let polls = 0
@@ -922,6 +946,20 @@ describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]'
     )
     expect(r.disposition).toBe('queued')
     expect(polls).toBe(0)
+  })
+
+  it('the blocking budgets stay under the agent-relay transport timeout (drift guard)', () => {
+    // If a budget ever exceeds the loopback relay hold-time, an agent's `mail send`
+    // throws 'agent relay timed out' before the gate returns its honest disposition
+    // and the sender resends — the duplicate this milestone kills [POD-854]. Bump
+    // AGENT_RELAY_BLOCKING_TIMEOUT_MS in @podium/protocol before raising a ceiling.
+    expect(INTERRUPT_DELIVERY_CEILING_MS).toBeLessThan(AGENT_RELAY_BLOCKING_TIMEOUT_MS)
+    expect(NEXT_TURN_DELIVERY_BUDGET_MS).toBeLessThan(AGENT_RELAY_BLOCKING_TIMEOUT_MS)
+    // Real margin, not a hairline (the reviewer's 5s-under-30s concern) — the block
+    // plus transcript-tail latency must comfortably clear the transport deadline.
+    expect(AGENT_RELAY_BLOCKING_TIMEOUT_MS - INTERRUPT_DELIVERY_CEILING_MS).toBeGreaterThanOrEqual(
+      20_000,
+    )
   })
 })
 
