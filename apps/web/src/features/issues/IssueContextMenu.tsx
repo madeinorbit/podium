@@ -27,12 +27,17 @@ import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { DEFER_NEXT_MESSAGE, reposToViews, snoozeUntil1h } from '@/lib/derive'
 import { issueAgentOptions } from '@/lib/issue-agents'
-import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
+import {
+  type ContextMenuAnchor,
+  handoffBlockerText,
+  handoffRejectionText,
+  issueHandoffBlockerText,
+} from '@/lib/SessionContextMenu'
 import { STAGE_LABELS } from './issue-card'
 import {
   deferDateFromNow,
+  issueHandoffAvailability,
   issueMenuEligibility,
-  resolveIssueHandoffSession,
   toggleLabelAcross,
 } from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
@@ -119,12 +124,20 @@ export function IssueContextMenu({
   if (!first) return null
   const elig = issueMenuEligibility(issues)
   const ids = issues.map((i) => i.id)
-  // Single-issue only: offer Handoff when exactly one attached session is
-  // handoff-eligible (same gate as SessionContextMenu via handoffTargets).
+  // Single-issue only: the issue-row handoff picture — the chosen agent session's
+  // availability, or an issue-level reason. Always shown with its reason (POD-850),
+  // matching the session-row menu; a hidden item hid POD-779's stuck handoff.
   const handoff =
     issues.length === 1
-      ? resolveIssueHandoffSession(first, sessions, reposToViews(repos), machines)
+      ? issueHandoffAvailability(first, sessions, reposToViews(repos), machines)
       : null
+  const handoffSession = handoff && 'session' in handoff ? handoff.session : null
+  // The submenu's rows: every candidate machine, eligible or not, when a subject
+  // exists and can move. Empty otherwise (a blocker renders inline on the trigger).
+  const handoffCandidates =
+    handoff && 'availability' in handoff && !handoff.availability.blocker
+      ? handoff.availability.candidates
+      : []
 
   // Fire-and-close: failures toast (the issuesChanged broadcast reconciles the
   // board on success, so no success handling is needed).
@@ -134,9 +147,9 @@ export function IssueContextMenu({
   }
 
   const handoffTo = (machineId: string, machineName: string): void => {
-    if (!handoff) return
+    if (!handoffSession) return
     onClose()
-    void trpc.sessions.handoff.mutate({ sessionId: handoff.session.sessionId, machineId }).then(
+    void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
       () => toast.success('Handed off to ' + machineName),
       (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
     )
@@ -346,19 +359,48 @@ export function IssueContextMenu({
           ]
         : []),
     ],
-    // [spec:SP-3f7a] same machine list as SessionContextMenu; empty when gated off.
-    handoff: (handoff?.targets ?? []).map((machine) => (
-      <button
-        key={machine.id}
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => handoffTo(machine.id, machine.name)}
-      >
-        <span className="size-2 rounded-full bg-live" aria-hidden="true" />
-        {machine.name}
-      </button>
-    )),
+    // [spec:SP-3f7a] same candidate list as SessionContextMenu: eligible machines
+    // click through; ineligible ones are shown disabled with their reason.
+    handoff: [
+      ...(handoffCandidates.length === 0
+        ? [
+            <div
+              key="none"
+              className="px-2 py-1.5 text-[11px] text-muted-foreground"
+            >
+              No other machine has this repo
+            </div>,
+          ]
+        : []),
+      ...handoffCandidates.map(({ machine, rejection }) =>
+        rejection ? (
+          <button
+            key={machine.id}
+            type="button"
+            role="menuitem"
+            disabled
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+          >
+            <span className="size-2 rounded-full bg-muted-foreground" aria-hidden="true" />
+            {machine.name}
+            <span className="ml-auto pl-2 text-[11px] text-muted-foreground">
+              {handoffSession ? handoffRejectionText(rejection, handoffSession.agentKind) : ''}
+            </span>
+          </button>
+        ) : (
+          <button
+            key={machine.id}
+            type="button"
+            role="menuitem"
+            className={itemCls}
+            onClick={() => handoffTo(machine.id, machine.name)}
+          >
+            <span className="size-2 rounded-full bg-live" aria-hidden="true" />
+            {machine.name}
+          </button>
+        ),
+      ),
+    ],
   }
 
   return createPortal(
@@ -425,8 +467,33 @@ export function IssueContextMenu({
       {elig.canAssignAgent &&
         subTrigger('agent', <Bot size={14} aria-hidden="true" />, 'Assign agent')}
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
-      {/* [spec:SP-3f7a] issue-row handoff when exactly one session is eligible */}
-      {handoff && subTrigger('handoff', <ArrowRightLeft size={14} aria-hidden="true" />, 'Handoff')}
+      {/* [spec:SP-3f7a] Issue-row handoff — always shown for a single issue, with
+          the reason when it can't move (POD-850), mirroring the session-row menu. */}
+      {handoff &&
+        (() => {
+          const reason =
+            'blocker' in handoff
+              ? issueHandoffBlockerText(handoff.blocker)
+              : handoff.availability.blocker && handoffSession
+                ? handoffBlockerText(handoff.availability.blocker, handoffSession.agentKind)
+                : null
+          return reason ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled
+              className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+              {...leafHover}
+            >
+              <span className="flex items-center gap-2">
+                <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
+              </span>
+              <span className="pl-6 text-[11px] text-muted-foreground">{reason}</span>
+            </button>
+          ) : (
+            subTrigger('handoff', <ArrowRightLeft size={14} aria-hidden="true" />, 'Handoff')
+          )
+        })()}
 
       {(elig.canClose || elig.canDefer || elig.canUndefer) && (
         <hr className="my-1 h-px border-0 bg-border" />

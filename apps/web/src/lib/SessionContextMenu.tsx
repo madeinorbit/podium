@@ -87,6 +87,13 @@ export function handoffBlockerText(blocker: HandoffBlocker, agentKind: AgentKind
   }
 }
 
+/** Why an ISSUE row offers no handoff subject (POD-850) — no session to name. */
+export function issueHandoffBlockerText(blocker: 'no-agent-session' | 'multiple-sessions'): string {
+  return blocker === 'no-agent-session'
+    ? 'No agent session to hand off'
+    : 'Multiple sessions — use a session’s menu'
+}
+
 /** Why one machine can't take this session — shown beside its (disabled) row. */
 export function handoffRejectionText(rejection: HandoffRejection, agentKind: AgentKind): string {
   switch (rejection) {
