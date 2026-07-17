@@ -651,8 +651,14 @@ const defs = {
       // unattached agent doesn't silently lose the issue.
       // Agent top-level creates never hit that path: audience is forced human above.
       return ctx.withMutation(input.mutationId, async () => {
+        // Started-by provenance (M6 deliverable 3): bare session id of the creating
+        // agent. Operator (scope 'all') creates stay null — no inventing a session.
+        const startedBySession =
+          !isOperator && ctx.caller.capability.actorSessionId
+            ? ctx.caller.capability.actorSessionId
+            : null
         const created = await ctx.issues.createAndMaybeStart(
-          { ...input, origin, audience },
+          { ...input, origin, audience, startedBySession },
           { spawnedBy: ctx.spawnProvenance() },
         )
         // Flag for attention so the human notices agent-filed top-level work.
@@ -1102,6 +1108,44 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () => ctx.issues.claim(input.id, input.assignee)),
+  }),
+  /** Claim / set / clear the issue's designated coordinator session
+   *  (docs/agent-comms-target.html §05 q1). Actionable issue-addressed mail
+   *  prefers this session when it is live. Dangling-tolerant (no session FK). */
+  setCoordinator: def({
+    kind: 'mutation',
+    input: z.object({
+      id: z.string(),
+      /** Explicit session id to set; null clears. Mutually exclusive with claim. */
+      sessionId: z.string().nullable().optional(),
+      /** When true, set coordinator to the calling session (actorSessionId). */
+      claim: z.boolean().optional(),
+    }),
+    action: 'write',
+    scope: 'issue',
+    target: targetId,
+    handler: (ctx, input) =>
+      ctx.issueWrite(input, () => {
+        let sessionId: string | null
+        if (input.claim) {
+          const actor = ctx.caller.capability.actorSessionId
+          if (!actor) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: 'coordinator --claim requires a session-bound caller',
+            })
+          }
+          sessionId = actor
+        } else if (input.sessionId !== undefined) {
+          sessionId = input.sessionId
+        } else {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
+          })
+        }
+        return ctx.issues.setCoordinator(input.id, sessionId)
+      }),
   }),
   close: def({
     kind: 'mutation',

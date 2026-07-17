@@ -258,6 +258,10 @@ export interface CreateIssueInput {
    *  `iss_${uuid}`, so an optimistic client row reconciles onto the real issue
    *  without a swap. Absent = mint one (unchanged default behavior). */
   id?: string
+  /** Bare session id of the creating agent session (started-by provenance).
+   *  Stamped by the registry from the authenticated actor; null/absent for
+   *  operator creates. Not client-forgeable via tRPC input. */
+  startedBySession?: string | null
 }
 
 /** The row fields update() accepts — every mutation entry point (router, CLI/MCP
@@ -296,5 +300,6 @@ export type IssuePatch = Partial<
     | 'humanQuestionOptions'
     | 'humanQuestionAskedBy'
     | 'humanQuestionAskedAt'
+    | 'coordinatorSessionId'
   >
 >

@@ -225,6 +225,14 @@ export const IssueWire = z.object({
    *  patch; the hub's next delta/snapshot overwrites with truth and clears this
    *  (docs/spec/node-hub-issues.md §2.2). Only ever set alongside viaHub. */
   pendingSync: z.boolean().optional(),
+  /** Designated coordinator session (bare session id) for actionable issue-addressed
+   *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
+   *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */
+  coordinatorSessionId: z.string().optional(),
+  /** Bare session id of the agent session that created this issue (started-by
+   *  provenance). Null/absent for operator/human creates. Additive so pre-field
+   *  payloads still parse. */
+  startedBySession: z.string().optional(),
 })
 export type IssueWire = z.infer<typeof IssueWire>
 

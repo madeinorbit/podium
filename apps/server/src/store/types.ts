@@ -209,6 +209,14 @@ export interface IssueRow {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  issue; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null
+  /** Designated coordinator session (bare session id) — actionable issue-addressed
+   *  mail prefers this when live. Claimable/changeable; dangling-tolerant (no FK).
+   *  Optional so pre-existing row literals stay valid; null/absent = unset. */
+  coordinatorSessionId?: string | null
+  /** Bare session id of the agent that created this issue (started-by provenance).
+   *  Null for operator/human creates. Dangling-tolerant. Optional so pre-existing
+   *  row literals stay valid. */
+  startedBySession?: string | null
 }
 
 export interface IssueCommentRow {

@@ -597,14 +597,33 @@ export class MessageDeliveryService {
       // issue never picks itself. selectMailNudgeSession picks the single live
       // idle member, which would otherwise BE the sender.
       const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
-      const live = selectMailNudgeSession(members)
-      target = live
-        ? members.find((s) => s.sessionId === live.sessionId)
-        : // No live member: a wake picks the most recent parked agent to resurrect.
-          [...members]
-            .filter((s) => s.agentKind !== 'shell')
-            .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
-            .at(0)
+      // Prefer the issue's designated coordinator for ACTIONABLE (non-fyi) mail
+      // when that session is live (docs/agent-comms-target.html §05 q1). fyi /
+      // broadcast routing is unchanged — still selectMailNudgeSession. If the
+      // coordinator is unset, gone, or not live, fall back to today's heuristic.
+      // Bare session id on the wire (same format as humanQuestionAskedBy).
+      const preferCoordinator =
+        message.urgency !== 'fyi' && typeof issue.coordinatorSessionId === 'string'
+      const coordinatorLive = preferCoordinator
+        ? members.find(
+            (s) =>
+              s.sessionId === issue.coordinatorSessionId &&
+              s.agentKind !== 'shell' &&
+              s.status === 'live',
+          )
+        : undefined
+      if (coordinatorLive) {
+        target = coordinatorLive
+      } else {
+        const live = selectMailNudgeSession(members)
+        target = live
+          ? members.find((s) => s.sessionId === live.sessionId)
+          : // No live member: a wake picks the most recent parked agent to resurrect.
+            [...members]
+              .filter((s) => s.agentKind !== 'shell')
+              .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+              .at(0)
+      }
       if (!target) {
         // The sender was the only member: ledger-only, not queued — otherwise
         // it lingers and the stop-hook nags the sender about its own note. It

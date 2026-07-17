@@ -255,6 +255,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       origin: input.origin ?? 'human',
       audience: input.audience ?? 'human',
       draft: input.draft ?? false,
+      // Bare session id (same format as humanQuestionAskedBy / coordinatorSessionId).
+      // Null for operator creates; registry stamps agent creates from actorSessionId.
+      coordinatorSessionId: null,
+      startedBySession: input.startedBySession ?? null,
     }
     if (input.priority != null) row.priority = input.priority
     if (input.type) row.type = input.type
@@ -659,6 +663,14 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   claim(id: string, assignee: string): IssueWire {
     return this.update(id, { assignee, stage: 'in_progress' })
+  }
+
+  /** Claim / set / clear the issue's designated coordinator session
+   *  (docs/agent-comms-target.html §05 q1). Bare session id; null clears.
+   *  Dangling-tolerant: we do not validate the session still exists — if it is
+   *  later deleted, actionable mail falls back to selectMailNudgeSession. */
+  setCoordinator(id: string, sessionId: string | null): IssueWire {
+    return this.update(id, { coordinatorSessionId: sessionId })
   }
 
   close(id: string, reason = 'done', opts?: { actorSessionId?: string }): IssueWire {

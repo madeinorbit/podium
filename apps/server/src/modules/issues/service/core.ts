@@ -241,6 +241,9 @@ export abstract class IssueServiceCore {
       origin: row.origin === 'agent' ? 'agent' : 'human',
       audience: row.audience === 'agent' ? 'agent' : 'human',
       draft: row.draft ?? false,
+      // Bare session ids (same format as humanQuestionAskedBy) — no `session:` prefix.
+      ...(row.coordinatorSessionId ? { coordinatorSessionId: row.coordinatorSessionId } : {}),
+      ...(row.startedBySession ? { startedBySession: row.startedBySession } : {}),
     }
   }
 

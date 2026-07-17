@@ -48,8 +48,9 @@ export class IssuesRepository {
             defer_until, closed_reason, superseded_by, duplicate_of, pinned, color, estimate_min,
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
-            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at,
+            coordinator_session_id, started_by_session)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
            title = excluded.title, description = excluded.description, stage = excluded.stage,
@@ -77,7 +78,9 @@ export class IssuesRepository {
            updated_at = excluded.updated_at, archived = excluded.archived,
            origin = excluded.origin, audience = excluded.audience,
            draft = excluded.draft, read_at = excluded.read_at,
-           deleted_at = excluded.deleted_at`,
+           deleted_at = excluded.deleted_at,
+           coordinator_session_id = excluded.coordinator_session_id,
+           started_by_session = excluded.started_by_session`,
       )
       .run(
         row.id,
@@ -133,6 +136,8 @@ export class IssuesRepository {
         row.draft ? 1 : 0,
         row.readAt ?? null,
         row.deletedAt ?? null,
+        row.coordinatorSessionId ?? null,
+        row.startedBySession ?? null,
       )
   }
 
@@ -201,6 +206,8 @@ export class IssuesRepository {
       audience: (r.audience as string | null) ?? 'human',
       draft: r.draft === 1,
       readAt: (r.read_at as string | null) ?? null,
+      coordinatorSessionId: (r.coordinator_session_id as string | null) ?? null,
+      startedBySession: (r.started_by_session as string | null) ?? null,
     }
   }
 

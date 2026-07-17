@@ -408,6 +408,13 @@ export const issues = sqliteTable("issues", {
 	readAt: text("read_at"),
 	audience: text().default("human").notNull(),
 	deletedAt: text("deleted_at"),
+	/** Designated coordinator session for this issue (bare session id). Claimable/
+	 *  changeable; dangling-tolerant — no FK so a later-deleted session leaves the
+	 *  id in place and routing falls back [docs/agent-comms-target.html §05 q1]. */
+	coordinatorSessionId: text("coordinator_session_id"),
+	/** Bare session id of the agent session that created this issue (started-by
+	 *  provenance). Null for operator/human creates. Dangling-tolerant TEXT. */
+	startedBySession: text("started_by_session"),
 },
 (table) => [index("idx_issues_deleted_at").on(table.deletedAt),
 uniqueIndex("idx_issues_repo_id_seq").on(table.repoId, table.seq),

@@ -130,6 +130,7 @@ export const ISSUE_COMMAND_NAMES = [
   'reparent',
   'restore',
   'search',
+  'setCoordinator',
   'setLabels',
   'setNeedsHuman',
   'setState',

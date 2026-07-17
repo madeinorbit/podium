@@ -12,6 +12,7 @@ import { guardIssueCommand, issueRegistry } from './registry'
 // Expected registry action for every non-read command. Unlisted commands are explicit reads.
 const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   claim: 'write',
+  setCoordinator: 'write',
   update: 'write',
   addComment: 'write',
   defer: 'write',
@@ -57,6 +58,7 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
 // 'none' = the extractor deliberately returned undefined (mailClaim).
 const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'> = {
   claim: 'id',
+  setCoordinator: 'id',
   update: 'id',
   close: 'id',
   defer: 'id',
@@ -324,6 +326,70 @@ describe('issue spawn provenance', () => {
         id: issue.id,
       })
       expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user' })
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('agent create stamps startedBySession; setCoordinator claim/set/clear round-trips', async () => {
+    const registry = new SessionRegistry()
+    try {
+      // Operator create → no startedBySession.
+      const op = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'create',
+        { repoPath: '/r', title: 'Op create', startNow: false },
+      )) as { id: string; startedBySession?: string }
+      expect(op.startedBySession).toBeUndefined()
+
+      // Agent create → bare actor session id.
+      const agentCaller = {
+        capability: {
+          role: 'worker' as const,
+          scope: { kind: 'none' as const },
+          actorSessionId: 'sess_agent_creator',
+        },
+      }
+      const created = (await registry.issueCommands.dispatch(agentCaller, 'issues', 'create', {
+        repoPath: '/r',
+        title: 'Agent create',
+        startNow: false,
+        // parentId would keep audience agent; top-level agent creates force needsHuman
+        parentId: op.id,
+      })) as { id: string; startedBySession?: string }
+      expect(created.startedBySession).toBe('sess_agent_creator')
+
+      // setCoordinator --claim uses actorSessionId.
+      const claimed = (await registry.issueCommands.dispatch(
+        {
+          capability: {
+            role: 'worker',
+            scope: { kind: 'subtree', rootId: created.id },
+            actorSessionId: 'sess_coord',
+          },
+        },
+        'issues',
+        'setCoordinator',
+        { id: created.id, claim: true },
+      )) as { coordinatorSessionId?: string }
+      expect(claimed.coordinatorSessionId).toBe('sess_coord')
+
+      const set = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'setCoordinator',
+        { id: created.id, sessionId: 'sess_handoff' },
+      )) as { coordinatorSessionId?: string }
+      expect(set.coordinatorSessionId).toBe('sess_handoff')
+
+      const cleared = (await registry.issueCommands.dispatch(
+        { capability: OPERATOR },
+        'issues',
+        'setCoordinator',
+        { id: created.id, sessionId: null },
+      )) as { coordinatorSessionId?: string }
+      expect(cleared.coordinatorSessionId).toBeUndefined()
     } finally {
       registry.dispose()
     }

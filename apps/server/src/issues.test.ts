@@ -1173,6 +1173,34 @@ describe('IssueService field mutations (P1)', () => {
     expect(closed.closedReason).toBe('wontfix')
   })
 
+  it('setCoordinator claims/sets/clears coordinatorSessionId on the wire (bare session id)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(a.coordinatorSessionId).toBeUndefined()
+    const set = svc.setCoordinator(a.id, 'sess_coord')
+    expect(set.coordinatorSessionId).toBe('sess_coord')
+    expect(store.issues.getIssue(a.id)?.coordinatorSessionId).toBe('sess_coord')
+    const cleared = svc.setCoordinator(a.id, null)
+    expect(cleared.coordinatorSessionId).toBeUndefined()
+    expect(store.issues.getIssue(a.id)?.coordinatorSessionId).toBeNull()
+  })
+
+  it('startedBySession is stamped on agent creates and null for operator creates', () => {
+    const { svc, store } = harness()
+    const operator = svc.create({ repoPath: '/r', title: 'Op', startNow: false })
+    expect(operator.startedBySession).toBeUndefined()
+    expect(store.issues.getIssue(operator.id)?.startedBySession).toBeNull()
+    const agent = svc.create({
+      repoPath: '/r',
+      title: 'Ag',
+      startNow: false,
+      origin: 'agent',
+      startedBySession: 'sess_creator',
+    })
+    expect(agent.startedBySession).toBe('sess_creator')
+    expect(store.issues.getIssue(agent.id)?.startedBySession).toBe('sess_creator')
+  })
+
   it('setNeedsHuman/clearNeedsHuman toggle the flag + question', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })

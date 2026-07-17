@@ -31,7 +31,12 @@ const ISSUE = {
 }
 const SENDER_ISSUE = { id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
-function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[], archivedIds?: Set<string>) {
+function fakeIssues(
+  getSessionLists?: (SessionMeta[] | undefined)[],
+  archivedIds?: Set<string>,
+  /** Per-issue coordinator session id (bare id) for prefer-coordinator routing tests. */
+  coordinatorByIssue?: Map<string, string>,
+) {
   const byId = new Map([
     [ISSUE.id, ISSUE],
     [SENDER_ISSUE.id, SENDER_ISSUE],
@@ -47,11 +52,23 @@ function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[], archivedIds
       const base = byId.get(id)
       // Surface a per-test archived flag [POD-834] without mutating the shared
       // fixtures (which would leak across tests).
-      return base ? { ...base, archived: archivedIds?.has(id) ?? false } : undefined
+      if (!base) return undefined
+      const coord = coordinatorByIssue?.get(id)
+      return {
+        ...base,
+        archived: archivedIds?.has(id) ?? false,
+        ...(coord ? { coordinatorSessionId: coord } : {}),
+      }
     },
     getMeta: (id: string) => {
       const base = byId.get(id)
-      return base ? { ...base, archived: archivedIds?.has(id) ?? false } : undefined
+      if (!base) return undefined
+      const coord = coordinatorByIssue?.get(id)
+      return {
+        ...base,
+        archived: archivedIds?.has(id) ?? false,
+        ...(coord ? { coordinatorSessionId: coord } : {}),
+      }
     },
     has: (id: string) => byId.has(id),
     ancestorIds: () => [],
@@ -128,6 +145,8 @@ interface HarnessOpts {
   now?: () => string
   /** Issue ids the fake issues dep reports as archived (dead-letter path). */
   archivedIds?: Set<string>
+  /** Bare coordinator session id per issue id (prefer-coordinator routing). */
+  coordinatorByIssue?: Map<string, string>
   /** Reuse a prior harness's store — simulates a server restart (fresh
    *  service, same durable rows/ledger). */
   store?: SessionStore
@@ -155,7 +174,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const svc = new MessageDeliveryService({
     messages: store.messages,
     events: store.events,
-    issues: () => fakeIssues(issueGetLists, opts?.archivedIds),
+    issues: () => fakeIssues(issueGetLists, opts?.archivedIds, opts?.coordinatorByIssue),
     sessions: () => ({
       listSessions: () => {
         listCalls.n += 1
@@ -396,6 +415,91 @@ describe('MessageDeliveryService.send', () => {
     const r3 = h3.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
     expect(r3.message.status).toBe('queued')
     expect(h3.store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(1)
+  })
+
+  it('actionable issue-addressed mail prefers the live coordinator session', () => {
+    // Two live agents; most-recent would be sNew, but coordinator is sCoord.
+    const members = [
+      session({
+        sessionId: 'sOld',
+        agentState: WORKING,
+        lastActiveAt: 't1',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sNew',
+        agentState: WORKING,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'do this', urgency: 'next-turn' },
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.sessionId).toBe('sCoord')
+    expect(r.message.deliveredTo).toBe('sCoord')
+
+    // fyi is unchanged — still the mail-nudge heuristic (most recently active when multi).
+    // Two idle live agents: multi-live picks most-recent (sOther), never the coordinator.
+    const idlePair = [
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sOther',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const hFyi = harness(idlePair, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const fyi = hFyi.svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'fyi note', urgency: 'fyi' },
+    )
+    expect(hFyi.sent[0]!.sessionId).toBe('sOther')
+    expect(fyi.message.deliveredTo).toBe('sOther')
+
+    // Coordinator set but not live → fall back to selectMailNudgeSession.
+    const noCoordLive = [
+      session({
+        sessionId: 'sNew',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sCoord',
+        status: 'exited',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const hFall = harness(noCoordLive, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const fall = hFall.svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'fallback', urgency: 'interrupt' },
+    )
+    expect(fall.message.deliveredTo).toBe('sNew')
   })
 
   it('records queued→injected→delivered on the ledger and emits an event per transition', () => {

@@ -17,6 +17,7 @@ const BOOL_FLAGS = new Set([
   'outsideScope',
   'recursive',
   'clear',
+  'claim',
   'nudge',
   'notify',
   'confirmRehome',

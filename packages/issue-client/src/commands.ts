@@ -482,6 +482,34 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'coordinator',
+    summary:
+      'Set the issue coordinator session (actionable-mail target): coordinator <id> --claim | --set <sessionId> | --clear.',
+    args: z.strictObject({
+      id: idArg,
+      claim: cliBool.optional(),
+      set: z.string().optional(),
+      clear: cliBool.optional(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      const modes = [a.claim === true, a.set != null, a.clear === true].filter(Boolean).length
+      if (modes !== 1) {
+        throw new Error('exactly one of --claim, --set <sessionId>, --clear is required')
+      }
+      const i = (await c.issues.setCoordinator.mutate({
+        id: a.id as string,
+        ...(a.claim === true
+          ? { claim: true }
+          : a.clear === true
+            ? { sessionId: null }
+            : { sessionId: a.set as string }),
+      })) as { seq: number; coordinatorSessionId?: string }
+      const who = i.coordinatorSessionId ? i.coordinatorSessionId : '(cleared)'
+      return { text: `coordinator #${i.seq}: ${who}`, data: i }
+    },
+  },
+  {
     name: 'archive',
     summary:
       'Archive an issue: archive <id>. Agents may archive inside their subtree; use --outside-scope elsewhere.',

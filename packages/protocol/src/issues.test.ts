@@ -46,6 +46,51 @@ describe('issue protocol types', () => {
     expect(wire.worktreePath).toBeNull()
   })
 
+  it('accepts additive coordinatorSessionId + startedBySession (bare session ids)', () => {
+    const base = {
+      id: 'iss_1',
+      repoPath: '/r',
+      seq: 1,
+      title: 'X',
+      description: '',
+      stage: 'backlog' as const,
+      worktreePath: null,
+      branch: null,
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      blockedBy: [],
+      priority: 2,
+      type: 'task' as const,
+      pinned: false,
+      needsHuman: false,
+      labels: [],
+      deps: [],
+      dependents: [],
+      comments: [],
+      ready: true,
+      blocked: false,
+      deferred: false,
+      childCount: 0,
+      childDoneCount: 0,
+      createdAt: 't',
+      updatedAt: 't',
+      archived: false,
+      sessions: [],
+      sessionSummary: { total: 0, byPhase: {} },
+    }
+    expect(IssueWire.parse(base).coordinatorSessionId).toBeUndefined()
+    expect(IssueWire.parse(base).startedBySession).toBeUndefined()
+    const withProv = IssueWire.parse({
+      ...base,
+      coordinatorSessionId: 'sess_coord',
+      startedBySession: 'sess_creator',
+    })
+    expect(withProv.coordinatorSessionId).toBe('sess_coord')
+    expect(withProv.startedBySession).toBe('sess_creator')
+  })
+
   it('accepts the additive node⇄hub fields (viaHub/upstreamStale/pendingSync)', () => {
     const base = {
       id: 'iss_1',
