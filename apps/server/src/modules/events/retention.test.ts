@@ -54,6 +54,30 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
     expect(planEventPrune).toHaveBeenCalledTimes(2)
   })
 
+  it('runs a coalesced rerun before propagating an active-pass failure', async () => {
+    const error = new Error('plan failed')
+    const plan = { cutoff: '2026-01-01T00:00:00.000Z', capThroughId: 10 }
+    const planEventPrune = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw error
+      })
+      .mockReturnValue(plan)
+    const pruneEventBatch = vi.fn(() => 0)
+    const retention = new EventLogRetention({ planEventPrune, pruneEventBatch })
+
+    const first = retention.pruneNow()
+    const second = retention.pruneNow()
+    const results = await Promise.allSettled([first, second])
+
+    expect(results).toEqual([
+      { status: 'rejected', reason: error },
+      { status: 'rejected', reason: error },
+    ])
+    expect(planEventPrune).toHaveBeenCalledTimes(2)
+    expect(pruneEventBatch).toHaveBeenCalledOnce()
+  })
+
   it('dispose cancels a yielded job before another delete unit starts', async () => {
     let nowMs = 0
     const planEventPrune = vi.fn(() => ({

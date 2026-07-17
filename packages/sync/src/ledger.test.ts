@@ -249,6 +249,36 @@ describe('Ledger', () => {
     ledger.dispose()
   })
 
+  it('runs a coalesced cadence rerun before logging an active-pass failure', async () => {
+    const error = new Error('plan failed')
+    const inner = createTestSyncRepository()
+    const planChangePrune = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw error
+      })
+      .mockReturnValue({ thresholdSeq: 0 })
+    const repo = new Proxy(inner, {
+      get(target, prop, receiver) {
+        if (prop === 'planChangePrune') return planChangePrune
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const onPruneMetrics = vi.fn()
+    const ledger = new Ledger({ repo, now: Date.now, transact: passthrough, onPruneMetrics })
+
+    for (let i = 0; i < CHANGE_PRUNE_EVERY * 2; i++) {
+      commit(ledger, [issueSpec(`error-rerun-${i}`, i)])
+    }
+    await vi.waitFor(() => expect(onPruneMetrics).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledOnce())
+
+    expect(planChangePrune).toHaveBeenCalledTimes(2)
+    ledger.dispose()
+  })
+
   it('conversation commits ignore volatile-only churn but ship full payloads on stable changes', () => {
     const conv = (over: Record<string, unknown> = {}): EntityChangeSpec => ({
       entity: 'conversation',

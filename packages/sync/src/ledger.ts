@@ -297,22 +297,30 @@ export class Ledger {
   }
 
   private async drainPruneRequests(): Promise<void> {
+    let failed = false
+    let failure: unknown
     do {
       this.pruneRerunRequested = false
-      const { metrics } = await pruneChangeLog(this.deps.repo, {
-        keepRows: CHANGE_KEEP_ROWS,
-        maxAgeMs: CHANGE_MAX_AGE_MS,
-        now: this.deps.now(),
-        signal: this.shutdown.signal,
-        monotonicNow: this.deps.monotonicNow,
-        onMetrics: this.deps.onPruneMetrics,
-      })
-      if (metrics.exceededPlacementThreshold) {
-        console.warn(
-          `[ledger] retention job took ${metrics.totalDurationMs.toFixed(1)}ms; ` +
-            'candidate for janitor placement',
-        )
+      try {
+        const { metrics } = await pruneChangeLog(this.deps.repo, {
+          keepRows: CHANGE_KEEP_ROWS,
+          maxAgeMs: CHANGE_MAX_AGE_MS,
+          now: this.deps.now(),
+          signal: this.shutdown.signal,
+          monotonicNow: this.deps.monotonicNow,
+          onMetrics: this.deps.onPruneMetrics,
+        })
+        if (metrics.exceededPlacementThreshold) {
+          console.warn(
+            `[ledger] retention job took ${metrics.totalDurationMs.toFixed(1)}ms; ` +
+              'candidate for janitor placement',
+          )
+        }
+      } catch (err) {
+        if (!failed) failure = err
+        failed = true
       }
     } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
+    if (failed) throw failure
   }
 }

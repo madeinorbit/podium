@@ -75,10 +75,18 @@ export class EventLogRetention {
     metrics: TimeBudgetedJobMetrics
   }> {
     let result!: { deleted: number; metrics: TimeBudgetedJobMetrics }
+    let failed = false
+    let failure: unknown
     do {
       this.pruneRerunRequested = false
-      result = await this.runPruneJob()
+      try {
+        result = await this.runPruneJob()
+      } catch (err) {
+        if (!failed) failure = err
+        failed = true
+      }
     } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
+    if (failed) throw failure
     return result
   }
 
