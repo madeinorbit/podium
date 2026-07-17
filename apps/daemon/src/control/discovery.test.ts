@@ -78,7 +78,60 @@ describe('listDirectories (daemon-side repo picker browse)', () => {
     await expect(listDirectories(join(home, 'notes.md'))).rejects.toThrow(/not a directory/)
     await expect(listDirectories(join(home, 'nope'))).rejects.toThrow(/Could not open directory/)
   })
+
+  // Git-aware browse (POD-855) [spec:SP-5eb6]: the browser badges repo subfolders,
+  // and the current folder carries its own repo identity to gate + name "Add repo".
+  describe('git awareness', () => {
+    it('flags which subfolders are git repos, not the plain ones', async () => {
+      await mkdir(join(home, 'src', 'a-repo', '.git'), { recursive: true })
+      await mkdir(join(home, 'src', 'plain'), { recursive: true })
+      const listing = await listDirectories(join(home, 'src'))
+      const byName = Object.fromEntries(listing.entries.map((e) => [e.name, e.isRepo]))
+      expect(byName['a-repo']).toBe(true)
+      expect(byName.plain).toBe(false)
+    })
+
+    it('detects a worktree (.git file) too, not only a .git directory', async () => {
+      await mkdir(join(home, 'src', 'wt'), { recursive: true })
+      await writeFile(join(home, 'src', 'wt', '.git'), 'gitdir: /somewhere/.git/worktrees/wt')
+      const listing = await listDirectories(join(home, 'src'))
+      expect(listing.entries.find((e) => e.name === 'wt')?.isRepo).toBe(true)
+    })
+
+    it('marks the current folder isRepo and reads its origin when it is a real repo', async () => {
+      const repo = join(home, 'proj')
+      await initRepo(repo, 'git@github.com:lumenfall/proj.git')
+      const listing = await listDirectories(repo)
+      expect(listing.isRepo).toBe(true)
+      expect(listing.originUrl).toContain('lumenfall/proj')
+    })
+
+    it('leaves isRepo unset for a plain directory', async () => {
+      const listing = await listDirectories(join(home, 'archive'))
+      expect(listing.isRepo).toBeUndefined()
+      expect(listing.originUrl).toBeUndefined()
+    })
+
+    it('marks isRepo but omits origin for a repo with no remote', async () => {
+      const repo = join(home, 'local-only')
+      await initRepo(repo)
+      const listing = await listDirectories(repo)
+      expect(listing.isRepo).toBe(true)
+      expect(listing.originUrl).toBeUndefined()
+    })
+  })
 })
+
+/** A real git repo so the origin read exercises the same plumbing discovery uses. */
+async function initRepo(dir: string, origin?: string): Promise<void> {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const run = promisify(execFile)
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(dir, { recursive: true })
+  await run('git', ['init', '-q'], { cwd: dir })
+  if (origin) await run('git', ['remote', 'add', 'origin', origin], { cwd: dir })
+}
 
 /** macOS tmpdir is itself a symlink (/var → /private/var), so expectations that
  *  compare against a tmp path must compare realpaths too. */

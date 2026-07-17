@@ -131,6 +131,10 @@ export const ScanReposResultMessage = z.object({
 export const DirectoryEntryWire = z.object({
   name: z.string(),
   path: z.string(),
+  /** This subfolder is itself a git repo (has a `.git`) — the browser badges it
+   *  (POD-855) [spec:SP-5eb6]. Cheap: one stat per entry on the daemon. Optional
+   *  for back-compat; an older daemon omits it and the browser shows no badge. */
+  isRepo: z.boolean().optional(),
 })
 export type DirectoryEntryWire = z.infer<typeof DirectoryEntryWire>
 
@@ -143,6 +147,13 @@ export const DirectoryListingWire = z.object({
   parentPath: z.string().nullable(),
   // Always present on the wire; defaults to [] so producers may omit it safely.
   entries: z.array(DirectoryEntryWire).default([]),
+  /** The browsed folder ITSELF is a git repo — the picker only lets you add a repo
+   *  (POD-855) [spec:SP-5eb6], so this gates the "Add repo" button. Optional for
+   *  back-compat with pre-POD-855 daemons. */
+  isRepo: z.boolean().optional(),
+  /** The browsed repo's origin URL when it has one — the picker names the add
+   *  target from it (repoNameFromOrigin), falling back to the folder name. */
+  originUrl: z.string().optional(),
 })
 export type DirectoryListingWire = z.infer<typeof DirectoryListingWire>
 

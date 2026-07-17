@@ -5,6 +5,7 @@ import {
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   scanGitRepositories,
+  scanGitRepositoriesAtPath,
 } from '@podium/agent-bridge'
 import type {
   ControlMessage,
@@ -105,6 +106,19 @@ function expandHome(path: string, homePath: string): string {
   return path
 }
 
+/** Does this directory contain a `.git` (dir for a normal repo, file for a
+ *  worktree/submodule)? The browser's git-repo badge (POD-855) [spec:SP-5eb6].
+ *  One stat — deliberately cheaper than a full git probe, since it only drives an
+ *  icon; the authoritative repo metadata comes from a scan. */
+async function hasGitDir(dir: string): Promise<boolean> {
+  try {
+    await stat(join(dir, '.git'))
+    return true
+  } catch {
+    return false
+  }
+}
+
 /**
  * One directory's sub-directories on THIS machine's disk (POD-814) [spec:SP-3701].
  * Ported from the server's browseDirectories(): the picker used to browse the hub
@@ -134,9 +148,9 @@ export async function listDirectories(
     )
   }
 
-  let entries: DirectoryEntryWire[]
+  let dirs: { name: string; path: string }[]
   try {
-    entries = (await readdir(current, { withFileTypes: true }))
+    dirs = (await readdir(current, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
       .filter((entry) => options.includeHidden || !entry.name.startsWith('.'))
       .map((entry) => ({ name: entry.name, path: join(current, entry.name) }))
@@ -147,12 +161,30 @@ export async function listDirectories(
     )
   }
 
+  // `isRepo` uses the SAME cheap `.git` check for every folder — an entry's badge
+  // and the current folder's "Add repo" gate must never disagree (a badged subfolder
+  // you step into has to still read as a repo). Only the origin — used purely to
+  // NAME the add target — comes from a real depth-0 scan, best-effort.
+  const [entries, currentIsRepo, selfRepo] = await Promise.all([
+    Promise.all(
+      dirs.map(
+        async (d): Promise<DirectoryEntryWire> => ({ ...d, isRepo: await hasGitDir(d.path) }),
+      ),
+    ),
+    hasGitDir(current),
+    scanGitRepositoriesAtPath(current, { maxDepth: 0, homeDir: browseHomeDir(options.homeDir) })
+      .then((r) => r.repositories.find((repo) => repo.path === current) ?? null)
+      .catch(() => null),
+  ])
+
   const parent = dirname(current)
   return {
     path: current,
     homePath,
     parentPath: parent === current ? null : parent,
     entries,
+    ...(currentIsRepo ? { isRepo: true } : {}),
+    ...(selfRepo?.originUrl ? { originUrl: selfRepo.originUrl } : {}),
   }
 }
 
