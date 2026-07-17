@@ -42,35 +42,55 @@ describe('reduceAgentState', () => {
     expect(s.need).toBeUndefined()
   })
 
-  it('turn_completed defaults to done, upgrades to open_todos when tasks remain', () => {
+  it('turn_completed defaults to done when no native subagents are live', () => {
+    const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    const idle = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(idle).toMatchObject({ phase: 'idle', idle: { kind: 'done' }, nativeSubagentCount: 0 })
+  })
+
+  it('turn_completed with nativeSubagentCount > 0 stays working (not idle/open_todos)', () => {
     let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
-    expect(reduceAgentState(s, { kind: 'turn_completed' }, T1).idle).toEqual({ kind: 'done' })
     s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
     s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
     s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T0)
-    const idle = reduceAgentState(s, { kind: 'turn_completed' }, T1)
-    expect(idle.idle?.kind).toBe('open_todos')
-    expect(idle.nativeSubagentCount).toBe(1)
+    const next = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(next.phase).toBe('working')
+    expect(next.nativeSubagentCount).toBe(1)
+    expect(next.idle).toBeUndefined()
+    // Old bug: bare done + count>0 invented idle.kind 'open_todos'. Gone.
+    expect(next).not.toMatchObject({ phase: 'idle', idle: { kind: 'open_todos' } })
   })
 
-  it('a provider verdict (question/approval) outranks open todos', () => {
-    const s = reduceAgentState(initialAgentState(T0), { kind: 'task_delta', delta: 1 }, T0)
-    const idle = reduceAgentState(
+  it('turn_completed with count 0 passes question/approval/interrupted verdicts through', () => {
+    const s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    const question = reduceAgentState(
       s,
       { kind: 'turn_completed', verdict: { kind: 'question', summary: 'A or B?' } },
       T1,
     )
-    expect(idle.idle).toEqual({ kind: 'question', summary: 'A or B?' })
+    expect(question).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'question', summary: 'A or B?' },
+    })
+    const approval = reduceAgentState(
+      s,
+      { kind: 'turn_completed', verdict: { kind: 'approval', summary: 'run rm?' } },
+      T1,
+    )
+    expect(approval).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'approval', summary: 'run rm?' },
+    })
   })
 
-  it('interrupted outranks open todos and clears active blockers', () => {
+  it('turn_completed with live subagents stays working even for question/interrupted', () => {
     let s = reduceAgentState(
       initialAgentState(T0),
       { kind: 'needs_user', need: 'question', summary: 'A or B?' },
       T0,
     )
     s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
-    const idle = reduceAgentState(
+    const next = reduceAgentState(
       s,
       {
         kind: 'turn_completed',
@@ -78,12 +98,23 @@ describe('reduceAgentState', () => {
       },
       T1,
     )
-    expect(idle).toMatchObject({
-      phase: 'idle',
+    expect(next).toMatchObject({
+      phase: 'working',
       nativeSubagentCount: 1,
-      idle: { kind: 'interrupted', summary: 'request interrupted by user' },
     })
-    expect(idle.need).toBeUndefined()
+    expect(next.idle).toBeUndefined()
+    expect(next.need).toBeUndefined()
+  })
+
+  it('task_delta to zero while in the working-hold leaves phase working until next turn', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T0)
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s.phase).toBe('working')
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
+    expect(s).toMatchObject({ phase: 'working', nativeSubagentCount: 0 })
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s).toMatchObject({ phase: 'idle', idle: { kind: 'done' }, nativeSubagentCount: 0 })
   })
 
   it('task_delta floors at zero and never changes phase', () => {

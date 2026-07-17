@@ -13,7 +13,8 @@ export type AgentStateEvent = (
   | { kind: 'activity' }
   | { kind: 'needs_user'; need: 'question' | 'permission'; summary?: string }
   /** Turn ended cleanly. Verdict (when the provider can classify) excludes
-   *  'open_todos' — that upgrade is reducer-owned (it tracks the task counter). */
+   *  'open_todos' — that kind exists on the wire for other signals; the reducer
+   *  does not invent it (nativeSubagentCount is live subagents, not todos). */
   | {
       kind: 'turn_completed'
       verdict?: { kind: 'done' | 'question' | 'approval' | 'interrupted'; summary?: string }

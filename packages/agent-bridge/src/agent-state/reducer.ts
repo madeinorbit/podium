@@ -64,14 +64,18 @@ export function reduceAgentState(
         },
       }
     case 'turn_completed': {
+      // nativeSubagentCount is the live native-subagent count (Task hooks),
+      // NOT open todos — the reducer has no openTodoCount. A positive count
+      // means the parent is still effectively working: do not go idle (and
+      // never invent idle.kind 'open_todos' from this signal). [spec:SP-dae6]
+      // When a later task_delta brings the count to 0 while we stay in this
+      // working hold, phase remains 'working' until the next turn boundary
+      // (simplest correct settle — no synthetic re-evaluation).
+      if (prev.nativeSubagentCount > 0) {
+        return { phase: 'working', ...base }
+      }
       const verdict = event.verdict ?? { kind: 'done' as const }
-      // Open todos outrank a bare "done" — the agent stopped mid-list. They do
-      // NOT outrank question/approval: those already say why it stopped.
-      const idle =
-        verdict.kind === 'done' && prev.nativeSubagentCount > 0
-          ? { kind: 'open_todos' as const }
-          : verdict
-      return { phase: 'idle', ...base, idle }
+      return { phase: 'idle', ...base, idle: verdict }
     }
     case 'turn_failed':
       return {
