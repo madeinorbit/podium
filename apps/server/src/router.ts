@@ -1174,6 +1174,9 @@ export const appRouter = t.router({
         mode: c.mode ?? null,
         publicUrl: c.publicUrl ?? null,
         serverUrl: c.serverUrl ?? null,
+        // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun --define);
+        // the Machines panel compares each daemon's reported version against this. [POD-838]
+        appVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
       }
     }),
     options: t.procedure.query(() => NETWORK_OPTIONS),

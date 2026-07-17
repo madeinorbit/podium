@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { MachineWire } from '@podium/protocol'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Store } from '@/app/store'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -148,5 +148,57 @@ describe('MachinesPanel hosting affordances', () => {
 
     expect(await screen.findByText(/pairing is disabled on this server/)).toBeTruthy()
     expect(enableCard()).toHaveProperty('disabled', false)
+  })
+})
+
+// POD-838: each row shows the daemon's reported build version; a version that trails the
+// server's gets an "update available" badge. 'dev' builds never badge (no comparable number).
+describe('MachinesPanel version skew', () => {
+  function setTrpcWithVersion(appVersion: string) {
+    storeState.trpc = {
+      setup: { info: { query: vi.fn().mockResolvedValue({ publicUrl: null, appVersion }) } },
+    } as unknown as Store['trpc']
+  }
+
+  it('shows the daemon version and badges a machine behind the server', async () => {
+    storeState.machines = [
+      machine({
+        inventory: { os: 'darwin', arch: 'arm64', podiumVersion: '0.4.1', agents: [], tools: [] },
+      }),
+    ]
+    setTrpcWithVersion('0.5.0')
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('0.4.1')).toBeTruthy()
+    expect(await screen.findByText(/update available/i)).toBeTruthy()
+  })
+
+  it('does not badge a machine on the server version', async () => {
+    storeState.machines = [
+      machine({
+        inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.5.0', agents: [], tools: [] },
+      }),
+    ]
+    setTrpcWithVersion('0.5.0')
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('0.5.0')).toBeTruthy()
+    expect(screen.queryByText(/update available/i)).toBeNull()
+  })
+
+  it('never badges dev builds or machines with no reported version', async () => {
+    storeState.machines = [
+      machine({
+        id: 'm-dev',
+        name: 'devbox',
+        inventory: { os: 'linux', arch: 'x64', podiumVersion: 'dev', agents: [], tools: [] },
+      }),
+      machine({ id: 'm-old', name: 'pre-inventory' }),
+    ]
+    setTrpcWithVersion('0.5.0')
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('dev')).toBeTruthy()
+    expect(screen.queryByText(/update available/i)).toBeNull()
   })
 })
