@@ -27,6 +27,7 @@ import type {
 } from '@tanstack/db-sqlite-persistence-core'
 import {
   createSQLiteCorePersistenceAdapter,
+  persistedCollectionOptions,
   SingleProcessCoordinator,
 } from '@tanstack/db-sqlite-persistence-core'
 import { describe, expect, it } from 'vitest'
@@ -180,7 +181,10 @@ function sqliteReplicaHarness(init: Partial<ReplicaInit> = {}) {
     createReplica({
       keyPrefix: prefix,
       storage: memoryStorage(),
-      persisted: { persistence: persistenceOver(driver) },
+      persisted: {
+        persistence: persistenceOver(driver),
+        collectionOptions: persistedCollectionOptions,
+      },
       ...init,
       ...over,
     })

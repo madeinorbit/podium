@@ -64,8 +64,14 @@ import type {
 } from '@podium/protocol'
 import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
-import type { PersistedCollectionPersistence } from '@tanstack/db-sqlite-persistence-core'
-import { persistedCollectionOptions } from '@tanstack/db-sqlite-persistence-core'
+// TYPE-ONLY on purpose: the persistence packages must never enter the browser
+// bundle (plain PWAs run the localStorage backend and load this module in the
+// main chunk). The runtime factory arrives via PersistedReplicaInit from the
+// platform layer's dynamic import (apps/web desktopReplica.ts).
+import type {
+  PersistedCollectionPersistence,
+  persistedCollectionOptions,
+} from '@tanstack/db-sqlite-persistence-core'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage, parseOutboxEntries } from '../outbox'
 
 export type { PersistedCollectionPersistence, StorageApi, StorageEventApi }
@@ -227,6 +233,11 @@ export const REPLICA_SQLITE_SCHEMA_VERSION = 1
  *  schemaMismatchPolicy 'reset', one dedicated sqlite file). */
 export interface PersistedReplicaInit {
   persistence: PersistedCollectionPersistence
+  /** The persistence layer's `persistedCollectionOptions`, injected by the
+   *  platform layer alongside the adapter (both come out of the same dynamic
+   *  import) so client-core carries no runtime dependency on the persistence
+   *  packages — a plain browser never downloads them. */
+  collectionOptions: typeof persistedCollectionOptions
   /** Best-effort whole-database wipe for the poisoned-replica clear
    *  (invariant 2): drop every table in the replica's DEDICATED sqlite file.
    *  Until the next boot recreates the schema, further writes may fail — the
@@ -1305,7 +1316,7 @@ class TanstackReplica implements Replica {
       // handlers, and tx.isPersisted settles after the sqlite tx commits —
       // which is exactly what the lastWrite fence consumes.
       return createCollection(
-        persistedCollectionOptions<T, string>({
+        this.persistedInit.collectionOptions<T, string>({
           id: `${this.prefix}.${kind}`,
           getKey,
           persistence: this.persistedInit.persistence,

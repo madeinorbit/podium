@@ -167,6 +167,11 @@ fn main() {
         // browser. The webview itself silently drops window.open/_blank navigations, so
         // an injected shim routes them here (see bootstrap::opener_shim_script).
         .plugin(tauri_plugin_opener::init())
+        // SQL (sqlite): backs the web client's replica persistence (POD-789) —
+        // TanStack DB's Tauri adapter opens sqlite:podium-replica.sqlite in the
+        // app config dir. Granted to the main window (incl. remote-loaded
+        // client/daemon modes) via the replica-sqlite capability below.
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![enable_hosting])
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
@@ -365,11 +370,21 @@ fn main() {
                     .window("main")
                     .permission("allow-enable-hosting")
             });
+            // Replica SQLite persistence (POD-789): the web client's TanStack DB
+            // persistence adapter drives the SQL plugin. Client/daemon modes load
+            // the app FROM THE HUB, so the grant must extend to that remote origin
+            // (same precedent as the window-controls/opener/hosting grants; the hub
+            // already serves all app JS and is fully trusted).
+            let mut sqlite_capability = tauri::ipc::CapabilityBuilder::new("replica-sqlite")
+                .window("main")
+                .permission("sql:default")
+                .permission("sql:allow-execute");
             if let Some(server_url) = remote_window_server_url {
                 match remote_capability_pattern(&server_url) {
                     Ok(pattern) => {
                         window_capability = window_capability.remote(pattern.clone());
                         opener_capability = opener_capability.remote(pattern.clone());
+                        sqlite_capability = sqlite_capability.remote(pattern.clone());
                         hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
                     Err(error) => eprintln!(
@@ -379,6 +394,7 @@ fn main() {
             }
             app.add_capability(window_capability)?;
             app.add_capability(opener_capability)?;
+            app.add_capability(sqlite_capability)?;
             if let Some(capability) = hosting_capability {
                 app.add_capability(capability)?;
             }

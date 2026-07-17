@@ -15,6 +15,7 @@ import {
   useStore as useCoreStore,
   useStoreSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
+import type { Replica } from '@podium/client-core/replica'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
@@ -37,12 +38,16 @@ export function StoreProvider({
   config,
   onFatalError,
   engineOverrides,
+  createReplicaFn,
   children,
 }: {
   config: ServerOrigin
   onFatalError: (message: string) => void
   /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
   engineOverrides?: { spawnConfirmGraceMs?: number }
+  /** Desktop passthrough (POD-789): the Tauri shell injects an already-hydrated
+   *  SQLite-backed replica; browsers leave this unset (localStorage default). */
+  createReplicaFn?: () => Replica
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
@@ -62,6 +67,7 @@ export function StoreProvider({
       formatError={formatAppError}
       notices={NOTICES}
       engineOverrides={engineOverrides}
+      createReplicaFn={createReplicaFn}
     >
       {children}
     </CoreStoreProvider>

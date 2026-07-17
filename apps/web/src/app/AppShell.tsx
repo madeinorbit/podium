@@ -1,3 +1,4 @@
+import type { Replica } from '@podium/client-core/replica'
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/domain'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
@@ -14,9 +15,11 @@ import { useIssueEvents } from '@/features/superagent/useIssueEvents'
 import { SidebarRail } from '@/features/worklist/SidebarRail'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
+import { desktopReplicaFactory } from '@/lib/desktopReplica'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AutoContinueDialog } from './AutoContinueDialog'
@@ -56,10 +59,41 @@ function LoadingScreen(): JSX.Element {
   )
 }
 
+/** Desktop SQLite replica gate (POD-789): `null` = still resolving (Tauri
+ *  only — a plain browser resolves synchronously to the localStorage
+ *  default). The store must not mount before this settles: the engine reads
+ *  the replica synchronously at construction, so the SQLite-backed one has to
+ *  arrive already hydrated. */
+function useDesktopReplica(): { createReplicaFn?: () => Replica } | null {
+  const [resolved, setResolved] = useState<{ createReplicaFn?: () => Replica } | null>(() =>
+    nativeDesktopBridge() ? null : {},
+  )
+  useEffect(() => {
+    if (resolved) return
+    let alive = true
+    void desktopReplicaFactory().then((createReplicaFn) => {
+      if (alive) setResolved(createReplicaFn ? { createReplicaFn } : {})
+    })
+    return () => {
+      alive = false
+    }
+  }, [resolved])
+  return resolved
+}
+
 export function AppShell(): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
   const isMobile = useIsMobile()
+  const desktopReplica = useDesktopReplica()
+
+  if (!desktopReplica) {
+    return (
+      <TooltipProvider>
+        <LoadingScreen />
+      </TooltipProvider>
+    )
+  }
 
   return (
     <TooltipProvider>
@@ -72,7 +106,11 @@ export function AppShell(): JSX.Element {
         />
       ) : (
         <ErrorBoundary resetKey={config.wsClientUrl} onRetry={() => setAppError(null)}>
-          <StoreProvider config={config} onFatalError={setAppError}>
+          <StoreProvider
+            config={config}
+            onFatalError={setAppError}
+            createReplicaFn={desktopReplica.createReplicaFn}
+          >
             <ThemeUiStateMirror />
             <BrowserOpenOverlay />
             <ConfirmProvider>
