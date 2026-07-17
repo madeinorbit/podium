@@ -10,25 +10,48 @@
  * sites and tests speak the `Replica` interface below, so an API-churn upgrade
  * or a React Native port touches one file.
  *
- * PERSISTENCE CHOICE (spec §2.1 delegates this to the adapter): TanStack DB's
- * built-in `localStorageCollectionOptions` (@tanstack/db 0.6.x). Rationale:
- * - There is no published SQLite-wasm persister for @tanstack/db today; the
- *   library's shipped persistence options are localStorage/sessionStorage
- *   collections (JSON blob per collection + cross-tab `storage` events).
- * - The PWA's replica payload is small (metadata rows + ≤50 bounded transcript
- *   windows — "phones, not archives"), well inside localStorage quotas, and a
- *   wasm persister would blow the ~1.5MB precache budget (spec §4) on its own.
- * - localStorage is synchronous, which makes the cursor-after-data invariant
- *   (spec invariant 3) easy to uphold: `setCursor` chains behind the last data
- *   write's persistence promise before touching storage.
- * - The lib already cold-starts on corrupt blobs (its loader swallows and
- *   returns empty — spec invariant 2). When localStorage is unusable (private
- *   mode / quota) we probe up front and run the SAME collections over an
- *   in-memory storage adapter — one code path, persistence becomes best-effort
- *   (`persistent` is false; a reload cold-starts, spec invariant 4).
- * An IndexedDB/SQLite persister can later replace this behind the same
- * interface. Follow-on: per-delta persistence rewrites each touched collection
- * blob whole (inherent to a JSON-blob backing); acceptable at current sizes.
+ * PERSISTENCE CHOICE (spec §2.1 delegates this to the adapter): TWO backends
+ * behind the same `Replica` interface, selected by `ReplicaInit`:
+ *
+ * 1. DEFAULT (browser / PWA / mobile-bridged): TanStack DB's built-in
+ *    `localStorageCollectionOptions`. Rationale:
+ *    - The PWA's replica payload is small (metadata rows + ≤50 bounded
+ *      transcript windows — "phones, not archives"), well inside localStorage
+ *      quotas, and a wasm SQLite persister would blow the ~1.5MB precache
+ *      budget (spec §4) on its own.
+ *    - localStorage is synchronous, which makes the cursor-after-data
+ *      invariant (spec invariant 3) easy to uphold: `setCursor` chains behind
+ *      the last data write's persistence promise before touching storage.
+ *    - The lib already cold-starts on corrupt blobs (its loader swallows and
+ *      returns empty — spec invariant 2). When localStorage is unusable
+ *      (private mode / quota) we probe up front and run the SAME collections
+ *      over an in-memory storage adapter — one code path, persistence becomes
+ *      best-effort (`persistent` is false; a reload cold-starts, invariant 4).
+ *    Follow-on: per-delta persistence rewrites each touched collection blob
+ *    whole (inherent to a JSON-blob backing); acceptable at current sizes.
+ *
+ * 2. SQLITE-PERSISTED (POD-789, Tauri desktop): TanStack DB 0.6's persistence
+ *    layer (`persistedCollectionOptions` over a `PersistedCollectionPersistence`
+ *    adapter — on desktop the Tauri adapter over @tauri-apps/plugin-sql, i.e.
+ *    NATIVE SQLite, no wasm). Every collection — entities, transcripts, the
+ *    outbox family, ui-state, and a tiny `meta` collection holding the cursor —
+ *    persists per-row into one dedicated SQLite file, so the cursor shares the
+ *    data's failure domain and production-sized replicas no longer hit the
+ *    ~5MB localStorage quota (the cause of issue #181's degrade path).
+ *    - The persistence layer has NO public multi-collection transaction (each
+ *      committed collection tx is its own serialized BEGIN IMMEDIATE…COMMIT),
+ *      so the cursor-after-data ORDERING invariant stays: `setCursor` waits on
+ *      the same `lastWrite` fence, and after a persist failure the cursor
+ *      FREEZES (degrade below) instead of advancing over a gap.
+ *    - Collections load ASYNCHRONOUSLY: callers MUST await `hydrate()` before
+ *      handing the replica to the engine, which reads rows/cursor/outbox/
+ *      ui-state synchronously at construction (apps/web gates the desktop
+ *      store mount on this; mobile's async-storage bridge is the same shape).
+ *    - `storage` keeps its meaning as the LEGACY web storage: the one-time
+ *      localStorage→SQLite migration folds the old outbox + ui-state blobs in
+ *      (the outbox is never dropped silently) and retires the dead entity
+ *      blobs; entities/cursor deliberately re-bootstrap (the replica is a
+ *      cache — a null cursor just means one full snapshot fetch).
  */
 
 import type {
@@ -41,9 +64,11 @@ import type {
 } from '@podium/protocol'
 import type { StorageApi, StorageEventApi, Transaction } from '@tanstack/db'
 import { createCollection, localStorageCollectionOptions } from '@tanstack/db'
+import type { PersistedCollectionPersistence } from '@tanstack/db-sqlite-persistence-core'
+import { persistedCollectionOptions } from '@tanstack/db-sqlite-persistence-core'
 import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage, parseOutboxEntries } from '../outbox'
 
-export type { StorageApi, StorageEventApi }
+export type { PersistedCollectionPersistence, StorageApi, StorageEventApi }
 
 /** Wire row type per replica collection kind. */
 export interface ReplicaRows {
@@ -134,6 +159,11 @@ export interface Replica {
    *  collection (`<prefix>.uistate.v1`) replacing the ad-hoc localStorage keys.
    *  Known legacy keys are migrated in once and the old keys removed. */
   uiState(): UiState
+  /** Resolves when every write issued so far has persisted (including a
+   *  fenced cursor write). localStorage writes are synchronous so this is
+   *  near-immediate there; the SQLite backend persists asynchronously —
+   *  tests and shutdown paths wait on this instead of sleeping. */
+  flush(): Promise<void>
 }
 
 /** Synchronous UI-state kv over the ui-state collection. Never throws. */
@@ -187,6 +217,23 @@ export const REPLICA_TRANSCRIPT_CONVERSATION_CAP = 50
 
 export const REPLICA_KEY_PREFIX = 'podium.replica'
 
+/** Bump to wipe-and-rebootstrap every SQLite-persisted collection on shape
+ *  changes (the persistence layer's schemaMismatchPolicy 'reset' handles the
+ *  wipe — the caller passes that policy when building the adapter). */
+export const REPLICA_SQLITE_SCHEMA_VERSION = 1
+
+/** SQLite-persisted mode (POD-789). Built by the platform layer (desktop:
+ *  createTauriSQLitePersistence over @tauri-apps/plugin-sql with
+ *  schemaMismatchPolicy 'reset', one dedicated sqlite file). */
+export interface PersistedReplicaInit {
+  persistence: PersistedCollectionPersistence
+  /** Best-effort whole-database wipe for the poisoned-replica clear
+   *  (invariant 2): drop every table in the replica's DEDICATED sqlite file.
+   *  Until the next boot recreates the schema, further writes may fail — the
+   *  entity degrade path keeps the cursor honest meanwhile. */
+  clearPersisted?: () => Promise<void>
+}
+
 export interface ReplicaInit {
   /** Storage seam (mirrors outbox.ts): tests inject a fake; defaults to window.localStorage. */
   storage?: StorageApi
@@ -200,6 +247,14 @@ export interface ReplicaInit {
   keyPrefix?: string
   /** Clock seam for LRU tests. */
   now?: () => number
+  /** SQLite-persisted mode (POD-789): when present, every collection runs on
+   *  TanStack DB 0.6's persistence layer over this shared adapter instead of
+   *  localStorage blobs. Collections load ASYNCHRONOUSLY — the caller MUST
+   *  await `hydrate()` before handing the replica to the engine (the engine
+   *  reads rows/cursor/outbox/uiState synchronously at construction). In this
+   *  mode `storage` is only the LEGACY web storage the one-time
+   *  localStorage→SQLite migration reads (and retires) blobs from. */
+  persisted?: PersistedReplicaInit
 }
 
 interface TranscriptRow {
@@ -289,8 +344,13 @@ const ENTITY_STORE_KINDS = [
 /** Shared empty-rows identity for `rows()` (see the interface note). */
 const EMPTY_ROWS: never[] = []
 
+/** Meta-collection row key holding the oplog cursor (SQLite mode). */
+const CURSOR_META_KEY = 'cursor'
+
 class TanstackReplica implements Replica {
   readonly persistent: boolean
+  /** SQLite-persisted mode config; undefined = localStorage backend. */
+  private readonly persistedInit: PersistedReplicaInit | undefined
   private readonly storage: StorageApi
   /** Issue #181 hotfix: true once an entity-blob write hit the storage quota.
    *  From then on entity persistence is in-memory only for this session and the
@@ -306,6 +366,20 @@ class TanstackReplica implements Replica {
   private readonly now: () => number
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous collection map, typed at the access sites
   private readonly cols: Record<ReplicaKind | 'transcripts', any>
+  /** Cursor home in SQLite mode: a tiny key→value collection, so the cursor
+   *  lives in the SAME sqlite file / failure domain as the data it covers.
+   *  Undefined on the localStorage backend (cursor is a raw storage key). */
+  // biome-ignore lint/suspicious/noExplicitAny: same collection typing convention as `cols`
+  private readonly metaCol: any | undefined
+  /** SQLite mode builds the outbox/ui collections EAGERLY so hydrate() can
+   *  preload them — the engine reads all of them synchronously at
+   *  construction, straight after the caller's awaited hydrate. */
+  // biome-ignore lint/suspicious/noExplicitAny: same collection typing convention as `cols`
+  private readonly eagerOutboxCol: any | undefined
+  // biome-ignore lint/suspicious/noExplicitAny: same collection typing convention as `cols`
+  private readonly eagerOutboxAwaitingCol: any | undefined
+  // biome-ignore lint/suspicious/noExplicitAny: same collection typing convention as `cols`
+  private readonly eagerUiCol: any | undefined
   /** Lazily-built outbox backing (P6b) — separate from `cols` so a poisoned
    *  entity replica's clearAll never wipes queued writes. */
   private outboxBacking: OutboxStorage | undefined
@@ -338,22 +412,29 @@ class TanstackReplica implements Replica {
     this.prefix = prefix
     this.cursorKey = `${prefix}.cursor.v1`
     this.now = init.now ?? Date.now
+    this.persistedInit = init.persisted
     const storage =
       init.storage ?? (typeof window !== 'undefined' ? window.localStorage : undefined)
-    this.persistent = probeStorage(storage)
+    // Web storage usability, probed even in SQLite mode (migration reads it).
+    const webStorageUsable = probeStorage(storage)
+    // SQLite mode is durable by construction (the caller already opened the
+    // db); otherwise durability = usable web storage.
+    this.persistent = init.persisted ? true : webStorageUsable
     // Unusable storage (private mode / quota / SSR) → the SAME collections run
     // over an in-memory adapter: everything works, nothing survives a reload.
-    this.storage = this.persistent && storage ? storage : memoryStorage()
-    // Cross-tab wiring only when we're really on a shared window.localStorage.
-    this.storageEventApi = this.persistent
-      ? (init.storageEventApi ??
-        (init.storage === undefined && typeof window !== 'undefined'
-          ? window
-          : NOOP_STORAGE_EVENTS))
-      : NOOP_STORAGE_EVENTS
+    this.storage = webStorageUsable && storage ? storage : memoryStorage()
+    // Cross-tab wiring only when we're really on a shared window.localStorage
+    // AND it backs the collections (SQLite mode has one window, no events).
+    this.storageEventApi =
+      webStorageUsable && !init.persisted
+        ? (init.storageEventApi ??
+          (init.storage === undefined && typeof window !== 'undefined'
+            ? window
+            : NOOP_STORAGE_EVENTS))
+        : NOOP_STORAGE_EVENTS
     this.enumerateKeys =
       init.enumerateKeys ??
-      (this.persistent && init.storage === undefined && typeof window !== 'undefined'
+      (webStorageUsable && init.storage === undefined && typeof window !== 'undefined'
         ? () => Object.keys(window.localStorage)
         : () => [])
     this.nonce = ++instanceSeq
@@ -361,8 +442,11 @@ class TanstackReplica implements Replica {
     // #181): production-sized data can blow the ~5MB localStorage quota, and the
     // collection layer swallows the QuotaExceededError — the guard makes that
     // failure observable so the cursor can stay honest (see degradeEntityWrites).
-    const guarded = this.entityStorage()
-    const guardedEvents = this.wrapStorageEvents(guarded, { dropWhenDegraded: true })
+    // (SQLite mode: makeCollection ignores these — no quota, no storage events.)
+    const guarded = init.persisted ? this.storage : this.entityStorage()
+    const guardedEvents = init.persisted
+      ? NOOP_STORAGE_EVENTS
+      : this.wrapStorageEvents(guarded, { dropWhenDegraded: true })
     this.cols = {
       sessions: this.makeCollection<SessionMeta>(
         'sessions',
@@ -396,12 +480,22 @@ class TanstackReplica implements Replica {
         guardedEvents,
       ),
     }
+    // SQLite mode: cursor meta + outbox/ui collections built eagerly so the
+    // caller's awaited hydrate() preloads EVERYTHING the engine then reads
+    // synchronously (rows, cursor, queued outbox entries, ui-state).
+    if (init.persisted) {
+      this.metaCol = this.makeCollection<UiRow>('meta', (r) => r.key)
+      this.eagerOutboxCol = this.makeOutboxCollection('outbox')
+      this.eagerOutboxAwaitingCol = this.makeOutboxCollection('outbox-awaiting')
+      this.eagerUiCol = this.makeCollection<UiRow>('uistate', (r) => r.key)
+    }
     // Keep the collections' sync alive for the app's lifetime: a permanent
     // no-op subscriber prevents the no-subscriber GC from dropping state
     // between the store's hydrate and ChatView's cache reads.
-    for (const col of Object.values(this.cols)) {
+    // (makeOutboxCollection subscribes its own collections the same way.)
+    for (const col of [...Object.values(this.cols), this.metaCol, this.eagerUiCol]) {
       try {
-        col.subscribeChanges(() => {})
+        col?.subscribeChanges(() => {})
       } catch {
         // never let replica plumbing break boot
       }
@@ -423,7 +517,22 @@ class TanstackReplica implements Replica {
     // fully loaded state.
     this.batchDepth++
     try {
-      await Promise.all(Object.values(this.cols).map((c) => c.preload()))
+      await Promise.all(
+        [
+          ...Object.values(this.cols),
+          this.metaCol,
+          this.eagerOutboxCol,
+          this.eagerOutboxAwaitingCol,
+          this.eagerUiCol,
+        ]
+          .filter((c) => c !== undefined)
+          .map((c) => c.preload()),
+      )
+      // First SQLite run on a machine that used the localStorage replica: the
+      // old entity/transcript blobs and cursor are a dead cache — retire them
+      // to free quota (entities re-bootstrap; outbox/uistate blobs migrate in
+      // outboxStorage()/uiState(), NOT here). Idempotent, best-effort.
+      if (this.persistedInit) this.retireLegacyEntityBlobs()
       return {
         sessions: this.cols.sessions.toArray as SessionMeta[],
         issues: this.cols.issues.toArray as IssueWire[],
@@ -497,7 +606,9 @@ class TanstackReplica implements Replica {
     // lie about what's on disk, so read it as "never synced" (full resync).
     if (this.entityWritesDegraded) return null
     try {
-      const raw = this.storage.getItem(this.cursorKey)
+      const raw = this.persistedInit
+        ? ((this.metaCol.get(CURSOR_META_KEY) as UiRow | undefined)?.value ?? null)
+        : this.storage.getItem(this.cursorKey)
       if (raw === null) return null
       const n = Number(raw)
       return Number.isFinite(n) ? n : null
@@ -516,15 +627,50 @@ class TanstackReplica implements Replica {
       // write would still succeed — a reload would then hydrate STALE
       // collections yet resume from an ADVANCED cursor: a permanent gap, with
       // the missing entities never refetched. The guarded entity storage flips
-      // entityWritesDegraded on the first failed blob write; checking it HERE
-      // (after the fence, i.e. after those writes ran) refuses the advance.
+      // entityWritesDegraded on the first failed blob write (SQLite mode: a
+      // rejected entity persist does, via track); checking it HERE (after the
+      // fence, i.e. after those writes ran) refuses the advance.
       if (this.entityWritesDegraded) return
+      if (this.persistedInit) {
+        // Cursor lives in the meta collection — same sqlite file as the data.
+        // A failed cursor persist is benign (missing cursor = snapshot next
+        // boot); 'cursor' keeps it out of the entity degrade path.
+        try {
+          const value = String(cursor)
+          if (this.metaCol.has(CURSOR_META_KEY)) {
+            this.track(
+              this.metaCol.update(CURSOR_META_KEY, (draft: UiRow) => {
+                draft.value = value
+              }),
+              'cursor',
+            )
+          } else {
+            this.track(this.metaCol.insert({ key: CURSOR_META_KEY, value }), 'cursor')
+          }
+        } catch {
+          // best-effort — a missing cursor just means a snapshot next boot
+        }
+        return
+      }
       try {
         this.storage.setItem(this.cursorKey, String(cursor))
       } catch {
         // best-effort — a missing cursor just means a snapshot next boot
       }
     })
+  }
+
+  async flush(): Promise<void> {
+    // Drain until stable: a fenced setCursor (or a listener writing back)
+    // may append to lastWrite while we await it.
+    let prev: Promise<unknown>
+    do {
+      prev = this.lastWrite
+      await prev
+      // A fenced cursor write schedules in a microtask off the fence — yield
+      // once so it lands in lastWrite before the stability check.
+      await Promise.resolve()
+    } while (prev !== this.lastWrite)
   }
 
   transcriptWindow(conversationKey: string): TranscriptWindow | undefined {
@@ -692,17 +838,20 @@ class TanstackReplica implements Replica {
   }
 
   /** Build one outbox-family collection (queued or awaiting) and start its
-   *  synchronous storage sync. */
+   *  storage sync. SQLite mode persists per-row like every other collection —
+   *  loudness lives in track('outbox') there, not a storage wrapper. */
   private makeOutboxCollection(name: 'outbox' | 'outbox-awaiting') {
-    const loud = this.outboxLoudStorage()
-    const col = this.makeCollection<OutboxRow>(
-      name,
-      (r) => r.mutationId,
-      loud,
-      this.wrapStorageEvents(loud, { dropWhenDegraded: false }),
-    )
-    // Permanent no-op subscriber: starts the collection's (synchronous)
-    // localStorage sync and keeps it from being GC'd between accesses.
+    const loud = this.persistedInit ? undefined : this.outboxLoudStorage()
+    const col = loud
+      ? this.makeCollection<OutboxRow>(
+          name,
+          (r) => r.mutationId,
+          loud,
+          this.wrapStorageEvents(loud, { dropWhenDegraded: false }),
+        )
+      : this.makeCollection<OutboxRow>(name, (r) => r.mutationId)
+    // Permanent no-op subscriber: starts the collection's storage sync and
+    // keeps it from being GC'd between accesses.
     try {
       col.subscribeChanges(() => {})
     } catch (err) {
@@ -751,14 +900,14 @@ class TanstackReplica implements Replica {
           const existing = new Map((c.toArray as OutboxRow[]).map((r) => [r.mutationId, r]))
           const keep = new Set(entries.map((e) => e.mutationId))
           const stale = [...existing.keys()].filter((id) => !keep.has(id))
-          if (stale.length > 0) this.track(c.delete(stale))
+          if (stale.length > 0) this.track(c.delete(stale), 'outbox')
           let seq = maxSeq([...existing.values()])
           // The queue only pushes at the back and shifts from the front, so the
           // new (unseen) entries arrive in FIFO order — ascending seq matches it.
           const inserts = entries
             .filter((e) => !existing.has(e.mutationId))
             .map((e) => ({ ...e, seq: ++seq }))
-          if (inserts.length > 0) this.track(c.insert(inserts))
+          if (inserts.length > 0) this.track(c.insert(inserts), 'outbox')
           // In-place transitions (#263 review finding 1): a surviving entry can
           // change (queued → state:'awaiting-truth' + resolvedAt) — rewrite it
           // under its existing seq. replaceContents assigns dropped keys
@@ -773,6 +922,7 @@ class TanstackReplica implements Replica {
                   unknown
                 >),
               ),
+              'outbox',
             )
           }
         } catch (err) {
@@ -784,7 +934,11 @@ class TanstackReplica implements Replica {
 
   outboxStorage(): OutboxStorage {
     if (this.outboxBacking) return this.outboxBacking
-    const col = this.makeOutboxCollection('outbox')
+    const col = this.eagerOutboxCol ?? this.makeOutboxCollection('outbox')
+    // SQLite mode: fold the previous backend's whole outbox COLLECTION blob in
+    // first (POD-789 — queued offline writes must survive the backend swap),
+    // then the ancient raw key below catches pre-collection builds.
+    if (this.persistedInit) this.migrateOutboxBlob(col, `${this.prefix}.outbox.v1`)
     try {
       // One-time migration: fold any legacy podium.outbox.v1 JSON blob into the
       // collection (append entries not already present, FIFO after what's here),
@@ -796,7 +950,7 @@ class TanstackReplica implements Replica {
         const missing = legacy
           .filter((e) => !have.has(e.mutationId))
           .map((e) => ({ ...e, seq: ++seq }))
-        if (missing.length > 0) this.track(col.insert(missing))
+        if (missing.length > 0) this.track(col.insert(missing), 'outbox')
         this.storage.removeItem(OUTBOX_LS_KEY)
       }
     } catch (err) {
@@ -812,18 +966,96 @@ class TanstackReplica implements Replica {
     // `<prefix>.outbox-awaiting.v1` — a key OLD builds never read, so a PWA
     // rollback can't re-drain held entries as queued mutations. The Outbox
     // itself adopts any state-marked rows it finds in the legacy collection.
-    this.outboxAwaitingBacking = this.outboxCollectionBacking(
-      this.makeOutboxCollection('outbox-awaiting'),
-    )
+    const col = this.eagerOutboxAwaitingCol ?? this.makeOutboxCollection('outbox-awaiting')
+    if (this.persistedInit) this.migrateOutboxBlob(col, `${this.prefix}.outbox-awaiting.v1`)
+    this.outboxAwaitingBacking = this.outboxCollectionBacking(col)
     return this.outboxAwaitingBacking
+  }
+
+  /** SQLite-mode one-time migration (POD-789): fold an old localStorage
+   *  COLLECTION blob (`{ encodedKey: { versionKey, data } }`) of outbox rows
+   *  into `col`, then retire the key. Never drops entries silently: a corrupt
+   *  blob is logged loudly before removal, a failed fold leaves the key for
+   *  the next boot to retry. Idempotent (dedupe by mutationId). */
+  private migrateOutboxBlob(
+    col: ReturnType<TanstackReplica['makeOutboxCollection']>,
+    storageKey: string,
+  ): void {
+    try {
+      const raw = this.storage.getItem(storageKey)
+      if (raw === null) return
+      const parsed = parseLocalStorageCollectionBlob(raw)
+      if (parsed === undefined) {
+        console.error(
+          `[podium] replica outbox migration: corrupt localStorage blob ${storageKey} — ` +
+            'its queued entries (if any) cannot be recovered',
+        )
+        this.storage.removeItem(storageKey)
+        return
+      }
+      const rows = parsed
+        .filter(
+          (r): r is OutboxRow =>
+            typeof r === 'object' &&
+            r !== null &&
+            typeof (r as OutboxRow).mutationId === 'string' &&
+            typeof (r as OutboxRow).kind === 'string' &&
+            typeof (r as OutboxRow).queuedAt === 'number',
+        )
+        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.queuedAt - b.queuedAt)
+      const have = new Set((col.toArray as OutboxRow[]).map((r) => r.mutationId))
+      let seq = maxSeq(col.toArray as OutboxRow[])
+      const missing = rows
+        .filter((e) => !have.has(e.mutationId))
+        // Explicit reconstruction (same as load()): stored rows may carry
+        // $-metadata props; hand the collection exactly its own shape.
+        .map((e) => ({
+          mutationId: e.mutationId,
+          kind: e.kind,
+          input: e.input,
+          queuedAt: e.queuedAt,
+          ...(e.state !== undefined ? { state: e.state } : {}),
+          ...(e.resolvedAt !== undefined ? { resolvedAt: e.resolvedAt } : {}),
+          ...(e.baseline !== undefined ? { baseline: e.baseline } : {}),
+          ...(e.chained !== undefined ? { chained: e.chained } : {}),
+          seq: ++seq,
+        }))
+      if (missing.length > 0) this.track(col.insert(missing), 'outbox')
+      this.storage.removeItem(storageKey)
+    } catch (err) {
+      console.warn(`[podium] replica outbox blob migration (${storageKey}) failed`, err)
+    }
   }
 
   uiState(): UiState {
     if (this.uiBacking) return this.uiBacking
-    const col = this.makeCollection<UiRow>('uistate', (r) => r.key)
+    const col = this.eagerUiCol ?? this.makeCollection<UiRow>('uistate', (r) => r.key)
     try {
-      // Start (and pin) the collection's synchronous storage sync.
+      // Start (and pin) the collection's storage sync (the eager SQLite-mode
+      // collection was already pinned at construction; a second no-op
+      // subscription is harmless).
       col.subscribeChanges(() => {})
+      // SQLite mode: fold the previous backend's ui-state COLLECTION blob in
+      // first (existing rows win — same never-clobber rule as legacy keys),
+      // so view prefs survive the backend swap. Then retire the key.
+      if (this.persistedInit) {
+        const uiBlobKey = `${this.prefix}.uistate.v1`
+        const parsed = parseLocalStorageCollectionBlob(this.storage.getItem(uiBlobKey))
+        for (const r of parsed ?? []) {
+          if (
+            typeof r === 'object' &&
+            r !== null &&
+            typeof (r as UiRow).key === 'string' &&
+            typeof (r as UiRow).value === 'string'
+          ) {
+            const row = r as UiRow
+            if (!col.has(row.key)) {
+              this.track(col.insert({ key: row.key, value: row.value }), 'ui')
+            }
+          }
+        }
+        this.storage.removeItem(uiBlobKey)
+      }
       // One-time migration: fold every known ad-hoc localStorage key into the
       // collection (existing rows win), then retire the old keys.
       const legacy = new Map<string, string>()
@@ -889,12 +1121,13 @@ class TanstackReplica implements Replica {
           // unreadable key — skip
         }
       }
-      if (inserts.length > 0) this.track(col.insert(inserts))
+      if (inserts.length > 0) this.track(col.insert(inserts), 'ui')
       for (const u of mapUpdates) {
         this.track(
           col.update(u.key, (draft: UiRow) => {
             draft.value = u.value
           }),
+          'ui',
         )
       }
       for (const key of [...legacy.keys(), ...foldedKeys]) {
@@ -918,15 +1151,16 @@ class TanstackReplica implements Replica {
       set: (key, value) => {
         try {
           if (value === null) {
-            if (col.has(key)) this.track(col.delete(key))
+            if (col.has(key)) this.track(col.delete(key), 'ui')
           } else if (col.has(key)) {
             this.track(
               col.update(key, (draft: UiRow) => {
                 draft.value = value
               }),
+              'ui',
             )
           } else {
-            this.track(col.insert({ key, value }))
+            this.track(col.insert({ key, value }), 'ui')
           }
         } catch (err) {
           console.warn('[podium] ui-state set failed', err)
@@ -1062,6 +1296,23 @@ class TanstackReplica implements Replica {
     storage: StorageApi = this.storage,
     storageEventApi: StorageEventApi = this.storageEventApi,
   ) {
+    if (this.persistedInit) {
+      // SQLite-persisted collection (POD-789). The persistence layer derives
+      // the SQLite TABLE NAME from the collection id, so the id must be
+      // STABLE across runs — no instance nonce here (tests isolate via
+      // keyPrefix and their own sqlite handle). sync-absent (local-only)
+      // mode: plain insert/update/delete persist through wrapped mutation
+      // handlers, and tx.isPersisted settles after the sqlite tx commits —
+      // which is exactly what the lastWrite fence consumes.
+      return createCollection(
+        persistedCollectionOptions<T, string>({
+          id: `${this.prefix}.${kind}`,
+          getKey,
+          persistence: this.persistedInit.persistence,
+          schemaVersion: REPLICA_SQLITE_SCHEMA_VERSION,
+        }),
+      )
+    }
     return createCollection(
       localStorageCollectionOptions<T, string>({
         // Collections are identified globally by id; the per-instance nonce lets
@@ -1111,19 +1362,110 @@ class TanstackReplica implements Replica {
     }
   }
 
-  /** Fold a write transaction into the persistence fence `setCursor` awaits. */
-  private track(tx: Transaction): void {
-    const settled = tx.isPersisted.promise.catch(() => {})
+  /** Fold a write transaction into the persistence fence `setCursor` awaits.
+   *
+   *  `family` matters on the SQLite backend, where persistence is async and a
+   *  write CAN reject (localStorage writes are sync; its failures surface via
+   *  the quota guard instead):
+   *  - 'entity': a rejected persist means durable state no longer matches
+   *    memory → degrade (void the cursor so the next boot full-resyncs). The
+   *    optimistic rows roll back in memory (the lib undoes a failed local
+   *    transaction), but live deltas keep re-applying — each new write
+   *    re-attempts persistence.
+   *  - 'outbox': a lost entry is a lost user write — log loudly (parity with
+   *    the localStorage backend's loud storage wrapper).
+   *  - 'ui'/'cursor': best-effort; a lost pref or cursor is benign. */
+  private track(tx: Transaction, family: 'entity' | 'outbox' | 'ui' | 'cursor' = 'entity'): void {
+    const settled = tx.isPersisted.promise.catch((err) => {
+      if (!this.persistedInit) return
+      if (family === 'entity') {
+        this.degradePersistedEntityWrites(err)
+      } else if (family === 'outbox') {
+        console.error(
+          '[podium] OUTBOX persistence failed (sqlite write error?) — queued offline writes ' +
+            'may be LOST on reload',
+          err,
+        )
+      }
+    })
     this.lastWrite = Promise.all([this.lastWrite, settled])
   }
 
+  /** SQLite counterpart of degradeEntityWrites: a rejected entity persist
+   *  means durable state stopped tracking memory, so the cursor must never
+   *  advance past it (spec invariant 3 / issue #181's honesty rule) — the
+   *  degrade flag makes setCursor refuse from here on. The DURABLE cursor row
+   *  stays: it was written under the fence, so it only covers writes that DID
+   *  persist — durable rows + that cursor are a consistent snapshot, and the
+   *  next boot's changesSince(cursor) refetches everything after it (including
+   *  this failed batch) as an idempotent re-apply. Unlike the localStorage
+   *  quota path there is nothing to clear: sqlite writes are per-row, not
+   *  whole-blob, so persisted state never partially-overwrites. */
+  private degradePersistedEntityWrites(err: unknown): void {
+    if (this.entityWritesDegraded) return
+    this.entityWritesDegraded = true
+    console.warn(
+      '[podium] replica sqlite entity write failed — freezing the persisted cursor so the ' +
+        'next load resyncs from it (live data keeps flowing; this batch rolled back in ' +
+        'memory and re-applies from the hub)',
+      err,
+    )
+  }
+
   private clearAll(): void {
+    if (this.persistedInit) {
+      // Poisoned SQLite replica (invariant 2): wipe the dedicated sqlite file
+      // via the platform hook (drop all tables). Until the next boot recreates
+      // the schema, further writes may fail — the entity degrade path keeps
+      // the cursor honest meanwhile.
+      void this.persistedInit.clearPersisted?.().catch((err) => {
+        console.warn('[podium] replica sqlite clear failed', err)
+      })
+      return
+    }
     try {
       for (const col of Object.values(this.cols)) col.utils.clearStorage()
       this.storage.removeItem(this.cursorKey)
     } catch {
       // clearing is best-effort; the in-memory state is already empty
     }
+  }
+
+  /** First-SQLite-run cleanup: the localStorage entity/transcript blobs and
+   *  raw cursor key are a dead cache once the backend swapped — remove them to
+   *  free quota. Outbox/uistate blobs are NOT touched here (they migrate, see
+   *  outboxStorage()/uiState()). Idempotent, best-effort. */
+  private retireLegacyEntityBlobs(): void {
+    for (const kind of ENTITY_STORE_KINDS) {
+      try {
+        this.storage.removeItem(`${this.prefix}.${kind}.v1`)
+      } catch {
+        // best-effort
+      }
+    }
+    try {
+      this.storage.removeItem(this.cursorKey)
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+/** Parse a TanStack localStorage-collection blob (`{ encodedKey: { versionKey,
+ *  data } }`) into its row values. `undefined` = the blob exists but is
+ *  corrupt (callers decide how loudly to react); `[]` = parseable but empty. */
+function parseLocalStorageCollectionBlob(raw: string | null): unknown[] | undefined {
+  if (raw === null) return []
+  try {
+    const obj: unknown = JSON.parse(raw)
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return undefined
+    const rows: unknown[] = []
+    for (const v of Object.values(obj)) {
+      if (v && typeof v === 'object' && 'data' in v) rows.push((v as { data: unknown }).data)
+    }
+    return rows
+  } catch {
+    return undefined
   }
 }
 
