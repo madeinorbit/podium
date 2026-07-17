@@ -8,7 +8,7 @@ import type {
   LiveServerMessage,
   SessionMeta,
 } from '@podium/protocol'
-import { sessionTitleRule } from '@podium/protocol'
+import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
@@ -310,7 +310,7 @@ export class SessionRegistry {
     const upstreamIssues = new UpstreamIssuesService({
       store: this.store.events,
       now: () => this.now(),
-      localIssueExists: (id) => !!issues?.get(id),
+      localIssueExists: (id) => issues?.has(id) ?? false,
       publish: () => publisher.publishIssues(publisher.safeIssuesList()),
       upstreamStale: () => sessionsSvc.isUpstreamStale(),
     })
@@ -388,8 +388,14 @@ export class SessionRegistry {
         return s ? (s.issueId ?? issues.issueForCwd(s.cwd)) : null
       },
       issueInfo: (issueId) => {
-        const w = issues.get(issueId)
-        return w ? { seq: w.seq, title: w.title, displayRef: w.displayRef } : null
+        const row = issues.getMeta(issueId)
+        if (!row) return null
+        const prefix = this.store.repos.prefixForPath(row.repoPath)
+        return {
+          seq: row.seq,
+          title: row.title,
+          displayRef: prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`,
+        }
       },
       machineName: (machineId) => machines.listMachines().find((m) => m.id === machineId)?.name,
       notifyIssue: (issueId, body) => void issues.sendMail(issueId, 'approval-broker', body),
@@ -501,11 +507,11 @@ export class SessionRegistry {
           : undefined
       },
       issue: (issueId) => {
-        const issue = issues?.get(issueId)
+        const issue = issues?.getMeta(issueId)
         return issue
           ? {
               id: issue.id,
-              repoId: issue.repoId,
+              ...(issue.repoId ? { repoId: issue.repoId } : {}),
               repoPath: issue.repoPath,
               worktreePath: issue.worktreePath,
             }
@@ -1109,7 +1115,7 @@ export class SessionRegistry {
             if (messagesSvc.settleNotifiable(sessionId).length === 0) return
             const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
             const issueId = meta ? (meta.issueId ?? issues.issueForCwd(meta.cwd)) : null
-            const issue = issueId ? issues.get(issueId) : null
+            const issue = issueId ? issues.getMeta(issueId) : null
             let lastCommit: string | undefined
             if (meta) {
               try {
@@ -1244,7 +1250,7 @@ export class SessionRegistry {
     if (actor.name?.trim()) return ''
     const issueId = actor.issueId ?? issues.issueForCwd(actor.cwd)
     if (!issueId) return ''
-    const seq = issues.get(issueId)?.seq
+    const seq = issues.getMeta(issueId)?.seq
     if (seq === undefined) return ''
     // Siblings = the other sessions on the SAME issue that have a usable label. A
     // session still showing a placeholder ('Claude Code', a spinner frame, an empty

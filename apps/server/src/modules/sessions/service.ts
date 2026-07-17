@@ -1773,7 +1773,7 @@ export class SessionsService {
     // source instead of refusing. Restricted to this repo, so the package's repo
     // identity always matches the tree it carries. Which candidate wins is the
     // exporter's call (it asks git); refuse up front only when neither exists.
-    const issue = session.issueId ? this.issues().get(session.issueId) : undefined
+    const issue = session.issueId ? this.issues().getMeta(session.issueId) : undefined
     const issueWorktree = issue?.worktreePath?.startsWith(`${sourceRepo.path}/`)
       ? issue.worktreePath
       : undefined
@@ -1975,7 +1975,7 @@ export class SessionsService {
     )
     if (!fetcherRepo) throw new Error('this machine does not have the source repository')
 
-    const issue = source.issueId ? this.issues().get(source.issueId) : undefined
+    const issue = source.issueId ? this.issues().getMeta(source.issueId) : undefined
     const branch = issue?.branch ?? basename(source.cwd)
     const candidates = [
       ...new Set(
@@ -2695,7 +2695,7 @@ export class SessionsService {
    *  dedup away. Both answer the same question — is the session working in a worktree
    *  its issue doesn't know about? */
   private adoptWorktree(issueId: string, msg: Extract<DaemonMessage, { type: 'sessionCwd' }>): void {
-    const issue = this.issues().get(issueId)
+    const issue = this.issues().getMeta(issueId)
     if (!issue || issue.archived || issue.worktreePath !== null) return
     // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a
     // path is a real worktree and not main, because it comes from git. An older daemon

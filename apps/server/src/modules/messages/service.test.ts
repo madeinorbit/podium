@@ -53,6 +53,7 @@ function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[], archivedIds
       const base = byId.get(id)
       return base ? { ...base, archived: archivedIds?.has(id) ?? false } : undefined
     },
+    has: (id: string) => byId.has(id),
     ancestorIds: () => [],
   } as unknown as IssueService
 }
@@ -1254,6 +1255,21 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     listCalls.n = 0
     svc.sweep()
     expect(listCalls.n).toBe(1)
+  })
+
+  it('does not add a full issue lookup for the send existence gate', () => {
+    const sessions = [session({ sessionId: 's1', cwd: ISSUE.worktreePath })]
+    const { svc, issueGetLists, listCalls } = harness(sessions)
+    issueGetLists.length = 0
+    listCalls.n = 0
+
+    svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'x', lifecycle: 'wait' },
+    )
+
+    expect(listCalls.n).toBe(1)
+    expect(issueGetLists).toEqual([sessions])
   })
 
   // POD-817 round 2: IssueService.get(id) DEFAULTS its sessionList to a fresh

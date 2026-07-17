@@ -516,7 +516,7 @@ export class MessageDeliveryService {
     // unresolved ref must surface as an undeliverable message, never as a raw
     // SQLite FOREIGN KEY error out of the mirror insert.
     let legacy: IssueMessageRow | undefined
-    if (message.toKind === 'issue' && toId && issues.get(toId)) {
+    if (message.toKind === 'issue' && toId && issues.has(toId)) {
       legacy = {
         id,
         issueId: toId,
@@ -580,7 +580,8 @@ export class MessageDeliveryService {
         return this.deadLetter(message, 'session no longer exists', { notifySender })
       }
     } else {
-      // Share the sweep's session listing with the issue-wire build too
+      // Full wire is intentional: recipient selection consumes issue-derived
+      // membership. Share the sweep's session listing with the wire build too
       // [POD-817]: get() otherwise defaults to a fresh listSessions() inside
       // toWire — the second per-row O(sessions) cost hiding behind the first.
       const issue = this.deps.issues().get(message.toId ?? '', all)
@@ -1008,7 +1009,7 @@ export class MessageDeliveryService {
     const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
     try {
       const id = issues.resolveRef(bare)
-      return issues.get(id) ? id : null
+      return issues.has(id) ? id : null
     } catch {
       return null
     }

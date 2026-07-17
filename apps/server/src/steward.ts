@@ -518,6 +518,7 @@ export class StewardService {
     // with counts re-read AFTER the comments so a multi-child batch reports the
     // latest numbers. Same target filter as unblock: no resurrect, no shells.
     if (!posted || lastChildSeq == null) return
+    // Full wire is intentional: the nudge reports derived child completion counts.
     const fresh = this.deps.issues.get(parentId)
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))

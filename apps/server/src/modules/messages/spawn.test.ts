@@ -29,6 +29,7 @@ function fakeIssues(over?: Partial<typeof ISSUE>) {
     },
     get: (id: string) => (id === issue.id ? issue : undefined),
     getMeta: (id: string) => (id === issue.id ? issue : undefined),
+    has: (id: string) => id === issue.id,
     ancestorIds: () => [],
   } as unknown as IssueService
 }

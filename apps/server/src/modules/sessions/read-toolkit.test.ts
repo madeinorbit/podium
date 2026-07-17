@@ -43,6 +43,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
           if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
           throw new Error(`unknown ref ${ref}`)
         },
+        getMeta: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
         get: (id: string) => (id === ISSUE.id ? ISSUE : undefined),
         issueForCwd: () => null,
       }) as unknown as IssueService,

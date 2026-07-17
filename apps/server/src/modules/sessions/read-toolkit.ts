@@ -108,7 +108,7 @@ export class SessionReadToolkit {
     } catch {
       return undefined
     }
-    const issue = this.deps.issues().get(issueId)
+    const issue = this.deps.issues().getMeta(issueId)
     if (!issue) return undefined
     const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
     const live = selectMailNudgeSession(members)
@@ -125,6 +125,7 @@ export class SessionReadToolkit {
     this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues()
     const issueId = target.issueId ?? issues.issueForCwd(target.cwd)
+    // Full wire is intentional: status surfaces the derived panel todo projection.
     const issue = issueId ? issues.get(issueId) : null
     const [log, status] = await Promise.all([
       this.deps.repoOp('log', target.cwd, target.machineId).catch(() => ({

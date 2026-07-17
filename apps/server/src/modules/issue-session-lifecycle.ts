@@ -26,6 +26,8 @@ export class IssueSessionLifecycle {
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
   deleteIssue(id: string): DeleteIssueResult {
+    // Full wire is intentional: no-op deletes return the public IssueWire, and
+    // projected membership is the cascade boundary this lifecycle owns.
     const current = this.deps.issues.get(id)
     if (!current) throw new Error(`unknown issue ${id}`)
     if (current.deletedAt) return { issue: current, deletedSessionIds: [] }
@@ -59,6 +61,7 @@ export class IssueSessionLifecycle {
    *  metadata returns as exited because the deletion deliberately killed the PTY;
    *  resumable sessions can then be started through the normal resurrection path. */
   restoreIssue(id: string): RestoreIssueResult {
+    // Full wire is intentional for the symmetric public/no-op return contract.
     const current = this.deps.issues.get(id)
     if (!current) throw new Error(`unknown issue ${id}`)
     if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
