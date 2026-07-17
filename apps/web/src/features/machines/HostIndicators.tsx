@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { CloudUpload, MemoryStick } from 'lucide-react'
+import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { QuotaIndicator } from './QuotaIndicator'
+import { machineNeedsUpdate, useServerAppVersion } from './version-skew'
 
 // Memory pressure → colors, reproducing the legacy `.mem-*` contract: the bar
 // fill is always tinted by severity; the icon stays neutral while `ok` and only
@@ -169,7 +170,13 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
  * chips. Multiple hosts remain individually inspectable.
  */
 export function HeaderHostIndicators(): JSX.Element {
-  const hostMetrics = useStoreSelector((s) => s.hostMetrics)
+  const { hostMetrics, machines, trpc } = useStoreSelector(
+    (s) => ({ hostMetrics: s.hostMetrics, machines: s.machines, trpc: s.trpc }),
+    shallowEqual,
+  )
+  // POD-838: a daemon whose build trails the server silently loses additive protocol
+  // features, so skew earns a spot in the 44px header, not just Settings → Machines.
+  const serverAppVersion = useServerAppVersion(trpc)
   const { health } = useStableConnection()
   const hibernation = useHibernationSetting()
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: string } | null>(null)
@@ -210,6 +217,8 @@ export function HeaderHostIndicators(): JSX.Element {
       {hostMetrics.map((host) => {
         const memory = hostMemoryView(host)
         const tone = SEVERITY[memory.severity]
+        const machine = machines.find((m) => m.id === host.machineId)
+        const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
         const hibernationNote = hibernation?.enabled
           ? memory.pct >= hibernation.memoryPct
             ? 'Hibernating stale agents to free memory'
@@ -242,6 +251,13 @@ export function HeaderHostIndicators(): JSX.Element {
                     aria-hidden="true"
                   />
                   <span className="max-w-[12ch] truncate">{host.hostname}</span>
+                  {needsUpdate && (
+                    <CircleArrowUp
+                      size={12}
+                      className="flex-none text-warning"
+                      aria-label="Update available"
+                    />
+                  )}
                   <span className="header-meter" role="presentation">
                     <span
                       className={cn('block h-full', tone.fill)}
@@ -255,6 +271,12 @@ export function HeaderHostIndicators(): JSX.Element {
               <strong>
                 {memory.label} ({memory.pct}%)
               </strong>
+              {needsUpdate && (
+                <span className="text-warning">
+                  Update available: {machine?.inventory?.podiumVersion} → {serverAppVersion} — run
+                  podium update on this machine
+                </span>
+              )}
               {hibernationNote && <span className="text-background/70">{hibernationNote}</span>}
               <span className="text-background/70">Click for the breakdown</span>
             </TooltipContent>

@@ -14,6 +14,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { machineNeedsUpdate, useServerAppVersion } from '@/features/machines/version-skew'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { NetworkStep } from '@/features/setup/SetupView'
 import { relativeTime } from '@/lib/home'
@@ -49,22 +50,7 @@ export function MachinesPanel(): JSX.Element {
 
   // The server's own build version — the reference each daemon's reported version is
   // compared against for the "update available" badge [POD-838].
-  const [serverAppVersion, setServerAppVersion] = useState<string | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      try {
-        const info = await trpc.setup.info.query()
-        if (!cancelled && typeof info.appVersion === 'string') setServerAppVersion(info.appVersion)
-      } catch {
-        // Version is decorative here — a failed probe just means no badge.
-      }
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
+  const serverAppVersion = useServerAppVersion(trpc)
 
   // Tick so relative times stay fresh.
   useEffect(() => {
@@ -412,16 +398,9 @@ function MachineRow({
     }
   }
 
-  // POD-838: an older daemon silently loses additive protocol features (frames it doesn't
-  // know are dropped), so surface skew here. 'dev' builds carry no comparable release
-  // number — never badge against or for one.
+  // POD-838: surface protocol skew — see machineNeedsUpdate for the rules.
   const daemonVersion = machine.inventory?.podiumVersion
-  const needsUpdate =
-    daemonVersion != null &&
-    serverAppVersion != null &&
-    daemonVersion !== 'dev' &&
-    serverAppVersion !== 'dev' &&
-    daemonVersion !== serverAppVersion
+  const needsUpdate = machineNeedsUpdate(machine, serverAppVersion)
 
   const revoke = async () => {
     setRevoking(true)

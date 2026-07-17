@@ -9,7 +9,7 @@
 import type { MachineQuotaWire } from '@podium/protocol'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HostIndicators } from './HostIndicators'
+import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
 
 const memoryBreakdown = vi.fn()
@@ -19,6 +19,7 @@ const settingsGet = vi.fn(async () => ({
 }))
 const setView = vi.fn()
 const setSettingsTab = vi.fn()
+const setupInfo = vi.fn(async () => ({ publicUrl: null, appVersion: '0.5.0' }))
 
 const host = (hostname: string, machineId: string) => ({
   hostname,
@@ -43,12 +44,32 @@ vi.mock('@/app/store', () => {
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
     outboxSize: 0,
     sessions: [],
+    // POD-838: vmi trails the server build; podium-host matches it.
+    machines: [
+      {
+        id: 'podium-host',
+        name: 'podium-host',
+        hostname: 'podium-host',
+        online: true,
+        lastSeenAt: 0,
+        inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.5.0', agents: [], tools: [] },
+      },
+      {
+        id: 'vmi34',
+        name: 'vmi',
+        hostname: 'vmi',
+        online: true,
+        lastSeenAt: 0,
+        inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.4.1', agents: [], tools: [] },
+      },
+    ],
     setView,
     setSettingsTab,
     trpc: {
       quota: { summary: { query: quotaSummary } },
       hosts: { memoryBreakdown: { mutate: memoryBreakdown } },
       settings: { get: { query: settingsGet } },
+      setup: { info: { query: setupInfo } },
     },
   })
   // The selector-store hook reads slices off the same store shape.
@@ -156,5 +177,19 @@ describe('quota overlay groups by account', () => {
 
     await waitFor(() => expect(screen.getByText('Fable')).toBeTruthy())
     expect(screen.getByText(/83%/)).toBeTruthy()
+  })
+})
+
+// POD-838: the header machine chips flag a daemon whose build trails the server —
+// skew must be visible without opening Settings → Machines.
+describe('header chips flag version skew', () => {
+  it('marks only the machine behind the server build', async () => {
+    render(<HeaderHostIndicators />)
+    // The vmi chip (daemon 0.4.1 vs server 0.5.0) grows the update marker...
+    await waitFor(() => expect(screen.getByLabelText('Update available')).toBeTruthy())
+    // ...and exactly one chip carries it — podium-host matches the server.
+    expect(screen.getAllByLabelText('Update available')).toHaveLength(1)
+    const vmiChip = screen.getByRole('button', { name: /^vmi:/i })
+    expect(vmiChip.querySelector('[aria-label="Update available"]')).toBeTruthy()
   })
 })
