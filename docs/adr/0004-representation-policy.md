@@ -201,8 +201,9 @@ and start punishing hand-restated field lists.
 
 **Decision:** `HandoffManifest` (`packages/protocol/src/messages/handoff.ts`) is an
 R6 projection **composed** from shared session (and related) field schemas in model.
-The seven handoff request/result message types remain **protocol frames** (plane
-classification is ADR 7). Bundle minting, source→target direction, and
+The eight handoff request/result message types remain **protocol frames** (plane
+classification is ADR 7; count verified: 4 request/result pairs in
+`packages/protocol/src/messages/handoff.ts`). Bundle minting, source→target direction, and
 `exportedAt` / `sourceMachineId` provenance are **ownership-matrix rows** (ADR 1 /
 POD-304 / POD-643), not comments-only on the zod object.
 
@@ -273,7 +274,7 @@ version is distinct from the drizzle journal (ADR 2). Client replica stores
 | POD-302 DRIFT | HandoffManifest ~9th projection; needs-human attribution | **D4**; needs-human field group in **D3**. |
 | POD-364 DRIFT 1 | Counts understated; color, needsHuman*, workingMsTotal, agentColor | Inventory §1.2; fields verified on tip: `IssueWire.color`, `needsHuman`/`humanQuestion*`/`humanQuestionAskedBy`/`humanQuestionAskedAt`; `AgentRuntimeState.workingMsTotal`; `SessionMeta.agentColor`. |
 | POD-364 DRIFT 2 | DaemonAck.ackRequested?, AutomationWire schedule fields, FeatureState, automation approval spawn tuple | **D5** general policy; inventory places them in POD-364. `ackRequested` verified optional on daemon resume-ref message (`packages/protocol/src/messages/daemon.ts`). |
-| POD-300 DRIFT | HandoffManifest entity → model; 7 frames stay protocol | **D4** + R4/R6 split. |
+| POD-300 DRIFT | HandoffManifest entity → model; 8 frames stay protocol | **D4** + R4/R6 split. |
 | POD-304 DRIFT | needs-human attribution placement; handoff/bundle ownership row | Attribution = entity field group (**D3**); bundle row = ADR 1 (**D4**). |
 | POD-299 DRIFT | issue-color + handoff target selection in domain absorb | Domain predicates move into model (POD-299); field schemas still authoritative for colours/slots. |
 
