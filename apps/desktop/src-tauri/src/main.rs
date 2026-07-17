@@ -103,15 +103,33 @@ const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
 
-fn native_desktop_hook() -> String {
+fn native_desktop_hook(launch_mode: &str) -> String {
+    // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
+    // this device is not already running a daemon. The command itself re-checks the mode.
+    let enable_hosting = if launch_mode == "client" {
+        ",\n            enableHosting: (pairCode) => window.__TAURI_INTERNALS__.invoke('enable_hosting', { pairCode })"
+    } else {
+        ""
+    };
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
+            launchMode: "{launch_mode}",
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
-            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }})
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){enable_hosting}
         }});"#
     )
+}
+
+/// [spec:SP-3701] In-app "host sessions on this device": rewrite the local config from client
+/// to daemon mode with a hub-minted pairing code. The web UI then triggers a shell restart
+/// (__PODIUM_RESTART__) so `resolve_launch` picks up daemon mode and spawns the sidecar,
+/// which pairs over its WebSocket handshake. All validation lives in
+/// `bootstrap::write_hosting_config` — notably serverUrl is never accepted from the caller.
+#[tauri::command]
+fn enable_hosting(pair_code: String) -> Result<(), String> {
+    bootstrap::write_hosting_config(&pair_code)
 }
 
 /// URLPattern for the origin the remote-mode window actually LOADS. The window is
@@ -143,6 +161,7 @@ fn main() {
         // browser. The webview itself silently drops window.open/_blank navigations, so
         // an injected shim routes them here (see bootstrap::opener_shim_script).
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![enable_hosting])
         .setup(|app| {
             // TEST AID: record the running app version so the e2e can deterministically
             // distinguish 0.1.0 from 0.1.1 across a self-replace+restart. Only writes when
@@ -164,6 +183,14 @@ fn main() {
             let cfg = bootstrap::read_config();
             let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
             eprintln!("[podium-desktop] launch action: {action:?}");
+            // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the
+            // hosting toggle [spec:SP-3701].
+            let launch_mode_tag = match &action {
+                bootstrap::LaunchAction::LocalAllInOne => "all-in-one",
+                bootstrap::LaunchAction::LocalServerOnly => "server",
+                bootstrap::LaunchAction::LocalDaemon { .. } => "daemon",
+                bootstrap::LaunchAction::ClientOnly { .. } => "client",
+            };
 
             // FIX 2: shared shutting-down flag — set true in exit handlers so the supervision
             // monitor thread does not attempt to respawn the child during a deliberate quit.
@@ -320,11 +347,19 @@ fn main() {
             let mut opener_capability = tauri::ipc::CapabilityBuilder::new("external-link-opener")
                 .window("main")
                 .permission("opener:default");
+            // [spec:SP-3701] The enable_hosting command is granted ONLY to a client-mode window
+            // (the sole state where the toggle exists), scoped to the configured hub origin.
+            let mut hosting_capability = (launch_mode_tag == "client").then(|| {
+                tauri::ipc::CapabilityBuilder::new("enable-hosting")
+                    .window("main")
+                    .permission("allow-enable-hosting")
+            });
             if let Some(server_url) = remote_window_server_url {
                 match remote_capability_pattern(&server_url) {
                     Ok(pattern) => {
                         window_capability = window_capability.remote(pattern.clone());
-                        opener_capability = opener_capability.remote(pattern);
+                        opener_capability = opener_capability.remote(pattern.clone());
+                        hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
                     Err(error) => eprintln!(
                         "[podium-desktop] no remote window capability for invalid URL {server_url:?}: {error}"
@@ -333,6 +368,9 @@ fn main() {
             }
             app.add_capability(window_capability)?;
             app.add_capability(opener_capability)?;
+            if let Some(capability) = hosting_capability {
+                app.add_capability(capability)?;
+            }
 
             // Build the tray icon with Open / Quit menu items.
             let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
@@ -359,7 +397,7 @@ fn main() {
             // raw plugin invoke avoids adding a Tauri JS dependency to apps/web.
             let restart_hook = "window.__PODIUM_RESTART__ = () => \
                 window.__TAURI_INTERNALS__.invoke('plugin:process|restart');";
-            let native_desktop_hook = native_desktop_hook();
+            let native_desktop_hook = native_desktop_hook(launch_mode_tag);
             // External-link shim (ALL modes): route window.open/_blank to the OS browser.
             let init = format!(
                 "{window_injection}\n{restart_hook}\n{native_desktop_hook}\n{}",
@@ -461,12 +499,27 @@ mod tests {
 
     #[test]
     fn native_hook_exposes_only_window_actions() {
-        let hook = native_desktop_hook();
+        let hook = native_desktop_hook("all-in-one");
         assert!(hook.contains(&format!("platform: \"{DESKTOP_PLATFORM}\"")));
+        assert!(hook.contains("launchMode: \"all-in-one\""));
         assert!(hook.contains("plugin:window|minimize"));
         assert!(hook.contains("plugin:window|toggle_maximize"));
         assert!(hook.contains("plugin:window|close"));
         assert!(!hook.contains("plugin:process|restart"));
+        // Hosting is inherent outside client mode — no toggle exposed.
+        assert!(!hook.contains("enableHosting"));
+    }
+
+    #[test]
+    fn native_hook_exposes_hosting_toggle_only_in_client_mode() {
+        // [spec:SP-3701]
+        let client = native_desktop_hook("client");
+        assert!(client.contains("launchMode: \"client\""));
+        assert!(client.contains("enableHosting: (pairCode) =>"));
+        assert!(client.contains("invoke('enable_hosting', { pairCode })"));
+        for mode in ["daemon", "server", "all-in-one"] {
+            assert!(!native_desktop_hook(mode).contains("enableHosting"));
+        }
     }
 
     #[test]

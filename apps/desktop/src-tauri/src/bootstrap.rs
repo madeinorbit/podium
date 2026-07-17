@@ -90,6 +90,59 @@ pub fn read_config() -> DesktopConfig {
     }
 }
 
+/// Config-file base dir: `$PODIUM_STATE_DIR` else `~/.podium` (same resolution as `read_config`).
+fn state_dir() -> PathBuf {
+    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        format!("{home}/.podium")
+    });
+    PathBuf::from(base)
+}
+
+/// [spec:SP-3701] Flip a client-mode config to daemon mode with the given pairing code — the
+/// whole write surface of the in-app "host sessions on this device" toggle. Deliberately
+/// NARROW: the webview content that can invoke this is served by the remote hub, so the only
+/// transition allowed is client → daemon against the serverUrl the user already configured
+/// (never a parameter), and every other config field is preserved verbatim.
+pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
+    if pair_code.is_empty() || pair_code.len() > 32 || !pair_code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("invalid pairing code".to_string());
+    }
+    let path = state_dir().join("config.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+    let mode = obj.get("mode").and_then(|v| v.as_str());
+    if mode != Some("client") {
+        return Err(format!(
+            "hosting can only be enabled from client mode (current mode: {})",
+            mode.unwrap_or("unset")
+        ));
+    }
+    let has_server_url = obj
+        .get("serverUrl")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
+    if !has_server_url {
+        return Err("config has no serverUrl to pair against".to_string());
+    }
+    obj.insert("mode".to_string(), serde_json::Value::String("daemon".to_string()));
+    obj.insert(
+        "pairCode".to_string(),
+        serde_json::Value::String(pair_code.to_string()),
+    );
+    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    // Write-then-rename so a crash mid-write can't leave a truncated config.
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, format!("{out}\n"))
+        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+}
+
 /// PURE resolver: map (mode, serverUrl) → the launch action.
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
@@ -455,6 +508,83 @@ mod tests {
             None => std::env::remove_var("PODIUM_STATE_DIR"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Run `body` with PODIUM_STATE_DIR pointed at a fresh temp dir holding `config` (if any).
+    fn with_state_dir(tag: &str, config: Option<&str>, body: impl FnOnce()) {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("podium-cfg-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        if let Some(c) = config {
+            std::fs::write(tmp.join("config.json"), c).unwrap();
+        }
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+        body();
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn write_hosting_config_flips_client_to_daemon_preserving_fields() {
+        with_state_dir(
+            "host-ok",
+            Some(r#"{"mode":"client","serverUrl":"wss://h:5","updateChannel":"edge","extra":42}"#),
+            || {
+                write_hosting_config("ABCD-EFGH").expect("write failed");
+                let cfg = read_config();
+                assert_eq!(cfg.mode.as_deref(), Some("daemon"));
+                assert_eq!(cfg.server_url.as_deref(), Some("wss://h:5"));
+                // Untouched fields survive verbatim.
+                let raw: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(raw["pairCode"], "ABCD-EFGH");
+                assert_eq!(raw["updateChannel"], "edge");
+                assert_eq!(raw["extra"], 42);
+            },
+        );
+    }
+
+    #[test]
+    fn write_hosting_config_refuses_non_client_modes() {
+        // The remote page must not be able to mutate a daemon/server/all-in-one install.
+        for cfg in [
+            r#"{"mode":"daemon","serverUrl":"wss://h:5"}"#,
+            r#"{"mode":"server"}"#,
+            r#"{"serverUrl":"wss://h:5"}"#,
+        ] {
+            with_state_dir("host-mode", Some(cfg), || {
+                assert!(write_hosting_config("ABCD-EFGH").is_err());
+                // And the config is untouched.
+                let after = std::fs::read_to_string(state_dir().join("config.json")).unwrap();
+                assert_eq!(after, cfg);
+            });
+        }
+    }
+
+    #[test]
+    fn write_hosting_config_refuses_missing_server_url_and_bad_codes() {
+        with_state_dir("host-nourl", Some(r#"{"mode":"client"}"#), || {
+            assert!(write_hosting_config("ABCD-EFGH").is_err());
+        });
+        with_state_dir(
+            "host-badcode",
+            Some(r#"{"mode":"client","serverUrl":"wss://h:5"}"#),
+            || {
+                assert!(write_hosting_config("").is_err());
+                assert!(write_hosting_config(&"X".repeat(33)).is_err());
+                assert!(write_hosting_config("bad code!{}").is_err());
+            },
+        );
+        with_state_dir("host-nofile", None, || {
+            assert!(write_hosting_config("ABCD-EFGH").is_err());
+        });
     }
 
     #[test]

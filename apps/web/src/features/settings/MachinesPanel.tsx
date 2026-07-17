@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { NetworkStep } from '@/features/setup/SetupView'
 import { relativeTime } from '@/lib/home'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 
 /**
@@ -138,6 +139,8 @@ export function MachinesPanel(): JSX.Element {
         </Dialog>
       </div>
 
+      <HostThisDeviceCard trpc={trpc} />
+
       {machines.length === 0 ? (
         <p className="py-2 text-[12px] text-muted-foreground">
           No machines paired yet. Click "Add machine" to get started.
@@ -149,6 +152,60 @@ export function MachinesPanel(): JSX.Element {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * [spec:SP-3701] One-click "host sessions on this device" for the desktop app.
+ * Rendered only inside the Tauri shell in client mode (the shell exposes `enableHosting`
+ * on the bridge exactly then). Clicking mints a pairing code on this hub and hands it to
+ * the shell, which flips the local config to daemon mode; the app then restarts, spawns
+ * its bundled daemon, and this device pairs and appears in the machines list above.
+ */
+export function HostThisDeviceCard({ trpc }: { trpc: Store['trpc'] }): JSX.Element | null {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const bridge = nativeDesktopBridge()
+  if (bridge?.launchMode !== 'client' || !bridge.enableHosting) return null
+  const enableHosting = bridge.enableHosting
+
+  const enable = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const { code } = await trpc.machines.pairingCode.mutate()
+      await enableHosting(code)
+      // Relaunch so the shell re-reads the config and spawns the daemon. Keep `busy` set —
+      // the app is about to go away; re-enabling the button would invite a double-enroll.
+      const restart = (window as unknown as { __PODIUM_RESTART__?: () => void })
+        .__PODIUM_RESTART__
+      if (restart) restart()
+      else setError('Hosting enabled — restart the app to finish.')
+    } catch (e) {
+      setBusy(false)
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <div className="mb-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] text-foreground">This device</div>
+        <p className="mt-0.5 text-[12px] text-muted-foreground">
+          {error ?? 'Run sessions on this computer too. The app will restart to pair it.'}
+        </p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="flex-none"
+        disabled={busy}
+        onClick={() => void enable()}
+      >
+        {busy ? 'Enabling…' : 'Host sessions on this device'}
+      </Button>
     </div>
   )
 }

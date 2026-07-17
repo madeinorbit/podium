@@ -1,10 +1,19 @@
 export type NativeDesktopPlatform = 'macos' | 'windows' | 'linux'
 
+/** The shell's resolved launch mode (bootstrap.rs LaunchAction). Older shells omit it. */
+export type NativeDesktopLaunchMode = 'all-in-one' | 'server' | 'daemon' | 'client'
+
 export interface NativeDesktopBridge {
   platform: NativeDesktopPlatform
+  launchMode?: NativeDesktopLaunchMode
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
   close: () => Promise<void>
+  /**
+   * [spec:SP-3701] Present only in client mode: rewrite the local config to daemon mode with a
+   * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
+   */
+  enableHosting?: (pairCode: string) => Promise<void>
 }
 
 export function nativeDesktopBridge(): NativeDesktopBridge | undefined {
