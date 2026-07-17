@@ -119,6 +119,32 @@ async function hasGitDir(dir: string): Promise<boolean> {
   }
 }
 
+/** At most this many `.git` stats in flight while badging a listing (POD-867).
+ *  libuv's fs threadpool is 4, so a handful of workers already saturates it; the
+ *  point of the cap is to not hold tens of thousands of pending promises at once
+ *  when browsing a directory-heavy path (/nix/store, a giant node_modules). */
+const GIT_STAT_CONCURRENCY = 32
+
+/** Map `items` through `fn` with at most `limit` calls in flight, results in input
+ *  order. A fixed pool of workers pulls from a shared cursor — no batch barriers,
+ *  and never more than `limit` pending promises regardless of input size. */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 /**
  * One directory's sub-directories on THIS machine's disk (POD-814) [spec:SP-3701].
  * Ported from the server's browseDirectories(): the picker used to browse the hub
@@ -166,10 +192,12 @@ export async function listDirectories(
   // you step into has to still read as a repo). Only the origin — used purely to
   // NAME the add target — comes from a real depth-0 scan, best-effort.
   const [entries, currentIsRepo, selfRepo] = await Promise.all([
-    Promise.all(
-      dirs.map(
-        async (d): Promise<DirectoryEntryWire> => ({ ...d, isRepo: await hasGitDir(d.path) }),
-      ),
+    // Bounded fan-out (POD-867): a directory with tens of thousands of subfolders
+    // must not spawn that many concurrent stats — cap the in-flight count.
+    mapLimit(
+      dirs,
+      GIT_STAT_CONCURRENCY,
+      async (d): Promise<DirectoryEntryWire> => ({ ...d, isRepo: await hasGitDir(d.path) }),
     ),
     hasGitDir(current),
     scanGitRepositoriesAtPath(current, { maxDepth: 0, homeDir: browseHomeDir(options.homeDir) })
