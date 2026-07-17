@@ -137,10 +137,11 @@ describe('RepoScanFlow machine selection', () => {
     fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Scan for repos' }))
 
-    // The registered row arrives checked; unchecking it queues its removal, and the
-    // fresh candidate is queued as an add.
+    // The registered row arrives checked; unchecking it queues its removal. The
+    // fresh candidate starts UNchecked (nothing is preselected) — check it to add.
     await screen.findByText('known')
-    fireEvent.click(screen.getByText('known'))
+    fireEvent.click(screen.getByText('known')) // registered → remove
+    fireEvent.click(screen.getByText('fresh')) // candidate → add
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 · Remove 1' }))
 
     await waitFor(() =>

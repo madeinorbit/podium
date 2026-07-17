@@ -97,7 +97,9 @@ function harness(opts?: {
         spawns.push(i)
         return { sessionId: 'child1' }
       }),
-    ...(opts?.resolveExecutionProfile ? { resolveExecutionProfile: opts.resolveExecutionProfile } : {}),
+    ...(opts?.resolveExecutionProfile
+      ? { resolveExecutionProfile: opts.resolveExecutionProfile }
+      : {}),
     // The deliberate --new path registers in the same fake registry so the
     // follow-up issues.get() resolves it (mirrors the real IssueService).
     createIssue: (i) => (issues as unknown as { create(x: unknown): { id: string } }).create(i),
@@ -563,6 +565,35 @@ describe('message ledger (gate)', () => {
     const { gate } = harness()
     await expect(gate.dispatch(PARENT, undefined, 'ledger', { issueId: ISSUE.id })).rejects.toThrow(
       /operator surface/,
+    )
+  })
+})
+
+describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', () => {
+  it('the SENDER (an agent) can pull the lifecycle of a message it sent', async () => {
+    // Unlike the operator-only ledger, an agent may query its OWN send — this is
+    // how a sender learns delivered/read/dead_letter after a sync send at queued.
+    const { gate, svc } = harness()
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sParent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'status me' },
+    )
+    const wire = (await gate.dispatch(PARENT, undefined, 'status', {
+      id: r.message.id,
+    })) as Record<string, unknown>
+    expect(wire).toMatchObject({ id: r.message.id, status: 'queued' })
+    // The lifecycle timestamps are on the wire (all null until they transition).
+    expect(wire).toHaveProperty('deliveredAt')
+    expect(wire).toHaveProperty('readAt')
+    expect(wire).toHaveProperty('deadLetteredAt')
+  })
+
+  it('refuses a message the caller neither sent nor received', async () => {
+    const { gate, svc } = harness()
+    // A message between two OTHER principals (operator → a foreign issue box).
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
+    await expect(gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
+      /neither sent nor received/,
     )
   })
 })

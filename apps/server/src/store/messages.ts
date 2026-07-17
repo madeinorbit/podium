@@ -35,6 +35,9 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     status: r.status as MessageStatus,
     deliveredAt: (r.delivered_at as string | null) ?? null,
     deliveredTo: (r.delivered_to as string | null) ?? null,
+    readAt: (r.read_at as string | null) ?? null,
+    injectedAt: (r.injected_at as string | null) ?? null,
+    deadLetteredAt: (r.dead_lettered_at as string | null) ?? null,
     ackedBy: (r.acked_by as string | null) ?? null,
     hop: (r.hop as number | null) ?? 0,
     clampedFrom: (r.clamped_from as string | null) ?? null,
@@ -152,8 +155,25 @@ export class MessagesRepository {
     return r.n
   }
 
-  /** queued → delivered, recording when and which session received it. Guarded
-   *  on status so a duplicate delivery attempt is a no-op (returns false). */
+  /** Record a PUSH toward a live PTY without claiming the agent saw it [POD-834]:
+   *  stamps injected_at + delivered_to but keeps status='queued'. This replaces
+   *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a
+   *  transcript echo. A queued row that was injected but never echoed within the
+   *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
+  markInjected(id: string, deliveredTo: string | null, injectedAt: string): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages SET injected_at = ?, delivered_to = ?
+         WHERE id = ? AND status = 'queued'`,
+      )
+      .run(injectedAt, deliveredTo, id)
+    return r.changes === 1
+  }
+
+  /** queued → delivered: the PUSH is CONFIRMED — the message's envelope appeared
+   *  as a turn in the target's transcript (transcript echo, [POD-834]). Only now
+   *  does the ledger claim the agent has it in context. Guarded on status so a
+   *  duplicate/late echo is a no-op (returns false). */
   markDelivered(id: string, deliveredTo: string | null, deliveredAt: string): boolean {
     const r = this.db
       .prepare(
@@ -161,6 +181,43 @@ export class MessagesRepository {
          WHERE id = ? AND status = 'queued'`,
       )
       .run(deliveredAt, deliveredTo, id)
+    return r.changes === 1
+  }
+
+  /** queued|delivered → read: the recipient opened its inbox and consumed it (the
+   *  PULL path, [POD-834]). Distinct from delivered (push): `read` proves the
+   *  agent pulled it. A delivered row can still be marked read if later pulled. */
+  markRead(id: string, deliveredTo: string | null, readAt: string): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages SET status = 'read', read_at = ?, delivered_to = COALESCE(delivered_to, ?)
+         WHERE id = ? AND status IN ('queued','delivered')`,
+      )
+      .run(readAt, deliveredTo, id)
+    return r.changes === 1
+  }
+
+  /** queued → dead_letter: the target was gone before the message could land
+   *  (issue closed/archived, session deleted with nowhere to re-route) [POD-834].
+   *  Terminal; the sender is told once. Guarded on status='queued'. */
+  markDeadLetter(id: string, at: string): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?
+         WHERE id = ? AND status = 'queued'`,
+      )
+      .run(at, id)
+    return r.changes === 1
+  }
+
+  /** Auto-requeue seam [POD-834]: a queued row was injected but no echo confirmed
+   *  it within the window — the push was lost. Clear injected_at so the next
+   *  delivery attempt re-pushes. Guarded on status='queued' so a row that raced to
+   *  delivered/read in the meantime is left alone. */
+  clearInjected(id: string): boolean {
+    const r = this.db
+      .prepare(`UPDATE messages SET injected_at = NULL WHERE id = ? AND status = 'queued'`)
+      .run(id)
     return r.changes === 1
   }
 
@@ -203,9 +260,7 @@ export class MessagesRepository {
       .prepare(`SELECT * FROM messages WHERE ${where}`)
       .all(now, cutoff) as Record<string, unknown>[]
     if (rows.length === 0) return []
-    this.db
-      .prepare(`UPDATE messages SET status = 'expired' WHERE ${where}`)
-      .run(now, cutoff)
+    this.db.prepare(`UPDATE messages SET status = 'expired' WHERE ${where}`).run(now, cutoff)
     return rows.map(mapMessage).map((m) => ({ ...m, status: 'expired' as const }))
   }
 
@@ -224,8 +279,9 @@ export class MessagesRepository {
   listDeliveredUnacked(sessionId: string, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
+        // The agent has it either way — pushed (delivered) or pulled (read).
         `SELECT * FROM messages
-         WHERE status = 'delivered' AND delivered_to = ? AND acked_by IS NULL
+         WHERE status IN ('delivered','read') AND delivered_to = ? AND acked_by IS NULL
            AND kind IN ('message','question')
            AND (expires_at IS NULL OR expires_at > ?)
          ORDER BY created_at ASC, id ASC`,
@@ -246,7 +302,7 @@ export class MessagesRepository {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages m
-         WHERE m.status = 'delivered' AND m.delivered_to = ? AND m.acked_by IS NULL
+         WHERE m.status IN ('delivered','read') AND m.delivered_to = ? AND m.acked_by IS NULL
            AND m.kind IN ('message','question')
            AND NOT (m.kind = 'message' AND m.urgency = 'fyi')
            AND (m.expires_at IS NULL OR m.expires_at > ?)

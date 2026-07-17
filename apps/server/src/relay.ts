@@ -881,16 +881,23 @@ export class SessionRegistry {
             // at delivery (operator stays unwrapped), row + ledger durable.
             // sendText → next-turn/wait, resumeAndSend → next-turn/wake.
             return sessionsSvc.withMutation(commandInput.mutationId, `sessions.${proc}`, () => {
-              const { ok, queued, reason } = messagesSvc.send(senderFromCapability(capability), {
-                to: { kind: 'session', id: commandInput.sessionId },
-                body: commandInput.text,
-                urgency: 'next-turn',
-                lifecycle: proc === 'resumeAndSend' ? 'wake' : 'wait',
-              })
+              const { ok, queued, reason, disposition } = messagesSvc.send(
+                senderFromCapability(capability),
+                {
+                  to: { kind: 'session', id: commandInput.sessionId },
+                  body: commandInput.text,
+                  urgency: 'next-turn',
+                  lifecycle: proc === 'resumeAndSend' ? 'wake' : 'wait',
+                },
+              )
               return {
                 ok,
                 ...(queued !== undefined ? { queued } : {}),
                 ...(reason !== undefined ? { reason } : {}),
+                // Honest outcome (#834): a session send to a gone target dead-letters
+                // (ok:false) rather than silently queueing; `podium session send`
+                // surfaces the disposition.
+                disposition,
               }
             })
           })()
@@ -938,6 +945,19 @@ export class SessionRegistry {
       broadcastSessions: () => sessionsSvc.broadcastSessions(),
       clients: () => clients().values(),
     })
+    // POD-665: fan out the invalidation raw (imitating MachinesService.
+    // broadcastMachines) — no repo payload, just "go re-fetch" (see
+    // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
+    // Shared by every path that creates or destroys a worktree behind the
+    // clients' backs: issue start, and handoff import (POD-821).
+    const broadcastWorktreesChanged = (repoPath: string, machineId?: string): void => {
+      const msg: LiveServerMessage = {
+        type: 'worktreesChanged',
+        repoPath,
+        ...(machineId ? { machineId } : {}),
+      }
+      for (const c of clients().values()) c.send(msg)
+    }
     // The sessions module (core lifecycle + data planes). Its issue-shaped deps
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
@@ -960,6 +980,7 @@ export class SessionRegistry {
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
       runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),
+      onWorktreesChanged: broadcastWorktreesChanged,
       onApprovalExecResult: (msg) => approvals.onExecResult(msg),
       approvalsPending: () => approvals.listPending(),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
@@ -1024,17 +1045,7 @@ export class SessionRegistry {
       getSessionIssueId: (sessionId) => sessionsSvc.getSessionIssueId(sessionId),
       setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
       setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
-      // POD-665: fan out the invalidation raw (imitating MachinesService.
-      // broadcastMachines) — no repo payload, just "go re-fetch" (see
-      // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
-      onWorktreesChanged: (repoPath, machineId) => {
-        const msg: LiveServerMessage = {
-          type: 'worktreesChanged',
-          repoPath,
-          ...(machineId ? { machineId } : {}),
-        }
-        for (const c of clients().values()) c.send(msg)
-      },
+      onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
       // out via the funnel's publishComputed tail; the PublishSpecs are built
@@ -1185,6 +1196,13 @@ export class SessionRegistry {
       if (next.phase !== 'idle' || prev?.phase === 'idle') return
       const meta = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
       if (meta) messagesSvc.onSessionIdle(meta)
+    })
+    // Transcript-echo confirmation (#834) [POD-834 §04d]: a message the substrate
+    // typed into a PTY reappears as a user turn carrying its `[podium message
+    // <id>]` frame — seeing that echo is what flips the ledger queued → delivered
+    // (an honest "the agent has it", never the old enqueue-time lie).
+    this.bus.on('transcript.delta', ({ sessionId, items }) => {
+      messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), 60_000)
     this.messageSweep.unref?.()

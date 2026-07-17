@@ -124,7 +124,7 @@ describe('attachSession', () => {
     expect(svc.get(a.id)).not.toBeNull()
   })
 
-  it('keeps a previous non-draft issue and a draft that still has sessions', () => {
+  it('keeps a draft that still has sessions', () => {
     const { svc, issueBySession } = harness([sess('s1'), sess('s2')])
     const draft = svc.createDraftFor('/r')
     issueBySession.set('s1', draft.id)
@@ -132,12 +132,27 @@ describe('attachSession', () => {
     const target = svc.create({ repoPath: '/r', title: 'T', startNow: false })
     svc.attachSession({ sessionId: 's1', targetId: target.id })
     expect(svc.get(draft.id)).not.toBeNull()
-    // non-draft previous issue survives even when empty
+  })
+
+  // Cross-issue reattach is blocked [spec:SP-8744]: moving off a real issue
+  // strands it session-less and it falls out of the sidebar.
+  it('blocks --id reattach off a real issue; --subissue still works', () => {
+    const { svc, issueBySession } = harness([sess('s1')])
     const real = svc.create({ repoPath: '/r', title: 'R', startNow: false })
-    issueBySession.set('s2', real.id)
+    issueBySession.set('s1', real.id)
     const other = svc.create({ repoPath: '/r', title: 'O', startNow: false })
-    svc.attachSession({ sessionId: 's2', targetId: other.id })
-    expect(svc.get(real.id)).not.toBeNull()
+    expect(() => svc.attachSession({ sessionId: 's1', targetId: other.id })).toThrow(
+      /attach blocked/,
+    )
+    expect(issueBySession.get('s1')).toBe(real.id) // unmoved
+    // self-attach stays a no-op, and the subtree escape hatch stays open
+    expect(svc.attachSession({ sessionId: 's1', targetId: real.id }).id).toBe(real.id)
+    const child = svc.attachSession({
+      sessionId: 's1',
+      newSubissue: { title: 'Side quest', origin: 'agent' },
+    })
+    expect(child.parentId).toBe(real.id)
+    expect(issueBySession.get('s1')).toBe(child.id)
   })
 
   it('keeps a draft that owns a worktree or has children', () => {

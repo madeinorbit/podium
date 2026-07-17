@@ -1,6 +1,10 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { sessionMenuEligibility } from './SessionContextMenu'
+import {
+  handoffBlockerText,
+  handoffRejectionText,
+  sessionMenuEligibility,
+} from './SessionContextMenu'
 
 function meta(over: Partial<SessionMeta>): SessionMeta {
   return {
@@ -65,5 +69,23 @@ describe('sessionMenuEligibility', () => {
     const unread = sessionMenuEligibility(meta({ unread: true }))
     expect(unread.canMarkUnread).toBe(false)
     expect(unread.canMarkRead).toBe(true)
+  })
+})
+
+describe('handoff reason copy (POD-821)', () => {
+  it('names the harness the user actually sees, not the wire kind', () => {
+    expect(handoffBlockerText('harness', 'shell')).toBe("Shell sessions can't be handed off")
+    expect(handoffRejectionText('harness-missing', 'claude-code')).toBe('no Claude')
+    expect(handoffRejectionText('logged-out', 'codex')).toBe('Codex logged out')
+  })
+
+  it('explains a blocked session in terms of what would unblock it', () => {
+    expect(handoffBlockerText('no-worktree', 'claude-code')).toBe(
+      'Only sessions in a worktree can be handed off',
+    )
+    expect(handoffBlockerText('repo-unregistered', 'claude-code')).toBe(
+      "This repo isn't registered on another machine",
+    )
+    expect(handoffRejectionText('offline', 'claude-code')).toBe('offline')
   })
 })

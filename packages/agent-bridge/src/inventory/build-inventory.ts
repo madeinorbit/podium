@@ -104,7 +104,9 @@ export async function buildInventory(opts: BuildInventoryOptions = {}): Promise<
   return {
     os: p === 'darwin' ? 'darwin' : 'linux',
     arch: a === 'arm64' ? 'arm64' : 'x64',
-    // podiumVersion stays undefined until #221 lands `podium --version`.
+    // Must stay the literal `process.env.PODIUM_APP_VERSION` read: build-bun --define
+    // inlines it at build time; 'dev' when running from source. [POD-838]
+    podiumVersion: process.env.PODIUM_APP_VERSION ?? 'dev',
     agents,
     tools,
   }

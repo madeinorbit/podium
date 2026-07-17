@@ -52,6 +52,18 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     } else {
       if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')
       target = this.rowOrThrow(this.resolveRef(opts.targetId))
+      // Re-homing off a REAL issue is blocked [spec:SP-8744]: it strands the old
+      // issue session-less so it drops out of the sidebar. Only the draft→issue
+      // flow (naming a fresh vessel) may move between issues; from a real issue
+      // the sanctioned move is `--subissue`, which keeps the subtree intact.
+      const prev = prevId && prevId !== target.id ? this.rows.get(prevId) : undefined
+      if (prev && !prev.draft) {
+        throw new Error(
+          `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue). ` +
+            'Reassigning a session to a different issue is disabled; for new work use ' +
+            '`podium issue attach --subissue "<title>"` or file the issue for another agent.',
+        )
+      }
     }
     if (prevId === target.id) return this.toWire(target) // self-attach: no-op
     setSessionIssueId(opts.sessionId, target.id)

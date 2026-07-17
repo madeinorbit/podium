@@ -43,7 +43,9 @@ describe('outbox write path e2e (live server)', () => {
       text: 'queued while offline',
       mutationId: 'e2e-send-1',
     })
-    expect(first).toEqual({ ok: true, queued: true })
+    // Parked/unbound session → durably queued to its boot queue; the honest
+    // disposition rides the result (#834) and is recorded/replayed with it.
+    expect(first).toEqual({ ok: true, queued: true, disposition: 'queued' })
 
     // Network-retry replay with the SAME mutationId: same result, no second row.
     const replay = await trpc.sessions.resumeAndSend.mutate({

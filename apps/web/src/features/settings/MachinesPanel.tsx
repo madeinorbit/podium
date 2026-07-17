@@ -47,6 +47,25 @@ export function MachinesPanel(): JSX.Element {
   // Per-machine "Find repos" (POD-787): opens the scan flow preset to that machine.
   const [findReposFor, setFindReposFor] = useState<string | null>(null)
 
+  // The server's own build version — the reference each daemon's reported version is
+  // compared against for the "update available" badge [POD-838].
+  const [serverAppVersion, setServerAppVersion] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const info = await trpc.setup.info.query()
+        if (!cancelled && typeof info.appVersion === 'string') setServerAppVersion(info.appVersion)
+      } catch {
+        // Version is decorative here — a failed probe just means no badge.
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [trpc])
+
   // Tick so relative times stay fresh.
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30_000)
@@ -168,6 +187,7 @@ export function MachinesPanel(): JSX.Element {
               // (online means the daemon is already running) [spec:SP-3701].
               hosting={m.id === thisMachineId && !m.online ? hosting : null}
               onFindRepos={m.online ? () => setFindReposFor(m.id) : null}
+              serverAppVersion={serverAppVersion}
             />
           ))}
         </div>
@@ -351,6 +371,7 @@ function MachineRow({
   isThisMachine = false,
   hosting = null,
   onFindRepos = null,
+  serverAppVersion = null,
 }: {
   machine: MachineWire
   now: number
@@ -361,6 +382,8 @@ function MachineRow({
   hosting?: EnableHosting | null
   /** POD-787: open the repo scan flow preset to this (online) machine. */
   onFindRepos?: (() => void) | null
+  /** POD-838: the server's own build version; null while unknown. */
+  serverAppVersion?: string | null
 }): JSX.Element {
   const [name, setName] = useState(machine.name)
   const [editing, setEditing] = useState(false)
@@ -388,6 +411,17 @@ function MachineRow({
       setEditing(false)
     }
   }
+
+  // POD-838: an older daemon silently loses additive protocol features (frames it doesn't
+  // know are dropped), so surface skew here. 'dev' builds carry no comparable release
+  // number — never badge against or for one.
+  const daemonVersion = machine.inventory?.podiumVersion
+  const needsUpdate =
+    daemonVersion != null &&
+    serverAppVersion != null &&
+    daemonVersion !== 'dev' &&
+    serverAppVersion !== 'dev' &&
+    daemonVersion !== serverAppVersion
 
   const revoke = async () => {
     setRevoking(true)
@@ -456,6 +490,24 @@ function MachineRow({
       >
         {machine.hostname}
       </span>
+
+      {/* Daemon build version + skew badge [POD-838] */}
+      {daemonVersion && (
+        <span
+          className="hidden flex-none text-[11px] text-muted-foreground/70 sm:block"
+          title={`Podium ${daemonVersion} on this machine`}
+        >
+          {daemonVersion}
+        </span>
+      )}
+      {needsUpdate && (
+        <span
+          className="flex-none rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning uppercase tracking-wide"
+          title={`This machine runs Podium ${daemonVersion}; the server is on ${serverAppVersion}. Update the daemon (podium update).`}
+        >
+          update available
+        </span>
+      )}
 
       {/* Last seen */}
       <span className="flex-none text-muted-foreground/70 text-[11px]">

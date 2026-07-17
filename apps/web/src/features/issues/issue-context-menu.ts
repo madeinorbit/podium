@@ -1,8 +1,9 @@
 import {
+  type HandoffAvailability,
+  handoffAvailability,
   type HandoffIssue,
   type HandoffMachine,
   type HandoffRepo,
-  handoffTargets,
 } from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
@@ -13,15 +14,48 @@ import type { IssuesKeyState } from './issues-keys'
  * Kept React-free so the rules can be unit-tested like sessionMenuEligibility.
  */
 
+/** Why an ISSUE (as opposed to any one session) offers no handoff. */
+export type IssueHandoffBlocker = 'no-agent-session' | 'multiple-sessions'
+export type IssueHandoff<M> =
+  | { session: SessionMeta; availability: HandoffAvailability<M> }
+  | { blocker: IssueHandoffBlocker }
+
 /**
- * Resolve the single handoff-eligible session for an issue-row context menu
- * ([spec:SP-3f7a]). Looks up each `issue.sessions[].sessionId` in the live
- * store sessions, reuses `handoffTargets` for eligibility, and returns a result
- * only when exactly one attached session has at least one target machine.
- * Callers must also require a single selected issue (`issues.length === 1`).
+ * The issue-row handoff picture ([spec:SP-3f7a], POD-850). Picks the issue's
+ * single agent (claude/codex) session as the handoff subject and returns its
+ * full `handoffAvailability`, or an issue-level reason when there is no single
+ * subject to move. The menu ALWAYS shows Handoff and states its case — a hidden
+ * item is indistinguishable from a broken gate (POD-821), and hiding it on the
+ * issue row is exactly why POD-779 looked stuck after a successful handoff.
  *
  * The issue itself is part of the gate: a session whose cwd has drifted onto the
- * main checkout is still eligible via the issue's own worktree.
+ * main checkout is still eligible via the issue's own worktree. Shell sessions
+ * are never handoff subjects, so they don't count toward the agent-session tally.
+ * Callers must also require a single selected issue (`issues.length === 1`).
+ */
+export function issueHandoffAvailability<M extends HandoffMachine>(
+  issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
+  sessions: readonly SessionMeta[],
+  repos: HandoffRepo[],
+  machines: M[],
+): IssueHandoff<M> {
+  const byId = new Map(sessions.map((s) => [s.sessionId, s]))
+  const agents = issue.sessions
+    .map((ref) => byId.get(ref.sessionId))
+    .filter(
+      (s): s is SessionMeta =>
+        s !== undefined && (s.agentKind === 'claude-code' || s.agentKind === 'codex'),
+    )
+  if (agents.length === 0) return { blocker: 'no-agent-session' }
+  if (agents.length > 1) return { blocker: 'multiple-sessions' }
+  const session = agents[0] as SessionMeta
+  return { session, availability: handoffAvailability(session, repos, machines, issue) }
+}
+
+/**
+ * The single movable handoff subject for an issue row, or null — a thin
+ * derivation over `issueHandoffAvailability` for callers that only want the
+ * eligible case (kept as `handoffTargets` is over `handoffAvailability`).
  */
 export function resolveIssueHandoffSession<M extends HandoffMachine>(
   issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
@@ -29,15 +63,12 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
   repos: HandoffRepo[],
   machines: M[],
 ): { session: SessionMeta; targets: M[] } | null {
-  const byId = new Map(sessions.map((s) => [s.sessionId, s]))
-  const eligible: { session: SessionMeta; targets: M[] }[] = []
-  for (const ref of issue.sessions) {
-    const session = byId.get(ref.sessionId)
-    if (!session) continue
-    const targets = handoffTargets(session, repos, machines, issue)
-    if (targets.length > 0) eligible.push({ session, targets })
-  }
-  return eligible.length === 1 ? (eligible[0] ?? null) : null
+  const result = issueHandoffAvailability(issue, sessions, repos, machines)
+  if (!('session' in result) || result.availability.blocker) return null
+  const targets = result.availability.candidates
+    .filter((c) => c.rejection === undefined)
+    .map((c) => c.machine)
+  return targets.length > 0 ? { session: result.session, targets } : null
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */

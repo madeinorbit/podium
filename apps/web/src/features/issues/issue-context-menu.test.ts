@@ -4,6 +4,7 @@ import {
   contextMenuTargets,
   deferDateFromNow,
   isIssueClosed,
+  issueHandoffAvailability,
   issueMenuEligibility,
   resolveIssueHandoffSession,
   toggleLabelAcross,
@@ -287,5 +288,65 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
       handoffMachines,
     )
     expect(result?.session.sessionId).toBe('ok')
+  })
+})
+
+describe('issueHandoffAvailability (POD-850)', () => {
+  const issueWith = (refs: string[], over = {}) =>
+    makeIssue({ sessions: refs.map((id) => ({ sessionId: id }) as SessionMeta), ...over })
+
+  it('surfaces the sole agent session and its candidate machines', () => {
+    const session = makeSession({ sessionId: 's1' })
+    const result = issueHandoffAvailability(issueWith(['s1']), [session], handoffRepos, handoffMachines)
+    expect('session' in result && result.session.sessionId).toBe('s1')
+    // 'target' is logged-out-equivalent (login 'unknown' is fine, but here it's a
+    // candidate) — the point is the machine is REPORTED, not silently dropped.
+    expect('availability' in result && result.availability.candidates.map((c) => c.machine.id)).toEqual([
+      'target',
+    ])
+  })
+
+  it('reports no-agent-session for a shell-only issue instead of hiding', () => {
+    const shell = makeSession({ sessionId: 'sh', agentKind: 'shell' })
+    expect(issueHandoffAvailability(issueWith(['sh']), [shell], handoffRepos, handoffMachines)).toEqual({
+      blocker: 'no-agent-session',
+    })
+    // No sessions at all is the same reason.
+    expect(issueHandoffAvailability(issueWith([]), [], handoffRepos, handoffMachines)).toEqual({
+      blocker: 'no-agent-session',
+    })
+  })
+
+  it('reports multiple-sessions when more than one agent session is attached', () => {
+    const a = makeSession({ sessionId: 'a' })
+    const b = makeSession({ sessionId: 'b' })
+    expect(issueHandoffAvailability(issueWith(['a', 'b']), [a, b], handoffRepos, handoffMachines)).toEqual(
+      { blocker: 'multiple-sessions' },
+    )
+  })
+
+  it('a shell alongside the one agent session does not count as multiple (POD-779 shape)', () => {
+    const agent = makeSession({ sessionId: 'agent' })
+    const shell = makeSession({ sessionId: 'shell', agentKind: 'shell' })
+    const result = issueHandoffAvailability(
+      issueWith(['agent', 'shell']),
+      [agent, shell],
+      handoffRepos,
+      handoffMachines,
+    )
+    expect('session' in result && result.session.sessionId).toBe('agent')
+  })
+
+  it("carries the agent session's own blocker when it cannot move (drifted onto main, no issue worktree)", () => {
+    // POD-779 live shape: the agent's cwd is the main checkout and the issue has no
+    // worktree of its own to anchor on → the session itself is blocked 'no-worktree'.
+    const drifted = makeSession({ sessionId: 's1', cwd: '/a' })
+    const result = issueHandoffAvailability(
+      issueWith(['s1'], { worktreePath: null }),
+      [drifted],
+      handoffRepos,
+      handoffMachines,
+    )
+    expect('availability' in result && result.availability.blocker).toBe('no-worktree')
   })
 })

@@ -16,6 +16,39 @@ import type { CreateIssueInput } from './types'
  * Linear search and the LLM activity digest.
  */
 export abstract class IssueServiceWorkflow extends IssueServiceMail {
+  /**
+   * Move an issue's home to another machine after its session was handed off
+   * ([spec:SP-3f7a], POD-824). The target worktree is where the work now lives,
+   * and this trio is what the user sees: the file-browser root, the sidebar's
+   * selected worktree, and the cwd a NEW agent on this issue spawns into.
+   *
+   * All three move together or none do. `repoPath` is deliberately absent from
+   * `IssuePatch` — it is not a free-form field — but it IS machine-specific, so
+   * leaving it on the source while `machineId` points at the target yields an
+   * issue that cannot start: `requireMachineForRepo` rejects a path that machine
+   * has never registered, and `worktreePathFor` would site the next worktree
+   * under the source's path. Hence one guarded transition rather than a patch.
+   *
+   * Identity is unaffected: the nice-id prefix and repo scoping both resolve
+   * through `repoId` (`prefixForPath` → `resolveRepoIdForPath` → `prefixForRepoId`),
+   * which is origin-derived and identical on both machines — so POD-779 stays
+   * POD-779. Refuses a target repo whose identity differs, which would silently
+   * renumber the issue into another repo.
+   */
+  rehome(
+    id: string,
+    to: { machineId: string; repoPath: string; worktreePath: string },
+  ): IssueWire | null {
+    const row = this.rows.get(this.resolveRef(id))
+    if (!row) return null
+    const repos = this.d.store.repos
+    const from = row.repoId ?? repos.resolveRepoIdForPath(row.repoPath)
+    const target = repos.resolveRepoIdForPath(to.repoPath)
+    if (!target || (from && from !== target)) return null
+    row.repoPath = to.repoPath
+    return this.update(id, { machineId: to.machineId, worktreePath: to.worktreePath })
+  }
+
   private worktreePathFor(repoPath: string, branch: string): string {
     // branch is `issue/<seq>-<slug>`; flatten to a directory name under <repo>/.worktrees
     const dir = branch.replace(/\//g, '-')

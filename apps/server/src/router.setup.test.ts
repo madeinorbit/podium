@@ -50,12 +50,20 @@ describe('setup tRPC', () => {
     expect(loadConfig().mode).toBe('all-in-one')
   })
   it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
-    expect(await caller().setup.info()).toEqual({ mode: null, publicUrl: null, serverUrl: null })
+    // appVersion is the baked build version ('dev' from source) [POD-838].
+    const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+    expect(await caller().setup.info()).toEqual({
+      mode: null,
+      publicUrl: null,
+      serverUrl: null,
+      appVersion,
+    })
     await caller().setup.complete({ publicUrl: 'https://box.ts.net', acknowledgeNoPassword: true })
     expect(await caller().setup.info()).toEqual({
       mode: 'all-in-one',
       publicUrl: 'https://box.ts.net',
       serverUrl: null,
+      appVersion,
     })
   })
   it('complete with mode=server persists a reachable relay-only box', async () => {

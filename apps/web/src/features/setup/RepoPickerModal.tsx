@@ -213,7 +213,9 @@ export function RepoPickerModal({
         if (!o) onClose()
       }}
     >
-      <DialogContent className="flex max-h-[min(720px,calc(100dvh-2rem))] w-full max-w-2xl flex-col gap-0 overflow-hidden p-0">
+      {/* sm:max-w-* overrides DialogContent's base sm:max-w-sm; a plain max-w loses
+          to it at desktop width and pins the modal to 384px (POD-832). */}
+      <DialogContent className="flex max-h-[min(760px,calc(100dvh-2rem))] w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[900px]">
         <DialogHeader className="gap-0 border-b border-border px-3.5 pt-3.5 pb-2.5 pr-10">
           <DialogTitle className="text-[11px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
             {onScan ? 'Find repositories' : 'Add repo'}

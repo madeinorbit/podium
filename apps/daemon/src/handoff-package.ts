@@ -349,7 +349,7 @@ export async function importHandoffPackage(input: {
   sessionId: string
   repoPath: string
   worktreeName: string
-}): Promise<{ manifest: HandoffManifestType; newCwd: string }> {
+}): Promise<{ manifest: HandoffManifestType; newCwd: string; worktreeRoot: string }> {
   const home = input.homeDir ?? homedir()
   const archive = stagePathFor(home, input.sessionId)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-handoff-import-'))
@@ -461,7 +461,7 @@ export async function importHandoffPackage(input: {
       '-d',
       `${HANDOFF_REF_ROOT}/${manifest.sessionId}`,
     ]).catch(() => '')
-    return { manifest, newCwd }
+    return { manifest, newCwd, worktreeRoot }
   } catch (error) {
     // Only unwind a worktree WE created — a reused round-trip worktree predates
     // this import and must survive a failed attempt.

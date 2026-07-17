@@ -30,6 +30,10 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
     'send',
     'inbox',
     'show',
+    // status = the sender-queryable lifecycle (#834): "what happened to msg X"
+    // after a synchronous send returned at queued. mayView-gated (own sends /
+    // receipts only), so unlike the operator-only `ledger` it is safe via relay.
+    'status',
     'reply',
     'pendingReminders',
     'spawnAgent',

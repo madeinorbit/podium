@@ -1,5 +1,4 @@
-import { TITLE_RULE_TERSE } from '@podium/protocol'
-import { IssueColor } from '@podium/protocol'
+import { IssueColor, TITLE_RULE_TERSE } from '@podium/protocol'
 import { z } from 'zod'
 import type { IssueTrpc } from './client.js'
 
@@ -40,6 +39,21 @@ function line(i: { seq: number; title: string; priority?: number; stage?: string
   const p = i.priority != null ? `P${i.priority} ` : ''
   const s = i.stage ? `[${i.stage}] ` : ''
   return `#${i.seq} ${p}${s}${i.title}`
+}
+
+/** Render a send disposition as a human note (#834): the sender learns whether a
+ *  message landed on a live agent, is holding for the issue's next session, or
+ *  waking one — never a bare "sent" that hides a hold. `delivered`/`queued` need
+ *  no note (the default reading of "sent"). */
+function mailDispositionNote(disposition?: string): string {
+  switch (disposition) {
+    case 'held':
+      return ' — HELD for the issue’s next session (no live session right now)'
+    case 'spawning':
+      return ' — waking a session to receive it'
+    default:
+      return ''
+  }
 }
 
 type Row = Parameters<typeof line>[0]
@@ -583,8 +597,17 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           const m = (await c.issues.mailSend.mutate({ id: ref, body: a.body as string })) as {
             id: string
             issueId: string
+            ok?: boolean
+            disposition?: string
+            reason?: string
           }
-          return { text: `mail sent to ${ref} (${m.id})`, data: m }
+          // Tell the sender what ACTUALLY happened (#834): held / dead_letter are
+          // never a silent "sent". A dead-letter throws so the exit code is nonzero.
+          if (m.ok === false || m.disposition === 'dead_letter') {
+            throw new Error(m.reason ?? `mail to ${ref} could not be delivered`)
+          }
+          const note = mailDispositionNote(m.disposition)
+          return { text: `mail sent to ${ref} (${m.id})${note}`, data: m }
         }
         case 'inbox': {
           const msgs = (await c.issues.mailInbox.mutate(ref ? { id: ref } : {})) as {

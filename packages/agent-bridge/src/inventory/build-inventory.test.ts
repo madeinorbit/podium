@@ -42,8 +42,8 @@ describe('buildInventory', () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     expect(inv.os).toBe(platform() === 'darwin' ? 'darwin' : 'linux')
     expect(inv.arch).toBe(process.arch === 'arm64' ? 'arm64' : 'x64')
-    // podiumVersion stays absent until #221 lands `podium --version`.
-    expect(inv.podiumVersion).toBeUndefined()
+    // Baked in by build-bun --define; 'dev' when running from source (as tests do) [POD-838].
+    expect(inv.podiumVersion).toBe(process.env.PODIUM_APP_VERSION ?? 'dev')
   })
 
   it('reports all 5 kinds, absent when every candidate fails', async () => {

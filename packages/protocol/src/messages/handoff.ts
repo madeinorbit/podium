@@ -100,7 +100,15 @@ export const HandoffImportResultMessage = z.object({
   type: z.literal('handoffImportResult'),
   requestId: z.string(),
   ok: z.boolean(),
+  /** Where the agent resumes: the worktree root, or a subdir of it when the
+   *  session carried a `cwdSubpath`. */
   newCwd: z.string().optional(),
+  /** The worktree itself, which `newCwd` may sit inside. The issue's home is the
+   *  ROOT, never the drifted subdir ([spec:SP-3f7a]) — and the daemon owns the
+   *  layout that decides it, so it reports the root rather than letting the server
+   *  re-derive it by stripping `cwdSubpath`. Optional: an older daemon omits it,
+   *  and the server then leaves the issue's home alone rather than guessing. */
+  worktreeRoot: z.string().optional(),
   error: z.string().optional(),
 })
 export type HandoffExportResultMessage = z.infer<typeof HandoffExportResultMessage>

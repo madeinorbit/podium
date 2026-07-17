@@ -24,6 +24,9 @@ export interface LedgerMessage {
   expiresAt: string | null
   clampedFrom: string | null
   hop: number
+  // Message-lifecycle timestamps (#834 [POD-834 §04d]).
+  readAt?: string | null
+  deadLetteredAt?: string | null
 }
 
 export interface ClampSummary {
@@ -53,22 +56,28 @@ export function clampSummary(m: LedgerMessage): ClampSummary | null {
 
 export type LedgerStatusTone = 'queued' | 'ok' | 'dead'
 
-/** Chip tone for a delivery status: queued = pending amber, delivered = ok,
- *  expired/cancelled = dead. */
+/** Chip tone for a delivery status: queued = pending amber; delivered/read = ok
+ *  (the agent has it, pushed or pulled [POD-834]); expired/cancelled/dead_letter
+ *  = dead. */
 export function ledgerStatusTone(status: string): LedgerStatusTone {
-  if (status === 'delivered') return 'ok'
+  if (status === 'delivered' || status === 'read') return 'ok'
   if (status === 'queued') return 'queued'
   return 'dead'
 }
 
-/** One-line delivery story: "delivered to s1 · acked" / "queued (expires …)" /
- *  "expired undelivered". */
+/** One-line delivery story: "delivered to s1 · acked" / "read by s1" /
+ *  "queued (expires …)" / "dead-lettered" / "expired undelivered" [POD-834]. */
 export function deliveryLine(m: LedgerMessage): string {
   if (m.status === 'delivered') {
     const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
     return `delivered${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
   }
+  if (m.status === 'read') {
+    const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
+    return `read${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
+  }
   if (m.status === 'queued') return m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'
+  if (m.status === 'dead_letter') return 'dead-lettered · target gone'
   if (m.status === 'expired') return 'expired undelivered'
   return m.status
 }

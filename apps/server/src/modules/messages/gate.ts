@@ -33,6 +33,11 @@ const replyInput = z.object({
   body: z.string().min(1).max(32_768),
   kind: z.enum(['ack', 'message']).optional(),
 })
+// Sender-queryable lifecycle (#834 [POD-834 §04d]): "what happened to the
+// message I sent?" — reachable by the sender/recipient (not operator-only like
+// the ledger), so an agent can pull delivered/read/dead_letter after a
+// synchronous send returned at queued.
+const statusInput = z.object({ id: z.string() })
 // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]. The child
 // is a FULL Podium session (real PTY, human-attachable) spawned through the
 // existing session machinery; `newTitle` is the DELIBERATE `--new` issue-create
@@ -147,6 +152,10 @@ export interface MessageWire {
   /** JSON of the REQUESTED axes when the clamp matrix downgraded them. */
   clampedFrom: string | null
   hop: number
+  // Message-lifecycle timestamps (#834 [POD-834 §04d]) — the sender-queryable
+  // "what happened to my message" answer that `podium mail status` renders.
+  readAt: string | null
+  deadLetteredAt: string | null
 }
 
 export class MessageGate {
@@ -167,6 +176,8 @@ export class MessageGate {
         return Promise.resolve().then(() => this.inbox(caller, inboxInput.parse(input)))
       case 'show':
         return Promise.resolve().then(() => this.show(caller, showInput.parse(input)))
+      case 'status':
+        return Promise.resolve().then(() => this.status(caller, statusInput.parse(input)))
       case 'ledger':
         return Promise.resolve().then(() => this.ledger(caller, ledgerInput.parse(input)))
       case 'reply':
@@ -213,10 +224,29 @@ export class MessageGate {
       ok: r.ok,
       ...(r.queued !== undefined ? { queued: r.queued } : {}),
       ...(r.reason !== undefined ? { reason: r.reason } : {}),
+      // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
+      // hidden behind a bare "queued" success.
+      disposition: r.disposition,
       urgency: r.message.urgency,
       lifecycle: r.message.lifecycle,
       ...(r.message.clampedFrom ? { clamped: true } : {}),
     }
+  }
+
+  /** Sender-queryable message lifecycle [POD-834 §04d]: the sender (or recipient,
+   *  or operator) pulls "what happened to msg X" after a synchronous send returned
+   *  at queued. Same mayView gate as `show` — you may query a message you sent or
+   *  received, never a stranger's. */
+  private status(
+    caller: { capability: Capability },
+    input: z.infer<typeof statusInput>,
+  ): MessageWire {
+    const m = this.deps.messages().message(input.id)
+    if (!m) throw new Error(`unknown message ${input.id}`)
+    if (!this.mayView(caller.capability, m)) {
+      throw new Error('not allowed to view a message you neither sent nor received')
+    }
+    return this.wire(m)
   }
 
   private inbox(
@@ -297,6 +327,7 @@ export class MessageGate {
       acked: (input.kind ?? 'ack') === 'ack',
       ...(r.queued !== undefined ? { queued: r.queued } : {}),
       ...(r.reason !== undefined ? { reason: r.reason } : {}),
+      disposition: r.disposition,
     }
   }
 
@@ -673,6 +704,8 @@ export class MessageGate {
       expiresAt: m.expiresAt,
       clampedFrom: m.clampedFrom,
       hop: m.hop,
+      readAt: m.readAt ?? null,
+      deadLetteredAt: m.deadLetteredAt ?? null,
     }
   }
 }
