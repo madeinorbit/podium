@@ -219,11 +219,21 @@ export function renderEnvelope(
       ? `[this is a question: answer it from your existing context with \`podium mail reply ${m.id}\`, ` +
         `then RETURN TO WHAT YOU WERE DOING — do not take up new work because of it]\n`
       : ''
+  // A --expect-response message [spec:SP-bf44] carries the same reply directive a
+  // question does, minus the answer-then-resume binding: the sender wants a reply
+  // (else the steward will nag them that none came), but it is not a seance. A
+  // question already gets its own, stronger rule above, so this is question-exempt.
+  const responseRule =
+    m.expectsResponse && m.kind !== 'question'
+      ? `[a response was requested: reply within this thread (\`podium mail reply ${m.id}\`) ` +
+        `when you have handled it — any substantive reply satisfies it]\n`
+      : ''
   return (
     `[podium message ${m.id} · from ${fromLabel} · to ${toLabel} · reply: podium mail reply ${m.id}]\n` +
     `${m.body}\n` +
     (note ? `${note}\n` : '') +
     questionRule +
+    responseRule +
     `[end podium message ${m.id}]`
   )
 }
@@ -379,14 +389,24 @@ export class MessageDeliveryService {
           ? false
           : (input.expectsResponse ?? false)
 
-    // Semantic-reply-as-ack [POD-835 §04b]: a reply back to the requester within
-    // the thread SATISFIES a requested response — not only a `kind:'ack'`. So a
-    // thorough substantive reply clears the nag (the 36 false "finished without
-    // acking" notices came from treating such a reply as "no ack"). We stamp
-    // acked_by (the fulfilment marker the settle set reads) when this message is an
-    // explicit ack, OR when it replies to a message that expected a response.
+    // Semantic-reply-as-ack [spec:SP-bf44] [POD-835 §04b]: a reply back to the
+    // requester within the thread SATISFIES a requested response — not only a
+    // `kind:'ack'`. So a thorough substantive reply clears the nag (the 36 false
+    // "finished without acking" notices came from treating such a reply as "no ack").
+    // But ONLY a genuine reply FROM THE PARTY THAT WAS ASKED fulfils it: the
+    // steward's own settle-nag (`kind:'notification'`, in_reply_to the original,
+    // from system:steward) must NOT count — it fires precisely BECAUSE the recipient
+    // finished without responding, so letting it stamp acked_by would report the
+    // request answered and release awaitAck by the nag itself (POD-835 review). Two
+    // guards: a notification is structurally never a response, and the responder
+    // must be the original's recipient (which also excludes a third party and the
+    // requester itself, so !sameSenderAs is subsumed but kept for clarity).
     const respondsToRequest =
-      !!original && original.expectsResponse === true && !this.sameSenderAs(from, original)
+      !!original &&
+      original.expectsResponse === true &&
+      kind !== 'notification' &&
+      !this.sameSenderAs(from, original) &&
+      this.isRecipientOf(from, original)
     const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
 
     const id = `msg_${randomUUID()}`
@@ -926,12 +946,15 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Deterministic ack fallback [spec:SP-34d7 acks]: the target session settled
-   * (finished/errored) with delivered-but-unacked messages. One system-kind
-   * notification per sender, stitched with issue stage + last commit, routed
-   * like a reply. Suppression is the acked_by null-check — an agent ack that
-   * landed first empties the query; an ack racing after this produces duplicate
-   * information, never lost information. System clamps (next-turn/wait) apply.
+   * Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]: the target
+   * session settled (finished/errored) leaving a REQUESTED response unfulfilled
+   * (expects_response, not stamped by any in-thread reply). One system-kind
+   * notification per such message, stitched with issue stage + last commit, routed
+   * like a reply. Suppression is the acked_by null-check — a genuine reply from the
+   * recipient that landed first empties the query; one racing after this produces
+   * duplicate information, never lost information. This notice is itself a
+   * `kind:'notification'` and can never stamp acked_by, so it never masks its own
+   * target's unanswered state. System clamps (next-turn/wait) apply.
    */
   systemAckFallback(
     sessionId: string,
@@ -945,13 +968,13 @@ export class MessageDeliveryService {
       workflowStepId?: string
     },
   ): void {
-    // #468: only messages that actually asked for something and have not already
-    // produced a settle notice. The store guards fyi (courtesy notes never demand
-    // an ack) and the once-per-message rule (a prior notification is the marker).
-    // One notice PER MESSAGE — not per sender-group — so every message carries its
-    // own in_reply_to marker; a group notice referencing only the latest would
-    // leave the others unmarked and re-fire them on the next settle (the loop that
-    // sent one message 7 notices in 33 minutes).
+    // #468 / [POD-835]: only messages that REQUESTED a response (expects_response)
+    // and have not already produced a settle notice. The store gates it (an ordinary
+    // message owes no reply) and the once-per-message rule (a prior notification is
+    // the marker). One notice PER MESSAGE — not per sender-group — so every message
+    // carries its own in_reply_to marker; a group notice referencing only the latest
+    // would leave the others unmarked and re-fire them on the next settle (the loop
+    // that sent one message 7 notices in 33 minutes).
     const rows = this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
     if (rows.length === 0) return
     const stitch = [
@@ -975,7 +998,8 @@ export class MessageDeliveryService {
           urgency: 'next-turn',
           lifecycle: 'wait',
           body:
-            `Session ${sessionId} ${context.outcome} without acking your message ${m.id}.` +
+            `Session ${sessionId} ${context.outcome} without responding to your message ${m.id} ` +
+            `(you sent it --expect-response).` +
             (stitch.length ? ` ${stitch.join(' · ')}.` : '') +
             ` Use the read toolkit (podium session status/read) if you need more.`,
         },
@@ -1136,6 +1160,31 @@ export class MessageDeliveryService {
    *  requested response (only the other party's reply fulfils it). */
   private sameSenderAs(from: MessageSender, original: MessageRow): boolean {
     return this.senderKey(from) === this.senderKeyOfRow(original)
+  }
+
+  /** Whether `from` is the party the `original` was addressed to — the ONLY
+   *  principal whose reply fulfils a requested response [spec:SP-bf44]. A
+   *  session-addressed original is answered by that session (or whichever session
+   *  it was actually pushed to, `delivered_to` — covers a resumed/spawned target);
+   *  an issue-addressed one by any member of that issue (or the delivered session);
+   *  an operator-addressed one by the operator. Excludes system/steward and any
+   *  third party, so the settle-nag can never stamp its own target's request. */
+  private isRecipientOf(from: MessageSender, original: MessageRow): boolean {
+    if (original.toKind === 'operator') return from.kind === 'operator'
+    if (from.kind !== 'agent') return false
+    if (original.toKind === 'session') {
+      return (
+        from.sessionId !== undefined &&
+        (from.sessionId === original.toId || from.sessionId === original.deliveredTo)
+      )
+    }
+    // issue-addressed: a member of the issue, or the session it was delivered to.
+    return (
+      (from.issueId !== undefined && from.issueId === original.toId) ||
+      (from.sessionId !== undefined &&
+        original.deliveredTo !== null &&
+        from.sessionId === original.deliveredTo)
+    )
   }
 
   private nowMs(): number {

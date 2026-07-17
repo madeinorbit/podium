@@ -1377,7 +1377,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       new Set(['session:sX', 'operator:null']),
     )
     const agentNotice = notices.find((m) => m.toId === 'sX')!
-    expect(agentNotice.body).toContain('finished without acking')
+    expect(agentNotice.body).toContain('finished without responding')
     expect(agentNotice.body).toContain('issue #228 stage=review')
     expect(agentNotice.body).toContain('abc123 fix: thing')
     // system clamps: next-turn / wait
@@ -1404,6 +1404,10 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     svc.systemAckFallback('s1', { outcome: 'finished' })
     svc.systemAckFallback('s1', { outcome: 'errored' })
     expect(systemNotices(store)).toHaveLength(1)
+    // The once-guard is the notification-exists check — NOT a false acked_by stamp.
+    // The steward's own settle notice (kind:'notification') must never satisfy the
+    // request it is reporting as unanswered [POD-835 review], so acked_by stays null.
+    expect(store.messages.getMessage(m1.message.id)!.ackedBy).toBeNull()
   })
 
   it('[POD-835] an ordinary message (no --expect-response) NEVER produces a settle notice', () => {
@@ -1508,6 +1512,66 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const notices = systemNotices(store)
     expect(notices).toHaveLength(1)
     expect(notices[0]!.inReplyTo).toBe(req.message.id)
+    // The request stays UNFULFILLED — the steward's notice must not stamp acked_by
+    // on the very message it reports as unanswered, or `mail status` would read
+    // response=received and awaitAck would resolve off the nag [POD-835 review].
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
+    expect(notices[0]!.expectsResponse).toBe(false) // a notification is never itself ackable
+  })
+
+  it('[POD-835] the settle notice (kind:notification) never fulfils the request, but the recipient reply does', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const req = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'confirm?',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    echo(svc, 's1', req.message.id)
+    // First settle: a notice fires and does NOT stamp acked_by.
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
+    // Now the RECIPIENT (s1) actually replies — that DOES fulfil it (stamps acked_by),
+    // proving the guard admits the real answer while rejecting the steward's nag.
+    const reply = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: req.message.id, body: 'confirmed', kind: 'message' },
+    )
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBe(reply.message.id)
+  })
+
+  it('[POD-835] a reply from a NON-recipient third party does not fulfil the request', () => {
+    // sZ is a bystander session, not the recipient of the request to s1.
+    const sessions = [
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+      session({ sessionId: 'sZ', cwd: '/wt/b' }),
+    ]
+    const { svc, store } = harness(sessions)
+    const req = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'confirm?',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    // A third-party session tries to reply in the thread — it is not who was asked.
+    svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 'sZ' },
+      {
+        to: { kind: 'session', id: 'sX' },
+        body: 'I got this',
+        kind: 'message',
+        inReplyTo: req.message.id,
+      },
+    )
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
   })
 })
 
