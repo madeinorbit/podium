@@ -127,7 +127,7 @@ Persisting a higher cursor **implies** all entity mutations covered by that curs
 
 #### D4.3 Outbox durability class
 
-Outbox entries representing user intent not yet accepted by Authority (`queued`, `in-flight`, and recovery states defined by ADR 3) are **durable** on the same footing as entity rows. Losing them on crash is a correctness bug, not degraded UX.
+Outbox entries representing user intent not yet accepted by Authority (`queued`, `sending`, and recovery states defined by ADR 3 D9) are **durable** on the same footing as entity rows. Losing them on crash is a correctness bug, not degraded UX.
 
 #### D4.4 Quota exhaustion
 

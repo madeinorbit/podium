@@ -1,0 +1,494 @@
+<title>Podium — First-Principles Architecture</title>
+<style>
+  :root {
+    --paper: #f2f5f4;
+    --panel: #ffffff;
+    --panel2: #e9eeec;
+    --ink: #17211e;
+    --ink2: #4c5a55;
+    --ink3: #7d8a85;
+    --line: #d5ddda;
+    --accent: #0d8a6c;
+    --accent-ink: #0a6b54;
+    --warn: #b0532f;
+    --warn-bg: #f6ebe5;
+    --good-bg: #e3f0ea;
+    --code-bg: #eaefed;
+    --shadow: 0 1px 3px rgba(23,33,30,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #101614;
+      --panel: #161d1b;
+      --panel2: #1c2522;
+      --ink: #e2eae6;
+      --ink2: #9fb0aa;
+      --ink3: #6d7d77;
+      --line: #263029;
+      --accent: #3bcfa4;
+      --accent-ink: #5adcb5;
+      --warn: #e08a63;
+      --warn-bg: #2a1f19;
+      --good-bg: #16281f;
+      --code-bg: #1a231f;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #f2f5f4; --panel: #ffffff; --panel2: #e9eeec; --ink: #17211e;
+    --ink2: #4c5a55; --ink3: #7d8a85; --line: #d5ddda; --accent: #0d8a6c;
+    --accent-ink: #0a6b54; --warn: #b0532f; --warn-bg: #f6ebe5;
+    --good-bg: #e3f0ea; --code-bg: #eaefed; --shadow: 0 1px 3px rgba(23,33,30,.07);
+  }
+  :root[data-theme="dark"] {
+    --paper: #101614; --panel: #161d1b; --panel2: #1c2522; --ink: #e2eae6;
+    --ink2: #9fb0aa; --ink3: #6d7d77; --line: #263029; --accent: #3bcfa4;
+    --accent-ink: #5adcb5; --warn: #e08a63; --warn-bg: #2a1f19;
+    --good-bg: #16281f; --code-bg: #1a231f; --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font: 16px/1.62 -apple-system, "Segoe UI", system-ui, sans-serif;
+    margin: 0; padding: 0 20px 96px;
+  }
+  main { max-width: 60rem; margin: 0 auto; }
+  h1, h2, h3 { font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif; text-wrap: balance; line-height: 1.2; }
+  h1 { font-size: 2.4rem; font-weight: 700; margin: 0 0 .4rem; }
+  h2 { font-size: 1.65rem; margin: 0 0 1rem; }
+  h3 { font-size: 1.15rem; margin: 2rem 0 .6rem; }
+  p, li { max-width: 66ch; }
+  section { margin-top: 4.5rem; }
+  a { color: var(--accent-ink); }
+
+  .eyebrow, code, .mono, th {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  .eyebrow {
+    font-size: .72rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-ink); display: block; margin-bottom: .5rem;
+  }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 3px; font-size: .85em; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); padding: 1rem 1.2rem; overflow-x: auto; font-size: .8rem; line-height: 1.55; border-radius: 6px; }
+  pre code { background: none; padding: 0; }
+
+  header.masthead { padding: 4rem 0 0; border-bottom: 1px solid var(--line); }
+  .masthead .sub { color: var(--ink2); font-size: 1.1rem; max-width: 60ch; }
+  .meta { color: var(--ink3); font-size: .8rem; margin: 1.6rem 0 1.2rem; display: flex; gap: 1.5rem; flex-wrap: wrap; }
+
+  nav.toc { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.4rem 0 2rem; }
+  nav.toc a {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .72rem;
+    text-decoration: none; color: var(--ink2); border: 1px solid var(--line);
+    padding: .3rem .65rem; border-radius: 999px; background: var(--panel);
+  }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent-ink); border-color: var(--accent); outline: none; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 1.5rem 0; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.1rem; box-shadow: var(--shadow); }
+  .card h4 { margin: 0 0 .4rem; font-size: .95rem; }
+  .card p { margin: 0; font-size: .85rem; color: var(--ink2); }
+  .card .num { font-family: ui-monospace, Menlo, monospace; color: var(--accent-ink); font-size: .72rem; letter-spacing: .1em; display: block; margin-bottom: .5rem; }
+
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin: 1.2rem 0; }
+  th { text-align: left; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); font-weight: 500; padding: .7rem .9rem .4rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: .55rem .9rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.mono { font-size: .78rem; white-space: nowrap; }
+  .r { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .verdict { border-left: 3px solid var(--accent); background: var(--good-bg); padding: .9rem 1.2rem; border-radius: 0 6px 6px 0; margin: 1.4rem 0; }
+  .verdict.bad { border-left-color: var(--warn); background: var(--warn-bg); }
+  .verdict p { margin: 0; }
+
+  .pill { display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: .66rem; letter-spacing: .06em; padding: .12rem .5rem; border-radius: 999px; border: 1px solid var(--line); color: var(--ink2); white-space: nowrap; }
+  .pill.keep { color: var(--accent-ink); border-color: var(--accent); }
+  .pill.cut { color: var(--warn); border-color: var(--warn); }
+
+  .diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.4rem; overflow-x: auto; margin: 1.4rem 0; }
+  .diagram .caption { font-size: .75rem; color: var(--ink3); margin-top: 1rem; font-family: ui-monospace, Menlo, monospace; }
+
+  .planes { display: grid; grid-template-columns: repeat(3, minmax(210px, 1fr)); gap: 12px; min-width: 660px; }
+  .plane { border: 1px solid var(--line); border-radius: 6px; padding: .9rem 1rem; background: var(--panel2); }
+  .plane h4 { margin: 0 0 .3rem; font-family: ui-monospace, Menlo, monospace; font-size: .78rem; letter-spacing: .08em; }
+  .plane p { font-size: .78rem; color: var(--ink2); margin: 0 0 .5rem; }
+  .plane ul { margin: 0; padding-left: 1rem; font-size: .76rem; color: var(--ink2); }
+  .plane.control { border-top: 3px solid var(--accent); }
+  .plane.stream { border-top: 3px solid #5b8bd0; }
+  .plane.bulk { border-top: 3px solid #b08cc9; }
+
+  .layers { min-width: 560px; display: flex; flex-direction: column; gap: 8px; }
+  .layer { display: grid; grid-template-columns: 130px 1fr; gap: 1rem; align-items: baseline; border: 1px solid var(--line); background: var(--panel2); border-radius: 6px; padding: .6rem .9rem; }
+  .layer .lname { font-family: ui-monospace, Menlo, monospace; font-size: .75rem; color: var(--accent-ink); }
+  .layer .ldesc { font-size: .8rem; color: var(--ink2); }
+
+  .arrow { text-align: center; color: var(--ink3); font-size: .8rem; line-height: 1; margin: .2rem 0; }
+
+  details { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin: .8rem 0; }
+  summary { cursor: pointer; padding: .8rem 1.1rem; font-weight: 600; font-size: .92rem; }
+  summary:focus-visible { outline: 2px solid var(--accent); border-radius: 8px; }
+  details > div { padding: 0 1.1rem 1rem; }
+  details p, details li { font-size: .88rem; }
+
+  .qa { counter-reset: q; }
+  .q { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; margin: .8rem 0; }
+  .q h4 { margin: 0 0 .35rem; font-size: .95rem; }
+  .q h4::before { counter-increment: q; content: "Q" counter(q) " · "; color: var(--accent-ink); font-family: ui-monospace, Menlo, monospace; font-size: .8rem; }
+  .q p { margin: .2rem 0; font-size: .86rem; color: var(--ink2); }
+  .q .rec { color: var(--ink); }
+  .q .rec b { color: var(--accent-ink); }
+
+  @media (max-width: 700px) {
+    h1 { font-size: 1.8rem; }
+    body { font-size: 15px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+</style>
+
+<main>
+<header class="masthead">
+  <span class="eyebrow">architecture proposal · for discussion — no code changed</span>
+  <h1>Podium, from first principles</h1>
+  <p class="sub">A redesign built from a fresh, full read of the codebase: what the product actually is, which complexity is essential, and the architecture that fits it — plus what it deletes and how we could get there.</p>
+  <div class="meta">
+    <span>2026-07-10</span>
+    <span>~124k LOC surveyed · 6 apps · 11 packages</span>
+    <span>5 parallel deep-read reports synthesized</span>
+  </div>
+  <nav class="toc">
+    <a href="#what">1 What Podium is</a>
+    <a href="#today">2 The system today</a>
+    <a href="#principles">3 First principles</a>
+    <a href="#design">4 The design</a>
+    <a href="#packages">5 Package layout</a>
+    <a href="#deleted">6 What disappears</a>
+    <a href="#migration">7 Getting there</a>
+    <a href="#decisions">8 Open decisions</a>
+  </nav>
+</header>
+
+<section id="tldr">
+  <h2>TL;DR — five moves</h2>
+  <p>The bones are right. The product concept, the local-first sync direction, the harness-adapter seam, the command-registry idea — all worth keeping. What's wrong is that the codebase contains <em>three half-finished unifications</em> (branded IDs, generic mutations, the delta wire), several god objects that grew where module seams should be, and the same concepts defined 3–8 times. The redesign finishes the unifications and makes the latent architecture the actual one:</p>
+  <div class="cards">
+    <div class="card"><span class="num">MOVE 1</span><h4>One model</h4><p>Every entity defined once, with branded IDs, in a single <code>model</code> package. All projections derived, never re-declared. Sync provenance moves to an envelope, out of entity schemas.</p></div>
+    <div class="card"><span class="num">MOVE 2</span><h4>One replication engine</h4><p>Authority / Replica / Outbox — one engine used identically at browser↔server, mobile↔server, and node↔hub. The funnel, ledger, upstream sync, forwarder, and client replica are today five bespoke implementations of it.</p></div>
+    <div class="card"><span class="num">MOVE 3</span><h4>Commands everywhere</h4><p>The issue command registry pattern — schema + authz + handler, transports derived — becomes the write surface for <em>all</em> mutations. One access path replaces tRPC-vs-registry-vs-store spaghetti.</p></div>
+    <div class="card"><span class="num">MOVE 4</span><h4>Three planes, explicit</h4><p>Control (durable, replicated) / Stream (live, lossy) / Bulk (paged). The wire taxonomy already knows this; the module structure doesn't. Make plane the top-level organizing axis.</p></div>
+    <div class="card"><span class="num">MOVE 5</span><h4>Variance at the edge</h4><p>Everything CLI-specific lives in one harness manifest per agent (today: 3 capability tables, 6 identity aliases, state logic in 3 modules). One <code>SessionBinding</code> owns a session's identities.</p></div>
+  </div>
+</section>
+
+<section id="what">
+  <h2>1 · What Podium actually is</h2>
+  <p>Strip away the implementation and the product is one sentence:</p>
+  <div class="verdict"><p><strong>Podium is a control plane for a fleet of third-party coding agents:</strong> it runs them on any of your machines, shows you all of them from anywhere (offline-capable), tells you which one needs you, and organizes the work around them.</p></div>
+  <p>Everything shipped today falls into eight capability clusters:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Capability</th><th>What ships today</th></tr>
+    <tr><td><strong>Run agents</strong></td><td>PTY spawn/attach for claude / codex / grok / opencode / cursor + plain shells; durable hosts (abduco/tmux/systemd-scope) that survive redeploys; hibernate/resurrect; headless (PTY-less) turns; model &amp; effort pickers.</td></tr>
+    <tr><td><strong>See agents</strong></td><td>Terminal panes (xterm), structured chat view of the same session, controller/spectator roles, mobile key toolbar, live titles, drafts synced across devices.</td></tr>
+    <tr><td><strong>Know their state</strong></td><td>Hook ingestion + transcript classification → working / idle / needs-input; attention board; unread/snooze/pins; notifications (ntfy, Telegram, in-app); quota gauges; host CPU/memory.</td></tr>
+    <tr><td><strong>Find their history</strong></td><td>Discovery of every existing conversation across CLIs' native stores; conversation registry; transcript lake (byte-verbatim mirror); windowed transcript reads; FTS5 omni-search.</td></tr>
+    <tr><td><strong>Organize the work</strong></td><td>Native issue tracker (stages, deps, hierarchy, labels, mail, drafts, worktree lifecycle, agent authz) + pspec living spec + automations + kanban/board UI — driven by agents themselves via a capability-scoped CLI.</td></tr>
+    <tr><td><strong>Orchestrate</strong></td><td>Superagent / concierge / btw threads — an LLM orchestrator with an MCP tool belt over the tracker and sessions.</td></tr>
+    <tr><td><strong>Span machines</strong></td><td>Daemon pairing, fleet admin, repo registry with machine affinity, node→hub mirroring with offline write forwarding.</td></tr>
+    <tr><td><strong>Run anywhere</strong></td><td>Single signed binary, systemd persistence, self-update, setup wizard, PWA + Expo mobile + Tauri desktop, offline-first replica in every client.</td></tr>
+  </table></div>
+  <p>Any architecture has to serve exactly this list — nothing here is speculative scaffolding, all of it is live product.</p>
+</section>
+
+<section id="today">
+  <h2>2 · The system today, honestly</h2>
+
+  <h3>Where the weight sits</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Area</th><th class="r">LOC</th><th>Shape</th></tr>
+    <tr><td class="mono">apps/server</td><td class="r">46.8k</td><td>15 modules behind one registry; single-writer SQLite; two WS planes</td></tr>
+    <tr><td class="mono">apps/web</td><td class="r">40.8k</td><td>React 19 PWA over a shared non-React engine + local replica</td></tr>
+    <tr><td class="mono">packages/agent-bridge</td><td class="r">16.9k</td><td>PTY backends, durable hosts, 5 harness adapters, state, discovery</td></tr>
+    <tr><td class="mono">apps/daemon</td><td class="r">10.8k</td><td>Per-machine host: WS client, control handlers, hook ingest, relays</td></tr>
+    <tr><td class="mono">packages/* (rest)</td><td class="r">~15k</td><td>protocol · client-core · sync · transcript · runtime · issue-client · domain</td></tr>
+    <tr><td class="mono">apps/cli + scripts + ops</td><td class="r">~6k</td><td>Launch matrix, bun-compile packaging, systemd, signed updates</td></tr>
+  </table></div>
+
+  <h3>What is genuinely good <span class="pill keep">keep</span></h3>
+  <ul>
+    <li><strong>The local-first replica.</strong> Oplog deltas + durable outbox + optimistic overlay is the right read/write model for this product, and it works.</li>
+    <li><strong>The harness-adapter seam.</strong> Per-CLI variance (launch flags, resume models, transcript formats, MCP dialects) is irreducible; isolating it in adapters is correct.</li>
+    <li><strong>The message-class taxonomy.</strong> <code>durable / live / command / bulk</code>, total over every union — a compile error if you forget to classify. This is the seed of the whole redesign.</li>
+    <li><strong>The issue command registry.</strong> One definition → tRPC + MCP + CLI + relay, with authz attached. The best pattern in the repo; it just never spread.</li>
+    <li><strong>Domain as a tiny pure leaf</strong> (461 LOC, zero deps), the sqlite runtime shim, the signed-update pipeline, boundary linting as code.</li>
+  </ul>
+
+  <h3>What is accidental <span class="pill cut">redesign target</span></h3>
+  <div class="tablewrap"><table>
+    <tr><th>Symptom</th><th>Evidence</th></tr>
+    <tr><td><strong>Same concept, many definitions</strong></td><td>“A session” has ~8 shapes (<code>SessionRow</code>, <code>Session</code>, <code>SessionMeta</code>, <code>RpcSessionView</code>…); the issue shape ~6; the oplog change row is re-typed 4× along its own write path; <code>AgentKind</code> and capability tables exist in triplicate; machine identity is <code>'local'</code> + <code>'__local__'</code> + pairing tokens with adoption shims bridging them.</td></tr>
+    <tr><td><strong>God objects at missing seams</strong></td><td><code>sessions/service.ts</code> 2,202 lines / ~45 methods (transport mux + lifecycle + sends + mirror + drafts + idempotency); client <code>engine.ts</code> 1,360; <code>derive.ts</code> 1,430; <code>connection.ts</code> 1,294; <code>IssuesView</code> 1,169; <code>ChatView</code> 1,126; the issue service is a 6-file, 2,340-line <em>inheritance chain</em> sharing protected state.</td></tr>
+    <tr><td><strong>Cycles hidden by thunks</strong></td><td>The composition root claims an acyclic module graph but wires sessions↔issues↔conversations via <code>let svc!</code> late-assignment and <code>() =&gt; issues?.…</code> closures. The cycles are real; the thunks hide them.</td></tr>
+    <tr><td><strong>Half-finished unifications</strong></td><td>Branded IDs (<code>ids.ts</code>) exist but every schema still says <code>z.string()</code>; the generic <code>MutationEnvelope</code> exists but nothing sends one; the delta wire ships but a legacy full-snapshot fan-out is still maintained beside it.</td></tr>
+    <tr><td><strong>Five bespoke sync engines</strong></td><td>Server funnel/ledger, client replica+outbox, node→hub <code>UpstreamSync</code>, node→hub <code>UpstreamForwarder</code>, plus the legacy snapshot path — each an independent implementation of “replicate state / forward writes,” each with its own healing and idempotency logic.</td></tr>
+    <tr><td><strong>Scar-tissue branches</strong></td><td>The CLI launch planner carries named migration-debt states (<code>reconcile-pending-persistence</code>, <code>incomplete-headless-config</code>); boot heals pile up in <code>store.ts</code> (repo-id backfill, placeholder adoption, seq renumbering); sync/async twins of every abduco/tmux op; codex trust-hashing bit-exact against one codex version.</td></tr>
+  </table></div>
+
+  <div class="verdict bad"><p><strong>Diagnosis:</strong> this is not a wrong architecture — it's the right architecture, a third of the way through being extracted from an older one, with the extraction stalled at the hard parts (sessions, identity, the write path). The cost is paid daily as duplication, thunk-wiring, and 1–2k-line files nobody can safely refactor.</p></div>
+</section>
+
+<section id="principles">
+  <h2>3 · First principles</h2>
+  <p>Five invariants fall directly out of the problem. Everything in §4 is derived from them.</p>
+  <div class="cards">
+    <div class="card"><span class="num">P1</span><h4>Agents are opaque and hostile to abstraction</h4><p>Third-party TUIs you don't control: no uniform state API, divergent resume models, on-disk formats that drift per release. Adapters, hooks, and heuristics are <em>essential</em> — so confine 100% of that variance to one module per CLI, and let nothing else know an agent's name.</p></div>
+    <div class="card"><span class="num">P2</span><h4>Replication is the product, not a feature</h4><p>Phone offline, laptop asleep, VPS authoritative — every surface is a replica of somebody. There must be exactly one replication mechanism, used at every hop, or every hop grows its own bugs.</p></div>
+    <div class="card"><span class="num">P3</span><h4>Three traffic classes, three contracts</h4><p>Durable state (small, must survive reconnect), live streams (high-rate, loss is fine), bulk data (transcripts — paged, never fanned out). They already have different guarantees on the wire; they should have different owners in the code.</p></div>
+    <div class="card"><span class="num">P4</span><h4>Every write is a command</h4><p>Named, schema'd, authorized, idempotent. Whether it arrives via UI, CLI, MCP, an agent's relay, or a downstream node's outbox — same definition, same authz, same envelope. Transports are derived, never hand-written.</p></div>
+    <div class="card"><span class="num">P5</span><h4>Podium mints identity; artifacts are evidence</h4><p>Already the stated doctrine (“agent artifacts are evidence, never identity”) — apply it totally: one branded ID per entity, minted once, with all native aliases (rollout files, thread ids, abduco labels, scopes) recorded <em>on</em> the entity, never used <em>as</em> it.</p></div>
+  </div>
+</section>
+
+<section id="design">
+  <h2>4 · The design</h2>
+
+  <h3>4.1 One peer model</h3>
+  <p>Today there are four bespoke kinds of process (server, hub, daemon, client) with four handshakes and three identity schemes. Reduce to one concept: a <strong>peer</strong> that dials an <strong>authority</strong>, authenticates once, declares capabilities, and then speaks the three planes it cares about.</p>
+  <div class="diagram">
+    <pre style="border:none;background:none;padding:0;margin:0">
+  ┌─────────┐   ┌─────────┐   ┌──────────┐        ┌──────────────┐
+  │ web PWA │   │ mobile  │   │ desktop  │        │ another node │
+  │ replica │   │ replica │   │ (full    │        │ (its own     │
+  └────┬────┘   └────┬────┘   │  node)   │        │  authority)  │
+       │             │        └────┬─────┘        └──────┬───────┘
+       │  control+stream+bulk      │                     │  control (replica)
+       ▼             ▼             ▼                     ▼  + command forwarding
+  ╔═══════════════════════════════════════════════════════════════╗
+  ║  NODE (authority)     model · commands · sync · services      ║
+  ║  roles: [core] [+hub: accepts peers below] [+cloud: plugins]  ║
+  ╚═══════════════╤═══════════════════════════════╤═══════════════╝
+                  │ stream + command planes       │
+           ┌──────┴──────┐                 ┌──────┴──────┐
+           │ machine host│                 │ machine host│   ← daemon role:
+           │ (this box)  │                 │ (remote box)│     PTYs, harnesses,
+           └─────────────┘                 └─────────────┘     discovery, hooks</pre>
+    <div class="caption">One handshake, one pairing story, one token model. “Hub” stops being a different thing — it's a node that accepts other nodes as replica peers. The local daemon pairs exactly like a remote one (no more <code>'local'</code>/<code>'__local__'</code> placeholder identities).</div>
+  </div>
+
+  <h3>4.2 Three planes as the top-level axis</h3>
+  <div class="diagram">
+    <div class="planes">
+      <div class="plane control">
+        <h4>CONTROL — durable</h4>
+        <p>Entities + commands + replication. The only plane with persistence.</p>
+        <ul>
+          <li>read: change feed (seq cursor, gap-heal)</li>
+          <li>write: command envelopes (idempotent)</li>
+          <li>sessions, issues, conversations, machines, repos, settings, threads</li>
+        </ul>
+      </div>
+      <div class="plane stream">
+        <h4>STREAM — live, lossy</h4>
+        <p>Never persisted, never replayed, coalesced under pressure.</p>
+        <ul>
+          <li>PTY frames, titles, agent state</li>
+          <li>host metrics, quotas, presence</li>
+          <li>attention events</li>
+        </ul>
+      </div>
+      <div class="plane bulk">
+        <h4>BULK — paged</h4>
+        <p>Large payloads, cursor-anchored, never fanned out.</p>
+        <ul>
+          <li>transcript windows + tails</li>
+          <li>file read/write, uploads</li>
+          <li>lake mirror pulls</li>
+        </ul>
+      </div>
+    </div>
+    <div class="caption">Today this exists as a wire-side classification (<code>message-class.ts</code>) bolted onto module code that freely mixes planes. In the redesign each plane has one owner in the gateway, one backpressure policy, one test harness — and a module declares which planes it touches.</div>
+  </div>
+
+  <h3>4.3 One sync engine (Move 2)</h3>
+  <p>The heart of the redesign. Define the replication engine <em>once</em>, with three roles, and instantiate it at every hop:</p>
+  <div class="diagram">
+    <pre style="border:none;background:none;padding:0;margin:0">
+  AUTHORITY                      REPLICA                      OUTBOX
+  owns the ledger                holds rows + cursor          durable command queue
+  commit(cmd) → write            applies deltas               client-minted mutationIds
+  + change append (one txn)      heals gaps via changesSince  optimistic overlay derived
+  emits seq-ordered deltas       snapshot only on cold start  poison-drop, FIFO drain
+
+  instantiated at every hop, same code:
+    browser/mobile  ──replica+outbox──▶  node        (today: client-core replica + outbox)
+    node            ──replica+outbox──▶  hub         (today: UpstreamSync + UpstreamForwarder)
+    server modules  ──commit()───────▶  own ledger   (today: funnel + Ledger)</pre>
+    <div class="caption">Five implementations become one. The engine owns its DDL and migrations (today sync writes SQL against tables whose schema lives in apps/server). The legacy full-snapshot fan-out is deleted; delta is the only wire.</div>
+  </div>
+  <ul>
+    <li><strong>Entity envelope:</strong> every replicated row is <code>{id, rev, origin, payload}</code>. Mirror provenance (<code>viaHub</code>, <code>upstreamStale</code>, <code>pendingSync</code> — today hand-copied onto each entity schema) becomes envelope metadata computed by the replica, invisible to entity definitions.</li>
+    <li><strong>Conflict policy stays:</strong> writer-authority for daemon-observed fields, per-field LWW for user-authored fields — but declared once per field in the model, not re-implemented per hop.</li>
+    <li><strong>Idempotency stays:</strong> <code>mutationId</code> as the universal dedup key — but there is exactly one <code>applied_mutations</code> concept, owned by the engine.</li>
+  </ul>
+
+  <h3>4.4 Commands as the only write surface (Move 3)</h3>
+  <p>Generalize the issue registry to everything. A command is:</p>
+  <pre><code>defineCommand('session.rename', {
+  input:  z.object({ sessionId: SessionId, title: z.string() }),
+  authz:  { action: 'write', target: 'session', scope: 'subtree' },
+  handler: (ctx, input) =&gt; ctx.sessions.rename(input),
+})</code></pre>
+  <p>From that single definition the framework derives: the tRPC procedure, the MCP tool, the CLI subcommand, the daemon-relay gate, the outbox envelope for offline clients, the idempotency wrapping, and the audit/event-log entry. Consequences:</p>
+  <ul>
+    <li>The 1,026-line hand-written router disappears into generated surface + a handful of genuine queries.</li>
+    <li>The three ways to reach state (<code>mods(ctx)</code> / <code>ctx.registry.modules</code> / <code>ctx.registry.sessionStore</code>) collapse to one.</li>
+    <li>Duplicate procs (superagent <code>send</code> ≡ <code>sendTurn</code>) become impossible to re-introduce unnoticed.</li>
+    <li>Issue authz (capability + scope-subtree) becomes <em>the</em> authz model for all writes, including sessions — agents get exactly the same gate everywhere.</li>
+  </ul>
+
+  <h3>4.5 The node, decomposed</h3>
+  <p>Replace the constructor-as-wiring composition root and the 2.2k-line session god-object with services that each own one plane-scoped concern, communicating through commands (writes), the change feed (reactions), and typed queries (reads). Where today's graph is cyclic (sessions↔issues↔conversations), the cycle is broken by <em>reacting to changes</em> instead of calling back:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Service</th><th>Owns</th><th>Replaces</th></tr>
+    <tr><td class="mono">gateway</td><td>peer handshake, auth, plane routing, backpressure, wire versioning</td><td>wsServer + parts of server.ts + daemon handshake spread</td></tr>
+    <tr><td class="mono">fleet</td><td>machines, pairing, tokens, daemon RPC correlator (generic, not per-call-type), repo registry + affinity</td><td>machines/, hub/, triple identity model</td></tr>
+    <tr><td class="mono">sessions</td><td>lifecycle (spawn/kill/hibernate) · inbox (sendText, answers, queued sends) · presence (read/snooze/pins/drafts) — three files, one store</td><td>the 2,202-line SessionService + 8 projections</td></tr>
+    <tr><td class="mono">tracker</td><td>issues + specs: store, stage machine, deps, mail — composed capabilities, not inheritance layers</td><td>6-file IssueService chain + specs module</td></tr>
+    <tr><td class="mono">memory</td><td>conversation registry, transcript lake, index, omni-search</td><td>conversations/ + search</td></tr>
+    <tr><td class="mono">orchestrator</td><td>superagent threads, headless turns, MCP belt</td><td>superagent/ (dedup'd)</td></tr>
+    <tr><td class="mono">attention</td><td>steward triggers, subscriptions, notification delivery</td><td>steward + notify/</td></tr>
+    <tr><td class="mono">telemetry</td><td>host metrics, quotas, usage buckets</td><td>hosts/ + usage scan</td></tr>
+  </table></div>
+
+  <h3>4.6 The machine host (daemon), tightened</h3>
+  <ul>
+    <li><strong>One <code>SessionBinding</code></strong> record per session owns all six aliases (podium id ↔ durable label ↔ systemd scope ↔ harness-native id ↔ resume ref ↔ transcript path) with explicit bind events on spawn / reattach / hook-repin / headless-allocation. Binding logic leaves <code>session-observers.ts</code> / <code>control/session.ts</code> / adapters and lives in one state machine.</li>
+    <li><strong>One harness manifest per CLI</strong> — the existing adapter interface plus the capability matrix, MCP-support table, and transcript mapper registration folded in (today three separate tables in three packages). Nothing outside <code>harness/</code> may branch on agent kind — lint-enforced, like today's boundaries.</li>
+    <li><strong>Async-only host API</strong> — delete the sync/async twins of every abduco/tmux op.</li>
+    <li><strong>State detection stays hooks-first</strong>; the regex transcript classifier survives but is quarantined as one adapter-private fallback with a confidence field, so the LLM escape hatch and future replacement are localized.</li>
+  </ul>
+
+  <h3>4.7 The client engine, split</h3>
+  <p>Keep the excellent decisions — React-free engine, replica-first reads, outbox-as-optimism, one URL writer — and split the three god-files along their natural seams:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Module</th><th>Owns</th><th>Today buried in</th></tr>
+    <tr><td class="mono">transport</td><td>socket lifecycle, reconnect, plane demux, epoch/seq</td><td>connection.ts (1,294)</td></tr>
+    <tr><td class="mono">replica</td><td>sync-engine Replica role + persistence adapter (localStorage / AsyncStorage / SQLite)</td><td>replica.ts + engine hydration</td></tr>
+    <tr><td class="mono">actions</td><td>command dispatch + outbox + optimistic overlay</td><td>engine.ts (~30 methods)</td></tr>
+    <tr><td class="mono">router / ui-state</td><td>URL, panes, persistence — the <em>only</em> UI persistence (kills stray localStorage keys and the panelMode duality)</td><td>engine.ts + Workspace.tsx + file-panel-mode.ts</td></tr>
+    <tr><td class="mono">viewmodels/*</td><td>per-feature derivations (worklist, chat, issues, terminal) with published, memoized slices — components stop running 15-effect reconciliations</td><td>derive.ts (1,430) + ChatView/Superagent local state</td></tr>
+  </table></div>
+  <p>Mobile consumes the same slices directly (the <code>MobileClientValue</code> re-wrapping layer goes away). Feature components cap out around 300 lines because menus/dialogs become declarative configs.</p>
+</section>
+
+<section id="packages">
+  <h2>5 · Package layout</h2>
+  <div class="diagram">
+    <pre style="border:none;background:none;padding:0;margin:0">
+  packages/
+    model            entities (branded ids, zod, field-level merge policy) + pure domain
+                     predicates + the capability manifest types        [absorbs: domain,
+                     protocol/entities, ids.ts — the single source of truth]
+    commands         command framework + every command definition      [generalizes
+                     issues/registry.ts; absorbs issue-client/commands table]
+    wire             frame unions per plane, codec, handshake, versioning
+                     [protocol minus entities]
+    sync             Authority · Replica · Outbox + their DDL/migrations
+                     [absorbs funnel, ledger, upstream*, client replica core]
+    store            sqlite shim, migration runner, blob/lake primitives   [from runtime]
+    runtime          config, run-registry, process plumbing (slimmed)
+    harness          per-CLI manifests: launch/exec/headless/state/discovery/transcript
+                     [agent-bridge harness+state+discovery + transcript pkg]
+    pty              backends (Bun.Terminal / node-pty / ConPTY) + durable hosts
+                     (abduco / tmux / scopes)                          [agent-bridge pty half]
+    engine           client: transport / replica-binding / actions / router / viewmodels
+                     [client-core, split]
+    terminal-ui      xterm layer + react adapter                       [terminal-client(+react)]
+
+  apps/
+    node             the one server binary: services (§4.5) composed by role
+                     core | +hub | +cloud(plugins)                     [apps/server]
+    host             machine daemon: gateway client + pty + harness + relays  [apps/daemon]
+    web · mobile · desktop · cli                                       [unchanged roles, thinner]</pre>
+    <div class="caption">Dependency rule, unchanged in spirit, simpler in practice:</div>
+    <div class="layers" style="margin-top:.8rem">
+      <div class="layer"><span class="lname">L0 model</span><span class="ldesc">pure schemas + predicates — imports nothing</span></div>
+      <div class="layer"><span class="lname">L1 wire · commands</span><span class="ldesc">contracts over the model</span></div>
+      <div class="layer"><span class="lname">L2 sync · store · harness · pty</span><span class="ldesc">engines — import L0/L1 only</span></div>
+      <div class="layer"><span class="lname">L3 engine · terminal-ui · services</span><span class="ldesc">composition-ready parts</span></div>
+      <div class="layer"><span class="lname">L4 apps</span><span class="ldesc">node · host · web · mobile · desktop · cli — wiring only</span></div>
+    </div>
+  </div>
+  <p>Boundary lint survives (it's good) but shrinks from eight bespoke rules to two axioms: <em>imports only point down layers</em>, and <em>only <code>harness/</code> may name an agent</em>.</p>
+</section>
+
+<section id="deleted">
+  <h2>6 · What disappears</h2>
+  <p>The satisfying part. Each row is code that exists today and has no home in the new design:</p>
+  <div class="tablewrap"><table>
+    <tr><th>Deleted</th><th>Why it can go</th></tr>
+    <tr><td>Legacy full-snapshot fan-out (<code>publishComputed</code> path)</td><td>Delta becomes the only wire; cold start = snapshot via the same feed</td></tr>
+    <tr><td>~7 of 8 session projections; 5 of 6 issue shapes; 3 of 4 change-row typings</td><td>Derived from the one model definition</td></tr>
+    <tr><td><code>UpstreamSync</code> + <code>UpstreamForwarder</code> + client replica/outbox as separate engines (~1.5k LOC)</td><td>Instances of the one sync engine</td></tr>
+    <tr><td><code>'local'</code> / <code>'__local__'</code> placeholders + adoption/retarget/backfill boot heals</td><td>Local daemon pairs like any peer; identity minted once</td></tr>
+    <tr><td>Hand-written tRPC router bulk (~800 of 1,026 lines), duplicate procs, triple state-access paths</td><td>Derived from command definitions</td></tr>
+    <tr><td>IssueService inheritance chain as a structure</td><td>Recomposed as capability modules over one store</td></tr>
+    <tr><td>Sync/async twins of every abduco/tmux op</td><td>Async-only host API</td></tr>
+    <tr><td>Pure re-export shims (<code>local-machine.ts</code>, <code>issue-client.ts</code>, …)</td><td>Import sites move once, shims die</td></tr>
+    <tr><td>Launch-plan migration-debt branches (<code>reconcile-pending-persistence</code>, <code>incomplete-headless-config</code>)</td><td>Versioned config with explicit one-shot migrations</td></tr>
+    <tr><td>AgentKind ×3, capability tables ×3, <code>stateDir()</code> ×2, ISO-vs-epoch predicate twins</td><td>Single manifest / single clock representation in model</td></tr>
+    <tr><td><code>panelMode</code>/<code>renderMode</code> duality, Superagent shadow-thread mirrors, <code>MobileClientValue</code> wrapper, stray localStorage keys</td><td>One ui-state owner; store slices consumed directly</td></tr>
+    <tr><td>Two parallel systemd unit families + heredoc byte-copy checker</td><td>Units rendered from one source at build and install time</td></tr>
+  </table></div>
+  <p>Rough size: on the order of <strong>15–20% of the codebase is duplication, shims, and parallel implementations</strong> that this design removes outright — and, more valuably, it caps the complexity of what remains (no file should need 2,000 lines when transport, lifecycle, and mirroring are different modules).</p>
+  <p>What deliberately does <em>not</em> disappear: the incident scar tissue. The abduco scope gymnastics, ConPTY quirks, codex trust hashing, redeploy gates — each encodes a real production incident. They get <em>relocated and labeled</em> (each behind its owning seam), not rewritten.</p>
+</section>
+
+<section id="migration">
+  <h2>7 · Getting there — two routes</h2>
+  <details open>
+    <summary>Route A — Strangler, in place (recommended)</summary>
+    <div>
+      <p>Six phases, each independently shippable, live system stays up throughout. Order chosen so every phase makes the next one mechanically easier:</p>
+      <ol>
+        <li><strong>Model extraction.</strong> Move every entity schema + domain predicate into <code>model</code>; flip <code>z.string()</code> ids to the existing branded ids; delete duplicate shapes by re-deriving them. Mechanical, huge blast radius, near-zero behavior change — the compiler drives it.</li>
+        <li><strong>Sync unification.</strong> Make funnel/ledger the Authority role; port client replica to the Replica role; delete the legacy snapshot fan-out; move DDL into <code>sync</code>. Then re-instantiate for node↔hub and delete Upstream*.</li>
+        <li><strong>Command generalization.</strong> Lift the registry framework out of issues; migrate session/settings/superagent mutations onto it; shrink the router.</li>
+        <li><strong>Node decomposition.</strong> Split SessionService along lifecycle/inbox/presence; recompose IssueService; replace thunk-wiring with change-feed reactions. (Only safe <em>after</em> 1–3: the seams then already exist.)</li>
+        <li><strong>Host tightening.</strong> SessionBinding state machine; async-only hosts; fold the three capability tables into harness manifests.</li>
+        <li><strong>Client split + UI slimming.</strong> Engine into five modules; viewmodel slices; retire the mobile wrapper; declarative menus.</li>
+      </ol>
+      <p><strong>Why recommended:</strong> ~6 apps × 3 OSes × 5 agent CLIs of incident-hardened edge cases live in this code. A rewrite re-discovers them one outage at a time; a strangler carries them across. The boundary linter and the message-class totality checks make each phase verifiable.</p>
+    </div>
+  </details>
+  <details>
+    <summary>Route B — Clean-room rebuild (“throw it all away”)</summary>
+    <div>
+      <p>Scaffold the L0–L4 skeleton empty, port feature clusters in product-priority order (run/see agents → state/attention → tracker → sync/fleet → orchestrator → ops), treating today's repo as a reference implementation and test oracle (the e2e suite ports first).</p>
+      <p><strong>Honest cost:</strong> months of dual maintenance, and the highest-risk code (abduco/ConPTY/harness quirks) is exactly the code that can't be redesigned — it would be transplanted verbatim anyway. Route B buys a cleaner git history and absolute freedom on the store schema; it does not buy a better architecture than Route A ends at. Worth it only if we also want to change something Route A can't reach (e.g., a different persistence substrate end-to-end).</p>
+    </div>
+  </details>
+</section>
+
+<section id="decisions">
+  <h2>8 · Open decisions — where I need you</h2>
+  <p>Each of these changes the design or the plan. My recommendation is marked, but these are yours to call:</p>
+  <div class="qa">
+    <div class="q"><h4>Route A (strangler) or Route B (rebuild)?</h4>
+      <p class="rec"><b>Recommend A.</b> The incident scar tissue is the most valuable code in the repo; A carries it, B re-earns it.</p></div>
+    <div class="q"><h4>Delta-only wire — drop legacy snapshot clients?</h4>
+      <p class="rec"><b>Recommend yes.</b> Removes the dual fan-out permanently. Cost: one forced client update at cutover (the 426 self-update path already exists).</p></div>
+    <div class="q"><h4>All-in-one: one process or keep the server/daemon split?</h4>
+      <p class="rec"><b>Recommend keep two processes, one peer protocol.</b> The split isolates PTY storms from the API and is why redeploys don't kill sessions. The redesign removes the split's <em>complexity</em> (one handshake, no placeholder identities) without giving up its isolation.</p></div>
+    <div class="q"><h4>Replica store: keep TanStack DB, or a minimal purpose-built replica?</h4>
+      <p class="rec"><b>Slight lean: purpose-built.</b> The sync engine defines the semantics anyway; TanStack DB has already bitten (delete-tracking) and mostly adds an adapter layer. But keeping it is cheap if you value the ecosystem.</p></div>
+    <div class="q"><h4>Agent state: invest in hooks-first everywhere and demote the regex classifier?</h4>
+      <p class="rec"><b>Recommend yes.</b> Hooks are ground truth where they exist; the classifier becomes a labeled, confidence-scored fallback inside the claude manifest only.</p></div>
+    <div class="q"><h4>Keep tRPC, or go fully command-registry + plain HTTP queries?</h4>
+      <p class="rec"><b>Recommend keep tRPC as a derived transport</b> (typed client for free), but no hand-written procedures — everything flows from command defs. Full removal is possible later since nothing but the derivation layer would touch it.</p></div>
+  </div>
+  <p style="margin-top:2.5rem">Nothing has been changed in the repo. When you've picked directions on the questions above, the natural next step is a phase-1 plan (model extraction) with concrete file moves.</p>
+</section>
+</main>

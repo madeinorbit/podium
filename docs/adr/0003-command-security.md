@@ -398,7 +398,7 @@ or cancel.
 | Authz | `authorize` + `Capability` + `IssueCaller` | Policy D2 + principal D7 + re-auth D8 |
 | Client outbox | `queued` + `awaiting-truth`; poison drop | Full D9 state machine + dead-letter UX (POD-316) |
 | Receipts | 30d prune | Keep 30d; outbox max age 14d (D10–D11) |
-| Message class | `durable/live/command/bulk` | Unchanged; delivery class is separate (D4) |
+| Message class | `durable/live/command/bulk` | Migrates to ADR 7 plane-class vocabulary (control/stream/bulk + command message-class); delivery class stays separate (D4) |
 
 ---
 

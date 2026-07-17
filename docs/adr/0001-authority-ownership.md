@@ -426,6 +426,8 @@ Everything else defaults to **exp-rev**, **single-writer**, **append**, or **cmd
 | **observe-only** | Clients never author; display last Authority revision (may be stale). |
 | **never-enqueue** | Unsafe to buffer (ADR 3 delivery class). |
 
+Vocabulary note (reconciliation): these five matrix values are ownership-matrix annotations that PROJECT onto ADR 3’s three delivery classes — `offline-eligible` → durable-queued; `online-only` and `never-enqueue` → command class (no enqueue); `live-path-required` → live class; `observe-only` has no write path at all. ADR 3 owns delivery-class semantics; this table only annotates which class each field/aggregate may use.
+
 ---
 
 ## Alignment with implementing issues
