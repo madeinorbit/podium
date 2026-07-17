@@ -124,6 +124,49 @@ export const ScanReposResultMessage = z.object({
   diagnostics: z.array(GitDiscoveryDiagnosticWire),
 })
 
+// ---- Daemon <-> server: directory browsing (POD-814) [spec:SP-3701] ----
+// The repo picker browses the SELECTED machine's disk through its daemon. The
+// server host's own filesystem is never the browse target: users pick a machine,
+// and in hub-only mode (mode=server) the hub may run no daemon at all.
+export const DirectoryEntryWire = z.object({
+  name: z.string(),
+  path: z.string(),
+})
+export type DirectoryEntryWire = z.infer<typeof DirectoryEntryWire>
+
+export const DirectoryListingWire = z.object({
+  /** The resolved directory that was listed (realpath of the requested path). */
+  path: z.string(),
+  /** The browsed machine's $HOME — the picker's "Home" button target. */
+  homePath: z.string(),
+  /** null at the filesystem root, where there is nowhere further up. */
+  parentPath: z.string().nullable(),
+  // Always present on the wire; defaults to [] so producers may omit it safely.
+  entries: z.array(DirectoryEntryWire).default([]),
+})
+export type DirectoryListingWire = z.infer<typeof DirectoryListingWire>
+
+export const BrowseDirsRequestMessage = z.object({
+  type: z.literal('browseDirsRequest'),
+  requestId: z.string(),
+  /** Absolute path or `~`-relative; omitted browses the daemon's $HOME. */
+  path: z.string().optional(),
+  /** When false/omitted, dot-directories are filtered out of `entries`. */
+  includeHidden: z.boolean().optional(),
+})
+export type BrowseDirsRequestMessage = z.infer<typeof BrowseDirsRequestMessage>
+
+// Exactly one of `listing` / `error` is set. A failed browse is a RESULT, not a
+// dropped request: the daemon reports unreadable/missing paths in `error` so the
+// picker shows them instead of hanging until the RPC times out.
+export const BrowseDirsResultMessage = z.object({
+  type: z.literal('browseDirsResult'),
+  requestId: z.string(),
+  listing: DirectoryListingWire.optional(),
+  error: z.string().optional(),
+})
+export type BrowseDirsResultMessage = z.infer<typeof BrowseDirsResultMessage>
+
 // Constrained git operations the superagent may run on a dev machine. An
 // allowlisted enum (not a shell string) — the daemon maps each op to a fixed
 // git invocation.

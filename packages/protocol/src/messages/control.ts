@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
-import { RepoOpRequestMessage, ScanReposRequestMessage, ScanRequestMessage } from './discovery'
+import {
+  BrowseDirsRequestMessage,
+  RepoOpRequestMessage,
+  ScanReposRequestMessage,
+  ScanRequestMessage,
+} from './discovery'
 import {
   DirListRequestMessage,
   FileAssetRequestMessage,
@@ -75,6 +80,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SessionPriorityMessage,
   ScanRequestMessage,
   ScanReposRequestMessage,
+  BrowseDirsRequestMessage,
   InputMessage,
   ResizeMessage,
   RedrawMessage,

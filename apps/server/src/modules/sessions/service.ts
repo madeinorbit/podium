@@ -2922,6 +2922,10 @@ export class SessionsService {
         this.rpc.onScanReposResult(msg)
         break
       }
+      case 'browseDirsResult': {
+        this.rpc.onBrowseDirsResult(msg)
+        break
+      }
       case 'hostMetrics': {
         const { type: _type, ...rest } = msg
         this.hosts.onHostMetrics(machineId, rest)

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import {
+  BrowseDirsResultMessage,
   ConversationsChangedMessage,
   RepoOpResultMessage,
   ScanReposResultMessage,
@@ -138,6 +139,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,
+  BrowseDirsResultMessage,
   TranscriptMirrorResultMessage,
   HostMetricsMessage,
   MemoryBreakdownResultMessage,

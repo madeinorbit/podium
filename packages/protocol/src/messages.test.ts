@@ -490,6 +490,8 @@ describe('ControlMessage (server -> daemon)', () => {
     { type: 'kill', sessionId: 's1' },
     { type: 'scanRequest', requestId: 'r1' },
     { type: 'scanReposRequest', requestId: 'rr1', roots: ['/home/u/src'] },
+    { type: 'browseDirsRequest', requestId: 'bd1' },
+    { type: 'browseDirsRequest', requestId: 'bd2', path: '~/src', includeHidden: true },
     { type: 'input', sessionId: 's1', data: 'aGk=' },
     { type: 'resize', sessionId: 's1', cols: 100, rows: 30 },
     { type: 'redraw', sessionId: 's1' },
@@ -552,6 +554,22 @@ describe('DaemonMessage (daemon -> server)', () => {
       diagnostics: [{ severity: 'warning', path: '/bad', message: 'nope' }],
     },
     {
+      type: 'browseDirsResult',
+      requestId: 'bd1',
+      listing: {
+        path: '/home/u/src',
+        homePath: '/home/u',
+        parentPath: '/home',
+        entries: [{ name: 'app', path: '/home/u/src/app' }],
+      },
+    },
+    {
+      type: 'browseDirsResult',
+      requestId: 'bd2',
+      listing: { path: '/', homePath: '/home/u', parentPath: null, entries: [] },
+    },
+    { type: 'browseDirsResult', requestId: 'bd3', error: 'Could not open directory /nope' },
+    {
       type: 'sessionOpenUrl',
       sessionId: 's1',
       requestId: 'open-1',
@@ -568,6 +586,31 @@ describe('DaemonMessage (daemon -> server)', () => {
   ]
   it.each(cases)('round-trips %j', (msg) => {
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
+  })
+})
+
+describe('browseDirsResult listing', () => {
+  it('defaults entries to [] so a producer may omit an empty directory', () => {
+    const msg = parseDaemonMessage(
+      JSON.stringify({
+        type: 'browseDirsResult',
+        requestId: 'bd1',
+        listing: { path: '/srv', homePath: '/home/u', parentPath: '/' },
+      }),
+    )
+    expect(msg.type === 'browseDirsResult' && msg.listing?.entries).toEqual([])
+  })
+
+  it('rejects a listing missing homePath — the picker Home button needs it', () => {
+    expect(() =>
+      parseDaemonMessage(
+        JSON.stringify({
+          type: 'browseDirsResult',
+          requestId: 'bd1',
+          listing: { path: '/srv', parentPath: '/', entries: [] },
+        }),
+      ),
+    ).toThrow()
   })
 })
 

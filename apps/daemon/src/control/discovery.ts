@@ -1,4 +1,6 @@
-import { hostname } from 'node:os'
+import { readdir, realpath, stat } from 'node:fs/promises'
+import { homedir, hostname } from 'node:os'
+import { dirname, isAbsolute, join } from 'node:path'
 import {
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
@@ -6,6 +8,8 @@ import {
 } from '@podium/agent-bridge'
 import type {
   ControlMessage,
+  DirectoryEntryWire,
+  DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
 } from '@podium/protocol'
@@ -87,6 +91,93 @@ async function scanRepos(
   ctx.send({ type: 'scanReposResult', requestId, repositories, diagnostics })
 }
 
+/** The daemon's live home. Prefers $HOME over the snapshotted agent-home
+ *  (ctx.homeDir) for the same reason scanRepos does: the browse target is the
+ *  user's own tree, and tests isolate it by mutating process.env.HOME after the
+ *  daemon starts. ctx.homeDir stays the fallback when HOME is unset. */
+function browseHomeDir(ctxHomeDir?: string): string {
+  return process.env.HOME || ctxHomeDir || homedir()
+}
+
+function expandHome(path: string, homePath: string): string {
+  if (path === '~') return homePath
+  if (path.startsWith('~/')) return join(homePath, path.slice(2))
+  return path
+}
+
+/**
+ * One directory's sub-directories on THIS machine's disk (POD-814) [spec:SP-3701].
+ * Ported from the server's browseDirectories(): the picker used to browse the hub
+ * host's own disk, which is the wrong filesystem — the user picks a machine, and a
+ * hub in mode=server may have no disk of interest (or no daemon) at all.
+ *
+ * Directories only (the picker adds repos, and files are never repo roots), hidden
+ * ones filtered unless asked for, sorted by name. Throws on an unusable path; the
+ * handler turns that into the result's `error` field.
+ */
+export async function listDirectories(
+  path: string | undefined,
+  options: { includeHidden?: boolean; homeDir?: string } = {},
+): Promise<DirectoryListingWire> {
+  const homePath = browseHomeDir(options.homeDir)
+  const requested = expandHome(path?.trim() || homePath, homePath)
+  if (!isAbsolute(requested)) throw new Error(`directory path must be absolute: ${requested}`)
+
+  let current = requested
+  try {
+    const s = await stat(current)
+    if (!s.isDirectory()) throw new Error('path is not a directory')
+    current = await realpath(current)
+  } catch (err) {
+    throw new Error(
+      `Could not open directory ${requested}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+
+  let entries: DirectoryEntryWire[]
+  try {
+    entries = (await readdir(current, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => options.includeHidden || !entry.name.startsWith('.'))
+      .map((entry) => ({ name: entry.name, path: join(current, entry.name) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  } catch (err) {
+    throw new Error(
+      `Could not read directory ${current}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+
+  const parent = dirname(current)
+  return {
+    path: current,
+    homePath,
+    parentPath: parent === current ? null : parent,
+    entries,
+  }
+}
+
+async function browseDirs(
+  ctx: DaemonContext,
+  requestId: string,
+  opts: { path?: string; includeHidden?: boolean },
+): Promise<void> {
+  try {
+    const listing = await listDirectories(opts.path, {
+      ...(opts.includeHidden === undefined ? {} : { includeHidden: opts.includeHidden }),
+      ...(ctx.homeDir === undefined ? {} : { homeDir: ctx.homeDir }),
+    })
+    ctx.send({ type: 'browseDirsResult', requestId, listing })
+  } catch (err) {
+    // A bad path is a normal outcome of browsing, not a daemon fault: report it
+    // so the picker shows the reason instead of hanging until the RPC times out.
+    ctx.send({
+      type: 'browseDirsResult',
+      requestId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
 async function memoryBreakdown(
   ctx: DaemonContext,
   requestId: string,
@@ -133,7 +224,7 @@ async function memoryBreakdown(
 
 export const discoveryHandlers: Pick<
   ControlHandlers,
-  'scanRequest' | 'scanReposRequest' | 'memoryBreakdownRequest'
+  'scanRequest' | 'scanReposRequest' | 'browseDirsRequest' | 'memoryBreakdownRequest'
 > = {
   scanRequest: (ctx, msg) => {
     void scan(ctx, msg.requestId)
@@ -142,6 +233,12 @@ export const discoveryHandlers: Pick<
     void scanRepos(ctx, msg.requestId, msg.roots, {
       ...(msg.includeHome === undefined ? {} : { includeHome: msg.includeHome }),
       ...(msg.maxDepth === undefined ? {} : { maxDepth: msg.maxDepth }),
+    })
+  },
+  browseDirsRequest: (ctx, msg: Extract<ControlMessage, { type: 'browseDirsRequest' }>) => {
+    void browseDirs(ctx, msg.requestId, {
+      ...(msg.path === undefined ? {} : { path: msg.path }),
+      ...(msg.includeHidden === undefined ? {} : { includeHidden: msg.includeHidden }),
     })
   },
   memoryBreakdownRequest: (ctx, msg) => {

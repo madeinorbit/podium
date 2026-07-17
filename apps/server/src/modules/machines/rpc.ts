@@ -8,10 +8,12 @@ import type {
 import type {
   AgentKind,
   AgentQuotaWire,
+  BrowseDirsResultMessage,
   ControlMessage,
   ConversationDiagnosticWire,
   ConversationSummaryWire,
   DaemonMessage,
+  DirectoryListingWire,
   DirListResultMessage,
   FileAssetResultMessage,
   FileReadResultMessage,
@@ -33,6 +35,10 @@ import { perf } from '../perf/registry'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
+// A browse is one readdir, but it may hit a cold/spun-down disk on a remote
+// machine — generous enough to ride that out, short enough that the picker's
+// spinner doesn't outlive the user's patience.
+const BROWSE_TIMEOUT_MS = 20_000
 
 export interface ScanResult {
   conversations: ConversationSummaryWire[]
@@ -42,6 +48,12 @@ export interface ScanResult {
 export interface ScanReposResult {
   repositories: GitRepositoryWire[]
   diagnostics: GitDiscoveryDiagnosticWire[]
+}
+
+/** One machine's directory listing, or why it couldn't be read (POD-814). */
+export interface BrowseDirsResult {
+  listing?: DirectoryListingWire
+  error?: string
 }
 
 /** Outcome of a daemon-executed operation (git op / harness one-shot). */
@@ -99,6 +111,7 @@ export class DaemonRpcService {
   private nextRequestNum = 0
   private readonly pendingScans = new Map<string, (r: ScanResult) => void>()
   private readonly pendingRepoScans = new Map<string, (r: ScanReposResult) => void>()
+  private readonly pendingBrowseDirs = new Map<string, (r: BrowseDirsResult) => void>()
   private readonly pendingRepoOps = new Map<string, (r: OpResult) => void>()
   private readonly pendingHandoffExports = new Map<
     string,
@@ -231,6 +244,29 @@ export class DaemonRpcService {
         roots,
         ...(opts.includeHome === undefined ? {} : { includeHome: opts.includeHome }),
         ...(opts.maxDepth === undefined ? {} : { maxDepth: opts.maxDepth }),
+      }),
+      machineId ?? this.deps.defaultMachine(),
+    )
+  }
+
+  /** One directory's sub-directories on `machineId`'s disk (POD-814) [spec:SP-3701]
+   *  — the repo picker's browser. `path` omitted browses that machine's $HOME.
+   *  A daemon-reported failure comes back in `error`, not as a rejection. */
+  browseDirs(
+    path?: string,
+    opts: { includeHidden?: boolean } = {},
+    machineId?: string,
+  ): Promise<BrowseDirsResult> {
+    return this.request(
+      this.pendingBrowseDirs,
+      'bd',
+      BROWSE_TIMEOUT_MS,
+      () => ({ error: 'directory browse timed out' }),
+      (requestId) => ({
+        type: 'browseDirsRequest',
+        requestId,
+        ...(path === undefined ? {} : { path }),
+        ...(opts.includeHidden === undefined ? {} : { includeHidden: opts.includeHidden }),
       }),
       machineId ?? this.deps.defaultMachine(),
     )
@@ -745,6 +781,13 @@ export class DaemonRpcService {
     DaemonRpcService.settle(this.pendingRepoScans, msg.requestId, {
       repositories: msg.repositories,
       diagnostics: msg.diagnostics,
+    })
+  }
+
+  onBrowseDirsResult(msg: BrowseDirsResultMessage): void {
+    DaemonRpcService.settle(this.pendingBrowseDirs, msg.requestId, {
+      ...(msg.listing === undefined ? {} : { listing: msg.listing }),
+      ...(msg.error === undefined ? {} : { error: msg.error }),
     })
   }
 

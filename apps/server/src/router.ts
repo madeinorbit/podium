@@ -997,11 +997,35 @@ export const appRouter = t.router({
         await ctx.repos.remove(input.path, input.machineId)
         return ctx.repos.list()
       }),
+    // Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
+    // With `machineId` the listing comes from THAT machine's daemon — the only
+    // filesystem the user means. Without it, the legacy server-local browse: kept
+    // strictly for old clients that predate the machine-aware picker, which reads
+    // the hub host's own disk (wrong tree, and empty-to-absent in mode=server).
     browse: t.procedure
       .input(
-        z.object({ path: z.string().optional(), includeHidden: z.boolean().optional() }).optional(),
+        z
+          .object({
+            path: z.string().optional(),
+            includeHidden: z.boolean().optional(),
+            machineId: z.string().optional(),
+          })
+          .optional(),
       )
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        if (input?.machineId) {
+          const res = await mods(ctx).rpc.browseDirs(
+            input.path,
+            { ...(input.includeHidden === undefined ? {} : { includeHidden: input.includeHidden }) },
+            input.machineId,
+          )
+          if (!res.listing)
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: res.error ?? 'directory browse failed',
+            })
+          return res.listing
+        }
         try {
           return await browseDirectories(input?.path, { includeHidden: input?.includeHidden })
         } catch (e) {
