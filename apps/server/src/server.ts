@@ -9,7 +9,12 @@ import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { readOwnDaemonMachineId, UpstreamForwarder, UpstreamSync } from '@podium/sync'
+import {
+  prepareLedgerBoot,
+  readOwnDaemonMachineId,
+  UpstreamForwarder,
+  UpstreamSync,
+} from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
@@ -24,6 +29,7 @@ import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { MessagingService } from './modules/messaging'
+import { perf } from './modules/perf/registry'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
@@ -128,6 +134,23 @@ export async function startServer(
   const config = loadConfig()
   const role = resolveServerRole(opts.role, config)
   const store = new SessionStore()
+  // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
+  // bounded, yielding units before SessionRegistry constructs its Ledger and
+  // folds/reconciles the retained rows. The server does not listen meanwhile.
+  const bootPrune = await prepareLedgerBoot({
+    repo: store.sync,
+    now: Date.now,
+    onPruneMetrics: (metrics) => {
+      perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs)
+      perf.record('phase', 'changeLogPrune.boot.maxSlice', metrics.maxUninterruptedSliceMs)
+    },
+  })
+  if (bootPrune.metrics.exceededPlacementThreshold) {
+    console.warn(
+      `[ledger] boot retention took ${bootPrune.metrics.totalDurationMs.toFixed(1)}ms; ` +
+        'candidate for janitor placement',
+    )
+  }
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.

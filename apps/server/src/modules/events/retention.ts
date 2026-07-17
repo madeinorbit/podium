@@ -27,6 +27,8 @@ export class EventLogRetention {
   private bootTimer: ReturnType<typeof setTimeout> | undefined
   private timer: ReturnType<typeof setInterval> | undefined
   private readonly shutdown = new AbortController()
+  private pruneFlight: Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> | undefined
+  private pruneRerunRequested = false
 
   constructor(
     private readonly events: Pick<EventsRepository, 'planEventPrune' | 'pruneEventBatch'>,
@@ -43,17 +45,45 @@ export class EventLogRetention {
   }
 
   dispose(): void {
+    this.pruneRerunRequested = false
     this.shutdown.abort()
     if (this.bootTimer) clearTimeout(this.bootTimer)
     if (this.timer) clearInterval(this.timer)
   }
 
   /**
-   * One complete retention job over podium_events [spec:SP-c29e]. Each DELETE
-   * is bounded before it reaches this loop; the shared helper yields by
-   * macrotask between units when the 12ms slice budget is spent.
+   * Request retention [spec:SP-c29e]. Overlapping triggers share one flight and
+   * coalesce into at most one follow-up pass, so timer/manual races cannot run
+   * duplicate plans and deletes concurrently.
    */
-  async pruneNow(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
+  pruneNow(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
+    if (this.pruneFlight) {
+      this.pruneRerunRequested = true
+      return this.pruneFlight
+    }
+    const flight = this.drainPruneRequests()
+    this.pruneFlight = flight
+    const clear = () => {
+      if (this.pruneFlight === flight) this.pruneFlight = undefined
+    }
+    void flight.then(clear, clear)
+    return flight
+  }
+
+  private async drainPruneRequests(): Promise<{
+    deleted: number
+    metrics: TimeBudgetedJobMetrics
+  }> {
+    let result!: { deleted: number; metrics: TimeBudgetedJobMetrics }
+    do {
+      this.pruneRerunRequested = false
+      result = await this.runPruneJob()
+    } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
+    return result
+  }
+
+  /** One complete pass; each DELETE is a bounded synchronous unit. */
+  private async runPruneJob(): Promise<{ deleted: number; metrics: TimeBudgetedJobMetrics }> {
     const batchSize = this.options.batchSize ?? EVENT_PRUNE_BATCH_ROWS
     let deleted = 0
     let plan: ReturnType<EventsRepository['planEventPrune']> | undefined

@@ -73,6 +73,7 @@ export async function runTimeBudgetedJob(
   let yields = 0
   let outcome: TimeBudgetedJobOutcome = 'failed'
   let failure: unknown
+  let failed = false
 
   try {
     while (!options.signal?.aborted) {
@@ -99,6 +100,7 @@ export async function runTimeBudgetedJob(
     if (outcome !== 'completed') outcome = 'cancelled'
   } catch (err) {
     failure = err
+    failed = true
     outcome = 'failed'
   }
 
@@ -121,6 +123,6 @@ export async function runTimeBudgetedJob(
   } catch {
     // Measurement must never replace the maintenance job's result or error.
   }
-  if (failure !== undefined) throw failure
+  if (failed) throw failure
   return metrics
 }

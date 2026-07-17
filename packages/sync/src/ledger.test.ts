@@ -1,7 +1,7 @@
 import { transaction } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CHANGE_MAX_AGE_MS, CHANGE_PRUNE_EVERY } from './change-log'
-import { type EntityChangeSpec, Ledger } from './ledger'
+import { type EntityChangeSpec, Ledger, prepareLedgerBoot } from './ledger'
 import { SyncRepository } from './sync-repository'
 import { createTestSyncDatabase, createTestSyncRepository } from './test-support'
 
@@ -112,7 +112,10 @@ describe('Ledger', () => {
     commit(ledger, [issueSpec('a', 1)])
     commit(ledger, [issueSpec('a', 2)])
     commit(ledger, [issueSpec('a', 3)])
-    repo.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
+    repo.pruneChangeBatch(
+      repo.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() }),
+      500,
+    )
     expect(ledger.changesSince(0)).toBeNull() // seq 1-2 pruned away -> gap
     expect(ledger.changesSince(2)?.map((c) => c.seq)).toEqual([3]) // still contiguous
   })
@@ -128,14 +131,15 @@ describe('Ledger', () => {
     expect(ledger.changesSince(0)).toBeNull() // hole -> snapshot, not a crash
   })
 
-  it('prunes a bloated log at construction (boot self-heal)', () => {
+  it('prunes a bloated log before construction (boot self-heal)', async () => {
     const repo = createTestSyncRepository()
     const t0 = 1_000_000
     repo.appendChanges([{ entity: 'issue', entityId: 'a', op: 'upsert', payload: '{}' }], t0)
     const young = t0 + CHANGE_MAX_AGE_MS + 60_000
     repo.appendChanges([{ entity: 'issue', entityId: 'b', op: 'upsert', payload: '{}' }], young)
-    // Boot with "now" past row 1's age budget but within row 2's: the constructor
-    // prune drops the aged head before folding the baseline.
+    // Boot with "now" past row 1's age budget but within row 2's: readiness
+    // waits for the full sliced prune before the constructor folds the baseline.
+    await prepareLedgerBoot({ repo, now: () => young + 1 })
     const ledger = new Ledger({ repo, now: () => young + 1, transact: passthrough })
     expect(repo.minChangeSeq()).toBe(2)
     expect(repo.maxChangeSeq()).toBe(2)
@@ -143,6 +147,50 @@ describe('Ledger', () => {
     expect(
       commit(ledger, [{ entity: 'issue', id: 'b', op: 'upsert', value: JSON.parse('{}') }]).changes,
     ).toEqual([])
+  })
+
+  it('does not fold the baseline between the first boot-prune slice and readiness', async () => {
+    const inner = createTestSyncRepository()
+    const calls: string[] = []
+    let monotonicMs = 0
+    let batches = 0
+    const repo = new Proxy(inner, {
+      get(target, prop, receiver) {
+        if (prop === 'planChangePrune') {
+          return () => {
+            calls.push('plan')
+            return { thresholdSeq: 201 }
+          }
+        }
+        if (prop === 'pruneChangeBatch') {
+          return () => {
+            calls.push('delete')
+            monotonicMs += 13
+            return batches++ === 0 ? 100 : 1
+          }
+        }
+        if (prop === 'latestChangeStates') {
+          return () => {
+            calls.push('fold')
+            return []
+          }
+        }
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+
+    const ready = prepareLedgerBoot({
+      repo,
+      now: Date.now,
+      monotonicNow: () => monotonicMs,
+    }).then(() => new Ledger({ repo, now: Date.now, transact: passthrough }))
+
+    // Planning and one bounded delete happen synchronously; the 13ms slice then
+    // yields. Folding must remain behind the readiness promise.
+    expect(calls).toEqual(['plan', 'delete'])
+    await ready
+    expect(calls).toEqual(['plan', 'delete', 'delete', 'fold'])
   })
 
   it('prunes aged rows after PRUNE_EVERY append batches (retention thresholds)', () => {
@@ -160,6 +208,45 @@ describe('Ledger', () => {
     expect(repo.maxChangeSeq()).toBe(CHANGE_PRUNE_EVERY)
     // Deduped commits (no append) must NOT count toward the prune cadence.
     expect(commit(ledger, [issueSpec('a', CHANGE_PRUNE_EVERY)]).changes).toEqual([])
+  })
+
+  it('coalesces overlapping cadence prunes into the current job plus one rerun', async () => {
+    const inner = createTestSyncRepository()
+    let monotonicMs = 0
+    let planId = 0
+    const callsByPlan = new Map<number, number>()
+    const planChangePrune = vi.fn(() => ({ thresholdSeq: ++planId }))
+    const repo = new Proxy(inner, {
+      get(target, prop, receiver) {
+        if (prop === 'planChangePrune') return planChangePrune
+        if (prop === 'pruneChangeBatch') {
+          return (plan: { thresholdSeq: number }) => {
+            monotonicMs += 13
+            const calls = callsByPlan.get(plan.thresholdSeq) ?? 0
+            callsByPlan.set(plan.thresholdSeq, calls + 1)
+            return calls === 0 && plan.thresholdSeq === 1 ? 100 : 0
+          }
+        }
+        const value = Reflect.get(target, prop, receiver)
+        return typeof value === 'function' ? value.bind(target) : value
+      },
+    })
+    const onPruneMetrics = vi.fn()
+    const ledger = new Ledger({
+      repo,
+      now: Date.now,
+      transact: passthrough,
+      monotonicNow: () => monotonicMs,
+      onPruneMetrics,
+    })
+
+    for (let i = 0; i < CHANGE_PRUNE_EVERY * 3; i++) {
+      commit(ledger, [issueSpec(`single-flight-${i}`, i)])
+    }
+    await vi.waitFor(() => expect(onPruneMetrics).toHaveBeenCalledTimes(2))
+
+    expect(planChangePrune).toHaveBeenCalledTimes(2)
+    ledger.dispose()
   })
 
   it('conversation commits ignore volatile-only churn but ship full payloads on stable changes', () => {
@@ -418,14 +505,8 @@ function makeLedgerForReviewTests(opts: { pruneThrows?: boolean } = {}) {
   const repo = opts.pruneThrows
     ? new Proxy(inner, {
         get(target, prop, receiver) {
-          if (prop === 'pruneChanges') {
-            let first = true
+          if (prop === 'planChangePrune') {
             return () => {
-              // Let the constructor's boot prune succeed; throw on cadence prunes.
-              if (first) {
-                first = false
-                return
-              }
               throw new Error('prune boom')
             }
           }

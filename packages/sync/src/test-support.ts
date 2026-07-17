@@ -31,6 +31,7 @@ export function createTestSyncDatabase(): SqlDatabase {
      )`,
   )
   db.exec('CREATE INDEX changes_entity ON changes(entity, entity_id, seq)')
+  db.exec('CREATE INDEX changes_event_time ON changes(event_time)')
   db.exec(
     `CREATE TABLE applied_mutations (
        mutation_id TEXT PRIMARY KEY,

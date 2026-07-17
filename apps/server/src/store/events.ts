@@ -147,11 +147,6 @@ export class EventsRepository {
     return Number(result.changes)
   }
 
-  /** Convenience for one bounded unit; retention owners should reuse the plan. */
-  pruneEvents(opts: { maxAgeDays: number; maxRows: number; batchSize?: number }): number {
-    return this.pruneEventBatch(this.planEventPrune(opts), opts.batchSize)
-  }
-
   // ---- steward state ----
 
   getStewardState(key: string): string | undefined {

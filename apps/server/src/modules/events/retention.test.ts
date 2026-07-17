@@ -27,6 +27,33 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
     expect(onMetrics).toHaveBeenCalledWith(result.metrics)
   })
 
+  it('coalesces overlapping requests into the current job plus one rerun', async () => {
+    let monotonicMs = 0
+    let planId = 0
+    const callsByPlan = new Map<number, number>()
+    const planEventPrune = vi.fn(() => ({
+      cutoff: '2026-01-01T00:00:00.000Z',
+      capThroughId: ++planId,
+    }))
+    const pruneEventBatch = vi.fn((plan: { capThroughId: number }) => {
+      monotonicMs += 13
+      const calls = callsByPlan.get(plan.capThroughId) ?? 0
+      callsByPlan.set(plan.capThroughId, calls + 1)
+      return calls === 0 && plan.capThroughId === 1 ? 500 : 0
+    })
+    const retention = new EventLogRetention(
+      { planEventPrune, pruneEventBatch },
+      { batchSize: 500, now: () => monotonicMs },
+    )
+
+    const first = retention.pruneNow()
+    const second = retention.pruneNow()
+    const third = retention.pruneNow()
+    await Promise.all([first, second, third])
+
+    expect(planEventPrune).toHaveBeenCalledTimes(2)
+  })
+
   it('dispose cancels a yielded job before another delete unit starts', async () => {
     let nowMs = 0
     const planEventPrune = vi.fn(() => ({

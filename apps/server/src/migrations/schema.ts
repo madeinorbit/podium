@@ -202,6 +202,7 @@ export const changes = sqliteTable("changes", {
 	eventTime: integer("event_time").notNull(),
 },
 (table) => [index("changes_entity").on(table.entity, table.entityId, table.seq),
+index("changes_event_time").on(table.eventTime),
 ]);
 
 export const appliedMutations = sqliteTable("applied_mutations", {

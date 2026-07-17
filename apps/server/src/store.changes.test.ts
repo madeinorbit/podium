@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
+function pruneChanges(
+  store: SessionStore,
+  opts: { keepRows: number; maxAgeMs: number; now: number; batchSize?: number },
+): number {
+  const { batchSize = 500, ...planOptions } = opts
+  return store.sync.pruneChangeBatch(store.sync.planChangePrune(planOptions), batchSize)
+}
+
 // Metadata oplog storage (docs/spec/oplog-read-path.md §2.1): the `changes` table
 // contract — contiguous seq assignment, range reads, head-only retention, and seq
 // monotonicity across a full prune (the property AUTOINCREMENT exists to provide).
@@ -51,12 +59,12 @@ describe('SessionStore changes table', () => {
     // Row cap alone: keep the newest 2, even though every row is young (nothing
     // is older than the huge age window). The old AND-policy kept all 5 here —
     // that is exactly why the table never pruned under sustained write rates.
-    store.sync.pruneChanges({ keepRows: 2, maxAgeMs: 60_000, now: 5000 })
+    pruneChanges(store, { keepRows: 2, maxAgeMs: 60_000, now: 5000 })
     expect(store.sync.minChangeSeq()).toBe(4)
     expect(store.sync.maxChangeSeq()).toBe(5)
     // Age budget alone: a generous row cap does not protect rows past the age
     // cutoff (t < 4500 -> row 4 at t=4000 goes, row 5 at t=5000 stays).
-    store.sync.pruneChanges({ keepRows: 100, maxAgeMs: 500, now: 5000 })
+    pruneChanges(store, { keepRows: 100, maxAgeMs: 500, now: 5000 })
     expect(store.sync.minChangeSeq()).toBe(5)
   })
 
@@ -70,13 +78,33 @@ describe('SessionStore changes table', () => {
     }
 
     expect(
-      store.sync.pruneChanges({ keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
+      pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
     ).toBe(2)
     expect(store.sync.minChangeSeq()).toBe(3)
     expect(
-      store.sync.pruneChanges({ keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
+      pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
     ).toBe(2)
     expect(store.sync.minChangeSeq()).toBe(5)
+  })
+
+  it('keeps a fixed prune plan safe when rows append between batches', () => {
+    const store = new SessionStore(':memory:')
+    for (let i = 1; i <= 5; i++) {
+      store.sync.appendChanges(
+        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        1000,
+      )
+    }
+    const plan = store.sync.planChangePrune({ keepRows: 2, maxAgeMs: 60_000, now: 1000 })
+
+    expect(store.sync.pruneChangeBatch(plan, 2)).toBe(2)
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i6', op: 'upsert', payload: '{}' }],
+      1000,
+    )
+    expect(store.sync.pruneChangeBatch(plan, 2)).toBe(1)
+
+    expect(store.sync.changesSince(0).map((row) => row.seq)).toEqual([4, 5, 6])
   })
 
   it('age pruning deletes from the head only, keeping the retained range contiguous', () => {
@@ -87,7 +115,7 @@ describe('SessionStore changes table', () => {
     store.sync.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 9000)
     store.sync.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
     store.sync.appendChanges([{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }], 9000)
-    store.sync.pruneChanges({ keepRows: 100, maxAgeMs: 1000, now: 5000 })
+    pruneChanges(store, { keepRows: 100, maxAgeMs: 1000, now: 5000 })
     expect(store.sync.minChangeSeq()).toBe(3)
   })
 
@@ -95,7 +123,7 @@ describe('SessionStore changes table', () => {
     const store = new SessionStore(':memory:')
     store.sync.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1000)
     store.sync.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
-    store.sync.pruneChanges({ keepRows: 0, maxAgeMs: 0, now: 10_000 })
+    pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })
     expect(store.sync.minChangeSeq()).toBeNull()
     // A rewound seq here would silently corrupt every client cursor.
     expect(store.sync.maxChangeSeq()).toBe(2)

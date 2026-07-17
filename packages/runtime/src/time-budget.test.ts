@@ -90,4 +90,15 @@ describe('runTimeBudgetedJob [spec:SP-c29e]', () => {
       exceededPlacementThreshold: false,
     })
   })
+
+  it('rethrows undefined when a unit throws undefined', async () => {
+    const settled = runTimeBudgetedJob(() => {
+      throw undefined
+    }).then(
+      () => 'resolved',
+      (reason) => ({ rejected: reason }),
+    )
+
+    await expect(settled).resolves.toEqual({ rejected: undefined })
+  })
 })
