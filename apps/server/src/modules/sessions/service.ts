@@ -1888,6 +1888,19 @@ export class SessionsService {
       // keeps its residue but is no longer where this session lives.
       this.deps.onWorktreesChanged(targetRepo.path, input.machineId)
       this.deps.onWorktreesChanged(sourceRepo.path, source.machineId)
+      // [spec:SP-3f7a] The issue's home follows its session (POD-824): the target
+      // worktree is where this work lives now, and the issue's home is what the
+      // user sees — the file-browser root, the sidebar's worktree, and the cwd a
+      // new agent on this issue spawns into. Keyed on the worktree ROOT the daemon
+      // reports, never `newCwd` (which may be a `cwdSubpath` below it). An older
+      // daemon sends no root; leave the issue alone rather than guess its layout.
+      if (session.issueId && imported.worktreeRoot) {
+        this.issues().rehome(session.issueId, {
+          machineId: input.machineId,
+          repoPath: targetRepo.path,
+          worktreePath: imported.worktreeRoot,
+        })
+      }
       const resumed = this.resumeSession({
         agentKind: session.agentKind,
         cwd: session.cwd,

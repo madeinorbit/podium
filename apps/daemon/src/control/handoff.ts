@@ -111,6 +111,7 @@ async function importPackage(
       requestId: msg.requestId,
       ok: true,
       newCwd: result.newCwd,
+      worktreeRoot: result.worktreeRoot,
     })
   } catch (error) {
     ctx.send({

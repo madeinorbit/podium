@@ -193,7 +193,9 @@ describe('multi-daemon routing', () => {
   })
 })
 
-function handoffRegistry(opts: { failExport?: boolean } = {}) {
+function handoffRegistry(
+  opts: { failExport?: boolean; landInSubdir?: boolean; oldDaemon?: boolean; withIssue?: boolean } = {},
+) {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
   store.machines.upsertMachine({ id: 'm2', name: 'target', hostname: 'target', tokenHash: 'y' })
@@ -280,17 +282,33 @@ function handoffRegistry(opts: { failExport?: boolean } = {}) {
         type: 'handoffImportResult',
         requestId: msg.requestId,
         ok: true,
-        newCwd: '/target/repo/.worktrees/x',
+        // `newCwd` is where the AGENT lands — the worktree root, or a subdir when the
+        // session carried a cwdSubpath. `worktreeRoot` is the worktree itself; the
+        // issue's home is always the root (POD-824). An older daemon omits it.
+        newCwd: opts.landInSubdir ? '/target/repo/.worktrees/x/apps/web' : '/target/repo/.worktrees/x',
+        ...(opts.oldDaemon ? {} : { worktreeRoot: '/target/repo/.worktrees/x' }),
       })
   })
+  // An issue homed on the SOURCE machine, as `issue start` would leave it.
+  const issue = opts.withIssue
+    ? reg.modules.issues.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
+    : undefined
+  if (issue) {
+    reg.modules.issues.update(issue.id, {
+      worktreePath: '/source/repo/.worktrees/x',
+      branch: 'x',
+      machineId: 'm1',
+    })
+  }
   const { sessionId } = reg.modules.sessions.resumeSession({
     agentKind: 'claude-code',
     cwd: '/source/repo/.worktrees/x',
     resume: { kind: 'claude-session', value: 'native-id' },
     conversationId: 'native-id',
     machineId: 'm1',
+    ...(issue ? { issueId: issue.id } : {}),
   })
-  return { reg, source, target, sessionId }
+  return { reg, source, target, sessionId, issueId: issue?.id }
 }
 
 describe('session handoff orchestration', () => {
@@ -330,6 +348,52 @@ describe('session handoff orchestration', () => {
         { type: 'worktreesChanged', repoPath: '/target/repo', machineId: 'm2' },
         { type: 'worktreesChanged', repoPath: '/source/repo', machineId: 'm1' },
       ])
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = prior
+    }
+  })
+
+  it("moves the issue's home to the target worktree, not the agent's subdir (POD-824)", async () => {
+    // The issue's home drives the file-browser root, the sidebar's worktree, and the
+    // cwd a NEW agent on this issue spawns into. Left on the source it points at a
+    // machine the work is no longer on. repoPath must travel with machineId, or the
+    // issue cannot start: requireMachineForRepo rejects a path m2 never registered.
+    const prior = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
+    try {
+      const { reg, sessionId, issueId } = handoffRegistry({ withIssue: true, landInSubdir: true })
+      const before = reg.modules.issues.get(issueId!)
+      expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
+      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+      expect(reg.modules.issues.get(issueId!)).toMatchObject({
+        // The ROOT, even though the agent resumed in .../x/apps/web.
+        worktreePath: '/target/repo/.worktrees/x',
+        repoPath: '/target/repo',
+        machineId: 'm2',
+      })
+      // Identity survives the move: the nice-id prefix and repo scoping resolve
+      // through repoId, which is origin-derived and the same on both machines.
+      expect(reg.modules.issues.get(issueId!)?.seq).toBe(before?.seq)
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = prior
+    }
+  })
+
+  it("leaves the issue's home alone when the daemon is too old to report the worktree", async () => {
+    // Rather than guess the root by stripping cwdSubpath off newCwd — the daemon
+    // owns that layout — an absent worktreeRoot means no re-home at all.
+    const prior = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
+    try {
+      const { reg, sessionId, issueId } = handoffRegistry({ withIssue: true, oldDaemon: true })
+      await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+      expect(reg.modules.issues.get(issueId!)).toMatchObject({
+        worktreePath: '/source/repo/.worktrees/x',
+        repoPath: '/source/repo',
+        machineId: 'm1',
+      })
     } finally {
       if (prior === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = prior
