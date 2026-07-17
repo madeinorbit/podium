@@ -274,6 +274,58 @@ describe('reduceAgentState', () => {
     expect(s.awaitingSubagents).toBeUndefined()
   })
 
+  it('identity mode ignores anonymous deltas so count never diverges from the list', () => {
+    // Invariant: count tracks list length (0 when list absent).
+    const countMatchesList = (s: ReturnType<typeof initialAgentState>) => {
+      expect(s.nativeSubagentCount).toBe(s.nativeSubagents?.length ?? 0)
+    }
+
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(s, { kind: 'task_delta', delta: 1, agentId: 'A', agentType: 'Explore' }, T0)
+    expect(s).toMatchObject({
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'A', type: 'Explore' }],
+    })
+    countMatchesList(s)
+
+    // Anonymous ±1 while identity list is live must not move the count.
+    const afterAnonPlus = reduceAgentState(s, { kind: 'task_delta', delta: 1 }, T1)
+    expect(afterAnonPlus).toBe(s)
+    const afterAnonMinus = reduceAgentState(s, { kind: 'task_delta', delta: -1 }, T1)
+    expect(afterAnonMinus).toBe(s)
+    expect(s).toMatchObject({
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'A', type: 'Explore' }],
+    })
+    countMatchesList(s)
+
+    s = reduceAgentState(s, { kind: 'task_delta', delta: -1, agentId: 'A' }, T1)
+    expect(s.nativeSubagentCount).toBe(0)
+    expect(s.nativeSubagents).toBeUndefined()
+    countMatchesList(s)
+  })
+
+  it('session_ended clears nativeSubagents and awaitingSubagents', () => {
+    let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
+    s = reduceAgentState(
+      s,
+      { kind: 'task_delta', delta: 1, agentId: 'live-1', agentType: 'Explore' },
+      T0,
+    )
+    s = reduceAgentState(s, { kind: 'turn_completed' }, T1)
+    expect(s).toMatchObject({
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'live-1', type: 'Explore' }],
+    })
+
+    s = reduceAgentState(s, { kind: 'session_ended' }, T1)
+    expect(s.phase).toBe('ended')
+    expect(s.nativeSubagentCount).toBe(0)
+    expect(s.nativeSubagents).toBeUndefined()
+    expect(s.awaitingSubagents).toBeUndefined()
+  })
+
   it('accumulates working and compacting stretches across waiting transitions', () => {
     let s = reduceAgentState(initialAgentState(T0), { kind: 'prompt_submitted' }, T0)
     s = reduceAgentState(s, { kind: 'compaction', phase: 'start' }, T1)

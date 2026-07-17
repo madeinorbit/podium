@@ -23,16 +23,18 @@ function withSubagents(
 
 /**
  * Apply a task_delta to the identity list + count.
- * Identity path (agentId set — Claude SubagentStart/Stop): list is the source
- * of truth; nativeSubagentCount = list.length after the op so they never diverge.
- * Anonymous path (no agentId — Grok / dead Claude TaskCreated): ±1 on the count
- * only; list left alone.
+ * Identity mode (non-empty nativeSubagents): list is the single source of truth;
+ * nativeSubagentCount = list.length. Anonymous deltas (no agentId) are ignored so
+ * the two count rules cannot silently diverge. Unknown-id Stop is a no-op.
+ * Anonymous mode (empty/undefined list — Grok / dead Claude TaskCreated): pure ±1
+ * on the count only.
  */
 function applyTaskDelta(
   prev: AgentRuntimeState,
   event: Extract<AgentStateEvent, { kind: 'task_delta' }>,
 ): { nativeSubagentCount: number; nativeSubagents?: NonNullable<AgentRuntimeState['nativeSubagents']> } | null {
   const prevList = prev.nativeSubagents ?? []
+  const identityMode = prevList.length > 0
   if (event.agentId) {
     if (event.delta > 0) {
       if (prevList.some((s) => s.id === event.agentId)) return null // duplicate start
@@ -47,8 +49,8 @@ function applyTaskDelta(
     }
     // delta < 0
     if (!prevList.some((s) => s.id === event.agentId)) {
-      // Unknown id: if we were identity-tracking, ignore; else anonymous floor.
-      if (prevList.length > 0) return null
+      // Unknown id: ignore in identity mode; else treat as anonymous floor.
+      if (identityMode) return null
       const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
       if (nativeSubagentCount === prev.nativeSubagentCount) return null
       return { nativeSubagentCount }
@@ -56,10 +58,12 @@ function applyTaskDelta(
     const nextList = prevList.filter((s) => s.id !== event.agentId)
     return { nativeSubagentCount: nextList.length, ...withSubagents(nextList) }
   }
-  // Anonymous count-only path (legacy TaskCreated/Completed).
+  // Anonymous count-only path. Once identity mode is active the list owns the
+  // count — ignore so a stray TaskCreated/Completed cannot diverge it.
+  if (identityMode) return null
   const nativeSubagentCount = Math.max(0, prev.nativeSubagentCount + event.delta)
   if (nativeSubagentCount === prev.nativeSubagentCount) return null
-  return { nativeSubagentCount, ...withSubagents(prevList) }
+  return { nativeSubagentCount }
 }
 
 /**
@@ -165,6 +169,13 @@ export function reduceAgentState(
       }
     }
     case 'session_ended':
-      return { phase: 'ended', ...base }
+      // Terminal: drop live-subagent bookkeeping so identities / holds never
+      // leak into an ended session (base would otherwise carry them forward).
+      return {
+        phase: 'ended',
+        since,
+        workingMsTotal: workingMsAt(prev, since),
+        nativeSubagentCount: 0,
+      }
   }
 }
