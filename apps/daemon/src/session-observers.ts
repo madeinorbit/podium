@@ -122,6 +122,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cwd: string
   }
   type ClaudeCausalTracker = {
+    observerGeneration: number
     observer: ClaudeCausalObserver
     bootstrapTransitionId: string
     awaitingBootstrapAck: boolean
@@ -206,6 +207,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const snapshot = observer.bootstrap()
     if (!snapshot) return
     const causal: ClaudeCausalTracker = {
+      observerGeneration: snapshot.observerGeneration,
       observer,
       bootstrapTransitionId: snapshot.transitionId,
       awaitingBootstrapAck: true,
@@ -223,6 +225,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   ): void => {
     const causal = claudeCausal.get(msg.sessionId)
     if (!causal) return
+    if (msg.observerGeneration !== causal.observerGeneration) return
     causal.observer.acknowledgeCursor(msg.acceptedCursor)
     if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) return
     causal.awaitingBootstrapAck = false
