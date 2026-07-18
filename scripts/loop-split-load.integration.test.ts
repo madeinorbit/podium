@@ -1,7 +1,7 @@
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../apps/server/src/relay'
-import { SessionStore, type IssueRow } from '../apps/server/src/store'
+import { type IssueRow, SessionStore } from '../apps/server/src/store'
 
 const SESSION_COUNT = 588
 const ISSUE_COUNT = 800
@@ -9,6 +9,7 @@ const INTERACTION_P95_TARGET_MS = 25
 const INTERACTION_P99_TARGET_MS = 50
 const LOOP_P99_TARGET_MS = 50
 const INTERACTION_CYCLES = 250
+const CLIENT_COUNT = 2
 
 function issueRow(seq: number): IssueRow {
   const timestamp = '2026-07-18T00:00:00.000Z'
@@ -77,7 +78,9 @@ describe('loop split representative load [spec:SP-c29e]', () => {
     store.transact(() => {
       for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
     })
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(store, undefined, {
+      publicationShadowCompare: true,
+    })
     const sessionIds: string[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {
@@ -93,31 +96,48 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       expect(registry.modules.sessions.listSessions()).toHaveLength(SESSION_COUNT)
       expect(registry.modules.issues.list()).toHaveLength(ISSUE_COUNT)
 
-      const publications: string[] = []
-      const clientId = registry.modules.sessions.attachClient(() => {}, {
-        sendPrepared: (bytes) => publications.push(bytes),
-        principal: 'load-operator',
-        scope: 'all',
-        serverRole: 'standalone',
-        protocolVersion: 1,
-        global: true,
-        snapshot: () => ({
-          revision: 0,
-          allowedSignature: 'global',
-          allowedSessionIds: [],
-        }),
-      })
-      registry.modules.sessions.onClientMessage(clientId, {
-        type: 'hello',
-        clientId: '',
-        viewport: { cols: 80, rows: 24, dpr: 1 },
-        caps: ['metadataDelta'],
-      })
-      await until(() => publications.length > 0)
+      const clients: Array<{
+        id: string
+        publications: string[]
+        allowedSessionIds: string[]
+      }> = []
+      const sessionsPerWorld = Math.ceil(SESSION_COUNT / 4)
+      for (let clientIndex = 0; clientIndex < CLIENT_COUNT; clientIndex += 1) {
+        const publications: string[] = []
+        // Two live transports for the same scoped operator model concurrent
+        // browser tabs and exercise view-key coalescing. Differing-world and
+        // revocation correctness is pinned separately in the focused suite.
+        const allowedSessionIds = Array.from({ length: sessionsPerWorld }, (_, offset) => {
+          const sessionId = sessionIds[offset % SESSION_COUNT]
+          if (!sessionId) throw new Error('representative session fixture is empty')
+          return sessionId
+        })
+        const id = registry.modules.sessions.attachClient(() => {}, {
+          sendPrepared: (bytes) => publications.push(bytes),
+          principal: 'load-operator',
+          scope: 'principal:load-operator',
+          serverRole: 'standalone',
+          protocolVersion: 1,
+          global: false,
+          snapshot: () => ({
+            revision: 1,
+            allowedSignature: JSON.stringify(allowedSessionIds),
+            allowedSessionIds,
+          }),
+        })
+        clients.push({ id, publications, allowedSessionIds })
+        registry.modules.sessions.onClientMessage(id, {
+          type: 'hello',
+          clientId: '',
+          viewport: { cols: 80, rows: 24, dpr: 1 },
+          caps: ['metadataDelta'],
+        })
+      }
+      await until(() => clients.every((client) => client.publications.length > 0), 15_000)
       // Hello changes the ViewKey after the pre-capability bootstrap has already
       // been queued. Do not let that intentional bootstrap replacement bleed
       // into the measured steady-state window.
-      await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0)
+      await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0, 15_000)
       await new Promise((resolve) => setTimeout(resolve, 250))
 
       registry.modules.perf.reset()
@@ -131,22 +151,24 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       await new Promise((resolve) => setTimeout(resolve, 25))
 
       const interactionMs: number[] = []
-      const targetSession = sessionIds[0]
-      if (!targetSession) throw new Error('representative session fixture is empty')
       for (let cycle = 0; cycle < INTERACTION_CYCLES; cycle += 1) {
+        const client = clients[cycle % clients.length]
+        if (!client) throw new Error('representative client fixture is empty')
+        const targetSession = client.allowedSessionIds[cycle % client.allowedSessionIds.length]
+        if (!targetSession) throw new Error('representative scoped world is empty')
         for (const type of ['attach', 'detach'] as const) {
-          const publicationBefore = publications.length
+          const publicationBefore = client.publications.length
           const startedAt = performance.now()
-          registry.modules.sessions.onClientMessage(clientId, { type, sessionId: targetSession })
+          registry.modules.sessions.onClientMessage(client.id, { type, sessionId: targetSession })
           registry.modules.sessions.flushBroadcasts()
-          await until(() => publications.length > publicationBefore)
+          await until(() => client.publications.length > publicationBefore)
           interactionMs.push(performance.now() - startedAt)
         }
         // Representative interaction cadence; do not turn this into a worker
         // throughput benchmark that no human client can generate.
         await new Promise((resolve) => setTimeout(resolve, 5))
       }
-      await new Promise((resolve) => setTimeout(resolve, 25))
+      await until(() => registry.modules.sessions.publicationMetrics().queueDepth === 0, 15_000)
 
       const eventLoop = loop.snapshot()
       const perf = registry.modules.perf.snapshot().phases
@@ -164,9 +186,9 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       expect(worker).toMatchObject({
         queueDepth: 0,
         failures: 0,
-        shadowComparisons: 0,
         shadowMismatches: 0,
       })
+      expect(worker.shadowComparisons).toBeGreaterThanOrEqual(INTERACTION_CYCLES * CLIENT_COUNT)
       expect(worker.completedJobs).toBeGreaterThan(0)
       expect(worker.coalescedJobs).toBeGreaterThanOrEqual(0)
       expect(worker.supersededJobs).toBeGreaterThanOrEqual(0)
