@@ -34,6 +34,7 @@ import {
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
+import { isFeatureEnabled } from '../../features'
 import type { Capability } from '../../issue-authz'
 import {
   liveSessionsUsingWorktree,
@@ -375,8 +376,9 @@ export class SessionsService {
     // map, so it lives here as a bus subscriber (this service is constructed AFTER
     // NotifyService, so the notification replay keeps firing first).
     this.bus.on('settings.changed', ({ previous, next }) => {
-      // Keep the cached draftSync flag current (POD-859).
-      this.draftSyncEnabledCached = next.draftSync.enabled
+      // Keep the cached draftSync flag current (POD-859). Resolved through the
+      // canonical experiments system (channel/config/user) [spec:SP-f4b9].
+      this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', next)
       const wasEnabled = previous.autoContinue.enabled
       const nowEnabled = next.autoContinue.enabled
       if (nowEnabled === wasEnabled) return
@@ -818,7 +820,8 @@ export class SessionsService {
 
   loadFromStore(): void {
     // Seed the cached draftSync flag (POD-859) before any keystroke arrives.
-    this.draftSyncEnabledCached = this.store.settings.getSettings().draftSync.enabled
+    // Resolved through the canonical experiments system [spec:SP-f4b9].
+    this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', this.store.settings.getSettings())
     const drafts = this.store.sessions.loadDrafts()
     // Drafts historically replay independently of session-row existence. Keep
     // that contract for crash/orphan recovery; active rows additionally receive

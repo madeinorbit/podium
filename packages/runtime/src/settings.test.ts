@@ -324,18 +324,35 @@ describe('normalizeSettings — autoContinue', () => {
   })
 })
 
-describe('normalizeSettings — draftSync (POD-859)', () => {
-  it('defaults draftSync to disabled', () => {
-    expect(normalizeSettings({}).draftSync).toEqual({ enabled: false })
+describe('normalizeSettings — draftSync → experimental migration [spec:SP-f4b9] (POD-859)', () => {
+  // Draft Sync moved from the bespoke settings.draftSync.enabled key onto the
+  // canonical experiments store (settings.experimental['draft-sync']). One source
+  // of truth: the bespoke key is migrated forward then dropped.
+  it('migrates a legacy draftSync.enabled=true onto experimental["draft-sync"]', () => {
+    const s = normalizeSettings({ draftSync: { enabled: true } })
+    expect(s.experimental['draft-sync']).toBe(true)
   })
 
-  it('fills draftSync defaults for old blobs without the key', () => {
-    const s = normalizeSettings({ sessionDefaults: { agent: 'grok' } })
-    expect(s.draftSync).toEqual({ enabled: false })
+  it('drops the bespoke draftSync key (no second source of truth)', () => {
+    const s = normalizeSettings({ draftSync: { enabled: true } }) as Record<string, unknown>
+    expect(s.draftSync).toBeUndefined()
   })
 
-  it('keeps an explicit draftSync value', () => {
-    expect(normalizeSettings({ draftSync: { enabled: true } }).draftSync).toEqual({ enabled: true })
+  it('a legacy draftSync.enabled=false does not seed the experimental key', () => {
+    const s = normalizeSettings({ draftSync: { enabled: false } })
+    expect(s.experimental['draft-sync']).toBeUndefined()
+  })
+
+  it('a fresh blob leaves draft-sync unset (default off)', () => {
+    expect(normalizeSettings({}).experimental['draft-sync']).toBeUndefined()
+  })
+
+  it('an explicit experimental["draft-sync"] wins over the legacy key', () => {
+    const s = normalizeSettings({
+      draftSync: { enabled: true },
+      experimental: { 'draft-sync': false },
+    })
+    expect(s.experimental['draft-sync']).toBe(false)
   })
 })
 

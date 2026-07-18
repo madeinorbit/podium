@@ -95,7 +95,7 @@ for (const visibility of ['hidden', 'edge', 'stable'] as const) {
 }
 
 describe('FEATURES registry', () => {
-  it('includes the sample-experiment hidden flag', () => {
+  it('registers the sample-experiment (hidden) and draft-sync (edge) flags', () => {
     expect(FEATURES).toEqual([
       {
         id: 'sample-experiment',
@@ -103,6 +103,13 @@ describe('FEATURES registry', () => {
         description:
           'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
         visibility: 'hidden',
+      },
+      {
+        id: 'draft-sync',
+        name: 'Draft sync',
+        description:
+          'Bidirectional draft sync between the chat box and the agent’s native composer: text typed in either place mirrors to the other. Experimental — off by default.',
+        visibility: 'edge',
       },
     ])
   })

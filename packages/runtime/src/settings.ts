@@ -311,19 +311,14 @@ export const PodiumSettings = z.object({
       promptDismissed: z.boolean().default(false),
     })
     .default({}),
-  /** Draft Sync v2 (POD-859): bidirectional chat<->native composer draft sync with
-   *  the daemon-side scrape/inject engine. EXPERIMENTAL — ships dark, default off.
-   *  Off = today's client-scraped draft behavior (no new code paths active). */
-  draftSync: z
-    .object({
-      enabled: z.boolean().default(false),
-    })
-    .default({}),
   /**
    * User toggles for experimental features [spec:SP-f4b9]. Keys are feature ids
    * from the protocol registry; unknown ids are kept (a flag may exist in a
    * newer/older build) and are harmless. Honored only while the flag is listed
    * for this install — see `resolveFeatureState`.
+   *
+   * Draft Sync v2 (POD-859) lives here under `'draft-sync'`; the legacy bespoke
+   * `draftSync.enabled` key is migrated onto it by `normalizeSettings` and dropped.
    */
   experimental: z.record(z.string(), z.boolean()).default({}),
 })
@@ -402,12 +397,35 @@ function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
   })
 }
 
+/** Legacy `draftSync.enabled` → the canonical experiments store [spec:SP-f4b9].
+ *  Draft Sync v2 (POD-859) moved onto `experimental['draft-sync']`; carry a
+ *  persisted opt-in forward so an upgrade doesn't silently disable it, then let
+ *  `PodiumSettings.parse` drop the now-unknown `draftSync` key (one source of
+ *  truth). Returns the merged experimental record, or undefined when there is
+ *  nothing to migrate (no legacy opt-in, or the standard key is already present). */
+function migrateDraftSyncFlag(raw: Record<string, unknown>): Record<string, boolean> | undefined {
+  const ds = raw.draftSync
+  if (!ds || typeof ds !== 'object') return undefined
+  if ((ds as Record<string, unknown>).enabled !== true) return undefined
+  const exp =
+    raw.experimental && typeof raw.experimental === 'object'
+      ? (raw.experimental as Record<string, boolean>)
+      : {}
+  if (exp['draft-sync'] !== undefined) return undefined // an explicit toggle wins
+  return { ...exp, 'draft-sync': true }
+}
+
 /** Parse a stored/transmitted blob, migrating the legacy backend fields onto
  *  `roles` and filling anything missing with defaults. */
 export function normalizeSettings(raw: unknown): PodiumSettings {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const roles = migrateRoles(obj)
-  return PodiumSettings.parse(roles ? { ...obj, roles } : obj)
+  const experimental = migrateDraftSyncFlag(obj)
+  return PodiumSettings.parse({
+    ...obj,
+    ...(roles ? { roles } : {}),
+    ...(experimental ? { experimental } : {}),
+  })
 }
 
 export interface ResolvedRole {

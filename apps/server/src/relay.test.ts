@@ -2921,7 +2921,13 @@ describe('reconnect identity (hello reclaim)', () => {
 
 describe('session draft sync — versioned (POD-859, flag on)', () => {
   function flaggedReg(store = new SessionStore(':memory:')) {
-    store.settings.setSettings({ ...store.settings.getSettings(), draftSync: { enabled: true } })
+    // Enable draft sync through the canonical experiments store [spec:SP-f4b9].
+    // Tests run with PODIUM_APP_VERSION unset → devMode → the flag is listed, so a
+    // user toggle enables it (matches getFeatureStates resolution).
+    store.settings.setSettings({
+      ...store.settings.getSettings(),
+      experimental: { 'draft-sync': true },
+    })
     return { reg: new SessionRegistry(store), store }
   }
 
