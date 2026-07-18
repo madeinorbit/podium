@@ -367,6 +367,7 @@ export class AutomationsService {
 
     // Non-spawn decisions have no side effects: record run + re-arm together.
     if (decision.kind !== 'spawn') {
+      const outcome: AutomationRunOutcome = decision.kind
       this.deps.ledger.commit({
         write: () => {
           if (!existing) {
@@ -375,13 +376,13 @@ export class AutomationsService {
               automationId: automation.id,
               firedAt: decision.firedAt,
               sessionId: null,
-              outcome: decision.kind,
+              outcome,
               detail: decision.detail ?? null,
             })
           } else {
             this.deps.store.updateRun(runId, {
               sessionId: null,
-              outcome: decision.kind,
+              outcome,
               detail: decision.detail ?? null,
             })
           }
