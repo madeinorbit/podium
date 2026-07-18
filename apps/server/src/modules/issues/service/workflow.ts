@@ -270,12 +270,15 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     }
     const worktreePath = row.worktreePath
     const branch = row.branch
-    const st = await this.d.repoOp('status', worktreePath)
+    const machineId = row.machineId ?? undefined
+    // Always route git ops to the issue's machine — a remote-owned worktree must
+    // not be inspected/removed against the hub's local path [spec:SP-9904].
+    const st = await this.d.repoOp('status', worktreePath, undefined, machineId)
     // Already gone on disk — clear the path of record, keep the branch.
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       row.worktreePath = null
       this.persistRow(row)
-      this.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+      this.d.onWorktreesChanged?.(row.repoPath, machineId)
       return {
         ok: true,
         output: `worktree already gone at ${worktreePath}; branch '${branch}' kept`,
@@ -292,14 +295,19 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         `refusing free: worktree has unsaved changes (re-run with --force to discard the working copy; branch is kept either way):\n${dirty.join('\n')}`,
       )
     }
-    const wr = await this.d.repoOp('worktreeRemove', row.repoPath, {
-      path: worktreePath,
-      ...(opts?.force ? { force: '1' } : {}),
-    })
+    const wr = await this.d.repoOp(
+      'worktreeRemove',
+      row.repoPath,
+      {
+        path: worktreePath,
+        ...(opts?.force ? { force: '1' } : {}),
+      },
+      machineId,
+    )
     if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
     row.worktreePath = null
     this.persistRow(row)
-    this.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+    this.d.onWorktreesChanged?.(row.repoPath, machineId)
     const issue = this.addComment(
       row.id,
       'system:stop',
@@ -328,8 +336,9 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     id: string,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
     const row = this.rowOrThrow(id)
+    const machineId = row.machineId ?? undefined
     if (row.worktreePath) {
-      const st = await this.d.repoOp('status', row.worktreePath)
+      const st = await this.d.repoOp('status', row.worktreePath, undefined, machineId)
       if (st.ok) {
         return {
           ok: true,
@@ -363,7 +372,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       'worktreeAddExisting',
       row.repoPath,
       { path, branch: row.branch },
-      row.machineId ?? undefined,
+      machineId,
     )
     if (!res.ok) {
       return {

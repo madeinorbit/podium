@@ -2083,25 +2083,13 @@ export class SessionsService {
       this.autoContinue.onSessionGone(input.sessionId)
       this.persist(session)
       this.broadcastSessions()
-
-      const kill = (): void => {
-        this.toMachine(session.machineId, {
-          type: 'kill',
-          sessionId: input.sessionId,
-          durableLabel: session.durableLabel,
-        })
-      }
-      if (input.selfStop) {
-        // Let the agentRelayResult / CLI response return before the PTY dies.
-        setTimeout(kill, 250)
-      } else {
-        kill()
-      }
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: `cannot stop session in status '${session.status}'` }
     }
 
     // Free worktree only when no live/starting sessions remain on this issue.
+    // Done BEFORE the self-stop kill so free + the CLI reply complete while the
+    // agent is still alive [spec:SP-9904].
     let worktreeFreed = false
     if (issueId && worktreePath) {
       const members = sessionsForIssue(worktreePath, this.listSessions(), issueId)
@@ -2115,8 +2103,10 @@ export class SessionsService {
           force: input.force === true,
         })
         if (!freed.ok) {
-          // Process already parked; surface the free failure but report partial ok
-          // so the agent knows the session stopped even if the worktree stayed.
+          // Process already parked; still kill below. Surface free failure.
+          if (wasRunning) {
+            this.scheduleStopKill(session, input.selfStop === true)
+          }
           return {
             ok: true,
             reason: `session stopped but worktree not freed: ${freed.output}`,
@@ -2128,11 +2118,29 @@ export class SessionsService {
       }
     }
 
+    if (wasRunning) {
+      this.scheduleStopKill(session, input.selfStop === true)
+    }
+
     return {
       ok: true,
       worktreeFreed,
       deferredKill: input.selfStop === true && wasRunning,
     }
+  }
+
+  /** Kill after stop: immediate for peer/operator stops; deferred for self-stop
+   *  so the relay/CLI reply lands before the PTY dies [spec:SP-9904]. */
+  private scheduleStopKill(session: Session, selfStop: boolean): void {
+    const kill = (): void => {
+      this.toMachine(session.machineId, {
+        type: 'kill',
+        sessionId: session.sessionId,
+        durableLabel: session.durableLabel,
+      })
+    }
+    if (selfStop) setTimeout(kill, 250)
+    else kill()
   }
 
   /**
@@ -2154,7 +2162,14 @@ export class SessionsService {
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), input.issueId)
     const stopped: string[] = []
-    for (const m of members) {
+    // Non-self members first (immediate kill). Self last with deferred kill so the
+    // whole issue-stop (sibling stops + free) finishes before the caller's PTY dies
+    // [spec:SP-9904].
+    const ordered = [
+      ...members.filter((m) => m.sessionId !== input.callerSessionId),
+      ...members.filter((m) => m.sessionId === input.callerSessionId),
+    ]
+    for (const m of ordered) {
       const r = await this.stopSession({
         sessionId: m.sessionId,
         force: input.force,
@@ -2172,6 +2187,8 @@ export class SessionsService {
     }
     // Final free pass (in case members were already parked and free deferred).
     // A member stop may already have freed; treat path-null + branch-kept as freed.
+    // When the caller is a member, free already ran inside their stopSession (last
+    // in ordered) before the deferred kill fires.
     let worktreeFreed = false
     const stillHasWt = this.issues().getMeta(input.issueId)?.worktreePath
     if (stillHasWt) {
