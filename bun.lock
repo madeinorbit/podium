@@ -63,6 +63,18 @@
         "@tauri-apps/cli": "^2",
       },
     },
+    "apps/janitor": {
+      "name": "@podium/janitor",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+        "@podium/runtime": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^6.0.3",
+        "vitest": "5.0.0-beta.6",
+      },
+    },
     "apps/mobile": {
       "name": "@podium/mobile",
       "version": "0.0.0",
@@ -1010,6 +1022,8 @@
     "@podium/e2e": ["@podium/e2e@workspace:tests/e2e"],
 
     "@podium/issue-client": ["@podium/issue-client@workspace:packages/issue-client"],
+
+    "@podium/janitor": ["@podium/janitor@workspace:apps/janitor"],
 
     "@podium/keyecho": ["@podium/keyecho@workspace:tests/keyecho"],
 

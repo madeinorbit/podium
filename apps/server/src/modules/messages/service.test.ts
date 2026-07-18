@@ -1063,7 +1063,17 @@ describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]'
         pollMs: 5,
         // The row's TTL lapses during the block — a terminal, undelivered state that
         // must NOT be reported as the pending 'accepted'.
-        sleep: async () => void store.messages.expireQueued('2026-07-13T00:00:00.000Z'),
+        sleep: async () => {
+          const message = store.messages.listQueuedPage({ limit: 1 })[0]
+          if (message) {
+            store.messages.expireObserved({
+              id: message.id,
+              createdAt: message.createdAt,
+              lifecycle: message.lifecycle,
+              expiresAt: message.expiresAt,
+            })
+          }
+        },
       },
     )
     expect(r.disposition).toBe('dead_letter')
@@ -1337,8 +1347,8 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
   })
 })
 
-describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
-  it('expires queued rows past expires_at and ledgers the transition', () => {
+describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
+  it('does not expire queued rows because calendar ownership belongs to the janitor', () => {
     let clock = '2026-07-13T00:00:00.000Z'
     const { svc, store } = harness([], { now: () => clock })
     const r = svc.send(
@@ -1348,9 +1358,9 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     expect(r.message.status).toBe('queued')
     clock = '2026-07-13T02:00:00.000Z'
     svc.sweep()
-    expect(store.messages.getMessage(r.message.id)!.status).toBe('expired')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     const events = store.events.listEventsSince(0, { kinds: ['message.expired'] })
-    expect(events.some((e) => e.subject === r.message.id)).toBe(true)
+    expect(events.some((e) => e.subject === r.message.id)).toBe(false)
   })
 
   it('retries still-queued rows against the target session state', () => {
@@ -1420,11 +1430,9 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     for (const list of issueGetLists) expect(list).toBe(sessions)
   })
 
-  // POD-817: wait-lifecycle rows with no explicit expiry queued FOREVER (the
-  // forensics "black hole") and made every future sweep slower. They now expire
-  // after QUEUED_WAIT_TTL_MS; the row stays readable in inbox/ledger (expiry
-  // only stops redelivery attempts, listMessagesFor does not filter status).
-  it('expires a wait row with no explicit expiry after the implicit TTL', () => {
+  // Expiry candidates stay durable for the WAL-reading janitor. The retry backstop
+  // must never mutate them; MaintenanceService revalidates and commits instead.
+  it('leaves implicitly expired wait rows queued for the janitor', () => {
     let clock = '2026-07-13T00:00:00.000Z'
     const { svc, store } = harness([], { now: () => clock })
     const old = svc.send(
@@ -1439,11 +1447,11 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     )
     clock = '2026-07-21T00:00:00.000Z' // old is now 8d, young 3d
     svc.sweep()
-    expect(store.messages.getMessage(old.message.id)!.status).toBe('expired')
+    expect(store.messages.getMessage(old.message.id)!.status).toBe('queued')
     expect(store.messages.getMessage(young.message.id)!.status).toBe('queued')
     const events = store.events.listEventsSince(0, { kinds: ['message.expired'] })
-    expect(events.some((e) => e.subject === old.message.id)).toBe(true)
-    // Expired ≠ hidden: the row is still listed for its principal.
+    expect(events.some((e) => e.subject === old.message.id)).toBe(false)
+    // The candidate remains readable for its principal while janitor work is delayed.
     const listed = store.messages.listMessagesFor({ kind: 'issue', id: ISSUE.id })
     expect(listed.some((m) => m.id === old.message.id)).toBe(true)
   })

@@ -51,6 +51,11 @@ function fakeKill(
 }
 
 describe('pidfile read/write', () => {
+  it('recognizes the janitor as an independently managed sibling', () => {
+    writeRecord({ role: 'janitor', pid: 4322, mode: 'systemd', startedAt: 'T0' })
+    expect(readRecord('janitor')?.role).toBe('janitor')
+  })
+
   it('roundtrips a record', () => {
     writeRecord({ role: 'server', pid: 4321, port: 18787, mode: 'detached', startedAt: 'T0' })
     expect(readRecord('server')).toEqual({

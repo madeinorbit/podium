@@ -72,6 +72,31 @@ The rewrite lands five moves, end to end, with no intermediate state left behind
 
 ---
 
+## Runtime work placement [spec:SP-c29e]
+
+The loop split is classified by the facts a job needs and the authority it exercises. A timer
+is only a trigger; it does not decide placement. This matrix is the durable rule for current
+code and for the v3 migration:
+
+| Placement | Owns | Must not own |
+|---|---|---|
+| Interactive server loop | Sockets and WebSocket fan-out, tRPC, ordered command application, authorization, live runtime state, protocol/liveness timers, bounded actor state machines | Durable calendar polling or CPU-heavy pure transforms |
+| Bun workers | CPU-heavy pure transforms such as projection preparation, encoding, and parsing; inputs and outputs are versioned values | SQLite, the ledger, the write funnel, authorization decisions, or live runtime ownership |
+| Janitor systemd sibling | Durable calendar/event polling and housekeeping decisions: message expiry, steward work, automation cron, retention, auto-archive, and automatic connect-scan orchestration | Live presence/in-flight truth, direct durable mutation, or deep interactive connect scans |
+| Server command/write seam | Apply-time revalidation, authorization, transaction/write-funnel execution, ledger ordering, and fan-out | Trusting a janitor observation as current truth |
+
+The janitor may read WAL SQLite only for durable candidate facts. Every mutation returns over
+the narrow authenticated maintenance transport with a deterministic run key, observed durable
+preconditions, and a lease fencing token. The server re-reads the facts at apply time and
+returns `applied`, `already-applied`, or `stale`. Compatibility negotiation prevents an old
+janitor from acquiring or renewing a lease after an incompatible protocol/schema change.
+
+POD-845's first review cut moves message expiry and establishes the shared fenced surface and
+real sibling lifecycle. The remaining matrix rows migrate job-by-job behind the same contract;
+until each cut lands, its existing owner remains authoritative rather than running two writers.
+
+---
+
 ## 2. The migration oracle
 
 The oracle is the behavioral contract every phase must preserve. It is defined over the

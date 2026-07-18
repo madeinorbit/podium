@@ -57,6 +57,38 @@ WantedBy=default.target
 `
 }
 
+/** Durable housekeeping sibling [spec:SP-c29e]. It owns no writes: the local
+ * database is opened read-only and every mutation returns to the server's
+ * authenticated maintenance command seam. */
+export function renderJanitorUnit(opts: { port: number; instanceId?: string }): string {
+  const instanceId = opts.instanceId ?? resolveInstanceId()
+  const command = instanceCommandName(instanceId)
+  const serverUnit = instanceServiceName('server', instanceId)
+  return `[Unit]
+Description=Podium durable maintenance janitor
+After=network-online.target ${serverUnit}
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+WatchdogSec=30
+Environment=PODIUM_INSTANCE=${instanceId}
+ExecStart=%h/.local/bin/${command} janitor --server http://localhost:${opts.port}
+Restart=always
+RestartSec=2
+# A protocol/schema mismatch is terminal until the installed bundle catches up.
+RestartPreventExitStatus=${DAEMON_BLOCKED_EXIT_CODE}
+# Housekeeping is deliberately below the interactive server/daemon tier. Each DB
+# pass is bounded and yields via the shared time-budget helper.
+CPUWeight=100
+IOWeight=100
+
+[Install]
+WantedBy=default.target
+`
+}
+
 /**
  * The daemon unit. `serverUrl` present → `--server <url>` (the local split points at
  * ws://localhost:<port>); absent → bare `podium daemon`, which resolves serverUrl from config
@@ -126,8 +158,8 @@ export interface InstallResult {
 }
 
 /**
- * Render + install the `--user` units for `mode` and enable+start them. `all-in-one` installs both
- * (daemon → local server); `server` installs only the server; `daemon` (a joined worker) installs
+ * Render + install the `--user` units for `mode` and enable+start them. Host modes install the
+ * server + janitor (and local daemon for all-in-one); `daemon` (a joined worker) installs
  * only the daemon unit (bare `podium daemon`, config-driven remote server). Best-effort: returns
  * {ok:false, reason} when systemd is absent or a step fails, so setup can fall back.
  */
@@ -139,6 +171,7 @@ export function installSystemd(
   if (!hasSystemctl()) return { ok: false, reason: 'systemctl not found' }
   const dir = userUnitDir()
   const serverUnit = instanceServiceName('server', instanceId)
+  const janitorUnit = instanceServiceName('janitor', instanceId)
   const daemonUnit = instanceServiceName('daemon', instanceId)
   const units: string[] = []
   try {
@@ -150,6 +183,8 @@ export function installSystemd(
     } else {
       writeFileSync(join(dir, serverUnit), renderServerUnit(instanceId))
       units.push(serverUnit)
+      writeFileSync(join(dir, janitorUnit), renderJanitorUnit({ port, instanceId }))
+      units.push(janitorUnit)
       if (mode === 'all-in-one') {
         writeFileSync(
           join(dir, daemonUnit),

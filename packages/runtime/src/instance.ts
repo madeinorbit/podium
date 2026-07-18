@@ -107,7 +107,7 @@ export function instanceCommandName(instanceId: string = resolveInstanceId()): s
   return id === DEFAULT_INSTANCE_ID ? 'podium' : `podium-${id}`
 }
 
-export type InstanceServiceRole = 'server' | 'daemon' | 'update'
+export type InstanceServiceRole = 'server' | 'daemon' | 'janitor' | 'update'
 
 export function instanceServiceName(
   role: InstanceServiceRole,

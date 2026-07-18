@@ -1,7 +1,7 @@
 // scripts/lifecycle.integration.bun.test.ts
 //
-// Real-process smoke for the detached split (#98): spawns `podium server` + `podium daemon`
-// as two independent processes (from source), asserts the run registry shows BOTH up with
+// Real-process smoke for the detached split (#98): spawns server + janitor + daemon
+// as three independent processes (from source), asserts the run registry shows all three up with
 // distinct PIDs (proving isolation + that the `--local` daemon authenticated to the local
 // server), then stops them. Complements the unit tests (which mock processes) and the manual
 // compiled-binary verification. Only the run-registry + spawn plumbing is exercised here; the
@@ -32,7 +32,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   const reg = await import('../packages/runtime/src/run-registry')
-  for (const role of ['server', 'daemon'] as const) {
+  for (const role of ['server', 'janitor', 'daemon'] as const) {
     try {
       await reg.reclaim(role)
     } catch {}
@@ -42,7 +42,7 @@ afterAll(async () => {
 })
 
 describe('detached split lifecycle', () => {
-  it('runs server + daemon as two processes, then stops both', async () => {
+  it('runs server + janitor + daemon as three processes, then stops all', async () => {
     const spawn = await import('../apps/cli/src/cli-spawn')
     const reg = await import('../packages/runtime/src/run-registry')
 
@@ -50,19 +50,23 @@ describe('detached split lifecycle', () => {
     expect(serverUp).toBe(true)
 
     // Give the --local daemon a moment to connect + write its pidfile.
-    for (let i = 0; i < 40 && !reg.liveRecord('daemon'); i++) {
+    for (let i = 0; i < 40 && (!reg.liveRecord('janitor') || !reg.liveRecord('daemon')); i++) {
       await new Promise((r) => setTimeout(r, 250))
     }
 
     const server = reg.liveRecord('server')
+    const janitor = reg.liveRecord('janitor')
     const daemon = reg.liveRecord('daemon')
     expect(server?.pid).toBeGreaterThan(0)
+    expect(janitor?.pid).toBeGreaterThan(0)
     expect(daemon?.pid).toBeGreaterThan(0)
-    expect(server?.pid).not.toBe(daemon?.pid) // two distinct, isolated processes
+    expect(new Set([server?.pid, janitor?.pid, daemon?.pid]).size).toBe(3)
 
     await reg.reclaim('server')
+    await reg.reclaim('janitor')
     await reg.reclaim('daemon')
     expect(reg.liveRecord('server')).toBeUndefined()
+    expect(reg.liveRecord('janitor')).toBeUndefined()
     expect(reg.liveRecord('daemon')).toBeUndefined()
   }, 60_000)
 })

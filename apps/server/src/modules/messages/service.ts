@@ -50,11 +50,6 @@ export const SPAWN_BUDGET_PER_DAY = 10
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000
-/** Implicit expiry for wait-lifecycle queued rows with no explicit expires_at
- *  [POD-817]: without one, undeliverable issue mail queues forever and the
- *  sweep re-attempts every row every minute. Expired rows stay readable in the
- *  inbox/ledger — expiry only stops redelivery. */
-export const QUEUED_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 /** A pushed message becomes `delivered` only when its envelope echoes back as a
  *  turn in the target's transcript [POD-834 §04d]. If no echo confirms within
  *  this window the push was lost (drain refused, session died, an ESC ate it) and
@@ -1317,14 +1312,10 @@ export class MessageDeliveryService {
     if (this.wakeCooldownHot(key)) this.scheduleWakeCooldown(key, current)
   }
 
-  /** Slow sweep: expire what has expired, then re-attempt every queued row
-   *  (delivery is state-resolved, so this is idempotent and cheap). */
+  /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
+   *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
   sweep(): void {
     const now = this.deps.now()
-    const waitImplicitCutoff = new Date(Date.parse(now) - QUEUED_WAIT_TTL_MS).toISOString()
-    for (const expired of this.deps.messages.expireQueued(now, { waitImplicitCutoff })) {
-      this.emitTransition(expired, 'message.expired')
-    }
     if (this.retryBackstopTimer) return
     this.retryBackstopCursor = null
     this.retryPassStartedAt = Date.parse(now)

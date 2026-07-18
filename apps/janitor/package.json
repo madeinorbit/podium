@@ -1,0 +1,23 @@
+{
+  "name": "@podium/janitor",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@podium/protocol": "workspace:*",
+    "@podium/runtime": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "5.0.0-beta.6"
+  }
+}

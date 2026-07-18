@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { renderDaemonUnit, renderServerUnit, userUnitDir } from './cli-systemd'
+import { renderDaemonUnit, renderJanitorUnit, renderServerUnit, userUnitDir } from './cli-systemd'
 
 describe('renderServerUnit', () => {
   it('is a Type=notify, watchdog, Restart=always user unit calling podium server', () => {
@@ -95,6 +95,26 @@ describe('renderDaemonUnit', () => {
     expect(u).toContain('CPUWeight=900')
     expect(u).toContain('IOWeight=500')
     expect(u).toContain('MemoryLow=2G')
+  })
+})
+
+describe('renderJanitorUnit', () => {
+  it('runs one instance-scoped sibling after the server with blocked-version restart fencing', () => {
+    const u = renderJanitorUnit({ port: 18787 })
+    expect(u).toContain('Description=Podium durable maintenance janitor')
+    expect(u).toContain('After=network-online.target podium-server.service')
+    expect(u).toContain('ExecStart=%h/.local/bin/podium janitor --server http://localhost:18787')
+    expect(u).toContain('Restart=always')
+    expect(u).toContain('RestartPreventExitStatus=78')
+  })
+
+  it('binds a named janitor only to its named server and command', () => {
+    const u = renderJanitorUnit({ instanceId: 'blue', port: 23000 })
+    expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
+    expect(u).toContain('After=network-online.target podium-blue-server.service')
+    expect(u).toContain(
+      'ExecStart=%h/.local/bin/podium-blue janitor --server http://localhost:23000',
+    )
   })
 })
 
