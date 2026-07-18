@@ -1,8 +1,11 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { MachineWire, SessionMeta } from '@podium/protocol'
 import { useTerminalSession } from '@podium/terminal-client-react'
+import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import { useStoreSelector } from '@/app/store'
+import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { prettyCwd } from './AgentPanel'
@@ -23,21 +26,31 @@ export function DockShellPanel({
   cwd: string
   machineId?: string
 }): JSX.Element {
-  const { hub, trpc, sessions, reposLoaded, dockShells, setDockShell, setDockVisibleSession } =
-    useStoreSelector(
-      (s) => ({
-        hub: s.hub,
-        trpc: s.trpc,
-        sessions: s.sessions,
-        reposLoaded: s.reposLoaded,
-        dockShells: s.dockShells,
-        setDockShell: s.setDockShell,
-        setDockVisibleSession: s.setDockVisibleSession,
-      }),
-      shallowEqual,
-    )
+  const {
+    hub,
+    trpc,
+    sessions,
+    machines,
+    reposLoaded,
+    dockShells,
+    setDockShell,
+    setDockVisibleSession,
+  } = useStoreSelector(
+    (s) => ({
+      hub: s.hub,
+      trpc: s.trpc,
+      sessions: s.sessions,
+      machines: s.machines,
+      reposLoaded: s.reposLoaded,
+      dockShells: s.dockShells,
+      setDockShell: s.setDockShell,
+      setDockVisibleSession: s.setDockVisibleSession,
+    }),
+    shallowEqual,
+  )
   const mapped = dockShells[cwd]
   const session = sessions.find((s) => s.sessionId === mapped)
+  const machineLabel = resolveShellMachineLabel(session, machines, machineId)
   // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
   // transients — treating them as dead made this effect archive a spawning
   // shell and replace it, looping until the panel closed.
@@ -108,8 +121,21 @@ export function DockShellPanel({
     // dock's fixed width, and view.fit() then measures the OVERFLOWED box —
     // the terminal never shrinks back to the panel.
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex-none truncate border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground/70">
-        {prettyCwd(cwd)}
+      <div className="flex min-w-0 flex-none items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground/70">
+        <span className="min-w-0 flex-1 truncate" title={cwd}>
+          {prettyCwd(cwd)}
+        </span>
+        {machineLabel && (
+          <Badge
+            variant="secondary"
+            className="min-w-0 max-w-[45%] flex-none gap-1 px-1.5 py-0 font-normal text-muted-foreground"
+            aria-label={`Running on ${machineLabel}`}
+            title={`Running on ${machineLabel}`}
+          >
+            <Monitor size={10} className="flex-none" aria-hidden="true" />
+            <span className="truncate">{machineLabel}</span>
+          </Badge>
+        )}
       </div>
       {terminalShown && mapped ? (
         // 'starting' holds the mount: the PTY may not exist server-side yet, and
@@ -120,6 +146,19 @@ export function DockShellPanel({
       )}
     </div>
   )
+}
+
+/** Resolve the dock shell's actual server-attributed host first, retaining a
+ * useful target indicator while a newly-created session is still arriving. */
+export function resolveShellMachineLabel(
+  session: Pick<SessionMeta, 'machineId' | 'machineName'> | undefined,
+  machines: Pick<MachineWire, 'id' | 'name'>[],
+  requestedMachineId?: string,
+): string | undefined {
+  if (session?.machineName) return session.machineName
+  const id = session?.machineId ?? requestedMachineId
+  if (!id) return undefined
+  return machines.find((machine) => machine.id === id)?.name ?? id
 }
 
 /** The mounted terminal for one dock shell session (keyed by session id, so a
