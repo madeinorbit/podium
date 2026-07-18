@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueMessageRow } from '../../../store'
 import { IssueServiceAttention } from './attention'
+import { countContextAwarePendingMail } from './mail-pending'
 
 /**
  * IssueService layer 4 — agent mail (issue #103, #190 split): durable messages
@@ -81,29 +82,24 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
     return { claimed, message }
   }
 
-  /** Cheap pending check (for stop-hooks / polling). Reads the unified
-   *  `messages` substrate (#237) [spec:SP-34d7] — queued rows awaiting this
-   *  issue — with the legacy unread count as the transition fallback (rows
-   *  that predate the substrate, or writers that bypass it). `senders` lets
-   *  the stop-hook render the coalesced pointer ("N messages from X, Y"). */
+  /** Cheap pending check (for stop-hooks / polling). CONTEXT-AWARE [POD-909]
+   *  (design §10): only messages NOT yet in the agent's context drive the
+   *  "run mail inbox" nag. Substrate source of truth:
+   *    - `queued`  — never transcript-confirmed / never pulled → count it
+   *    - `delivered` — envelope echoed as a turn → already in context → EXCLUDE
+   *    - `read` / terminal — consumed or gone → EXCLUDE
+   *  `pendingFor` already returns status='queued' only. The legacy
+   *  issue_messages unread count is a transition fallback for pre-substrate
+   *  rows only: a dual-written twin that has left `queued` must not resurrect
+   *  the nag when the mirror lags. `senders` lets the stop-hook render the
+   *  coalesced pointer ("N messages from X, Y"). */
   mailPending(issueId: string): { unread: number; senders: string[] } {
     const id = this.resolveRef(issueId)
     this.rowOrThrow(id)
-    const queued = this.deps.store.messages.pendingFor({ kind: 'issue', id })
-    const legacy = this.deps.store.issues.countUnreadIssueMessages(id)
-    const senders = [
-      ...new Set(
-        queued.map((m) => {
-          if (m.fromKind !== 'agent') return m.fromKind
-          if (m.fromIssue) {
-            const issue = this.get(m.fromIssue)
-            return issue ? `issue:#${issue.seq}` : m.fromIssue
-          }
-          return m.fromSession ? `session:${m.fromSession}` : 'agent'
-        }),
-      ),
-    ]
-    return { unread: Math.max(queued.length, legacy), senders }
+    return countContextAwarePendingMail(this.deps.store, id, (fromIssue) => {
+      const issue = this.get(fromIssue)
+      return issue ? `issue:#${issue.seq}` : fromIssue
+    })
   }
 
   /** The issue a mail message belongs to (router scope enforcement for mailClaim). */

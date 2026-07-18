@@ -18,6 +18,7 @@ import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
 import { IssueServiceCore } from './core'
+import { countContextAwarePendingMail } from './mail-pending'
 import type { DepReportEntry, DepReportRef, IssueTree, IssueTreeNode } from './types'
 
 /**
@@ -549,12 +550,11 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         }
         // Agent mail (issue #103): surface pending mail at prime time so a fresh /
         // resumed agent learns about messages that arrived while nothing was live.
-        // Reads the unified `messages` substrate (#237) [spec:SP-34d7], keeping the
-        // legacy unread count as the transition fallback (pre-substrate rows).
-        const unreadMail = Math.max(
-          this.deps.store.messages.countPending({ kind: 'issue', id: me.id }),
-          this.deps.store.issues.countUnreadIssueMessages(me.id),
-        )
+        // Same CONTEXT-AWARE predicate as mailPending [POD-909]: exclude
+        // delivered-as-transcript-turn (and any dual-written twin the substrate
+        // already accounts for). Helper lives next to mailPending to avoid a
+        // circular import through the inheritance chain.
+        const unreadMail = countContextAwarePendingMail(this.deps.store, me.id).unread
         return [
           `You are working on ${this.niceRef(me)}: ${me.title}`,
           me.stage === 'backlog'

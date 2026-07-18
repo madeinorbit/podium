@@ -2702,6 +2702,121 @@ describe('IssueService agent mail (#103)', () => {
     expect(primed).toContain('2 unread mail')
     expect(primed).toContain('mail inbox')
   })
+
+  // ---- CONTEXT-AWARE mailPending [POD-909 / design §10] ----
+  // The "run mail inbox" nag must count only messages not yet in the agent's
+  // context. status='delivered' = transcript echo = already seen.
+
+  function substrateRow(
+    issueId: string,
+    id: string,
+    status: 'queued' | 'delivered' | 'read',
+  ) {
+    return {
+      id,
+      threadId: id,
+      inReplyTo: null,
+      fromKind: 'agent' as const,
+      fromSession: 'sX',
+      fromIssue: 'iss_sender',
+      toKind: 'issue' as const,
+      toId: issueId,
+      kind: 'message' as const,
+      urgency: 'next-turn' as const,
+      lifecycle: 'wait' as const,
+      body: `body-${id}`,
+      expiresAt: null,
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status,
+      deliveredAt: status === 'delivered' || status === 'read' ? '2026-06-30T00:00:01.000Z' : null,
+      deliveredTo: status === 'delivered' || status === 'read' ? 's1' : null,
+      readAt: status === 'read' ? '2026-06-30T00:00:02.000Z' : null,
+      injectedAt: null,
+      deadLetteredAt: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+      factKey: null,
+      factTarget: null,
+      expectsResponse: false,
+    }
+  }
+
+  it('mailPending excludes a message already delivered as a transcript turn', () => {
+    // Dual-write + deliver on substrate WITHOUT clearing the legacy mirror —
+    // the desync that resurrects "You have N message(s)… run mail inbox".
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const id = 'msg_delivered_turn'
+    store.issues.addIssueMessage({
+      id,
+      issueId: a.id,
+      fromAuthor: 'agent',
+      body: 'already in your context',
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(substrateRow(a.id, id, 'delivered'))
+    // Substrate no longer pending; legacy still unread — old Math.max would nag.
+    expect(store.messages.pendingFor({ kind: 'issue', id: a.id })).toHaveLength(0)
+    expect(store.issues.countUnreadIssueMessages(a.id)).toBe(1)
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0, senders: [] })
+    // Prime uses the same predicate.
+    expect(svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
+  })
+
+  it('mailPending still counts a queued/held message never surfaced in the transcript', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const id = 'msg_queued_unseen'
+    store.issues.addIssueMessage({
+      id,
+      issueId: a.id,
+      fromAuthor: 'agent',
+      body: 'you have not seen this',
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+    expect(svc.prime({ boundIssueId: a.id })).toContain('1 unread mail')
+  })
+
+  it('mailPending pure-legacy unread (no substrate twin) still nags', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.sendMail(a.id, 'operator', 'pre-substrate path')
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+  })
+
+  it('mailPending drops the count after inbox read / dismiss-equivalent clear', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const id = 'msg_then_read'
+    store.issues.addIssueMessage({
+      id,
+      issueId: a.id,
+      fromAuthor: 'agent',
+      body: 'read me',
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    expect(svc.mailPending(a.id).unread).toBe(1)
+    // Slice 2 clear path: inbox pull consumes both surfaces.
+    svc.mailInbox(a.id)
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
+  })
 })
 
 describe('IssueService surfaces daemon argv-hardening rejections (issue #81)', () => {
