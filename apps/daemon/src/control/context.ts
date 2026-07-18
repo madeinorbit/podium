@@ -56,8 +56,6 @@ export interface DaemonContext {
   primeInjector: { reset(sessionId: string): void }
   /** Bounds the reattach spawn fan-out (REATTACH_CONCURRENCY). */
   reattachGate<T>(fn: () => Promise<T>): Promise<T>
-  /** Paces transcript reseeds independently of immediate bridge wiring. */
-  tailSeedGate(fn: () => Promise<void>, priority?: number): Promise<void>
   /** One live headless turn per session. */
   runningHeadlessTurns: Map<string, HeadlessTurnHandle>
 
