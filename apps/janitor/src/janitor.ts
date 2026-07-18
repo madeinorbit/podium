@@ -890,7 +890,6 @@ export async function startJanitor(options: {
       console.warn('[podium:janitor] tick delayed:', error)
     })
   }, options.tickMs ?? DEFAULT_TICK_MS)
-  timer.unref?.()
   return {
     service,
     close: () => {
