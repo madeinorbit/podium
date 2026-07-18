@@ -360,6 +360,9 @@ export const SpawnMessage = z.object({
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
   observationBindingVersion: z.number().int().positive().optional(),
+  /** Last durably accepted causal checkpoint. Optional for mixed-version
+   * control messages; the daemon validates it with the canonical v1 schema. */
+  observationCheckpoint: z.unknown().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -387,6 +390,9 @@ export const ReattachMessage = z.object({
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
   observationBindingVersion: z.number().int().positive().optional(),
+  /** Last durably accepted causal checkpoint. Optional for mixed-version
+   * control messages; the daemon validates it with the canonical v1 schema. */
+  observationCheckpoint: z.unknown().optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),

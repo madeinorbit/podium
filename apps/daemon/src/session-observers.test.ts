@@ -2,11 +2,12 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  agentStateProviderFor,
   type AgentStateEvent,
   type AgentStateProvider,
+  acceptAgentObservation,
+  agentStateProviderFor,
 } from '@podium/agent-bridge'
-import type { DaemonMessage } from '@podium/protocol'
+import type { DaemonMessage, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { StatTick } from '@podium/transcript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -349,6 +350,174 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       provenance: 'live',
       transitionKind: 'turn_opened',
     })
+    observers.clearSession('podium-1')
+  })
+  it.each([
+    { name: 'same transcript segment', rotated: false },
+    { name: 'linked successor transcript segment', rotated: true },
+  ])('reattaches terminal epoch 5 on $name and accepts exactly epoch 6', async ({ rotated }) => {
+    const at = '2026-07-19T00:00:00.000Z'
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-epoch-seed-'))
+    const oldTranscript = join(dir, 'claude-old.jsonl')
+    const liveTranscript = rotated ? join(dir, 'claude-new.jsonl') : oldTranscript
+    await writeFile(oldTranscript, 'x'.repeat(100))
+    if (rotated) await writeFile(liveTranscript, '')
+    const oldCursor = {
+      segmentId: `claude:claude-1:${oldTranscript}`,
+      components: { transcript: 100 },
+    }
+    const checkpoint: SessionObservationCheckpointV1 = {
+      schemaVersion: 1,
+      podiumSessionId: 'podium-1',
+      provider: 'claude-code',
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      lifecycleObservationGeneration: 7,
+      providerCursor: oldCursor,
+      bootstrapCursor: oldCursor,
+      lastAcceptedLiveCursor: oldCursor,
+      turnEpoch: 5,
+      providerTurnId: null,
+      providerPromptId: 'prompt-5',
+      turnState: {
+        phase: 'idle',
+        idle: { kind: 'done' },
+        since: at,
+        workingMsTotal: 0,
+        nativeSubagentCount: 0,
+      },
+      terminalFence: {
+        turnEpoch: 5,
+        providerCursor: oldCursor,
+        verdict: 'done',
+        transitionId: 'terminal-5',
+      },
+      providerAt: at,
+      acceptedAt: at,
+      lastLiveReceiptAt: at,
+      lastTransitionId: 'terminal-5',
+    }
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      observationGeneration: 8,
+    }
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId: 'podium-1',
+        durableLabel: 'podium-podium-1',
+        agentKind: 'claude-code',
+        cwd: dir,
+        geometry: G,
+        resume: { kind: 'claude-session', value: 'claude-1' },
+        pathHint: liveTranscript,
+        observationGeneration: 8,
+        observationBindingVersion: 2,
+        observationCheckpoint: checkpoint,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('claude-code'),
+      { seedOnFrame: false },
+    )
+    const sessionStart = {
+      hook_event_name: 'SessionStart',
+      session_id: 'claude-1',
+      transcript_path: liveTranscript,
+      cwd: dir,
+    }
+    observers.onHookPayload('podium-1', sessionStart)
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
+    })
+    const bootstrap = sent.find((m) => m.type === 'agentObservation')!.observation
+    expect(bootstrap).toMatchObject({
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+      turnEpoch: 5,
+      providerPromptId: 'prompt-5',
+      providerCursor: rotated
+        ? { predecessorSegmentId: oldCursor.segmentId }
+        : { segmentId: oldCursor.segmentId, components: { transcript: 100 } },
+    })
+    const bootResult = acceptAgentObservation(checkpoint, lease, bootstrap, at)
+    if (rotated) {
+      expect(bootResult.kind).toBe('snapshot_applied')
+      if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-1',
+        observerGeneration: 8,
+        transitionId: bootstrap.transitionId,
+        result: bootResult.kind,
+        acceptedCursor: bootResult.checkpoint.providerCursor,
+      })
+    } else {
+      expect(bootResult).toEqual({
+        kind: 'rejected',
+        rejectionReason: 'cursor_not_after_checkpoint',
+      })
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-1',
+        observerGeneration: 8,
+        transitionId: bootstrap.transitionId,
+        result: 'rejected',
+        rejectionReason: 'cursor_not_after_checkpoint',
+        acceptedCursor: oldCursor,
+      })
+    }
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
+
+    const acceptedBootstrap = bootResult.kind === 'rejected' ? checkpoint : bootResult.checkpoint
+    await writeFile(liveTranscript, 'y'.repeat(120))
+    observers.recordInputOrigin('podium-1', 'human')
+    const prompt = {
+      ...sessionStart,
+      hook_event_name: 'UserPromptSubmit',
+      prompt_id: 'prompt-6',
+    }
+    observers.onHookPayload('podium-1', prompt)
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(2)
+    })
+    const opened = sent.filter((m) => m.type === 'agentObservation').at(-1)!.observation
+    expect(opened).toMatchObject({
+      provenance: 'live',
+      transitionKind: 'turn_opened',
+      turnEpoch: 6,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+    const openedResult = acceptAgentObservation(acceptedBootstrap, lease, opened, at)
+    expect(openedResult.kind).toBe('live_transition_accepted')
+    if (openedResult.kind === 'rejected') throw new Error(openedResult.rejectionReason)
+
+    observers.onHookPayload('podium-1', { ...prompt, hook_event_name: 'Stop' })
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
+    })
+    const terminal = sent.filter((m) => m.type === 'agentObservation').at(-1)!.observation
+    expect(terminal).toMatchObject({
+      provenance: 'live',
+      transitionKind: 'turn_terminal',
+      turnEpoch: 6,
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+    const terminalResult = acceptAgentObservation(openedResult.checkpoint, lease, terminal, at)
+    expect(terminalResult.kind).toBe('live_transition_accepted')
+    if (terminalResult.kind === 'rejected') throw new Error(terminalResult.rejectionReason)
+    expect(terminalResult.checkpoint.terminalFence?.turnEpoch).toBe(6)
     observers.clearSession('podium-1')
   })
 })

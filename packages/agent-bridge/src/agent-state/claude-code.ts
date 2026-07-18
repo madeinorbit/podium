@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type {
+  AgentObservation,
+  AgentRuntimeState,
+  ObservationInputOrigin,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 import { lastTimestampedRecordIso } from './boot-time.js'
 import {
   type ClaudeTranscriptFeatures,
@@ -10,7 +16,6 @@ import {
 } from './claude-code-classifier.js'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
-import type { AgentObservation, AgentRuntimeState, ObservationInputOrigin } from '@podium/protocol'
 import { reduceAgentState } from './reducer.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -238,6 +243,7 @@ export interface ClaudeCausalObserverOptions {
   transcriptPath: string
   bootstrapState: AgentRuntimeState
   bootstrapOffset: number
+  acceptedCheckpoint?: SessionObservationCheckpointV1
   now?: () => string
 }
 
@@ -255,6 +261,7 @@ export class ClaudeCausalObserver {
   private turnEpoch = 0
   private providerPromptId: string | null = null
   private lastOffset: number
+  private readonly bootstrapOffset: number
   private bootstrapped = false
   private epochOpen = false
   private closing = false
@@ -262,12 +269,33 @@ export class ClaudeCausalObserver {
   private readonly pendingOrigins: ObservationInputOrigin[] = []
   private readonly seen = new Set<string>()
   private readonly activeChildren = new Set<string>()
-
   constructor(private readonly options: ClaudeCausalObserverOptions) {
-    this.state = options.bootstrapState
-    this.lastOffset = options.bootstrapOffset
+    const checkpoint = options.acceptedCheckpoint
+    this.state = checkpoint?.turnState ?? options.bootstrapState
+    this.turnEpoch = checkpoint?.turnEpoch ?? 0
+    this.providerPromptId = checkpoint?.providerPromptId ?? null
     this.now = options.now ?? (() => new Date().toISOString())
     this.segmentId = `claude:${options.providerSessionId}:${options.transcriptPath}`
+    this.bootstrapOffset = options.bootstrapOffset
+    this.lastOffset = options.bootstrapOffset
+    const acceptedCursor = checkpoint?.providerCursor
+    if (acceptedCursor?.segmentId === this.segmentId) {
+      const offset = acceptedCursor.components.transcript
+      if (Number.isSafeInteger(offset)) {
+        this.bootstrapOffset = Math.max(this.bootstrapOffset, offset ?? 0)
+        this.lastOffset = this.bootstrapOffset
+      }
+    } else if (acceptedCursor) {
+      this.predecessorSegmentId = acceptedCursor.segmentId
+    }
+    if (checkpoint?.terminalFence?.closing) {
+      this.closing = true
+      for (const child of checkpoint.turnState.nativeSubagents ?? []) {
+        this.activeChildren.add(child.id)
+      }
+    } else if (checkpoint && checkpoint.terminalFence === null && checkpoint.turnEpoch > 0) {
+      this.epochOpen = true
+    }
   }
   /** Rebase after the server's durable ack (including replay rejection, whose
    * acceptedCursor is the already-committed fence) before releasing hooks. */
@@ -305,8 +333,8 @@ export class ClaudeCausalObserver {
       inputOrigin: 'provider',
       priorPhase: 'unknown',
       state: this.state,
-      offset: this.options.bootstrapOffset,
-      identity: `bootstrap:${this.options.bootstrapOffset}`,
+      offset: this.bootstrapOffset,
+      identity: `bootstrap:${this.bootstrapOffset}`,
     })
   }
 
@@ -329,7 +357,8 @@ export class ClaudeCausalObserver {
     const hook = str(p.hook_event_name)
     if (!hook) return null
     const baseIdentity = this.hookIdentity(hook, p)
-    const identity = hook === 'UserPromptSubmit' ? baseIdentity : `${this.turnEpoch}:${baseIdentity}`
+    const identity =
+      hook === 'UserPromptSubmit' ? baseIdentity : `${this.turnEpoch}:${baseIdentity}`
     if (this.seen.has(identity)) return null
     this.seen.add(identity)
     this.lastOffset = transcriptOffset
@@ -455,9 +484,7 @@ export class ClaudeCausalObserver {
       providerCursor: {
         segmentId: this.segmentId,
         components: { transcript: input.offset },
-        ...(this.predecessorSegmentId
-          ? { predecessorSegmentId: this.predecessorSegmentId }
-          : {}),
+        ...(this.predecessorSegmentId ? { predecessorSegmentId: this.predecessorSegmentId } : {}),
       },
       providerAt:
         input.providerAt && Number.isFinite(Date.parse(input.providerAt)) ? input.providerAt : null,

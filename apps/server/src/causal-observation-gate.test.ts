@@ -149,6 +149,13 @@ describe('causal session observation gate', () => {
         msg.type === 'reattach' && msg.sessionId === sessionId,
     )
     expect(reattach?.observationGeneration).toBe(2)
+    expect(reattach?.observationCheckpoint).toMatchObject({
+      provider: 'codex',
+      lifecycleObservationGeneration: 1,
+      turnEpoch: 1,
+      turnState: { phase: 'idle' },
+      terminalFence: { turnEpoch: 1 },
+    })
 
     const restartEffects: AgentObservation[] = []
     restarted.bus.on('session.stateChanged', ({ observation }) => {

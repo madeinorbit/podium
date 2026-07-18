@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { SpawnMessage } from './terminal'
+import { ReattachMessage, SpawnMessage } from './terminal'
 
 const base = {
   type: 'spawn' as const,
@@ -42,4 +42,31 @@ it('rejects blank instruction sources or content', () => {
     SpawnMessage.safeParse({ ...base, instructions: [{ source: 'workflow', content: '' }] })
       .success,
   ).toBe(false)
+})
+
+it('carries an optional observation checkpoint across spawn and reattach', () => {
+  const checkpoint = { schemaVersion: 1, turnEpoch: 5 }
+  const spawn = {
+    type: 'spawn' as const,
+    sessionId: 's1',
+    agentKind: 'claude-code' as const,
+    cwd: '/tmp',
+    geometry: { cols: 80, rows: 24 },
+  }
+
+  expect(
+    SpawnMessage.parse({ ...spawn, observationCheckpoint: checkpoint }).observationCheckpoint,
+  ).toEqual(checkpoint)
+  expect(SpawnMessage.parse(spawn).observationCheckpoint).toBeUndefined()
+  expect(
+    ReattachMessage.parse({
+      type: 'reattach',
+      sessionId: 's1',
+      durableLabel: 'podium-s1',
+      agentKind: 'claude-code',
+      cwd: '/tmp',
+      geometry: { cols: 80, rows: 24 },
+      observationCheckpoint: checkpoint,
+    }).observationCheckpoint,
+  ).toEqual(checkpoint)
 })
