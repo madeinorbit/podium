@@ -1,3 +1,4 @@
+export * from './causal.js'
 export * from './claude-code.js'
 export * from './claude-locate.js'
 export * from './codex.js'

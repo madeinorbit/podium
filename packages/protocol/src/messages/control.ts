@@ -21,11 +21,6 @@ import {
   HandoffImportChunkMessage,
   HandoffImportRequestMessage,
 } from './handoff'
-import {
-  WorkspaceCleanRequestMessage,
-  WorkspaceExportRequestMessage,
-  WorkspaceImportRequestMessage,
-} from './workspace'
 import { HarnessExecRequestMessage } from './harness'
 import {
   HeadlessBindMessage,
@@ -40,6 +35,7 @@ import {
 } from './host'
 import { InventoryRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
+import { AgentObservationAckMessage } from './runtime-state'
 import {
   DraftTargetMessage,
   InputMessage,
@@ -52,6 +48,11 @@ import {
   SpawnMessage,
 } from './terminal'
 import { TranscriptMirrorReadMessage, TranscriptReadRequestMessage } from './transcript'
+import {
+  WorkspaceCleanRequestMessage,
+  WorkspaceExportRequestMessage,
+  WorkspaceImportRequestMessage,
+} from './workspace'
 
 // ---- Server -> daemon control frames ----
 export const ControlMessage = z.discriminatedUnion('type', [
@@ -79,6 +80,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
+  AgentObservationAckMessage,
   DraftTargetMessage,
   SessionResumeRefAckMessage,
   TranscriptMirrorReadMessage,
