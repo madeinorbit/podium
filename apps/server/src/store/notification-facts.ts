@@ -40,6 +40,18 @@ export class NotificationFactsRepository {
     return row !== undefined
   }
 
+  hasActive(factKey: string, target: string, now: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM notification_facts
+         WHERE fact_key = ? AND target = ?
+           AND consumed_at IS NULL
+           AND (expires_at IS NULL OR expires_at >= ?)`,
+      )
+      .get(factKey, target, now)
+    return row !== undefined
+  }
+
   retire(factKey: string, target: string, consumedAt: string): boolean {
     const row = this.db
       .prepare(
@@ -112,6 +124,10 @@ export class NotificationArbiter {
       createdAt,
       expiresAt: new Date(Date.parse(createdAt) + ttlMs).toISOString(),
     })
+  }
+
+  isClaimed(factKey: string, target: string): boolean {
+    return this.facts.hasActive(factKey, target, this.now())
   }
 
   retire(factKey: string, target: string, at = this.now()): boolean {

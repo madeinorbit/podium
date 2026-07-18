@@ -649,6 +649,7 @@ export class StewardService {
         if (this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
           continue
         }
+        if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
         // Durable delivery before claim [POD-925].
         this.deps.sendTextWhenReady(s.sessionId, text, factKey)
         const claimed = this.arbiter.claim(factKey, s.sessionId, {
@@ -761,6 +762,7 @@ export class StewardService {
         // Durable delivery BEFORE arbiter claim [POD-925]: claim-first suppressed
         // retry after a failed send and left no durable nudge on cursor rewind.
         const factKey = `unblock:${dependent.id}:${closedSeq}`
+        if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
@@ -846,6 +848,7 @@ export class StewardService {
     const label = firstLineCapped(rawLabel) || childSessionId
     // WAKE: durable delivery BEFORE claim [POD-925]. mutationId=factKey makes
     // crash-retry / multi-poll re-entry idempotent (queueText already-applied).
+    if (this.arbiter.isClaimed(factKey, parentId)) return
     this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), factKey)
     this.arbiter.claim(factKey, parentId, claimOpts)
   }
@@ -939,6 +942,7 @@ export class StewardService {
       }
       // Durable delivery before claim [POD-925] — same ordering as handleUnblock.
       const factKey = `parentnudge:${group}:${parentId}:${lastChildSeq}`
+      if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
       this.deps.sendTextWhenReady(
         s.sessionId,
         sub.nudge(lastChildSeq, { remaining, total }),

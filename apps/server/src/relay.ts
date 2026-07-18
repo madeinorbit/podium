@@ -1210,12 +1210,14 @@ export class SessionRegistry {
       issues,
       listSessions: () => sessionsSvc.listSessions(),
       // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
-      sendTextWhenReady: (sessionId, text, mutationId) =>
-        void sessionsSvc.queueText({
+      sendTextWhenReady: (sessionId, text, mutationId) => {
+        const result = sessionsSvc.queueText({
           sessionId,
           text,
           ...(mutationId ? { mutationId } : {}),
-        }),
+        })
+        if (!result.ok) throw new Error(result.reason ?? "failed to durably queue steward nudge")
+      },
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
       notify: (notice) => notify.notifyExternal(notice),

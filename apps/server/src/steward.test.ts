@@ -653,22 +653,25 @@ describe('StewardService gating and resilience', () => {
     expect(stewardComments(issues, b.id)).toEqual([])
   })
 
-  it('a throwing handler is dropped, not wedged: tick resolves and the cursor advances', async () => {
+  it('a throwing durable handler holds the cursor and succeeds on replay', async () => {
     const { store, issues, steward } = harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
-    vi.spyOn(issues, 'addComment').mockImplementation(() => {
+    const addComment = vi.spyOn(issues, 'addComment').mockImplementation(() => {
       throw new Error('boom')
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expect(steward.tick()).resolves.toBeUndefined()
-    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(store.events.getStewardState('cursor')).toBe('0')
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[podium:steward]'),
       expect.any(Error),
     )
+    addComment.mockRestore()
+    await steward.tick()
+    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     warn.mockRestore()
   })
 })
