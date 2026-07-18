@@ -225,6 +225,7 @@ describe('idle-session cap', () => {
 
     expect(parked).toEqual(['parkable'])
     expect(info).toHaveBeenCalledWith(expect.stringContaining('cap unmet: 3 protected/ineligible'))
+    expect(service.hostMetricsMessage()).toMatchObject({ hosts: [{ idleCapUnmet: 3 }] })
   })
 
   it('disables both memory and count pressure when hibernation is disabled', () => {

@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import type { HostMetricsWire } from '@podium/protocol'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -76,6 +77,7 @@ interface SectionContext {
   trpc: Trpc
   telegramSetup: TelegramSetupState
   telegramSetupNow: number
+  hostMetrics: HostMetricsWire[]
   startTelegramSetup: () => void
   resetTelegramSetup: () => void
 }
@@ -97,7 +99,9 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
     <WorkLlmSection settings={settings} accounts={accounts} patch={patch} />
   ),
   keys: ({ settings, patch }) => <KeysSection settings={settings} patch={patch} />,
-  hibernation: ({ settings, patch }) => <HibernationSection settings={settings} patch={patch} />,
+  hibernation: ({ settings, patch, hostMetrics }) => (
+    <HibernationSection settings={settings} patch={patch} hostMetrics={hostMetrics} />
+  ),
   notifications: (ctx) => (
     <NotificationsSection
       settings={ctx.settings}
@@ -129,12 +133,13 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
  * state (and its poll) stays here so it survives switching tabs.
  */
 export function SettingsView(): JSX.Element {
-  const { trpc, setView, settingsTab, setSettingsTab } = useStoreSelector(
+  const { trpc, setView, settingsTab, setSettingsTab, hostMetrics } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       setView: s.setView,
       settingsTab: s.settingsTab,
       setSettingsTab: s.setSettingsTab,
+      hostMetrics: s.hostMetrics,
     }),
     shallowEqual,
   )
@@ -331,6 +336,7 @@ export function SettingsView(): JSX.Element {
               trpc,
               telegramSetup,
               telegramSetupNow,
+              hostMetrics,
               startTelegramSetup: () => void startTelegramSetup(),
               resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
             })}

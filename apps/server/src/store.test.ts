@@ -643,7 +643,7 @@ describe('settings', () => {
     expect(s.roles.coding.accountId).toBe('') // '' = the role's default (claude-code)
     expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
     expect(s.hibernation.memoryPct).toBe(80)
-    expect(s.hibernation.maxIdleSessions).toBeNull()
+    expect(s.hibernation.maxIdleSessions).toBe(30)
     store.close()
   })
 
@@ -662,6 +662,20 @@ describe('settings', () => {
       })
     }).toThrow()
     store.close()
+  })
+
+  it('round-trips an explicit unlimited idle-session target', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    const settings = a.settings.getSettings()
+    a.settings.setSettings({
+      ...settings,
+      hibernation: { ...settings.hibernation, maxIdleSessions: null },
+    })
+    a.close()
+    const b = new SessionStore(file)
+    expect(b.settings.getSettings().hibernation.maxIdleSessions).toBeNull()
+    b.close()
   })
 
   it('round-trips a saved blob and fills missing keys forward', async () => {

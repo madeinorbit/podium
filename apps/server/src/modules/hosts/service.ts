@@ -102,9 +102,9 @@ export class HostsService {
       machineId,
       name: this.deps.machineName(machineId),
     }
-    this.latestHostMetrics.set(machineId, tagged)
+    const idleCapUnmet = this.maybeAutoHibernate(tagged)
+    this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
     this.broadcastHostMetrics()
-    this.maybeAutoHibernate(tagged)
   }
 
   hostMetricsMessage(): LiveServerMessage {
@@ -122,7 +122,7 @@ export class HostsService {
   }
 
   /** Apply memory and idle-count pressure independently [spec:SP-c29e]. */
-  private maybeAutoHibernate(sample: HostMetricsWire): void {
+  private maybeAutoHibernate(sample: HostMetricsWire): number | undefined {
     const cfg = this.deps.getSettings().hibernation
     const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     if (!cfg.enabled) {
@@ -163,7 +163,7 @@ export class HostsService {
       this.lastCapUnmetByMachine.delete(machineId)
       return
     }
-    this.applyCountPressure(sample, cfg.idleMinutes, cfg.maxIdleSessions, now, failed)
+    return this.applyCountPressure(sample, cfg.idleMinutes, cfg.maxIdleSessions, now, failed)
   }
 
   private applyCountPressure(
@@ -172,7 +172,7 @@ export class HostsService {
     targetCount: number,
     now: number,
     failed: Set<string>,
-  ): void {
+  ): number | undefined {
     const machineId = sample.machineId ?? LOCAL_PLACEHOLDER
     const budget = this.countBudgetFor(machineId, now)
 
@@ -189,7 +189,7 @@ export class HostsService {
       const candidates = this.eligibleCandidates(machineId, idleMinutes, now, failed)
       if (candidates.length === 0) {
         this.reportCapUnmet(sample, targetCount, overage)
-        return
+        return overage
       }
 
       // Eligible work remains, so the target is merely rate-limited rather than
@@ -200,7 +200,7 @@ export class HostsService {
       }
 
       const target = candidates[0]
-      if (!target) return
+      if (!target) return undefined
       const result = this.deps.hibernateSession({ sessionId: target.sessionId })
       if (!result.ok) {
         failed.add(target.sessionId)

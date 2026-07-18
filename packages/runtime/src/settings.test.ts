@@ -103,6 +103,15 @@ describe('normalizeSettings — coding.seedCliTheme [spec:SP-a04d]', () => {
   })
 })
 
+describe('normalizeSettings — idle-session target', () => {
+  it('defaults an absent target to 30 but preserves explicit unlimited', () => {
+    expect(normalizeSettings({}).hibernation.maxIdleSessions).toBe(30)
+    expect(
+      normalizeSettings({ hibernation: { maxIdleSessions: null } }).hibernation.maxIdleSessions,
+    ).toBeNull()
+  })
+})
+
 describe('normalizeSettings — legacy → roles migration', () => {
   it('migrates the real live blob shape (superagent+workLlm on codex api, coding claude-code)', () => {
     const s = normalizeSettings({

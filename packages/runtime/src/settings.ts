@@ -257,7 +257,7 @@ export const PodiumSettings = z.object({
       /** Per-machine idle-live convergence target [spec:SP-c29e]. Null is
        * unlimited; zero is valid and parks every session that passes the safety
        * gates. */
-      maxIdleSessions: z.number().int().min(0).nullable().default(null),
+      maxIdleSessions: z.number().int().min(0).nullable().default(30),
       /** A session counts as idle after this many minutes without activity. */
       idleMinutes: z
         .number()

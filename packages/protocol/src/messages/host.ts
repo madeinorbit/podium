@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { AgentKind } from './terminal'
 import { Inventory } from './inventory'
+import { AgentKind } from './terminal'
 
 // Memory state of a daemon host. "Available" is the kernel's estimate of memory
 // applications can still allocate without swapping (Linux MemAvailable) — used is
@@ -21,6 +21,8 @@ export const HostMetricsWire = z.object({
   name: z.string().optional(), // server-filled before broadcast
   sampledAt: z.string(), // ISO 8601
   memory: HostMemoryWire,
+  /** Protected/ineligible idle-live sessions above the convergence target. */
+  idleCapUnmet: z.number().int().nonnegative().optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 
