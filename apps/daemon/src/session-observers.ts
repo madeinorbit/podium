@@ -339,7 +339,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       // const capture so the narrowing survives into the onFrame closure.
       const bootProvider = provider
       const seed = (): void => {
-        void seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value, pathHintOf(msg))
+        const run = () =>
+          seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value, pathHintOf(msg))
+        // Reattach can enqueue 100+ full-rollout reads/classifications at once.
+        // Pace those boot-state seeds with transcript backfills so their synchronous
+        // parse completions cannot starve watchdog/interaction timers. [spec:SP-c29e]
+        if (!init.seedOnFrame && deps.tailSeedGate) void deps.tailSeedGate(run)
+        else void run()
       }
       if (init.seedOnFrame) {
         const offFirstFrame = session.onFrame(() => {

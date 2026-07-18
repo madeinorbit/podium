@@ -2012,11 +2012,24 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
     expect(completed.indexOf('focused')).toBeLessThanOrEqual(2)
   })
 
-  it('seeds bootEvents eagerly on reattach even while the tail seed is still gated', async () => {
-    // The SAFETY invariant behind the POD-612 split: state classification
-    // (seedBootState / provider.bootEvents) runs identically and eagerly for
-    // every reattached session — only the scrollback/tail PREFETCH is paced.
-    // A held gate must therefore never delay the agentState seed.
+  it('yields timers while pacing a 110-session startup seed storm', async () => {
+    const gates = createReattachGates({ tailSeedMax: 2 })
+    let timerTicks = 0
+    const timer = setInterval(() => timerTicks++, 5)
+    const seeds = Array.from({ length: 110 }, () =>
+      gates.tailSeedGate(async () => {
+        const until = performance.now() + 2
+        while (performance.now() < until) {
+          // Model the synchronous JSONL classification after an async rollout read.
+        }
+      }),
+    )
+    await Promise.all(seeds)
+    clearInterval(timer)
+    expect(timerTicks).toBeGreaterThan(0)
+  })
+
+  it('paces bootEvents classification on reattach through the startup seed gate', async () => {
     const home = trackTmp('podium-home-')
     const cwd = '/tmp'
     const resumeValue = 'conv-seedgate-boot'
@@ -2035,12 +2048,16 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
     process.env.HOME = home // claudeBootEvents locates via $HOME (no homeDir opt)
     const sent: DaemonMessage[] = []
     try {
+      const releaseSeeds: Array<() => void> = []
       const observers = createSessionObservers({
         send: (m) => sent.push(m),
         homeDir: home,
         onTranscriptDirty: () => {},
         cwdTracker: { onHookCwd: async () => {} },
-        tailSeedGate: () => new Promise<never>(() => {}), // gate NEVER releases
+        tailSeedGate: (fn) =>
+          new Promise<void>((resolve) => {
+            releaseSeeds.push(() => void fn().then(resolve))
+          }),
       })
       const msg: ReattachControl = {
         type: 'reattach',
@@ -2058,13 +2075,15 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
         agentStateProviderFor('claude-code'),
         { seedOnFrame: false },
       )
+      await new Promise((r) => setTimeout(r, 20))
+      expect(sent.some((m) => m.type === 'agentState' && m.sessionId === 'seedgate-1')).toBe(false)
+      for (const release of releaseSeeds) release()
       const startedAt = Date.now()
       while (!sent.some((m) => m.type === 'agentState' && m.sessionId === 'seedgate-1')) {
         if (Date.now() - startedAt > 5000) throw new Error('agentState seed timed out')
         await new Promise((r) => setTimeout(r, 10))
       }
-      // The tail prefetch is still parked behind the gate — no transcript delta.
-      expect(sent.some((m) => m.type === 'transcriptDelta')).toBe(false)
+      expect(sent.some((m) => m.type === 'agentState' && m.sessionId === 'seedgate-1')).toBe(true)
       observers.clearSession('seedgate-1')
     } finally {
       if (prevHome === undefined) delete process.env.HOME

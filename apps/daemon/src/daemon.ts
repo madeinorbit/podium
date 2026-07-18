@@ -271,7 +271,16 @@ function createPriorityLimiter(
     for (const queue of queues) {
       const next = queue.shift()
       if (next) {
-        next()
+        // A completed seed resumes through a microtask. Cross a macrotask boundary
+        // before the next allocation/parse unit so timers (including the systemd
+        // watchdog pet) can run during a large reconnect burst. [spec:SP-c29e]
+        // Reserve the released slot across the yield so a newly-arriving job
+        // cannot start beside the queued continuation and exceed `max`.
+        active++
+        setTimeout(() => {
+          active--
+          next()
+        }, 0)
         return
       }
     }
