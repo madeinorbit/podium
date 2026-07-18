@@ -608,16 +608,19 @@ export class SessionsService {
    *   - the first setSessionIssueId on a still-unnamed session,
    *   - the one-shot boot backfill for pre-#474 historical rows.
    */
-  private allocateSessionRef(session: Session): void {
+  private prepareSessionRefAllocation(session: Session): (() => void) | undefined {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
       const issue = this.store.issues.getIssue(birthIssueId)
       if (issue) {
-        session.refLetter = this.store.issues.allocateSessionLetter(birthIssueId)
-        session.refIssueId = birthIssueId
-        this.persist(session)
-        return
+        // The returned write runs inside persist's Ledger transaction. That
+        // makes the high-water advance, session row, and change append one
+        // commit boundary; a failed append cannot burn a visible ref.
+        return () => {
+          session.refLetter = this.store.issues.allocateSessionLetter(birthIssueId)
+          session.refIssueId = birthIssueId
+        }
       }
     }
     // Truly issueless → per-repo DRAFT counter (`POD-DRAFT-3`). Skip when the
@@ -625,8 +628,9 @@ export class SessionsService {
     // the high-water counter makes skipping safe (no ordinal is ever reused).
     const repoId = this.store.repos.resolveRepoIdForPath(session.cwd)
     if (this.store.repos.prefixForRepoId(repoId) === null) return
-    session.refDraft = this.store.repos.nextDraftSeq(repoId)
-    this.persist(session)
+    return () => {
+      session.refDraft = this.store.repos.nextDraftSeq(repoId)
+    }
   }
 
   /** The permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`), or undefined
@@ -784,7 +788,10 @@ export class SessionsService {
     // deliberate point instead of burst-allocating inside the first listSessions.
     // loadSessions returns created_at order, so allocation is deterministic; the
     // loop is a no-op once every session carries a ref.
-    for (const session of this.sessions.values()) this.allocateSessionRef(session)
+    for (const session of this.sessions.values()) {
+      const additionalWrite = this.prepareSessionRefAllocation(session)
+      if (additionalWrite) this.persist(session, additionalWrite)
+    }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
     // reattaches and the sessions bind.
@@ -1845,13 +1852,16 @@ export class SessionsService {
    * mutation (rename/archive/read/issue attachment/work state) goes through
    * here instead of hand-rolling persist+broadcast.
    */
-  private mutateSessionMeta(sessionId: string, write: (session: Session) => void): void {
+  private mutateSessionMeta(
+    sessionId: string,
+    write: (session: Session) => void | (() => void),
+  ): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
     this.funnel.run({
       write: () => {
-        write(session)
-        this.persist(session)
+        const additionalWrite = write(session)
+        this.persist(session, additionalWrite ?? undefined)
       },
     })
     this.broadcastSessions()
@@ -1947,7 +1957,7 @@ export class SessionsService {
       // Naming point (#474): the first attach on a still-unnamed session brands
       // it with that issue's letter. A detach (null) is NOT a naming point —
       // the session stays unnamed rather than getting a spurious DRAFT ordinal.
-      if (issueId) this.allocateSessionRef(session)
+      if (issueId) return this.prepareSessionRefAllocation(session)
     })
   }
 
@@ -2641,8 +2651,8 @@ export class SessionsService {
     this.sessions.set(sessionId, session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
     // for a genuinely issueless spawn) — allocate the permanent ref now.
-    this.allocateSessionRef(session)
-    this.persist(session)
+    const additionalWrite = this.prepareSessionRefAllocation(session)
+    this.persist(session, additionalWrite)
     this.toMachine(machineId, {
       type: 'spawn',
       sessionId,

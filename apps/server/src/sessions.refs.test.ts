@@ -3,7 +3,7 @@
  * (spawn / first attach / boot backfill), never lazily during serialization, so
  * a broadcast can never brand a soon-to-be-attached session POD-DRAFT-n.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -50,6 +50,62 @@ describe('session birth naming (#474)', () => {
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
     reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect(meta(sessionId)?.displayRef).toBe(`${issue.displayRef}-A`)
+  })
+
+  it('does not consume the first issue letter when the attachment append fails', () => {
+    const { store, reg, issue, meta } = harness()
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
+    const cursor = reg.modules.sessions.syncChangesSince(null).cursor
+    const events: unknown[] = []
+    reg.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('first attachment append failed')
+    })
+
+    expect(() => reg.modules.sessions.setSessionIssueId(sessionId, issue.id)).toThrow(
+      'first attachment append failed',
+    )
+    append.mockRestore()
+    expect(meta(sessionId)?.issueId).toBeUndefined()
+    expect(meta(sessionId)?.displayRef).toBeUndefined()
+    expect(store.sessions.loadSessions().find((row) => row.id === sessionId)).toMatchObject({
+      issueId: null,
+      refIssueId: null,
+      refLetter: null,
+    })
+    expect(reg.modules.sessions.syncChangesSince(cursor)).toEqual({
+      kind: 'delta',
+      cursor,
+      changes: [],
+    })
+    expect(events).toEqual([])
+
+    reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
+    expect(meta(sessionId)?.displayRef).toBe(issue.displayRef + '-A')
+  })
+
+  it('does not consume DRAFT-1 when the first spawn append fails', () => {
+    const { store, reg, meta } = harness()
+    const cursor = reg.modules.sessions.syncChangesSince(null).cursor
+    const events: unknown[] = []
+    reg.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
+      throw new Error('first draft append failed')
+    })
+
+    expect(() =>
+      reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }),
+    ).toThrow('first draft append failed')
+    append.mockRestore()
+    expect(reg.modules.sessions.syncChangesSince(cursor)).toEqual({
+      kind: 'delta',
+      cursor,
+      changes: [],
+    })
+    expect(events).toEqual([])
+
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' })
+    expect(meta(sessionId)?.displayRef).toBe('POD-DRAFT-1')
   })
 
   it('re-attach keeps the permanent birth name', () => {
