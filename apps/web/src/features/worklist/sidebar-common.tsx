@@ -412,9 +412,16 @@ export function PanelRow({
   // back into the queue; mark it (compareRecency already lifts it by its deadline).
   const backFromSnooze = returnedFromSnooze(session, now)
   const hibernated = session.status === 'hibernated'
-  // Amber status word right of the name (mock's "needs review"/"paused" meta):
-  // attention states show their badge label; a parked session reads "paused".
-  const meta = hibernated ? 'paused' : badge?.tone === 'attention' ? badge.label : null
+  // Status word right of the name (mock's "needs review"/"paused" meta):
+  // attention and error states show their badge label; a parked session reads
+  // "paused". Non-retryable errors have no Continue button, so this label is
+  // their only explicit status text. [spec:SP-dae6]
+  const meta =
+    hibernated || badge?.tone === 'attention' || badge?.tone === 'error'
+      ? hibernated
+        ? 'paused'
+        : badge?.label
+      : null
   // Nested child rows (dotRight): show the session's own issue ref when present.
   const issueLinkage = dotRight ? sessionIssueLinkage(session) : null
   return (
