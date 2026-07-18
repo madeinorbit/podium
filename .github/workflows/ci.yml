@@ -88,6 +88,10 @@ jobs:
       # apps/web needs happy-dom + its own aliases, so it runs under its own config.
       - name: unit tests (apps/web, happy-dom)
         run: bun run --cwd apps/web test:unit
+      # Deterministic Ludovico-scale work/DOM budgets. Wall-clock values are
+      # diagnostics only; the gates use cardinality and operation proxies.
+      - name: large-state frontend benchmark
+        run: bun run test:perf:frontend
       # bun-test unit subset: bun:sqlite-backed runtime store. The rest of
       # `test:bun` (compiled-daemon + lifecycle integration) stays out of CI.
       - name: unit tests (bun test)

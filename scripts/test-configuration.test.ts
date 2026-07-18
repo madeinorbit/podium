@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
 import integrationConfig from '../vitest.integration.config'
@@ -13,6 +14,8 @@ type Config = {
     include?: string[]
     projects?: Project[]
     retry?: number
+    maxWorkers?: number
+    fileParallelism?: boolean
   }
 }
 
@@ -50,6 +53,15 @@ describe('test lane configuration', () => {
     expect(config(agentSmokeConfig).test?.exclude).toContain('apps/web/**')
   })
 
+  it('keeps the frontend performance lane deterministic and explicit', () => {
+    expect(config(frontendPerfConfig).test?.include).toEqual([
+      'src/perf/large-state.frontend-perf.tsx',
+    ])
+    expect(config(frontendPerfConfig).test?.retry).toBe(0)
+    expect(config(frontendPerfConfig).test?.maxWorkers).toBe(1)
+    expect(config(frontendPerfConfig).test?.fileParallelism).toBe(false)
+  })
+
   it('runs the web project exactly once in the default scripts', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
@@ -58,6 +70,7 @@ describe('test lane configuration', () => {
     expect(pkg.scripts.test).toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:integration')
     expect(pkg.scripts.test).not.toContain('test:smoke:agents')
+    expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
   })
