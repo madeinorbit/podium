@@ -312,7 +312,9 @@ describe('daemon multi-bridge', () => {
       body: JSON.stringify({ hook_event_name: 'PostToolUse', cwd: join(repo, 'packages', 'web') }),
     })
     await new Promise((r) => setTimeout(r, 150))
-    expect(received.filter((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit')).toHaveLength(1)
+    expect(received.filter((m) => m.type === 'sessionCwd' && m.sessionId === 'sGit')).toHaveLength(
+      1,
+    )
   })
 
   it('session.setWorktree on the loopback relay restamps the session worktree locally', async () => {
@@ -1984,6 +1986,30 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
       ),
     )
     expect(peak).toBeLessThanOrEqual(2)
+  })
+
+  it('queues 100 held-bridge reseeds without loss and promotes focused work ahead of background', async () => {
+    const gates = createReattachGates({ tailSeedMax: 2 })
+    let active = 0
+    let peak = 0
+    const completed: string[] = []
+    const reseed = (id: string, priority: number) =>
+      gates.tailSeedGate(async () => {
+        active++
+        peak = Math.max(peak, active)
+        await new Promise((r) => setTimeout(r, 1))
+        completed.push(id)
+        active--
+      }, priority)
+
+    const background = Array.from({ length: 100 }, (_, i) => reseed('background-' + i, 3))
+    const focused = reseed('focused', 0)
+    await Promise.all([...background, focused])
+
+    expect(peak).toBeLessThanOrEqual(2)
+    expect(completed).toHaveLength(101)
+    expect(new Set(completed).size).toBe(101)
+    expect(completed.indexOf('focused')).toBeLessThanOrEqual(2)
   })
 
   it('seeds bootEvents eagerly on reattach even while the tail seed is still gated', async () => {

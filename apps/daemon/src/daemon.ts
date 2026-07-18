@@ -261,6 +261,32 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
     })
 }
 
+function createPriorityLimiter(
+  max: number,
+): <T>(priority: number, fn: () => Promise<T>) => Promise<T> {
+  let active = 0
+  const queues: Array<Array<() => void>> = [[], [], [], []]
+  const release = (): void => {
+    active--
+    for (const queue of queues) {
+      const next = queue.shift()
+      if (next) {
+        next()
+        return
+      }
+    }
+  }
+  return <T>(priority: number, fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const run = (): void => {
+        active++
+        fn().then(resolve, reject).finally(release)
+      }
+      if (active < max) run()
+      else (queues[priority] ?? queues[3]!).push(run)
+    })
+}
+
 /**
  * The two gates a reattach burst runs through, split so bridge wiring is never
  * queued behind transcript work (POD-612):
@@ -278,10 +304,10 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
  */
 export function createReattachGates(opts?: { reattachMax?: number; tailSeedMax?: number }): {
   reattachGate: <T>(fn: () => Promise<T>) => Promise<T>
-  tailSeedGate: (fn: () => Promise<void>) => Promise<void>
+  tailSeedGate: (fn: () => Promise<void>, priority?: number) => Promise<void>
 } {
   const reattachLimit = createLimiter(opts?.reattachMax ?? REATTACH_CONCURRENCY)
-  const tailSeedLimit = createLimiter(opts?.tailSeedMax ?? TAIL_SEED_CONCURRENCY)
+  const tailSeedLimit = createPriorityLimiter(opts?.tailSeedMax ?? TAIL_SEED_CONCURRENCY)
   let reattachPending = 0
   const settledWaiters: Array<() => void> = []
   const reattachGate = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -293,8 +319,8 @@ export function createReattachGates(opts?: { reattachMax?: number; tailSeedMax?:
   }
   const whenReattachSettled = (): Promise<void> =>
     reattachPending === 0 ? Promise.resolve() : new Promise((r) => settledWaiters.push(r))
-  const tailSeedGate = (fn: () => Promise<void>): Promise<void> =>
-    whenReattachSettled().then(() => tailSeedLimit(fn))
+  const tailSeedGate = (fn: () => Promise<void>, priority = 3): Promise<void> =>
+    whenReattachSettled().then(() => tailSeedLimit(priority, fn))
   return { reattachGate, tailSeedGate }
 }
 
@@ -566,6 +592,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     sessionCwdTracker,
     primeInjector,
     reattachGate: gates.reattachGate,
+    tailSeedGate: gates.tailSeedGate,
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookSocketPath,
     codexReceiptDir,

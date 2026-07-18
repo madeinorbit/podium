@@ -291,8 +291,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
     // read the newest window now and push it as a reset delta. Best-effort; a read
     // failure just leaves the buffer to refill from live deltas.
-    void (async () => {
+    void ctx.tailSeedGate(async () => {
       try {
+        // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
+        // Keep bind/state/redraw above immediate, but pace the allocation-heavy
+        // transcript read/parse/reset-send through the existing seed gate.
         const source = await sourceForRead(ctx, msg)
         const res = await source.readSlice({ direction: 'before', limit: 2000 })
         if (res.items.length > 0) {
@@ -307,7 +310,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       } catch (err) {
         console.warn(`[podium] reattach re-seed failed for ${msg.sessionId}:`, err)
       }
-    })()
+    }, ctx.outputScheduler.priorityOf(msg.sessionId))
     return
   }
   await ctx.reattachGate(async () => {
