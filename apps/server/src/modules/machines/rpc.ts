@@ -411,6 +411,7 @@ export class DaemonRpcService {
     repoPath: string,
     worktreeName: string,
     machineId: string,
+    occupiedWorktreePaths: string[] = [],
   ): Promise<Omit<HandoffImportResultMessage, 'type' | 'requestId'>> {
     return this.request(
       this.pendingHandoffImports,
@@ -423,6 +424,7 @@ export class DaemonRpcService {
         sessionId,
         repoPath,
         worktreeName,
+        ...(occupiedWorktreePaths.length > 0 ? { occupiedWorktreePaths } : {}),
       }),
       machineId,
     )

@@ -15,6 +15,21 @@ export const HandoffManifest = z.object({
   snapshotSha: z.string().nullable(),
   snapshotFlattened: z.literal(true),
   worktreeName: z.string(),
+  /** Repository-relative checkout location, using `/` separators. New exporters
+   *  include it when the linked worktree lives below the primary checkout;
+   *  older packages omit it and import under `.worktrees/<worktreeName>`.
+   *  [spec:SP-3f7a] */
+  worktreeRelativePath: z
+    .string()
+    .min(1)
+    .refine(
+      (value) =>
+        !value.startsWith('/') &&
+        !value.includes('\\') &&
+        value.split('/').every((part) => part !== '' && part !== '.' && part !== '..'),
+      'worktreeRelativePath must stay inside the repository',
+    )
+    .optional(),
   /** Where the agent sat inside the worktree, relative to its root ([spec:SP-3f7a]).
    *  Absent = the root. The import lands the resumed agent in the equivalent
    *  subdir, or the root when the target tree has no such directory. */
@@ -95,6 +110,9 @@ export const HandoffImportRequestMessage = z.object({
   sessionId: z.string(),
   repoPath: z.string(),
   worktreeName: z.string(),
+  /** Other resumable sessions on the target machine. Import must not reset a
+   *  checkout any of them still owns. Optional for mixed-version daemons. */
+  occupiedWorktreePaths: z.array(z.string()).optional(),
 })
 export const HandoffImportResultMessage = z.object({
   type: z.literal('handoffImportResult'),

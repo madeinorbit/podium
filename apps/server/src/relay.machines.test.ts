@@ -194,7 +194,12 @@ describe('multi-daemon routing', () => {
 })
 
 async function handoffRegistry(
-  opts: { failExport?: boolean; landInSubdir?: boolean; oldDaemon?: boolean; withIssue?: boolean } = {},
+  opts: {
+    failExport?: boolean
+    landInSubdir?: boolean
+    oldDaemon?: boolean
+    withIssue?: boolean
+  } = {},
 ) {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
@@ -228,6 +233,7 @@ async function handoffRegistry(
         snapshotSha: null,
         snapshotFlattened: true as const,
         worktreeName: 'x',
+        worktreeRelativePath: '.worktrees/x',
         bundleBase: [sha],
         sourceMachineId: 'm1',
         exportedAt: new Date().toISOString(),
@@ -285,7 +291,9 @@ async function handoffRegistry(
         // `newCwd` is where the AGENT lands — the worktree root, or a subdir when the
         // session carried a cwdSubpath. `worktreeRoot` is the worktree itself; the
         // issue's home is always the root (POD-824). An older daemon omits it.
-        newCwd: opts.landInSubdir ? '/target/repo/.worktrees/x/apps/web' : '/target/repo/.worktrees/x',
+        newCwd: opts.landInSubdir
+          ? '/target/repo/.worktrees/x/apps/web'
+          : '/target/repo/.worktrees/x',
         ...(opts.oldDaemon ? {} : { worktreeRoot: '/target/repo/.worktrees/x' }),
       })
   })
@@ -331,6 +339,24 @@ describe('session handoff orchestration', () => {
     }
   })
 
+  it('protects worktrees owned by another target session during import', async () => {
+    const { reg, target, sessionId } = await handoffRegistry()
+    await reg.modules.sessions.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/target/repo/.claude/worktrees/shared',
+      resume: { kind: 'claude-session', value: 'other-native-id' },
+      conversationId: 'other-native-id',
+      machineId: 'm2',
+    })
+    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+    expect(target).toContainEqual(
+      expect.objectContaining({
+        type: 'handoffImportRequest',
+        occupiedWorktreePaths: ['/target/repo/.claude/worktrees/shared'],
+      }),
+    )
+  })
+
   it('invalidates the repo lists on both machines so the moved session stays handoff-eligible', async () => {
     // POD-821: the import runs `git worktree add` on the target, so the moved
     // session's new cwd is a worktree NO client has scanned. Clients re-fetch repos
@@ -362,7 +388,10 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId, issueId } = await handoffRegistry({ withIssue: true, landInSubdir: true })
+      const { reg, sessionId, issueId } = await handoffRegistry({
+        withIssue: true,
+        landInSubdir: true,
+      })
       const before = reg.modules.issues.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
@@ -387,7 +416,10 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId, issueId } = await handoffRegistry({ withIssue: true, oldDaemon: true })
+      const { reg, sessionId, issueId } = await handoffRegistry({
+        withIssue: true,
+        oldDaemon: true,
+      })
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',

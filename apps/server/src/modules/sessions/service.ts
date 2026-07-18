@@ -2654,11 +2654,23 @@ export class SessionsService {
         sourceStagePath: exported.stagePath,
         sizeBytes: exported.sizeBytes,
       })
+      // A retained target checkout may still belong to another resumable
+      // session. The daemon resolves the actual registered worktree; these cwds
+      // are the server-authoritative guard against resetting a shared workspace.
+      const occupiedWorktreePaths = this.listSessions()
+        .filter(
+          (other) =>
+            other.sessionId !== session.sessionId &&
+            other.machineId === input.machineId &&
+            other.status !== 'exited',
+        )
+        .map((other) => other.cwd)
       const imported = await this.rpc.handoffImport(
         session.sessionId,
         targetRepo.path,
         exported.manifest.worktreeName,
         input.machineId,
+        occupiedWorktreePaths,
       )
       if (!imported.ok || !imported.newCwd)
         throw new Error(imported.error ?? 'target failed to import session')

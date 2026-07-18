@@ -32,10 +32,14 @@ async function repo(name: string): Promise<string> {
 }
 /** A linked worktree — the only thing a handoff may move ([spec:SP-3f7a]). Lives
  *  under the repo, so the `repo()` cleanup takes it with it. */
-async function worktree(repoPath: string, branch: string): Promise<string> {
-  const path = join(repoPath, '.worktrees', branch.replace(/[^a-zA-Z0-9]/gu, '-'))
+async function worktreeAt(repoPath: string, branch: string, relativePath: string): Promise<string> {
+  const path = join(repoPath, relativePath)
+  await mkdir(dirname(path), { recursive: true })
   git(repoPath, 'worktree', 'add', '-b', branch, path)
   return path
+}
+async function worktree(repoPath: string, branch: string): Promise<string> {
+  return worktreeAt(repoPath, branch, join('.worktrees', branch.replace(/[^a-zA-Z0-9]/gu, '-')))
 }
 /** Seed the Claude transcript in the bucket for `cwd` (Claude buckets by cwd). */
 async function seedTranscript(home: string, cwd: string, resumeValue: string, body = '{}\n') {
@@ -194,15 +198,221 @@ describe('handoff package', () => {
     await writeFile(join(first.newCwd, 'untracked.txt'), 'stale residue\n')
     await writeFile(join(first.newCwd, 'residue.txt'), 'left behind\n')
     await copyFile(exported.stagePath, stage)
-    const second = await importHandoffPackage({
-      sessionId: 'handoff-dirty-only',
+    await expect(
+      importHandoffPackage({
+        sessionId: 'handoff-dirty-only',
+        repoPath: target,
+        worktreeName: exported.manifest.worktreeName,
+        homeDir: targetHome,
+      }),
+    ).rejects.toThrow(/unrecorded changes/)
+    expect(await readFile(join(first.newCwd, 'untracked.txt'), 'utf8')).toBe('stale residue\n')
+    expect(await readFile(join(first.newCwd, 'residue.txt'), 'utf8')).toBe('left behind\n')
+  })
+
+  it('preserves a Claude-owned worktree path on the target', async () => {
+    const origin = await repo('path-origin')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-path-target-'))
+    roots.push(target)
+    execFileSync('git', ['clone', origin, target])
+    const relativePath = join('.claude', 'worktrees', 'path-preserved')
+    const source = await worktreeAt(origin, 'issue/1013-path-preserved', relativePath)
+    const sourceHome = await home('path-source')
+    const targetHome = await home('path-target')
+    const resumeValue = 'claude-path-preserved'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-path-preserved',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    expect(exported.manifest.worktreeRelativePath).toBe('.claude/worktrees/path-preserved')
+    const stage = join(targetHome, '.podium', 'handoff', 'handoff-path-preserved.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    await copyFile(exported.stagePath, stage)
+    const imported = await importHandoffPackage({
+      sessionId: 'handoff-path-preserved',
       repoPath: target,
       worktreeName: exported.manifest.worktreeName,
       homeDir: targetHome,
     })
-    expect(second.newCwd).toBe(first.newCwd)
-    expect(await readFile(join(second.newCwd, 'untracked.txt'), 'utf8')).toBe('v1\n')
-    await expect(access(join(second.newCwd, 'residue.txt'))).rejects.toThrow()
+    expect(imported.worktreeRoot).toBe(join(target, relativePath))
+  })
+
+  it('reclaims the original checkout on a complete A to B to A round trip', async () => {
+    const machineA = await repo('roundtrip-a')
+    const base = git(machineA, 'rev-parse', 'HEAD')
+    const machineB = await mkdtemp(join(tmpdir(), 'podium-roundtrip-b-'))
+    roots.push(machineB)
+    execFileSync('git', ['clone', machineA, machineB])
+    const relativePath = join('.claude', 'worktrees', 'roundtrip')
+    const sourceA = await worktreeAt(machineA, 'issue/1013-roundtrip', relativePath)
+    await writeFile(join(sourceA, 'state.txt'), 'from-a\n')
+    const homeA = await home('roundtrip-a')
+    const homeB = await home('roundtrip-b')
+    const resumeValue = 'claude-roundtrip'
+    await seedTranscript(homeA, sourceA, resumeValue, '{"machine":"a"}\n')
+    const outbound = await exportHandoffPackage({
+      sessionId: 'handoff-roundtrip',
+      cwd: sourceA,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      issueId: '1013',
+      sourceMachineId: 'a',
+      homeDir: homeA,
+    })
+    const stageB = join(homeB, '.podium', 'handoff', 'handoff-roundtrip.tgz')
+    await mkdir(dirname(stageB), { recursive: true })
+    await copyFile(outbound.stagePath, stageB)
+    const onB = await importHandoffPackage({
+      sessionId: 'handoff-roundtrip',
+      repoPath: machineB,
+      worktreeName: outbound.manifest.worktreeName,
+      homeDir: homeB,
+    })
+    expect(onB.worktreeRoot).toBe(join(machineB, relativePath))
+    await writeFile(join(onB.worktreeRoot, 'state.txt'), 'from-b\n')
+    const inbound = await exportHandoffPackage({
+      sessionId: 'handoff-roundtrip',
+      cwd: onB.worktreeRoot,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      issueId: '1013',
+      sourceMachineId: 'b',
+      homeDir: homeB,
+    })
+    const stageA = join(homeA, '.podium', 'handoff', 'handoff-roundtrip.tgz')
+    await copyFile(inbound.stagePath, stageA)
+    const backOnA = await importHandoffPackage({
+      sessionId: 'handoff-roundtrip',
+      repoPath: machineA,
+      worktreeName: inbound.manifest.worktreeName,
+      homeDir: homeA,
+    })
+    expect(backOnA.worktreeRoot).toBe(sourceA)
+    expect(await readFile(join(sourceA, 'state.txt'), 'utf8')).toBe('from-b\n')
+  })
+
+  it('reclaims a clean pre-fingerprint worktree by branch after an old path conversion', async () => {
+    const machineA = await repo('legacy-a')
+    const base = git(machineA, 'rev-parse', 'HEAD')
+    const machineB = await mkdtemp(join(tmpdir(), 'podium-legacy-b-'))
+    roots.push(machineB)
+    execFileSync('git', ['clone', machineA, machineB])
+    const branch = 'worktree-buzzing-swinging-dawn'
+    const originalA = await worktreeAt(
+      machineA,
+      branch,
+      join('.claude', 'worktrees', 'buzzing-swinging-dawn'),
+    )
+    const sourceB = await worktreeAt(machineB, branch, join('.worktrees', 'buzzing-swinging-dawn'))
+    await writeFile(join(sourceB, 'returned.txt'), 'from-b\n')
+    const homeB = await home('legacy-b')
+    const homeA = await home('legacy-a')
+    const resumeValue = 'claude-legacy-return'
+    await seedTranscript(homeB, sourceB, resumeValue)
+    const inbound = await exportHandoffPackage({
+      sessionId: 'handoff-legacy-return',
+      cwd: sourceB,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'b',
+      homeDir: homeB,
+    })
+    const stageA = join(homeA, '.podium', 'handoff', 'handoff-legacy-return.tgz')
+    await mkdir(dirname(stageA), { recursive: true })
+    await copyFile(inbound.stagePath, stageA)
+    const imported = await importHandoffPackage({
+      sessionId: 'handoff-legacy-return',
+      repoPath: machineA,
+      worktreeName: inbound.manifest.worktreeName,
+      homeDir: homeA,
+    })
+    expect(imported.worktreeRoot).toBe(originalA)
+    expect(await readFile(join(originalA, 'returned.txt'), 'utf8')).toBe('from-b\n')
+  })
+
+  it('refuses to reclaim residue changed after its outbound handoff', async () => {
+    const origin = await repo('changed-residue')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const source = await worktree(origin, 'issue/1013-changed-residue')
+    const sourceHome = await home('changed-residue')
+    const resumeValue = 'claude-changed-residue'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-changed-residue',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    await writeFile(join(source, 'after-handoff.txt'), 'must survive\n')
+    await expect(
+      importHandoffPackage({
+        sessionId: 'handoff-changed-residue',
+        repoPath: origin,
+        worktreeName: exported.manifest.worktreeName,
+        homeDir: sourceHome,
+      }),
+    ).rejects.toThrow(/changed after handoff/)
+    expect(await readFile(join(source, 'after-handoff.txt'), 'utf8')).toBe('must survive\n')
+  })
+
+  it('refuses to reclaim a checkout occupied by another target session', async () => {
+    const origin = await repo('occupied')
+    const base = git(origin, 'rev-parse', 'HEAD')
+    const target = await mkdtemp(join(tmpdir(), 'podium-occupied-target-'))
+    roots.push(target)
+    execFileSync('git', ['clone', origin, target])
+    const source = await worktree(origin, 'issue/1013-occupied')
+    const occupied = await worktree(target, 'issue/1013-occupied')
+    const sourceHome = await home('occupied-source')
+    const targetHome = await home('occupied-target')
+    const resumeValue = 'claude-occupied'
+    await seedTranscript(sourceHome, source, resumeValue)
+    const exported = await exportHandoffPackage({
+      sessionId: 'handoff-occupied',
+      cwd: source,
+      agentKind: 'claude-code',
+      resume: { kind: 'claude-session', value: resumeValue },
+      branch: 'ignored',
+      baseShas: [base],
+      repoId: 'repo',
+      sourceMachineId: 'source',
+      homeDir: sourceHome,
+    })
+    const stage = join(targetHome, '.podium', 'handoff', 'handoff-occupied.tgz')
+    await mkdir(dirname(stage), { recursive: true })
+    await copyFile(exported.stagePath, stage)
+    await expect(
+      importHandoffPackage({
+        sessionId: 'handoff-occupied',
+        repoPath: target,
+        worktreeName: exported.manifest.worktreeName,
+        occupiedWorktreePaths: [occupied],
+        homeDir: targetHome,
+      }),
+    ).rejects.toThrow(/still used by another session/)
   })
 
   it('exports and imports dirty state plus Claude transcript between repositories', async () => {
