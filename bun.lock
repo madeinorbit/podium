@@ -44,9 +44,11 @@
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.3.201",
         "@podium/agent-bridge": "workspace:*",
+        "@podium/composer": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@podium/runtime": "workspace:*",
         "@podium/transcript": "workspace:*",
+        "@xterm/headless": "^5.5.0",
         "ws": "^8.18.0",
       },
       "devDependencies": {
@@ -233,6 +235,17 @@
         "react": ">=19",
       },
     },
+    "packages/composer": {
+      "name": "@podium/composer",
+      "version": "0.0.0",
+      "dependencies": {
+        "@podium/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "tsup": "^8.5.1",
+        "typescript": "^6.0.3",
+      },
+    },
     "packages/domain": {
       "name": "@podium/domain",
       "version": "0.0.0",
@@ -306,6 +319,7 @@
       "name": "@podium/terminal-client",
       "version": "0.0.0",
       "dependencies": {
+        "@podium/composer": "workspace:*",
         "@podium/protocol": "workspace:*",
         "@xterm/addon-fit": "^0.10.0",
         "@xterm/addon-web-links": "^0.11.0",
@@ -1013,6 +1027,8 @@
 
     "@podium/client-core": ["@podium/client-core@workspace:packages/client-core"],
 
+    "@podium/composer": ["@podium/composer@workspace:packages/composer"],
+
     "@podium/daemon": ["@podium/daemon@workspace:apps/daemon"],
 
     "@podium/desktop": ["@podium/desktop@workspace:apps/desktop"],
@@ -1440,6 +1456,8 @@
     "@xterm/addon-web-links": ["@xterm/addon-web-links@0.11.0", "", { "peerDependencies": { "@xterm/xterm": "^5.0.0" } }, "sha512-nIHQ38pQI+a5kXnRaTgwqSHnX7KE6+4SVoceompgHL26unAxdfP6IPqUTSYPQgSwM56hsElfoNrrW5V7BUED/Q=="],
 
     "@xterm/addon-webgl": ["@xterm/addon-webgl@0.18.0", "", { "peerDependencies": { "@xterm/xterm": "^5.0.0" } }, "sha512-xCnfMBTI+/HKPdRnSOHaJDRqEpq2Ugy8LEj9GiY4J3zJObo3joylIFaMvzBwbYRg8zLtkO0KQaStCeSfoaI2/w=="],
+
+    "@xterm/headless": ["@xterm/headless@5.5.0", "", {}, "sha512-5xXB7kdQlFBP82ViMJTwwEc3gKCLGKR/eoxQm4zge7GPBl86tCdI0IdPJjoKd8mUSFXz5V7i/25sfsEkP4j46g=="],
 
     "@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
 
