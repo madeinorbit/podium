@@ -1,5 +1,3 @@
-import type { IssueWire } from '@podium/protocol'
-
 /**
  * Direction of a relation entry relative to the subject issue:
  * - `'dep'`      — an outgoing dep the subject stores (subject → target).
@@ -65,7 +63,10 @@ function sectionFor(type: string, direction: RelationDirection): string {
  * both sides won't list the same issue twice). An issue with no relations returns
  * `[]`.
  */
-export function groupRelations(issue: IssueWire): RelationSection[] {
+export function groupRelations(issue: {
+  deps: Array<{ id: string; type: string }>
+  dependents: Array<{ id: string; type: string }>
+}): RelationSection[] {
   const entries: RelationEntry[] = [
     ...issue.deps.map((d) => ({ id: d.id, type: d.type, direction: 'dep' as const })),
     ...issue.dependents.map((d) => ({ id: d.id, type: d.type, direction: 'dependent' as const })),

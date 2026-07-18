@@ -6,6 +6,7 @@
  * client).
  */
 
+import type { IssueProjection } from '@podium/model'
 import type {
   AgentKind,
   ApprovalWire,
@@ -82,6 +83,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   sessions: SessionMeta[]
   /** Issues (work items) broadcast by the server — full list, refreshed on every mutation. */
   issues: IssueWire[]
+  /** Normalized issue rows with pending readAt overlays folded over server truth. */
+  issueProjections: IssueProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
   conversations: ConversationSummaryWire[]
   /** Scheduled definitions and honest run history mirrored live from the replica. */

@@ -1377,11 +1377,17 @@ export class SocketHub {
         if (result.kind === 'snapshot') {
           this.sessionList = result.sessions
           this.issueList = result.issues
+          this.issueProjectionList = result.issueProjections ?? []
+          this.issueDepList = result.issueDeps ?? []
+          this.repoList = result.repos ?? []
           this.conversationList = result.conversations
           this.automationList = result.automations ?? []
           this.automationRunList = result.automationRuns ?? []
           this.emit('sessions', this.sessionList)
           this.emit('issues', this.issueList)
+          this.emit('issueProjections', this.issueProjectionList)
+          this.emit('issueDeps', this.issueDepList)
+          this.emit('repos', this.repoList)
           this.emit('conversations', this.conversationList)
           this.emit('automations', this.automationList)
           this.emit('automationRuns', this.automationRunList)

@@ -1,11 +1,12 @@
 import {
   type HandoffAvailability,
-  handoffAvailability,
   type HandoffIssue,
   type HandoffMachine,
   type HandoffRepo,
+  handoffAvailability,
 } from '@podium/domain'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 import type { IssuesKeyState } from './issues-keys'
 
 /**
@@ -34,14 +35,18 @@ export type IssueHandoff<M> =
  * Callers must also require a single selected issue (`issues.length === 1`).
  */
 export function issueHandoffAvailability<M extends HandoffMachine>(
-  issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
+  issue: HandoffIssue & {
+    memberSessionIds?: readonly string[]
+    sessions?: readonly { sessionId: string }[]
+  },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],
 ): IssueHandoff<M> {
   const byId = new Map(sessions.map((s) => [s.sessionId, s]))
-  const agents = issue.sessions
-    .map((ref) => byId.get(ref.sessionId))
+  const memberIds = issue.memberSessionIds ?? []
+  const agents = memberIds
+    .map((id) => byId.get(id))
     .filter(
       (s): s is SessionMeta =>
         s !== undefined && (s.agentKind === 'claude-code' || s.agentKind === 'codex'),
@@ -58,7 +63,10 @@ export function issueHandoffAvailability<M extends HandoffMachine>(
  * eligible case (kept as `handoffTargets` is over `handoffAvailability`).
  */
 export function resolveIssueHandoffSession<M extends HandoffMachine>(
-  issue: HandoffIssue & { sessions: readonly { sessionId: string }[] },
+  issue: HandoffIssue & {
+    memberSessionIds?: readonly string[]
+    sessions?: readonly { sessionId: string }[]
+  },
   sessions: readonly SessionMeta[],
   repos: HandoffRepo[],
   machines: M[],
@@ -72,7 +80,7 @@ export function resolveIssueHandoffSession<M extends HandoffMachine>(
 }
 
 /** Closed = a close reason is recorded (server: isClosed ⇔ closedReason != null). */
-export function isIssueClosed(issue: IssueWire): boolean {
+export function isIssueClosed(issue: IssueViewModel): boolean {
   return issue.closedReason != null
 }
 
@@ -82,7 +90,7 @@ export function isIssueClosed(issue: IssueWire): boolean {
  * multi-selection; bulk-capable ones (stage / priority / labels / delete) match
  * the bulk action bar and stay for any non-empty selection.
  */
-export function issueMenuEligibility(issues: readonly IssueWire[]): {
+export function issueMenuEligibility(issues: readonly IssueViewModel[]): {
   canOpen: boolean
   canRename: boolean
   canSetStage: boolean
@@ -167,7 +175,7 @@ export function deferDateFromNow(now: number, days: number): string {
  * it. Returns only the issues whose label set actually changes.
  */
 export function toggleLabelAcross(
-  issues: readonly IssueWire[],
+  issues: readonly IssueViewModel[],
   label: string,
 ): { id: string; labels: string[] }[] {
   const allHave = issues.every((i) => i.labels.includes(label))

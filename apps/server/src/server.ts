@@ -20,14 +20,13 @@ import { registerAssetRoute } from './file-asset-route'
 import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
 import { IssueToolProvider } from './issue-mcp'
-import { readOrCreateDaemonSecret, stateDir } from './local-machine'
+import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { MessagingService } from './modules/messaging'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
-import { LOCAL_MACHINE_ID } from './local-machine'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -240,6 +239,7 @@ export async function startServer(
     getSettings: () => store.settings.getSettings(),
     superagent,
     issues: registry.modules.issues,
+    sessions: registry.modules.sessions,
     topics: store.messagingTopics,
     sessionIssueId: (sessionId) => registry.modules.sessions.getSessionIssueId(sessionId),
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound

@@ -51,12 +51,13 @@
  *   poison drop        → overlay dropped + toast (rule (b))
  */
 
+import type { IssueProjection } from '@podium/model'
 import type { IssueWire, SessionMeta, WorkState } from '@podium/protocol'
 import type { OutboxEntry } from '../outbox'
 import type { OutboxKinds } from './wiring'
 
 /** The two overlaid entity kinds. Conversations carry no optimistic writes. */
-export type OverlayEntity = 'sessions' | 'issues'
+export type OverlayEntity = 'sessions' | 'issues' | 'issueProjections'
 
 /** Fields folded over a base row. Loose on purpose — the projection functions
  *  below are the typed constructors; folding is structural. */
@@ -73,7 +74,7 @@ export type PendingOverlay =
       patch: OverlayPatch
       /** True when `row` (current server truth) already reflects this
        *  mutation — applying the patch would be observationally a no-op. */
-      coveredBy: (row: SessionMeta | IssueWire) => boolean
+      coveredBy: (row: SessionMeta | IssueWire | IssueProjection) => boolean
     }
   | {
       op: 'insert'
@@ -138,7 +139,7 @@ function patchOverlay(
   id: string,
   key: string,
   patch: OverlayPatch,
-  coveredBy: (row: SessionMeta | IssueWire) => boolean,
+  coveredBy: (row: SessionMeta | IssueWire | IssueProjection) => boolean,
 ): PendingOverlay {
   return { op: 'patch', key, entity, id, patch, coveredBy }
 }
@@ -236,21 +237,21 @@ export function overlayForOutboxEntry(entry: OutboxEntry): PendingOverlay | null
     case 'issueMarkRead': {
       const i = entry.input as OutboxKinds['issueMarkRead']
       return patchOverlay(
-        'issues',
+        'issueProjections',
         i.id,
         entry.mutationId,
-        { readAt: new Date(entry.queuedAt).toISOString(), unread: false },
-        (r) => (r as IssueWire).unread === false && (r as IssueWire).readAt != null,
+        { readAt: new Date(entry.queuedAt).toISOString() },
+        (r) => (r as IssueProjection).readAt != null,
       )
     }
     case 'issueMarkUnread': {
       const i = entry.input as OutboxKinds['issueMarkUnread']
       return patchOverlay(
-        'issues',
+        'issueProjections',
         i.id,
         entry.mutationId,
-        { readAt: null, unread: true },
-        (r) => (r as IssueWire).unread === true,
+        { readAt: null },
+        (r) => (r as IssueProjection).readAt == null,
       )
     }
     case 'resumeAndSend':
@@ -351,7 +352,8 @@ export function pruneAwaiting<T extends object>(
     if (a.overlay.entity !== entity) return true
     const row = byId.get(a.overlay.id)
     if (row === undefined) return false // row gone — nothing left to overlay
-    if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire)) return false
+    if (a.overlay.coveredBy(row as unknown as SessionMeta | IssueWire | IssueProjection))
+      return false
     if (now - a.resolvedAt > AWAITING_TRUTH_TTL_MS) {
       // Covering truth never arrived — bound the mask instead of wedging (see
       // the AWAITING_TRUTH_TTL_MS tradeoff note).

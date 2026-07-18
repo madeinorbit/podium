@@ -1,6 +1,7 @@
 import { relativeTime } from '@podium/client-core'
-import type { IssueWire } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
 import type { CSSProperties, JSX } from 'react'
+import type { IssueViewModel } from '@/app/store'
 import { effectiveIssueColorHex, FLOW_SLATE, issueSquareFg } from '@/lib/issueColors'
 import type { TrayItem } from './derive-tray'
 
@@ -32,13 +33,15 @@ const itemKey = (item: TrayItem): string => `${item.kind}:${item.issue.id}`
 export function TrayCard({
   item,
   issues,
+  sessions,
   actions,
   now,
 }: {
   item: TrayItem
   /** Full issue list — colour inheritance walks ancestors (§2.5: sub-issues
    *  of a coloured issue flow ITS colour). */
-  issues: IssueWire[]
+  issues: IssueViewModel[]
+  sessions: readonly SessionMeta[]
   actions: TrayActions
   now: number
 }): JSX.Element {
@@ -47,8 +50,10 @@ export function TrayCard({
   const hex = flowHex ?? FLOW_SLATE
   const colored = flowHex !== undefined
   const review = item.kind === 'review'
-  const agentSession = (issue.sessions ?? []).find(
-    (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
+  const memberIds = new Set(issue.memberSessionIds ?? [])
+  const agentSession = sessions.find(
+    (s) =>
+      memberIds.has(s.sessionId) && !s.archived && s.agentKind !== 'shell' && s.headless !== true,
   )
   const flash = !flashed.has(itemKey(item))
   if (flash) flashed.add(itemKey(item))

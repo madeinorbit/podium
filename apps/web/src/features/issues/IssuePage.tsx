@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core'
-import { type IssuePanelArtifact, type IssueWire, issueDisplayRef } from '@podium/protocol'
+import { type IssuePanelArtifact, issueDisplayRef } from '@podium/protocol'
 import {
   ArchiveRestore,
   ArrowLeft,
@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -79,7 +79,7 @@ export function IssuePage({
   onBack,
   onNavigate,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   orderedIds: string[]
   onBack: () => void
   onNavigate: (id: string) => void
@@ -106,7 +106,7 @@ export function IssuePage({
   }, [issue.id])
 
   // Post the composed comment, appending it optimistically so it shows without
-  // waiting for the broadcast round-trip (the commentCount-keyed refetch then
+  // waiting for the broadcast round-trip (the updatedAt-keyed refetch then
   // replaces the local copy with server truth).
   const postComment = (): void => {
     const body = commentBody.trim()
@@ -605,7 +605,7 @@ function StatusChip({
  * internal audience), hub-sync state, and freshness (created / updated). These are
  * the row-level facts agents stamp that previously never surfaced on the page.
  */
-function StatusStrip({ issue }: { issue: IssueWire }): JSX.Element {
+function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
   const now = Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
@@ -664,10 +664,10 @@ function LifecycleBanner({
   issue,
   onNavigate,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   onNavigate: (id: string) => void
 }): JSX.Element | null {
-  const issues = useStoreSelector((s) => s.issues)
+  const issues = useReplicaIssues()
   const link = (id: string, verb: string): JSX.Element => {
     const target = issues.find((i) => i.id === id)
     return (
@@ -709,7 +709,7 @@ function LongFormFields({
   busy,
   commands,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
 }): JSX.Element | null {
@@ -816,7 +816,7 @@ function PanelSections({
   busy,
   commands,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
 }): JSX.Element | null {
@@ -1114,12 +1114,12 @@ function IssueOverflowMenu({
   commands,
   onDeleted,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   onDeleted: () => void
 }): JSX.Element {
-  const issues = useStoreSelector((s) => s.issues)
+  const issues = useReplicaIssues()
   // Sibling issues in the same repo — targets for supersede/duplicate.
   const targetIssues = repoMatesOf(issues, issue)
 
@@ -1131,7 +1131,7 @@ function IssueOverflowMenu({
   }
 
   const handleDelete = (): void => {
-    const sessionCount = issue.sessions.length
+    const sessionCount = (issue.memberSessionIds ?? []).length
     const message = `Delete "${issueRefLong(issue)}" and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? The task and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
     commands.deleteIssue(onDeleted)

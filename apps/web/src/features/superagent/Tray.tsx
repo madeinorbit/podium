@@ -1,6 +1,7 @@
-import type { IssueWire } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import type { IssueViewModel } from '@/app/store'
 import { BrailleSpinner } from '@/lib/motion'
 import { deriveTrayItems, workingSessionCount } from './derive-tray'
 import { type TrayActions, TrayCard } from './TrayCard'
@@ -14,11 +15,13 @@ import { type TrayActions, TrayCard } from './TrayCard'
  */
 export function Tray({
   issues,
+  sessions,
   selectedIssueId,
   actions,
   maxHeight,
 }: {
-  issues: IssueWire[]
+  issues: IssueViewModel[]
+  sessions: readonly SessionMeta[]
   selectedIssueId: string | null
   actions: TrayActions
   /** Set by the tray/chat split handle; null = size to content. */
@@ -33,7 +36,7 @@ export function Tray({
 
   const items = deriveTrayItems(issues, selectedIssueId)
   if (items.length === 0) {
-    const working = workingSessionCount(issues, selectedIssueId)
+    const working = workingSessionCount(issues, selectedIssueId, sessions)
     return (
       <div
         data-testid="tray-empty"
@@ -64,6 +67,7 @@ export function Tray({
           key={`${item.kind}:${item.issue.id}`}
           item={item}
           issues={issues}
+          sessions={sessions}
           actions={actions}
           now={now}
         />

@@ -27,6 +27,7 @@ import { createReplica, memoryStorage } from './replica'
 const issue = (over: Partial<IssueViewInput> & { id: string }): IssueViewInput => ({
   seq: 1,
   stage: 'backlog',
+  updatedAt: '2026-07-17T08:00:00.000Z',
   ...over,
 })
 const session = (over: Partial<SessionViewInput> & { sessionId: string }): SessionViewInput => ({
@@ -173,6 +174,36 @@ describe('blocked / ready / deferred — the fields that read OTHER entities', (
   })
 })
 
+describe('dependents — the reverse of deps, derived not embedded [POD-856]', () => {
+  it("an edge A→B puts A in B's dependents with the edge type", () => {
+    const issues = [issue({ id: 'a', deps: [{ id: 'b', type: 'blocks' }] }), issue({ id: 'b' })]
+    const views = deriveIssueViews(issues, [])
+    expect(views.get('b')?.dependents).toEqual([{ id: 'a', type: 'blocks' }])
+    // The forward side is unchanged — A depends on B, not the reverse.
+    expect(views.get('a')?.dependents).toEqual([])
+  })
+
+  it('collects multiple dependents and preserves their types', () => {
+    const issues = [
+      issue({ id: 'a', deps: [{ id: 'c', type: 'blocks' }] }),
+      issue({ id: 'b', deps: [{ id: 'c', type: 'related' }] }),
+      issue({ id: 'c' }),
+    ]
+    const dependents = deriveIssueViews(issues, []).get('c')?.dependents ?? []
+    expect(dependents).toHaveLength(2)
+    expect(dependents).toContainEqual({ id: 'a', type: 'blocks' })
+    expect(dependents).toContainEqual({ id: 'b', type: 'related' })
+  })
+
+  it('an edge pointing at an unheld issue does not fabricate a view', () => {
+    // The reverse index keys on the target id, which may not be a held issue —
+    // it must not create a phantom entry (mirrors the unknown-dep blocked rule).
+    const views = deriveIssueViews([issue({ id: 'a', deps: [{ id: 'gone', type: 'blocks' }] })], [])
+    expect(views.has('gone')).toBe(false)
+    expect(views.get('a')?.dependents).toEqual([])
+  })
+})
+
 describe('board', () => {
   it('groups by stage and keeps every column, including the empty ones', () => {
     const issues = [issue({ id: 'a' }), issue({ id: 'b', stage: 'done' })]
@@ -193,7 +224,10 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
     // The bug this exists to catch: a child change emits ZERO events on the
     // parent row, so a binding subscribed only to the tree shows an `unread`
     // frozen forever — no error, no warning, a perfect-looking demo.
-    const read = { readAt: '2026-07-17T10:00:00.000Z' }
+    const read = {
+      readAt: '2026-07-17T10:00:00.000Z',
+      updatedAt: '2026-07-17T08:00:00.000Z',
+    }
     const quiet = [
       session({ sessionId: 's1', issueId: 'i1', lastActiveAt: '2026-07-17T09:00:00.000Z' }),
     ]
@@ -208,7 +242,55 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
 
   it('a never-read issue with any active session is unread', () => {
     const sessions = [session({ sessionId: 's1', lastActiveAt: '2026-07-17T09:00:00.000Z' })]
-    expect(deriveIssueRollups({ readAt: null }, ['s1'], sessionById(sessions)).unread).toBe(true)
+    expect(
+      deriveIssueRollups(
+        { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
+        ['s1'],
+        sessionById(sessions),
+      ).unread,
+    ).toBe(true)
+  })
+
+  it('matches server unread semantics for issue-row activity without sessions', () => {
+    const sessionLookup = sessionById([])
+    expect(
+      deriveIssueRollups({ readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' }, [], sessionLookup)
+        .unread,
+    ).toBe(true)
+    expect(
+      deriveIssueRollups(
+        {
+          readAt: '2026-07-17T10:00:00.000Z',
+          updatedAt: '2026-07-17T11:00:00.000Z',
+        },
+        [],
+        sessionLookup,
+      ).unread,
+    ).toBe(true)
+    expect(
+      deriveIssueRollups(
+        {
+          readAt: '2026-07-17T10:00:00.000Z',
+          updatedAt: '2026-07-17T09:00:00.000Z',
+        },
+        [],
+        sessionLookup,
+      ).unread,
+    ).toBe(false)
+  })
+
+  it('keeps deleted issues read even when issue or session activity is newer', () => {
+    const rollups = deriveIssueRollups(
+      {
+        readAt: null,
+        updatedAt: '2026-07-17T11:00:00.000Z',
+        deletedAt: '2026-07-17T12:00:00.000Z',
+      },
+      ['s1'],
+      sessionById([session({ sessionId: 's1', lastActiveAt: '2026-07-17T13:00:00.000Z' })]),
+    )
+    expect(rollups.unread).toBe(false)
+    expect(rollups.sessionSummary.total).toBe(1)
   })
 
   it('summarises members by phase', () => {
@@ -217,7 +299,11 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
       session({ sessionId: 's2', phase: 'working' }),
       session({ sessionId: 's3', phase: 'idle' }),
     ]
-    const rollups = deriveIssueRollups({ readAt: null }, ['s1', 's2', 's3'], sessionById(sessions))
+    const rollups = deriveIssueRollups(
+      { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
+      ['s1', 's2', 's3'],
+      sessionById(sessions),
+    )
     expect(rollups.sessionSummary).toEqual({ total: 3, byPhase: { working: 2, idle: 1 } })
   })
 
@@ -225,7 +311,7 @@ describe('session-content rollups — THE pin (POD-791 + POD-794 event semantics
     // Normal, not an error — the session may be mid-arrival. Counting it would
     // report a total the user cannot see.
     const rollups = deriveIssueRollups(
-      { readAt: null },
+      { readAt: null, updatedAt: '2026-07-17T08:00:00.000Z' },
       ['s1', 'ghost'],
       sessionById([session({ sessionId: 's1' })]),
     )

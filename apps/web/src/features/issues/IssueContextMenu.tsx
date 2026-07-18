@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueStage } from '@podium/protocol'
 import { ISSUE_STAGES, issueDisplayRef } from '@podium/protocol'
 import {
   AlarmClock,
@@ -24,6 +24,7 @@ import {
 import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
+import type { IssueViewModel } from '@/app/store'
 import { useStoreSelector } from '@/app/store'
 import { DEFER_NEXT_MESSAGE, reposToViews, snoozeUntil1h } from '@/lib/derive'
 import { issueAgentOptions } from '@/lib/issue-agents'
@@ -63,9 +64,9 @@ export function IssueContextMenu({
   onRename,
 }: {
   /** The issues the menu acts on (the clicked issue, or the multi-selection). */
-  issues: IssueWire[]
+  issues: IssueViewModel[]
   /** Board scope — supplies the label pool and duplicate-target siblings. */
-  allIssues: IssueWire[]
+  allIssues: IssueViewModel[]
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Open the issue page for a single target. */
@@ -196,9 +197,7 @@ export function IssueContextMenu({
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
-    const sessions = new Set(
-      issues.flatMap((issue) => issue.sessions.map((session) => session.sessionId)),
-    )
+    const sessions = new Set(issues.flatMap((issue) => issue.memberSessionIds ?? []))
     const sessionCount = sessions.size
     const message = `Delete ${n} task${n > 1 ? 's' : ''} and ${sessionCount} session${sessionCount === 1 ? '' : 's'}? Tasks and sessions can be restored; running processes will be stopped.`
     if (!window.confirm(message)) return
@@ -364,10 +363,7 @@ export function IssueContextMenu({
     handoff: [
       ...(handoffCandidates.length === 0
         ? [
-            <div
-              key="none"
-              className="px-2 py-1.5 text-[11px] text-muted-foreground"
-            >
+            <div key="none" className="px-2 py-1.5 text-[11px] text-muted-foreground">
               No other machine has this repo
             </div>,
           ]

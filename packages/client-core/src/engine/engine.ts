@@ -20,6 +20,7 @@
  * stable until a slice actually changes (publish shallow-compares).
  */
 
+import type { IssueProjection } from '@podium/model'
 import type {
   AgentKind,
   ApprovalWire,
@@ -146,6 +147,7 @@ interface EngineState {
   repoDiagnostics: GitDiscoveryDiagnosticWire[]
   sessions: SessionMeta[]
   issues: IssueWire[]
+  issueProjections: IssueProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
@@ -202,6 +204,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   // ---- internal (non-snapshot) state ----
   private baseSessions: SessionMeta[] = []
   private baseIssues: IssueWire[] = []
+  private baseIssueProjections: IssueProjection[] = []
   /** ONE optimistic mechanism (#263, overlay.ts): the QUEUED overlays are the
    *  outbox itself (derived per recompute — no second copy of that state);
    *  these two hold the rest of the lifecycle. `spawnOverlays` are the #119
@@ -302,6 +305,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.baseSessions =
       seedSessions.length === 0 ? seedSessions : dedupeSessionsByResume(seedSessions)
     this.baseIssues = this.replica.rows('issues')
+    this.baseIssueProjections = this.replica.rows('issueProjections')
     // Baseline for the worktree-follow diff: the seeded rows are "first sight",
     // not moves (matches the old effect's first observed sessions snapshot).
     this.prevCwds = Object.fromEntries(this.baseSessions.map((s) => [s.sessionId, s.cwd]))
@@ -314,6 +318,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       (s) => s.sessionId,
     )
     const seededIssueFold = foldOverlays(this.baseIssues, this.overlaysFor('issues'), (i) => i.id)
+    const seededProjectionFold = foldOverlays(
+      this.baseIssueProjections,
+      this.overlaysFor('issueProjections'),
+      (i) => i.id,
+    )
     this.state = {
       repos: [],
       reposLoading: false,
@@ -321,6 +330,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       repoDiagnostics: [],
       sessions: seededSessionFold.rows,
       issues: seededIssueFold.rows,
+      issueProjections: seededProjectionFold.rows,
       conversations: this.replica.rows('conversations'),
       automations: this.replica.rows('automations'),
       automationRuns: this.replica.rows('automationRuns'),
@@ -394,6 +404,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         this.apply({ outboxSize: size })
         this.recomputeSessions()
         this.recomputeIssues()
+        this.recomputeIssueProjections()
       }),
     )
     this.outbox.attach()
@@ -408,6 +419,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     // parallel entity path.
     offs.push(this.replica.subscribeRows('sessions', () => this.refreshSessionRows()))
     offs.push(this.replica.subscribeRows('issues', () => this.refreshIssueRows()))
+    offs.push(
+      this.replica.subscribeRows('issueProjections', () => this.refreshIssueProjectionRows()),
+    )
     offs.push(this.replica.subscribeRows('conversations', () => this.refreshConversationRows()))
     offs.push(this.replica.subscribeRows('automations', () => this.refreshAutomationRows()))
     offs.push(this.replica.subscribeRows('automationRuns', () => this.refreshAutomationRunRows()))
@@ -786,6 +800,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private refreshAllRows(): void {
     this.refreshSessionRows()
     this.refreshIssueRows()
+    this.refreshIssueProjectionRows()
     this.refreshConversationRows()
     this.refreshAutomationRows()
     this.refreshAutomationRunRows()
@@ -802,6 +817,11 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
   private refreshIssueRows(): void {
     this.baseIssues = this.replica.rows('issues')
     this.recomputeIssues()
+  }
+
+  private refreshIssueProjectionRows(): void {
+    this.baseIssueProjections = this.replica.rows('issueProjections')
+    this.recomputeIssueProjections()
   }
 
   private refreshConversationRows(): void {
@@ -877,9 +897,18 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply({ issues: rows })
   }
 
+  private recomputeIssueProjections(): void {
+    const base = this.baseIssueProjections
+    const keyOf = (i: IssueProjection): string => i.id
+    this.retireCovered('issueProjections', base, keyOf)
+    const { rows } = foldOverlays(base, this.overlaysFor('issueProjections'), keyOf)
+    this.apply({ issueProjections: rows })
+  }
+
   private recomputeFor(entity: OverlayEntity | undefined): void {
     if (entity === 'sessions') this.recomputeSessions()
     else if (entity === 'issues') this.recomputeIssues()
+    else if (entity === 'issueProjections') this.recomputeIssueProjections()
   }
 
   /** Drain success (#263): hand the entry's overlay to the awaiting-truth
@@ -893,7 +922,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     const row =
       overlay.entity === 'sessions'
         ? this.baseSessions.find((s) => s.sessionId === overlay.id)
-        : this.baseIssues.find((i) => i.id === overlay.id)
+        : overlay.entity === 'issues'
+          ? this.baseIssues.find((i) => i.id === overlay.id)
+          : this.baseIssueProjections.find((i) => i.id === overlay.id)
     // Hold the overlay until covering truth lands. Nothing to hold when the
     // row is gone, already reflects the mutation (the broadcast echo raced
     // ahead of the response), or moved past the ENQUEUE-time baseline without
@@ -943,6 +974,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       this.awaitingSweepTimer = null
       this.recomputeSessions()
       this.recomputeIssues()
+      this.recomputeIssueProjections()
       this.armAwaitingSweep()
     }, delay)
   }
@@ -971,7 +1003,9 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       const row =
         probe.entity === 'sessions'
           ? this.baseSessions.find((s) => s.sessionId === probe.id)
-          : this.baseIssues.find((i) => i.id === probe.id)
+          : probe.entity === 'issues'
+            ? this.baseIssues.find((i) => i.id === probe.id)
+            : this.baseIssueProjections.find((i) => i.id === probe.id)
       if (row !== undefined) baseline = rowFingerprint(row)
       // Chained stamp (#263 review round 2): a same-row entry already pending
       // (queued or awaiting) means ITS echo will move the row past this

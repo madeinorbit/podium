@@ -1,3 +1,4 @@
+import type { IssueWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   buildIssuesMessage,
@@ -10,7 +11,6 @@ import {
   parseSlashCommand,
   pickIssueSession,
 } from './commands'
-import type { IssueWire } from '@podium/protocol'
 
 function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
   return {
@@ -154,6 +154,7 @@ describe('issue formatters', () => {
           agentKind: 'grok',
           title: 'old',
           cwd: '/p',
+          issueId: 'e',
           status: 'exited',
           controllerId: null,
           geometry: { cols: 80, rows: 24 },
@@ -171,6 +172,7 @@ describe('issue formatters', () => {
           agentKind: 'grok',
           title: 'live',
           cwd: '/p',
+          issueId: 'e',
           status: 'live',
           controllerId: null,
           geometry: { cols: 80, rows: 24 },
@@ -186,6 +188,6 @@ describe('issue formatters', () => {
       ],
       sessionSummary: { total: 2, byPhase: {} },
     })
-    expect(pickIssueSession(withSessions)?.sessionId).toBe('live')
+    expect(pickIssueSession(withSessions, withSessions.sessions)?.sessionId).toBe('live')
   })
 })

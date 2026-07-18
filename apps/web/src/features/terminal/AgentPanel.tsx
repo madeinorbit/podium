@@ -26,7 +26,7 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,8 +37,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
-import { OfferBar } from '@/features/chat/OfferBar'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
+import { OfferBar } from '@/features/chat/OfferBar'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -147,7 +147,6 @@ export function AgentPanel({
     setPanelRenderMode,
     uiState,
     selectedIssueId,
-    issues,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -166,10 +165,10 @@ export function AgentPanel({
       setPanelRenderMode: s.setPanelRenderMode,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
-      issues: s.issues,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const { guardedArchive } = useSessionGuard()
   const session = sessions.find((s) => s.sessionId === sessionId)
   // An optimistically-spawned session doesn't exist server-side yet (#119): the

@@ -72,6 +72,14 @@ export interface IssueView {
   ready: boolean
   /** Snoozed into the future. */
   deferred: boolean
+  /** Incoming dependency edges — the issues that point AT this one, `{ id:
+   *  fromId, type }`. The reverse of every other issue's `deps`; derived here in
+   *  one O(deps) pass so `dependents` never rode the wire (an edge A→B changing
+   *  B's `dependents` with no write on B is the same cross-entity ripple `deps`
+   *  and `blocked` are). Real dependency edges only — parent/child is carried by
+   *  `childIds`, not synthesized in here (issue_deps stores no parent-child row,
+   *  #164). Replaces the legacy `IssueWire.dependents`. */
+  dependents: Array<{ id: string; type: string }>
 }
 
 /** Rollups over member sessions' CONTENT. Split from {@link IssueView} because
@@ -94,6 +102,8 @@ export interface IssueViewInput {
   status?: string
   deferUntil?: string | null
   readAt?: string | null
+  updatedAt: string
+  deletedAt?: string | null
   deps?: Array<{ id: string; type: string }>
 }
 
@@ -163,12 +173,25 @@ export function deriveIssueViews(
   const sessionsByIssue = indexSessionsByIssue(sessions)
   const stageById = new Map(issues.map((i) => [i.id, i.stage]))
   const childrenByParent = new Map<string, string[]>()
+  // Reverse of every issue's `deps`: an edge A→B (A's dep on B) contributes B a
+  // dependent { id: A, type }. Built once here in O(deps) so `dependents` is a
+  // local derivation, never a wire field — the same reason `blocked` is (both
+  // read OTHER issues' edges, so folding either onto B's row would make an edge
+  // touching A rewrite B).
+  const dependentsByIssue = new Map<string, { id: string; type: string }[]>()
   for (const issue of issues) {
     const parentId = issue.parentId
-    if (!parentId) continue
-    const kids = childrenByParent.get(parentId)
-    if (kids) kids.push(issue.id)
-    else childrenByParent.set(parentId, [issue.id])
+    if (parentId) {
+      const kids = childrenByParent.get(parentId)
+      if (kids) kids.push(issue.id)
+      else childrenByParent.set(parentId, [issue.id])
+    }
+    for (const dep of issue.deps ?? []) {
+      const dependent = { id: issue.id, type: dep.type }
+      const list = dependentsByIssue.get(dep.id)
+      if (list) list.push(dependent)
+      else dependentsByIssue.set(dep.id, [dependent])
+    }
   }
 
   const views = new Map<string, IssueView>()
@@ -193,6 +216,7 @@ export function deriveIssueViews(
       blocked,
       deferred,
       ready: !blocked && !deferred && issue.stage !== 'done',
+      dependents: dependentsByIssue.get(issue.id) ?? [],
     })
   }
   return views
@@ -206,14 +230,20 @@ export function deriveIssueViews(
  * change cheap to react to.
  */
 export function deriveIssueRollups(
-  issue: Pick<IssueViewInput, 'readAt'>,
+  issue: Pick<IssueViewInput, 'readAt' | 'updatedAt' | 'deletedAt'>,
   memberSessionIds: readonly string[],
   sessionById: (id: string) => SessionViewInput | undefined,
 ): IssueSessionRollups {
   const byPhase: Record<string, number> = {}
   let total = 0
-  let unread = false
+  // Match the server's authoritative email-style rule: the issue's own row is
+  // activity too, so a never-read issue is unread even before it has sessions.
   const readAt = issue.readAt ? Date.parse(issue.readAt) : null
+  let unread = readAt === null || !Number.isFinite(readAt)
+  if (!unread && readAt !== null) {
+    const updatedAt = Date.parse(issue.updatedAt)
+    unread = Number.isFinite(updatedAt) && updatedAt > readAt
+  }
   for (const id of memberSessionIds) {
     const session = sessionById(id)
     // A member id with no session is normal, not an error: the session may be
@@ -227,7 +257,7 @@ export function deriveIssueRollups(
       if (Number.isFinite(activeAt) && (readAt === null || activeAt > readAt)) unread = true
     }
   }
-  return { unread, sessionSummary: { total, byPhase } }
+  return { unread: issue.deletedAt ? false : unread, sessionSummary: { total, byPhase } }
 }
 
 /** One node of the issue tree. Children nest; sessions do NOT. */
@@ -355,6 +385,8 @@ function projectionToViewInput(
     stage: p.stage,
     deferUntil: p.deferUntil ?? null,
     readAt: p.readAt ?? null,
+    updatedAt: p.updatedAt,
+    deletedAt: p.deletedAt ?? null,
     deps: depsByFrom.get(p.id) ?? [],
   }
 }

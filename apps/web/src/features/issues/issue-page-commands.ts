@@ -10,7 +10,8 @@
  * Read-side loaders (`loadIssueComments`, `loadIssueEventsPage`,
  * `loadMergeStyle`) live here too so the model hook has no raw call sites.
  */
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueStage } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import type { ActivityComment, IssueEvent } from './issue-events'
@@ -25,7 +26,7 @@ export type GitActionKind = 'rebase' | 'pr' | 'merge'
 
 export interface IssuePageDeps {
   trpc: Trpc
-  issue: IssueWire
+  issue: IssueViewModel
   run: RunMutation
 }
 
@@ -218,7 +219,7 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
 // Read-side loaders (used by useIssuePageModel / useMergeStyle).
 // ---------------------------------------------------------------------------
 
-/** The lazy comment thread (#175: bodies no longer ride IssueWire). */
+/** The lazy comment thread (#175: bodies no longer ride IssueViewModel). */
 export const loadIssueComments = (trpc: Trpc, id: string): Promise<ActivityComment[]> =>
   trpc.issues.comments.query({ id })
 

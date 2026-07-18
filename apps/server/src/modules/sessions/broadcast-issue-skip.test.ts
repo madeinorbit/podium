@@ -10,13 +10,23 @@ import { SessionRegistry } from '../../relay'
 describe('POD-722 session broadcast skips issue republish when no issue field changed', () => {
   const G = { cols: 80, rows: 24 }
   const bind = (sessionId: string) =>
-    ({ type: 'bind', sessionId, cmd: 'claude', cwd: '/repo/w', agentKind: 'claude-code', geometry: G }) as const
+    ({
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/repo/w',
+      agentKind: 'claude-code',
+      geometry: G,
+    }) as const
 
   function setup() {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})
     reg.issues.create({ repoPath: '/repo', title: 'an issue', startNow: false })
-    const s1 = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/w' }).sessionId
+    const s1 = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/repo/w',
+    }).sessionId
     reg.modules.sessions.onDaemonMessageFrom('local', bind(s1))
     reg.modules.sessions.flushBroadcasts()
     const inbox: ServerMessage[] = []
@@ -27,11 +37,15 @@ describe('POD-722 session broadcast skips issue republish when no issue field ch
     return { reg, s1, clientId, inbox }
   }
 
-  it('an attach-then-detach fans out sessionsChanged but NOT issuesChanged', () => {
+  it('a legacy attach/detach after a zero-client normalized bypass does NOT emit issuesChanged', () => {
     const { reg, s1, clientId, inbox } = setup()
 
-    // A full session switch: attach the new session, detach the old — only
-    // clientCount/controllerId move, so no issue payload can change.
+    // setup first flush has zero clients. With normalized emission default-on,
+    // that takes the vacuous no-legacy-client bypass; it must still advance the
+    // issue-relevant projection cache. The later legacy client attach-time
+    // issuesChanged paint is cleared above, then this full switch moves only
+    // clientCount/controllerId. A stale bypass cache used to misclassify it and
+    // emit a spurious O(world) issuesChanged rebuild.
     reg.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId: s1 })
     reg.modules.sessions.onClientMessage(clientId, { type: 'detach', sessionId: s1 })
     reg.modules.sessions.flushBroadcasts()

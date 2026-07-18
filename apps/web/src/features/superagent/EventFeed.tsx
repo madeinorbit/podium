@@ -1,5 +1,5 @@
-import type { IssueWire } from '@podium/protocol'
 import type { JSX } from 'react'
+import type { IssueViewModel } from '@/app/store'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import { trayScopeIssues } from './derive-tray'
 import type { FeedEvent } from './useIssueEvents'
@@ -14,7 +14,7 @@ const VERBS: Record<string, string> = {
   'issue.session_attached': 'agent attached',
 }
 
-export function feedEventLine(event: FeedEvent, issue: IssueWire | undefined): string {
+export function feedEventLine(event: FeedEvent, issue: IssueViewModel | undefined): string {
   const label = issue ? `#${issue.seq} ${issue.title}` : 'a task'
   if (event.kind === 'issue.stage_changed') {
     const to = (event.payload as { to?: string } | null)?.to
@@ -52,7 +52,7 @@ export function EventFeed({
   onSelectIssue,
 }: {
   events: FeedEvent[]
-  issues: IssueWire[]
+  issues: IssueViewModel[]
   selectedIssueId: string | null
   dividerId: number
   dividerTs: string | null

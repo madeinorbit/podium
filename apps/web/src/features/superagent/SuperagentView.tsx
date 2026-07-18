@@ -2,7 +2,7 @@ import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/features/chat/ChatView'
@@ -71,7 +71,6 @@ export function SuperagentView({
     hub,
     trpc,
     sessions,
-    issues,
     selectedIssueId,
     superRefreshKey,
     setPane,
@@ -86,7 +85,6 @@ export function SuperagentView({
       hub: s.hub,
       trpc: s.trpc,
       sessions: s.sessions,
-      issues: s.issues,
       selectedIssueId: s.selectedIssueId,
       superRefreshKey: s.superRefreshKey,
       setPane: s.setPane,
@@ -99,6 +97,7 @@ export function SuperagentView({
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const [threads, setThreads] = useState<SuperThread[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pendingDraft, setPendingDraft] = useState('')
@@ -255,8 +254,13 @@ export function SuperagentView({
           : `Re #${item.issue.seq} ("${item.issue.title}"): `,
       ),
     onOpenSession: (item: TrayItem) => {
-      const agentSession = (item.issue.sessions ?? []).find(
-        (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
+      const memberIds = new Set(item.issue.memberSessionIds ?? [])
+      const agentSession = sessions.find(
+        (s) =>
+          memberIds.has(s.sessionId) &&
+          !s.archived &&
+          s.agentKind !== 'shell' &&
+          s.headless !== true,
       )
       setSelectedIssueId(item.issue.id)
       if (agentSession) setPane('A', agentSession.sessionId)
@@ -308,6 +312,7 @@ export function SuperagentView({
         >
           <Tray
             issues={issues}
+            sessions={sessions}
             selectedIssueId={selectedIssueId ?? null}
             actions={trayActions}
             maxHeight={chatOpen ? trayHeight : null}

@@ -1,4 +1,5 @@
 import type { MetadataChange, ServerMessage, SessionMeta } from '@podium/protocol'
+import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LOCAL_MACHINE_ID } from './local-machine'
@@ -389,7 +390,13 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   })
 
   it('(l) a transient issue-append failure during a session-driven broadcast is retried by the NEXT broadcast (#247)', () => {
-    const registry = makeRegistry()
+    // This asserts the legacy session-embedded issue path POD-797 deletes.
+    const store = new SessionStore(':memory:')
+    store.settings.setSettings({
+      ...normalizeSettings(undefined),
+      experimental: { 'issues-normalized-wire': false },
+    })
+    const registry = makeRegistry(store)
     // An issue whose wire embeds the session (SessionMeta[] member data) — so an
     // issue-RELEVANT session field change (workState) changes the ISSUE wire too,
     // via the broadcast-tail publishIssues() reconcile, with no issue write of its

@@ -9,7 +9,8 @@
  * no DOM, no network.
  */
 
-import type { GitRepositoryWire, HostMetricsWire, IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueProjection } from '@podium/model'
+import type { GitRepositoryWire, HostMetricsWire, SessionMeta } from '@podium/protocol'
 import type { SocketHub } from '@podium/terminal-client'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -528,25 +529,24 @@ describe('unified optimistic overlay (#263)', () => {
     const { engine } = makeEngine({ api })
     engine.start()
     await settle(40)
-    const issue = { id: 'iss_1', unread: true, readAt: null } as unknown as IssueWire
-    engine.replica.applyChanges('issues', [issue], [])
+    const issue = { id: 'iss_1', readAt: null } as unknown as IssueProjection
+    engine.replica.applyChanges('issueProjections', [issue], [])
     await settle()
-    expect(engine.getSnapshot().issues[0]?.unread).toBe(true)
+    expect(engine.getSnapshot().issueProjections[0]?.readAt).toBeNull()
     void engine.getSnapshot().markIssueRead('iss_1')
-    expect(engine.getSnapshot().issues[0]?.unread).toBe(false) // instant
+    expect(engine.getSnapshot().issueProjections[0]?.readAt).not.toBeNull() // instant
     await settle() // mutation resolves → awaiting truth, still painted
-    expect(engine.getSnapshot().issues[0]?.unread).toBe(false)
-    // Echo: the server's own readAt clock differs from the client stamp — the
-    // covering predicate is the unread flag, so the overlay retires cleanly.
+    expect(engine.getSnapshot().issueProjections[0]?.readAt).not.toBeNull()
+    // Echo: the server's own readAt clock differs from the client stamp; any
+    // non-null projection readAt covers the optimistic mark-read overlay.
     engine.replica.applyChanges(
-      'issues',
-      [{ ...issue, unread: false, readAt: '2026-07-09T00:00:00.000Z' } as typeof issue],
+      'issueProjections',
+      [{ ...issue, readAt: '2026-07-09T00:00:00.000Z' } as typeof issue],
       [],
     )
     await settle()
-    expect(engine.getSnapshot().issues[0]?.unread).toBe(false)
-    expect(engine.getSnapshot().issues[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
-    expect(engine.getSnapshot().issues).toHaveLength(1)
+    expect(engine.getSnapshot().issueProjections[0]?.readAt).toBe('2026-07-09T00:00:00.000Z')
+    expect(engine.getSnapshot().issueProjections).toHaveLength(1)
     engine.dispose()
   })
 })
@@ -995,7 +995,9 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     ])
     expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
     // Re-opening the same artifact reuses the tab.
-    engine.getSnapshot().openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' })
+    engine
+      .getSnapshot()
+      .openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'index.html' })
     expect(engine.getSnapshot().fileTabs).toHaveLength(1)
     engine.dispose()
   })

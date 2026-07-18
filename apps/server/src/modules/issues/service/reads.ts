@@ -12,7 +12,7 @@ import type {
   OrphanIssue,
   SessionMeta,
 } from '@podium/protocol'
-import { DELEGATION_RULE, LOCK_RULE, TITLE_RULE, formatIssueRef } from '@podium/protocol'
+import { DELEGATION_RULE, formatIssueRef, LOCK_RULE, TITLE_RULE } from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd } from '../../../issue-util'
@@ -385,7 +385,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       bump(c.byStage, r.stage)
       bump(c.byPriority, String(r.priority))
       bump(c.byType, r.type)
-      bump(c.byAssignee, r.assignee ?? '(unassigned)')
+      bump(c.byAssignee, r.assignee || '(unassigned)')
     }
     return c
   }
@@ -486,7 +486,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       // Bare `#N` never linkifies in the UI — only the `PREFIX-seq` grammar does
       // (protocol refs.ts anyRefMatcher), so `#557` is a dead string to the user.
       'Reference issues and sessions ONLY by their human-facing id (e.g. `POD-557`) — NEVER the bare `#557` shorthand and never the internal `iss_…`/UUID. Only the `POD-…` form renders as a clickable link for the user; anything else is dead text.',
-      'The canonical long form is `POD-557 (Issue title)`. Use it when the reader may not know the issue (first mention, reports, mail); the bare short form `POD-557` is fine for repeat mentions. Every listing (`podium issue show/ready/list`, this prime) gives you the title next to the ref — if you don\'t have it, `podium issue show <id>` does.',
+      "The canonical long form is `POD-557 (Issue title)`. Use it when the reader may not know the issue (first mention, reports, mail); the bare short form `POD-557` is fine for repeat mentions. Every listing (`podium issue show/ready/list`, this prime) gives you the title next to the ref — if you don't have it, `podium issue show <id>` does.",
       'Workflow: pull `ready` → move it out of `backlog` → work → file discovered work (`discovered-from`) → checkpoint notes → close.',
       'Nothing advances an issue for you: set the stage yourself as the work moves — `podium issue update --id <id> --stage planning|in_progress|review` — and `podium issue close <id>` when it is done. An issue you are actively working must never sit in `backlog`.',
       'Track durable/discovered/cross-session work as issues, not markdown TODO files.',

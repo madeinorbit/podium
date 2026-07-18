@@ -11,9 +11,11 @@ import { setSwitchTraceReporter } from '@podium/client-core/perf'
 import {
   type Store as CoreStore,
   StoreProvider as CoreStoreProvider,
+  type IssueViewModel,
   type StoreNotices,
   useStore as useCoreStore,
   useStoreSelector as useCoreStoreSelector,
+  useIssueViewModels,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
 import type { JSX, ReactNode } from 'react'
@@ -25,7 +27,7 @@ import { makeTrpc, type ServerOrigin, type Trpc } from './trpc'
 /** The web store: the shared store, with `trpc` carrying the full AppRouter type. */
 export type Store = CoreStore<Trpc>
 
-export type { UserFocus } from '@podium/client-core/react'
+export type { IssueViewModel, UserFocus } from '@podium/client-core/react'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/viewmodels'
 
@@ -86,4 +88,17 @@ export function useStoreSelector<T>(
   isEqual?: (a: T, b: T) => boolean,
 ): T {
   return useCoreStoreSelector<T, Trpc>(selector, isEqual)
+}
+
+/** Issues rendered from normalized replica projections plus local D7.3 views. */
+export function useReplicaIssues(): IssueViewModel[] {
+  const { replica, issueProjections, legacyIssues } = useStoreSelector(
+    (s) => ({ replica: s.replica, issueProjections: s.issueProjections, legacyIssues: s.issues }),
+    (a, b) =>
+      a.replica === b.replica &&
+      a.issueProjections === b.issueProjections &&
+      a.legacyIssues === b.legacyIssues,
+  )
+  const models = useIssueViewModels(replica, issueProjections, legacyIssues)
+  return useMemo(() => [...models.values()], [models])
 }

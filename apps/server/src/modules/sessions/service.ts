@@ -19,10 +19,13 @@ import {
   type DaemonMessage,
   formatSessionRef,
   type Geometry,
+  type IssueDepProjection,
+  type IssueProjection,
   type IssueWire,
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
+  type RepoProjection,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -167,6 +170,10 @@ interface SessionsServiceDeps {
   issuesNormalizedWire?(): boolean
   /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
+  /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
+  issueProjectionsWire(): IssueProjection[]
+  issueDepsWire(): IssueDepProjection[]
+  issueReposWire(): RepoProjection[]
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
   automationsWire(): AutomationWire[]
   automationRunsWire(): AutomationRunWire[]
@@ -258,12 +265,15 @@ export class SessionsService {
   // clients already hold this state; a NEW client gets the current list via
   // attachClient, so the dedup can never leave a client stale.
   private lastSessionsBroadcast = ''
-  // Last issue-relevant session projection published to issue clients [POD-722].
+  // Last issue-relevant session projection accounted for by issue clients [POD-722].
   // runSessionsBroadcast compares this against the current projection to decide
   // whether the O(issues×sessions) publishIssues() rebuild is actually needed —
   // a bare attach/detach/control-transfer moves only clientCount/controllerId/
-  // epoch, none of which feed issue wire data, so it can be skipped. Stamped only
-  // after a successful publishIssues(), so a throw retries on the next broadcast.
+  // epoch, none of which feed issue wire data, so it can be skipped. Stamped after
+  // a successful publishIssues() OR an unobservable no-legacy-client bypass. A
+  // later legacy client is made whole by attachClient's fresh issuesChanged paint;
+  // issues.normalized-wire.test.ts pins that load-bearing guard. A failed real
+  // publish does not stamp, so the next broadcast retries.
   // Interim until POD-308 deletes the snapshot fan-out.
   private lastIssueSessionProjection = ''
   private nextClientNum = 0
@@ -3357,8 +3367,12 @@ export class SessionsService {
       } else if (!this.legacyIssueWireNeeded()) {
         // THE D7.2 BYPASS [POD-796]: an issue-relevant session field DID change,
         // but nobody connected can still tell the difference on the issue wire.
-        // Do NOT stamp lastIssueSessionProjection: if a legacy client attaches
-        // later, the next broadcast must re-publish rather than silently skip.
+        // Account for the unobservable change: any LATER legacy client receives a
+        // freshly built issuesChanged during attach, before hello/cap negotiation
+        // (pinned by issues.normalized-wire.test.ts). Leaving this cache stale made
+        // that client's first clientCount-only attach/detach look issue-relevant and
+        // caused one spurious O(world) legacy rebuild — exactly POD-722's hot path.
+        this.lastIssueSessionProjection = issueProjection
         perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
       } else {
         const tIssues0 = performance.now()
@@ -3541,6 +3555,9 @@ export class SessionsService {
       kind: 'snapshot',
       sessions: this.listSessions(),
       issues: this.deps.issuesWire(),
+      issueProjections: this.deps.issueProjectionsWire(),
+      issueDeps: this.deps.issueDepsWire(),
+      repos: this.deps.issueReposWire(),
       conversations: this.conversations().allConversations(),
       automations: this.deps.automationsWire(),
       automationRuns: this.deps.automationRunsWire(),

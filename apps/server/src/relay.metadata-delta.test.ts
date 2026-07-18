@@ -1,6 +1,8 @@
 import type { IssueWire, MetadataChange, ServerMessage, SessionMeta } from '@podium/protocol'
+import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { SessionStore } from './store'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
 // delta-cap clients receive per-entity metadataDelta batches, legacy clients keep
@@ -14,6 +16,17 @@ describe('SessionRegistry metadata deltas', () => {
 
   function makeRegistry(): SessionRegistry {
     const registry = new SessionRegistry()
+    registries.push(registry)
+    return registry
+  }
+
+  function makeLegacyRegistry(): SessionRegistry {
+    const store = new SessionStore(':memory:')
+    store.settings.setSettings({
+      ...normalizeSettings(undefined),
+      experimental: { 'issues-normalized-wire': false },
+    })
+    const registry = new SessionRegistry(store)
     registries.push(registry)
     return registry
   }
@@ -38,7 +51,8 @@ describe('SessionRegistry metadata deltas', () => {
   const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
 
   it('sends per-entity deltas to cap clients and full lists to legacy clients', () => {
-    const registry = makeRegistry()
+    // This asserts the legacy single-kind feed POD-797 deletes.
+    const registry = makeLegacyRegistry()
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
     const legacyBefore = legacy.inbox.length
@@ -62,7 +76,8 @@ describe('SessionRegistry metadata deltas', () => {
   })
 
   it('a single-issue update fans out one issueUpdated + one oplog change — never the full list (#22)', () => {
-    const registry = makeRegistry()
+    // This asserts the legacy single-kind feed POD-797 deletes.
+    const registry = makeLegacyRegistry()
     const w = registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'bystander', startNow: false })
     flush(registry) // drain the setup writes' pending batch before the clients attach

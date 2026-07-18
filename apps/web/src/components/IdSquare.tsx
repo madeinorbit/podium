@@ -62,7 +62,7 @@ export function IdSquare({
   primaryOnly = false,
   onColorChange,
 }: {
-  issue: IssueWire
+  issue: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title'>
   state: IdSquareState
   selected?: boolean
   /** Corner status badge (waiting dot/count, working spinner, done check). */

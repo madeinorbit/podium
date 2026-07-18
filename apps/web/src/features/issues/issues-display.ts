@@ -1,4 +1,4 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'
 export type IssuesOrdering = 'priority' | 'updated' | 'created'
@@ -79,11 +79,14 @@ export function writeIssuesDisplay(d: IssuesDisplay): string {
  * an agent acting for the human can cut a human-audience issue that belongs on the
  * board, and the human's own quick note to an agent can be internal.
  */
-export function filterBoardScope(issues: IssueWire[], showAgentTasks: boolean): IssueWire[] {
+export function filterBoardScope(
+  issues: IssueViewModel[],
+  showAgentTasks: boolean,
+): IssueViewModel[] {
   const noDrafts = issues.filter((i) => !i.draft || !!i.deletedAt)
   if (showAgentTasks) return noDrafts
   const byId = new Map(noDrafts.map((i) => [i.id, i]))
-  const topLevelVisible = (i: IssueWire): boolean => !!i.deletedAt || i.audience !== 'agent'
+  const topLevelVisible = (i: IssueViewModel): boolean => !!i.deletedAt || i.audience !== 'agent'
   return noDrafts.filter((i) => {
     if (topLevelVisible(i)) return true
     // Internal (audience: agent): keep only when some ancestor chain reaches a
@@ -114,8 +117,8 @@ export interface EpicProgress {
 
 /** parent id → non-draft children. Built ONCE per render and shared across all
  *  roots so the rollup is O(n), not O(roots·n) (a hot-path re-scan otherwise). */
-type ChildrenIndex = Map<string, IssueWire[]>
-function buildChildrenIndex(issues: IssueWire[]): ChildrenIndex {
+type ChildrenIndex = Map<string, IssueViewModel[]>
+function buildChildrenIndex(issues: IssueViewModel[]): ChildrenIndex {
   const childrenOf: ChildrenIndex = new Map()
   for (const i of issues) {
     if (i.draft || !i.parentId) continue
@@ -138,20 +141,20 @@ function progressFrom(childrenOf: ChildrenIndex, epicId: string): EpicProgress |
     seen.add(node.id)
     total += 1
     if (node.stage === 'done') done += 1
-    if (node.sessions.some((s) => s.status === 'live')) liveAgents += 1
+    if (node.sessionSummary.total > 0) liveAgents += 1
     for (const child of childrenOf.get(node.id) ?? []) stack.push(child)
   }
   return total === 0 ? null : { total, done, liveAgents }
 }
 
-export function computeEpicProgress(issues: IssueWire[], epicId: string): EpicProgress | null {
+export function computeEpicProgress(issues: IssueViewModel[], epicId: string): EpicProgress | null {
   return progressFrom(buildChildrenIndex(issues), epicId)
 }
 
 /** Batch rollup for many roots over one shared child index (see buildChildrenIndex) —
  *  the board's per-render entry point, keeping the pass O(n) total. */
 export function computeEpicProgressMap(
-  issues: IssueWire[],
+  issues: IssueViewModel[],
   rootIds: string[],
 ): Map<string, EpicProgress | null> {
   const childrenOf = buildChildrenIndex(issues)
@@ -159,7 +162,7 @@ export function computeEpicProgressMap(
 }
 
 /** Stable ordering for board columns and list groups. Pure — returns a copy. */
-export function orderIssues(issues: IssueWire[], ordering: IssuesOrdering): IssueWire[] {
+export function orderIssues(issues: IssueViewModel[], ordering: IssuesOrdering): IssueViewModel[] {
   const c = [...issues]
   if (ordering === 'priority') c.sort((a, b) => a.priority - b.priority || a.seq - b.seq)
   else if (ordering === 'updated') c.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

@@ -1,4 +1,3 @@
-import type { IssueWire } from '@podium/protocol'
 import type { FileTab } from './store'
 
 /** The file tabs that belong in a workspace's tab strip.
@@ -10,12 +9,16 @@ import type { FileTab } from './store'
  *  path. */
 export function fileTabsForWorkspace(
   fileTabs: FileTab[],
-  target: { issue: IssueWire | null | undefined; worktreePath: string | undefined },
+  target: {
+    issue: { id: string; worktreePath?: string | null } | null | undefined
+    worktreePath: string | undefined
+  },
 ): FileTab[] {
   const { issue, worktreePath } = target
   if (issue)
     return fileTabs.filter(
-      (f) => f.issueId === issue.id || (!!issue.worktreePath && f.worktreePath === issue.worktreePath),
+      (f) =>
+        f.issueId === issue.id || (!!issue.worktreePath && f.worktreePath === issue.worktreePath),
     )
   if (worktreePath) return fileTabs.filter((f) => f.worktreePath === worktreePath)
   return []

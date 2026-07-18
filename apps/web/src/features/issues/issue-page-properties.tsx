@@ -7,17 +7,11 @@
  * ./issue-page-model.ts. No behavior change.
  */
 import { shallowEqual } from '@podium/client-core'
-import {
-  ISSUE_DEP_TYPES,
-  ISSUE_STAGES,
-  IssueType,
-  type IssueWire,
-  issueDisplayRef,
-} from '@podium/protocol'
+import { ISSUE_DEP_TYPES, ISSUE_STAGES, IssueType, issueDisplayRef } from '@podium/protocol'
 import { ChevronDown, ExternalLink, Plus, X } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -159,20 +153,24 @@ export function IssueProperties({
   commands,
   onNavigate,
 }: {
-  issue: IssueWire
+  issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues, machines, navigateToSession } = useStoreSelector(
+  const { trpc, sessions, machines, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
-      issues: s.issues,
+      sessions: s.sessions,
       machines: s.machines,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
+  const memberSessions = (issue.memberSessionIds ?? [])
+    .map((id) => sessions.find((session) => session.sessionId === id))
+    .filter((session) => session !== undefined)
   const mergeStyle = useMergeStyle(trpc)
   const now = Date.now()
   const [deferDate, setDeferDate] = useState('')
@@ -260,7 +258,7 @@ export function IssueProperties({
         <PropertyRow label="Assignee">
           <PropertyMenu
             allowFreeText
-            selectedValue={issue.assignee ?? UNASSIGNED}
+            selectedValue={issue.assignee || UNASSIGNED}
             options={assigneeOptions}
             placeholder="Assign to…"
             onSelect={(v) => commands.update({ assignee: v === UNASSIGNED ? '' : v })}
@@ -610,9 +608,9 @@ export function IssueProperties({
             />
           )}
         </div>
-        {issue.sessions.length > 0 && (
+        {memberSessions.length > 0 && (
           <div className="flex flex-col gap-1">
-            {issue.sessions.map((s) => (
+            {memberSessions.map((s) => (
               <Button
                 key={s.sessionId}
                 type="button"

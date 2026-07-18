@@ -1,5 +1,6 @@
 import { attentionGroup } from '@podium/client-core'
-import type { IssueWire } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 
 /**
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3–§2.4): the
@@ -14,38 +15,44 @@ import type { IssueWire } from '@podium/protocol'
  * just because nothing is selected.
  */
 export type TrayItem = {
-  issue: IssueWire
+  issue: IssueViewModel
   /** Best available "waiting since" — the issue's last update. The event log
    *  would be exacter, but updatedAt is on the wire and moves when needsHuman
    *  or the stage flips, which is the moment the card appears. */
   since: string
 } & ({ kind: 'question'; text: string } | { kind: 'review'; body: string })
 
-const live = (issue: IssueWire): boolean => !issue.archived && !issue.deletedAt
+const live = (issue: IssueViewModel): boolean => !issue.archived && !issue.deletedAt
 
 /** The selected issue + its descendants (live issues only). Unknown/absent
  *  root ⇒ every live issue (global scope). */
-export function trayScopeIssues(issues: IssueWire[], selectedIssueId: string | null): IssueWire[] {
+export function trayScopeIssues(
+  issues: IssueViewModel[],
+  selectedIssueId: string | null,
+): IssueViewModel[] {
   const alive = issues.filter(live)
   if (!selectedIssueId || !alive.some((issue) => issue.id === selectedIssueId)) return alive
-  const byParent = new Map<string, IssueWire[]>()
+  const byParent = new Map<string, IssueViewModel[]>()
   for (const issue of alive) {
     if (!issue.parentId) continue
     const siblings = byParent.get(issue.parentId) ?? []
     siblings.push(issue)
     byParent.set(issue.parentId, siblings)
   }
-  const scope: IssueWire[] = []
+  const scope: IssueViewModel[] = []
   const queue = alive.filter((issue) => issue.id === selectedIssueId)
   while (queue.length > 0) {
-    const issue = queue.shift() as IssueWire
+    const issue = queue.shift() as IssueViewModel
     scope.push(issue)
     queue.push(...(byParent.get(issue.id) ?? []))
   }
   return scope
 }
 
-export function deriveTrayItems(issues: IssueWire[], selectedIssueId: string | null): TrayItem[] {
+export function deriveTrayItems(
+  issues: IssueViewModel[],
+  selectedIssueId: string | null,
+): TrayItem[] {
   const items: TrayItem[] = []
   for (const issue of trayScopeIssues(issues, selectedIssueId)) {
     if (issue.needsHuman) {
@@ -78,10 +85,17 @@ export function deriveTrayItems(issues: IssueWire[], selectedIssueId: string | n
  * the tray's scope. Shells and headless (superagent-embedded) sessions are not
  * "agents working on this task" any more than they are on the board.
  */
-export function workingSessionCount(issues: IssueWire[], selectedIssueId: string | null): number {
+export function workingSessionCount(
+  issues: IssueViewModel[],
+  selectedIssueId: string | null,
+  sessions: readonly SessionMeta[],
+): number {
+  const byId = new Map(sessions.map((session) => [session.sessionId, session]))
   const seen = new Set<string>()
   for (const issue of trayScopeIssues(issues, selectedIssueId)) {
-    for (const session of issue.sessions ?? []) {
+    for (const id of issue.memberSessionIds ?? []) {
+      const session = byId.get(id)
+      if (!session) continue
       if (session.archived || session.headless === true || session.agentKind === 'shell') continue
       if (attentionGroup(session) === 'working') seen.add(session.sessionId)
     }
@@ -91,6 +105,6 @@ export function workingSessionCount(issues: IssueWire[], selectedIssueId: string
 
 /** Re-exported shape guard for the bar badge: the pill shows the CARD count
  *  (spec §6.11 working assumption), not the waiting-session count. */
-export function trayCount(issues: IssueWire[], selectedIssueId: string | null): number {
+export function trayCount(issues: IssueViewModel[], selectedIssueId: string | null): number {
   return deriveTrayItems(issues, selectedIssueId).length
 }

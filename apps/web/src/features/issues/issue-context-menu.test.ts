@@ -210,7 +210,7 @@ describe('toggleLabelAcross', () => {
 describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
   it('returns the single eligible session and its targets', () => {
     const session = makeSession({ sessionId: 's1' })
-    const issue = makeIssue({ sessions: [{ sessionId: 's1' } as SessionMeta] })
+    const issue = makeIssue({ memberSessionIds: ['s1'] })
     const result = resolveIssueHandoffSession(issue, [session], handoffRepos, handoffMachines)
     expect(result?.session.sessionId).toBe('s1')
     expect(result?.targets.map((m) => m.id)).toEqual(['target'])
@@ -221,7 +221,7 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     // root and got restamped there. The issue's worktree is still its home.
     const drifted = makeSession({ sessionId: 's1', cwd: '/a' })
     const issue = makeIssue({
-      sessions: [{ sessionId: 's1' } as SessionMeta],
+      memberSessionIds: ['s1'],
       branch: 'issue/1-x',
       worktreePath: '/a/.worktrees/x',
     })
@@ -232,7 +232,7 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     // Without a worktree of its own the issue cannot anchor the drifted session.
     expect(
       resolveIssueHandoffSession(
-        makeIssue({ sessions: [{ sessionId: 's1' } as SessionMeta], worktreePath: null }),
+        makeIssue({ memberSessionIds: ['s1'], worktreePath: null }),
         [drifted],
         handoffRepos,
         handoffMachines,
@@ -240,10 +240,10 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     ).toBeNull()
   })
 
-  it('looks up SessionMeta from the store by issue.sessions sessionId', () => {
-    // Issue wire may carry a stale/partial session ref; store has the live meta.
+  it('looks up SessionMeta from the store by memberSessionIds', () => {
+    // Member ids resolve against the live SessionMeta rows held by the client.
     const issue = makeIssue({
-      sessions: [{ sessionId: 's1', agentKind: 'shell', cwd: '/elsewhere' } as SessionMeta],
+      memberSessionIds: ['s1'],
     })
     const live = makeSession({ sessionId: 's1', agentKind: 'codex', cwd: '/a/.worktrees/x' })
     const result = resolveIssueHandoffSession(issue, [live], handoffRepos, handoffMachines)
@@ -256,7 +256,7 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     const b = makeSession({ sessionId: 'b' })
     expect(
       resolveIssueHandoffSession(
-        makeIssue({ sessions: [{ sessionId: 'shell' } as SessionMeta] }),
+        makeIssue({ memberSessionIds: ['shell'] }),
         [ineligible],
         handoffRepos,
         handoffMachines,
@@ -265,7 +265,7 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     expect(
       resolveIssueHandoffSession(
         makeIssue({
-          sessions: [{ sessionId: 'a' } as SessionMeta, { sessionId: 'b' } as SessionMeta],
+          memberSessionIds: ['a', 'b'],
         }),
         [a, b],
         handoffRepos,
@@ -278,10 +278,7 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
     const eligible = makeSession({ sessionId: 'ok' })
     const result = resolveIssueHandoffSession(
       makeIssue({
-        sessions: [
-          { sessionId: 'gone' } as SessionMeta,
-          { sessionId: 'ok' } as SessionMeta,
-        ],
+        memberSessionIds: ['gone', 'ok'],
       }),
       [eligible],
       handoffRepos,
@@ -292,23 +289,29 @@ describe('resolveIssueHandoffSession ([spec:SP-3f7a])', () => {
 })
 
 describe('issueHandoffAvailability (POD-850)', () => {
-  const issueWith = (refs: string[], over = {}) =>
-    makeIssue({ sessions: refs.map((id) => ({ sessionId: id }) as SessionMeta), ...over })
+  const issueWith = (refs: string[], over = {}) => makeIssue({ memberSessionIds: refs, ...over })
 
   it('surfaces the sole agent session and its candidate machines', () => {
     const session = makeSession({ sessionId: 's1' })
-    const result = issueHandoffAvailability(issueWith(['s1']), [session], handoffRepos, handoffMachines)
+    const result = issueHandoffAvailability(
+      issueWith(['s1']),
+      [session],
+      handoffRepos,
+      handoffMachines,
+    )
     expect('session' in result && result.session.sessionId).toBe('s1')
     // 'target' is logged-out-equivalent (login 'unknown' is fine, but here it's a
     // candidate) — the point is the machine is REPORTED, not silently dropped.
-    expect('availability' in result && result.availability.candidates.map((c) => c.machine.id)).toEqual([
-      'target',
-    ])
+    expect(
+      'availability' in result && result.availability.candidates.map((c) => c.machine.id),
+    ).toEqual(['target'])
   })
 
   it('reports no-agent-session for a shell-only issue instead of hiding', () => {
     const shell = makeSession({ sessionId: 'sh', agentKind: 'shell' })
-    expect(issueHandoffAvailability(issueWith(['sh']), [shell], handoffRepos, handoffMachines)).toEqual({
+    expect(
+      issueHandoffAvailability(issueWith(['sh']), [shell], handoffRepos, handoffMachines),
+    ).toEqual({
       blocker: 'no-agent-session',
     })
     // No sessions at all is the same reason.
@@ -320,9 +323,9 @@ describe('issueHandoffAvailability (POD-850)', () => {
   it('reports multiple-sessions when more than one agent session is attached', () => {
     const a = makeSession({ sessionId: 'a' })
     const b = makeSession({ sessionId: 'b' })
-    expect(issueHandoffAvailability(issueWith(['a', 'b']), [a, b], handoffRepos, handoffMachines)).toEqual(
-      { blocker: 'multiple-sessions' },
-    )
+    expect(
+      issueHandoffAvailability(issueWith(['a', 'b']), [a, b], handoffRepos, handoffMachines),
+    ).toEqual({ blocker: 'multiple-sessions' })
   })
 
   it('a shell alongside the one agent session does not count as multiple (POD-779 shape)', () => {

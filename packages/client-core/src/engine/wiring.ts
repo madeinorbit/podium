@@ -48,6 +48,14 @@ export function createEngineHub(args: {
     url: args.wsClientUrl,
     viewport: { cols: 80, rows: 24, dpr: globalThis.devicePixelRatio ?? 1 },
     onError: (message) => args.onFatalError(message),
+    // [POD-856] Offer CAP_ISSUES_NORMALIZED: this client reads issues from the
+    // replica's normalized projections (issueProjection/issueDep/repo joined into
+    // IssueView, D7.3) rather than the embedded IssueWire, so a session change
+    // costs it zero issue-wire work. The server emits the projections
+    // unconditionally as of the POD-856 activation; offering the cap is what makes
+    // the hub POPULATE this client's issueProjections/issueDeps/repos collections
+    // (without it they stay empty and the views have nothing to read).
+    issuesNormalized: true,
     // Opts the hub into metadata delta mode (docs/spec/oplog-read-path.md):
     // session/issue/conversation updates arrive as per-entity oplog changes,
     // with (re)connect catch-up healed through this query.

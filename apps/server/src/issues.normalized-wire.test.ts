@@ -75,7 +75,11 @@ function issueRow(i: number): IssueRow {
 /** A session row that hydrates into a live `Session` object at boot WITHOUT a
  *  PTY — `loadFromStore` rebuilds hibernated rows, so `listSessions()` reaches a
  *  realistic scale for the price of an INSERT. */
-function seedSession(store: SessionStore, i: number): string {
+function seedSession(
+  store: SessionStore,
+  i: number,
+  issueId: string | null = `iss_${i % ISSUE_COUNT}`,
+): string {
   const id = `sess_${i}`
   store.sessions.upsertSession({
     id,
@@ -100,7 +104,7 @@ function seedSession(store: SessionStore, i: number): string {
     spawnedBy: null,
     machineId: 'm1',
     headless: false,
-    issueId: `iss_${i % ISSUE_COUNT}`,
+    issueId,
     readAt: null,
   })
   return id
@@ -251,6 +255,82 @@ describe('issueProjection emission is flag-gated and ADDITIVE [POD-796]', () => 
     expect(value).not.toHaveProperty('unread')
     // And it carries the revision the write just assigned (ADR 2 D3).
     expect(value?.revision).toBe(2)
+  })
+
+  it('cold snapshot includes all normalized issue collections for reload bootstrap', () => {
+    const { registry, store } = world({ flag: true, issues: 2, sessions: 0 })
+    store.repos.addRepo('/repo')
+    registry.modules.issues.addDep('iss_0', 'iss_1')
+
+    const snapshot = registry.modules.sessions.syncChangesSince(null)
+    expect(snapshot.kind).toBe('snapshot')
+    if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
+    expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
+    expect(snapshot.issueDeps).toHaveLength(1)
+    expect(snapshot.repos).toHaveLength(1)
+  })
+
+  it('boot totalizes legacy cwd membership into the normalized snapshot the replica indexes', () => {
+    const store = new SessionStore(':memory:')
+    store.issues.upsertIssue(issueRow(0))
+    const sessionId = seedSession(store, 0, null)
+    store.settings.setSettings({
+      ...normalizeSettings(undefined),
+      experimental: { 'issues-normalized-wire': true },
+    })
+
+    const registry = new SessionRegistry(store)
+    registries.push(registry)
+    registry.modules.sessions.flushBroadcasts()
+
+    expect(store.sessions.loadSessions().find((row) => row.id === sessionId)?.issueId).toBe('iss_0')
+    const snapshot = registry.modules.sessions.syncChangesSince(null)
+    expect(snapshot.kind).toBe('snapshot')
+    if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
+    const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')
+    expect(projection).toBeDefined()
+    expect(
+      snapshot.sessions
+        .filter((session) => session.issueId === projection?.id)
+        .map((session) => session.sessionId),
+    ).toEqual([sessionId])
+
+    const all = registry.modules.sessions.syncChangesSince(0)
+    expect(all.kind).toBe('delta')
+    if (all.kind !== 'delta') throw new Error('expected delta')
+    const sessionChanges = all.changes.filter(
+      (change) => change.entity === 'session' && change.id === sessionId,
+    )
+    const last = sessionChanges.at(-1)
+    expect(last?.op).toBe('upsert')
+    const sessionValue =
+      last?.op === 'upsert' ? (last.value as { issueId?: string } | undefined) : undefined
+    expect(sessionValue?.issueId).toBe('iss_0')
+
+    const cursor = Math.max(...all.changes.map((change) => change.seq))
+    const reboot = new SessionRegistry(store)
+    registries.push(reboot)
+    reboot.modules.sessions.flushBroadcasts()
+    const after = reboot.modules.sessions.syncChangesSince(cursor)
+    expect(after.kind).toBe('delta')
+    if (after.kind !== 'delta') throw new Error('expected delta')
+    expect(
+      after.changes.filter((change) => change.entity === 'session' && change.id === sessionId),
+    ).toEqual([])
+  })
+
+  it('comment add advances updatedAt on the normalized projection', () => {
+    const { registry } = world({ flag: true, issues: 1, sessions: 0 })
+    const before = registry.modules.issues.get('iss_0')?.updatedAt
+
+    registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise')
+
+    const projections = changesOf(registry, 'issueProjection')
+    const appended = projections.filter((change) => change.id === 'iss_0').at(-1)
+    const value =
+      appended?.op === 'upsert' ? (appended.value as Record<string, unknown>) : undefined
+    expect(value?.updatedAt).not.toBe(before)
+    expect(value?.updatedAt).toBe(registry.modules.issues.get('iss_0')?.updatedAt)
   })
 
   it('flag ON appends issueDep and repo rows; flag OFF is a rollback that REMOVES them [POD-822]', () => {
@@ -431,26 +511,18 @@ describe('THE D7.2 bypass: a session change performs no issue-wire work [POD-796
 
 describe('a legacy client is never starved by a bypass window [POD-796]', () => {
   /**
-   * Reviewing the rebase composition, which chose NOT to stamp
-   * `lastIssueSessionProjection` on the bypass arm, reasoning that a legacy
-   * client attaching later must be forced to re-publish rather than inherit a
-   * silent skip.
+   * A normalized bypass now stamps `lastIssueSessionProjection`: with no legacy
+   * observer the skipped publish is unobservable, and retaining a stale cache
+   * makes a later client's first clientCount-only interaction spuriously rebuild
+   * every issue (pinned end-to-end by broadcast-issue-skip.test.ts).
    *
-   * THE CHOICE IS RIGHT, BUT NOT FOR THAT REASON, and I could not build a test
-   * that discriminates it — I tried, and the mutation (make the bypass stamp)
-   * left my first attempt GREEN, so I deleted it rather than keep a test that
-   * asserts a guard it cannot see. What actually rescues that client is one line
-   * up the stack: `attachClient` sends a FRESHLY BUILT `issuesChanged`
+   * What makes that stamp safe is one line up the stack: `attachClient` sends a
+   * FRESHLY BUILT `issuesChanged`
    * (`this.deps.issuesWire()`, service.ts:2428) to every client at attach, BEFORE
    * hello and therefore before caps exist. So no client can observe a stale issue
-   * wire inherited from a bypass window, stamped or not.
-   *
-   * Not stamping remains correct and worth keeping: it preserves what the
-   * variable's NAME claims — the projection as of the last actual PUBLISH — and a
-   * stamp that records a publish which never happened is a lie waiting for the
-   * next reader. But it is defence in depth, not the load-bearing guard, and this
-   * test pins the guard that IS load-bearing: delete the attach paint and a client
-   * arriving after a bypass window renders stale member data.
+   * wire inherited from a bypass window. This test pins that load-bearing guard:
+   * delete the attach paint and a client arriving after a bypass renders stale
+   * member data.
    */
   it('a client attaching after a bypass window is painted fresh issue data', () => {
     const { registry, sessionIds } = world({ flag: true, issues: 3, sessions: 2 })

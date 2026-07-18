@@ -1,4 +1,5 @@
-import type { IssueStage, IssueWire } from '@podium/protocol'
+import type { IssueStage } from '@podium/protocol'
+import type { IssueViewModel } from '@/app/store'
 import { STAGE_LABELS } from './issue-card'
 
 export interface BoardFilter {
@@ -21,7 +22,7 @@ export interface BoardFilter {
  * case-insensitively over title + description; `status` is derived from the
  * wire flags (`closed = stage === 'done' || closedReason`). Pure — no mutation.
  */
-export function filterBoardIssues(issues: IssueWire[], f: BoardFilter): IssueWire[] {
+export function filterBoardIssues(issues: IssueViewModel[], f: BoardFilter): IssueViewModel[] {
   const text = f.text?.toLowerCase()
   return issues.filter((i) => {
     // Deleted issues have their own recovery view; their prior archived bit must

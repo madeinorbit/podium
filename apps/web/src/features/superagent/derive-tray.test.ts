@@ -99,29 +99,22 @@ describe('deriveTrayItems', () => {
 
 describe('workingSessionCount', () => {
   it('counts working agent sessions in scope, excluding shells/headless/archived', () => {
-    const issue = makeIssue({
-      id: 'p',
-      sessions: [
-        session({ sessionId: 'w1' }),
-        session({
-          sessionId: 'w2',
-          agentState: { phase: 'needs_user', since: 't', openTaskCount: 0 },
-        }),
-        session({ sessionId: 'w3', agentKind: 'shell', busy: true }),
-        session({ sessionId: 'w4', headless: true }),
-        session({ sessionId: 'w5', archived: true }),
-      ] as SessionMeta[],
-    })
-    const child = makeIssue({
-      id: 'c',
-      parentId: 'p',
-      sessions: [session({ sessionId: 'w6' })] as SessionMeta[],
-    })
-    const outside = makeIssue({
-      id: 'x',
-      sessions: [session({ sessionId: 'w7' })] as SessionMeta[],
-    })
-    expect(workingSessionCount([issue, child, outside], 'p')).toBe(2)
-    expect(workingSessionCount([issue, child, outside], null)).toBe(3)
+    const sessions = [
+      session({ sessionId: 'w1' }),
+      session({
+        sessionId: 'w2',
+        agentState: { phase: 'needs_user', since: 't', openTaskCount: 0 },
+      }),
+      session({ sessionId: 'w3', agentKind: 'shell', busy: true }),
+      session({ sessionId: 'w4', headless: true }),
+      session({ sessionId: 'w5', archived: true }),
+      session({ sessionId: 'w6' }),
+      session({ sessionId: 'w7' }),
+    ] as SessionMeta[]
+    const issue = { ...makeIssue({ id: 'p' }), memberSessionIds: ['w1', 'w2', 'w3', 'w4', 'w5'] }
+    const child = { ...makeIssue({ id: 'c', parentId: 'p' }), memberSessionIds: ['w6'] }
+    const outside = { ...makeIssue({ id: 'x' }), memberSessionIds: ['w7'] }
+    expect(workingSessionCount([issue, child, outside], 'p', sessions)).toBe(2)
+    expect(workingSessionCount([issue, child, outside], null, sessions)).toBe(3)
   })
 })

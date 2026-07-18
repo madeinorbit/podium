@@ -387,12 +387,16 @@ export function exitedRecovery(opts: {
   return { detail: cause, action: opts.isShell ? 'restart' : opts.resumable ? 'resume' : 'remove' }
 }
 
+export type IssueNavigationModel = Omit<IssueWire, 'sessions' | 'commentCount'> & {
+  memberSessionIds?: string[]
+}
+
 export interface WorktreeNavView extends WorktreeView {
   repoName: string
   sessions: SessionMeta[]
   /** Non-archived issues whose worktree this is. When non-empty, the sidebar
    *  renders the issue block(s) instead of the bare worktree row. */
-  issues: IssueWire[]
+  issues: IssueNavigationModel[]
 }
 
 export interface RepoNavView {
@@ -423,7 +427,10 @@ export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
  *  archived) rather than dropping them, so archiving a child doesn't silently
  *  vanish it from its parent. Scoped to the subissue list — the main board's
  *  default hide-archived behavior is unchanged. */
-export function subIssuesOf(issues: readonly IssueWire[], parentId: string): IssueWire[] {
+export function subIssuesOf<T extends Pick<IssueWire, 'parentId' | 'deletedAt' | 'seq'>>(
+  issues: readonly T[],
+  parentId: string,
+): T[] {
   return issues.filter((i) => i.parentId === parentId && !i.deletedAt).sort((a, b) => a.seq - b.seq)
 }
 
@@ -487,7 +494,7 @@ export function sidebarSections(
   sessions: SessionMeta[],
   pins: PinState,
   now: number = Date.now(),
-  issues: IssueWire[] = [],
+  issues: IssueNavigationModel[] = [],
 ): SidebarSections {
   const repoViews = reposToViews(repos)
   const pinnedWorktreePaths = new Set(pins.worktrees)
@@ -495,7 +502,7 @@ export function sidebarSections(
   sessions = sidebarSessions(sessions)
   // worktree path → its non-archived issues (an issue owns at most one worktree;
   // several issues may point at the same worktree — the worktree shows under each).
-  const issuesByWorktree = new Map<string, IssueWire[]>()
+  const issuesByWorktree = new Map<string, IssueNavigationModel[]>()
   for (const issue of issues) {
     if (issue.archived || !issue.worktreePath) continue
     const list = issuesByWorktree.get(issue.worktreePath)
@@ -725,7 +732,7 @@ export function groupSessionsByParent(sessions: SessionMeta[]): SessionGroup[] {
 }
 
 export interface IssueNavView {
-  issue: IssueWire
+  issue: IssueNavigationModel
   repoName: string
   sessions: SessionMeta[]
   activityAt: number
@@ -750,15 +757,20 @@ function sessionsForIssueWorktree(
  *  ordering stay fresh. Archived issues are dropped. Most-recently-active first;
  *  issues with no sessions fall back to their updatedAt. */
 export function issueNavList(
-  issues: IssueWire[],
+  issues: IssueNavigationModel[],
   sessions: SessionMeta[],
   now: number = Date.now(),
 ): IssueNavView[] {
   const views = issues
     .filter((i) => !i.archived && !i.deletedAt)
     .map((issue): IssueNavView => {
+      const memberIds = issue.memberSessionIds
       const mine = sortSessionsForSidebar(
-        sessionsForIssueWorktree(sessions, issue.worktreePath),
+        memberIds === undefined
+          ? sessionsForIssueWorktree(sessions, issue.worktreePath)
+          : sessions.filter(
+              (session) => memberIds.includes(session.sessionId) && !isHeadlessSession(session),
+            ),
         now,
       )
       const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
@@ -788,11 +800,20 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
  *  Archived + headless sessions are always excluded; shells are excluded by default
  *  (sidebar policy) — the workspace tab strip opts them back in. */
 export function sessionsForIssueNav(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   sessions: SessionMeta[],
   allWorktreePaths: string[],
   opts: { includeShells?: boolean } = {},
 ): SessionMeta[] {
+  const memberIds = issue.memberSessionIds
+  if (memberIds !== undefined) {
+    const ids = new Set(memberIds)
+    return sessions.filter((s) => {
+      if (s.archived || isHeadlessSession(s)) return false
+      if (!opts.includeShells && s.agentKind === 'shell') return false
+      return ids.has(s.sessionId)
+    })
+  }
   const wt = issue.worktreePath
   // Longest-match containment needs the full root list (a repo root contains its
   // own .worktrees/* checkouts); make sure the issue's own worktree is in it.
@@ -832,10 +853,15 @@ export function pickPaneSession(
  *  but inverted on `archived`. Drives the tab strip's "N archived" reveal so a
  *  hidden-away session stays reopenable. Headless sessions never count. */
 export function archivedSessionsForIssue(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   sessions: SessionMeta[],
   allWorktreePaths: string[],
 ): SessionMeta[] {
+  const memberIds = issue.memberSessionIds
+  if (memberIds !== undefined) {
+    const ids = new Set(memberIds)
+    return sessions.filter((s) => s.archived && !isHeadlessSession(s) && ids.has(s.sessionId))
+  }
   const wt = issue.worktreePath
   const roots = wt && !allWorktreePaths.includes(wt) ? [...allWorktreePaths, wt] : allWorktreePaths
   return sessions.filter((s) => {
@@ -886,7 +912,7 @@ export function isUnstartedSession(s: SessionMeta): boolean {
  *  (WorkerLabel imports from this module, so the tiny normalize step is inlined
  *  here rather than imported — no cycle). */
 export function draftIssueLabel(
-  issue: IssueWire,
+  issue: IssueNavigationModel,
   sessions: SessionMeta[],
   allWorktreePaths: string[],
 ): string {
@@ -1069,7 +1095,13 @@ export const UNIFIED_ROW_EMPTY_RANK = 4
  *  included) or a with-session worktree not owned by any issue. `rank` is the
  *  min of the child sessions' urgency ranks (UNIFIED_ROW_EMPTY_RANK when none). */
 export type UnifiedWorkRow =
-  | { kind: 'issue'; issue: IssueWire; sessions: SessionMeta[]; activityAt: number; rank: number }
+  | {
+      kind: 'issue'
+      issue: IssueNavigationModel
+      sessions: SessionMeta[]
+      activityAt: number
+      rank: number
+    }
   | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number; rank: number }
 
 /** Whether a unified WORK/WORKING row should render with unread (email-style)
@@ -1107,7 +1139,7 @@ const rowRank = (sessions: SessionMeta[], now: number): number =>
  */
 function buildUnifiedRows(
   sections: SidebarSections,
-  issues: IssueWire[],
+  issues: IssueNavigationModel[],
   sessions: SessionMeta[],
   allWorktreePaths: string[],
   now: number,
@@ -1209,7 +1241,7 @@ function sortUnifiedWorkRows(rows: UnifiedWorkRow[], now: number): UnifiedWorkRo
  */
 export function unifiedWorkList(
   sections: SidebarSections,
-  issues: IssueWire[],
+  issues: IssueNavigationModel[],
   sessions: SessionMeta[],
   allWorktreePaths: string[],
   now: number = Date.now(),
@@ -1277,7 +1309,7 @@ function workingEntryActivity(e: WorkingEntry): number {
  */
 export function partitionUnifiedWork(
   sections: SidebarSections,
-  issues: IssueWire[],
+  issues: IssueNavigationModel[],
   sessions: SessionMeta[],
   allWorktreePaths: string[],
   now: number = Date.now(),
@@ -1576,7 +1608,7 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
 }
 
 /** The same waiting > working > all-done > queued aggregation over any member
- *  session set — for squares fed by `issue.sessions` directly (#65 right rail). */
+ *  session set — for squares fed by resolved issue member sessions (#65 right rail). */
 export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
   const phases = sessions.map(motionPhase)
   if (phases.includes('waiting')) return 'waiting'

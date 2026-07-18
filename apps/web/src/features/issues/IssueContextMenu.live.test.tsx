@@ -56,7 +56,7 @@ const session = (over: Partial<SessionMeta> & Pick<SessionMeta, 'sessionId'>): S
     ...over,
   }) as SessionMeta
 
-function open(issue: IssueWire): void {
+function open(issue: IssueWire & { memberSessionIds?: string[] }): void {
   render(
     <IssueContextMenu
       issues={[issue]}
@@ -92,7 +92,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
     open(
       makeIssue({
         worktreePath: '/Users/mw/Source/other/podium/.worktrees/issue-779',
-        sessions: [{ sessionId: 'agent' } as SessionMeta],
+        memberSessionIds: ['agent'],
       }),
     )
     fireEvent.click(handoffItem())
@@ -103,20 +103,27 @@ describe('IssueContextMenu handoff (POD-850)', () => {
   it('POD-779 shape: still shows Handoff with the reason when the agent drifted off its worktree', () => {
     // Agent on the mac but cwd is a linux main-checkout path (not a worktree), and
     // the issue has no worktree the mac knows → blocked, but the item must appear.
-    state.repos = [repoWire(MAC, '/home/mgw/src/other/podium', []), repoWire(LUD, '/home/mgw/src/other/podium', [])]
+    state.repos = [
+      repoWire(MAC, '/home/mgw/src/other/podium', []),
+      repoWire(LUD, '/home/mgw/src/other/podium', []),
+    ]
     state.machines = [machine(MAC), machine(LUD)]
     state.sessions = [session({ sessionId: 'agent', cwd: '/home/mgw/src/other/podium' })]
-    open(makeIssue({ worktreePath: null, sessions: [{ sessionId: 'agent' } as SessionMeta] }))
+    open(makeIssue({ worktreePath: null, memberSessionIds: ['agent'] }))
     const item = handoffItem()
     expect((item as HTMLButtonElement).disabled).toBe(true)
     expect(item.textContent).toContain('Only sessions in a worktree can be handed off')
   })
 
   it('shell-only issue shows Handoff disabled with “No agent session”', () => {
-    state.repos = [repoWire(MAC, '/Users/mw/Source/other/podium', ['/Users/mw/Source/other/podium/.worktrees/issue-779'])]
+    state.repos = [
+      repoWire(MAC, '/Users/mw/Source/other/podium', [
+        '/Users/mw/Source/other/podium/.worktrees/issue-779',
+      ]),
+    ]
     state.machines = [machine(MAC)]
     state.sessions = [session({ sessionId: 'sh', agentKind: 'shell' })]
-    open(makeIssue({ sessions: [{ sessionId: 'sh' } as SessionMeta] }))
+    open(makeIssue({ memberSessionIds: ['sh'] }))
     expect(handoffItem().textContent).toContain('No agent session to hand off')
   })
 })

@@ -7,11 +7,13 @@ import {
   type SyncChangesSinceResult,
   WIRE_VERSION,
 } from '@podium/protocol'
+import { normalizeSettings } from '@podium/runtime'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import WebSocket from 'ws'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import WebSocket from 'ws'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { SessionStore } from './store'
 
 // End-to-end over the REAL wiring (docs/spec/oplog-read-path.md §5): a booted
 // server, real WS upgrades through wsServer's hello parse, and sync.changesSince
@@ -25,6 +27,13 @@ describe('metadata oplog e2e (live server)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-sync-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    // This asserts the legacy single-kind end-to-end feed POD-797 deletes.
+    const store = new SessionStore()
+    store.settings.setSettings({
+      ...normalizeSettings(undefined),
+      experimental: { 'issues-normalized-wire': false },
+    })
+    store.close()
     server = await startServer({ port: 0 })
     baseUrl = `http://127.0.0.1:${server.port}`
   })
@@ -88,9 +97,7 @@ describe('metadata oplog e2e (live server)', () => {
     expect(delta.changes[0]).toMatchObject({ entity: 'issue', op: 'upsert' })
 
     // The legacy socket saw a full issuesChanged and never a delta.
-    await until(() =>
-      legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1),
-    )
+    await until(() => legacy.inbox.some((m) => m.type === 'issuesChanged' && m.issues.length === 1))
     expect(legacy.inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
     // ...and the cap socket never got the issuesChanged rebroadcast (only the
     // attach-time bootstrap, which arrives before hello lands).

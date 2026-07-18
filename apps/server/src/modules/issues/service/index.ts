@@ -22,6 +22,28 @@ export class IssueService extends IssueServiceWorkflow {
    */
   boot(): this {
     this.init()
+    // One-shot membership totalization [POD-856]: historical sessions predate
+    // sessions.issue_id, while the normalized replica indexes membership ONLY by
+    // that field. Reuse soleOwnerForCwd verbatim so repo-root claims, archived
+    // owners, and ambiguous equal-depth owners remain excluded exactly as at
+    // spawn. Route every stamp through the injected session mutation seam: it
+    // persists normally and the coalesced session/issue feed re-emits. Running
+    // before draft reaping also prevents a living cwd-only session from looking
+    // like an empty leaked draft. The null guard makes every later boot a no-op.
+    const setSessionIssueId = this.deps.setSessionIssueId
+    if (setSessionIssueId) {
+      let totalized = 0
+      for (const session of this.deps.listSessions()) {
+        if (session.issueId != null) continue
+        const issueId = this.soleOwnerForCwd(session.cwd)
+        if (!issueId) continue
+        setSessionIssueId(session.sessionId, issueId)
+        totalized += 1
+      }
+      if (totalized > 0) {
+        console.warn(`[podium:issues] boot attached ${totalized} legacy cwd-only session(s)`)
+      }
+    }
     // Reap draft issues leaked before the kill-path reaper existed (sessions
     // killed/removed while attached to an empty draft). Sessions are hydrated
     // by the composition root BEFORE boot(), so the emptiness predicate sees

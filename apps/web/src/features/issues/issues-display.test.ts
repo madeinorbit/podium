@@ -116,7 +116,8 @@ describe('computeEpicProgress (#198)', () => {
     const busy = issue({
       id: 'c',
       parentId: 'e',
-      sessions: [{ status: 'live' } as never],
+      memberSessionIds: ['s1'],
+      sessionSummary: { total: 1, byPhase: { working: 1 } },
     })
     expect(computeEpicProgress([epic, busy], 'e')?.liveAgents).toBe(1)
   })

@@ -21,7 +21,7 @@ import {
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import {
   isSnoozed,
@@ -144,7 +144,6 @@ export function SessionContextMenu({
     trpc,
     repos,
     machines,
-    issues,
   } = useStoreSelector(
     (s) => ({
       setPinned: s.setPinned,
@@ -158,10 +157,10 @@ export function SessionContextMenu({
       trpc: s.trpc,
       repos: s.repos,
       machines: s.machines,
-      issues: s.issues,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const { guardedKill, guardedArchive } = useSessionGuard()
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted

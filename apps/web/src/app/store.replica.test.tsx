@@ -1,4 +1,9 @@
-import type { IssueWire, SessionMeta, SyncChangesSinceResult } from '@podium/protocol'
+import type {
+  IssueProjection,
+  IssueWire,
+  SessionMeta,
+  SyncChangesSinceResult,
+} from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,7 +48,7 @@ const fakeTrpc = {
 
 vi.mock('./trpc', () => ({ makeTrpc: () => fakeTrpc }))
 
-const { StoreProvider, useStore } = await import('./store')
+const { StoreProvider, useReplicaIssues, useStore } = await import('./store')
 
 /** Captured WebSocket fakes, in construction order — the test opens/drives them. */
 const sockets: FakeWS[] = []
@@ -60,6 +65,17 @@ class FakeWS {
     this.sent.push(data)
   }
   close(): void {}
+}
+
+function projection(id: string, readAt: string | null): IssueProjection {
+  return {
+    id,
+    seq: 1,
+    repoPath: '/w',
+    stage: 'in_progress',
+    updatedAt: '2026-07-01T00:00:00.000Z',
+    readAt,
+  } as unknown as IssueProjection
 }
 
 function session(id: string, title = id): SessionMeta {
@@ -83,10 +99,12 @@ function session(id: string, title = id): SessionMeta {
 }
 
 let latest: { sessions: SessionMeta[]; issues: IssueWire[] } = { sessions: [], issues: [] }
+let latestReplicaIssues: ReturnType<typeof useReplicaIssues> = []
 let latestStore: ReturnType<typeof useStore> | null = null
 function Probe(): null {
   const store = useStore()
   latest = { sessions: store.sessions, issues: store.issues }
+  latestReplicaIssues = useReplicaIssues()
   latestStore = store
   return null
 }
@@ -101,6 +119,7 @@ beforeEach(() => {
   changesSinceResolve = undefined
   sockets.length = 0
   latest = { sessions: [], issues: [] }
+  latestReplicaIssues = []
   latestStore = null
   realWS = globalThis.WebSocket
   globalThis.WebSocket = FakeWS as unknown as typeof WebSocket
@@ -269,40 +288,40 @@ describe('store ↔ replica', () => {
     expect(h.sessions[0]?.unread).toBe(false)
   })
 
-  it('markIssueRead optimistically clears unread and reconciles with the server echo', async () => {
+  it('markIssueRead patches projection readAt and clears the derived unread rollup', async () => {
     const previous = createReplica()
-    previous.applySnapshot('issues', [makeIssue({ id: 'iss_1', unread: true, readAt: null })])
+    previous.applySnapshot('issues', [makeIssue({ id: 'iss_1' })])
+    previous.applySnapshot('issueProjections', [projection('iss_1', null)])
+    previous.applySnapshot('sessions', [
+      { ...session('s1'), issueId: 'iss_1', lastActiveAt: '2026-07-09T12:00:00.000Z' },
+    ])
     previous.setCursor(3)
     await settle()
 
     render()
     await settle()
-    expect(latest.issues[0]?.unread).toBe(true)
+    expect(latestReplicaIssues[0]?.unread).toBe(true)
 
     await act(async () => {
       await latestStore?.markIssueRead('iss_1')
     })
     await settle()
-    expect(latest.issues[0]?.unread).toBe(false)
-    expect(latest.issues[0]?.readAt).not.toBeNull()
+    expect(latestReplicaIssues[0]?.unread).toBe(false)
+    expect(latestStore?.issueProjections[0]?.readAt).not.toBeNull()
 
-    act(() => sockets[0]?.onopen?.({}))
-    await settle()
-    changesSinceResolve?.({
-      kind: 'snapshot',
-      sessions: [],
-      issues: [makeIssue({ id: 'iss_1', unread: false, readAt: '2026-07-09T12:00:00.000Z' })],
-      conversations: [],
-      diagnostics: [],
-      cursor: 4,
+    act(() => {
+      latestStore?.replica.applyChanges(
+        'issueProjections',
+        [projection('iss_1', '2026-07-10T12:00:00.000Z')],
+        [],
+      )
     })
     await settle()
-    expect(latest.issues).toHaveLength(1)
-    expect(latest.issues[0]?.unread).toBe(false)
-    expect(latest.issues[0]?.readAt).toBe('2026-07-09T12:00:00.000Z')
+    expect(latestReplicaIssues[0]?.unread).toBe(false)
+    expect(latestStore?.issueProjections[0]?.readAt).toBe('2026-07-10T12:00:00.000Z')
     const reread = createReplica()
     const h = await reread.hydrate()
-    expect(h.issues[0]?.unread).toBe(false)
+    expect(h.issueProjections[0]?.readAt).toBe('2026-07-10T12:00:00.000Z')
   })
 
   it('replica non-persistent (private browsing): the SAME replica path carries sessions in memory', async () => {

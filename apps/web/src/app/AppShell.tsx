@@ -43,7 +43,7 @@ import {
   SUPERAGENT_MODE_KEY,
   type SuperagentMode,
 } from './shell-state'
-import { StoreProvider, useStoreSelector } from './store'
+import { StoreProvider, useReplicaIssues, useStoreSelector } from './store'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { serverConfig } from './trpc'
@@ -132,7 +132,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const {
     repos,
     reposLoaded,
-    issues,
     selectedIssueId,
     superOpen,
     setSuperOpen,
@@ -144,7 +143,6 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     (s) => ({
       repos: s.repos,
       reposLoaded: s.reposLoaded,
-      issues: s.issues,
       selectedIssueId: s.selectedIssueId,
       superOpen: s.superOpen,
       setSuperOpen: s.setSuperOpen,
@@ -155,6 +153,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const [dismissed, setDismissed] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
     readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),

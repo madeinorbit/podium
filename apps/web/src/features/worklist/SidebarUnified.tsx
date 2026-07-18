@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/domain'
-import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
+import { type AgentKind, issueDisplayRef, type SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
@@ -19,7 +19,7 @@ import {
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
-import { useStoreSelector } from '@/app/store'
+import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { IdSquare } from '@/components/IdSquare'
 import {
   DropdownMenu,
@@ -38,6 +38,7 @@ import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import {
   draftIssueLabel,
   groupUnifiedWorkRows,
+  type IssueNavigationModel,
   isIssueSnoozed,
   issueReturnedFromDefer,
   lastUsedMaps,
@@ -135,7 +136,6 @@ export function useDefaultSpawn() {
     machines,
     spawnDraftAgent,
     pins,
-    issues,
   } = useStoreSelector(
     (s) => ({
       repos: s.repos,
@@ -148,10 +148,10 @@ export function useDefaultSpawn() {
       machines: s.machines,
       spawnDraftAgent: s.spawnDraftAgent,
       pins: s.pins,
-      issues: s.issues,
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const now = useNow(60_000)
   // The user's persisted default agent ('auto' resolves against session history).
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
@@ -482,7 +482,6 @@ export function useUnifiedWork() {
     sessions,
     pins,
     setPinned,
-    issues,
     trpc,
     selectedWorktree,
     setSelectedWorktree,
@@ -501,7 +500,6 @@ export function useUnifiedWork() {
       sessions: s.sessions,
       pins: s.pins,
       setPinned: s.setPinned,
-      issues: s.issues,
       trpc: s.trpc,
       selectedWorktree: s.selectedWorktree,
       setSelectedWorktree: s.setSelectedWorktree,
@@ -517,6 +515,7 @@ export function useUnifiedWork() {
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const now = useNow(60_000)
   const sections = sidebarSections(repos, sessions, pins, now, issues)
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
@@ -531,7 +530,7 @@ export function useUnifiedWork() {
       beginSwitch({ sessionId: target, issueId })
     }
   }
-  const selectIssue = (issue: IssueWire, paneSession?: string) => {
+  const selectIssue = (issue: IssueNavigationModel, paneSession?: string) => {
     setSelectedIssueId(issue.id)
     // Opening an issue marks IT read (email-style, #126): clear the row's unread
     // emphasis optimistically. Its member sessions keep their own unread until
@@ -563,7 +562,7 @@ export function useUnifiedWork() {
     setPane('A', target)
     setView('workspace')
   }
-  const selectPanelForIssue = (issue: IssueWire, sessionId: string) => {
+  const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: string) => {
     selectIssue(issue, sessionId)
     // Opening a specific member session marks THAT session read too (#126).
     void markSessionRead(sessionId)
@@ -937,7 +936,7 @@ function UnifiedIssueRow({
   row: Extract<UnifiedWorkRow, { kind: 'issue' }>
   sessions: SessionMeta[]
   /** Whole issue list — the context menu's label pool / duplicate targets. */
-  issues: IssueWire[]
+  issues: IssueNavigationModel[]
   allWorktreePaths: string[]
   active: boolean
   paneA: string | null

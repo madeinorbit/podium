@@ -5,7 +5,7 @@ import type {
   SyncChangesSinceResult,
   SyncChangesSinceResultLenient,
 } from '@podium/protocol'
-import { encode, type ServerMessage } from '@podium/protocol'
+import { encode, IssueProjection, RepoProjection, type ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SocketHub, type WebSocketLike } from './connection'
 
@@ -539,6 +539,36 @@ describe('SocketHub metadata delta mode', () => {
     })
     await flush()
     expect(calls).toEqual([5, 6])
+  })
+
+  it('cold snapshot installs normalized issue, dep, and repo collections', async () => {
+    const projected = IssueProjection.parse({
+      ...issue('iss_1', 'projected'),
+      repoId: 'repo_1',
+      revision: 1,
+      worktreePath: undefined,
+      branch: undefined,
+      readAt: undefined,
+    })
+    const repo = RepoProjection.parse({ id: 'repo_1', prefix: 'POD' })
+    const applied = vi.fn()
+    const result = {
+      ...snapshot(20, [issue('iss_1', 'legacy')]),
+      issueProjections: [projected],
+      issueDeps: [],
+      repos: [repo],
+    }
+    const { sock, hub } = setup([result], { issuesNormalized: true, onMetadataApplied: applied })
+    hub.connect()
+    sock.open()
+    await flush()
+
+    const state = applied.mock.calls.at(-1)?.[0]
+    expect(state?.issueProjections.map((row: { title: string }) => row.title)).toEqual([
+      'projected',
+    ])
+    expect(state?.issueDeps).toEqual([])
+    expect(state?.repos.map((row: { prefix: string }) => row.prefix)).toEqual(['POD'])
   })
 
   it('initialCursor with a compaction fallback still full-replaces from the snapshot', async () => {

@@ -5,7 +5,9 @@ import type { IssueWire } from '@podium/protocol'
  * Shared by the issue-card and issue-page tests so all exercise the same
  * fully-populated wire shape.
  */
-export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
+export const makeIssue = (
+  over: Partial<IssueWire> & { memberSessionIds?: string[] } = {},
+): IssueWire & { memberSessionIds: string[] } =>
   ({
     id: 'i',
     repoPath: '/r',
@@ -39,6 +41,7 @@ export const makeIssue = (over: Partial<IssueWire> = {}): IssueWire =>
     childCount: 0,
     childDoneCount: 0,
     sessions: [],
-    sessionSummary: { total: 2, byPhase: { working: 1, idle: 1 } },
+    memberSessionIds: [],
+    sessionSummary: { total: 0, byPhase: {} },
     ...over,
-  }) as IssueWire
+  }) as IssueWire & { memberSessionIds: string[] }

@@ -21,7 +21,7 @@ export function FoldedSuperagentBar({
   onExpand,
   onColorChange,
 }: {
-  issue?: IssueWire
+  issue?: Pick<IssueWire, 'linearIdentifier' | 'seq' | 'color' | 'title'>
   trayCount?: number
   unread?: boolean
   onExpand: (target?: 'tray' | 'superagent') => void

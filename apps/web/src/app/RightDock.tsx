@@ -17,7 +17,7 @@ import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
 import { issueForCwd, resolveActiveWorktree } from '@/lib/dock-panel'
 import type { RightPanelTab } from './shell-state'
-import { useStoreSelector } from './store'
+import { useReplicaIssues, useStoreSelector } from './store'
 
 /** The right-panel surfaces (the superagent lives in its own center column). */
 export type { RightPanelTab } from './shell-state'
@@ -56,10 +56,11 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions, issues } = useStoreSelector(
-    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions, issues: s.issues }),
+  const { paneA, fileTabs, sessions } = useStoreSelector(
+    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const active = useMemo(
     () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
     [paneA, fileTabs, sessions],

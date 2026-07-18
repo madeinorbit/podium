@@ -28,6 +28,8 @@
  * point of deriving at the replica rather than in each view.
  */
 
+import type { IssueProjection } from '@podium/model'
+import type { IssueWire } from '@podium/protocol'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
   buildIssueBoard,
@@ -166,4 +168,79 @@ export function useIssueBoard(
 ): Map<string, IssueView[]> {
   const snapshot = useIssueViews(replica)
   return useMemo(() => buildIssueBoard(snapshot.views, snapshot.issues, stages), [snapshot, stages])
+}
+
+/**
+ * One issue as a flat render model [POD-856]: its own durable projection row
+ * MERGED with the replica-derived view (`blocked`/`ready`/`childCount`/
+ * `displayRef`/`dependents`/`memberSessionIds`, …) and the session rollups
+ * (`unread`/`sessionSummary`). This is the shape issue surfaces render from once
+ * the cap flips — the successor to `IssueWire` for the UI, minus the fields D7.1
+ * deleted from the wire:
+ *  - member SESSIONS are NOT embedded (D7.3): the model carries
+ *    `memberSessionIds`, and a consumer that needs a session resolves it by id
+ *    against the sessions the client already holds. Re-embedding them here would
+ *    put the O(world) rebuild back on the client.
+ *  - `commentCount` is gone (a comment write must not touch the issue row, D7.2):
+ *    consumers key comment refetches on `updatedAt` instead.
+ */
+type LegacyIssueSupplement = Omit<IssueWire, 'sessions' | 'commentCount'>
+type ProjectionOnly = Partial<Omit<IssueProjection, keyof IssueWire>>
+
+/** UI contract during the additive cutover: legacy relation/provenance fields
+ * remain available from the retained issue kind, while embedded sessions and
+ * commentCount are structurally absent. The hook always supplies member ids. */
+export type IssueViewModel = LegacyIssueSupplement &
+  ProjectionOnly & { childIds?: string[]; memberSessionIds?: string[] }
+
+/** Every issue's flat render model, keyed by id. Re-derived once per settled
+ *  replica state (memoised on the shared snapshot), so a whole
+ *  bootstrap/heal/delta rebuilds it at most once. */
+export function useIssueViewModels(
+  replica: Replica,
+  projectionRows: readonly IssueProjection[] = replica.rows('issueProjections'),
+  legacyRows: readonly IssueWire[] = replica.rows('issues'),
+): Map<string, IssueViewModel> {
+  const snapshot = useIssueViews(replica)
+  return useMemo(() => {
+    const models = new Map<string, IssueViewModel>()
+    const legacyById = new Map(legacyRows.map((issue) => [issue.id, issue]))
+    const sessionById = new Map(snapshot.sessions.map((session) => [session.sessionId, session]))
+    // The full projection rows carry the durable fields the reduced
+    // `IssueViewInput` drops (title, type, labels, assignee, …); the view carries
+    // the cross-entity deriveds. An issue with a projection but no view cannot
+    // happen (deriveIssueViews builds one per input), but guard rather than assert.
+    for (const projection of projectionRows) {
+      const view = snapshot.views.get(projection.id)
+      if (!view) continue
+      const { id: _id, ...derived } = view
+      const legacy = legacyById.get(projection.id)
+      const {
+        sessions: _sessions,
+        sessionSummary: _sessionSummary,
+        unread: _unread,
+        commentCount: _commentCount,
+        displayRef: _displayRef,
+        ready: _ready,
+        blocked: _blocked,
+        deferred: _deferred,
+        childCount: _childCount,
+        childDoneCount: _childDoneCount,
+        dependents: _dependents,
+        ...legacySupplement
+      } = legacy ?? ({} as IssueWire)
+      models.set(projection.id, {
+        ...legacySupplement,
+        ...projection,
+        ...derived,
+        ...deriveIssueRollups(projection, view.memberSessionIds, (id) => sessionById.get(id)),
+      } as IssueViewModel)
+    }
+    return models
+  }, [snapshot, projectionRows, legacyRows])
+}
+
+/** One issue's flat render model, or undefined if the replica does not hold it. */
+export function useIssueViewModel(replica: Replica, issueId: string): IssueViewModel | undefined {
+  return useIssueViewModels(replica).get(issueId)
 }

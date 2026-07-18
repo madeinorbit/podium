@@ -5,9 +5,9 @@
  * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
  */
 import { shallowEqual } from '@podium/client-core'
-import { type IssueWire, issueDisplayRef } from '@podium/protocol'
+import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { type IssueViewModel, useReplicaIssues, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { subIssuesOf } from '@/lib/derive'
 import type { PropertyOption } from '@/lib/PropertyMenu'
@@ -30,7 +30,7 @@ import {
 
 export interface IssuePageModel {
   trpc: Trpc
-  issues: IssueWire[]
+  issues: IssueViewModel[]
   busy: boolean
   toast: string
   /** Run a mutation, surfacing any thrown error verbatim as an inline toast. */
@@ -45,17 +45,15 @@ export interface IssuePageModel {
    *  listing here never consumes the recipient's unread status. */
   mail: IssueMailMessage[]
   /** Sub-issues (archived children stay visible — issue #133). */
-  children: IssueWire[]
-  /** Optimistic local append after a posted comment (the commentCount-keyed
+  children: IssueViewModel[]
+  /** Optimistic local append after a posted comment (the updatedAt-keyed
    *  refetch then replaces it with server truth). */
   appendLocalComment: (body: string) => void
 }
 
-export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): IssuePageModel {
-  const { trpc, issues, hub } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, issues: s.issues, hub: s.hub }),
-    shallowEqual,
-  )
+export function useIssuePageModel(issue: IssueViewModel, orderedIds: string[]): IssuePageModel {
+  const { trpc, hub } = useStoreSelector((s) => ({ trpc: s.trpc, hub: s.hub }), shallowEqual)
+  const issues = useReplicaIssues()
   const [toast, setToast] = useState('')
   const [busy, setBusy] = useState(false)
   const [events, setEvents] = useState<IssueEvent[]>([])
@@ -71,9 +69,9 @@ export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): Issue
     setComments(issue.comments ?? [])
   }, [issue.id])
 
-  // Lazy comment fetch (#175): comment bodies no longer ride IssueWire — fetch
+  // Lazy comment fetch (#175): comment bodies no longer ride IssueViewModel — fetch
   // the thread on open via issues.comments, and re-fetch whenever the live wire
-  // row's commentCount moves (every addComment broadcasts the updated issue, so
+  // row's updatedAt moves (every addComment broadcasts the updated issue, so
   // a new comment — ours or an agent's — pulls the fresh thread). Best-effort:
   // a fetch error keeps whatever is shown. The wrapping Promise.resolve() also
   // absorbs a missing proc on the client seam instead of crashing the render.
@@ -95,7 +93,7 @@ export function useIssuePageModel(issue: IssueWire, orderedIds: string[]): Issue
     return () => {
       cancelled = true
     }
-  }, [issue.id, issue.commentCount])
+  }, [issue.id, issue.updatedAt])
 
   // Agent mailbox (issue #103): fetched on open and re-fetched when the live
   // wire row moves (a mailSend bumps nothing on the wire itself, but the
@@ -219,13 +217,13 @@ export function useMergeStyle(trpc: Trpc): MergeStyle {
 
 /** Repo-mates: sibling issues in the same repo excluding self, seq-ordered —
  *  the pool for relations, parent, and supersede/duplicate targets. */
-export function repoMatesOf(issues: IssueWire[], issue: IssueWire): IssueWire[] {
+export function repoMatesOf(issues: IssueViewModel[], issue: IssueViewModel): IssueViewModel[] {
   return issues
     .filter((i) => i.repoPath === issue.repoPath && i.id !== issue.id)
     .sort((a, b) => a.seq - b.seq)
 }
 
-export function mateOptionsOf(repoMates: IssueWire[]): PropertyOption[] {
+export function mateOptionsOf(repoMates: IssueViewModel[]): PropertyOption[] {
   return repoMates.map((i) => ({ value: i.id, label: `${issueDisplayRef(i)} ${i.title}` }))
 }
 
@@ -233,7 +231,7 @@ export function mateOptionsOf(repoMates: IssueWire[]): PropertyOption[] {
 export const UNASSIGNED = '__unassigned__'
 
 /** Distinct assignees across all issues — the suggestion pool. */
-export function assigneeOptionsOf(issues: IssueWire[]): PropertyOption[] {
+export function assigneeOptionsOf(issues: IssueViewModel[]): PropertyOption[] {
   return [
     { value: UNASSIGNED, label: 'Unassigned' },
     ...[...new Set(issues.map((i) => i.assignee).filter((a): a is string => !!a))]
@@ -243,7 +241,7 @@ export function assigneeOptionsOf(issues: IssueWire[]): PropertyOption[] {
 }
 
 /** Distinct labels across all issues not already on this one. */
-export function labelPoolOf(issues: IssueWire[], issue: IssueWire): string[] {
+export function labelPoolOf(issues: IssueViewModel[], issue: IssueViewModel): string[] {
   return [...new Set(issues.flatMap((i) => i.labels))]
     .filter((l) => !issue.labels.includes(l))
     .sort()

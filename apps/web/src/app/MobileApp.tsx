@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
 import { FileText, Home, KanbanSquare, ListChecks, Pin } from 'lucide-react'
 import type { CSSProperties, JSX } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
 import { MainViewOutlet } from './routes'
-import { type FileTab, useStoreSelector } from './store'
+import { type FileTab, type IssueViewModel, useReplicaIssues, useStoreSelector } from './store'
 import type { WorktreeView } from './types'
 
 // File viewer (clickable transcript paths) — lazy, mirroring the desktop Workspace.
@@ -127,7 +127,7 @@ function useMobileLandsOnHome(): void {
  * mobile the square is part of the panel-selector button, and the picker has
  * no mobile home yet (spec OQ3).
  */
-function HeaderIdSquare({ issue }: { issue: IssueWire }): JSX.Element {
+function HeaderIdSquare({ issue }: { issue: IssueViewModel }): JSX.Element {
   const label = idSquareLabel(issue)
   const hex = issueColorHex(issue.color)
   return (
@@ -154,7 +154,6 @@ export function MobileApp(): JSX.Element {
     sessions,
     pins,
     setPinned,
-    issues,
     selectedIssueId,
     selectedWorktree,
     paneA,
@@ -172,7 +171,6 @@ export function MobileApp(): JSX.Element {
       sessions: s.sessions,
       pins: s.pins,
       setPinned: s.setPinned,
-      issues: s.issues,
       selectedIssueId: s.selectedIssueId,
       selectedWorktree: s.selectedWorktree,
       paneA: s.paneA,
@@ -188,13 +186,14 @@ export function MobileApp(): JSX.Element {
     }),
     shallowEqual,
   )
+  const issues = useReplicaIssues()
   const { guardedKill } = useSessionGuard()
   const repoViews = useMemo(() => reposToViews(repos), [repos])
   const allWorktreePaths = useMemo(
     () => repoViews.flatMap((r) => r.worktrees.map((w) => w.path)),
     [repoViews],
   )
-  const selectedIssue: IssueWire | undefined = selectedIssueId
+  const selectedIssue: IssueViewModel | undefined = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId)
     : undefined
   // The worktree behind the selection: the issue's own, else the bare worktree
