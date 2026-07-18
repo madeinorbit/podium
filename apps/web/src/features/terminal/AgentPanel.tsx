@@ -305,6 +305,12 @@ export function AgentPanel({
   // there would tear down and remount the whole terminal on every keystroke.
   const draftRef = useRef('')
   draftRef.current = drafts[sessionId] ?? ''
+  // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
+  // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
+  // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
+  // check needs no effect dep (no terminal remount when the capability flips on).
+  const draftEngineRef = useRef(false)
+  draftEngineRef.current = session?.draftSyncEngine === true
   // Re-arm hook for the chat→native draft flush, published by onMounted below.
   // The flush machinery (one-shot guard + bounded poll) lives inside onMounted's
   // closure and otherwise only runs once, at mount. Since the terminal stays
@@ -401,6 +407,8 @@ export function AgentPanel({
         return null
       }
       const sample = () => {
+        // Daemon engine active → it scrapes native server-side; don't double-publish.
+        if (draftEngineRef.current) return
         if (mounted.connection.state().role !== 'controller') return
         if (!termRef.current?.contains(document.activeElement)) return
         // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
@@ -439,6 +447,8 @@ export function AgentPanel({
       // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
       const flushDraftToNative = (): boolean => {
         if (flushTried) return false
+        // Daemon engine active → it injects chat drafts into native server-side.
+        if (draftEngineRef.current) return false
         if (mounted.connection.state().role !== 'controller') return false
         if (!termRef.current?.contains(document.activeElement)) return false
         const want = draftRef.current
