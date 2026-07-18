@@ -9,15 +9,18 @@
  *
  * Everything here is a no-op unless `PODIUM_LOOP_PROFILE` is set.
  */
-import {
-  formatStallClassification,
-  type StallClassification,
-} from '@podium/runtime/loop-metrics'
+import { formatStallClassification, type StallClassification } from '@podium/runtime/loop-metrics'
 
 const ENABLED = !!process.env.PODIUM_LOOP_PROFILE
 export const loopProfileEnabled = ENABLED
 
 const ctr = { frames: 0, frameBytes: 0, control: 0, tails: 0, worker: 0 }
+interface ControlCost {
+  count: number
+  wallMs: number
+  heapBytes: number
+}
+const controlCosts = new Map<string, ControlCost>()
 
 export function countFrame(bytes: number): void {
   if (ENABLED) {
@@ -25,8 +28,23 @@ export function countFrame(bytes: number): void {
     ctr.frameBytes += bytes
   }
 }
-export function countControl(): void {
-  if (ENABLED) ctr.control++
+
+/** [spec:SP-c29e] Attribute one complete synchronous control-frame turn (decode + dispatch).
+ * Returns a finisher because the message type is only known after decoding.
+ * Positive heap deltas are a deliberately cheap allocation-pressure proxy; a
+ * GC during the turn contributes zero rather than hiding allocations elsewhere. */
+export function beginControlTurn(): (type: string) => void {
+  if (!ENABLED) return () => {}
+  ctr.control++
+  const startedAt = performance.now()
+  const heapBefore = process.memoryUsage().heapUsed
+  return (type) => {
+    const cost = controlCosts.get(type) ?? { count: 0, wallMs: 0, heapBytes: 0 }
+    cost.count++
+    cost.wallMs += performance.now() - startedAt
+    cost.heapBytes += Math.max(0, process.memoryUsage().heapUsed - heapBefore)
+    controlCosts.set(type, cost)
+  }
 }
 export function countTail(): void {
   if (ENABLED) ctr.tails++
@@ -56,9 +74,28 @@ export function reportLongTick(ms: number, classification?: StallClassification)
   const mu = process.memoryUsage()
   const mb = (b: number) => (b / 1048576).toFixed(0)
   const cls = classification ? ` | ${formatStallClassification(classification)}` : ''
+  const controlDetail = formatControlCosts(controlCosts)
+  const controlSummary = controlDetail ? ' types=' + controlDetail : ''
   console.warn(
-    `[podium:loop] daemon stall ${ms.toFixed(0)}ms | frames=${ctr.frames} bytes=${(ctr.frameBytes / 1024).toFixed(0)}KB control=${ctr.control} tails=${ctr.tails} worker=${ctr.worker} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${cls}`,
+    `[podium:loop] daemon stall ${ms.toFixed(0)}ms | frames=${ctr.frames} bytes=${(ctr.frameBytes / 1024).toFixed(0)}KB control=${ctr.control}${controlSummary} tails=${ctr.tails} worker=${ctr.worker} | heap=${mb(mu.heapUsed)}MB rss=${mb(mu.rss)}MB${cls}`,
   )
+}
+
+export function formatControlCosts(costs: ReadonlyMap<string, ControlCost>): string {
+  return [...costs]
+    .sort((a, b) => b[1].wallMs - a[1].wallMs || a[0].localeCompare(b[0]))
+    .map(
+      ([type, cost]) =>
+        type +
+        ':' +
+        cost.count +
+        '/' +
+        cost.wallMs.toFixed(0) +
+        'ms/+' +
+        (cost.heapBytes / 1048576).toFixed(1) +
+        'MB',
+    )
+    .join(',')
 }
 
 let resetTimer: ReturnType<typeof setInterval> | undefined
@@ -72,6 +109,7 @@ export function startLoopAttribution(): void {
     ctr.control = 0
     ctr.tails = 0
     ctr.worker = 0
+    controlCosts.clear()
   }, 1000)
   resetTimer.unref?.()
 }

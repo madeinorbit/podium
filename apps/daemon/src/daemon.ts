@@ -53,7 +53,12 @@ import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { countControl, reportLongTick, startLoopAttribution, timeTask } from './loop-attribution'
+import {
+  beginControlTurn,
+  reportLongTick,
+  startLoopAttribution,
+  timeTask,
+} from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
@@ -586,12 +591,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const handleControlMessage = (raw: RawData): void => {
     if (!authenticated) return // pre-auth frames belong to the handshake handler
-    countControl()
+    const finishControlTurn = beginControlTurn()
     // Drop absurdly large frames before materializing/parsing them (audit P0-4): a
     // multi-hundred-MB frame's synchronous toString()+JSON.parse would stall the loop
     // and back up the socket Recv-Q — the wedge shape. The cap is generous so it never
     // touches legitimate big payloads (image uploads, large pastes, file writes).
     if (controlFrameByteLength(raw) > MAX_CONTROL_FRAME_BYTES) {
+      finishControlTurn('<oversized>')
       console.warn('[podium:daemon] dropping oversized control frame')
       return
     }
@@ -601,12 +607,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // (the big-paste wedge shape) — time it separately from the handler.
       msg = timeTask('controlParse', () => parseControlMessage(raw.toString()))
     } catch (err) {
+      finishControlTurn('<invalid>')
       // Drop the malformed control frame (don't wedge the loop) — but log it, never
       // silently, so protocol drift / poison frames are observable.
       warnDroppedControlFrame(err)
       return
     }
-    timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
+    try {
+      timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
+    } finally {
+      finishControlTurn(msg.type)
+    }
   }
 
   // Reconnecting client: the daemon may start before the server (separate
