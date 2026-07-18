@@ -28,6 +28,8 @@ import { IssueToolProvider } from './issue-mcp'
 import { readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
+import { registerMaintenanceRoute } from './modules/maintenance/route'
+import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { perf } from './modules/perf/registry'
 import { SuperagentService } from './modules/superagent'
@@ -278,6 +280,10 @@ export async function startServer(
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app)
+  registerMaintenanceRoute(app, {
+    authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
+    service: new MaintenanceService(store, registry.modules.funnel),
+  })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.

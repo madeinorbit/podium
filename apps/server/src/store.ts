@@ -44,6 +44,7 @@ import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
+import { MaintenanceRepository } from './store/maintenance'
 import { MachinesRepository } from './store/machines'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { MessagesRepository } from './store/messages'
@@ -89,6 +90,8 @@ export class SessionStore {
   readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
+  /** Janitor generation fencing + deterministic command outcomes [spec:SP-c29e]. */
+  readonly maintenance: MaintenanceRepository
   /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
   readonly automations: AutomationsRepository
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
@@ -145,6 +148,7 @@ export class SessionStore {
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)
     this.locks = new LocksRepository(this.db)
+    this.maintenance = new MaintenanceRepository(this.db)
     this.automations = new AutomationsRepository(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
 

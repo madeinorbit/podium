@@ -387,6 +387,25 @@ export class MessagesRepository {
     return rows.map(mapMessage).map((m) => ({ ...m, status: 'expired' as const }))
   }
 
+  /** Apply one janitor-observed expiry only if every observed durable fact is
+   * still current. Server time eligibility is checked by MaintenanceService
+   * immediately before this conditional write in the same transaction. */
+  expireObserved(input: {
+    id: string
+    createdAt: string
+    lifecycle: MessageRow['lifecycle']
+    expiresAt: string | null
+  }): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE messages SET status = 'expired'
+         WHERE id = ? AND status = 'queued' AND created_at = ?
+           AND lifecycle = ? AND expires_at IS ?`,
+      )
+      .run(input.id, input.createdAt, input.lifecycle, input.expiresAt)
+    return result.changes === 1
+  }
+
   /** Stamp the ack message id onto the original (first ack wins). */
   markAcked(id: string, ackedBy: string): boolean {
     const r = this.db

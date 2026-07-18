@@ -544,6 +544,27 @@ export const messageWakeCooldowns = sqliteTable("message_wake_cooldowns", {
 	attemptedAt: text("attempted_at").notNull(),
 });
 
+/** Durable janitor lease/fence and command idempotency [spec:SP-c29e]. */
+export const maintenanceLeases = sqliteTable("maintenance_leases", {
+	name: text().primaryKey(),
+	generationId: text("generation_id").notNull(),
+	fencingToken: integer("fencing_token").notNull(),
+	expiresAt: text("expires_at").notNull(),
+	protocolVersion: integer("protocol_version").notNull(),
+	schemaVersion: text("schema_version").notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
+export const maintenanceCommands = sqliteTable("maintenance_commands", {
+	jobKind: text("job_kind").notNull(),
+	runKey: text("run_key").notNull(),
+	fencingToken: integer("fencing_token").notNull(),
+	resultJson: text("result_json").notNull(),
+	appliedAt: text("applied_at").notNull(),
+},
+(table) => [primaryKey({ columns: [table.jobKind, table.runKey], name: "maintenance_commands_pk" }),
+]);
+
 export const recapWatermarks = sqliteTable("recap_watermarks", {
 	reader: text().notNull(),
 	sessionId: text("session_id").notNull(),
