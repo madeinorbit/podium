@@ -48,6 +48,7 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   const deps: StewardDeps = {
     store: store.events,
     facts: store.notificationFacts,
+    messages: store.messages,
     issues,
     listSessions: () => sessions,
     sendTextWhenReady,
@@ -73,6 +74,44 @@ const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
 // #175: comment bodies left IssueWire — read the thread via IssueService.comments.
 const stewardComments = (issues: IssueService, id: string) =>
   issues.comments(id).filter((c) => c.author === 'steward')
+
+/** Seeds a message row proving `fromIssue` already told `to` directly — the
+ *  already-communicated fixture (§07b, POD-913). `createdAt` defaults to the
+ *  real wall clock, which always lands after the harness's simulated
+ *  2026-07-02 event clock, so it satisfies the "since the change" window
+ *  without threading the exact event timestamp through every test. */
+function seedTold(
+  store: SessionStore,
+  fromIssue: string,
+  to: { kind: 'session' | 'issue'; id: string },
+  opts: { createdAt?: string; id?: string } = {},
+) {
+  const id = opts.id ?? `msg_${to.kind}_${to.id}`
+  store.messages.addMessage({
+    id,
+    threadId: id,
+    inReplyTo: null,
+    fromKind: 'agent',
+    fromSession: null,
+    fromIssue,
+    toKind: to.kind,
+    toId: to.id,
+    kind: 'message',
+    urgency: 'next-turn',
+    lifecycle: 'wait',
+    body: 'already told you directly',
+    expiresAt: null,
+    createdAt: opts.createdAt ?? new Date().toISOString(),
+    status: 'queued',
+    deliveredAt: null,
+    deliveredTo: null,
+    ackedBy: null,
+    hop: 0,
+    clampedFrom: null,
+    remindedAt: null,
+    expectsResponse: false,
+  })
+}
 
 describe('TRIGGER_RULES', () => {
   it('maps closed/ready to a per-repo unblock key and needs_human to a per-issue key', () => {
@@ -313,6 +352,22 @@ describe('StewardService unblock handler', () => {
     const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
     expect(targets).toEqual(['other'])
   })
+
+  it('already-communicated (§07b, POD-913): suppresses the nudge when the closer already messaged the dependent directly', async () => {
+    const sessions = [fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-2-b' })]
+    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.addDep(b.id, a.id, 'blocks')
+    // A's agent already told the dependent session directly, ahead of closing.
+    seedTold(store, a.id, { kind: 'session', id: 'other' })
+    issues.close(a.id)
+    await steward.tick()
+    // The audit-trail comment still lands — only the redundant nudge is cut.
+    expect(stewardComments(issues, b.id).length).toBe(1)
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
 })
 
 describe('StewardService parent-nudge handler', () => {
@@ -344,6 +399,27 @@ describe('StewardService parent-nudge handler', () => {
     // Comment-only excerpt: the agent-authored note never reaches the nudge.
     expect(text).not.toContain('widget')
     expect(text).not.toContain('\n')
+  })
+
+  it('already-communicated (§07b, POD-913): suppresses the nudge when the child already messaged the parent directly', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
+    // The child already told the parent's live session directly.
+    seedTold(store, c1.id, { kind: 'session', id: 'plive' })
+    issues.close(c1.id)
+    await steward.tick()
+    // The audit-trail comment still lands — only the redundant nudge is cut.
+    expect(stewardComments(issues, parent.id).length).toBe(1)
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
   it('two children closing in one batch → two comments, ONE nudge with latest counts', async () => {
@@ -633,6 +709,20 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('already-communicated (§07b, POD-913): suppresses a subscription nudge when the source issue already messaged the subscriber directly', async () => {
+    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
+    // x already told the watcher's live session directly.
+    seedTold(store, x.id, { kind: 'session', id: 'psess' })
+    issues.close(x.id)
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
   it('a session.finished subscription nudges the subscriber session', async () => {
@@ -1246,6 +1336,41 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     // Wake path = sendTextWhenReady (wired to queueText → resurrect), not a
     // breadcrumb-only steward.observed row.
     expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] })).toHaveLength(0)
+  })
+
+  it('already-communicated (§07b, POD-913) does NOT apply here: still wakes even if the child already messaged the parent', async () => {
+    // This is the deliberate carve-out (see the handleSessionParentNudge doc
+    // comment): a message in the ledger proves the parent was TOLD, not that
+    // it was WOKEN. Suppressing here could strand a parked parent forever.
+    const sessions: SessionMeta[] = []
+    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const childIssue = issues.create({ repoPath: '/r', title: 'Child issue', startNow: false })
+    sessions.push(
+      fakeSession({
+        sessionId: 'parent',
+        status: 'hibernated',
+        cwd: '/r/parent',
+        title: 'Coordinator',
+      }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/child',
+        title: 'Worker',
+        spawnedBy: 'session:parent',
+        issueId: childIssue.id,
+      }),
+    )
+    seedTold(store, childIssue.id, { kind: 'session', id: 'parent' })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
   })
 
   it('wakes a parked session parent when the child errors', async () => {

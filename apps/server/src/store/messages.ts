@@ -162,6 +162,25 @@ export class MessagesRepository {
     return r.n
   }
 
+  /** True if a message FROM `fromIssue` reached `to` at/after `sinceIso` — the
+   *  steward's "already-communicated" arbiter check [POD-913, design §07b/§10]:
+   *  before firing an automated fact to a target, has the producer already told
+   *  it directly? Existence-only (any status), since even a still-queued row
+   *  proves the producer already acted — the steward's notice would just be a
+   *  duplicate waiting to happen. */
+  alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): boolean {
+    const where = ['from_issue = ?', 'to_kind = ?', 'created_at >= ?']
+    const params: unknown[] = [fromIssue, to.kind, sinceIso]
+    if (to.kind !== 'operator') {
+      where.push('to_id = ?')
+      params.push(to.id ?? null)
+    }
+    const r = this.db
+      .prepare(`SELECT 1 AS hit FROM messages WHERE ${where.join(' AND ')} LIMIT 1`)
+      .get(...(params as never[])) as { hit: number } | undefined
+    return r !== undefined
+  }
+
   /** Record a PUSH toward a live PTY without claiming the agent saw it [POD-834]:
    *  stamps injected_at + delivered_to but keeps status='queued'. This replaces
    *  the old "mark delivered on enqueue" lie — `delivered` is now reserved for a

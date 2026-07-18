@@ -224,6 +224,10 @@ export interface StewardDeps {
     | 'markDelivered'
   >
   facts: SessionStore['notificationFacts']
+  /** Ledger read for the "already-communicated" suppression [POD-913, design
+   *  §07b/§10]: has the producer already told a target directly, so the
+   *  steward's own nudge for the same fact would just be a duplicate? */
+  messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
   issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
   /** Durable-queue a nudge into a session (relay.queueText). For live sessions
@@ -282,6 +286,14 @@ function completionNote(closed: IssueWire | undefined, comments: IssueComment[])
  *   every tick so a settings flip takes effect without a restart.
  */
 export class StewardService {
+  /** "Since the change" grace window for the already-communicated check
+   *  (§07b): a producer's own message can land moments before OR after the
+   *  observed transition event (send-then-close vs close-with-note-then-poke),
+   *  so the ledger lookback starts a little earlier than the event itself.
+   *  Bounded, not "ever" — an old message about a PRIOR transition on the same
+   *  (issue, target) pair must never suppress a fresh one. */
+  private static readonly COMMUNICATED_GRACE_MS = 5 * 60_000
+
   private timer: ReturnType<typeof setInterval> | undefined
   private readonly arbiter: NotificationArbiter
 
@@ -291,6 +303,53 @@ export class StewardService {
 
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
+  }
+
+  /**
+   * Context-aware suppression (POD-913 / design §07b "already-communicated",
+   * §10 "context-aware"): before firing an automated nudge for a fact about
+   * `subjectIssueId` to `target`, has the producer already told that target
+   * directly since the triggering change? If so, the steward's notice is a
+   * duplicate, not a fallback — suppress it. The producer's message may have
+   * been addressed to the target session itself OR to the issue it's working
+   * (either puts the content in the target's context), so both are checked.
+   * `subjectIssueId` absent (e.g. a session-parent nudge for a child with no
+   * bound issue) means there is nothing to look up — never suppress on
+   * missing information.
+   */
+  private alreadyCommunicated(
+    subjectIssueId: string | undefined,
+    target: { sessionId?: string; issueId?: string },
+    changeTs: string,
+  ): boolean {
+    if (!subjectIssueId) return false
+    const changeMs = Date.parse(changeTs)
+    // Fail open: an unparseable timestamp means "since" is unknowable, so this
+    // is a no-op rather than a crash (drop-don't-wedge, matching every other
+    // handler's guarantee) — never suppress on missing information.
+    if (!Number.isFinite(changeMs)) return false
+    const sinceIso = new Date(changeMs - StewardService.COMMUNICATED_GRACE_MS).toISOString()
+    if (
+      target.sessionId &&
+      this.deps.messages.alreadyCommunicated(
+        subjectIssueId,
+        { kind: 'session', id: target.sessionId },
+        sinceIso,
+      )
+    ) {
+      return true
+    }
+    if (
+      target.issueId &&
+      this.deps.messages.alreadyCommunicated(
+        subjectIssueId,
+        { kind: 'issue', id: target.issueId },
+        sinceIso,
+      )
+    ) {
+      return true
+    }
+    return false
   }
 
   start(): void {
@@ -548,6 +607,12 @@ export class StewardService {
     if (!this.deps.store.markDelivered(sub.id, e.id)) return
     const factKey = `sub:${sub.event}:${e.subject}`
     const issueId = this.subscriberIssueId(sub, sessions)
+    // The event's own issue, for the already-communicated check below — the
+    // raw event subject for an issue.* kind, or the source session's bound
+    // issue for a session.* kind.
+    const eventIssueId = e.kind.startsWith('issue.')
+      ? e.subject
+      : (sessions.find((s) => s.sessionId === e.subject)?.issueId ?? undefined)
     let subscriberClaimed = false
     if (sub.deliverNudge) {
       const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
@@ -564,7 +629,19 @@ export class StewardService {
           issueId,
         })
         if (!claimed) continue
+        // The claim is taken regardless (it also authorizes deliverNotify
+        // below for this same subscriber/target — see the comment there), so
+        // subscriberClaimed tracks the claim outcome, not the nudge's own
+        // already-communicated suppression.
         if (s.sessionId === sub.subscriberId) subscriberClaimed = true
+        // Already-communicated (§07b): targets here are already live/starting
+        // (no wake-rights concern — see handleSessionParentNudge's note).
+        // The external `notify` push below is scoped OUT deliberately: its
+        // audience is a human off in the world, not an agent's transcript
+        // context, so "already in context" doesn't apply to it.
+        if (this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
+          continue
+        }
         this.deps.sendTextWhenReady(s.sessionId, text)
       }
     }
@@ -663,6 +740,17 @@ export class StewardService {
         ) {
           continue
         }
+        // Already-communicated (§07b): the closer may have mailed the
+        // dependent directly instead of relying on this nudge.
+        if (
+          this.alreadyCommunicated(
+            closed?.id,
+            { sessionId: s.sessionId, issueId: dependent.id },
+            e.ts,
+          )
+        ) {
+          continue
+        }
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
@@ -685,6 +773,16 @@ export class StewardService {
    * event id and re-fires. Exit-without-report is gated by a sticky
    * `phase-reported` claim set on done/errored so exit-after-done stays silent
    * within one completion cycle; leaving idle retires that sticky (POD-890).
+   *
+   * Deliberately NOT already-communicated-suppressed (§07b, POD-913): this is
+   * the WAKE-RIGHTS path — its entire purpose is resurrecting a PARKED parent
+   * (sendTextWhenReady → queueText resurrects; the issue-parent nudges do not).
+   * A message already in the ledger only proves the parent was TOLD, not that
+   * it was WOKEN — a queued/wait-lifecycle message sitting unread in front of a
+   * parked session does not resume it, so suppressing here on ledger content
+   * alone could strand a parent parked forever (regressing the POD-279 fix
+   * this milestone exists to deliver). Every other nudge site targets sessions
+   * already live/starting, where that risk doesn't exist.
    */
   private handleSessionParentNudge(
     childSessionId: string,
@@ -757,6 +855,10 @@ export class StewardService {
     const parent = this.deps.issues.getMeta(parentId)
     if (!parent) return
     let lastChildSeq: number | undefined
+    // The event timestamp behind the coalesced nudge below, for the
+    // already-communicated check (§07b) — "since the change" anchors on the
+    // triggering event.
+    let lastChangeTs: string | undefined
     // Sessions that caused an event in this batch already know — the single
     // coalesced nudge excludes all of them (#116). Collected across the whole
     // batch (before dedup) so a self-triggered event never self-nudges.
@@ -765,6 +867,7 @@ export class StewardService {
       const childSeq = (e.payload as { seq?: number } | null)?.seq
       if (childSeq == null) continue
       lastChildSeq = childSeq
+      lastChangeTs = e.ts
       const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
       if (causer) causedBy.add(causer)
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
@@ -794,6 +897,9 @@ export class StewardService {
     const fresh = this.deps.issues.get(parentId)
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
+    // Resolved once for the already-communicated check below — the child whose
+    // transition drove this coalesced nudge.
+    const lastChild = this.deps.issues.list(parent.repoPath).find((w) => w.seq === lastChildSeq)
     const targets = sessionsForIssue(
       parent.worktreePath,
       this.deps.listSessions(),
@@ -810,6 +916,20 @@ export class StewardService {
           source: 'steward.parent-nudge',
           issueId: parent.id,
         })
+      ) {
+        continue
+      }
+      // Already-communicated (§07b): the child may have mailed the parent
+      // directly instead of relying on this nudge (targets are already
+      // live/starting, so nothing here needs wake rights — see the
+      // handleSessionParentNudge note on why that path is scoped out).
+      if (
+        lastChangeTs != null &&
+        this.alreadyCommunicated(
+          lastChild?.id,
+          { sessionId: s.sessionId, issueId: parent.id },
+          lastChangeTs,
+        )
       ) {
         continue
       }
