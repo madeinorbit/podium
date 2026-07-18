@@ -791,6 +791,95 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     off()
   })
 
+  it('rolls back live rename state when the durable append fails', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    const events: ProjectionEvent[] = []
+    registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi
+      .spyOn(registry.sessionStore.sync, 'appendChanges')
+      .mockImplementationOnce(() => {
+        throw new Error('rename append failed')
+      })
+
+    expect(() =>
+      registry.modules.sessions.renameSession({ sessionId, name: 'phantom-name' }),
+    ).toThrow('rename append failed')
+    append.mockRestore()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name,
+    ).toBeUndefined()
+    expect(
+      registry.sessionStore.sessions.loadSessions().find((row) => row.id === sessionId)?.name,
+    ).toBeNull()
+    expect(cursorOf(registry)).toBe(cursor)
+    expect(events).toEqual([])
+
+    registry.modules.sessions.broadcastSessions()
+    registry.modules.sessions.flushBroadcasts()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name,
+    ).toBeUndefined()
+    expect(registry.modules.sessions.syncChangesSince(cursor)).toEqual({
+      kind: 'delta',
+      cursor,
+      changes: [],
+    })
+
+    registry.modules.sessions.renameSession({ sessionId, name: 'committed-name' })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.changes).toHaveLength(1)
+    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.name).toBe('committed-name')
+  })
+
+  it('rolls back live and SQLite snooze state when the durable append fails', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    const events: ProjectionEvent[] = []
+    registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi
+      .spyOn(registry.sessionStore.sync, 'appendChanges')
+      .mockImplementationOnce(() => {
+        throw new Error('snooze append failed')
+      })
+
+    expect(() =>
+      registry.modules.sessions.setSnooze({ sessionId, until: '2026-07-20T12:00:00.000Z' }),
+    ).toThrow('snooze append failed')
+    append.mockRestore()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
+    ).toBeUndefined()
+    expect(registry.sessionStore.sessions.listSnoozes()).not.toHaveProperty(sessionId)
+    expect(cursorOf(registry)).toBe(cursor)
+    expect(events).toEqual([])
+
+    registry.modules.sessions.broadcastSessions()
+    registry.modules.sessions.flushBroadcasts()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
+    ).toBeUndefined()
+    expect(registry.modules.sessions.syncChangesSince(cursor)).toEqual({
+      kind: 'delta',
+      cursor,
+      changes: [],
+    })
+
+    registry.modules.sessions.setSnooze({
+      sessionId,
+      until: '2026-07-20T12:00:00.000Z',
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.changes).toHaveLength(1)
+    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.snoozedUntil).toBe(
+      '2026-07-20T12:00:00.000Z',
+    )
+  })
+
   it('(k) a failed change append on kill leaves the session fully live (#247)', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })

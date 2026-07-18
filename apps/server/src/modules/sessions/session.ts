@@ -136,6 +136,47 @@ function submitsCommandLine(base64: string): boolean {
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
+export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handoffTarget'
+
+export interface SessionDurableState {
+  cwd: string
+  issueId: string | undefined
+  refIssueId: string | null
+  refLetter: string | null
+  refDraft: number | null
+  machineId: string
+  resume: ResumeRef | undefined
+  lastActiveAt: string
+  title: string
+  titleLocked: boolean
+  name: string
+  nameSource: 'user' | 'agent' | undefined
+  archived: boolean
+  readAt: string | null
+  workState: WorkState | undefined
+  cmd: string
+  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  exitCode: number | undefined
+  agentState: AgentRuntimeState | undefined
+  workingMsTotal: number | undefined
+  incomingWorkingMsTotal: number | undefined
+  agentColor: string | undefined
+  snoozedUntil: string | null | undefined
+  queuedMessageCount: number
+  handoffTarget: string | undefined
+  conversationPodiumId: string | undefined
+  draftUpdatedAt: string | undefined
+  offer: SessionOffer | undefined
+  transcriptAvailable: boolean
+  geometry: Geometry
+  outputAtMs: number
+  inputAtMs: number
+  resumedAtMs: number
+  activityDirty: boolean
+  shellBusy: boolean
+  shellCommandRunning: boolean
+}
+
 export class Session {
   readonly sessionId: string
   readonly agentKind: AgentKind
@@ -788,6 +829,91 @@ export class Session {
       return true
     }
     return false
+  }
+
+  /** Snapshot of all non-connection state represented by a successful session
+   * ledger capture. Used to roll live truth back when a durable append fails. */
+  captureDurableState(): SessionDurableState {
+    return {
+      cwd: this.cwd,
+      issueId: this.issueId,
+      refIssueId: this.refIssueId,
+      refLetter: this.refLetter,
+      refDraft: this.refDraft,
+      machineId: this.machineId,
+      resume: this.resume ? { ...this.resume } : undefined,
+      lastActiveAt: this.lastActiveAt,
+      title: this.title,
+      titleLocked: this.titleLocked,
+      name: this.name,
+      nameSource: this.nameSource,
+      archived: this.archived,
+      readAt: this.readAt,
+      workState: this.workState,
+      cmd: this.cmd,
+      status: this.status,
+      exitCode: this.exitCode,
+      agentState: this.agentState ? structuredClone(this.agentState) : undefined,
+      workingMsTotal: this.workingMsTotal,
+      incomingWorkingMsTotal: this.incomingWorkingMsTotal,
+      agentColor: this.agentColor,
+      snoozedUntil: this.snoozedUntil,
+      queuedMessageCount: this.queuedMessageCount,
+      handoffTarget: this.handoffTarget,
+      conversationPodiumId: this.conversationPodiumId,
+      draftUpdatedAt: this.draftUpdatedAt,
+      offer: this.offer ? structuredClone(this.offer) : undefined,
+      transcriptAvailable: this.transcriptAvailable,
+      geometry: { ...this.geometry },
+      outputAtMs: this.outputAtMs,
+      inputAtMs: this.inputAtMs,
+      resumedAtMs: this.resumedAtMs,
+      activityDirty: this.activityDirty_,
+      shellBusy: this.shellBusy,
+      shellCommandRunning: this.shellCommandRunning,
+    }
+  }
+
+  restoreDurableState(
+    state: SessionDurableState,
+    preserve: ReadonlySet<SessionVolatileField> = new Set(),
+  ): void {
+    this.cwd = state.cwd
+    this.issueId = state.issueId
+    this.refIssueId = state.refIssueId
+    this.refLetter = state.refLetter
+    this.refDraft = state.refDraft
+    if (!preserve.has('machineId')) this.machineId = state.machineId
+    this.resume = state.resume ? { ...state.resume } : undefined
+    this.lastActiveAt = state.lastActiveAt
+    this.title = state.title
+    this.titleLocked = state.titleLocked
+    this.name = state.name
+    this.nameSource = state.nameSource
+    this.archived = state.archived
+    this.readAt = state.readAt
+    this.workState = state.workState
+    this.cmd = state.cmd
+    if (!preserve.has('status')) this.status = state.status
+    this.exitCode = state.exitCode
+    this.agentState = state.agentState ? structuredClone(state.agentState) : undefined
+    this.workingMsTotal = state.workingMsTotal
+    this.incomingWorkingMsTotal = state.incomingWorkingMsTotal
+    this.agentColor = state.agentColor
+    this.snoozedUntil = state.snoozedUntil
+    this.queuedMessageCount = state.queuedMessageCount
+    if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
+    this.conversationPodiumId = state.conversationPodiumId
+    this.draftUpdatedAt = state.draftUpdatedAt
+    this.offer = state.offer ? structuredClone(state.offer) : undefined
+    this.transcriptAvailable = state.transcriptAvailable
+    if (!preserve.has('geometry')) this.geometry = { ...state.geometry }
+    this.outputAtMs = state.outputAtMs
+    this.inputAtMs = state.inputAtMs
+    this.resumedAtMs = state.resumedAtMs
+    this.activityDirty_ = state.activityDirty
+    this.shellBusy = state.shellBusy
+    this.shellCommandRunning = state.shellCommandRunning
   }
 
   toRow(): SessionRow {

@@ -57,7 +57,13 @@ import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
-import { type ClientConn, type Send, Session } from './session'
+import {
+  type ClientConn,
+  type Send,
+  Session,
+  type SessionDurableState,
+  type SessionVolatileField,
+} from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
@@ -268,7 +274,11 @@ export class SessionsService {
   private sessionsGeneration_ = 0
   private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
   private volatileSessionMutationVersion = 0
-  private readonly pendingVolatileSessions = new Map<string, number>()
+  private readonly pendingVolatileSessions = new Map<
+    string,
+    { version: number; preserve: Set<SessionVolatileField> }
+  >()
+  private readonly capturedSessionStates = new Map<string, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
   // The generation whose legacy sessionsChanged snapshot completed successfully.
@@ -417,8 +427,15 @@ export class SessionsService {
     return changes
   }
 
-  private markVolatileSessionDirty(sessionId: string): void {
-    this.pendingVolatileSessions.set(sessionId, ++this.volatileSessionMutationVersion)
+  private markVolatileSessionDirty(
+    sessionId: string,
+    preserve: SessionVolatileField[] = ['geometry', 'handoffTarget'],
+  ): void {
+    const previous = this.pendingVolatileSessions.get(sessionId)
+    this.pendingVolatileSessions.set(sessionId, {
+      version: ++this.volatileSessionMutationVersion,
+      preserve: new Set([...(previous?.preserve ?? []), ...preserve]),
+    })
     this.scheduleVolatileSessionCapture()
   }
 
@@ -464,8 +481,10 @@ export class SessionsService {
       if (!changes.some((change) => change.entity === 'session')) {
         this.sessionsGeneration_++
       }
-      for (const [sessionId, version] of pending) {
-        if (this.pendingVolatileSessions.get(sessionId) === version) {
+      for (const [sessionId, pendingState] of pending) {
+        const session = this.sessions.get(sessionId)
+        if (session) this.capturedSessionStates.set(sessionId, session.captureDurableState())
+        if (this.pendingVolatileSessions.get(sessionId)?.version === pendingState.version) {
           this.pendingVolatileSessions.delete(sessionId)
         }
       }
@@ -490,7 +509,8 @@ export class SessionsService {
   /** Machine-owned derived fields changed (machineId and/or machineName). */
   sessionsChangedForMachine(machineId: string): void {
     for (const session of this.sessions.values()) {
-      if (session.machineId === machineId) this.markVolatileSessionDirty(session.sessionId)
+      if (session.machineId === machineId)
+        this.markVolatileSessionDirty(session.sessionId, ['machineId'])
     }
     this.broadcastSessions()
   }
@@ -513,26 +533,39 @@ export class SessionsService {
    * on semantic activity (agentState transitions, shell busy flips) and is the
    * authoritative recency delta clients order the sidebar by.
    */
-  persist(session: Session): void {
-    const pendingVersion = this.pendingVolatileSessions.get(session.sessionId)
-    const { changes } = this.deps.ledger.commit({
-      write: () => this.store.sessions.upsertSession(session.toRow()),
-      changes: () => [
-        {
-          entity: 'session',
-          id: session.sessionId,
-          op: 'upsert',
-          value: this.sessionWire(session),
+  persist(session: Session, additionalWrite: () => void = () => {}): void {
+    const pending = this.pendingVolatileSessions.get(session.sessionId)
+    let changes: MetadataChange[]
+    try {
+      const committed = this.deps.ledger.commit({
+        write: () => {
+          additionalWrite()
+          this.store.sessions.upsertSession(session.toRow())
         },
-      ],
-    })
+        changes: () => [
+          {
+            entity: 'session',
+            id: session.sessionId,
+            op: 'upsert',
+            value: this.sessionWire(session),
+          },
+        ],
+      })
+      changes = committed.changes
+    } catch (err) {
+      const captured = this.capturedSessionStates.get(session.sessionId)
+      if (captured) session.restoreDurableState(captured, pending?.preserve)
+      else this.sessions.delete(session.sessionId)
+      throw err
+    }
     if (
-      pendingVersion !== undefined &&
-      this.pendingVolatileSessions.get(session.sessionId) === pendingVersion
+      pending !== undefined &&
+      this.pendingVolatileSessions.get(session.sessionId)?.version === pending.version
     ) {
       this.pendingVolatileSessions.delete(session.sessionId)
       if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
     }
+    this.capturedSessionStates.set(session.sessionId, session.captureDurableState())
     this.publishSessionProjection(changes)
   }
 
@@ -727,6 +760,7 @@ export class SessionsService {
         session.resume.value,
       )
     }
+    this.capturedSessionStates.set(session.sessionId, session.captureDurableState())
   }
 
   loadFromStore(): void {
@@ -907,7 +941,7 @@ export class SessionsService {
       if (s.markReconnecting()) changed.push(s)
     }
     if (changed.length > 0) {
-      for (const session of changed) this.markVolatileSessionDirty(session.sessionId)
+      for (const session of changed) this.markVolatileSessionDirty(session.sessionId, ['status'])
       this.broadcastSessions()
     }
     this.machines.broadcastMachines()
@@ -1066,25 +1100,25 @@ export class SessionsService {
   }
 
   setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
-    this.store.sessions.setSnooze(sessionId, until)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.snoozedUntil = until
-      // snoozedUntil lives in its own table, not the session row, so the plain
-      // store write above bypasses the write seam — persist so the flip reaches
-      // the change log (delta clients order the sidebar by it) [#256].
-      this.persist(session)
+    if (!session) {
+      this.store.sessions.setSnooze(sessionId, until)
+      this.broadcastSessions()
+      return
     }
+    session.snoozedUntil = until
+    this.persist(session, () => this.store.sessions.setSnooze(sessionId, until))
     this.broadcastSessions()
   }
 
   clearSnooze(sessionId: string): void {
-    this.store.sessions.clearSnooze(sessionId)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.clearSnooze()
-      this.persist(session) // see setSnooze — off-row field, commit the flip
+    if (!session || !session.clearSnooze()) {
+      this.store.sessions.clearSnooze(sessionId)
+      this.broadcastSessions()
+      return
     }
+    this.persist(session, () => this.store.sessions.clearSnooze(sessionId))
     this.broadcastSessions()
   }
 
@@ -1101,12 +1135,14 @@ export class SessionsService {
     actions: { label: string; prompt: string }[]
   }): void {
     const offer = { message, actions, createdAt: new Date().toISOString() }
-    this.store.sessions.setOffer(sessionId, offer)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.offer = offer
-      this.persist(session) // off-row field — commit the flip to the change log
+    if (!session) {
+      this.store.sessions.setOffer(sessionId, offer)
+      this.broadcastSessions()
+      return
     }
+    session.offer = offer
+    this.persist(session, () => this.store.sessions.setOffer(sessionId, offer))
     this.broadcastSessions()
   }
 
@@ -1114,15 +1150,12 @@ export class SessionsService {
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
   clearOffer(sessionId: string): void {
     const session = this.sessions.get(sessionId)
-    // Persisted rows can outlive the in-memory session; always hit the store.
-    this.store.sessions.clearOffer(sessionId)
-    if (session) {
-      if (!session.clearOffer()) {
-        this.broadcastSessions()
-        return
-      }
-      this.persist(session) // off-row field — commit the flip
+    if (!session || !session.clearOffer()) {
+      this.store.sessions.clearOffer(sessionId)
+      this.broadcastSessions()
+      return
     }
+    this.persist(session, () => this.store.sessions.clearOffer(sessionId))
     this.broadcastSessions()
   }
 
@@ -1547,6 +1580,7 @@ export class SessionsService {
   }
 
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
+    const previousDraft = this.draftBySession.get(input.sessionId)
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
     // Mirror the draft's last-edit time onto the session so the sidebar can show
@@ -1559,7 +1593,15 @@ export class SessionsService {
     // The DRAFT tag flip is wire-visible meta backed by an off-row table —
     // commit it at the same presence granularity the broadcast below uses
     // (never per keystroke) so delta clients see the lift too [#256].
-    if (presenceChanged && session) this.persist(session)
+    if (presenceChanged && session) {
+      try {
+        this.persist(session)
+      } catch (err) {
+        if (previousDraft === undefined) this.draftBySession.delete(input.sessionId)
+        else this.draftBySession.set(input.sessionId, previousDraft)
+        throw err
+      }
+    }
     // Keep the existing live cross-client sync: push to every OTHER client (the
     // directional guard skips the originator so its own keystrokes don't echo back).
     this.broadcastToClients(
@@ -2453,6 +2495,7 @@ export class SessionsService {
     }
     for (const c of this.clients.values()) c.attached.delete(sessionId)
     this.pendingVolatileSessions.delete(sessionId)
+    this.capturedSessionStates.delete(sessionId)
     if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
   }
 
