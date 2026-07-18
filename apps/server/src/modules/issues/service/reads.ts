@@ -15,11 +15,17 @@ import type {
 import { DELEGATION_RULE, formatIssueRef, LOCK_RULE, TITLE_RULE } from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
-import { isMemberCwd } from '../../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, SessionStore } from '../../../store'
 import { IssueServiceCore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
-import type { DepReportEntry, DepReportRef, IssueTree, IssueTreeNode } from './types'
+import type {
+  DepReportEntry,
+  DepReportRef,
+  IssueTree,
+  IssueTreeNode,
+  IssueTreeSession,
+} from './types'
 
 /**
  * IssueService layer 1 — read views (issue #190 split): list projections,
@@ -114,6 +120,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  the fields an orchestrating agent needs to plan (stage/priority/assignee/
    *  branch/needs-human/blocking deps as seqs) plus a single-line 300-char
    *  description snippet — NOT the full wire (use get/show for one issue's detail).
+   *  Each node also lists its current sessions (siblings on the issue) so a
+   *  manager can see live reviewers/implementers before spawn [spec:SP-99d3].
    *  Children omitted by the depth or node cap are counted on their parent
    *  (`omittedChildren`) and in the total (`omitted`). */
   tree(ref: string, opts: { maxDepth?: number; maxNodes?: number } = {}): IssueTree {
@@ -128,6 +136,8 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       if (list) list.push(r)
       else byParent.set(r.parentId, [r])
     }
+    // One session list for the whole walk — same membership rules as IssueWire.
+    const sessionList = this.deps.listSessions()
     let count = 0
     let omitted = 0
     const node = (row: IssueRow, depth: number): IssueTreeNode => {
@@ -149,6 +159,25 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         else omittedChildren++
       }
       omitted += omittedChildren
+      const members = row.deletedAt
+        ? []
+        : sessionsForIssue(row.worktreePath, sessionList, row.id)
+      const sessions: IssueTreeSession[] = members.map((s) => {
+        const label = s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
+        const phase = s.agentState?.phase
+        return {
+          sessionId: s.sessionId,
+          ...(s.displayRef ? { displayRef: s.displayRef } : {}),
+          ...(label ? { label } : {}),
+          agentKind: s.agentKind,
+          ...(s.model ? { model: s.model } : {}),
+          status: s.status,
+          ...(phase ? { phase } : {}),
+          ...(row.coordinatorSessionId && row.coordinatorSessionId === s.sessionId
+            ? { coordinator: true }
+            : {}),
+        }
+      })
       return {
         id: row.id,
         seq: row.seq,
@@ -165,6 +194,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
         closed,
         blocked,
         ready: !closed && !this.isDeferred(row) && !blocked,
+        sessions,
         children,
         omittedChildren,
       }

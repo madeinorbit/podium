@@ -60,5 +60,6 @@ export {
   type IssuePatch,
   type IssueTree,
   type IssueTreeNode,
+  type IssueTreeSession,
   UNSNOOZE_BACKDATE_MS,
 } from './types'

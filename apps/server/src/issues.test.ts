@@ -1484,6 +1484,80 @@ describe('IssueService.tree (issue #82)', () => {
     expect(svc.tree(e.id).root.description.length).toBe(300)
     expect(() => svc.tree('iss_nope')).toThrow()
   })
+
+  // [spec:SP-99d3] managers must see sibling sessions before spawn
+  it('lists all sessions on each issue including siblings, with coordinator', () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions)
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    // Membership is via explicit issueId (issue-as-workspace), not cwd.
+    const child = svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    sessions.push({
+      ...sess('/elsewhere', 'working'),
+      sessionId: 'sess-impl',
+      issueId: epic.id,
+      agentKind: 'grok',
+      model: 'grok-4.5',
+      displayRef: 'POD-1-A',
+      name: 'Implementer',
+    } as SessionMeta)
+    sessions.push({
+      ...sess('/elsewhere', 'idle'),
+      sessionId: 'sess-rev',
+      issueId: epic.id,
+      agentKind: 'codex',
+      model: 'gpt-5.6-sol',
+      displayRef: 'POD-1-B',
+      name: 'Reviewer',
+      status: 'live',
+    } as SessionMeta)
+    sessions.push({
+      ...sess('/elsewhere', 'working'),
+      sessionId: 'sess-child',
+      issueId: child.id,
+      agentKind: 'claude-code',
+      model: 'sonnet',
+      displayRef: 'POD-2-A',
+      status: 'exited',
+    } as SessionMeta)
+    // Unrelated session must not appear.
+    sessions.push({
+      ...sess('/other', 'working'),
+      sessionId: 'sess-other',
+      issueId: 'iss_other',
+    } as SessionMeta)
+    svc.setCoordinator(epic.id, 'sess-impl')
+
+    const t = svc.tree(epic.id)
+    expect(t.root.sessions).toHaveLength(2)
+    expect(t.root.sessions.map((s) => s.sessionId).sort()).toEqual(['sess-impl', 'sess-rev'])
+    const impl = t.root.sessions.find((s) => s.sessionId === 'sess-impl')!
+    expect(impl).toMatchObject({
+      displayRef: 'POD-1-A',
+      label: 'Implementer',
+      agentKind: 'grok',
+      model: 'grok-4.5',
+      status: 'live',
+      phase: 'working',
+      coordinator: true,
+    })
+    const rev = t.root.sessions.find((s) => s.sessionId === 'sess-rev')!
+    expect(rev.coordinator).toBeUndefined()
+    expect(rev.phase).toBe('idle')
+    expect(t.root.children[0]!.sessions).toEqual([
+      expect.objectContaining({
+        sessionId: 'sess-child',
+        agentKind: 'claude-code',
+        status: 'exited',
+        phase: 'working',
+      }),
+    ])
+  })
 })
 
 describe('IssueService supersede/duplicate (P2b)', () => {

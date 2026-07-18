@@ -109,6 +109,26 @@ export interface DepReportEntry {
   dependents: DepReportRef[]
 }
 
+/**
+ * Compact session row on an issue-tree node [spec:SP-99d3]. Enough for an agent
+ * to see sibling sessions before spawn — not a full SessionMeta.
+ */
+export interface IssueTreeSession {
+  sessionId: string
+  /** Human-facing session ref when known (e.g. POD-966-A). */
+  displayRef?: string
+  /** Curated name, else live terminal title. */
+  label?: string
+  agentKind: string
+  model?: string
+  /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
+  status: string
+  /** Agent phase when known (working | idle | needs_user | …). */
+  phase?: string
+  /** True when this session is the issue's designated coordinator. */
+  coordinator?: boolean
+}
+
 /** One node of an epic subtree payload — see tree() (issue #82). */
 export interface IssueTreeNode {
   id: string
@@ -128,6 +148,8 @@ export interface IssueTreeNode {
   closed: boolean
   blocked: boolean
   ready: boolean
+  /** Sessions currently on this issue (siblings), compact [spec:SP-99d3]. */
+  sessions: IssueTreeSession[]
   children: IssueTreeNode[]
   /** Direct children omitted here by the depth/node cap ('(+N more)' in the CLI). */
   omittedChildren: number

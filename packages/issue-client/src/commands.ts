@@ -83,6 +83,25 @@ interface ShowWire {
   defaultEffort?: string | null
   machineId?: string | null
   color?: string | null
+  /** Designated coordinator session id (bare). */
+  coordinatorSessionId?: string | null
+  /** Member sessions currently on this issue [spec:SP-99d3]. */
+  sessions?: ShowSession[]
+}
+
+/** Compact session fields the show/tree renderers need [spec:SP-99d3]. */
+interface ShowSession {
+  sessionId: string
+  displayRef?: string
+  name?: string
+  title?: string
+  label?: string
+  agentKind: string
+  model?: string
+  status: string
+  phase?: string
+  agentState?: { phase?: string }
+  coordinator?: boolean
 }
 
 /** One comment as the show renderer prints it (issues.comments payload, #175). */
@@ -103,8 +122,49 @@ async function fetchComments(c: IssueTrpc, id: string): Promise<ShowComment[]> {
   }
 }
 
+/**
+ * Actionable session state for managers: process status when not live, else
+ * agent phase. `needs_user` → `blocked` (the spawn-check vocabulary) [spec:SP-99d3].
+ */
+function sessionStateLabel(s: {
+  status: string
+  phase?: string
+  agentState?: { phase?: string }
+}): string {
+  if (s.status === 'exited') return 'exited'
+  if (s.status === 'hibernated') return 'hibernated'
+  if (s.status === 'starting') return 'starting'
+  if (s.status === 'reconnecting') return 'reconnecting'
+  const phase = s.phase ?? s.agentState?.phase
+  if (phase === 'needs_user') return 'blocked'
+  if (phase) return phase
+  return s.status === 'live' ? 'unknown' : s.status
+}
+
+/** One compact session line for tree/show [spec:SP-99d3]. */
+function formatSessionLine(
+  s: ShowSession & { coordinator?: boolean },
+  opts?: { coordinatorSessionId?: string | null },
+): string {
+  const id = s.displayRef ?? s.sessionId
+  const label = s.label ?? s.name ?? (s.title && s.title !== s.agentKind ? s.title : undefined)
+  const kindModel = s.model ? `${s.agentKind}/${s.model}` : s.agentKind
+  const isCoord =
+    s.coordinator === true ||
+    (opts?.coordinatorSessionId != null && opts.coordinatorSessionId === s.sessionId)
+  const parts = [
+    `session ${id}`,
+    kindModel,
+    sessionStateLabel(s),
+    isCoord ? 'coordinator' : null,
+    label && label !== id ? `— ${label}` : null,
+  ].filter(Boolean)
+  return parts.join(' ')
+}
+
 /** The single-issue `show` rendering — shared verbatim by single and bulk show.
- *  `comments` is fetched separately (#175); empty ⇒ no comments section. */
+ *  `comments` is fetched separately (#175); empty ⇒ no comments section.
+ *  Sessions list sibling agents on the issue [spec:SP-99d3]. */
 function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
   const meta = [
     `stage=${i.stage} P${i.priority} ready=${i.ready} blocked=${i.blocked}`,
@@ -120,12 +180,21 @@ function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
   ]
     .filter(Boolean)
     .join('\n')
+  const sessions = i.sessions ?? []
+  const sessionBlock = sessions.length
+    ? `\n\nsessions (${sessions.length}):\n${sessions
+        .map(
+          (s) =>
+            `  ${formatSessionLine(s, { coordinatorSessionId: i.coordinatorSessionId })}`,
+        )
+        .join('\n')}`
+    : ''
   const thread = comments.length
     ? `\n\ncomments (${comments.length}):\n${comments
         .map((cm) => `- ${cm.author} (${cm.createdAt}): ${cm.body}`)
         .join('\n')}`
     : ''
-  return `#${i.seq} ${i.title}\n${meta}\n\n${i.description}${thread}`
+  return `#${i.seq} ${i.title}\n${meta}${sessionBlock}\n\n${i.description}${thread}`
 }
 
 /** One node of the issues.tree payload (issue #82) as the CLI renders it. */
@@ -143,6 +212,8 @@ interface TreeNode {
   closed: boolean
   blocked: boolean
   ready: boolean
+  /** Compact sessions on this issue [spec:SP-99d3]. Absent on older servers. */
+  sessions?: ShowSession[]
   children: TreeNode[]
   omittedChildren: number
 }
@@ -178,7 +249,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'show',
     summary:
-      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show).',
+      'Show issues in full: show <id> [<id>...] or show --ids a,b,c. One call surveys many issues (each rendered like single show), including sessions currently on the issue (id/kind/model/state/coordinator) [spec:SP-99d3].',
     args: z.strictObject({ id: idArg.optional(), ids: z.string().optional() }),
     positionals: ['id'],
     restKey: 'ids',
@@ -234,7 +305,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'tree',
     summary:
-      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps and a description snippet. Prefer this over per-child show when surveying an epic.',
+      'Whole epic in ONE call: tree <id> — the issue + all descendants (depth ≤3, ≤100 nodes) with stage/priority/assignee/branch/needs-human/blocking deps, a description snippet, and each issue’s sessions (id/kind/model/state/coordinator). Prefer this over per-child show when surveying an epic — check sessions before spawn [spec:SP-99d3].',
     args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
@@ -257,6 +328,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
           `${pad}#${n.seq} P${n.priority} [${n.stage}] ${n.title} — ${status}${extras.length ? ` (${extras.join(' ')})` : ''}`,
         )
         if (n.description) out.push(`${pad}    ${n.description}`)
+        // Sessions nest under their issue so sibling agents are visible before spawn [spec:SP-99d3].
+        for (const s of n.sessions ?? []) {
+          out.push(`${pad}    ${formatSessionLine(s)}`)
+        }
         for (const ch of n.children) walk(ch, depth + 1)
         if (n.omittedChildren > 0) out.push(`${'  '.repeat(depth + 1)}(+${n.omittedChildren} more)`)
       }
