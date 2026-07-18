@@ -1,10 +1,11 @@
 # Large-state frontend benchmark
 
-POD-999 adds a reproducible frontend scale lane after POD-991 removed Home and
-made issue selection the primary startup/navigation path [spec:SP-0b2e]. The
-fixture is generated and anonymous, with the Ludovico cardinalities measured in
-POD-981/POD-991: 674 issues and 530 sessions, spread deterministically over 12
-repositories and 96 worktrees.
+POD-999 added a reproducible frontend scale lane after POD-991 removed Home and
+made issue selection the primary startup/navigation path [spec:SP-0b2e].
+POD-1004 aligns that lane with POD-1000's progressive Tasks renderer
+[spec:SP-d562]. The fixture is generated and anonymous, with the Ludovico
+cardinalities measured in POD-981/POD-991: 674 issues and 530 sessions, spread
+deterministically over 12 repositories and 96 worktrees.
 
 ## Hermetic CI lane
 
@@ -18,12 +19,14 @@ The lane runs under Bun/Vitest and happy-dom in one worker with no retries. It
 gates deterministic signals rather than runner-dependent wall-clock values:
 
 - Tasks keeps its initial board render to the 40-card-per-stage progressive
-  boundary from POD-1000: 200 of 674 cards, at or below 4,000 DOM elements and
-  225 buttons. This fails closed if the pre-POD-1000 full render returns.
-- Tasks render property reads stay below a fixed synchronous-work budget. The
-  lane reveals exactly one 40-card chunk, then proves full-order keyboard
-  navigation can mount an initially hidden card in the next stage and open it
-  with Enter.
+  boundary from POD-1000: exactly 200 of 674 cards, at or below 4,000 DOM
+  elements and 225 buttons. The calibrated happy-dom signal is 3,700 elements
+  and 214 buttons, so the lane fails closed if the pre-POD-1000 full render
+  returns.
+- Tasks initial property reads stay at or below 55,000; the calibrated signal is
+  53,212. The lane reveals exactly one 40-card chunk, then proves full-order
+  keyboard navigation can mount one initially hidden card in the next stage and
+  open it with Enter (200 initial, 240 after reveal, 241 after navigation).
 - Sidebar ownership resolves each session cwd once per derivation. The test
   deliberately runs both the direct ownership index and the complete sidebar,
   so the ceiling is two cwd reads per session; an issue × session regression is
@@ -35,8 +38,9 @@ gates deterministic signals rather than runner-dependent wall-clock values:
 
 Each case prints one `[large-state]` JSON line. `renderMs`, `deriveMs`, and
 `unchangedMs` are diagnostics for local comparisons only and never decide pass
-or fail. Cardinalities, DOM counts, property/own-key reads, writes,
-notifications, and synthetic trace offsets are the regression gates.
+or fail. Cardinalities, initial/revealed/keyboard card counts, DOM counts,
+property/own-key reads, writes, notifications, navigation outcomes, and
+synthetic trace offsets are the regression gates.
 
 When intentionally changing the Tasks representation or a derivation contract,
 compare the emitted signals before adjusting a budget. Do not raise a ceiling
@@ -44,9 +48,12 @@ just to absorb unexplained drift.
 
 ## Measure live Ludovico data
 
-The read-only Playwright driver collects real-browser Tasks DOM/buttons, CLS,
-Long Tasks, sidebar issue-click durations, `__podiumSwitchTraces`, and the
-server `perf.snapshot`. It does not create or mutate issues or sessions.
+The read-only Playwright driver collects real-browser Tasks DOM/buttons,
+input-filtered CLS, Long Tasks, sidebar issue-click durations,
+`__podiumSwitchTraces`, and the server `perf.snapshot`. Its CLS total excludes
+every layout-shift entry whose `hadRecentInput` flag is true, so shifts caused
+by recent user input are not interpreted as page-instability CLS. The driver
+does not create or mutate issues or sessions.
 
 Run it against the live Ludovico instance from a checkout with Playwright's
 Chromium installed:
@@ -66,8 +73,8 @@ can reuse an authenticated Playwright context through the optional
 
 For comparable runs, use a production web build, the same 1600×1000 viewport,
 the same row/switch/dwell values, and three fresh browser runs. Report the
-median/range for Tasks elements/buttons, CLS, maximum Long Task, click p50/p90,
-and completed switch-trace totals. Inspect `snapshot.result.data.phases` for
+median/range for Tasks elements/buttons, input-filtered CLS, maximum Long Task,
+click p50/p90, and completed switch-trace totals. Inspect `snapshot.result.data.phases` for
 replica/broadcast work and retain the raw JSON beside the report.
 
 The live measurements are signals, not CI gates: browser scheduling, terminal
