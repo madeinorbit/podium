@@ -72,6 +72,11 @@ import {
 } from './issues-keys'
 import { dropTargetStage } from './kanban-dnd'
 import { NewIssueDialog } from './NewIssueDialog'
+import {
+  ISSUE_RENDER_CHUNK,
+  nextProgressiveRenderLimit,
+  progressiveRenderLimit,
+} from './progressive-render'
 
 /** Which anchored property menu the keyboard opened, and for which issue. */
 type PropMenuKind = 's' | 'p' | 'a' | 'l'
@@ -302,6 +307,17 @@ export function IssuesView(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [openIssueId, dispatchKey, setOpenIssueId])
+
+  // Progressive groups still navigate over the complete issue order. Once a
+  // keyboard action reveals a newly focused item, keep it in the viewport just
+  // like a conventional fully-mounted list would.
+  useEffect(() => {
+    if (!focusId) return
+    const frame = requestAnimationFrame(() => {
+      document.querySelector(`[data-issue-id="${focusId}"]`)?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [focusId])
 
   // Shift+click toggles the clicked issue in/out of the selection (focusing it too).
   const toggleSelectId = (id: string): void =>
@@ -920,6 +936,23 @@ function IssueColumn({
   // Highlight the column while a card is dragged over it. Native DnD fires
   // enter/leave on descendants too, so this can flicker — it's cosmetic only.
   const [over, setOver] = useState(false)
+  const scopeKey = issues.map((issue) => issue.id).join('\0')
+  const scopeRef = useRef({ key: scopeKey, version: 0 })
+  if (scopeRef.current.key !== scopeKey) {
+    scopeRef.current = { key: scopeKey, version: scopeRef.current.version + 1 }
+  }
+  const scopeVersion = scopeRef.current.version
+  const [reveal, setReveal] = useState({ scopeVersion, count: ISSUE_RENDER_CHUNK })
+  const revealed = reveal.scopeVersion === scopeVersion ? reveal.count : ISSUE_RENDER_CHUNK
+  const requiredIds = new Set(selected)
+  if (focusId) requiredIds.add(focusId)
+  const limit = progressiveRenderLimit(
+    issues.map((issue) => issue.id),
+    revealed,
+    requiredIds,
+  )
+  const visibleIssues = issues.slice(0, limit)
+  const remaining = issues.length - limit
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: kanban column is a native-DnD drop target
     <div
@@ -957,7 +990,7 @@ function IssueColumn({
         {issues.length === 0 ? (
           <p className="px-1 py-2 text-[12px] text-muted-foreground/60">No tasks.</p>
         ) : (
-          issues.map((issue) => (
+          visibleIssues.map((issue) => (
             <CardBoundary key={issue.id} resetKey={issue.id} label="issue card">
               <IssueCard
                 issue={issue}
@@ -974,6 +1007,25 @@ function IssueColumn({
               />
             </CardBoundary>
           ))
+        )}
+        {remaining > 0 && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full flex-none text-muted-foreground"
+            onClick={() =>
+              setReveal({
+                scopeVersion,
+                count: nextProgressiveRenderLimit(
+                  reveal.scopeVersion === scopeVersion ? reveal.count : ISSUE_RENDER_CHUNK,
+                  issues.length,
+                ),
+              })
+            }
+          >
+            Show {Math.min(ISSUE_RENDER_CHUNK, remaining)} more tasks ({remaining} remaining)
+          </Button>
         )}
       </div>
     </div>
@@ -1003,6 +1055,7 @@ function AssigneeMenu({
           // A span (not a button): this trigger is nested inside the card's own
           // button, so Base UI adds the menu-trigger semantics without producing
           // invalid nested-<button> markup.
+          // biome-ignore lint/a11y/useSemanticElements: a button would be invalidly nested inside the card button
           <span
             role="button"
             tabIndex={0}
