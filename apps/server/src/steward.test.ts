@@ -264,6 +264,31 @@ describe('StewardService unblock handler', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
+  it('retries a missing nudge after the comment was durably written', async () => {
+    const sessions = [fakeSession({ sessionId: 's1', cwd: '/r/.worktrees/issue-2-b' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.addDep(b.id, a.id, 'blocks')
+    issues.close(a.id)
+    sendTextWhenReady.mockImplementationOnce(() => {
+      throw new Error('crash after comment')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await steward.tick()
+    expect(stewardComments(issues, b.id)).toHaveLength(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect(store.events.getStewardState('cursor')).toBe('0')
+
+    await steward.tick()
+    expect(stewardComments(issues, b.id)).toHaveLength(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    warn.mockRestore()
+  })
+
   it('dedup is colon-anchored: a prior #<seq><digit> comment does not swallow #<seq>', async () => {
     const { issues, steward } = harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false }) // seq 1

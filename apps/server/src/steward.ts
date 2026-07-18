@@ -726,12 +726,13 @@ export class StewardService {
       const already = this.deps.issues
         .comments(dependent.id)
         .some((c) => c.author === 'steward' && c.body.includes(marker))
-      if (already) continue
       const closed = this.deps.issues
         .list(e.repoPath ?? dependent.repoPath)
         .find((w) => w.seq === closedSeq)
-      const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
-      this.deps.issues.addComment(dependent.id, 'steward', `${marker} ${note}`)
+      if (!already) {
+        const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
+        this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note)
+      }
       // Nudge only live/starting agent sessions: queueText would RESURRECT a
       // parked session with a resume ref (the steward must never respawn agents),
       // and a shell would have the text typed into bash. The nudge itself stays
