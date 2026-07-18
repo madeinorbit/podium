@@ -16,10 +16,15 @@ import { type MainView, useStoreSelector } from './store'
  * [spec:SP-3834] The same header becomes the native app's integrated title bar.
  */
 export function TopBar(): JSX.Element {
-  const { view, setView } = useStoreSelector(
-    (s) => ({ view: s.view, setView: s.setView }),
+  const { view, setView, issues } = useStoreSelector(
+    (s) => ({ view: s.view, setView: s.setView, issues: s.issues }),
     shallowEqual,
   )
+
+  // Proposals are a curation inbox, distinct from agents asking questions. [spec:SP-6144]
+  const proposedCount = issues.filter(
+    (issue) => !issue.archived && !issue.deletedAt && issue.stage === 'proposed',
+  ).length
   const desktopBridge = nativeDesktopBridge()
   const dragRegion = desktopBridge ? { 'data-tauri-drag-region': true } : undefined
 
@@ -32,7 +37,13 @@ export function TopBar(): JSX.Element {
         className="desktop-topbar-nav ml-[10px] inline-flex flex-none items-center gap-0.5"
         aria-label="Primary"
       >
-        <NavItem label="Tasks" target="issues" view={view} onSelect={setView} />
+        <NavItem
+          label="Tasks"
+          target="issues"
+          view={view}
+          onSelect={setView}
+          badge={proposedCount}
+        />
         <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
         <NavItem label="Specs" target="specs" view={view} onSelect={setView} />
         <NavItem label="Automations" target="automations" view={view} onSelect={setView} />

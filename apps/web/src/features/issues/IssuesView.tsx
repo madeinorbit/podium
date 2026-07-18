@@ -1,4 +1,10 @@
-import { ISSUE_STAGES, type IssueStage, IssueType, type IssueWire } from '@podium/protocol'
+import {
+  ISSUE_STAGES,
+  type IssueStage,
+  IssueType,
+  type IssueWire,
+  issueDisplayRef,
+} from '@podium/protocol'
 import {
   Bot,
   Check,
@@ -159,6 +165,18 @@ export function IssuesView(): JSX.Element {
 
   const moveIssue = (id: string, stage: IssueStage): void => {
     runMut(trpc.issues.update.mutate({ id, patch: { stage } }))
+  }
+
+  const approveIssue = (id: string): void => {
+    runMut(trpc.issues.promote.mutate({ id }))
+  }
+
+  const approveAndStart = (id: string): void => {
+    runMut(trpc.issues.promote.mutate({ id }).then(() => trpc.issues.start.mutate({ id })))
+  }
+
+  const archiveIssue = (id: string): void => {
+    runMut(trpc.issues.archive.mutate({ id }))
   }
 
   const setAssignee = (id: string, assignee: string): void => {
@@ -455,11 +473,15 @@ export function IssuesView(): JSX.Element {
               stage={stage}
               label={STAGE_LABELS[stage]}
               issues={laneIssues}
+              allIssues={issues}
               badges={display.badges}
               stageCounts={stageCounts}
               epicProgress={epicProgress}
               onOpen={setOpenIssueId}
               onMoveIssue={moveIssue}
+              onApprove={approveIssue}
+              onApproveStart={approveAndStart}
+              onArchive={archiveIssue}
               onCreateIn={(s) => setCreating({ stage: s })}
               onSetAssignee={setAssignee}
               assignees={assignees}
@@ -904,11 +926,15 @@ function IssueColumn({
   stage,
   label,
   issues,
+  allIssues,
   badges,
   stageCounts,
   epicProgress,
   onOpen,
   onMoveIssue,
+  onApprove,
+  onApproveStart,
+  onArchive,
   onCreateIn,
   onSetAssignee,
   assignees,
@@ -920,11 +946,15 @@ function IssueColumn({
   stage: IssueStage
   label: string
   issues: IssueWire[]
+  allIssues: IssueWire[]
   badges: IssuesDisplay['badges']
   stageCounts: Map<string, { stage: IssueStage; count: number }[]>
   epicProgress: Map<string, EpicProgress | null>
   onOpen: (id: string) => void
   onMoveIssue: (id: string, stage: IssueStage) => void
+  onApprove: (id: string) => void
+  onApproveStart: (id: string) => void
+  onArchive: (id: string) => void
   onCreateIn: (stage: IssueStage) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
@@ -994,10 +1024,14 @@ function IssueColumn({
             <CardBoundary key={issue.id} resetKey={issue.id} label="issue card">
               <IssueCard
                 issue={issue}
+                allIssues={allIssues}
                 badges={badges}
                 stageCounts={stageCounts.get(issue.id)}
                 progress={epicProgress.get(issue.id) ?? null}
                 onOpen={onOpen}
+                onApprove={onApprove}
+                onApproveStart={onApproveStart}
+                onArchive={onArchive}
                 onSetAssignee={onSetAssignee}
                 assignees={assignees}
                 focused={focusId === issue.id}
@@ -1082,10 +1116,14 @@ function AssigneeMenu({
 
 function IssueCard({
   issue,
+  allIssues,
   badges,
   stageCounts,
   progress,
   onOpen,
+  onApprove,
+  onApproveStart,
+  onArchive,
   onSetAssignee,
   assignees,
   focused,
@@ -1094,12 +1132,16 @@ function IssueCard({
   onContextMenu,
 }: {
   issue: IssueWire
+  allIssues: IssueWire[]
   badges: IssuesDisplay['badges']
   /** Direct-child stage rollup (nested board only) — see childStageCounts. */
   stageCounts?: { stage: IssueStage; count: number }[]
   /** Whole-subtree rollup for a human-facing epic (#198); null = no descendants. */
   progress?: EpicProgress | null
   onOpen: (id: string) => void
+  onApprove: (id: string) => void
+  onApproveStart: (id: string) => void
+  onArchive: (id: string) => void
   onSetAssignee: (id: string, assignee: string) => void
   assignees: string[]
   focused: boolean
@@ -1109,6 +1151,11 @@ function IssueCard({
 }): JSX.Element {
   const m = issueCardModel(issue)
   const show = badges
+  const discovered = issue.deps.find((dep) => dep.type === 'discovered-from')
+  const discoveredFrom = discovered
+    ? allIssues.find((candidate) => candidate.id === discovered.id)
+    : undefined
+  const ageDays = Math.max(0, Math.floor((Date.now() - Date.parse(issue.createdAt)) / 86_400_000))
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: card is a native-DnD drag source
     <div
@@ -1155,6 +1202,17 @@ function IssueCard({
         <div className="line-clamp-2 min-w-0 break-words font-medium text-[13px] text-foreground">
           {m.title}
         </div>
+        {issue.description && (
+          <p className="line-clamp-2 text-[11px] text-muted-foreground">{issue.description}</p>
+        )}
+        {issue.stage === 'proposed' && (
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span>{issue.origin === 'agent' ? 'Agent proposal' : 'Proposal'}</span>
+            <span>·</span>
+            <span>{ageDays === 0 ? 'today' : `${ageDays}d old`}</span>
+            {discoveredFrom && <span>· found while working {issueDisplayRef(discoveredFrom)}</span>}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-1.5">
           <PriorityGlyph priority={issue.priority} />
           {issue.deletedAt && (
@@ -1237,6 +1295,29 @@ function IssueCard({
           )}
         </div>
       </button>
+      {issue.stage === 'proposed' && (
+        <div className="mt-1 flex gap-1 px-1" data-testid="proposal-actions">
+          <Button size="sm" className="h-6 flex-1 text-[10px]" onClick={() => onApprove(issue.id)}>
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 flex-1 text-[10px]"
+            onClick={() => onApproveStart(issue.id)}
+          >
+            Approve & start
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 text-[10px]"
+            onClick={() => onArchive(issue.id)}
+          >
+            Archive
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

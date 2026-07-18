@@ -11,12 +11,9 @@ import { TITLE_RULE_TERSE } from '@podium/protocol'
 export const ISSUE_SYSTEM_POINTER =
   "This project uses Podium's issue tracker. You have a `podium issue` CLI. " +
   'Run `podium issue prime` for your current issue, workflow, and ready work. ' +
-  'Track durable or discovered work as issues (`podium issue create ...`, link a follow-up with ' +
-  '`podium issue dep-add --fromId <new> --toId <current> --type discovered-from`), not markdown TODO files. ' +
-  'Issues you create default to INTERNAL (audience: agent) — your own working detail, kept off the ' +
-  "human's board. When you take on a chunk of work the human should track, cut a human-facing issue for it " +
-  '(`podium issue create --audience human`) and keep your breakdown as internal children under it, so the ' +
-  'human sees progress without your churn. Be deliberate about where the human-facing cut lines fall. ' +
+  'Discovered work that can ship separately becomes a top-level issue plus a `discovered-from` dependency; it lands in Proposed automatically, so do not claim or stage it. ' +
+  'Decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. ' +
+  'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] ' +
   '`podium issue ready` lists unblocked work; ' +
   '`podium issue claim`/`close` as you go. Nothing advances an issue for you: an issue you are actively ' +
   'working must never sit in `backlog` — set the stage yourself with ' +
@@ -25,7 +22,7 @@ export const ISSUE_SYSTEM_POINTER =
   'Editing an issue outside your assigned one needs `--outside-scope`. ' +
   // Issue identity is immutable [spec:SP-9c7b].
   'Never reuse an existing issue for something completely different — new work gets a new issue or ' +
-  'sub-issue. Switch yourself to it only on the human\'s push; otherwise file it for another agent. ' +
+  "sub-issue. Switch yourself to it only on the human's push; otherwise file it for another agent. " +
   // Cross-issue reattach is blocked [spec:SP-8744]; only a draft may attach --id.
   'A session on a DRAFT may join the issue that covers its work: `podium issue attach --id <issue>`. ' +
   'Once on a real issue you cannot reattach elsewhere — use `podium issue attach --subissue "<title>" --confirm-rehome` ' +

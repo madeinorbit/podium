@@ -5,8 +5,13 @@ import {
   elevateCoordinatorSession,
   isCoordinatorSession,
   issueIdOwningSession,
+  issueVisibleInSidebar,
   nestStartedByIssues,
   orderTabs,
+  rowMotionPhase,
+  rowStatusLine,
+  rowWaitingCount,
+  sessionVisibleInSidebar,
   type SidebarSections,
   type UnifiedIssueRow,
   unifiedWorkList,
@@ -165,17 +170,16 @@ describe('nestStartedByIssues', () => {
     // Starter lives on an issue that has no live sessions → not in sidebar rows.
     const starter = sess('starter', { issueId: 'hidden-parent' })
     const childSess = sess('worker', { issueId: 'child' })
-    const child = row(
-      issue({ id: 'child', startedBySession: 'starter', origin: 'agent' }),
-      [childSess],
-    )
+    const child = row(issue({ id: 'child', startedBySession: 'starter', origin: 'agent' }), [
+      childSess,
+    ])
     // Only the child row is in the work list; hidden-parent is not.
     const nested = nestStartedByIssues([child], [starter, childSess], [])
     expect(nested).toHaveLength(1)
     expect((nested[0] as UnifiedIssueRow).issue.id).toBe('child')
   })
 
-  it('does not nest formal sub-issues via startedBy (parentId present)', () => {
+  it('nests formal sub-issues and lets parentId win over startedBy provenance', () => {
     const parentSess = sess('starter', { issueId: 'parent' })
     const childSess = sess('worker', { issueId: 'child' })
     const parent = row(issue({ id: 'parent' }), [parentSess])
@@ -189,7 +193,36 @@ describe('nestStartedByIssues', () => {
       [childSess],
     )
     const nested = nestStartedByIssues([parent, child], [parentSess, childSess], [])
-    expect(nested.map((r) => (r as UnifiedIssueRow).issue.id)).toEqual(['parent', 'child'])
+    expect(nested).toHaveLength(1)
+    expect((nested[0] as UnifiedIssueRow).startedByChildren?.map((row) => row.issue.id)).toEqual([
+      'child',
+    ])
+  })
+
+  it('nests through a sessionless internal bookkeeping ancestor', () => {
+    const parentSession = sess('parent-worker', { issueId: 'parent' })
+    const childSession = sess('child-worker', { issueId: 'child' })
+    const parentIssue = issue({ id: 'parent' })
+    const hiddenInternal = issue({
+      id: 'hidden',
+      parentId: 'parent',
+      audience: 'agent',
+      origin: 'agent',
+    })
+    const childIssue = issue({
+      id: 'child',
+      parentId: 'hidden',
+      audience: 'agent',
+      origin: 'agent',
+    })
+    const nested = nestStartedByIssues(
+      [row(parentIssue, [parentSession]), row(childIssue, [childSession])],
+      [parentSession, childSession],
+      [],
+      [parentIssue, hiddenInternal, childIssue],
+      NOW,
+    )
+    expect((nested[0] as UnifiedIssueRow).startedByChildren?.[0]?.issue.id).toBe('child')
   })
 
   it('does not hide either issue on a started-by cycle', () => {
@@ -208,6 +241,103 @@ describe('nestStartedByIssues', () => {
     expect(all.has('a')).toBe(true)
     expect(all.has('b')).toBe(true)
     expect(topIds.length + childIds.length).toBe(2)
+  })
+
+  it('bubbles descendant attention and activity to every ancestor row', () => {
+    const parentSess = sess('parent-idle', { issueId: 'parent' })
+    const childSess = sess('child-waiting', {
+      issueId: 'child',
+      agentState: {
+        phase: 'needs_user',
+        since: new Date(NOW - HOUR).toISOString(),
+        nativeSubagentCount: 0,
+        need: { kind: 'question' },
+      },
+    })
+    const parent = row(issue({ id: 'parent' }), [parentSess])
+    const child = row(
+      issue({ id: 'child', parentId: 'parent', audience: 'agent', origin: 'agent' }),
+      [childSess],
+    )
+    const nested = nestStartedByIssues([parent, child], [parentSess, childSess], [])
+    const top = nested[0] as UnifiedIssueRow
+    expect(top.aggregateSessions?.map((session) => session.sessionId)).toEqual([
+      'parent-idle',
+      'child-waiting',
+    ])
+    expect(rowMotionPhase(top)).toBe('waiting')
+    expect(rowWaitingCount(top)).toBe(1)
+  })
+
+  it('never leaves an internal issue at top level', () => {
+    const worker = sess('worker', { issueId: 'internal' })
+    const internal = row(issue({ id: 'internal', audience: 'agent', origin: 'agent' }), [worker])
+    expect(nestStartedByIssues([internal], [worker], [])).toEqual([])
+  })
+})
+
+describe('sidebar completion decay [spec:SP-6144]', () => {
+  it('keeps unseen completions, then applies a 24h grace after read', () => {
+    const stoppedAt = new Date(NOW - 48 * HOUR).toISOString()
+    const oldRead = new Date(NOW - 47 * HOUR).toISOString()
+    const recentRead = new Date(NOW - HOUR).toISOString()
+    const stopped = sess('stopped', {
+      status: 'hibernated',
+      stoppedAt,
+      stopReason: 'self',
+      readAt: oldRead,
+      unread: false,
+    })
+    expect(sessionVisibleInSidebar({ ...stopped, unread: true }, NOW)).toBe(true)
+    expect(sessionVisibleInSidebar(stopped, NOW)).toBe(false)
+    expect(sessionVisibleInSidebar({ ...stopped, readAt: recentRead }, NOW)).toBe(true)
+  })
+
+  it('keeps a sessionless completed MILESTONE CHILD until seen plus 24h; top-level stays out', () => {
+    const finishedAt = new Date(NOW - 48 * HOUR).toISOString()
+    const parent = issue({ id: 'parent', stage: 'in_progress' })
+    const worker = sess('worker', { issueId: parent.id })
+    const completed = issue({
+      id: 'completed',
+      stage: 'done',
+      parentId: parent.id,
+      updatedAt: finishedAt,
+      readAt: null,
+      unread: true,
+    })
+    expect(issueVisibleInSidebar(completed, NOW)).toBe(true)
+    const rows = unifiedWorkList(emptySections(), [parent, completed], [worker], [], NOW)
+    const flat = JSON.stringify(rows)
+    expect(flat).toContain('"completed"')
+    const seen = { ...completed, unread: false, readAt: new Date(NOW - HOUR).toISOString() }
+    expect(issueVisibleInSidebar(seen, NOW)).toBe(true)
+    const expired = { ...completed, unread: false, readAt: new Date(NOW - 47 * HOUR).toISOString() }
+    expect(issueVisibleInSidebar(expired, NOW)).toBe(false)
+    expect(
+      JSON.stringify(unifiedWorkList(emptySections(), [parent, expired], [worker], [], NOW)),
+    ).not.toContain('"completed"')
+    // A sessionless finished issue with NO parent (the historical done backlog,
+    // unread since before readAt existed) must never resurface at top level.
+    const topLevel = { ...completed, parentId: null }
+    expect(unifiedWorkList(emptySections(), [topLevel], [], [], NOW)).toEqual([])
+  })
+
+  it('surfaces descendant completion progress on ancestor status', () => {
+    const worker = sess('worker')
+    const parent: UnifiedIssueRow = {
+      kind: 'issue',
+      issue: issue({ childCount: 6, childDoneCount: 4 }),
+      sessions: [worker],
+      activityAt: NOW,
+      rank: 1,
+    }
+    expect(rowStatusLine(parent, NOW)).toContain('4/6 done')
+  })
+
+  it('excludes proposed issues even if a session is attached', () => {
+    const proposal = issue({ id: 'proposal', stage: 'proposed' })
+    const worker = sess('worker', { issueId: proposal.id })
+    expect(unifiedWorkList(emptySections(), [proposal], [worker], [], NOW)).toEqual([])
   })
 })
 

@@ -422,6 +422,16 @@ export function PanelRow({
         ? 'paused'
         : badge?.label
       : null
+  // Completion outcome remains explicit while the row decays [spec:SP-6144].
+  const terminalOutcome = session.stoppedAt
+    ? session.stopReason === 'parent'
+      ? 'reaped'
+      : session.stopReason === 'forced'
+        ? 'interrupted'
+        : 'finished'
+    : session.agentState?.phase === 'ended' || session.status === 'exited'
+      ? 'finished'
+      : null
   // Nested child rows (dotRight): show the session's own issue ref when present.
   const issueLinkage = dotRight ? sessionIssueLinkage(session) : null
   return (
@@ -503,9 +513,7 @@ export function PanelRow({
               className="flex-none font-mono text-[10px] text-[#6c6c78] tabular-nums"
               data-testid="session-issue-linkage"
               title={
-                session.issueId
-                  ? `Attached to issue ${session.issueId}`
-                  : 'Session issue reference'
+                session.issueId ? `Attached to issue ${session.issueId}` : 'Session issue reference'
               }
             >
               {issueLinkage}
@@ -533,6 +541,14 @@ export function PanelRow({
           {meta && (
             <span className="rowmeta flex-none text-[10px] text-[#d4a017] opacity-80 transition-opacity group-hover:opacity-100">
               {meta}
+            </span>
+          )}
+          {terminalOutcome && (
+            <span
+              className="flex-none rounded border border-emerald-500/35 px-1 text-[8.5px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              data-testid="session-outcome-chip"
+            >
+              {terminalOutcome}
             </span>
           )}
           {/* The agent's /color identity accent — a short vertical line right of

@@ -1226,8 +1226,10 @@ export type UnifiedIssueRow = {
   sessions: SessionMeta[]
   activityAt: number
   rank: number
-  /** Agent-started top-level issues nested under this row (started-by tree). */
+  /** Formal parentId children plus agent-started provenance children. [spec:SP-6144] */
   startedByChildren?: UnifiedIssueRow[]
+  /** Own + descendant sessions, used only for bubbled status/attention. */
+  aggregateSessions?: SessionMeta[]
 }
 
 /** One row of the unified sidebar's WORK LIST: a human-origin issue (drafts
@@ -1272,6 +1274,26 @@ const rowRank = (sessions: SessionMeta[], now: number): number =>
  * After the flat pass, top-level agent-started issues nest under the starter
  * session's issue via {@link nestStartedByIssues} (M6 started-by tree).
  */
+const SIDEBAR_FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
+
+/** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
+export function issueVisibleInSidebar(issue: IssueWire, now: number): boolean {
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  if (!finished) return true
+  if (issue.unread || !issue.readAt) return true
+  const anchor = Math.max(Date.parse(issue.updatedAt) || 0, Date.parse(issue.readAt) || 0)
+  return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
+}
+
+export function sessionVisibleInSidebar(s: SessionMeta, now: number): boolean {
+  const finishedAt =
+    s.stoppedAt ?? (s.agentState?.phase === 'ended' ? s.agentState.since : undefined)
+  if (!finishedAt) return true
+  if (s.unread || !s.readAt) return true
+  const anchor = Math.max(Date.parse(finishedAt) || 0, Date.parse(s.readAt) || 0)
+  return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
+}
+
 function buildUnifiedRows(
   sections: SidebarSections,
   issues: IssueWire[],
@@ -1282,21 +1304,26 @@ function buildUnifiedRows(
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
-    if (issue.archived || issue.deletedAt) continue
+    if (issue.archived || issue.deletedAt || issue.stage === 'proposed') continue
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
-        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership),
+        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter(
+          (s) => sessionVisibleInSidebar(s, now),
+        ),
         now,
       ),
       issue.coordinatorSessionId,
     )
-    // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
-    // session-less issue into the list.
-    if (mine.length === 0) continue
-    // #198: hide the agent's INTERNAL work (audience: 'agent') from the sidebar
-    // work list — keyed on audience, matching the board's filterBoardScope, so an
-    // agent-cut human-facing epic (origin agent, audience human) appears on both.
-    if (!issue.draft && issue.audience !== 'human') continue
+    // Active work requires a session. Sessionless rows are allowed only for
+    // finished MILESTONE CHILDREN (a parent to nest under) inside the unread →
+    // 24h-grace decay window — a sessionless top-level done issue (or the
+    // historical backlog of done issues, unread since before readAt existed)
+    // must never resurface here. [spec:SP-6144]
+    if (mine.length === 0) {
+      const finished = issue.stage === 'done' || issue.closedReason != null
+      if (!finished || !issue.parentId || issue.audience === 'agent') continue
+      if (!issueVisibleInSidebar(issue, now)) continue
+    }
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
       kind: 'issue',
@@ -1305,6 +1332,33 @@ function buildUnifiedRows(
       activityAt: lastSession || Date.parse(issue.updatedAt) || 0,
       rank: rowRank(mine, now),
     })
+  }
+  // Keep a tracked human parent visible when only its descendants are running;
+  // its aggregate status is filled by the nesting pass. [spec:SP-6144]
+  const presentIssueIds = new Set(
+    rows.filter((row): row is UnifiedIssueRow => row.kind === 'issue').map((row) => row.issue.id),
+  )
+  for (const child of [...rows]) {
+    if (child.kind !== 'issue' || !child.issue.parentId) continue
+    const parent = issues.find((issue) => issue.id === child.issue.parentId)
+    if (
+      !parent ||
+      presentIssueIds.has(parent.id) ||
+      parent.audience !== 'human' ||
+      parent.stage === 'proposed' ||
+      parent.archived ||
+      parent.deletedAt
+    ) {
+      continue
+    }
+    rows.push({
+      kind: 'issue',
+      issue: parent,
+      sessions: [],
+      activityAt: Date.parse(parent.updatedAt) || 0,
+      rank: UNIFIED_ROW_EMPTY_RANK,
+    })
+    presentIssueIds.add(parent.id)
   }
   const liveIssueIds = new Set(issues.filter((i) => !i.archived && !i.deletedAt).map((i) => i.id))
   const seen = new Set<string>()
@@ -1329,7 +1383,7 @@ function buildUnifiedRows(
       rank: rowRank(unowned, now),
     })
   }
-  return nestStartedByIssues(rows, sessions, allWorktreePaths, ownership)
+  return nestStartedByIssues(rows, sessions, allWorktreePaths, issues, now, ownership)
 }
 
 /**
@@ -1389,59 +1443,79 @@ export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
   sessions: readonly SessionMeta[],
   allWorktreePaths: string[],
+  allIssues: readonly IssueWire[] = rows
+    .filter((row): row is UnifiedIssueRow => row.kind === 'issue')
+    .map((row) => row.issue),
+  now: number = Date.now(),
   ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const issueRows = rows.filter((r): r is UnifiedIssueRow => r.kind === 'issue')
   if (issueRows.length === 0) return rows
-  const issues = issueRows.map((r) => r.issue)
-  // childId → parentIssueId (proposed, then cycle-filtered).
+  const visibleIssues = issueRows.map((r) => r.issue)
+  const byId = new Map(issueRows.map((r) => [r.issue.id, r]))
   const parentOf = new Map<string, string>()
+
   for (const row of issueRows) {
-    const { issue } = row
-    // Only TOP-LEVEL issues (no formal parent) participate in the started-by tree.
-    if (issue.parentId || !issue.startedBySession) continue
-    const parentId = issueIdOwningSession(
-      issue.startedBySession,
-      sessions,
-      issues,
-      allWorktreePaths,
-      ownership,
-    )
-    if (!parentId || parentId === issue.id) continue
-    if (!issueRows.some((r) => r.issue.id === parentId)) continue
-    // Reject edge if it would create a cycle in the parentOf chain.
-    let walk: string | undefined = parentId
-    const seen = new Set<string>([issue.id])
-    let cycle = false
-    while (walk) {
-      if (seen.has(walk)) {
-        cycle = true
+    const issue = row.issue
+    // A formal tree edge always wins over provenance. Walk to the nearest visible
+    // ancestor so a session-less internal bookkeeping node cannot orphan live work.
+    let parentId = issue.parentId
+    const seenParents = new Set<string>([issue.id])
+    while (parentId && !byId.has(parentId)) {
+      if (seenParents.has(parentId)) {
+        parentId = undefined
         break
       }
-      seen.add(walk)
+      seenParents.add(parentId)
+      parentId = allIssues.find((candidate) => candidate.id === parentId)?.parentId
+    }
+    if (!parentId && !issue.parentId && issue.startedBySession) {
+      parentId =
+        issueIdOwningSession(
+          issue.startedBySession,
+          sessions,
+          visibleIssues,
+          allWorktreePaths,
+          ownership,
+        ) ??
+        undefined
+    }
+    if (!parentId || parentId === issue.id || !byId.has(parentId)) continue
+    let walk: string | undefined = parentId
+    const cycle = new Set<string>([issue.id])
+    while (walk && !cycle.has(walk)) {
+      cycle.add(walk)
       walk = parentOf.get(walk)
     }
-    if (cycle) continue
+    if (walk) continue
     parentOf.set(issue.id, parentId)
   }
-  if (parentOf.size === 0) return rows
 
-  const byId = new Map(issueRows.map((r) => [r.issue.id, r]))
   const childrenOf = new Map<string, string[]>()
   for (const [childId, parentId] of parentOf) {
-    const list = childrenOf.get(parentId)
-    if (list) list.push(childId)
-    else childrenOf.set(parentId, [childId])
+    const children = childrenOf.get(parentId) ?? []
+    children.push(childId)
+    childrenOf.set(parentId, children)
   }
-
   const attach = (row: UnifiedIssueRow): UnifiedIssueRow => {
-    const childIds = childrenOf.get(row.issue.id)
-    if (!childIds || childIds.length === 0) return row
-    const startedByChildren = childIds
+    const children = (childrenOf.get(row.issue.id) ?? [])
       .map((id) => byId.get(id))
-      .filter((c): c is UnifiedIssueRow => c !== undefined)
+      .filter((child): child is UnifiedIssueRow => child !== undefined)
       .map(attach)
-    return startedByChildren.length > 0 ? { ...row, startedByChildren } : row
+    const aggregateSessions = [
+      ...row.sessions,
+      ...children.flatMap((child) => child.aggregateSessions ?? child.sessions),
+    ]
+    return {
+      ...row,
+      ...(children.length ? { startedByChildren: children } : {}),
+      aggregateSessions,
+      rank: rowRank(aggregateSessions, now),
+      activityAt: aggregateSessions.reduce(
+        (max, session) => Math.max(max, Date.parse(session.lastActiveAt) || 0),
+        row.activityAt,
+      ),
+    }
   }
 
   const nested = new Set(parentOf.keys())
@@ -1452,6 +1526,8 @@ export function nestStartedByIssues(
       continue
     }
     if (nested.has(row.issue.id)) continue
+    // Internal issues are operational detail: nested only, never top-level.
+    if (row.issue.audience === 'agent') continue
     out.push(attach(row))
   }
   return out
@@ -1535,7 +1611,7 @@ export interface UnifiedWorkPartition {
 }
 
 function rowSessions(row: UnifiedWorkRow): SessionMeta[] {
-  return row.kind === 'issue' ? row.sessions : row.worktree.sessions
+  return row.kind === 'issue' ? (row.aggregateSessions ?? row.sessions) : row.worktree.sessions
 }
 
 /** Rebuild a WORK row around a filtered session set, recomputing its rank +
@@ -1871,7 +1947,15 @@ export function formatClock(ms: number): string {
  * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
-  return aggregateMotionPhase(rowSessions(row))
+  const sessions = rowSessions(row)
+  if (
+    sessions.length === 0 &&
+    row.kind === 'issue' &&
+    (row.issue.stage === 'done' || row.issue.closedReason != null)
+  ) {
+    return 'done'
+  }
+  return aggregateMotionPhase(sessions)
 }
 
 /** The same waiting > working > all-done > queued aggregation over any member
@@ -1911,17 +1995,21 @@ export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): st
     return 'awaiting first prompt'
   }
   const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
+  const progress =
+    row.kind === 'issue' && row.issue.childCount > 0
+      ? ` · ${row.issue.childDoneCount}/${row.issue.childCount} done`
+      : ''
   if (phase === 'waiting') {
     const urgent = mostUrgentSession(
       sessions.filter((s) => motionPhase(s) === 'waiting'),
       now,
     )
     const label = urgent ? (agentBadge(urgent)?.label ?? 'needs you') : 'needs you'
-    return head + label
+    return head + label + progress
   }
-  if (phase === 'working') return head + 'working'
-  if (phase === 'done') return head + 'done'
-  return head + 'queued'
+  if (phase === 'working') return head + 'working' + progress
+  if (phase === 'done') return head + 'done' + progress
+  return head + 'queued' + progress
 }
 
 /**

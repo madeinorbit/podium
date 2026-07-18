@@ -782,6 +782,7 @@ function WorkRowShell({
   titleHint,
   children,
   testId,
+  deemphasized = false,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -814,6 +815,8 @@ function WorkRowShell({
   titleHint?: string
   children?: ReactNode
   testId: string
+  /** Internal decomposition stays visible but subordinate to tracked work. */
+  deemphasized?: boolean
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -839,6 +842,7 @@ function WorkRowShell({
           !active && !hex && 'hover:bg-[#20202a]',
           phase === 'queued' && !active && 'opacity-65',
           morph === 'waiting' && 'morph-row-flash',
+          deemphasized && !active && 'scale-[0.98] opacity-70',
         )}
         style={rowStyle}
         data-phase={phase}
@@ -1071,6 +1075,7 @@ function UnifiedIssueRow({
     <>
       <WorkRowShell
         testId={startedByDepth > 0 ? 'unified-issue-row-started-by' : 'unified-issue-row'}
+        deemphasized={issue.audience === 'agent'}
         square={square}
         label={label}
         statusLine={rowStatusLine(row, now)}
@@ -1109,6 +1114,14 @@ function UnifiedIssueRow({
             <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
               {issueDisplayRef(issue)}
             </span>
+            {issue.audience === 'agent' && (
+              <span
+                className="flex-none rounded border border-slate-500/40 px-1 text-[8.5px] uppercase tracking-wide text-slate-500"
+                data-testid="internal-issue-badge"
+              >
+                internal
+              </span>
+            )}
             {startedByDepth > 0 && (
               <span
                 className="flex-none rounded border border-teal-500/45 bg-teal-500/10 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400"

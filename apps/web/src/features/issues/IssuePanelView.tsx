@@ -22,6 +22,7 @@ import { issueIdTitle, STAGE_LABELS } from './issue-card'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
+  proposed: { dot: 'bg-fuchsia-400', chip: 'bg-fuchsia-400/15 text-fuchsia-300' },
   backlog: { dot: 'bg-muted-foreground/50', chip: 'bg-muted text-muted-foreground' },
   planning: { dot: 'bg-sky-400', chip: 'bg-sky-400/15 text-sky-300' },
   in_progress: { dot: 'bg-amber-400', chip: 'bg-amber-400/15 text-amber-300' },
@@ -491,6 +492,8 @@ export function IssuePanelView({
   // sections below deliberately skip archived children so they don't clutter the
   // parent view (issue #133).
   const children = useMemo(() => (issue ? subIssuesOf(issues, issue.id) : []), [issues, issue])
+  const doneChildren = children.filter((child) => child.stage === 'done' || child.closedReason)
+  const openChildren = children.filter((child) => !doneChildren.includes(child))
   const subPanels = useMemo(
     () => children.filter((c) => !c.archived).filter(panelNonEmpty),
     [children],
@@ -510,9 +513,21 @@ export function IssuePanelView({
       {children.length > 0 && (
         <DockSection storageKey="subissues" title="Subtasks" count={children.length}>
           <div className="flex flex-col gap-0.5" data-testid="dock-subissues">
-            {children.map((sub) => (
+            {openChildren.map((sub) => (
               <SubissueRow key={sub.id} sub={sub} onOpen={() => openIssuePage(sub.id)} />
             ))}
+            {doneChildren.length > 0 && issue.stage !== 'done' && !issue.closedReason && (
+              <details className="rounded border border-border/50 px-1.5 py-1">
+                <summary className="cursor-pointer text-[11px] text-muted-foreground">
+                  ✓ {doneChildren.length} done
+                </summary>
+                <div className="mt-1 flex flex-col gap-0.5">
+                  {doneChildren.map((sub) => (
+                    <SubissueRow key={sub.id} sub={sub} onOpen={() => openIssuePage(sub.id)} />
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         </DockSection>
       )}

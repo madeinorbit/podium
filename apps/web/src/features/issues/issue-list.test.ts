@@ -13,14 +13,15 @@ describe('groupIssuesByStage', () => {
       'priority',
     )
     expect(g.map((x) => x.stage)).toEqual([
+      'proposed',
       'backlog',
       'planning',
       'in_progress',
       'review',
       'done',
     ])
-    expect(g[3]?.issues.map((i) => i.id)).toEqual(['b', 'a'])
-    expect(g[1]?.issues).toEqual([])
+    expect(g[4]?.issues.map((i) => i.id)).toEqual(['b', 'a'])
+    expect(g[2]?.issues).toEqual([])
   })
 })
 
