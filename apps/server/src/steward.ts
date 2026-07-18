@@ -235,7 +235,7 @@ export interface StewardDeps {
    *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
    *  filters to live/starting; session-parent wake does not — a parked parent
    *  must be woken (POD-904 / POD-279). */
-  sendTextWhenReady: (sessionId: string, text: string) => void
+  sendTextWhenReady: (sessionId: string, text: string, mutationId?: string) => void
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
@@ -402,6 +402,10 @@ export class StewardService {
         batches.set(key, batch)
       }
     }
+    // Deliveries must be durable BEFORE cursor advance [POD-925 / SP-c29e].
+    // Any handler or subscription delivery failure holds the cursor so the next
+    // poll re-reads the same window (handlers are idempotent / mutation-keyed).
+    let deliveryFailed = false
     for (const [key, batch] of batches) {
       try {
         if (key.startsWith('unblock:')) await this.handleUnblock(batch)
@@ -421,7 +425,7 @@ export class StewardService {
           this.handleAckFallback(key.slice('ackfallback:'.length), batch)
         }
       } catch (err) {
-        // Drop, don't wedge: the trigger is lost but the queue keeps moving.
+        deliveryFailed = true
         console.warn(`[podium:steward] handler for ${key} failed:`, err)
       }
     }
@@ -429,7 +433,12 @@ export class StewardService {
     // hard-coded rules above are the seeded defaults; stored subscriptions layer on
     // top without disturbing them. Dedup is per (subscription, event) via the store,
     // so a cursor-rewind replay re-matches but never re-delivers.
-    this.dispatchSubscriptions(events)
+    try {
+      this.dispatchSubscriptions(events)
+    } catch (err) {
+      deliveryFailed = true
+      console.warn('[podium:steward] subscription dispatch failed:', err)
+    }
     // Retire after dispatch so the close transition itself can be announced, but
     // no recipient-scoped fact for the closed issue survives the tick.
     const closedIssues = new Set(
@@ -440,6 +449,12 @@ export class StewardService {
     // underlying condition ends, free the (fact,target) so a later genuine edge
     // re-fires — without shortening the 24h cross-producer TTL ceiling.
     this.retireClearedConditions(events)
+    if (deliveryFailed) {
+      console.warn(
+        '[podium:steward] holding cursor — delivery failed; will retry the same window',
+      )
+      return
+    }
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
   }
 
@@ -626,16 +641,6 @@ export class StewardService {
           s.sessionId !== causer,
       )
       for (const s of targets) {
-        const claimed = this.arbiter.claim(factKey, s.sessionId, {
-          source: `subscription:${sub.id}`,
-          issueId,
-        })
-        if (!claimed) continue
-        // The claim is taken regardless (it also authorizes deliverNotify
-        // below for this same subscriber/target — see the comment there), so
-        // subscriberClaimed tracks the claim outcome, not the nudge's own
-        // already-communicated suppression.
-        if (s.sessionId === sub.subscriberId) subscriberClaimed = true
         // Already-communicated (§07b): targets here are already live/starting
         // (no wake-rights concern — see handleSessionParentNudge's note).
         // The external `notify` push below is scoped OUT deliberately: its
@@ -644,7 +649,15 @@ export class StewardService {
         if (this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
           continue
         }
-        this.deps.sendTextWhenReady(s.sessionId, text)
+        // Durable delivery before claim [POD-925].
+        this.deps.sendTextWhenReady(s.sessionId, text, factKey)
+        const claimed = this.arbiter.claim(factKey, s.sessionId, {
+          source: `subscription:${sub.id}`,
+          issueId,
+        })
+        if (!claimed) continue
+        // The claim authorizes deliverNotify below for this same subscriber.
+        if (s.sessionId === sub.subscriberId) subscriberClaimed = true
       }
     }
     // A session subscriber's single claim authorizes both configured delivery
@@ -734,14 +747,6 @@ export class StewardService {
           s.sessionId !== causedBy,
       )
       for (const s of targets) {
-        if (
-          !this.arbiter.claim(`unblock:${dependent.id}:${closedSeq}`, s.sessionId, {
-            source: 'steward.unblock',
-            issueId: dependent.id,
-          })
-        ) {
-          continue
-        }
         // Already-communicated (§07b): the closer may have mailed the
         // dependent directly instead of relying on this nudge.
         if (
@@ -753,10 +758,18 @@ export class StewardService {
         ) {
           continue
         }
+        // Durable delivery BEFORE arbiter claim [POD-925]: claim-first suppressed
+        // retry after a failed send and left no durable nudge on cursor rewind.
+        const factKey = `unblock:${dependent.id}:${closedSeq}`
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
+          factKey,
         )
+        this.arbiter.claim(factKey, s.sessionId, {
+          source: 'steward.unblock',
+          issueId: dependent.id,
+        })
       }
     }
   }
@@ -828,16 +841,13 @@ export class StewardService {
     // re-fires — mirroring the ackfallback `settle:<sid>` fact. Keyed per child,
     // targeted per parent. NB: do NOT key on the event id — a terminal session
     // yields a new id every poll, so a per-event key never dedups.
-    if (
-      !this.arbiter.claim(`sessionparentnudge:phase-reported:${childSessionId}`, parentId, claimOpts)
-    ) {
-      return
-    }
+    const factKey = `sessionparentnudge:phase-reported:${childSessionId}`
     const rawLabel = child?.name || child?.title || childSessionId
     const label = firstLineCapped(rawLabel) || childSessionId
-    // WAKE: no live/starting filter — sendTextWhenReady → queueText resurrects
-    // hibernated/exited parents with a resume ref (issue parentnudge must not).
-    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label))
+    // WAKE: durable delivery BEFORE claim [POD-925]. mutationId=factKey makes
+    // crash-retry / multi-poll re-entry idempotent (queueText already-applied).
+    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), factKey)
+    this.arbiter.claim(factKey, parentId, claimOpts)
   }
 
   /** A child event notifies its parent issue (default 'my-children' subscription):
@@ -913,14 +923,6 @@ export class StewardService {
         !causedBy.has(s.sessionId),
     )
     for (const s of targets) {
-      if (
-        !this.arbiter.claim(`parentnudge:${group}:${parentId}:${lastChildSeq}`, s.sessionId, {
-          source: 'steward.parent-nudge',
-          issueId: parent.id,
-        })
-      ) {
-        continue
-      }
       // Already-communicated (§07b): the child may have mailed the parent
       // directly instead of relying on this nudge (targets are already
       // live/starting, so nothing here needs wake rights — see the
@@ -935,7 +937,17 @@ export class StewardService {
       ) {
         continue
       }
-      this.deps.sendTextWhenReady(s.sessionId, sub.nudge(lastChildSeq, { remaining, total }))
+      // Durable delivery before claim [POD-925] — same ordering as handleUnblock.
+      const factKey = `parentnudge:${group}:${parentId}:${lastChildSeq}`
+      this.deps.sendTextWhenReady(
+        s.sessionId,
+        sub.nudge(lastChildSeq, { remaining, total }),
+        factKey,
+      )
+      this.arbiter.claim(factKey, s.sessionId, {
+        source: 'steward.parent-nudge',
+        issueId: parent.id,
+      })
     }
   }
 

@@ -3,6 +3,7 @@ import {
   CHANGE_MAX_AGE_MS,
   CHANGE_PRUNE_BATCH_ROWS,
   changeLogPruneRunKey,
+  connectScanRunKey,
   EVENT_PRUNE_BATCH_ROWS,
   EVENT_RETENTION_MAX_AGE_DAYS,
   EVENT_RETENTION_MAX_ROWS,
@@ -14,6 +15,7 @@ import {
   MAINTENANCE_SCHEMA_VERSION,
   maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
+  stewardPollRunKey,
 } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type MessageRow, SessionStore } from '../../store'
@@ -360,5 +362,104 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     })
     expect(reply).toMatchObject({ status: 'stale', reason: 'precondition' })
     expect(store.maintenance.getCommand('message-expiry', 'recent/1')).toBeDefined()
+  })
+
+  it('[POD-925 B2] steward-poll rechecks fence after side effects before recording', async () => {
+    let release!: () => void
+    const paused = new Promise<void>((r) => {
+      release = r
+    })
+    let stewardCalls = 0
+    service = new MaintenanceService(
+      store,
+      {
+        run<T>({ write }: { authorize?: () => void; write: () => T }): T {
+          funnelWrites += 1
+          return write()
+        },
+      },
+      {
+        now: () => nowMs,
+        leaseTtlMs: 90_000,
+        stewardTick: async () => {
+          stewardCalls += 1
+          await paused
+        },
+      },
+    )
+    const lease1 = handshake('gen_a')
+    if (lease1.status !== 'ready') throw new Error('expected lease')
+    const observed = { fromCursor: 0, toEventId: 1 }
+    const command = {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'steward-poll' as const,
+      runKey: stewardPollRunKey(observed),
+      fencingToken: lease1.fencingToken,
+      observed,
+    }
+    const flight = service.apply(command)
+    // Expire gen_a and hand the fence to gen_b while the tick is mid-flight.
+    nowMs += 91_000
+    const lease2 = handshake('gen_b')
+    if (lease2.status !== 'ready') throw new Error('expected successor')
+    release()
+    const reply = await flight
+    expect(reply).toMatchObject({ status: 'stale', reason: 'fenced' })
+    expect(stewardCalls).toBe(1)
+    expect(store.maintenance.getCommand('steward-poll', command.runKey)).toBeUndefined()
+  })
+
+  it('[POD-925 B2] connect-scan applies when lastSeenAt matches even if older than 5m', async () => {
+    const scans: string[] = []
+    // Freeze "now" for upsert so lastSeenAt is controlled.
+    const oldSeenMs = nowMs - 6 * 60_000
+    const oldSeen = new Date(oldSeenMs).toISOString()
+    vi.useFakeTimers()
+    vi.setSystemTime(oldSeenMs)
+    try {
+      store.machines.upsertMachine({
+        id: 'remote',
+        name: 'remote',
+        hostname: 'remote',
+        tokenHash: 'x',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(store.machines.getMachine('remote')?.lastSeenAt).toBe(oldSeen)
+    service = new MaintenanceService(
+      store,
+      {
+        run<T>({ write }: { authorize?: () => void; write: () => T }): T {
+          return write()
+        },
+      },
+      {
+        now: () => nowMs,
+        leaseTtlMs: 90_000,
+        connectScan: (id) => {
+          scans.push(id)
+        },
+        localMachineId: 'local',
+      },
+    )
+    const lease = handshake('gen_a')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    const observed = {
+      machineId: 'remote',
+      lastSeenAt: oldSeen,
+      deep: false as const,
+    }
+    const reply = await service.apply({
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'connect-scan',
+      runKey: connectScanRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    })
+    expect(reply).toMatchObject({ status: 'applied' })
+    expect(scans).toEqual(['remote'])
   })
 })

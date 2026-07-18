@@ -27,7 +27,7 @@ import type {
   AutomationsRepository,
 } from '../../store/automations'
 import type { WriteFunnel } from '../funnel'
-import { assertScheduleFloor, nextRunAfter, parseCron } from './cron'
+import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from './cron'
 import { type AutomationDecision, decideTick, type Schedulable } from './decide'
 
 export interface AutomationsDeps {
@@ -344,12 +344,19 @@ export class AutomationsService {
     }))
   }
 
+  /**
+   * Apply one decision. For spawn: reserve the occurrence run id BEFORE side
+   * effects (without re-arming nextRunAt), execute spawn/outbox with that id as
+   * mutationId, then finalize run + re-arm. A crash between reserve and finalize
+   * leaves detail='reserved' so replay resumes rather than losing the occurrence.
+   */
   private apply(decision: AutomationDecision): void {
     const automation = this.deps.store.get(decision.automationId)
     if (!automation) return
-    // Occurrence id reserved BEFORE side effects and reused as mutation id [POD-925].
     const runId = automationOccurrenceRunId(automation.id, decision.firedAt)
-    if (this.deps.store.getRun(runId)) return
+    const existing = this.deps.store.getRun(runId)
+    // Fully settled occurrence — idempotent no-op.
+    if (existing && existing.detail !== 'reserved') return
 
     const rearmed: AutomationRow = {
       ...automation,
@@ -357,27 +364,91 @@ export class AutomationsService {
       nextRunAt: decision.nextRunAt,
       lastRunAt: decision.firedAt,
     }
-    // Reserve the occurrence row + re-arm next fire BEFORE any spawn/outbox work.
+
+    // Non-spawn decisions have no side effects: record run + re-arm together.
+    if (decision.kind !== 'spawn') {
+      this.deps.ledger.commit({
+        write: () => {
+          if (!existing) {
+            this.deps.store.addRun({
+              id: runId,
+              automationId: automation.id,
+              firedAt: decision.firedAt,
+              sessionId: null,
+              outcome: decision.kind,
+              detail: decision.detail ?? null,
+            })
+          } else {
+            this.deps.store.updateRun(runId, {
+              sessionId: null,
+              outcome: decision.kind,
+              detail: decision.detail ?? null,
+            })
+          }
+          this.deps.store.update(rearmed)
+          return { runId, automation: rearmed }
+        },
+        changes: (result) => [
+          {
+            entity: 'automationRun',
+            id: result.runId,
+            op: 'upsert',
+            value: this.deps.store.getRun(result.runId)!,
+          },
+          {
+            entity: 'automation',
+            id: result.automation.id,
+            op: 'upsert',
+            value: result.automation,
+          },
+        ],
+      })
+      this.publishRuns()
+      this.publishAutomations()
+      return
+    }
+
+    // Reserve occurrence ONLY — do not re-arm nextRunAt until side effects finish.
+    if (!existing) {
+      this.deps.ledger.commit({
+        write: () => {
+          this.deps.store.addRun({
+            id: runId,
+            automationId: automation.id,
+            firedAt: decision.firedAt,
+            sessionId: null,
+            outcome: 'error',
+            detail: 'reserved',
+          })
+          return this.deps.store.getRun(runId)!
+        },
+        changes: (run) => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
+      })
+    }
+
+    let outcome: AutomationRunOutcome = 'error'
+    let sessionId: string | null = null
+    let detail: string | null = 'reserved'
+    try {
+      sessionId = this.spawn(automation, runId)
+      outcome = 'spawned'
+      detail = null
+    } catch (err) {
+      outcome = 'error'
+      if (err instanceof AutomationSpawnError) sessionId = err.sessionId
+      detail = err instanceof Error ? err.message : String(err)
+      console.warn(`[podium:automations] ${automation.name} failed to spawn:`, err)
+    }
+
+    // Finalize run + re-arm only after the side-effect attempt (success or terminal error).
     this.deps.ledger.commit({
       write: () => {
-        this.deps.store.addRun({
-          id: runId,
-          automationId: automation.id,
-          firedAt: decision.firedAt,
-          sessionId: null,
-          outcome: decision.kind === 'spawn' ? 'error' : decision.kind,
-          detail: decision.kind === 'spawn' ? 'reserved' : (decision.detail ?? null),
-        })
+        this.deps.store.updateRun(runId, { sessionId, outcome, detail })
         this.deps.store.update(rearmed)
-        return { runId, automation: rearmed }
+        return { run: this.deps.store.getRun(runId)!, automation: rearmed }
       },
       changes: (result) => [
-        {
-          entity: 'automationRun',
-          id: result.runId,
-          op: 'upsert',
-          value: this.deps.store.getRun(result.runId)!,
-        },
+        { entity: 'automationRun', id: result.run.id, op: 'upsert', value: result.run },
         {
           entity: 'automation',
           id: result.automation.id,
@@ -386,39 +457,14 @@ export class AutomationsService {
         },
       ],
     })
-
-    let outcome: AutomationRunOutcome =
-      decision.kind === 'spawn' ? 'error' : decision.kind
-    let sessionId: string | null = null
-    let detail = decision.detail ?? null
-    if (decision.kind === 'spawn') {
-      try {
-        sessionId = this.spawn(automation, runId)
-        outcome = 'spawned'
-        detail = null
-      } catch (err) {
-        outcome = 'error'
-        if (err instanceof AutomationSpawnError) sessionId = err.sessionId
-        detail = err instanceof Error ? err.message : String(err)
-        console.warn(`[podium:automations] ${automation.name} failed to spawn:`, err)
-      }
-      this.deps.ledger.commit({
-        write: () => {
-          this.deps.store.updateRun(runId, { sessionId, outcome, detail })
-          return this.deps.store.getRun(runId)!
-        },
-        changes: (run) => [
-          { entity: 'automationRun', id: run.id, op: 'upsert', value: run },
-        ],
-      })
-    }
     this.publishRuns()
     this.publishAutomations()
   }
 
   /**
    * Fenced maintenance entry [POD-925]: apply one observed due occurrence after
-   * the server revalidates schedule facts. Returns whether a run was applied.
+   * the server revalidates schedule facts. A reserved-but-unfinished run is
+   * resumed, not treated as already-applied.
    */
   applyObservedOccurrence(input: {
     automationId: string
@@ -429,11 +475,19 @@ export class AutomationsService {
   }): 'applied' | 'precondition' | 'not-due' | 'already' {
     const automation = this.deps.store.get(input.automationId)
     if (!automation || !automation.enabled || !input.enabled) return 'precondition'
-    if (automation.nextRunAt !== input.nextRunAt) return 'precondition'
-    const due = Date.parse(input.nextRunAt)
-    if (!Number.isFinite(due) || due > input.now.getTime()) return 'not-due'
     const runId = automationOccurrenceRunId(automation.id, input.nextRunAt)
-    if (this.deps.store.getRun(runId)) return 'already'
+    const existing = this.deps.store.getRun(runId)
+    if (existing && existing.detail !== 'reserved') return 'already'
+
+    // Resume reserved: nextRunAt was intentionally NOT re-armed, so it still matches.
+    // Fresh: nextRunAt must still equal the observed due occurrence.
+    if (!existing && automation.nextRunAt !== input.nextRunAt) return 'precondition'
+    if (!existing) {
+      const due = Date.parse(input.nextRunAt)
+      if (!Number.isFinite(due) || due > input.now.getTime()) return 'not-due'
+    }
+
+    const nextRunAtForDecide = existing ? input.nextRunAt : automation.nextRunAt
     const decisions = decideTick({
       now: input.now,
       automations: [
@@ -442,15 +496,34 @@ export class AutomationsService {
           enabled: automation.enabled,
           scheduleKind: automation.scheduleKind,
           cron: automation.cron,
-          nextRunAt: automation.nextRunAt,
+          nextRunAt: nextRunAtForDecide,
           lastSessionId: this.deps.store.lastSpawnedSessions().get(automation.id) ?? null,
         },
       ],
       liveSessionIds: input.liveSessionIds,
     })
-    const decision = decisions[0]
+    // For a reserved resume, decideTick may still yield spawn for the same occurrence.
+    let decision = decisions[0]
+    if (!decision && existing?.detail === 'reserved') {
+      // Force resume spawn: recompute re-arm from now without requiring due again.
+      let nextRunAt: string | null = null
+      if (automation.scheduleKind === 'cron' && automation.cron) {
+        try {
+          nextRunAt = nextAfter(parseCron(automation.cron), input.now)?.toISOString() ?? null
+        } catch {
+          nextRunAt = null
+        }
+      }
+      decision = {
+        automationId: automation.id,
+        kind: 'spawn',
+        firedAt: input.nextRunAt,
+        nextRunAt,
+      }
+    }
     if (!decision) return 'not-due'
-    this.apply(decision)
+    // Ensure firedAt stays the original occurrence identity.
+    this.apply({ ...decision, firedAt: input.nextRunAt })
     return 'applied'
   }
 

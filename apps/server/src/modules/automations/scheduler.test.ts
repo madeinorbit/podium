@@ -1,3 +1,4 @@
+import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
@@ -436,18 +437,52 @@ describe('AutomationsService.tick — spawn', () => {
     h.service.tick()
 
     const changes = h.ledger.changesSince(0)
-    // create → reserve occurrence (run + re-arm) → finalize spawn outcome [POD-925]
+    // create → reserve run only → finalize run + re-arm [POD-925]
     expect(changes?.map((change) => [change.entity, change.id, change.op])).toEqual([
       ['automation', a.id, 'upsert'],
       ['automationRun', expect.stringMatching(/^arun_/), 'upsert'],
-      ['automation', a.id, 'upsert'],
       ['automationRun', expect.stringMatching(/^arun_/), 'upsert'],
+      ['automation', a.id, 'upsert'],
     ])
     expect(changes?.map((change) => change.seq)).toEqual([1, 2, 3, 4])
     expect(h.funnel.publishComputed).toHaveBeenCalledWith({
       type: 'automationRunsChanged',
       automationRuns: [expect.objectContaining({ automationId: a.id, outcome: 'spawned' })],
     })
+  })
+
+  it('[POD-925] reserved-but-unfinished occurrence resumes instead of losing the fire', () => {
+    const h = harness()
+    const a = daily(h)
+    const firedAt = iso(new Date(2026, 6, 15, 9, 0))
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    // Materialize crash gap: reserved run, nextRunAt NOT re-armed.
+    const runId = automationOccurrenceRunId(a.id, firedAt)
+    h.store.automations.addRun({
+      id: runId,
+      automationId: a.id,
+      firedAt,
+      sessionId: null,
+      outcome: 'error',
+      detail: 'reserved',
+    })
+    // nextRunAt still the original occurrence
+    expect(h.store.automations.get(a.id)?.nextRunAt).toBe(firedAt)
+
+    const result = h.service.applyObservedOccurrence({
+      automationId: a.id,
+      nextRunAt: firedAt,
+      enabled: true,
+      liveSessionIds: new Set(),
+      now: new Date(2026, 6, 15, 9, 0, 10),
+    })
+    expect(result).toBe('applied')
+    expect(h.createSession).toHaveBeenCalled()
+    const run = h.store.automations.getRun(runId)
+    expect(run?.outcome).toBe('spawned')
+    expect(run?.detail).not.toBe('reserved')
+    // Re-armed past the occurrence
+    expect(h.store.automations.get(a.id)?.nextRunAt).not.toBe(firedAt)
   })
 
   it('resume mode reuses the previous successful session on later fires', () => {

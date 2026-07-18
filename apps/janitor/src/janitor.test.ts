@@ -10,6 +10,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import {
   ChangeLogPrunePlanner,
+  ConnectScanReader,
   createMaintenanceHttpClient,
   EventLogPrunePlanner,
   JanitorService,
@@ -358,6 +359,33 @@ describe('JanitorService [spec:SP-c29e]', () => {
       expect(batches).toHaveLength(3)
       expect(batches.map((b) => b.fromId)).toEqual([1, 3, 5])
       expect(new Set(batches.map((b) => b.cutoff)).size).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('[POD-925 B2] ConnectScanReader keeps candidates after 5m (delay-not-lose)', async () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE machines (
+        id TEXT PRIMARY KEY,
+        name TEXT,
+        hostname TEXT,
+        token_hash TEXT,
+        created_at TEXT,
+        last_seen_at TEXT,
+        inventory_json TEXT
+      )`)
+      db.prepare(
+        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run('remote', 'r', 'r', 't', '2026-07-18T00:00:00.000Z', '2026-07-18T00:00:00.000Z')
+      const reader = new ConnectScanReader(db)
+      // Recovered 6 minutes later — still a candidate (lastSeenAt is durable handshake fact).
+      const candidates = reader.read('2026-07-18T00:06:00.000Z', 'local')
+      expect(candidates).toEqual([
+        { machineId: 'remote', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
+      ])
     } finally {
       db.close()
     }

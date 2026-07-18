@@ -770,20 +770,28 @@ export class StewardPollReader {
   }
 }
 
-/** Recently-seen remote machines for automatic shallow connect-scan. */
+/**
+ * Automatic shallow connect-scan candidates [POD-925].
+ *
+ * Delay-not-lose: do NOT filter by wall-clock freshness of last_seen_at.
+ * lastSeenAt only updates on daemon handshake, so a still-connected machine
+ * may be hours old. Candidacy is "any non-local machine"; the runKey is
+ * connect-scan/{machineId}/{lastSeenAt}, so each handshake fact is applied
+ * once and a late janitor recovery still sees the durable connection fact.
+ * Server revalidates that lastSeenAt still matches at apply.
+ */
 export class ConnectScanReader {
   constructor(private readonly db: SqlDatabase) {}
 
-  read(nowIso: string, localMachineId = 'local'): ConnectScanObservation[] {
-    const cutoff = new Date(Date.parse(nowIso) - 5 * 60_000).toISOString()
+  read(_nowIso: string, localMachineId = 'local'): ConnectScanObservation[] {
     const rows = this.db
       .prepare(
         `SELECT id, last_seen_at FROM machines
-         WHERE id != ? AND last_seen_at >= ?
+         WHERE id != ?
          ORDER BY last_seen_at DESC, id ASC
          LIMIT ?`,
       )
-      .all(localMachineId, cutoff, CANDIDATE_LIMIT) as Array<{ id: string; last_seen_at: string }>
+      .all(localMachineId, CANDIDATE_LIMIT) as Array<{ id: string; last_seen_at: string }>
     return rows.map((row) => ({
       machineId: row.id,
       lastSeenAt: row.last_seen_at,

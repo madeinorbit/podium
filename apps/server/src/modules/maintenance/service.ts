@@ -33,9 +33,6 @@ import type { IssueService } from '../issues/service'
 
 const LEASE_NAME = 'janitor'
 const DEFAULT_LEASE_TTL_MS = 90_000
-/** Connect-scan requires lastSeenAt within this window at apply time. */
-const CONNECT_SCAN_LIVE_MS = 5 * 60_000
-
 export interface MaintenanceServiceOptions {
   now?: () => number
   leaseTtlMs?: number
@@ -347,6 +344,43 @@ export class MaintenanceService {
     return applied
   }
 
+  /**
+   * After side effects complete, re-check the fence before recording applied.
+   * A generation that lost the lease mid-flight must not stamp already-applied
+   * for a successor generation [POD-925 Batch 2 review].
+   */
+  private recordIfStillFenced(
+    command: MaintenanceCommand,
+    result: Extract<MaintenanceCommandReply, { status: 'applied' | 'already-applied' }>,
+  ): MaintenanceCommandReply {
+    return this.write(() => {
+      const nowMs = this.now()
+      const lease = this.store.maintenance.getLease(LEASE_NAME)
+      if (!lease || lease.fencingToken !== command.fencingToken) {
+        return this.stale(command, 'fenced')
+      }
+      if (Date.parse(lease.expiresAt) <= nowMs) {
+        return this.stale(command, 'lease-expired')
+      }
+      const prior = this.store.maintenance.getCommand(command.jobKind, command.runKey)
+      if (prior) {
+        return {
+          status: 'already-applied',
+          jobKind: command.jobKind,
+          runKey: command.runKey,
+        }
+      }
+      this.store.maintenance.recordCommand(
+        { status: 'applied', jobKind: command.jobKind, runKey: command.runKey },
+        command.fencingToken,
+        new Date(nowMs).toISOString(),
+      )
+      return result.status === 'already-applied'
+        ? { status: 'already-applied', jobKind: command.jobKind, runKey: command.runKey }
+        : { status: 'applied', jobKind: command.jobKind, runKey: command.runKey }
+    })
+  }
+
   private applyAutomationFire(
     command: Extract<MaintenanceCommand, { jobKind: 'automation-fire' }>,
     nowMs: number,
@@ -365,21 +399,11 @@ export class MaintenanceService {
     })
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
-    const applied: MaintenanceCommandReply = {
+    return this.recordIfStillFenced(command, {
       status: result === 'already' ? 'already-applied' : 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
-    }
-    this.write(() => {
-      if (!this.store.maintenance.getCommand(command.jobKind, command.runKey)) {
-        this.store.maintenance.recordCommand(
-          { status: 'applied', jobKind: command.jobKind, runKey: command.runKey },
-          command.fencingToken,
-          new Date(this.now()).toISOString(),
-        )
-      }
     })
-    return applied
   }
 
   private async applyStewardPoll(
@@ -395,24 +419,18 @@ export class MaintenanceService {
     if (!this.stewardTick) return this.stale(command, 'precondition')
     // StewardService.tick advances the cursor only after durable deliveries.
     await this.stewardTick()
-    const applied: MaintenanceCommandReply = {
+    // Re-check fence AFTER side effects — expired/superseded generations must
+    // not record applied for work they no longer own.
+    return this.recordIfStillFenced(command, {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
-    }
-    this.write(() => {
-      this.store.maintenance.recordCommand(
-        applied,
-        command.fencingToken,
-        new Date(this.now()).toISOString(),
-      )
     })
-    return applied
   }
 
   private applyConnectScan(
     command: Extract<MaintenanceCommand, { jobKind: 'connect-scan' }>,
-    nowMs: number,
+    _nowMs: number,
   ): MaintenanceCommandReply {
     const observed = command.observed
     if (connectScanRunKey(observed) !== command.runKey) {
@@ -424,24 +442,23 @@ export class MaintenanceService {
     }
     const machine = this.store.machines.getMachine(observed.machineId)
     if (!machine) return this.stale(command, 'precondition')
-    // Recheck connectivity at apply: lastSeenAt must still be fresh.
-    if (Date.parse(machine.lastSeenAt) < nowMs - CONNECT_SCAN_LIVE_MS) {
-      return this.stale(command, 'not-due')
+    // Revalidate durable observation: lastSeenAt must still match (daemon
+    // re-handshake would change it → new occurrence). Do NOT require wall-clock
+    // freshness — lastSeenAt only updates on handshake, so a still-connected
+    // machine may be older than 5 minutes [POD-925 Batch 2 review].
+    if (machine.lastSeenAt !== observed.lastSeenAt) {
+      return this.stale(command, 'precondition')
     }
     if (!this.connectScan) return this.stale(command, 'precondition')
     // Kick the shallow scan; do not await deep work — orchestration only.
     void Promise.resolve(this.connectScan(observed.machineId)).catch((err) => {
       console.warn('[podium:maintenance] connect-scan failed:', err)
     })
-    const applied: MaintenanceCommandReply = {
+    return this.recordIfStillFenced(command, {
       status: 'applied',
       jobKind: command.jobKind,
       runKey: command.runKey,
-    }
-    this.write(() => {
-      this.store.maintenance.recordCommand(applied, command.fencingToken, new Date(nowMs).toISOString())
     })
-    return applied
   }
 
   private recordPrune(
