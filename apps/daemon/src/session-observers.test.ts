@@ -246,6 +246,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(working.observation).toMatchObject({
       provenance: 'live',
       transitionKind: 'turn_opened',
+      providerCursor: { components: { transcript: 1 } },
       inputOrigin: 'steward',
       observerGeneration: 7,
       providerSessionId: 'claude-1',
@@ -266,6 +267,88 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     observers.onHookPayload('podium-1', stop)
     await Promise.resolve()
     expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
+    observers.clearSession('podium-1')
+  })
+  it('does not let a stale generation ack release an identical current bootstrap transition', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-generation-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    await writeFile(transcript, '')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const prompt = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+      prompt_id: 'prompt-1',
+    }
+    const start = (observerGeneration: number) => {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId: 'podium-1',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          durableLabel: 'podium-podium-1',
+          observationGeneration: observerGeneration,
+          observationBindingVersion: 2,
+        },
+        { onFrame: () => () => {} } as never,
+        agentStateProviderFor('claude-code'),
+        { seedOnFrame: false },
+      )
+      observers.onHookPayload('podium-1', prompt)
+    }
+
+    start(7)
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
+    })
+    const stale = sent.find((m) => m.type === 'agentObservation')!.observation
+    observers.clearSession('podium-1')
+
+    start(8)
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(2)
+    })
+    const current = sent.filter((m) => m.type === 'agentObservation').at(-1)!.observation
+    expect(current.transitionId).toBe(stale.transitionId)
+
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      transitionId: stale.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: {
+        ...stale.providerCursor,
+        components: { transcript: 9999 },
+      },
+    })
+    await Promise.resolve()
+    expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(2)
+
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 8,
+      transitionId: current.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: current.providerCursor,
+    })
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
+    })
+    expect(sent.filter((m) => m.type === 'agentObservation').at(-1)?.observation).toMatchObject({
+      observerGeneration: 8,
+      provenance: 'live',
+      transitionKind: 'turn_opened',
+    })
     observers.clearSession('podium-1')
   })
 })
