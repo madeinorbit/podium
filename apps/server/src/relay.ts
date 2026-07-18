@@ -812,13 +812,15 @@ export class SessionRegistry {
                     targetIssueId,
                   )
                 } else {
+                  // Issueless: parent/operator free; otherwise --outside-scope
+                  // asserts the agent got human OK [spec:SP-9904].
                   const isOperator = capability.scope.kind === 'all'
                   const isParent =
                     actorSessionId !== undefined &&
                     target.spawnedBy === `session:${actorSessionId}`
-                  if (!isOperator && !isParent) {
+                  if (!isOperator && !isParent && !overrideScope) {
                     throw new Error(
-                      'target session has no issue; only its parent or the operator may stop it (or pass --outside-scope is not a substitute for issueless targets)',
+                      'target session has no issue and is outside your tree; re-run with --outside-scope to confirm human permission',
                     )
                   }
                 }
@@ -952,6 +954,17 @@ export class SessionRegistry {
       },
       capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
+      // Self-stop kill only after agentRelayResult is on the wire [spec:SP-9904].
+      afterSuccessfulReply: (msg, result) => {
+        if (!result || typeof result !== 'object') return
+        if ((result as { deferredKill?: boolean }).deferredKill !== true) return
+        if (
+          (msg.router === 'sessions' && msg.proc === 'stop') ||
+          (msg.router === 'issues' && msg.proc === 'stop')
+        ) {
+          sessionsSvc.finalizeDeferredStopKill(msg.sessionId)
+        }
+      },
     })
     const headless = new HeadlessService({
       getSession: (sessionId) => liveSessions().get(sessionId),

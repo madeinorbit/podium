@@ -33,6 +33,26 @@ export function sessionsForIssue(
   )
 }
 
+/**
+ * Live/starting/reconnecting sessions whose cwd sits inside `worktreePath`
+ * (any issue attachment). Used by stop free-guards [spec:SP-9904]: sessionsForIssue
+ * excludes sessions with a different explicit issueId even when they share the
+ * path — freeing under those would delete a worktree still in use.
+ */
+export function liveSessionsUsingWorktree(
+  worktreePath: string | null,
+  sessions: SessionMeta[],
+  exceptSessionId?: string,
+): SessionMeta[] {
+  if (!worktreePath) return []
+  return sessions.filter(
+    (s) =>
+      s.sessionId !== exceptSessionId &&
+      (s.status === 'live' || s.status === 'starting' || s.status === 'reconnecting') &&
+      isMemberCwd(worktreePath, s.cwd),
+  )
+}
+
 export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary {
   const byPhase: Record<string, number> = {}
   for (const s of sessions) {

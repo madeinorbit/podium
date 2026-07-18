@@ -74,6 +74,15 @@ export interface AgentRelayGateDeps {
   ): Promise<unknown> | undefined
   capabilityForSession(sessionId: string): Capability
   toMachine(machineId: string, msg: ControlMessage): void
+  /**
+   * After a successful agentRelayResult is on the wire. Used to arm self-stop
+   * kill only once the CLI has received the reply [spec:SP-9904] — never a
+   * fixed timer inside the stop helper.
+   */
+  afterSuccessfulReply?(
+    msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>,
+    result: unknown,
+  ): void
 }
 
 /**
@@ -137,7 +146,10 @@ export class AgentRelayGate {
         reply({ ok: false, error: `no such procedure: ${msg.router}.${msg.proc}` })
         return
       }
-      reply({ ok: true, result: await result })
+      const value = await result
+      // Reply FIRST so the agent CLI observes success before any self-stop kill.
+      reply({ ok: true, result: value })
+      this.deps.afterSuccessfulReply?.(msg, value)
     } catch (err) {
       reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
     }

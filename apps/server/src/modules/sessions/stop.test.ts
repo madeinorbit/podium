@@ -176,25 +176,21 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBeNull()
   })
 
-  it('self-stop defers the process kill', async () => {
-    vi.useFakeTimers()
-    try {
-      const { reg, daemon } = makeRegistry()
-      const { sessionId } = reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/w',
-      })
-      bindLive(reg, sessionId, '/w')
+  it('self-stop holds the kill until finalizeDeferredStopKill (after-reply)', async () => {
+    const { reg, daemon } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    bindLive(reg, sessionId, '/w')
 
-      const r = await reg.modules.sessions.stopSession({ sessionId, selfStop: true })
-      expect(r.ok).toBe(true)
-      expect(r.deferredKill).toBe(true)
-      expect(daemon.some((m) => m.type === 'kill')).toBe(false)
-      await vi.advanceTimersByTimeAsync(300)
-      expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
-    } finally {
-      vi.useRealTimers()
-    }
+    const r = await reg.modules.sessions.stopSession({ sessionId, selfStop: true })
+    expect(r.ok).toBe(true)
+    expect(r.deferredKill).toBe(true)
+    // No timer — kill is not sent until the relay replies.
+    expect(daemon.some((m) => m.type === 'kill')).toBe(false)
+    reg.modules.sessions.finalizeDeferredStopKill(sessionId)
+    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
   })
 
   it('does not free the worktree while a sibling session is still live', async () => {
@@ -224,6 +220,65 @@ describe('stopSession [spec:SP-9904]', () => {
     expect(r.worktreeFreed).toBe(false)
     expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(false)
     expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBe(wt)
+  })
+
+  it('does not free when a live session of ANOTHER issue shares the cwd', async () => {
+    const { reg, repoOps } = makeRegistry()
+    const a = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Owner issue',
+      startNow: false,
+    })
+    const b = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Squatter issue',
+      startNow: false,
+    })
+    const wt = '/r/.worktrees/issue-cross-share'
+    reg.modules.issues.update(a.id, { worktreePath: wt, branch: 'issue/a-owner' })
+    // B is a different issue but its session runs inside A's worktree.
+    const owner = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: a.id,
+    }).sessionId
+    const squatter = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: b.id,
+    }).sessionId
+    bindLive(reg, owner, wt)
+    bindLive(reg, squatter, wt)
+
+    const r = await reg.modules.sessions.stopSession({ sessionId: owner })
+    expect(r.ok).toBe(true)
+    expect(r.worktreeFreed).toBe(false)
+    expect(repoOps.some((c) => c.op === 'worktreeRemove')).toBe(false)
+    expect(reg.modules.issues.getMeta(a.id)?.worktreePath).toBe(wt)
+  })
+
+  it('freeWorktreeKeepBranch passes issue.machineId on status and remove', async () => {
+    const { reg, setRepoOp } = makeRegistry()
+    const seen: { op: string; machineId?: string }[] = []
+    setRepoOp(async (op, _cwd, _args, machineId) => {
+      seen.push({ op, machineId })
+      if (op === 'status') return { ok: true, output: '## issue/x\n' }
+      return { ok: true, output: '' }
+    })
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Remote free',
+      startNow: false,
+    })
+    reg.modules.issues.update(issue.id, {
+      worktreePath: '/r/.worktrees/issue-remote',
+      branch: 'issue/remote',
+      machineId: 'machine-remote',
+    })
+    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issue.id)
+    expect(freed.ok).toBe(true)
+    expect(seen.find((s) => s.op === 'status')?.machineId).toBe('machine-remote')
+    expect(seen.find((s) => s.op === 'worktreeRemove')?.machineId).toBe('machine-remote')
   })
 
   it('resurrect recreates a freed worktree from the preserved branch', async () => {

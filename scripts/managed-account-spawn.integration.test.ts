@@ -94,7 +94,10 @@ function makeHarness(settingsDir: string): Harness {
       remove: () => {},
     },
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
-    sessionCwdTracker: { clear: () => {} },
+    // Both methods the real spawn handler reaches for (POD-746): pins launch
+    // cwd on every spawn (unawaited) and clears on exit. A stub missing one
+    // throws from inside the handler → spawnError, not a type error.
+    sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
