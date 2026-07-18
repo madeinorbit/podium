@@ -116,7 +116,7 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
   // the child already settled done/errored (shared settle fact) or has no
   // session-spawner parent.
   'session.exited': (e) =>
-    (e.payload as { causalCheckpoint?: boolean } | null)?.causalCheckpoint
+    (e.payload as { terminalFenceReported?: boolean } | null)?.terminalFenceReported
       ? undefined
       : `sessionparentnudge:exited:${e.subject}`,
   'issue.needs_human': (e) => {
@@ -250,7 +250,7 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
     return []
   }
   if (e.kind === 'session.exited') {
-    return (e.payload as { causalCheckpoint?: boolean } | null)?.causalCheckpoint
+    return (e.payload as { terminalFenceReported?: boolean } | null)?.terminalFenceReported
       ? []
       : ['session.exited']
   }
