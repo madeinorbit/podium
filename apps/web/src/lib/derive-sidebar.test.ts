@@ -61,7 +61,9 @@ describe('sessionsForWorktree (containment grouping)', () => {
   it('a session inside a nested worktree does NOT show in the parent repo group', () => {
     const list = [at('a', '/repo/.worktrees/feat/sub'), at('b', '/repo')]
     expect(sessionsForWorktree(list, '/repo', roots).map((s) => s.sessionId)).toEqual(['b'])
-    expect(sessionsForWorktree(list, '/repo/.worktrees/feat', roots).map((s) => s.sessionId)).toEqual(['a'])
+    expect(
+      sessionsForWorktree(list, '/repo/.worktrees/feat', roots).map((s) => s.sessionId),
+    ).toEqual(['a'])
   })
 
   it('falls back to exact-match when no root list is given (legacy callers)', () => {
@@ -129,6 +131,13 @@ describe('sidebarSections (containment grouping)', () => {
     expect(worktrees.find((w) => w.path === '/repo')?.issues).toEqual([])
     // The shell is filtered out of every sidebar session list.
     expect(feat?.sessions.map((s) => s.sessionId)).toEqual(['agent'])
+    // The same one-pass index feeds both issues sharing the worktree.
+    expect(
+      sections.sessionOwnership?.sessionsByIssue.get('live-1')?.map((s) => s.sessionId),
+    ).toEqual(['agent'])
+    expect(
+      sections.sessionOwnership?.sessionsByIssue.get('live-2')?.map((s) => s.sessionId),
+    ).toEqual(['agent'])
   })
 })
 

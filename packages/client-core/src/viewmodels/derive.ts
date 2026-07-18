@@ -234,6 +234,62 @@ export function reposToViews(repos: GitRepositoryWire[]): RepoView[] {
 // withoutHeadless (worktree + session identity) are entity-pure — imported
 // from @podium/domain above and re-exported, not redefined here (#194).
 
+/** Precomputed session ownership for one immutable sidebar snapshot. */
+export interface SessionOwnershipIndex {
+  sessionsByWorktree: ReadonlyMap<string, readonly SessionMeta[]>
+  sessionsByIssue: ReadonlyMap<string, readonly SessionMeta[]>
+  sessionById: ReadonlyMap<string, SessionMeta>
+}
+
+function appendSession(map: Map<string, SessionMeta[]>, key: string, session: SessionMeta): void {
+  const existing = map.get(key)
+  if (existing) existing.push(session)
+  else map.set(key, [session])
+}
+
+/**
+ * Resolve cwd containment once per session, then reuse those memberships for
+ * every issue and worktree row. This turns sidebar ownership derivation from
+ * repeated issue × session × worktree scans into one session × worktree pass.
+ */
+export function indexSessionOwnership(
+  sessions: readonly SessionMeta[],
+  issues: readonly IssueWire[],
+  allWorktreePaths: readonly string[],
+): SessionOwnershipIndex {
+  const roots = [
+    ...new Set([
+      ...allWorktreePaths,
+      ...issues.flatMap((issue) => (issue.worktreePath ? [issue.worktreePath] : [])),
+    ]),
+  ]
+  const issuesByWorktree = new Map<string, IssueWire[]>()
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt || !issue.worktreePath) continue
+    const existing = issuesByWorktree.get(issue.worktreePath)
+    if (existing) existing.push(issue)
+    else issuesByWorktree.set(issue.worktreePath, [issue])
+  }
+  const sessionsByWorktree = new Map<string, SessionMeta[]>()
+  const sessionsByIssue = new Map<string, SessionMeta[]>()
+  const sessionById = new Map<string, SessionMeta>()
+  for (const session of sessions) {
+    if (session.archived || isHeadlessSession(session)) continue
+    sessionById.set(session.sessionId, session)
+    const worktreePath = worktreeForCwd(session.cwd, roots)
+    if (worktreePath) appendSession(sessionsByWorktree, worktreePath, session)
+    if (session.issueId !== undefined) {
+      appendSession(sessionsByIssue, session.issueId, session)
+      continue
+    }
+    if (!worktreePath) continue
+    for (const issue of issuesByWorktree.get(worktreePath) ?? []) {
+      appendSession(sessionsByIssue, issue.id, session)
+    }
+  }
+  return { sessionsByWorktree, sessionsByIssue, sessionById }
+}
+
 /** Sessions shown in a worktree's tab strip / sidebar — archived ones stay out.
  *  With `allWorktreePaths`, membership is by CONTAINMENT (worktreeForCwd), so a
  *  session whose stamped cwd is a subdirectory of the worktree still shows in it
@@ -242,7 +298,11 @@ export function sessionsForWorktree(
   sessions: SessionMeta[],
   worktreePath: string,
   allWorktreePaths?: string[],
+  ownership?: SessionOwnershipIndex,
 ): SessionMeta[] {
+  if (allWorktreePaths && ownership) {
+    return [...(ownership.sessionsByWorktree.get(worktreePath) ?? [])]
+  }
   return sessions.filter(
     (s) =>
       !s.archived &&
@@ -405,6 +465,8 @@ export interface RepoNavView {
 }
 
 export interface SidebarSections {
+  /** Shared ownership work for this exact repo/session/issue snapshot. */
+  sessionOwnership?: SessionOwnershipIndex
   pinnedPanels: SessionMeta[]
   pinnedWorktrees: WorktreeNavView[]
   pinnedRepos: RepoNavView[]
@@ -505,9 +567,7 @@ export function isCoordinatorSession(
   issue: Pick<IssueWire, 'coordinatorSessionId'>,
   sessionId: string,
 ): boolean {
-  return (
-    typeof issue.coordinatorSessionId === 'string' && issue.coordinatorSessionId === sessionId
-  )
+  return typeof issue.coordinatorSessionId === 'string' && issue.coordinatorSessionId === sessionId
 }
 
 /** Sessions shown in the sidebar — shells never appear there (they stay in the
@@ -555,11 +615,12 @@ export function sidebarSections(
   // from there) — pinning lifts a copy into PINNED PANELS for quick reach without
   // hiding it from its home. The selected highlight lights up in both places.
   const allWorktreePaths = allWorktrees.map(({ worktree }) => worktree.path)
+  const sessionOwnership = indexSessionOwnership(sessions, issues, allWorktreePaths)
   const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
     ...worktree,
     repoName: repo.name,
     sessions: sortSessionsForSidebar(
-      sessionsForWorktree(sessions, worktree.path, allWorktreePaths),
+      sessionsForWorktree(sessions, worktree.path, allWorktreePaths, sessionOwnership),
       now,
     ),
     issues: issuesByWorktree.get(worktree.path) ?? [],
@@ -577,6 +638,7 @@ export function sidebarSections(
   })
 
   return {
+    sessionOwnership,
     pinnedPanels,
     pinnedWorktrees: pins.worktrees
       .map((path) => allWorktrees.find(({ worktree }) => worktree.path === path))
@@ -603,8 +665,7 @@ export interface WorkItemPartition {
 }
 
 /**
- * Partition sessions into the three WORK ITEMS buckets used by the home board
- * and sidebar work-items view.
+ * Partition sessions into the three WORK ITEMS buckets used by work-list views.
  *
  * Non-archived sessions are classified into `attention` or `working` by agent
  * state regardless of pin status. Pinned sessions additionally appear in
@@ -637,9 +698,8 @@ export function partitionWorkItems(
     }
   }
 
-  // Every WORK ITEMS section reads newest-active first (the home board and repo
-  // tree already do). Without this the buckets kept raw arrival order, which put
-  // the newest session at the BOTTOM of NEEDS YOUR ATTENTION.
+  // Every WORK ITEMS section in the repo tree reads newest-active first. Without this,
+  // raw arrival order would put the newest attention session at the bottom.
   attention.sort((a, b) => compareRecency(a, b, now))
   working.sort((a, b) => compareRecency(a, b, now))
   pinnedPanels.sort((a, b) => compareRecency(a, b, now))
@@ -879,7 +939,12 @@ export function sessionsForIssueNav(
   sessions: SessionMeta[],
   allWorktreePaths: string[],
   opts: { includeShells?: boolean } = {},
+  ownership?: SessionOwnershipIndex,
 ): SessionMeta[] {
+  if (ownership) {
+    const members = ownership.sessionsByIssue.get(issue.id) ?? []
+    return opts.includeShells ? [...members] : members.filter((s) => s.agentKind !== 'shell')
+  }
   const wt = issue.worktreePath
   // Longest-match containment needs the full root list (a repo root contains its
   // own .worktrees/* checkouts); make sure the issue's own worktree is in it.
@@ -1213,12 +1278,16 @@ function buildUnifiedRows(
   sessions: SessionMeta[],
   allWorktreePaths: string[],
   now: number,
+  ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const rows: UnifiedWorkRow[] = []
   for (const issue of issues) {
     if (issue.archived || issue.deletedAt) continue
     const mine = elevateCoordinatorSession(
-      sortSessionsForSidebar(sessionsForIssueNav(issue, sessions, allWorktreePaths), now),
+      sortSessionsForSidebar(
+        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership),
+        now,
+      ),
       issue.coordinatorSessionId,
     )
     // Require ≥1 live session — a worktree or non-backlog stage no longer floats a
@@ -1260,7 +1329,7 @@ function buildUnifiedRows(
       rank: rowRank(unowned, now),
     })
   }
-  return nestStartedByIssues(rows, sessions, allWorktreePaths)
+  return nestStartedByIssues(rows, sessions, allWorktreePaths, ownership)
 }
 
 /**
@@ -1273,7 +1342,28 @@ export function issueIdOwningSession(
   sessions: readonly SessionMeta[],
   issues: readonly IssueWire[],
   allWorktreePaths: string[],
+  ownership?: SessionOwnershipIndex,
 ): string | null {
+  if (ownership) {
+    const indexed = ownership.sessionById.get(sessionId)
+    if (!indexed) return null
+    if (indexed.issueId !== undefined) {
+      return issues.some(
+        (issue) => issue.id === indexed.issueId && !issue.archived && !issue.deletedAt,
+      )
+        ? indexed.issueId
+        : null
+    }
+    for (const issue of issues) {
+      if (issue.archived || issue.deletedAt) continue
+      if (
+        ownership.sessionsByIssue.get(issue.id)?.some((member) => member.sessionId === sessionId)
+      ) {
+        return issue.id
+      }
+    }
+    return null
+  }
   const session = sessions.find((s) => s.sessionId === sessionId)
   if (!session || session.archived || isHeadlessSession(session)) return null
   if (session.issueId !== undefined) {
@@ -1299,6 +1389,7 @@ export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
   sessions: readonly SessionMeta[],
   allWorktreePaths: string[],
+  ownership?: SessionOwnershipIndex,
 ): UnifiedWorkRow[] {
   const issueRows = rows.filter((r): r is UnifiedIssueRow => r.kind === 'issue')
   if (issueRows.length === 0) return rows
@@ -1314,6 +1405,7 @@ export function nestStartedByIssues(
       sessions,
       issues,
       allWorktreePaths,
+      ownership,
     )
     if (!parentId || parentId === issue.id) continue
     if (!issueRows.some((r) => r.issue.id === parentId)) continue
@@ -1422,7 +1514,7 @@ export function unifiedWorkList(
   now: number = Date.now(),
 ): UnifiedWorkRow[] {
   return sortUnifiedWorkRows(
-    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now),
+    buildUnifiedRows(sections, issues, sessions, allWorktreePaths, now, sections.sessionOwnership),
     now,
   )
 }
@@ -1641,7 +1733,7 @@ export function chatActivity(
 }
 
 // Four semantic status colours, identical across every surface (sidebar, tabs,
-// home board, chat) so a colour means the same thing everywhere:
+// work lists and chat) so a colour means the same thing everywhere:
 //   working   → green   (agent running / shell command running)
 //   attention → yellow  (needs you: question / approval / permission)
 //   error     → red

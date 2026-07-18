@@ -51,8 +51,8 @@ describe('web shell structure', () => {
   })
 
   it('repo add flow uses the scan flow on desktop and mobile (#227)', () => {
-    // AppToolsRow owns the scan flow; mobile reaches it by composing that row
-    // into its home view (#227), desktop by composing it into the sidebar.
+    // AppToolsRow owns the scan flow; mobile composes it under Tasks, while
+    // desktop composes it into the sidebar.
     expect(read('features/worklist/SidebarUnified.tsx')).toContain('RepoScanFlow')
     expect(read('app/MobileApp.tsx')).toContain('AppToolsRow')
   })

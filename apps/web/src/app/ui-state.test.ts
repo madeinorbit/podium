@@ -1,3 +1,4 @@
+import { readStoredView } from '@podium/client-core/engine'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createReplica, type ReplicaInit } from './replica'
 
@@ -29,6 +30,13 @@ beforeEach(() => {
 })
 
 describe('replica ui-state collection', () => {
+  it('migrates a persisted removed Home view to Tasks', () => {
+    const { storage } = makeStorage()
+    const ui = createReplica({ storage, keyPrefix: prefix, enumerateKeys: () => [] }).uiState()
+    ui.set('podium.view', 'home')
+    expect(readStoredView(ui)).toBe('issues')
+  })
+
   it('migrates the old ad-hoc localStorage keys once and removes them', () => {
     const { storage, data } = makeStorage({
       'podium.view': 'issues',

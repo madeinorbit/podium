@@ -1,13 +1,13 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
-import { FileText, Home, KanbanSquare, ListChecks, Pin } from 'lucide-react'
+import { FileText, KanbanSquare, ListChecks, Pin } from 'lucide-react'
 import type { CSSProperties, JSX } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { idSquareLabel } from '@/components/IdSquare'
 import { HostIndicators } from '@/features/machines/HostIndicators'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
-import { AppToolsRow, NewWorkRow, WorkSections } from '@/features/worklist/SidebarUnified'
+import { AppToolsRow } from '@/features/worklist/SidebarUnified'
 import {
   draftIssueLabel,
   orderTabs,
@@ -85,33 +85,13 @@ function useVisualViewportHeight(): void {
 }
 
 /**
- * Mobile home (#227, mobile.md §2.2): the desktop sidebar's work list at full
- * width — spawn row over the grouped WORK rows — with the app tools relocated
- * to a bottom-anchored utility row. Rows run the sidebar's own handlers, so a
- * tap selects the issue, opens one of its panes, and navigates to the workspace.
- */
-function MobileHomeView(): JSX.Element {
-  return (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2.5 pt-1 pb-1.5">
-        <NewWorkRow />
-        <div className="mt-2">
-          <WorkSections />
-        </div>
-      </div>
-      <AppToolsRow className="flex-none border-t border-hairline-soft px-2.5 pt-2 pb-[max(4px,var(--safe-bottom))]" />
-    </section>
-  )
-}
-
-/**
- * Mobile lands on Home, never under the superagent (mobile.md 2a/2c). The
+ * Mobile never starts under the superagent overlay (mobile.md 2a/2c). The
  * desktop's engraved COLUMN defaults open (SUPER_OPEN_KEY unset → true), but on
  * mobile that same flag drives the full-screen OVERLAY — inheriting it buries
- * the home list under the superagent on first load. Close it once at mount;
+ * the current view under the superagent on first load. Close it once at mount;
  * the ✦ cell (and btw flows setting superOpen) reopen it on demand.
  */
-function useMobileLandsOnHome(): void {
+function useMobileStartsWithoutOverlay(): void {
   const setSuperOpen = useStoreSelector((s) => s.setSuperOpen)
   const closed = useRef(false)
   useEffect(() => {
@@ -125,7 +105,7 @@ function useMobileLandsOnHome(): void {
  * The header dropdown's 18px identity square (mobile.md §2.1): same square
  * language as the 26px IdSquare, minus the colour-picker interaction — on
  * mobile the square is part of the panel-selector button, and the picker has
- * no mobile home yet (spec OQ3).
+ * no mobile picker yet (spec OQ3).
  */
 function HeaderIdSquare({ issue }: { issue: IssueWire }): JSX.Element {
   const label = idSquareLabel(issue)
@@ -149,7 +129,7 @@ function HeaderIdSquare({ issue }: { issue: IssueWire }): JSX.Element {
 
 export function MobileApp(): JSX.Element {
   useVisualViewportHeight()
-  useMobileLandsOnHome()
+  useMobileStartsWithoutOverlay()
   const {
     sessions,
     pins,
@@ -291,7 +271,7 @@ export function MobileApp(): JSX.Element {
     setView('workspace')
   }
   // What the header dropdown is anchored to: the selected issue, else the bare
-  // worktree, else nothing picked yet (the home list is where work is chosen).
+  // worktree, else nothing picked yet (Tasks is where work is chosen).
   const selectionTitle = selectedIssue
     ? selectedIssue.draft
       ? draftIssueLabel(selectedIssue, sessions, allWorktreePaths)
@@ -311,7 +291,7 @@ export function MobileApp(): JSX.Element {
   // The issue-accent channel (colour-flow, [spec:SP-b4d1]): the shell subtree
   // sets --issue from the selection; slate --flow when uncoloured/unselected.
   const accent = issueColorHex(selectedIssue?.color) ?? FLOW_SLATE
-  // Header chrome (§2.1): neutral on home/superagent, issue-tinted on the
+  // Header chrome (§2.1): neutral on Tasks/superagent, issue-tinted on the
   // workspace. The overlay covers the content area only — the header above it
   // reverts to neutral while the superagent is up (2c).
   const tinted = view === 'workspace' && !superOpen
@@ -331,18 +311,6 @@ export function MobileApp(): JSX.Element {
         )}
         style={{ height: 'calc(44px + var(--safe-top))' }}
       >
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center border-r px-[13px]',
-            cellBorder,
-            view === 'home' && !superOpen ? 'text-attention' : 'text-muted-foreground',
-          )}
-          title="Work"
-          onClick={() => setView('home')}
-        >
-          <Home size={15} aria-hidden="true" />
-        </button>
         <button
           type="button"
           className={cn(
@@ -382,7 +350,7 @@ export function MobileApp(): JSX.Element {
           <ListChecks size={15} aria-hidden="true" />
         </button>
         {/* The one main dropdown (#227, §2.1): NOT an issue picker — the panel
-            selector for the current work (issues are chosen on Home). Tapping it
+            selector for the current work (issues are chosen on Tasks). Tapping it
             from any view is the way back into the current issue's panels. */}
         <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1.5">
           <button
@@ -578,7 +546,7 @@ export function MobileApp(): JSX.Element {
       <div
         className={cn(
           'relative flex min-h-0 flex-1',
-          // Workspace shell tint behind the pane (§2.3); home/issues stay neutral.
+          // Workspace shell tint behind the pane (§2.3); Tasks stays neutral.
           view === 'workspace' && 'issue-mix-10',
           // The pane dims behind the open panel menu (§2.3) so the overlay reads
           // as the focused surface.
@@ -587,7 +555,6 @@ export function MobileApp(): JSX.Element {
         onPointerDownCapture={closePanelMenus}
       >
         <MainViewOutlet
-          home={<MobileHomeView />}
           workspace={
             activeFileTab ? (
               <Suspense
@@ -622,6 +589,9 @@ export function MobileApp(): JSX.Element {
           </div>
         )}
       </div>
+      {view === 'issues' && !superOpen && (
+        <AppToolsRow className="flex-none border-t border-hairline-soft px-2.5 pt-2 pb-[max(4px,var(--safe-bottom))]" />
+      )}
     </div>
   )
 }

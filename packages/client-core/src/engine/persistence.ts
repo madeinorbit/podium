@@ -26,10 +26,9 @@ export const DOCK_SHELLS_KEY = 'podium.dockShells'
 
 export function readStoredView(ui: UiState): MainView {
   const v = ui.get(VIEW_KEY)
-  // 'superagent' is no longer a full view (it's a dock now) — a returning user who
-  // left on it lands on home instead of a dead surface.
-  return v === 'home' ||
-    v === 'workspace' ||
+  // Removed full-page surfaces migrate to Tasks instead of leaving the router
+  // with a dead persisted destination.
+  return v === 'workspace' ||
     v === 'settings' ||
     v === 'usage' ||
     v === 'issues' ||
@@ -37,7 +36,7 @@ export function readStoredView(ui: UiState): MainView {
     v === 'specs' ||
     v === 'workflows'
     ? v
-    : 'home'
+    : 'issues'
 }
 
 /** The persisted worktreePath → dock-shell-session map (#23). A corrupt/missing

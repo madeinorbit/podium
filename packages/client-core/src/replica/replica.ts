@@ -305,6 +305,39 @@ function maxSeq(rows: OutboxRow[]): number {
   return max
 }
 
+/**
+ * Equality for protocol rows, which are JSON values. Unlike stringify, this
+ * avoids allocating two complete strings per existing row and stops as soon as
+ * a changed field is found. Undefined object fields are ignored to preserve
+ * JSON serialization semantics used by persistence.
+ */
+function jsonRowsEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (left === null || right === null) return false
+  if (typeof left !== 'object' || typeof right !== 'object') return false
+  const leftArray = Array.isArray(left)
+  if (leftArray !== Array.isArray(right)) return false
+  if (leftArray) {
+    const a = left as unknown[]
+    const b = right as unknown[]
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) {
+      if (!jsonRowsEqual(a[i], b[i])) return false
+    }
+    return true
+  }
+  const a = left as Record<string, unknown>
+  const b = right as Record<string, unknown>
+  const aKeys = Object.keys(a).filter((key) => a[key] !== undefined)
+  const bKeys = Object.keys(b).filter((key) => b[key] !== undefined)
+  if (aKeys.length !== bKeys.length) return false
+  for (const key of aKeys) {
+    if (!Object.prototype.hasOwnProperty.call(b, key) || !jsonRowsEqual(a[key], b[key]))
+      return false
+  }
+  return true
+}
+
 /** In-place full replace of a draft's contents with `value`.
  *
  *  Update drafts are TanStack DB change-tracking proxies over the stored object.
@@ -315,6 +348,7 @@ function maxSeq(rows: OutboxRow[]): number {
  *  never went away). Assigning `undefined` IS tracked and serializes away (JSON
  *  drops it, `x != null` reads it as cleared), so overwrite dropped keys with
  *  undefined instead of deleting them. */
+
 function replaceContents(draft: Record<string, unknown>, value: Record<string, unknown>): void {
   for (const k of Object.keys(draft)) {
     if (!(k in value)) draft[k] = undefined
@@ -1357,7 +1391,7 @@ class TanstackReplica implements Replica {
       const key = keyOf(row)
       const existing = col.get(key) as ReplicaRows[K] | undefined
       if (existing === undefined) inserts.push(row)
-      else if (JSON.stringify(existing) !== JSON.stringify(row)) updates.push({ key, row })
+      else if (!jsonRowsEqual(existing, row)) updates.push({ key, row })
     }
     if (inserts.length > 0) this.track(col.insert(inserts))
     if (updates.length > 0) {

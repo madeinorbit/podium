@@ -290,7 +290,7 @@ export function SettingsView(): JSX.Element {
           variant="ghost"
           size="icon-sm"
           title="Close settings"
-          onClick={() => setView('home')}
+          onClick={() => setView('issues')}
         >
           ✕
         </Button>

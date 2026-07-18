@@ -287,7 +287,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.awaitingTruth = restoredAwaiting
     // URL router (issue #15 Phase 4): the main surface is the URL. A plain '/'
-    // start restores the persisted view; unknown URLs fall back to home.
+    // start restores the persisted view; unknown URLs fall back to Tasks.
     this.router = createRouter({ fallbackView: readStoredView(this.ui), win: init.routerWindow })
     const route = this.router.current()
     this.prevRoute = route

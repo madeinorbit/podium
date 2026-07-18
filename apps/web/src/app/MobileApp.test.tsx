@@ -3,9 +3,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MobileApp } from './MobileApp'
 
-// #227: the mobile home view IS the sidebar work list (not the Command center),
-// and the header's one dropdown lists every panel of the SELECTED ISSUE —
-// sessions (agents and shells) plus the file tabs open on its worktree.
+// The mobile header's panel dropdown lists every panel of the selected issue:
+// sessions (agents and shells) plus file tabs open on its worktree.
 
 const setPane = vi.fn()
 const setView = vi.fn()
@@ -75,7 +74,7 @@ const issue = {
 // Mutable across tests: the view the shell is on, what's selected, which pane
 // is open, whether the superagent overlay is up, and the session set.
 const state = {
-  view: 'home' as string,
+  view: 'issues' as string,
   selectedIssueId: null as string | null,
   paneA: null as string | null,
   superOpen: false,
@@ -129,10 +128,10 @@ vi.mock('./store', () => {
   }
 })
 
-// The outlet's own switch is trivial; here we only need home-vs-workspace.
+// The outlet's own switch is trivial; these tests exercise workspace chrome.
 vi.mock('./routes', () => ({
-  MainViewOutlet: ({ home, workspace }: { home?: unknown; workspace: unknown }) => (
-    <>{state.view === 'home' ? home : workspace}</>
+  MainViewOutlet: ({ workspace }: { workspace: unknown }) => (
+    <>{state.view === 'workspace' ? workspace : <div>tasks</div>}</>
   ),
 }))
 vi.mock('@/features/terminal/AgentPanel', () => ({ AgentPanel: () => <div>agent panel</div> }))
@@ -146,21 +145,11 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
-  state.view = 'home'
+  state.view = 'issues'
   state.selectedIssueId = null
   state.paneA = null
   state.superOpen = false
   state.sessions = [sess('agent-one'), sess('shell-one', { agentKind: 'shell' })]
-})
-
-describe('MobileApp home view (#227)', () => {
-  it('shows the sidebar work list, not the command center', () => {
-    render(<MobileApp />)
-    // #41: the WORK header gave way to always-on project group labels.
-    expect(screen.getAllByTestId('project-group-label').length).toBeGreaterThan(0)
-    expect(screen.getByText('Selected issue')).toBeTruthy()
-    expect(screen.queryByText('Command center')).toBeNull()
-  })
 })
 
 describe('MobileApp panel dropdown (#227)', () => {
@@ -200,9 +189,9 @@ describe('MobileApp redesigned header (#45, mobile.md §2.1)', () => {
     expect(screen.getByTestId('mobile-panel-menu')).toBeTruthy()
   })
 
-  it('closes a default-open superagent at mount — mobile lands on Home (2a/2c)', () => {
+  it('closes a default-open superagent at mount (2a/2c)', () => {
     // The desktop column's persisted default is OPEN; inherited on mobile it
-    // would bury the home list under the full-screen overlay on first load.
+    // would bury the current view under the full-screen overlay on first load.
     state.superOpen = true
     render(<MobileApp />)
     expect(setSuperOpen).toHaveBeenCalledWith(false)

@@ -293,7 +293,6 @@ function PaletteDialog({
       })
     }
     const views = [
-      ['home', 'Go to Home', ['attention', 'board']],
       ['issues', 'Go to Tasks', ['kanban', 'board', 'tracker']],
       ['workflows', 'Go to Workflows', ['agent', 'process', 'steps']],
       ['workspace', 'Go to Workspace', ['terminal', 'agents']],

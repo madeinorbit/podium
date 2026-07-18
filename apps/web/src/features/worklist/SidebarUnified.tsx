@@ -17,7 +17,7 @@ import {
   Settings as SettingsIcon,
 } from 'lucide-react'
 import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
 import { IdSquare } from '@/components/IdSquare'
@@ -48,6 +48,7 @@ import {
   partitionStaleSessions,
   pickPaneSession,
   type RepoNavView,
+  type SidebarSections,
   resolveDefaultAgent,
   resolveTargetMachine,
   rowMotionPhase,
@@ -84,13 +85,41 @@ function agentIconFor(kind: AgentKind) {
  * status anatomy, motion-grammar meta and — when selected — the bridge notch
  * growing toward the engraved column.
  *
- * The pieces are exported separately because the mobile shell composes them
- * into its home view without the desktop column (#227).
+ * The pieces are exported separately because the collapsed rail shares their
+ * hooks and row behavior.
  */
+export interface SidebarDerivation {
+  sections: SidebarSections
+  allWorktreePaths: string[]
+  work: UnifiedWorkRow[]
+  now: number
+}
+
+export function useSidebarDerivation(): SidebarDerivation {
+  const { repos, sessions, pins, issues } = useStoreSelector(
+    (s) => ({ repos: s.repos, sessions: s.sessions, pins: s.pins, issues: s.issues }),
+    shallowEqual,
+  )
+  const now = useNow(60_000)
+  return useMemo(() => {
+    const sections = sidebarSections(repos, sessions, pins, now, issues)
+    const allWorktreePaths = [...sections.pinnedRepos, ...sections.repos].flatMap((repo) =>
+      repo.worktrees.map((worktree) => worktree.path),
+    )
+    return {
+      sections,
+      allWorktreePaths,
+      work: unifiedWorkList(sections, issues, sessions, allWorktreePaths, now),
+      now,
+    }
+  }, [repos, sessions, pins, issues, now])
+}
+
 export function SidebarUnified(): JSX.Element {
+  const derivation = useSidebarDerivation()
   return (
     <>
-      <NewWorkRow />
+      <NewWorkRow sections={derivation.sections} />
       {/* Divider under the spawn row — the handoff's 4px margins plus the
           column's 3px flex gap on each side land at 11px above / 9px below. */}
       <div
@@ -109,7 +138,7 @@ export function SidebarUnified(): JSX.Element {
         className="scroll-none flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto pb-2.5 pl-2"
         style={{ marginRight: -5, paddingRight: 13 }}
       >
-        <WorkSections />
+        <WorkSections derivation={derivation} />
       </div>
       {/* Footer: 8px top / 10px sides, 4px own bottom + the column's 6px. */}
       <AppToolsRow className="flex-none border-t border-[#25252f] px-2.5 pt-2 pb-2.5" />
@@ -126,7 +155,7 @@ export function SidebarUnified(): JSX.Element {
  * Default spawn target + spawn/persist actions shared by the wide `New <Agent>
  * in <Repo>` row and the rail's compact new-Claude button (#41).
  */
-export function useDefaultSpawn() {
+export function useDefaultSpawn(sectionsOverride?: SidebarSections) {
   const {
     repos,
     sessions,
@@ -171,7 +200,7 @@ export function useDefaultSpawn() {
     }
   }, [trpc])
 
-  const sections = sidebarSections(repos, sessions, pins, now, issues)
+  const sections = sectionsOverride ?? sidebarSections(repos, sessions, pins, now, issues)
   const { byRepo } = lastUsedMaps(sections, sessions)
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
   // <Repo> on the button = the repo of the most recent session activity.
@@ -240,7 +269,7 @@ export function useDefaultSpawn() {
   }
 }
 
-export function NewWorkRow(): JSX.Element {
+export function NewWorkRow({ sections }: { sections?: SidebarSections } = {}): JSX.Element {
   const {
     defaultAgent,
     defaultRepo,
@@ -249,7 +278,7 @@ export function NewWorkRow(): JSX.Element {
     machines,
     spawn,
     persistDefaultAgent,
-  } = useDefaultSpawn()
+  } = useDefaultSpawn(sections)
   const [newIssueOpen, setNewIssueOpen] = useState(false)
   // Anchor for the agent/repo menu: the WHOLE bordered button container, so the
   // dropdown opens directly under it, left-aligned, at the button's exact width
@@ -479,7 +508,7 @@ function ProjectGroupLabel({ label, first }: { label: string; first: boolean }):
  * wide sidebar (WorkSections) and the collapsed rail (SidebarRail, #41), so
  * both surfaces select/open work with identical semantics.
  */
-export function useUnifiedWork() {
+export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   const {
     repos,
     sessions,
@@ -520,11 +549,15 @@ export function useUnifiedWork() {
     }),
     shallowEqual,
   )
-  const now = useNow(60_000)
-  const sections = sidebarSections(repos, sessions, pins, now, issues)
+  const fallbackNow = useNow(60_000)
+  const now = derivationOverride?.now ?? fallbackNow
+  const sections =
+    derivationOverride?.sections ?? sidebarSections(repos, sessions, pins, now, issues)
   const repoNavs: RepoNavView[] = [...sections.pinnedRepos, ...sections.repos]
-  const allWorktreePaths = repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
-  const work = unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
+  const allWorktreePaths =
+    derivationOverride?.allWorktreePaths ?? repoNavs.flatMap((r) => r.worktrees.map((w) => w.path))
+  const work =
+    derivationOverride?.work ?? unifiedWorkList(sections, issues, sessions, allWorktreePaths, now)
 
   // Switch-latency trace [POD-701]: a gesture that changes the focused SESSION
   // starts a trace at t0. Skipped for no-op switches (target already in pane A)
@@ -628,7 +661,7 @@ export function useUnifiedWork() {
   }
 }
 
-export function WorkSections(): JSX.Element {
+export function WorkSections({ derivation }: { derivation?: SidebarDerivation } = {}): JSX.Element {
   const {
     work,
     sessions,
@@ -646,7 +679,7 @@ export function WorkSections(): JSX.Element {
     openIssuePage,
     renameIssue,
     setIssueColor,
-  } = useUnifiedWork()
+  } = useUnifiedWork(derivation)
 
   const renderWorkRow = (row: UnifiedWorkRow) =>
     row.kind === 'issue' ? (

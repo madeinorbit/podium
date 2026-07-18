@@ -25,7 +25,7 @@ import {
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
-import { useDefaultSpawn, useUnifiedWork } from './SidebarUnified'
+import { useDefaultSpawn, useSidebarDerivation, useUnifiedWork } from './SidebarUnified'
 
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
  *  this colour (the --card sidebar background). */
@@ -61,6 +61,7 @@ function RailNotch({ hex }: { hex: string | undefined }): JSX.Element {
 }
 
 export function SidebarRail(): JSX.Element {
+  const derivation = useSidebarDerivation()
   const {
     work,
     selectedIssueId,
@@ -69,8 +70,8 @@ export function SidebarRail(): JSX.Element {
     selectWorktree,
     setIssueColor,
     now,
-  } = useUnifiedWork()
-  const { defaultAgent, defaultRepo, defaultTarget, spawn } = useDefaultSpawn()
+  } = useUnifiedWork(derivation)
+  const { defaultAgent, defaultRepo, defaultTarget, spawn } = useDefaultSpawn(derivation.sections)
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const AgentIcon = NEW_AGENTS.find((a) => a.kind === defaultAgent)?.Icon
 

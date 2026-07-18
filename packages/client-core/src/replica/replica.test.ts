@@ -76,6 +76,21 @@ describe('replica row-notification coalescing (#262 review)', () => {
     expect(observed).toEqual([['b']])
   })
 
+  it('skips unchanged rows without serializing them and detects nested changes', () => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('sessions', [session('a')])
+    const notify = vi.fn()
+    replica.subscribeRows('sessions', notify)
+
+    const same = { ...session('a'), geometry: { rows: 24, cols: 80 } }
+    replica.applySnapshot('sessions', [same])
+    expect(notify).not.toHaveBeenCalled()
+
+    replica.applySnapshot('sessions', [{ ...same, geometry: { rows: 40, cols: 80 } }])
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(replica.rows('sessions')[0]?.geometry.rows).toBe(40)
+  })
+
   it('applyChanges (remove + upsert) notifies once, against the final rows', () => {
     const replica = createReplica({ storage: memoryStorage() })
     replica.applyChanges('sessions', [session('a')], [])
