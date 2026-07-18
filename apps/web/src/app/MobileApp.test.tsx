@@ -130,11 +130,22 @@ vi.mock('./store', () => {
 
 // The outlet's own switch is trivial; these tests exercise workspace chrome.
 vi.mock('./routes', () => ({
-  MainViewOutlet: ({ workspace }: { workspace: unknown }) => (
-    <>{state.view === 'workspace' ? workspace : <div>tasks</div>}</>
+  MainViewOutlet: ({ workspace, issues }: { workspace: unknown; issues?: unknown }) => (
+    <>
+      {state.view === 'workspace' ? workspace : state.view === 'issues' ? issues : <div>other</div>}
+    </>
   ),
 }))
 vi.mock('@/features/terminal/AgentPanel', () => ({ AgentPanel: () => <div>agent panel</div> }))
+vi.mock('@/features/worklist/SidebarUnified', () => ({
+  SidebarUnified: () => (
+    <div data-testid="sidebar-unified">
+      <button type="button">New task</button>
+      <button type="button">New Shell</button>
+      <button type="button">Search</button>
+    </div>
+  ),
+}))
 vi.mock('@/features/superagent/SuperagentView', () => ({ SuperagentView: () => null }))
 vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
 vi.mock('./NewPanelMenu', () => ({ NewPanelMenu: () => null, NEW_AGENTS: [] }))
@@ -150,6 +161,17 @@ afterEach(() => {
   state.paneA = null
   state.superOpen = false
   state.sessions = [sess('agent-one'), sess('shell-one', { agentKind: 'shell' })]
+})
+
+describe('MobileApp work-list home [spec:SP-7696]', () => {
+  it('uses the sidebar work list as the main mobile surface with task, shell, and app actions', () => {
+    render(<MobileApp />)
+    expect(screen.getByTestId('mobile-work-list')).toBeTruthy()
+    expect(screen.getByTestId('sidebar-unified')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New task' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New Shell' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Search' })).toBeTruthy()
+  })
 })
 
 describe('MobileApp panel dropdown (#227)', () => {

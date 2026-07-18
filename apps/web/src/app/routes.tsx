@@ -19,7 +19,15 @@ const SpecsView = lazy(() =>
  * `view`, and this outlet renders it. AppShell (desktop) and MobileApp share it
  * verbatim — the only per-shell difference is what "workspace" looks like.
  */
-export function MainViewOutlet({ workspace }: { workspace: ReactNode }): JSX.Element {
+export function MainViewOutlet({
+  workspace,
+  issues,
+}: {
+  workspace: ReactNode
+  /** Responsive shells can replace the desktop task board with their primary
+   * work-navigation surface. [spec:SP-7696] */
+  issues?: ReactNode
+}): JSX.Element {
   const view = useStoreSelector((s) => s.view)
   switch (view) {
     case 'settings':
@@ -27,7 +35,7 @@ export function MainViewOutlet({ workspace }: { workspace: ReactNode }): JSX.Ele
     case 'usage':
       return <UsageView />
     case 'issues':
-      return <IssuesView />
+      return <>{issues ?? <IssuesView />}</>
     case 'workflows':
       return <WorkflowsView />
     case 'automations':

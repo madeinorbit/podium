@@ -78,7 +78,7 @@ export async function gotoWorkspace(page: Page): Promise<void> {
   await sidebar.or(mobileShell).first().waitFor({ state: 'visible', timeout: 60_000 })
   const onDesktop = await sidebar.isVisible()
   const list = onDesktop ? sidebar : mobileShell
-  if (!onDesktop) await page.locator('button[title="Work"]').click({ timeout: 15_000 })
+  if (!onDesktop) await page.locator('button[title="Tasks"]').click({ timeout: 15_000 })
 
   // Work rows load with the repos/sessions feeds — give the top row a short
   // window to appear (it exists whenever earlier specs or a pre-reload page

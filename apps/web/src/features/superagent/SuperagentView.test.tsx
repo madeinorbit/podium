@@ -116,14 +116,22 @@ async function flush(): Promise<void> {
   })
 }
 
-async function mount(): Promise<void> {
+async function mount(mobile = false): Promise<void> {
   act(() => {
-    root.render(<SuperagentView />)
+    root.render(<SuperagentView mobile={mobile} onClose={vi.fn()} />)
   })
   await flush()
 }
 
 describe('engraved column structure', () => {
+  it('renders one tray-free conversation surface on mobile', async () => {
+    await mount(true)
+    expect(container.querySelector('[data-testid="tray-bar"]')).toBeNull()
+    expect(container.querySelector('[data-testid="tray-cards"]')).toBeNull()
+    expect(container.querySelector('[data-testid="super-bar"]')).not.toBeNull()
+    expect(container.querySelector('[data-superagent-composer]')).not.toBeNull()
+  })
+
   it('renders the Tray bar above the Super agent bar with the quiet empty line', async () => {
     await mount()
     const bars = container.querySelectorAll('[data-testid="tray-bar"], [data-testid="super-bar"]')
@@ -139,9 +147,7 @@ describe('engraved column structure', () => {
     storeIssues = [makeIssue({ id: 'p', seq: 7 })]
     storeSelectedIssueId = 'p'
     await mount()
-    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain(
-      'TASK SCOPE',
-    )
+    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain('TASK SCOPE')
   })
 })
 

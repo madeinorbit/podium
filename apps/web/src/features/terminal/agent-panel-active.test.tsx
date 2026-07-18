@@ -13,12 +13,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const setActive = vi.fn()
 const dispose = vi.fn()
+const requestControl = vi.fn()
 // Loosely typed args (el, opts) so the captured opts.active is inspectable.
 const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   connection: {
     state: () => ({ role: 'controller' }),
     sendInput: vi.fn(),
-    requestControl: vi.fn(),
+    requestControl,
   },
   view: {
     setFileLinks: vi.fn(),
@@ -181,6 +182,17 @@ describe('AgentPanel active wiring', () => {
     expect(stableStoreFns.resurrectSession).toHaveBeenCalledWith('s1')
     expect(button?.textContent).toBe('Resume')
     expect(button?.disabled).toBe(false)
+  })
+
+  it('keeps Take control reachable and requests terminal control', async () => {
+    await act(async () => {
+      root.render(<AgentPanel sessionId="s1" active />)
+    })
+    await flush()
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="take-control"]')
+    expect(button?.getAttribute('aria-label')).toBe('Take control of the terminal')
+    await act(async () => button?.click())
+    expect(requestControl).toHaveBeenCalledTimes(1)
   })
 
   it('passes initial active to mountSession for a live native panel', async () => {

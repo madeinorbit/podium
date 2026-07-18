@@ -7,7 +7,7 @@ import { idSquareLabel } from '@/components/IdSquare'
 import { HostIndicators } from '@/features/machines/HostIndicators'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
-import { AppToolsRow } from '@/features/worklist/SidebarUnified'
+import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
   draftIssueLabel,
   orderTabs,
@@ -555,6 +555,14 @@ export function MobileApp(): JSX.Element {
         onPointerDownCapture={closePanelMenus}
       >
         <MainViewOutlet
+          issues={
+            <main
+              data-testid="mobile-work-list"
+              className="flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar"
+            >
+              <SidebarUnified />
+            </main>
+          }
           workspace={
             activeFileTab ? (
               <Suspense
@@ -577,9 +585,8 @@ export function MobileApp(): JSX.Element {
             )
           }
         />
-        {/* Full-screen superagent overlay (§2.4): the engraved column — Tray on
-            top, overarching chat below — over the issue-glow surface. The ⌄ in
-            the Tray bar minimizes it back; the header ✦ toggles (lit amber). */}
+        {/* Full-screen superagent overlay [spec:SP-7696]: mobile is one clean
+            conversation surface. The desktop-only tray is deliberately absent. */}
         {superOpen && (
           <div
             data-testid="mobile-super-overlay"
@@ -589,9 +596,6 @@ export function MobileApp(): JSX.Element {
           </div>
         )}
       </div>
-      {view === 'issues' && !superOpen && (
-        <AppToolsRow className="flex-none border-t border-hairline-soft px-2.5 pt-2 pb-[max(4px,var(--safe-bottom))]" />
-      )}
     </div>
   )
 }

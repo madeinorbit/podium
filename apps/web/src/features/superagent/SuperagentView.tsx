@@ -147,7 +147,7 @@ export function SuperagentView({
     window.addEventListener('pointerup', up)
   }
 
-  const feed = useIssueEvents(trpc, uiState, chatOpen, true)
+  const feed = useIssueEvents(trpc, uiState, mobile || chatOpen, true)
 
   const refreshThreads = () =>
     trpc.superagent.listThreads
@@ -272,74 +272,94 @@ export function SuperagentView({
 
   return (
     <section ref={sectionRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <SectionBar
-        testId="tray-bar"
-        glyph="▤"
-        title="Tray"
-        scope={selectedIssue ? 'TASK SCOPE' : 'ALL TASKS'}
-        open={trayOpen}
-        onToggle={() => setTrayOpen(!trayOpen)}
-        badge={!trayOpen ? <CountPill count={itemCount} /> : undefined}
-        className="border-b"
-        actions={
-          onClose ? (
-            // Desktop folds the column; the mobile full-screen overlay minimizes
-            // via the ⌄ in this bar instead (mobile.md §2.4).
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="size-5 flex-none text-muted-foreground"
-              title={mobile ? 'Minimize' : 'Fold the tray and superagent column'}
-              onClick={onClose}
-            >
-              {mobile ? (
-                <ChevronDown size={14} aria-hidden="true" />
-              ) : (
-                <PanelRightClose size={13} aria-hidden="true" />
-              )}
-            </Button>
-          ) : undefined
-        }
-      />
-      {trayOpen && (
-        <div
-          ref={trayBodyRef}
-          className={cn('min-h-0', chatOpen ? 'flex-none' : 'flex flex-1 flex-col overflow-y-auto')}
-        >
-          <Tray
-            issues={issues}
-            selectedIssueId={selectedIssueId ?? null}
-            actions={trayActions}
-            maxHeight={chatOpen ? trayHeight : null}
+      {!mobile && (
+        <>
+          <SectionBar
+            testId="tray-bar"
+            glyph="▤"
+            title="Tray"
+            scope={selectedIssue ? 'TASK SCOPE' : 'ALL TASKS'}
+            open={trayOpen}
+            onToggle={() => setTrayOpen(!trayOpen)}
+            badge={!trayOpen ? <CountPill count={itemCount} /> : undefined}
+            className="border-b"
+            actions={
+              onClose ? (
+                // Desktop folds the column; the mobile full-screen overlay minimizes
+                // via the ⌄ in this bar instead (mobile.md §2.4).
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-5 flex-none text-muted-foreground"
+                  title={mobile ? 'Minimize' : 'Fold the tray and superagent column'}
+                  onClick={onClose}
+                >
+                  {mobile ? (
+                    <ChevronDown size={14} aria-hidden="true" />
+                  ) : (
+                    <PanelRightClose size={13} aria-hidden="true" />
+                  )}
+                </Button>
+              ) : undefined
+            }
           />
-        </div>
+          {trayOpen && (
+            <div
+              ref={trayBodyRef}
+              className={cn(
+                'min-h-0',
+                chatOpen ? 'flex-none' : 'flex flex-1 flex-col overflow-y-auto',
+              )}
+            >
+              <Tray
+                issues={issues}
+                selectedIssueId={selectedIssueId ?? null}
+                actions={trayActions}
+                maxHeight={chatOpen ? trayHeight : null}
+              />
+            </div>
+          )}
+          {trayOpen && chatOpen && (
+            // biome-ignore lint/a11y/useSemanticElements: the drag handle is an interactive separator, not a thematic break
+            <div
+              role="separator"
+              tabIndex={0}
+              aria-orientation="horizontal"
+              aria-label="Resize tray"
+              aria-valuemin={TRAY_MIN_HEIGHT}
+              aria-valuenow={trayHeight ?? TRAY_MIN_HEIGHT}
+              className="h-[5px] flex-none cursor-row-resize hover:bg-[rgba(245,158,11,.15)]"
+              onPointerDown={onSplitPointerDown}
+            />
+          )}
+          {!trayOpen && !chatOpen && <div className="flex-1" aria-hidden="true" />}
+        </>
       )}
-      {trayOpen && chatOpen && (
-        // biome-ignore lint/a11y/useSemanticElements: the drag handle is an interactive separator, not a thematic break
-        <div
-          role="separator"
-          tabIndex={0}
-          aria-orientation="horizontal"
-          aria-label="Resize tray"
-          aria-valuemin={TRAY_MIN_HEIGHT}
-          aria-valuenow={trayHeight ?? TRAY_MIN_HEIGHT}
-          className="h-[5px] flex-none cursor-row-resize hover:bg-[rgba(245,158,11,.15)]"
-          onPointerDown={onSplitPointerDown}
-        />
-      )}
-      {!trayOpen && !chatOpen && <div className="flex-1" aria-hidden="true" />}
       <SectionBar
         testId="super-bar"
         glyph="✦"
         title="Super agent"
         scope="OVERARCHING · KNOWS THIS ISSUE"
-        open={chatOpen}
-        onToggle={() => setChatOpen(!chatOpen)}
+        open={mobile || chatOpen}
+        onToggle={() => {
+          if (!mobile) setChatOpen(!chatOpen)
+        }}
         badge={!chatOpen ? <UnreadDot show={feed.unread} /> : undefined}
         shadow={chatOpen}
         className={chatOpen ? 'border-y' : 'border-t'}
         actions={
           <>
+            {mobile && onClose && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-5 flex-none text-muted-foreground"
+                title="Minimize"
+                onClick={onClose}
+              >
+                <ChevronDown size={14} aria-hidden="true" />
+              </Button>
+            )}
             {thread?.harnessSessionId && (
               <Button
                 variant="ghost"
@@ -363,7 +383,7 @@ export function SuperagentView({
           </>
         }
       />
-      {chatOpen && (
+      {(mobile || chatOpen) && (
         <>
           {error && (
             <div className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] text-destructive">

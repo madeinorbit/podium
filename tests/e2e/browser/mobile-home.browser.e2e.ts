@@ -21,7 +21,7 @@ test('mobile home is the work list, and the header dropdown lists issue panels',
   await openApp(page) // spawns an agent by clicking the home list's `New … in …`
 
   // Home: the sidebar's work list, not the Command center board.
-  await page.locator('button[title="Work"]').click()
+  await page.locator('button[title="Tasks"]').click()
   // #41: the WORK header gave way to always-on project group labels.
   await expect(page.getByTestId('project-group-label').first()).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-testid="unified-issue-row"]').first()).toBeVisible()

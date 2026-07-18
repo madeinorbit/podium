@@ -655,18 +655,35 @@ export function AgentPanel({
               )}
             </Button>
           )}
+          {effectiveMode === 'native' && !hibernated && !exited && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              data-testid="take-control"
+              className={cn(
+                'size-[26px] rounded-[6px] text-(--issue-muted-bright)',
+                isMobile && 'border issue-hairline-30 bg-background/45 text-(--issue-bright)',
+              )}
+              aria-label="Take control of the terminal"
+              title="Take control of the terminal"
+              onClick={() => mountedRef.current?.connection.requestControl()}
+            >
+              <Keyboard size={13} aria-hidden="true" />
+            </Button>
+          )}
           {/* Native resume command (#119): the literal `claude --resume <id>` etc.
               so you can pick the conversation back up in your own terminal. */}
-          {resumeCmd && (
+          {!isMobile && resumeCmd && (
             <ResumeCommandMenu
               command={resumeCmd}
               className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
             />
           )}
-          {showSnooze && session && (
+          {!isMobile && showSnooze && session && (
             <SnoozeControl session={session} iconSize={15} dimmed={false} />
           )}
-          {chatCapable && (
+          {!isMobile && chatCapable && (
             <Button
               type="button"
               variant="ghost"
@@ -678,7 +695,7 @@ export function AgentPanel({
               <Sparkles size={13} aria-hidden="true" />
             </Button>
           )}
-          {canHibernate && (
+          {!isMobile && canHibernate && (
             <Button
               type="button"
               variant="ghost"
@@ -709,18 +726,6 @@ export function AgentPanel({
               onClick={() => void guardedArchive(sessionId, true)}
             >
               <Archive size={13} aria-hidden="true" />
-            </Button>
-          )}
-          {effectiveMode === 'native' && !hibernated && !exited && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-              title="Take control of the terminal"
-              onClick={() => mountedRef.current?.connection.requestControl()}
-            >
-              <Keyboard size={13} aria-hidden="true" />
             </Button>
           )}
         </span>
