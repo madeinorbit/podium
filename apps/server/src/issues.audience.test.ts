@@ -7,6 +7,7 @@
  * SP-6144: agent-created top-level issues are human-facing proposals, inert until
  * an operator promotes them. needsHuman remains reserved for actual questions.
  */
+import type { IssueWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
 import { SessionRegistry } from './relay'
@@ -19,6 +20,9 @@ const ctx = (registry: SessionRegistry, capability: Capability) =>
     superagent: {} as never,
     capability,
   })
+
+/** issueWrite-wrapped mutations type as `wire | { queued: true }` — local tests always get the wire. */
+const asWire = (v: unknown): IssueWire => v as IssueWire
 
 const withWarning = (v: unknown): string | undefined => (v as { warning?: string }).warning
 
@@ -177,7 +181,7 @@ describe('issues.create provenance (#198)', () => {
       await expect(
         proposalWorker.issues.update({ id: proposal.id, patch: { stage: 'backlog' } }),
       ).rejects.toThrow(/operator/i)
-      const promoted = await op.issues.promote({ id: proposal.id })
+      const promoted = asWire(await op.issues.promote({ id: proposal.id }))
       expect(promoted.stage).toBe('backlog')
       expect(promoted.ready).toBe(true)
     } finally {
@@ -221,14 +225,18 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
         proposalWorker.issues.update({ id: proposal.id, patch: { parentId: root.id } }),
       ).rejects.toThrow(/operator/i)
       // Non-lifecycle fields stay editable by the agent.
-      const renamed = await proposalWorker.issues.update({
+      const renamed = asWire(
+        await proposalWorker.issues.update({
         id: proposal.id,
-        patch: { title: 'clarified proposal' },
-      })
+          patch: { title: 'clarified proposal' },
+        }),
+      )
       expect(renamed.title).toBe('clarified proposal')
       expect(renamed.stage).toBe('proposed')
       // The operator can do all of it.
-      const dismissed = await op.issues.update({ id: proposal.id, patch: { archived: true } })
+      const dismissed = asWire(
+        await op.issues.update({ id: proposal.id, patch: { archived: true } }),
+      )
       expect(dismissed.archived).toBe(true)
     } finally {
       reg.dispose()

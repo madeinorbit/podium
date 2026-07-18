@@ -13,7 +13,7 @@ const base = () => ({
   activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null,
   blockedBy: [] as string[], dependencyNote: null, prUrl: null,
   priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-  notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
+  notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
   duplicateOf: null, pinned: false, estimateMin: null,
   needsHuman: false, humanQuestion: null,
   createdAt: 't0', updatedAt: 't0', archived: false,

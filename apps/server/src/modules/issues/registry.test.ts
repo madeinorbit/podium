@@ -11,6 +11,7 @@ import { guardIssueCommand, issueRegistry } from './registry'
 
 // Expected registry action for every non-read command. Unlisted commands are explicit reads.
 const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
+  promote: 'write',
   claim: 'write',
   setCoordinator: 'write',
   update: 'write',
@@ -58,6 +59,7 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
 // SCOPED_TARGET as deleted: proc → the input field carrying the target issue id.
 // 'none' = the extractor deliberately returned undefined (mailClaim).
 const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'> = {
+  promote: 'id',
   claim: 'id',
   setCoordinator: 'id',
   update: 'id',

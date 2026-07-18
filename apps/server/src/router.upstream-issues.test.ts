@@ -123,6 +123,9 @@ const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   depRemove: { fromId: HUB_ID, toId: 'iss_other' },
   supersede: { oldId: HUB_ID, newId: 'iss_other' },
   duplicate: { id: HUB_ID, canonicalId: 'iss_other' },
+  // Promotion/coordination are issueWrite-wrapped like their siblings [spec:SP-6144].
+  promote: { id: HUB_ID },
+  setCoordinator: { id: HUB_ID, sessionId: 'sess_hub' },
 }
 
 /** Write procs deliberately EXCLUDED from hub forwarding, with the reason. cleanup
@@ -135,6 +138,8 @@ const NOT_FORWARDED = new Set([
   // mailClaim targets a node-local MESSAGE id (agent mail, issue #103) — mailboxes
   // are never hub-mirrored, so the proc is local-only and enforces scope itself.
   'mailClaim',
+  // stop acts on LOCAL sessions/worktrees — its proc refuses viaHub ids [spec:SP-9904].
+  'stop',
 ])
 
 describe('viaHub forwarding detection (per proc)', () => {

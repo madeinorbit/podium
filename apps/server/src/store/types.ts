@@ -95,7 +95,7 @@ export interface SessionRow {
   readAt?: string | null
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt?: string | null
-  stopReason?: 'self' | 'parent' | 'forced' | null
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides

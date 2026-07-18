@@ -318,7 +318,7 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
     ).not.toContain('"completed"')
     // A sessionless finished issue with NO parent (the historical done backlog,
     // unread since before readAt existed) must never resurface at top level.
-    const topLevel = { ...completed, parentId: null }
+    const topLevel = { ...completed, parentId: undefined }
     expect(unifiedWorkList(emptySections(), [topLevel], [], [], NOW)).toEqual([])
   })
 

@@ -90,7 +90,7 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
     notes: null,
     dueAt: null,
     deferUntil: null,
-    closedReason: null,
+    closedReason: null, closedAt: null,
     supersededBy: null,
     duplicateOf: null,
     pinned: false,
