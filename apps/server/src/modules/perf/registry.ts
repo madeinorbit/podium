@@ -55,6 +55,7 @@ function summarize(stats: OpStats): PerfOpSummary {
     count: stats.count,
     p50Ms: percentile(recent, 0.5),
     p90Ms: percentile(recent, 0.9),
+    p95Ms: percentile(recent, 0.95),
     p99Ms: percentile(recent, 0.99),
     maxMs: stats.maxMs,
     lastMs: stats.lastMs,

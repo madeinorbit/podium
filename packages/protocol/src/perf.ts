@@ -52,6 +52,7 @@ export interface PerfOpSummary {
   count: number
   p50Ms: number
   p90Ms: number
+  p95Ms: number
   p99Ms: number
   maxMs: number
   lastMs: number

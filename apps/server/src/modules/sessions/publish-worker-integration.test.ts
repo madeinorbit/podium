@@ -575,6 +575,101 @@ describe('SessionsService publication worker integration', () => {
     expect(encoded[1]).not.toContain(revoked)
   })
 
+  it('shadow-compares two scoped worlds through hidden-only changes and revocation', async () => {
+    const registry = new SessionRegistry(undefined, undefined, {
+      publicationShadowCompare: true,
+    })
+    registries.push(registry)
+    const aliceSession = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/shadow-alice',
+    }).sessionId
+    const bobSession = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/shadow-bob-secret',
+    }).sessionId
+    registry.modules.sessions.flushBroadcasts()
+
+    const attach = (
+      principal: string,
+      snapshot: () => {
+        revision: number
+        allowedSignature: string
+        allowedSessionIds: string[]
+      },
+    ) => {
+      const encoded: string[] = []
+      const id = registry.modules.sessions.attachClient(() => {}, {
+        sendPrepared: (bytes) => encoded.push(bytes),
+        principal,
+        scope: `principal:${principal}`,
+        serverRole: 'standalone',
+        protocolVersion: 1,
+        global: false,
+        snapshot,
+      })
+      registry.modules.sessions.onClientMessage(id, {
+        type: 'hello',
+        clientId: '',
+        viewport: { cols: 80, rows: 24, dpr: 1 },
+        caps: ['metadataDelta'],
+      })
+      return { id, encoded }
+    }
+
+    const alice = attach('alice', () => ({
+      revision: 1,
+      allowedSignature: aliceSession,
+      allowedSessionIds: [aliceSession],
+    }))
+    let bobRevision = 1
+    let bobAllowed = [bobSession]
+    const bob = attach('bob', () => ({
+      revision: bobRevision,
+      allowedSignature: JSON.stringify(bobAllowed),
+      allowedSessionIds: bobAllowed,
+    }))
+    await until(() => alice.encoded.length === 1 && bob.encoded.length === 1)
+
+    registry.modules.sessions.renameSession({
+      sessionId: bobSession,
+      name: 'hidden-from-alice',
+    })
+    registry.modules.sessions.flushBroadcasts()
+    await until(() => alice.encoded.length === 2 && bob.encoded.length === 2)
+    expect(decoded(encodedAt(alice.encoded, 1))).toMatchObject({
+      type: 'metadataDelta',
+      changes: [],
+    })
+    expect(alice.encoded[1]).not.toContain(bobSession)
+    expect(alice.encoded[1]).not.toContain('hidden-from-alice')
+    expect(decoded(encodedAt(bob.encoded, 1))).toMatchObject({
+      type: 'metadataDelta',
+      changes: [{ entity: 'session', id: bobSession, op: 'upsert' }],
+    })
+
+    bobRevision += 1
+    bobAllowed = []
+    registry.modules.sessions.refreshClientPublication(bob.id)
+    await until(() => bob.encoded.length === 4)
+    expect(decoded(encodedAt(bob.encoded, 2))).toEqual({
+      type: 'sessionViewDelta',
+      removedSessionIds: [bobSession],
+    })
+    expect(decoded(encodedAt(bob.encoded, 3))).toEqual({
+      type: 'sessionsChanged',
+      sessions: [],
+    })
+
+    const metrics = registry.modules.sessions.publicationMetrics()
+    expect(metrics).toMatchObject({
+      shadowMismatches: 0,
+      failures: 0,
+      queueDepth: 0,
+    })
+    expect(metrics.shadowComparisons).toBeGreaterThanOrEqual(5)
+  })
+
   it('does not multiply a 588-session projection across same-ViewKey clients', async () => {
     const registry = new SessionRegistry()
     registries.push(registry)

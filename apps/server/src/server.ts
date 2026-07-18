@@ -169,6 +169,9 @@ export async function startServer(
   const registry = new SessionRegistry(store, undefined, {
     mirrorLakeDir: join(stateDir(), 'transcripts'),
     telegramNotice: () => messaging,
+    // Rollout diagnostic only: compare legacy/new semantics while continuing
+    // to deliver the worker publication [spec:SP-c29e].
+    publicationShadowCompare: process.env.PODIUM_PUBLISH_SHADOW_COMPARE === '1',
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
