@@ -9,6 +9,7 @@ import {
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  ChangeLogPrunePlanner,
   createMaintenanceHttpClient,
   EventLogPrunePlanner,
   JanitorService,
@@ -258,7 +259,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
           cutoff: '2026-07-04T00:00:00.000Z',
           capThroughId: 0,
           batchSize: 500,
-          batchIndex: 0,
+          fromId: 1,
         },
       ],
       planChangeLogPrune: async () => [
@@ -267,7 +268,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
           maxAgeMs: 3 * 24 * 60 * 60 * 1000,
           thresholdSeq: 9,
           batchSize: 100,
-          batchIndex: 0,
+          fromSeq: 1,
         },
       ],
       planMaintenanceCommandsPrune: async () => [],
@@ -296,8 +297,38 @@ describe('JanitorService [spec:SP-c29e]', () => {
     expect(applies).toEqual(['event-log-prune', 'change-log-prune', 'issue-auto-archive'])
     const counters = service.snapshotCounters()
     expect(counters.applied).toBe(3)
+    expect(counters.ticks).toBe(1)
+    expect(counters.applies).toBe(3)
+    expect(counters.stale).toBe(0)
+    expect(counters.failures).toBe(0)
     expect(counters.maxBatchDeleted).toBe(1)
     expect(counters.lastProgressAt).not.toBeNull()
+    expect(counters.jobAgeMs['event-log-prune']).toBeDefined()
+  })
+
+  it('[POD-925 review] snapshotCounters.failures increments when a tick rejects', async () => {
+    let reads = 0
+    const service = new JanitorService({
+      generationId: 'gen_fail',
+      now: () => Date.parse('2026-07-18T00:00:00.000Z'),
+      handshake: async () => readyLease({ fencingToken: 1 }),
+      readExpiryCandidates: () => {
+        reads += 1
+        if (reads > 1) throw new Error('server-down')
+        return []
+      },
+      apply: async (request) => ({
+        status: 'applied',
+        jobKind: request.jobKind,
+        runKey: request.runKey,
+      }),
+    })
+    await service.tick()
+    expect(service.snapshotCounters().failures).toBe(0)
+    await expect(service.tick()).rejects.toThrow(/server-down/)
+    // flight rejection path increments failures
+    await new Promise((r) => setTimeout(r, 0))
+    expect(service.snapshotCounters()).toMatchObject({ ticks: 2, failures: 1 })
   })
 
   it('[POD-925] EventLogPrunePlanner emits one observation per bounded batch', async () => {
@@ -325,9 +356,52 @@ describe('JanitorService [spec:SP-c29e]', () => {
         nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
       })
       expect(batches).toHaveLength(3)
-      expect(batches[0]?.batchIndex).toBe(0)
-      expect(batches[2]?.batchIndex).toBe(2)
+      expect(batches.map((b) => b.fromId)).toEqual([1, 3, 5])
       expect(new Set(batches.map((b) => b.cutoff)).size).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('[POD-925 review] ChangeLogPrunePlanner advances fromSeq so recovery cannot starve', async () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE changes (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity TEXT,
+        entity_id TEXT,
+        op TEXT,
+        payload TEXT,
+        event_time INTEGER
+      )`)
+      const insert = db.prepare(
+        'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
+      )
+      // 250 aged rows; batchSize 100 → first plan 3 batches; after deleting 200, replan continues.
+      const aged = Date.parse('2026-07-01T00:00:00.000Z')
+      for (let i = 0; i < 250; i++) {
+        insert.run('issue', `i${i}`, 'upsert', '{}', aged)
+      }
+      const planner = new ChangeLogPrunePlanner(db)
+      const first = await planner.plan({
+        keepRows: 0,
+        maxAgeMs: 1,
+        batchSize: 100,
+        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
+      })
+      expect(first.length).toBeGreaterThanOrEqual(2)
+      expect(first[0]?.fromSeq).toBe(1)
+      expect(first[1]?.fromSeq).toBe(101)
+      // Simulate a capped first tick deleting the first 200 rows (2 batches).
+      db.prepare('DELETE FROM changes WHERE seq <= 200').run()
+      const second = await planner.plan({
+        keepRows: 0,
+        maxAgeMs: 1,
+        batchSize: 100,
+        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
+      })
+      expect(second[0]?.fromSeq).toBe(201)
+      expect(second[0]?.fromSeq).not.toBe(first[0]?.fromSeq)
     } finally {
       db.close()
     }

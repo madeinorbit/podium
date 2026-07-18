@@ -156,12 +156,17 @@ export class JanitorService {
 
   tick(): Promise<void> {
     if (this.tickFlight) return this.tickFlight
-    const flight = this.runTick()
+    const flight = this.runTick().then(
+      () => {
+        if (this.tickFlight === flight) this.tickFlight = undefined
+      },
+      (error) => {
+        this.counters.failures += 1
+        if (this.tickFlight === flight) this.tickFlight = undefined
+        throw error
+      },
+    )
     this.tickFlight = flight
-    const clear = () => {
-      if (this.tickFlight === flight) this.tickFlight = undefined
-    }
-    void flight.then(clear, clear)
     return flight
   }
 
@@ -471,6 +476,12 @@ export class EventLogPrunePlanner {
       .prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?')
       .get(input.maxRows) as { id: number } | undefined
     const capThroughId = cap?.id ?? 0
+    const head = this.db
+      .prepare(
+        `SELECT MIN(id) AS m FROM podium_events WHERE ts < ? OR id <= ?`,
+      )
+      .get(cutoff, capThroughId) as { m: number | null }
+    if (head.m == null) return []
     const eligible = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM podium_events WHERE ts < ? OR id <= ?`,
@@ -480,6 +491,8 @@ export class EventLogPrunePlanner {
     const batchCount = Math.ceil(eligible.n / input.batchSize)
     const batches: EventLogPruneObservation[] = []
     // Bound planning work: at most CANDIDATE_LIMIT batches per tick.
+    // fromId advances with the retained head so a later tick never reuses a
+    // completed batch's runKey after recovery (starvation fix).
     const limit = Math.min(batchCount, CANDIDATE_LIMIT)
     await runTimeBudgetedJob(() => {
       if (batches.length >= limit) return 'done'
@@ -489,7 +502,7 @@ export class EventLogPrunePlanner {
         cutoff,
         capThroughId,
         batchSize: input.batchSize,
-        batchIndex: batches.length,
+        fromId: head.m! + batches.length * input.batchSize,
       })
       return batches.length >= limit ? 'done' : 'continue'
     })
@@ -513,6 +526,12 @@ export class ChangeLogPrunePlanner {
       .get(input.nowMs - input.maxAgeMs) as { seq: number | null }
     const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
     if (thresholdSeq <= 0) return []
+    const minSeq = (
+      this.db.prepare('SELECT MIN(seq) AS m FROM changes WHERE seq <= ?').get(thresholdSeq) as {
+        m: number | null
+      }
+    ).m
+    if (minSeq == null) return []
     const eligible = (
       this.db
         .prepare('SELECT COUNT(*) AS n FROM changes WHERE seq <= ?')
@@ -522,6 +541,8 @@ export class ChangeLogPrunePlanner {
     const batchCount = Math.ceil(eligible / input.batchSize)
     const limit = Math.min(batchCount, CANDIDATE_LIMIT)
     const batches: ChangeLogPruneObservation[] = []
+    // fromSeq tracks the retained head so recovery after a capped tick issues
+    // new runKeys instead of already-applied batchIndex 0 under the same threshold.
     await runTimeBudgetedJob(() => {
       if (batches.length >= limit) return 'done'
       batches.push({
@@ -529,7 +550,7 @@ export class ChangeLogPrunePlanner {
         maxAgeMs: input.maxAgeMs,
         thresholdSeq,
         batchSize: input.batchSize,
-        batchIndex: batches.length,
+        fromSeq: minSeq + batches.length * input.batchSize,
       })
       return batches.length >= limit ? 'done' : 'continue'
     })
@@ -545,6 +566,12 @@ export class MaintenanceCommandsPrunePlanner {
     input: MaintenanceCommandsPrunePlanInput,
   ): Promise<MaintenanceCommandsPruneObservation[]> {
     const cutoffAppliedAt = new Date(input.nowMs - input.maxAgeMs).toISOString()
+    const head = this.db
+      .prepare(
+        'SELECT MIN(rowid) AS m FROM maintenance_commands WHERE applied_at < ?',
+      )
+      .get(cutoffAppliedAt) as { m: number | null }
+    if (head.m == null) return []
     const eligible = (
       this.db
         .prepare('SELECT COUNT(*) AS n FROM maintenance_commands WHERE applied_at < ?')
@@ -560,7 +587,7 @@ export class MaintenanceCommandsPrunePlanner {
         maxAgeMs: input.maxAgeMs,
         cutoffAppliedAt,
         batchSize: input.batchSize,
-        batchIndex: batches.length,
+        fromRowId: head.m! + batches.length * input.batchSize,
       })
       return batches.length >= limit ? 'done' : 'continue'
     })

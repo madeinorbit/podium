@@ -86,7 +86,7 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
       cutoff: '2026-07-01T00:00:00.000Z',
       capThroughId: 10,
       batchSize: 500,
-      batchIndex: 0,
+      fromId: 1,
     }
     expect(
       MaintenanceCommand.parse({

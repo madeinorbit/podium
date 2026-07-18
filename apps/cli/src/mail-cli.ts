@@ -238,10 +238,11 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       }
       let expiresAt: string | undefined
       if (args['expires-in'] !== undefined) {
-        if (typeof args['expires-in'] !== 'string' || args['expires-in'] === true) {
+        const rawExpiresIn = args['expires-in']
+        if (typeof rawExpiresIn !== 'string') {
           throw new MailCliError('send needs --expires-in <duration> (e.g. 2m)')
         }
-        expiresAt = new Date(Date.now() + parseExpiresIn(args['expires-in'])).toISOString()
+        expiresAt = new Date(Date.now() + parseExpiresIn(rawExpiresIn)).toISOString()
       }
       const r = (await client.messages.send.mutate({
         to,

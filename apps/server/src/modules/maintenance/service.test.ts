@@ -198,7 +198,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       cutoff: plan.cutoff,
       capThroughId: plan.capThroughId,
       batchSize: EVENT_PRUNE_BATCH_ROWS,
-      batchIndex: 0,
+      fromId: 1,
     }
     const command = {
       protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
@@ -234,7 +234,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       maxAgeMs: CHANGE_MAX_AGE_MS,
       thresholdSeq: plan.thresholdSeq,
       batchSize: CHANGE_PRUNE_BATCH_ROWS,
-      batchIndex: 0,
+      fromSeq: 1,
     }
     const command = {
       protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
@@ -321,7 +321,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       maxAgeMs: MAINTENANCE_COMMAND_MAX_AGE_MS,
       cutoffAppliedAt: new Date(nowMs - MAINTENANCE_COMMAND_MAX_AGE_MS).toISOString(),
       batchSize: MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
-      batchIndex: 0,
+      fromRowId: 1,
     }
     const command = {
       protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
@@ -332,5 +332,33 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       observed,
     }
     expect(service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
+  })
+
+  it('[POD-925 review] rejects maintenance-commands prune with a future/aggressive cutoff', async () => {
+    const lease = handshake('gen_a')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    store.transact(() => {
+      store.maintenance.recordCommand(
+        { status: 'applied', jobKind: 'message-expiry', runKey: 'recent/1' },
+        lease.fencingToken,
+        new Date(nowMs - 24 * 60 * 60 * 1000).toISOString(), // 1 day old — within 14d policy
+      )
+    })
+    const observed = {
+      maxAgeMs: MAINTENANCE_COMMAND_MAX_AGE_MS,
+      cutoffAppliedAt: new Date(nowMs + 60_000).toISOString(), // future = more aggressive than policy
+      batchSize: MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
+      fromRowId: 1,
+    }
+    const reply = await service.apply({
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'maintenance-commands-prune',
+      runKey: maintenanceCommandsPruneRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    })
+    expect(reply).toMatchObject({ status: 'stale', reason: 'precondition' })
+    expect(store.maintenance.getCommand('message-expiry', 'recent/1')).toBeDefined()
   })
 })

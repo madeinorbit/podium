@@ -265,10 +265,14 @@ export class MaintenanceService {
     ) {
       return this.stale(command, 'precondition')
     }
-    const deleted = this.store.maintenance.pruneCommandsBatch(
-      observed.cutoffAppliedAt,
-      observed.batchSize,
-    )
+    // Re-derive the policy cutoff at apply time. Reject observations that are
+    // more aggressive (cutoff later = would delete younger rows than policy allows).
+    const serverCutoff = new Date(this.now() - MAINTENANCE_COMMAND_MAX_AGE_MS).toISOString()
+    if (observed.cutoffAppliedAt > serverCutoff) {
+      return this.stale(command, 'precondition')
+    }
+    // Authoritative delete uses the server-derived cutoff (never the client's future).
+    const deleted = this.store.maintenance.pruneCommandsBatch(serverCutoff, observed.batchSize)
     return this.recordPrune(command, deleted)
   }
 

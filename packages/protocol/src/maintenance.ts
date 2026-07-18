@@ -75,7 +75,8 @@ export const EventLogPruneObservation = z.object({
   cutoff: z.string().datetime(),
   capThroughId: z.number().int().nonnegative(),
   batchSize: z.number().int().positive(),
-  batchIndex: z.number().int().nonnegative(),
+  /** Lowest eligible event id at plan time — advances after each successful batch. */
+  fromId: z.number().int().nonnegative(),
 })
 export type EventLogPruneObservation = z.infer<typeof EventLogPruneObservation>
 
@@ -84,7 +85,8 @@ export const ChangeLogPruneObservation = z.object({
   maxAgeMs: z.number().int().nonnegative(),
   thresholdSeq: z.number().int(),
   batchSize: z.number().int().positive(),
-  batchIndex: z.number().int().nonnegative(),
+  /** Lowest retained seq at plan time — advances after each successful batch. */
+  fromSeq: z.number().int().nonnegative(),
 })
 export type ChangeLogPruneObservation = z.infer<typeof ChangeLogPruneObservation>
 
@@ -92,7 +94,8 @@ export const MaintenanceCommandsPruneObservation = z.object({
   maxAgeMs: z.number().int().positive(),
   cutoffAppliedAt: z.string().datetime(),
   batchSize: z.number().int().positive(),
-  batchIndex: z.number().int().nonnegative(),
+  /** Lowest eligible rowid at plan time — advances after each successful batch. */
+  fromRowId: z.number().int().nonnegative(),
 })
 export type MaintenanceCommandsPruneObservation = z.infer<
   typeof MaintenanceCommandsPruneObservation
@@ -219,7 +222,7 @@ export function eventLogPruneRunKey(observed: EventLogPruneObservation): string 
     encode(observed.cutoff),
     String(observed.capThroughId),
     String(observed.batchSize),
-    String(observed.batchIndex),
+    String(observed.fromId),
   ].join('/')
 }
 
@@ -228,7 +231,7 @@ export function changeLogPruneRunKey(observed: ChangeLogPruneObservation): strin
     'change-log-prune',
     String(observed.thresholdSeq),
     String(observed.batchSize),
-    String(observed.batchIndex),
+    String(observed.fromSeq),
   ].join('/')
 }
 
@@ -239,7 +242,7 @@ export function maintenanceCommandsPruneRunKey(
     'maintenance-commands-prune',
     encode(observed.cutoffAppliedAt),
     String(observed.batchSize),
-    String(observed.batchIndex),
+    String(observed.fromRowId),
   ].join('/')
 }
 

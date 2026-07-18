@@ -125,31 +125,30 @@ describe('podium mail CLI (argv shape)', () => {
   })
 
   it('[POD-845/925] --expires-in converts a duration to absolute expiresAt ISO', async () => {
-    const c = client()
-    const before = Date.now()
-    await runMailCli(
-      [
-        'send',
-        '--to',
-        '#845',
-        '--body',
-        'POD-845/925 verification probe',
-        '--expires-in',
-        '2m',
-      ],
-      c,
-    )
-    const after = Date.now()
-    const call = c.messages.send.mutate.mock.calls[0]?.[0] as {
-      to: string
-      body: string
-      expiresAt: string
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-18T10:00:00.000Z'))
+    try {
+      const c = client()
+      await runMailCli(
+        [
+          'send',
+          '--to',
+          '#845',
+          '--body',
+          'POD-845/925 verification probe',
+          '--expires-in',
+          '2m',
+        ],
+        c,
+      )
+      expect(c.messages.send.mutate).toHaveBeenCalledWith({
+        to: '#845',
+        body: 'POD-845/925 verification probe',
+        expiresAt: '2026-07-18T10:02:00.000Z',
+      })
+    } finally {
+      vi.useRealTimers()
     }
-    expect(call.to).toBe('#845')
-    expect(call.body).toBe('POD-845/925 verification probe')
-    const expiresMs = Date.parse(call.expiresAt)
-    expect(expiresMs).toBeGreaterThanOrEqual(before + 120_000)
-    expect(expiresMs).toBeLessThanOrEqual(after + 120_000)
   })
 
   it('[POD-845/925] --expires-in rejects bad durations', async () => {
