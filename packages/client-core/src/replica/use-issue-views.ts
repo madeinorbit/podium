@@ -184,14 +184,15 @@ export function useIssueBoard(
  *  - `commentCount` is gone (a comment write must not touch the issue row, D7.2):
  *    consumers key comment refetches on `updatedAt` instead.
  */
-type LegacyIssueSupplement = Omit<IssueWire, 'sessions' | 'commentCount'>
+type LegacyIssueSupplement = Omit<IssueWire, 'commentCount'>
 type ProjectionOnly = Partial<Omit<IssueProjection, keyof IssueWire>>
 
 /** UI contract during the additive cutover: legacy relation/provenance fields
  * remain available from the retained issue kind, while embedded sessions and
  * commentCount are structurally absent. The hook always supplies member ids. */
 export type IssueViewModel = LegacyIssueSupplement &
-  ProjectionOnly & { childIds?: string[]; memberSessionIds?: string[] }
+  ProjectionOnly &
+  Partial<IssueSessionRollups> & { childIds?: string[]; memberSessionIds?: string[] }
 
 /** Every issue's flat render model, keyed by id. Re-derived once per settled
  *  replica state (memoised on the shared snapshot), so a whole
@@ -216,9 +217,6 @@ export function useIssueViewModels(
       const { id: _id, ...derived } = view
       const legacy = legacyById.get(projection.id)
       const {
-        sessions: _sessions,
-        sessionSummary: _sessionSummary,
-        unread: _unread,
         commentCount: _commentCount,
         displayRef: _displayRef,
         ready: _ready,

@@ -181,18 +181,13 @@ export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
  *  member ids at all; the client joins sessions locally by indexing them on
  *  `issueId` (ADR 4 D7.1/D7.3). [POD-796]
  *
- *  This is THE cap that severs the issue↔session coupling: for a client that
- *  offers it, a session change performs ZERO issue-wire work, because the
- *  projection it gets is a pure function of each issue's own row (ADR 4 D7.2).
- *  A client without the cap gets today's `IssueWire` payload byte-for-byte, off
- *  the old pipeline, which is what keeps the old path exactly one flag away.
+ *  The cap tells a client to render the normalized collection. The server emits
+ *  it unconditionally; a capless client receives the registered, session-free
+ *  transitional IssueWire residue for attach paint and rolling compatibility.
  *
  *  Additive per ADR 2 D4 — negotiated by capability, `WIRE_VERSION` stays 1.
- *  Unlike {@link CAP_SYNC_FEED_IDENTITY}, this one does NOT merely stamp extra
- *  fields onto an existing frame: it changes which payload shape the client is
- *  sent, so the server must ALSO have the `issues-normalized-wire` feature flag
- *  enabled. Cap = "this client can read it"; flag = "this server will emit it".
- *  Both, or the client gets the legacy shape — see `apps/server/src/features.ts`.
+ *  Unlike {@link CAP_SYNC_FEED_IDENTITY}, this capability selects which of the
+ *  two unconditionally emitted collections the client consumes.
  */
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
 export const HelloMessage = z.object({

@@ -110,15 +110,10 @@ export function optimisticDraftIssue(args: {
     createdAt: args.nowIso,
     updatedAt: args.nowIso,
     archived: false,
-    // Just created by this user → read, not unread (mirrors the session above).
+    // Just created by this user: durable readAt is enough; unread is replica-derived.
     readAt: args.nowIso,
-    unread: false,
     origin: 'human',
     audience: 'human',
     draft: true,
-    // Derived server-side; the sidebar reads membership from the global session
-    // list (by issueId), not this embedded array, so empty is correct.
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
   }
 }

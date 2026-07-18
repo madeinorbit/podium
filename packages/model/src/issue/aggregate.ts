@@ -11,7 +11,7 @@ import { issueDurableShape } from './fields'
  * **Server-derived read fields** (D3.6 — "pure functions over durable (+ live
  * inputs where needed) … not a second write path"): `ready`, `blocked`,
  * `deferred`, `unread`, `displayRef`, `prefix`, `childCount`, `childDoneCount`,
- * `commentCount`, `sessionSummary`. Today's `IssueWire` carries all of them; none
+ * `commentCount`, `sessionSummary`. The deleted session-embedding `IssueWire` carried all of them; none
  * is durable truth, so none is an aggregate member. Where each one goes instead
  * is argued in `./wire.ts`.
  *

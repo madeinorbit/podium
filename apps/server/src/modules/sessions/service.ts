@@ -11,7 +11,6 @@ import {
   type AutomationWire,
   agentSupportsEffort,
   agentSupportsInitialPrompt,
-  CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
   type ClientMessage,
@@ -161,13 +160,6 @@ interface SessionsServiceDeps {
   /** Full issue-list fan-out through the publisher (ledger reconcile + legacy
    *  snapshot). Mutually recursive with the broadcast pipeline by design — the
    *  publisher's own deps point back at fanOutSnapshot/sendMetadataDelta here. */
-  publishIssues(): void
-  /** `issues-normalized-wire` [POD-796] — "this server emits the normalized
-   *  `IssueProjection`". Half of the D7.2 bypass predicate; the other half is
-   *  per-client (CAP_ISSUES_NORMALIZED). Optional so existing test deps literals
-   *  stay valid, and ABSENT MEANS OFF: a caller that has never heard of the flag
-   *  must get today's behaviour, which is to always publish. */
-  issuesNormalizedWire?(): boolean
   /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
   /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
@@ -195,28 +187,6 @@ interface SessionsServiceDeps {
     workflowRevisionId?: string
     existingOnly?: boolean
   }): PreparedSessionInstructions
-}
-
-// Session fields that DON'T feed issue wire data [POD-722]. IssueWire.sessions
-// embeds each member SessionMeta VERBATIM (issue-util sessionsForIssue → toWire),
-// so every SessionMeta field is issue-relevant EXCEPT the connection-plumbing trio
-// a bare attach/detach/control-transfer moves: clientCount, controllerId, epoch.
-// Denylisting (strip these) rather than allow-picking keeps any newly-added
-// SessionMeta field issue-relevant by default — over-broadcast is safe, under-
-// broadcast leaves a stale issue panel. Interim until POD-308 deletes the
-// snapshot fan-out.
-const NON_ISSUE_SESSION_FIELDS = ['clientCount', 'controllerId', 'epoch'] as const
-
-/** Stable serialization of the issue-relevant slice of every session — the input
- *  that decides whether a session broadcast must republish issues [POD-722]. */
-function issueRelevantSessionProjection(sessions: SessionMeta[]): string {
-  return JSON.stringify(
-    sessions.map((s) => {
-      const proj: Record<string, unknown> = { ...s }
-      for (const f of NON_ISSUE_SESSION_FIELDS) delete proj[f]
-      return proj
-    }),
-  )
 }
 
 /**
@@ -265,17 +235,6 @@ export class SessionsService {
   // clients already hold this state; a NEW client gets the current list via
   // attachClient, so the dedup can never leave a client stale.
   private lastSessionsBroadcast = ''
-  // Last issue-relevant session projection accounted for by issue clients [POD-722].
-  // runSessionsBroadcast compares this against the current projection to decide
-  // whether the O(issues×sessions) publishIssues() rebuild is actually needed —
-  // a bare attach/detach/control-transfer moves only clientCount/controllerId/
-  // epoch, none of which feed issue wire data, so it can be skipped. Stamped after
-  // a successful publishIssues() OR an unobservable no-legacy-client bypass. A
-  // later legacy client is made whole by attachClient's fresh issuesChanged paint;
-  // issues.normalized-wire.test.ts pins that load-bearing guard. A failed real
-  // publish does not stamp, so the next broadcast retries.
-  // Interim until POD-308 deletes the snapshot fan-out.
-  private lastIssueSessionProjection = ''
   private nextClientNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
@@ -3344,134 +3303,15 @@ export class SessionsService {
         performance.now() - tFanout0,
         key.length * receivers,
       )
-      // Session changes also change issues' DERIVED member data (sessions/summary),
-      // so keep issue clients live. The publisher builds the payload ONCE (allWire()
-      // is O(issues × sessions)); sessionsChanged was already sent above, so even if
-      // the issues build fails it can't take the session list down with it.
-      // IssueWire embeds SessionMeta[]: publishIssues() runs its own issue
-      // reconcile (publisher.publishIssueList), so the embedded copies heal at
-      // the same cadence as before — no extra mechanism needed (#247).
-      //
-      // Two independent skips compose as an AND — publish only when BOTH say so:
-      // POD-722 skips when this broadcast touched no field that feeds issue wire
-      // data (per-broadcast, field-keyed); POD-796 skips when no connected client
-      // still needs the legacy embedded IssueWire shape (per-connection,
-      // cap-keyed — see legacyIssueWireNeeded()). Either alone suffices to skip.
-      // POD-722's skip metric keeps emitting on its own arm; the POD-796 bypass
-      // is observed via the normalized-path instrumentation instead. Interim
-      // until POD-797 deletes the legacy path outright.
-      const tSkip0 = performance.now()
-      const issueProjection = issueRelevantSessionProjection(sessions)
-      if (issueProjection === this.lastIssueSessionProjection) {
-        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
-      } else if (!this.legacyIssueWireNeeded()) {
-        // THE D7.2 BYPASS [POD-796]: an issue-relevant session field DID change,
-        // but nobody connected can still tell the difference on the issue wire.
-        // Account for the unobservable change: any LATER legacy client receives a
-        // freshly built issuesChanged during attach, before hello/cap negotiation
-        // (pinned by issues.normalized-wire.test.ts). Leaving this cache stale made
-        // that client's first clientCount-only attach/detach look issue-relevant and
-        // caused one spurious O(world) legacy rebuild — exactly POD-722's hot path.
-        this.lastIssueSessionProjection = issueProjection
-        perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
-      } else {
-        const tIssues0 = performance.now()
-        this.deps.publishIssues()
-        // Stamp only AFTER a clean publish: a throw drops through to the catch
-        // (which un-stamps the byte cache) and leaves this projection unchanged,
-        // so the next broadcast re-publishes instead of silently skipping.
-        this.lastIssueSessionProjection = issueProjection
-        perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
-      }
     } catch (err) {
-      // Un-stamp the byte-skip cache on ANY broadcast-body failure (#247): the
+      // Un-stamp the byte-skip cache on any session broadcast failure (#247): the
       // cache is stamped up front so a reentrant same-bytes broadcast during the
-      // fan-out still early-returns, but if e.g. publishIssues()'s issue-ledger
-      // reconcile throws transiently with the stamp left in place, every later
-      // broadcast of the SAME session bytes would early-return and the embedded
-      // IssueWire SessionMeta[] would stay stale forever. Cleared, the next
-      // broadcast retries the whole body (reconcile dedups; clients tolerate a
-      // repeated snapshot). Coalescing semantics are otherwise unchanged.
+      // fan-out still early-returns. Cleared, the next broadcast retries the
+      // whole body; reconcile dedups and clients tolerate a repeated snapshot.
       if (this.lastSessionsBroadcast === key) this.lastSessionsBroadcast = ''
       throw err
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
-  }
-
-  /**
-   * Does any connected client still need a session change to REBUILD the legacy
-   * `IssueWire`? [POD-796 — the D7.2 bypass predicate.]
-   *
-   * ## Why a session change can be skipped at all
-   *
-   * On the new path it cannot change any issue projection — not by an argument
-   * about which fields moved, but structurally: `toWire(issue)` (@podium/model)
-   * takes the issue and NOTHING else, so there is no session list reachable from
-   * it. "A change to entity X may trigger recomputation only of projections of
-   * X" (ADR 4 D7.2) is then a property of the signature rather than a discipline
-   * this method has to remember. The legacy `IssueWire` is the opposite: it
-   * embeds `sessions: SessionMeta[]` plus rollups over them (`sessionSummary`,
-   * `unread`), so for a legacy consumer a session change genuinely IS an issue
-   * change and skipping the rebuild would starve it.
-   *
-   * ## The predicate, and why it is the conjunction it is
-   *
-   * A client needs the legacy shape unless it has BOTH caps:
-   *
-   *  - **CAP_ISSUES_NORMALIZED** — it reads `IssueProjection` and joins sessions
-   *    locally (D7.3). Without it, it reads the embedded copies, which only a
-   *    rebuild refreshes.
-   *  - **CAP_METADATA_DELTA** — it is on the delta feed, which is the ONLY
-   *    transport the normalized projection has. There is no snapshot message
-   *    carrying `IssueProjection`: the new kind exists solely as a
-   *    `metadataDelta` row. So a client claiming CAP_ISSUES_NORMALIZED WITHOUT
-   *    the delta cap would be served the legacy `issuesChanged` snapshot by
-   *    `fanOutSnapshot` (which sends to every non-delta client) and would need
-   *    it rebuilt — the cap pair is not redundant, and checking only the
-   *    normalized one would starve exactly that client.
-   *
-   * Both halves are required of EVERY client, so one legacy consumer keeps the
-   * rebuild on for everyone. That is the honest transition cost: the ledger's
-   * 'issue' baseline must keep tracking session-derived truth while anyone still
-   * reads it, and the saving is real only once the last legacy client is gone.
-   *
-   * ## The failure directions are not symmetric
-   *
-   * Returning `true` when we could have skipped costs CPU. Returning `false`
-   * when a client needed the rebuild costs that client CORRECTNESS — a silently
-   * stale issue list with no event that ever heals it. So every uncertainty
-   * resolves to `true`:
-   *
-   *  - flag off ⇒ true (the normalized rows are not even being emitted);
-   *  - dep absent ⇒ true (a composition that never heard of the flag);
-   *  - a PRE-HELLO client ⇒ true, and this one is easy to get wrong. `caps` is
-   *    empty until `hello` arrives, and attachClient's own doc calls a pre-hello
-   *    client legacy for exactly this reason. It reads as "not both caps" here
-   *    and so counts as needing the rebuild — the fail-safe direction, and it
-   *    self-corrects: `hello` is one round trip away, and the client's bootstrap
-   *    `issuesChanged` was built fresh at attach regardless.
-   *
-   * ZERO clients is therefore the one case that skips vacuously, and that is
-   * sound rather than a hole: with no observer there is nothing to starve, and a
-   * client connecting later takes a FRESHLY built `issuesWire()` snapshot at
-   * attach (and a delta client re-bases via `sync.changesSince`, whose null/
-   * stale-cursor path also falls back to a fresh snapshot). The staleness a skip
-   * leaves in the ledger's 'issue' baseline costs at most one extra reconcile
-   * diff on the next publish — which is `reconcile`'s whole job — never a lost
-   * update.
-   */
-  // PUBLIC as of [POD-822]: the issue service needs the same answer for its own
-  // D7.2 bypass (a dep-edge ripple rebuilds the legacy list for exactly the same
-  // reason a session change did). It is exposed rather than reimplemented there
-  // because the answer depends on `this.clients`, which lives here — two copies
-  // of this rule could disagree about whether a legacy client is connected, and
-  // the copy that said "no" would silently freeze that client's issue list.
-  legacyIssueWireNeeded(): boolean {
-    if (!this.deps.issuesNormalizedWire?.()) return true
-    for (const c of this.clients.values()) {
-      if (!c.caps.has(CAP_METADATA_DELTA) || !c.caps.has(CAP_ISSUES_NORMALIZED)) return true
-    }
-    return false
   }
 
   /**

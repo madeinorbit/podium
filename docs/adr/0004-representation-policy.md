@@ -74,7 +74,7 @@ fields (id, stage, title, repo, needsHuman, …).
 | # | Symbol | Path | Role today |
 |---|---|---|---|
 | 1 | `IssueRow` | `apps/server/src/store/types.ts` | storage |
-| 2 | `IssueWire` | `packages/protocol/src/messages/issues.ts` | wire/read (71 keys counted) |
+| 2 | IssueWire | packages/protocol/src/messages/issues.ts | session-free transitional wire residue for capless clients and hub mirrors; expiry POD-309/POD-827 |
 | 3 | `CreateIssueInput` | `apps/server/src/modules/issues/service/types.ts` | command input (hand-restates many issue fields) |
 | 4 | `IssuePatch` | same file | mutation patch — **already** `Partial<Pick<IssueRow, …>>` (good composition pattern) |
 | 5 | `OrphanIssue` | `packages/protocol/src/messages/issues.ts` | wire projection |
@@ -271,8 +271,9 @@ rules make it unrepresentable here.*
 **branded id only**. An R4 wire/read projection MUST NOT embed another entity's
 projection (no entity-in-entity nesting on the feed). Cross-entity read models are not
 wire shapes; they are assembled at the replica (D7.3) or materialized as their own
-entity (D7.4). `IssueWire`'s embedded `SessionMeta[]` is the canonical
-non-compliance and is deleted at the Phase-2 cutover (POD-308).
+entity (D7.4). IssueWire's former embedded SessionMeta[] was the canonical non-compliance;
+the Issues pilot deleted it in POD-797. The retained session-free IssueWire residue is
+registered with expiry at POD-309 or POD-827, whichever lands first.
 
 **D7.2 — Derivation locality (write/fan-out path).** A change to entity X may trigger
 recomputation only of projections **of X**. No code on the write, publish, or fan-out
@@ -304,6 +305,17 @@ read time.
 | Keep composed wire trees + server dirty-tracking per consumer | POD-772 entry 1: every object type must hand-roll dirty tracking; O(world) recurs by default. |
 | Server-side IVM engine (Figma LiveGraph style) serving joined views | Pays for machinery replica-local joins get free at Podium scale; the client already holds the world. |
 | Adopt MobX/signals now for D7.3 | Two reactivity paradigms; proxy-semantics bugs are a shipped incident class (POD-170); revision keys suffice at current derivation-graph size. |
+
+### Issues-pilot reconciliation (POD-797; facts only)
+
+- IssueProjection, issueDep, and repo normalized kinds now emit unconditionally.
+- The local transitional IssueWire no longer embeds sessions, sessionSummary, or unread,
+  and a session broadcast performs zero issue membership scans.
+- CAP_ISSUES_NORMALIZED remains negotiated; the server feature flag and both temporary
+  D7.2 bypasses are gone.
+- Hub nodes still consume IssueWire through UpstreamSync; POD-827 therefore blocks a
+  normalized-only feed for that topology until the registered residue expires.
+- The pilot verdict and any normative ADR changes belong to POD-798.
 
 ---
 

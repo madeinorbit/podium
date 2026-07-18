@@ -565,7 +565,7 @@ export function IssueProperties({
       {/* Sessions — ported from the detail drawer. */}
       <section className="flex flex-col gap-2">
         <h3 className="font-medium text-[12px] text-muted-foreground">
-          Sessions ({issue.sessionSummary.total})
+          Sessions ({issue.sessionSummary?.total ?? 0})
         </h3>
         {/* Model + effort the issue's sessions launch with (scoped to its agent). */}
         <div className="flex flex-wrap items-center gap-1.5">

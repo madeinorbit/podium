@@ -16,6 +16,7 @@ const trpcMock = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
+  useReplicaIssues: () => [],
   useStoreSelector: (fn: (s: unknown) => unknown) =>
     fn({
       trpc: {

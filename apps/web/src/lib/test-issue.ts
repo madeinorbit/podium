@@ -1,13 +1,13 @@
-import type { IssueWire } from '@podium/protocol'
+import type { IssueViewModel } from '@podium/client-core/react'
 
 /**
- * Build a valid `IssueWire` for unit tests, overriding any fields via `over`.
+ * Build a valid normalized IssueViewModel for unit tests, overriding any fields via `over`.
  * Shared by the issue-card and issue-page tests so all exercise the same
- * fully-populated wire shape.
+ * fully-populated render shape.
  */
 export const makeIssue = (
-  over: Partial<IssueWire> & { memberSessionIds?: string[] } = {},
-): IssueWire & { memberSessionIds: string[] } =>
+  over: Partial<IssueViewModel> = {},
+): IssueViewModel =>
   ({
     id: 'i',
     repoPath: '/r',
@@ -34,14 +34,12 @@ export const makeIssue = (
     labels: [],
     deps: [],
     dependents: [],
-    commentCount: 0, // #175: bodies left the wire
     ready: true,
     blocked: false,
     deferred: false,
     childCount: 0,
     childDoneCount: 0,
-    sessions: [],
     memberSessionIds: [],
     sessionSummary: { total: 0, byPhase: {} },
     ...over,
-  }) as IssueWire & { memberSessionIds: string[] }
+  }) as IssueViewModel

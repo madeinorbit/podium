@@ -68,12 +68,9 @@ const issue = (id: string, title: string): IssueWire => ({
   updatedAt: '2026-07-01T00:00:00.000Z',
   archived: false,
   readAt: null,
-  unread: false,
   origin: 'human',
   audience: 'human',
   draft: false,
-  sessions: [],
-  sessionSummary: { total: 0, byPhase: {} },
 })
 
 const automation = (

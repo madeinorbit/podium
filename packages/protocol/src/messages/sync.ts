@@ -109,9 +109,8 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  cursor ADVANCES past them — no quarantine, no heal loop. Additive per ADR 2
    *  D4; `WIRE_VERSION` stays 1.
    *
-   *  Emitted only when the server's `issues-normalized-wire` feature flag is on;
-   *  consumed only by a client that offered CAP_ISSUES_NORMALIZED. Both sides
-   *  opt in, so the old path stays exactly one flag away. */
+   *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
+   *  which issue collection to render. */
   z.object({
     seq: z.number().int().positive(),
     entity: z.literal('issueProjection'),
@@ -128,9 +127,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  kind and the replica joins it. That is what makes `depAdd` cost O(1)
    *  server-side and still move `blocked` on both endpoints.
    *
-   *  Same additive contract as 'issueProjection': gated on the server's
-   *  `issues-normalized-wire` flag + the client's CAP_ISSUES_NORMALIZED, and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
+   *  Same additive contract as issueProjection: emitted unconditionally and invisible to a build whose `MetadataEntityKind` predates it — those rows
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
    *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
   z.object({

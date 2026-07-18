@@ -193,36 +193,6 @@ export interface IssueDeps {
   ledger: IssueLedger
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   publishSpecs: IssuePublishSpecs
-  /** `issues-normalized-wire` [POD-796]: when true, every issue publish ALSO
-   *  emits the normalized `IssueProjection` under the 'issueProjection' kind,
-   *  additively (the legacy 'issue' rows and snapshots are untouched). Injected
-   *  by the relay from {@link isFeatureEnabled}; optional so existing test deps
-   *  literals stay valid, and ABSENT MEANS OFF — the legacy path is the one a
-   *  caller that has never heard of this flag must get. */
-  issuesNormalizedWire?(): boolean
-  /**
-   * "Some connected client still reads the legacy embedded `IssueWire`"
-   * [POD-796, POD-822].
-   *
-   * THE D7.2 bypass predicate, and deliberately NOT a second copy of it: the one
-   * definition lives on `SessionsService`, which owns the client map the answer
-   * depends on, and the relay wires this to it. Restating the cap check here
-   * would be exactly the hand-restated rule ADR 4 exists to kill — with the
-   * added hazard that two copies could disagree about whether a legacy client is
-   * connected, and the one that said "no" would silently freeze that client's
-   * issue list.
-   *
-   * Consumed by cross-issue derived ripples (`depAdd`/`depRemove`): those exist
-   * only to rebuild OTHER issues' `deps`/`blocked`/`dependents` on the legacy
-   * wire, which a replica now derives for itself from the 'issueDep' kind. When
-   * nobody needs the legacy shape, the rebuild is O(issues) of pure waste.
-   *
-   * Optional, and ABSENT MEANS TRUE — every uncertainty resolves toward doing
-   * the rebuild, for the reason SessionsService's own doc gives: skipping when a
-   * client needed it costs CORRECTNESS (a silently stale list with no event that
-   * heals it), while rebuilding when we could have skipped costs only CPU.
-   */
-  legacyIssueWireNeeded?(): boolean
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace). Injected by
    *  the relay; optional so existing test deps literals stay valid. */

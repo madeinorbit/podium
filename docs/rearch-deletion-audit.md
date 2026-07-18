@@ -130,6 +130,18 @@ So detectors must not key on things that move for unrelated reasons:
 in the live tree, which catches total drift. It cannot catch partial
 under-counting — that is what the rules above are for.
 
+## Registered transitional residue
+
+Residue is code intentionally retained after its owning deletion slice reaches zero. It is
+registered in REGISTERED_RESIDUE in scripts/rearch-audit.ts with exact production sites,
+an owner, and an expiry; tests fail if a registered site silently moves. Registered residue
+is excluded from the slice count, while the forbidden old-path detector remains at zero.
+
+The Issues pilot retains one residue entry: the minimal IssueWire type, the session-free
+legacy issue emit, the upstream hub-mirror consumer, and the membership-scan regression
+counter. It is deleted when the forwarder retires (POD-309) or the hub speaks projections
+(POD-827), whichever first. POD-827 blocks normalized-as-sole-feed on hub-node installs.
+
 ## Adding or changing a check
 
 1. Add an `AuditCheck` to `CHECKS` in `scripts/rearch-audit.ts` with its `phase`

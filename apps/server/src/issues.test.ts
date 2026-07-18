@@ -105,17 +105,13 @@ describe('IssueService CRUD', () => {
     expect(svc.list('/r').length).toBe(1)
   })
 
-  it('toWire derives members + summary from live sessions', () => {
-    const { svc } = harness([
-      sess('/r/wt', 'working'),
-      sess('/r/wt/pkg', 'idle'),
-      sess('/elsewhere'),
-    ])
+  it('toWire stays session-free when live members exist', () => {
+    const { svc } = harness([sess('/r/wt', 'working')])
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    // simulate a started issue by updating the worktree path
     const updated = svc.update(wire.id, { worktreePath: '/r/wt', stage: 'planning' })
-    expect(updated.sessions.length).toBe(2)
-    expect(updated.sessionSummary.total).toBe(2)
+    expect(updated).not.toHaveProperty('sessions')
+    expect(updated).not.toHaveProperty('sessionSummary')
+    expect(updated).not.toHaveProperty('unread')
   })
 
   it('update patches fields; archive sets the flag', () => {
@@ -240,65 +236,6 @@ describe('IssueService single-issue broadcast (#22)', () => {
   })
 })
 
-describe('IssueService unread (#124)', () => {
-  it('a never-read issue with activity is unread; markIssueRead clears it', () => {
-    const { svc } = harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    expect(w.unread).toBe(true)
-    expect(w.readAt).toBeNull()
-    const read = svc.markIssueRead(w.id)
-    expect(read.readAt).toBe('2026-06-30T00:00:00.000Z')
-    expect(read.unread).toBe(false)
-    // The freshly-derived wire reflects it too.
-    expect(svc.get(w.id)!.unread).toBe(false)
-  })
-
-  it('markIssueUnread nulls readAt so the row re-reads as unread + emits issue.unread (#138)', () => {
-    const { svc, store } = harness()
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.markIssueRead(w.id)
-    expect(svc.get(w.id)!.unread).toBe(false)
-    const un = svc.markIssueUnread(w.id)
-    expect(un.readAt).toBeNull()
-    expect(un.unread).toBe(true)
-    // Freshly-derived wire agrees, and the transition event mirrors issue.read.
-    expect(svc.get(w.id)!.unread).toBe(true)
-    expect(store.events.listEventsSince(0, { kinds: ['issue.unread'] }).length).toBe(1)
-  })
-
-  it('derives unread from the latest of updatedAt / member-session lastActiveAt vs readAt', () => {
-    const activeSess = { ...sess('/r/wt'), lastActiveAt: '2026-06-05T00:00:00.000Z' }
-    const { svc, store } = harness([activeSess])
-    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    svc.update(w.id, { worktreePath: '/r/wt' })
-    const row = store.issues.getIssue(w.id)!
-    // readAt AFTER all activity → read.
-    expect(
-      svc.toWire({
-        ...row,
-        updatedAt: '2026-06-01T00:00:00.000Z',
-        readAt: '2026-06-06T00:00:00.000Z',
-      }).unread,
-    ).toBe(false)
-    // A member session went active AFTER readAt → unread again.
-    expect(
-      svc.toWire({
-        ...row,
-        updatedAt: '2026-06-01T00:00:00.000Z',
-        readAt: '2026-06-04T00:00:00.000Z',
-      }).unread,
-    ).toBe(true)
-    // updatedAt itself postdates readAt → unread.
-    expect(
-      svc.toWire({
-        ...row,
-        updatedAt: '2026-06-10T00:00:00.000Z',
-        readAt: '2026-06-06T00:00:00.000Z',
-      }).unread,
-    ).toBe(true)
-  })
-})
-
 describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
   const DAY_MS = 24 * 60 * 60 * 1000
   // A done issue read at the fixed harness clock (2026-06-30T00:00:00Z).
@@ -335,7 +272,7 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     const h = harness()
     const w = h.svc.create({ repoPath: '/r', title: 'Unseen result', startNow: false })
     h.svc.close(w.id) // done, but never read → unread
-    expect(h.svc.get(w.id)!.unread).toBe(true)
+    expect(h.svc.get(w.id)!.readAt).toBeNull()
     const archived = h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)
     expect(archived).toEqual([])
     expect(h.svc.get(w.id)!.archived).toBe(false)

@@ -13,7 +13,6 @@ import type {
 } from "@podium/protocol";
 import { sessionTitleRule } from "@podium/protocol";
 import { Ledger } from "@podium/sync";
-import { isFeatureEnabled } from "./features";
 import { checkIssueAccess } from "./issue-authz";
 import { LOCAL_PLACEHOLDER, stateDir } from "./local-machine";
 import type { ModelProbe } from "./model-catalog";
@@ -379,37 +378,6 @@ export class SessionRegistry {
         sessionsSvc.fanOutSnapshot(snapshot, opts),
       sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
     });
-    // `issues-normalized-wire` [POD-796] — the normalized issue vertical.
-    //
-    // ACTIVATION [POD-856]: the normalized emit now DEFAULTS ON. The client cutover
-    // (apps/web offers CAP_ISSUES_NORMALIZED and renders issues from the replica
-    // projections — issueProjection/issueDep/repo) needs the server to emit those
-    // rows in production, where nothing sets the experimental flag, so an unset flag
-    // resolves TRUE rather than false. An EXPLICIT setting still wins (an operator
-    // toggle, or a test that pins the OFF path), so the flag machinery stays
-    // exercisable. This is ACTIVATION, not deletion: the flag definition,
-    // `legacyIssueWireNeeded()` and the two D7.2 bypasses are RETAINED for POD-797,
-    // which deletes the legacy IssueWire embedding + this whole machinery and makes
-    // normalized the STRUCTURALLY-sole feed. Until POD-797 both feeds coexist (the
-    // legacy embedding is intact and still built on every issue write), so the
-    // POD-827 hub-node constraint — normalized-as-sole-feed — is untouched here.
-    // Cache the resolved value because this closure is consulted on the session
-    // broadcast hot path. Settings changes invalidate it; config/env inputs are
-    // process-level and retain their existing restart semantics.
-    let normalizedWireFlag: boolean | undefined;
-    const issuesNormalizedWire = (): boolean => {
-      normalizedWireFlag ??= isFeatureEnabled(
-        "issues-normalized-wire",
-        this.store.settings.getSettings(),
-        undefined,
-        undefined,
-        true
-      );
-      return normalizedWireFlag;
-    };
-    this.bus.on("settings.changed", () => {
-      normalizedWireFlag = undefined;
-    });
     const publisher = new IssuePublisher({
       allWire: () => issues?.allWire(),
       allProjections: () => issues?.allProjections(),
@@ -429,13 +397,11 @@ export class SessionRegistry {
         // (protocol/messages/sync.ts) — that is why a new KIND is additive
         // where reshaping 'issue' in place would not have been.
         if (projectionRows) ledger.reconcile("issueProjection", projectionRows);
-        // The edges reconcile on the same full-truth pass [POD-822]. Additive and
-        // flag-gated exactly like the projections above: with the flag OFF,
-        // `allDepProjections()` returns EMPTY truth (not undefined), so this
-        // reconcile RUNS and emits removes for any previously-published edge
-        // rows — that is the rollback. `undefined` means only "cannot project;
-        // do not touch the kind". A build that has never heard of the
-        // 'issueDep' kind ignores the rows and advances its cursor.
+        // The edges reconcile on the same full-truth pass [POD-822]. Additive,
+        // and since POD-797 UNCONDITIONAL (the issues-normalized-wire flag is
+        // deleted): `undefined` means only "cannot project; do not touch the
+        // kind". A build that has never heard of the 'issueDep' kind ignores
+        // the rows and advances its cursor.
         const depRows = issues?.allDepProjections();
         if (depRows) ledger.reconcile("issueDep", depRows);
         funnel.publishComputed(spec.snapshot);
@@ -1124,8 +1090,6 @@ export class SessionRegistry {
       headless,
       conversations: () => conversations,
       issues: () => issues,
-      publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
-      issuesNormalizedWire,
       issuesWire: () =>
         upstreamIssues.withUpstreamIssues(publisher.safeIssuesList()),
       issueProjectionsWire: () =>
@@ -1237,14 +1201,6 @@ export class SessionRegistry {
       funnel,
       ledger,
       publishSpecs: publisher,
-      issuesNormalizedWire,
-      // THE D7.2 bypass predicate [POD-822] — ONE definition, on the service that
-      // owns the client map it reads. A dep-edge write rebuilds the whole legacy
-      // issue list only to move OTHER issues' deps/blocked/dependents; a
-      // normalized client derives those from the 'issueDep' rows instead, so when
-      // nobody needs the legacy shape the rebuild is O(issues × sessions) of pure
-      // waste. Fails safe: every uncertainty answers true.
-      legacyIssueWireNeeded: () => sessionsSvc.legacyIssueWireNeeded(),
       // Agent mail send-time nudge (issue #103): the sessions module subscribes
       // and picks the live member session to poke — see modules/sessions.
       onMailSent: (row) =>

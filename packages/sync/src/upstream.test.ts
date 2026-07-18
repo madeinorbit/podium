@@ -198,7 +198,13 @@ describe('UpstreamSync kind tolerance', () => {
           op: 'upsert',
           value: { id: 'a|b|blocks', fromId: 'a', toId: 'b', type: 'blocks' },
         },
-        { seq: 7, entity: 'repo', id: 'repo_a', op: 'upsert', value: { id: 'repo_a', prefix: 'POD' } },
+        {
+          seq: 7,
+          entity: 'repo',
+          id: 'repo_a',
+          op: 'upsert',
+          value: { id: 'repo_a', prefix: 'POD' },
+        },
         { seq: 8, entity: 'issue', id: 'a', op: 'remove' },
       ],
     })
@@ -245,12 +251,9 @@ describe('UpstreamSync kind tolerance', () => {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    unread: false,
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
   })
 
   it('a malformed KNOWN-kind element in a heal delta escalates to a snapshot heal — never installed, never skipped (#247)', async () => {

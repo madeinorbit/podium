@@ -141,7 +141,7 @@ function progressFrom(childrenOf: ChildrenIndex, epicId: string): EpicProgress |
     seen.add(node.id)
     total += 1
     if (node.stage === 'done') done += 1
-    if (node.sessionSummary.total > 0) liveAgents += 1
+    if ((node.sessionSummary?.total ?? 0) > 0) liveAgents += 1
     for (const child of childrenOf.get(node.id) ?? []) stack.push(child)
   }
   return total === 0 ? null : { total, done, liveAgents }

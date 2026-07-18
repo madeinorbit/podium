@@ -387,8 +387,10 @@ export function exitedRecovery(opts: {
   return { detail: cause, action: opts.isShell ? 'restart' : opts.resumable ? 'resume' : 'remove' }
 }
 
-export type IssueNavigationModel = Omit<IssueWire, 'sessions' | 'commentCount'> & {
+export type IssueNavigationModel = Omit<IssueWire, 'commentCount'> & {
   memberSessionIds?: string[]
+  unread?: boolean
+  sessionSummary?: { total: number; byPhase: Record<string, number> }
 }
 
 export interface WorktreeNavView extends WorktreeView {
@@ -1105,12 +1107,12 @@ export type UnifiedWorkRow =
   | { kind: 'worktree'; worktree: WorktreeNavView; activityAt: number; rank: number }
 
 /** Whether a unified WORK/WORKING row should render with unread (email-style)
- *  emphasis. An issue row follows the issue's own server-derived `unread` flag
+ *  emphasis. An issue row follows the replica-derived `unread` rollup
  *  (which already aggregates member-session activity), so marking the issue read
  *  clears it. A worktree row owns no `unread` field of its own, so it's unread
  *  iff any of its sessions is. (#126, built on the #124 unread foundation.) */
 export function isRowUnread(row: UnifiedWorkRow): boolean {
-  return row.kind === 'issue' ? row.issue.unread : row.worktree.sessions.some((s) => s.unread)
+  return row.kind === 'issue' ? (row.issue.unread ?? false) : row.worktree.sessions.some((s) => s.unread)
 }
 
 /** Whether a unified row should actually RENDER the unread (email-style) emphasis.

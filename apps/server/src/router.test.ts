@@ -281,12 +281,10 @@ function repoCaller() {
 }
 
 describe('markRead mutations (#124)', () => {
-  it('issues.markRead flips unread and stamps readAt', async () => {
+  it('issues.markRead stamps durable readAt; unread is replica-derived', async () => {
     const { call } = repoCaller()
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
-    expect(iss.unread).toBe(true)
     const read = await call.issues.markRead({ id: iss.id })
-    expect(read.unread).toBe(false)
     expect(read.readAt).not.toBeNull()
   })
 
@@ -305,12 +303,11 @@ describe('markRead mutations (#124)', () => {
     expect(s?.readAt).not.toBeNull()
   })
 
-  it('issues.markUnread flips a read issue back to unread (#138)', async () => {
+  it('issues.markUnread clears durable readAt (#138)', async () => {
     const { call } = repoCaller()
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     await call.issues.markRead({ id: iss.id })
     const un = await call.issues.markUnread({ id: iss.id })
-    expect(un.unread).toBe(true)
     expect(un.readAt).toBeNull()
   })
 

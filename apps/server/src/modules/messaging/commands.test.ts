@@ -9,7 +9,6 @@ import {
   issueCallbackData,
   parseIssueCallbackData,
   parseSlashCommand,
-  pickIssueSession,
 } from './commands'
 
 function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'title'>): IssueWire {
@@ -40,12 +39,9 @@ function issue(partial: Partial<IssueWire> & Pick<IssueWire, 'id' | 'seq' | 'tit
     updatedAt: '2026-01-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    unread: false,
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     ...partial,
   }
 }
@@ -141,53 +137,5 @@ describe('issue formatters', () => {
   it('round-trips issue callback data', () => {
     expect(parseIssueCallbackData(issueCallbackData('iss_abc'))).toBe('iss_abc')
     expect(parseIssueCallbackData('nope')).toBeUndefined()
-  })
-
-  it('picks the live session for btw wiring', () => {
-    const withSessions = issue({
-      id: 'e',
-      seq: 5,
-      title: 'Epic',
-      sessions: [
-        {
-          sessionId: 'old',
-          agentKind: 'grok',
-          title: 'old',
-          cwd: '/p',
-          issueId: 'e',
-          status: 'exited',
-          controllerId: null,
-          geometry: { cols: 80, rows: 24 },
-          epoch: 0,
-          clientCount: 0,
-          createdAt: '2026-01-01T00:00:00.000Z',
-          lastActiveAt: '2026-07-10T00:00:00.000Z',
-          origin: { kind: 'spawn' },
-          archived: false,
-          readAt: null,
-          unread: false,
-        },
-        {
-          sessionId: 'live',
-          agentKind: 'grok',
-          title: 'live',
-          cwd: '/p',
-          issueId: 'e',
-          status: 'live',
-          controllerId: null,
-          geometry: { cols: 80, rows: 24 },
-          epoch: 0,
-          clientCount: 0,
-          createdAt: '2026-01-01T00:00:00.000Z',
-          lastActiveAt: '2026-07-16T00:00:00.000Z',
-          origin: { kind: 'spawn' },
-          archived: false,
-          readAt: null,
-          unread: false,
-        },
-      ],
-      sessionSummary: { total: 2, byPhase: {} },
-    })
-    expect(pickIssueSession(withSessions, withSessions.sessions)?.sessionId).toBe('live')
   })
 })

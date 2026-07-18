@@ -979,24 +979,7 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     expect(listCalls.n).toBe(1)
   })
 
-  // POD-817 round 2: IssueService.get(id) DEFAULTS its sessionList to a fresh
-  // listSessions() inside toWire — so the sweep's per-row issue lookup was
-  // still O(sessions) per queued row after the first hoist (live: 8.4s → only
-  // 3.3s). The sweep must thread its one listing into every issue lookup.
-  it('threads the one session listing into every per-row issue lookup', () => {
-    const sessions: SessionMeta[] = []
-    const { svc, issueGetLists } = harness(sessions)
-    for (let i = 0; i < 3; i++) {
-      svc.send(
-        { kind: 'superagent' },
-        { to: { kind: 'issue', id: ISSUE.id }, body: `x${i}`, lifecycle: 'wait' },
-      )
-    }
-    issueGetLists.length = 0
-    svc.sweep()
-    expect(issueGetLists).toHaveLength(3)
-    for (const list of issueGetLists) expect(list).toBe(sessions)
-  })
+  // POD-797: deleted the session-list threading test with IssueWire's removed membership assembly.
 
   // POD-817: wait-lifecycle rows with no explicit expiry queued FOREVER (the
   // forensics "black hole") and made every future sweep slower. They now expire

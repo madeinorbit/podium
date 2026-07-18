@@ -12,7 +12,7 @@ import { issueDurableShape } from './fields'
  *
  * ## Why this is not just "IssueWire minus a field"
  *
- * `IssueWire` embeds `sessions: SessionMeta[]` — a derived array of ANOTHER
+ * `IssueWire`The deleted local IssueWire path embedded `sessions: SessionMeta[]` — a derived array of ANOTHER
  * entity's full projection. That is the canonical ADR 4 D7.1 non-compliance, and
  * it is not a cosmetic one: because every issue's payload contains every member
  * session's payload, a one-field change to a single session forces an O(world)

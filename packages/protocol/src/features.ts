@@ -27,13 +27,6 @@ export const FEATURES = [
       'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
     visibility: 'hidden',
   },
-  {
-    id: 'issues-normalized-wire',
-    name: 'Normalized issue wire',
-    description:
-      'Serve issues as the normalized projection (no embedded session data), so a session change costs no issue-wire work. Clients that do not understand it keep the old shape.',
-    visibility: 'hidden',
-  },
 ] as const satisfies readonly FeatureDefinition[]
 
 export type FeatureId = (typeof FEATURES)[number]['id']

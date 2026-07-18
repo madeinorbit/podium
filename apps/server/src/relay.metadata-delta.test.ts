@@ -1,5 +1,4 @@
 import type { IssueWire, MetadataChange, ServerMessage, SessionMeta } from '@podium/protocol'
-import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -21,12 +20,7 @@ describe('SessionRegistry metadata deltas', () => {
   }
 
   function makeLegacyRegistry(): SessionRegistry {
-    const store = new SessionStore(':memory:')
-    store.settings.setSettings({
-      ...normalizeSettings(undefined),
-      experimental: { 'issues-normalized-wire': false },
-    })
-    const registry = new SessionRegistry(store)
+    const registry = new SessionRegistry(new SessionStore(':memory:'))
     registries.push(registry)
     return registry
   }
@@ -51,7 +45,6 @@ describe('SessionRegistry metadata deltas', () => {
   const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
 
   it('sends per-entity deltas to cap clients and full lists to legacy clients', () => {
-    // This asserts the legacy single-kind feed POD-797 deletes.
     const registry = makeLegacyRegistry()
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
@@ -66,17 +59,17 @@ describe('SessionRegistry metadata deltas', () => {
     expect(legacyNew.some((m) => m.type === 'issuesChanged')).toBe(true)
     expect(legacyNew.some((m) => m.type === 'metadataDelta')).toBe(false)
 
-    // Cap client: exactly one issue upsert — not a full list — and NO issuesChanged.
+    // Delta clients receive both unconditional feeds; only the residue drives issuesChanged.
     const deltaNew = delta.inbox.slice(deltaBefore)
     expect(deltaNew.some((m) => m.type === 'issuesChanged')).toBe(false)
     const changes = deltas(deltaNew)
-    expect(changes).toHaveLength(1)
-    expect(changes[0]).toMatchObject({ entity: 'issue', op: 'upsert' })
-    expect((changes[0]?.value as IssueWire).title).toBe('first')
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
+    const residue = changes.find((change) => change.entity === 'issue')
+    expect(residue).toMatchObject({ entity: 'issue', op: 'upsert' })
+    expect((residue?.value as IssueWire).title).toBe('first')
   })
 
   it('a single-issue update fans out one issueUpdated + one oplog change — never the full list (#22)', () => {
-    // This asserts the legacy single-kind feed POD-797 deletes.
     const registry = makeLegacyRegistry()
     const w = registry.issues.create({ repoPath: '/r', title: 'solo', startNow: false })
     registry.issues.create({ repoPath: '/r', title: 'bystander', startNow: false })
@@ -92,11 +85,12 @@ describe('SessionRegistry metadata deltas', () => {
     // Legacy client: exactly one single-issue message, no full issuesChanged.
     const legacyNew = legacy.inbox.slice(legacyBefore)
     expect(legacyNew.map((m) => m.type)).toEqual(['issueUpdated'])
-    // Delta client: exactly one oplog upsert for that issue — the bystander is untouched.
+    // Both issue representations update for this id; the bystander is untouched.
     const changes = deltas(delta.inbox.slice(deltaBefore))
-    expect(changes).toHaveLength(1)
-    expect(changes[0]).toMatchObject({ entity: 'issue', id: w.id, op: 'upsert' })
-    expect((changes[0] as { value: IssueWire }).value.notes).toBe('self-contained edit')
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issue', 'issueProjection'])
+    expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
+    const residue = changes.find((change) => change.entity === 'issue')
+    expect((residue as { value: IssueWire }).value.notes).toBe('self-contained edit')
   })
 
   it('streams session upserts through the same seam', () => {

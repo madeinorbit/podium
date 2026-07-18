@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TranscriptItem } from '@podium/protocol'
+import type { SessionMeta, TranscriptItem } from '@podium/protocol'
 import { EventBus } from '../bus'
 import type { MessagingIssueTopicRow } from '../../store/messaging-topics'
 import { MessagingService, TYPING_REFRESH_MS, type MessagingDeps } from './service'
@@ -168,27 +168,6 @@ function liveIssue(overrides: Record<string, unknown> = {}) {
     origin: 'human',
     audience: 'human',
     draft: false,
-    sessions: [
-      {
-        sessionId: 'sess_1',
-        agentKind: 'grok',
-        title: 'work',
-        cwd: '/p',
-        status: 'live',
-        controllerId: null,
-        geometry: { cols: 80, rows: 24 },
-        epoch: 0,
-        clientCount: 0,
-        createdAt: '2026-07-16T00:00:00.000Z',
-        lastActiveAt: '2026-07-16T01:00:00.000Z',
-        origin: { kind: 'spawn' },
-        archived: false,
-        readAt: null,
-        unread: false,
-        issueId: 'iss_i1',
-      },
-    ],
-    sessionSummary: { live: 1, total: 1 },
     ...overrides,
   }
 }
@@ -279,6 +258,28 @@ function makeHarness(
       ensureConciergeThread: ensureConciergeThread as never,
     },
     topics,
+    sessions: {
+      listSessions: () => [
+        {
+          sessionId: 'sess_1',
+          agentKind: 'grok',
+          title: 'work',
+          cwd: '/p',
+          status: 'live',
+          controllerId: null,
+          geometry: { cols: 80, rows: 24 },
+          epoch: 0,
+          clientCount: 0,
+          createdAt: '2026-07-16T00:00:00.000Z',
+          lastActiveAt: '2026-07-16T01:00:00.000Z',
+          origin: { kind: 'spawn' },
+          archived: false,
+          readAt: null,
+          unread: false,
+          issueId: 'iss_i1',
+        } as SessionMeta,
+      ],
+    },
     ...(opts.issues ? { issues: opts.issues } : {}),
     ...(opts.sessionIssueId ? { sessionIssueId: opts.sessionIssueId } : {}),
     ...(opts.topicRecap

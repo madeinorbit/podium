@@ -58,7 +58,7 @@ export function issueCardModel(issue: IssueViewModel): {
       : {}),
     isBlocked: issue.blocked,
     isBlocking: issue.dependents.some((d) => d.type === 'blocks'),
-    sessionCount: issue.sessionSummary.total,
+    sessionCount: issue.sessionSummary?.total ?? 0,
     ...(dueLabel ? { dueLabel } : {}),
     ...(issue.estimateMin != null ? { estimateLabel: `${issue.estimateMin}m` } : {}),
   }

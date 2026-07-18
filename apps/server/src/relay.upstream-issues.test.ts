@@ -42,12 +42,9 @@ function hubIssue(id: string, over: Partial<IssueWire> = {}): IssueWire {
     updatedAt: '2026-07-01T00:00:00.000Z',
     archived: false,
     readAt: null,
-    unread: false,
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     ...over,
   }
 }
@@ -231,7 +228,10 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     const fwd = stubForwarder()
     registry.modules.upstreamIssues.setForwarder(fwd)
     registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
-    await registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'iss_hub1', patch: { title: 'edited' } })
+    await registry.modules.upstreamIssues.forwardIssueMutation('update', {
+      id: 'iss_hub1',
+      patch: { title: 'edited' },
+    })
     // Reconnect heal delivers PRE-mutation truth (drain hasn't applied yet).
     registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
     const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
@@ -244,11 +244,16 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     const fwd = stubForwarder()
     registry.modules.upstreamIssues.setForwarder(fwd)
     registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1')])
-    await registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'iss_hub1', patch: { title: 'edited' } })
+    await registry.modules.upstreamIssues.forwardIssueMutation('update', {
+      id: 'iss_hub1',
+      patch: { title: 'edited' },
+    })
     fwd.clear() // the drain applied the entry hub-side
     registry.modules.upstreamIssues.outboxChanged()
     // …and the hub's delta delivers post-mutation truth.
-    registry.modules.upstreamIssues.setUpstreamIssues([hubIssue('iss_hub1', { title: 'edited', description: 'hub says' })])
+    registry.modules.upstreamIssues.setUpstreamIssues([
+      hubIssue('iss_hub1', { title: 'edited', description: 'hub says' }),
+    ])
     const entry = attachIssues(registry).find((i) => i.id === 'iss_hub1')
     expect(entry?.title).toBe('edited')
     expect(entry?.description).toBe('hub says')
@@ -285,7 +290,9 @@ describe('upstream issue write forwarding (spec §2.2)', () => {
     expect(entry?.needsHuman).toBe(true)
     expect(entry?.humanQuestion).toContain('BAD_REQUEST: title rejected')
     // …and durably recorded as a podium event.
-    const events = store.events.listEventsSince(0).filter((e) => e.kind === 'issue.upstream_rejected')
+    const events = store.events
+      .listEventsSince(0)
+      .filter((e) => e.kind === 'issue.upstream_rejected')
     expect(events).toHaveLength(1)
     expect(events[0]?.subject).toBe('iss_hub1')
     expect(events[0]?.payload).toMatchObject({
@@ -330,9 +337,9 @@ describe('no-upstream inertness (invariant 4)', () => {
     expect(issues.map((i) => i.id)).toEqual([local.id])
     expect(issues[0]?.viaHub).toBeUndefined()
     // No forwarder configured → forwarding is a hard error, never a silent queue.
-    await expect(registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'x', patch: {} })).rejects.toThrow(
-      /no upstream/,
-    )
+    await expect(
+      registry.modules.upstreamIssues.forwardIssueMutation('update', { id: 'x', patch: {} }),
+    ).rejects.toThrow(/no upstream/)
     expect(store.sync.listUpstreamOutbox()).toHaveLength(0)
   })
 })

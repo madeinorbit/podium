@@ -25,9 +25,8 @@ export interface IssuePublisherDeps {
    *  via loadFromStore before that). */
   allWire(): IssueWire[] | undefined
   /** The LOCAL normalized projection truth (IssueService.allProjections) —
-   *  `undefined` when the `issues-normalized-wire` flag is off, when a row can't
-   *  be projected, or when the service isn't constructed yet. All three mean the
-   *  same thing to the caller: don't reconcile the normalized kind this pass.
+   *  Undefined only when a row cannot be projected or the service is not yet
+   *  constructed; normalized emission itself is unconditional.
    *
    *  LOCAL only, and deliberately NOT unioned with the hub mirror the way
    *  {@link withUpstreamIssues} unions the legacy list. Mirrored issues arrive
@@ -44,8 +43,8 @@ export interface IssuePublisherDeps {
    *  fan-out of the snapshot. Wired in relay.ts.
    *
    *  `projectionRows` is the POD-796 normalized truth for the same pass, or
-   *  `undefined` to leave that kind alone (flag off / unprojectable / service
-   *  not constructed). Passed alongside the spec rather than inside it — see
+   *  Undefined leaves the kind alone only for an unprojectable row or while the
+   *  service is not constructed. Passed alongside the spec rather than inside it — see
    *  {@link PublishSpec}. */
   publishIssueList(
     spec: PublishSpec,
@@ -55,15 +54,14 @@ export interface IssuePublisherDeps {
 
 /** Issue wire publishing: builds the two issue {@link PublishSpec} shapes
  *  (IssueService's mutations run them through the ledger + funnel — issue
- *  #190, #255) and serves the write-less rebroadcast paths (session churn,
- *  staleness flips), so every issuesChanged/issueUpdated fan-out records to
+ *  #190, #255) and serves the write-less rebroadcast paths (hub-mirror and staleness changes), so every issuesChanged/issueUpdated fan-out records to
  *  the durable change log before clients see anything (oplog-read-path §2.5). */
 export class IssuePublisher implements IssuePublishSpecs {
   constructor(private readonly deps: IssuePublisherDeps) {}
 
   /**
    * Build the issue-list payload, degrading to an empty list if the DERIVED build
-   * throws (e.g. a poison issue row whose member sessions fail to serialize).
+   * throws (for example, a poison issue row).
    * An issues-layer throw must never abort an attach, a broadcast, or the daemon
    * handler that triggered it. The `?? []` also guards construction-time calls
    * (broadcasts can run before the IssueService is set).
@@ -88,8 +86,7 @@ export class IssuePublisher implements IssuePublishSpecs {
    * for every issue in the baseline. `undefined` is the only spelling of "I
    * don't know" that reconcile cannot mistake for "nothing". (The legacy path's
    * `?? []` has exactly that shape and is left alone here — changing it is a
-   * behaviour change to the old path, which this flag-gated cutover may not
-   * make; it is reported as a pre-existing hazard instead.)
+   * behavior change to the registered transitional residue and remains out of scope.)
    */
   safeProjectionRows(): { id: string; value: IssueProjection }[] | undefined {
     try {

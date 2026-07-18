@@ -403,7 +403,62 @@ function declRe(names: string[]): RegExp {
   return new RegExp(`^export (?:interface|type|class) (?:${names.join('|')})\\b`)
 }
 
+export interface RegisteredResidue {
+  id: string
+  owner: string
+  expiry: string
+  note: string
+  sites: readonly { file: string; needle: string }[]
+}
+
+export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
+  {
+    id: 'issues-forwarder-transition',
+    owner: 'POD-309 / POD-827',
+    expiry:
+      'deleted when the forwarder retires (POD-309) or the hub speaks projections (POD-827), whichever first',
+    note: 'POD-827 blocks normalized-as-sole-feed on hub-node installs; local clients receive only the session-free transitional issue payload.',
+    sites: [
+      {
+        file: 'packages/protocol/src/messages/issues.ts',
+        needle: 'export const IssueWire = z.object({',
+      },
+      {
+        file: 'apps/server/src/modules/issues/publish.ts',
+        needle: "snapshot: { type: 'issuesChanged', issues },",
+      },
+      {
+        file: 'packages/sync/src/upstream.ts',
+        needle: 'private readonly issues = new Map<string, IssueWire>()',
+      },
+      {
+        file: 'apps/server/src/modules/issues/instrumentation.ts',
+        needle: 'export function countIssueMembershipScan(): void {',
+      },
+    ],
+  },
+]
+
 export const CHECKS: AuditCheck[] = [
+  {
+    id: 'issues-legacy-local-wire',
+    title: 'Legacy local issue membership wire path',
+    phase: 'POD-797',
+    unit: 'production site that embeds or scans sessions for an issue payload, gates normalized issue emission, or retains a POD-722/723 issue shim',
+    collect: (ctx) => [
+      ...grep(ctx, {
+        roots: ['packages/protocol/src/messages/issues.ts'],
+        pattern:
+          /IssueSessionSummary|sessions:\s*z[.]array[(]SessionMeta[)]|sessionSummary:\s*IssueSessionSummary|unread:\s*z[.]boolean/,
+      }),
+      ...grep(ctx, {
+        roots: ['apps/server/src'],
+        skip: (file) => file === 'apps/server/src/modules/issues/instrumentation.ts',
+        pattern:
+          /issueRelevantSessionProjection|lastIssueSessionProjection|legacyIssueWireNeeded|issuesNormalizedWire|toWireMemo|wireCache|bumpIssueInputs|memberSessionFingerprint|countIssueMembershipScan[(]|issues-normalized-wire/,
+      }),
+    ],
+  },
   {
     id: 'publish-computed-fanout',
     title: 'publishComputed snapshot fan-out',

@@ -1,12 +1,28 @@
-import { describe, expect, it } from 'vitest'
 import type { SessionMeta } from '@podium/protocol'
-import { isMemberCwd, selectMailNudgeSession, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
+import { describe, expect, it } from 'vitest'
+import {
+  isMemberCwd,
+  selectMailNudgeSession,
+  sessionsForIssue,
+  slugifyBranch,
+  stageIndex,
+} from './issue-util'
 
 const sess = (cwd: string, phase?: string): SessionMeta =>
   ({
-    sessionId: cwd, agentKind: phase ? 'claude-code' : 'shell', title: 't', cwd,
-    status: 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
-    clientCount: 0, createdAt: 't', lastActiveAt: 't', origin: { kind: 'spawn' }, archived: false,
+    sessionId: cwd,
+    agentKind: phase ? 'claude-code' : 'shell',
+    title: 't',
+    cwd,
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 0,
+    createdAt: 't',
+    lastActiveAt: 't',
+    origin: { kind: 'spawn' },
+    archived: false,
     ...(phase ? { agentState: { phase, since: 't', openTaskCount: 0 } } : {}),
   }) as unknown as SessionMeta
 
@@ -29,13 +45,9 @@ describe('membership', () => {
     expect(isMemberCwd('/r/wt', '/r/wt/pkg')).toBe(true)
     expect(isMemberCwd('/r/wt', '/r/wt-other')).toBe(false)
   })
-  it('filters sessions and summarizes phases', () => {
+  it('filters sessions for non-wire lifecycle consumers', () => {
     const all = [sess('/r/wt', 'working'), sess('/r/wt/pkg', 'idle'), sess('/r/wt'), sess('/other')]
-    const members = sessionsForIssue('/r/wt', all)
-    expect(members.length).toBe(3)
-    const sum = summarizeSessions(members)
-    expect(sum.total).toBe(3)
-    expect(sum.byPhase).toEqual({ working: 1, idle: 1, shell: 1 })
+    expect(sessionsForIssue('/r/wt', all)).toHaveLength(3)
   })
 })
 
@@ -55,10 +67,19 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
     lastActiveAt?: string
   }): SessionMeta =>
     ({
-      sessionId: o.id, agentKind: o.agentKind ?? 'claude-code', title: 't', cwd: '/r/wt',
-      status: o.status ?? 'live', controllerId: null, geometry: { cols: 80, rows: 24 }, epoch: 0,
-      clientCount: 0, createdAt: 't', lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
-      origin: { kind: 'spawn' }, archived: false,
+      sessionId: o.id,
+      agentKind: o.agentKind ?? 'claude-code',
+      title: 't',
+      cwd: '/r/wt',
+      status: o.status ?? 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: 't',
+      lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
+      origin: { kind: 'spawn' },
+      archived: false,
       ...(o.phase ? { agentState: { phase: o.phase, since: 't', openTaskCount: 0 } } : {}),
     }) as unknown as SessionMeta
 

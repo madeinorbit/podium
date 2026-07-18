@@ -18,6 +18,7 @@ vi.mock('@/app/store', () => {
     sessions: [],
   })
   return {
+    useReplicaIssues: () => [],
     useStoreSelector: (selector: (store: ReturnType<typeof state>) => unknown) => selector(state()),
   }
 })

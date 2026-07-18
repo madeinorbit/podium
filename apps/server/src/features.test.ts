@@ -116,29 +116,6 @@ describe('isFeatureEnabled', () => {
     ).toBe(true)
   })
 
-  it('supports default-on while explicit user and config overrides still win', () => {
-    const env = { PODIUM_APP_VERSION: 'dev' }
-    expect(isFeatureEnabled('issues-normalized-wire', settings(), {}, env, true)).toBe(true)
-    expect(
-      isFeatureEnabled(
-        'issues-normalized-wire',
-        settings({ 'issues-normalized-wire': false }),
-        {},
-        env,
-        true,
-      ),
-    ).toBe(false)
-    expect(
-      isFeatureEnabled(
-        'issues-normalized-wire',
-        settings({ 'issues-normalized-wire': true }),
-        { features: { 'issues-normalized-wire': false } },
-        env,
-        true,
-      ),
-    ).toBe(false)
-  })
-
   it('returns true when config forces on (even unlisted)', () => {
     expect(
       isFeatureEnabled(

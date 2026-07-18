@@ -1,9 +1,4 @@
-import {
-  ISSUE_STAGES,
-  type IssueSessionSummary,
-  type IssueStage,
-  type SessionMeta,
-} from '@podium/protocol'
+import { ISSUE_STAGES, type IssueStage, type SessionMeta } from '@podium/protocol'
 
 export function slugifyBranch(seq: number, title: string): string {
   const slug = title
@@ -31,15 +26,6 @@ export function sessionsForIssue(
   return sessions.filter((s) =>
     s.issueId ? s.issueId === issueId : isMemberCwd(worktreePath, s.cwd),
   )
-}
-
-export function summarizeSessions(sessions: SessionMeta[]): IssueSessionSummary {
-  const byPhase: Record<string, number> = {}
-  for (const s of sessions) {
-    const key = s.agentState?.phase ?? 'shell'
-    byPhase[key] = (byPhase[key] ?? 0) + 1
-  }
-  return { total: sessions.length, byPhase }
 }
 
 /** Send-time mail nudge target (issue #103). Over the issue's member sessions:

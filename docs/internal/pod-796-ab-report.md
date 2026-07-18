@@ -74,8 +74,7 @@ still read it, because `IssueProjection` carries no `deps`/`prefix` and nothing 
 (**POD-822**). A browser A/B would run its flag-ON arm with a non-cap client, never engage the bypass, and
 measure flag-ON == flag-OFF.
 
-**The browser A/B is blocked on POD-822, not on the harness.** It becomes meaningful the moment the client
-can honestly offer the cap.
+**Reconciliation (POD-797):** this report is historical. POD-856 moved the browser to the normalized feed, and POD-797 deleted the flag and session-derived old-path arm; the retained capless emit is session-free residue.
 
 ---
 
@@ -97,6 +96,4 @@ bun --bun vitest run apps/server/src/issues.normalized-wire.bench.test.ts --repo
 ```
 
 The D7.2 proof and its interlocks: `apps/server/src/issues.normalized-wire.test.ts`.
-Every load-bearing guard is mutation-tested; the flag-OFF control exists so a 0 there exposes a vacuous test
-rather than passing quietly — which is exactly what it did when the pre-rebase `clientCount` trigger was
-eaten by POD-722.
+The current guard proves every session change records zero issue membership scans; the old-path arm now measures only the session-free residue attach emit.

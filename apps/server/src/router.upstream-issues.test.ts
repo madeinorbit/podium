@@ -47,12 +47,9 @@ function hubIssue(id: string): IssueWire {
     updatedAt: 't',
     archived: false,
     readAt: null,
-    unread: false,
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,
-    sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
   }
 }
 

@@ -98,7 +98,7 @@ describe('IssuePage activity feed', () => {
   it('scopes the feed to this issue and fetches events + comments from the log start', async () => {
     // (Event/comment label formatting is covered by issue-events.test.ts; here we
     // only assert the page-level scoping + fetch wiring.)
-    const issue = makeIssue({ id: 'i-1', repoPath: '/r', commentCount: 1 })
+    const issue = makeIssue({ id: 'i-1', repoPath: '/r' })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
@@ -117,7 +117,7 @@ describe('IssuePage activity feed', () => {
   })
 
   it('orders events and comments chronologically', async () => {
-    const issue = makeIssue({ id: 'i-1', repoPath: '/r', commentCount: 1 })
+    const issue = makeIssue({ id: 'i-1', repoPath: '/r' })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )

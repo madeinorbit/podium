@@ -1,6 +1,5 @@
 import { Revision } from '@podium/model'
 import { z } from 'zod'
-import { SessionMeta } from './runtime-state'
 
 // ---------------------------------------------------------------------------
 // Issue tracker
@@ -10,12 +9,6 @@ import { SessionMeta } from './runtime-state'
 export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done'])
 export type IssueStage = z.infer<typeof IssueStage>
 export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'done']
-
-export const IssueSessionSummary = z.object({
-  total: z.number().int().nonnegative(),
-  byPhase: z.record(z.number().int().nonnegative()),
-})
-export type IssueSessionSummary = z.infer<typeof IssueSessionSummary>
 
 export const IssueType = z.enum([
   'task',
@@ -192,11 +185,6 @@ export const IssueWire = z.object({
   /** Email-style read state (issue #124). Global (single-operator) — the ISO time
    *  the operator last opened this issue, or null if never opened. */
   readAt: z.string().nullable().catch(null).default(null),
-  /** Server-DERIVED: there is activity newer than `readAt` — the issue's most
-   *  recent activity (latest of updatedAt / member-session lastActiveAt) postdates
-   *  `readAt`, or `readAt` is null and the issue has ever had activity. Defaulted so
-   *  a pre-field cached payload still validates (unread → false). */
-  unread: z.boolean().catch(false).default(false),
   /** Whose INTENT this issue captures (issue-as-workspace). Defaulted at parse
    *  so pre-field cached payloads still validate. */
   origin: z.enum(['human', 'agent']).catch('human').default('human'),
@@ -209,9 +197,6 @@ export const IssueWire = z.object({
   /** Draft = placeholder-titled vessel created by the low-friction spawn flow;
    *  retitling clears it. Drafts show in the sidebar but not on the board. */
   draft: z.boolean().catch(false).default(false),
-  // Derived server-side at serialization (not persisted):
-  sessions: z.array(SessionMeta),
-  sessionSummary: IssueSessionSummary,
   /** Per-entity revision (ADR 2 D3) — authority-assigned, monotonic, bumped on
    *  every ACCEPTED issue write. This is the token `expectedRevision` echoes
    *  back on a mutating command; it is opaque to replicas, which never compute

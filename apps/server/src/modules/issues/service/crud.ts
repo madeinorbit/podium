@@ -183,7 +183,6 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
    *  read error in this fanout must not make the succeeded mutation look failed. */
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: string): void {
     try {
-      const sessionList = this.deps.listSessions()
       const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
       for (const r of this.rows.values()) {
         if (r.id === closed.id || !this.inRepoScope(r, closed.repoPath) || this.isClosed(r))
@@ -191,7 +190,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         const blocksClosed = this.deps.store.issues
           .listIssueDeps(r.id)
           .some((d) => d.type === 'blocks' && d.toId === closed.id)
-        if (blocksClosed && this.toWire(r, sessionList, commentCounts).ready) {
+        if (blocksClosed && this.toWire(r, commentCounts).ready) {
           this.emitEvent('issue.ready', r.id, {
             seq: r.seq,
             unblockedBy: closed.seq,
@@ -410,7 +409,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   /** Build the issue half of a cross-aggregate soft-delete without mutating
    *  memory before the durable transaction succeeds. */
-  prepareSoftDelete(id: string, remainingSessions: SessionMeta[]): IssueLifecyclePlan {
+  prepareSoftDelete(id: string, _remainingSessions: SessionMeta[]): IssueLifecyclePlan {
     id = this.resolveRef(id)
     const current = this.rowOrThrow(id)
     if (current.deletedAt) throw new Error(`issue ${id} is already deleted`)
@@ -431,7 +430,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       wire,
       write: () => {
         this.deps.store.issues.upsertIssue(row)
-        committed = this.toWire(row, remainingSessions)
+        committed = this.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
@@ -461,7 +460,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
 
   /** Build the issue half of a cross-aggregate restore without exposing the row
    *  before its issue and session tombstones have committed together. */
-  prepareRestore(id: string, restoredSessions: SessionMeta[]): IssueLifecyclePlan {
+  prepareRestore(id: string, _restoredSessions: SessionMeta[]): IssueLifecyclePlan {
     id = this.resolveRef(id)
     const current = this.rowOrThrow(id)
     if (!current.deletedAt) throw new Error(`issue ${id} is not deleted`)
@@ -481,7 +480,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       wire,
       write: () => {
         this.deps.store.issues.upsertIssue(row)
-        committed = this.toWire(row, restoredSessions)
+        committed = this.toWire(row)
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {

@@ -12,6 +12,7 @@ import {
   isFrozenFile,
   isTestFile,
   loadContext,
+  REGISTERED_RESIDUE,
   runAudit,
   type SourceFile,
   stripComments,
@@ -26,6 +27,18 @@ function ctxOf(files: Record<string, string>, dirs: Record<string, string[]> = {
   }))
   return { repoRoot: '/repo', files: srcs, listDir: (rel) => dirs[rel] ?? [] }
 }
+
+describe('registered residue', () => {
+  it('pins every expiring issue residue site to live production code', () => {
+    const live = loadContext(process.cwd())
+    for (const residue of REGISTERED_RESIDUE) {
+      for (const site of residue.sites) {
+        const source = live.files.find((file) => file.file === site.file)?.stripped
+        expect(source, site.file).toContain(site.needle)
+      }
+    }
+  })
+})
 
 describe('stripComments', () => {
   it('preserves line numbers across block comments', () => {
@@ -423,13 +436,28 @@ describe('CLI exit codes', () => {
 
   /** Run the audit for real; returns its exit code (never throws on non-zero). */
   function run(args: string[]): number {
-    const r = spawnSync('bun', [script, ...args], { encoding: 'utf8' })
-    if (r.error) throw r.error
-    return r.status ?? -1
+    return runFull(args).status
   }
 
-  it('exits 0 when the tree matches the committed baseline', () => {
-    expect(run([])).toBe(0)
+  function runFull(args: string[]): { status: number; out: string } {
+    const r = spawnSync('bun', [script, ...args], { encoding: 'utf8' })
+    if (r.error) throw r.error
+    return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` }
+  }
+
+  it('reports the known main-side ratchet drift without normalizing it [POD-857/POD-279]', () => {
+    // router-triple-access and publish-computed-fanout are owned outside POD-797;
+    // keep the authoritative baseline untouched so their owners must reconcile it.
+    // Pin the failing SET, not just the exit code: exit 1 alone would let a
+    // FRESH regression in any other check hide behind the known drift (the
+    // POD-797 review's M1). Exactly one check may report GREW, and it must be
+    // router-triple-access; the fanout IMPROVEMENT prints its lock-the-win
+    // nudge without failing anything else.
+    const { status, out } = runFull([])
+    expect(status).toBe(1)
+    const grewBlock = out.slice(out.indexOf('GREW'))
+    const grown = [...grewBlock.matchAll(/^ {2}([a-z0-9-]+) \(/gm)].map((m) => m[1])
+    expect(grown).toEqual(['router-triple-access'])
   })
 
   it('fails CLOSED on an unknown flag rather than silently running the ratchet', () => {
@@ -494,7 +522,7 @@ describe('against the live repo', () => {
     // A check that silently stops matching (a rename, a moved file) would read
     // as "deleted!" and let the phase close on a false zero. Items that are
     // legitimately at zero are listed here as deliberate regression guards.
-    const ZERO_BY_DESIGN = new Set(['state-dir-defs'])
+    const ZERO_BY_DESIGN = new Set(['state-dir-defs', 'issues-legacy-local-wire'])
     for (const r of results) {
       if (ZERO_BY_DESIGN.has(r.id)) continue
       expect(

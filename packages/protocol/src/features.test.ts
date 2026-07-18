@@ -98,7 +98,7 @@ describe('FEATURES registry', () => {
   // Asserts CONTAINMENT, not the whole array. The equality form this replaces
   // said "includes ..." in its name while demanding the registry hold nothing
   // else — so it failed the first time a real flag landed (POD-796's
-  // issues-normalized-wire), which is the registry working, not breaking.
+  // retired feature keys), which is the registry working, not breaking.
   it('includes the sample-experiment hidden flag', () => {
     expect(FEATURES).toContainEqual({
       id: 'sample-experiment',

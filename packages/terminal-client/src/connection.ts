@@ -135,9 +135,9 @@ export interface MetadataAppliedState {
   cursor: number
   sessions: SessionMeta[]
   issues: IssueWire[]
-  /** The normalized issues [POD-796] — empty unless the authority's
-   *  `issues-normalized-wire` flag is on. Additive: an embedder that ignores it
-   *  behaves exactly as before. */
+  /** The normalized issues [POD-796] — emitted unconditionally since POD-797
+   *  deleted the flag. Additive: an embedder that ignores it behaves exactly
+   *  as before. */
   issueProjections: IssueProjection[]
   /** The issue dependency EDGES [POD-822] — `issue_deps` as first-class rows.
    *  A consumer of `issueProjections` needs these: the projection carries no
@@ -275,9 +275,9 @@ export interface HubEvents {
   approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
   issues: [issues: IssueWire[]]
-  /** Full NORMALIZED issue list after any change [POD-796]. Fires only against
-   *  an authority with the `issues-normalized-wire` flag on, and only for a hub
-   *  that offered CAP_ISSUES_NORMALIZED. Carries no session data of any kind —
+  /** Full NORMALIZED issue list after any change [POD-796]. Fires for a hub
+   *  that offered CAP_ISSUES_NORMALIZED (the authority emits unconditionally
+   *  since POD-797). Carries no session data of any kind —
    *  a consumer resolves members by indexing sessions on `issueId`. Emitted
    *  ALONGSIDE `issues` during the transition, never instead of it. */
   issueProjections: [issues: IssueProjection[]]
