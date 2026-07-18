@@ -93,6 +93,12 @@ export interface JanitorCounters {
   lastProgressAt: string | null
   maxBatchDeleted: number
   jobAgeMs: Record<string, number>
+  queueDepth: number
+  coalescedJobs: number
+  supersededJobs: number
+  completedJobs: number
+  maxJobAgeMs: number
+  maxUninterruptedSliceMs: number
 }
 
 export interface JanitorDeps {
@@ -138,6 +144,16 @@ export class MaintenanceCompatibilityError extends Error {
   }
 }
 
+export interface JanitorMetrics {
+  queueDepth: number
+  coalescedJobs: number
+  supersededJobs: number
+  completedJobs: number
+  failures: number
+  maxJobAgeMs: number
+  maxUninterruptedSliceMs: number
+}
+
 /** One fenced janitor generation. Durable facts are read locally; all writes are commands. */
 export class JanitorService {
   private readonly generationId: string
@@ -145,6 +161,7 @@ export class JanitorService {
   private lease: ReadyLease | undefined
   private tickFlight: Promise<void> | undefined
   private tickCount = 0
+  private progress = 0
   private readonly counters: JanitorCounters = {
     ticks: 0,
     applies: 0,
@@ -156,6 +173,12 @@ export class JanitorService {
     lastProgressAt: null,
     maxBatchDeleted: 0,
     jobAgeMs: {},
+    queueDepth: 0,
+    coalescedJobs: 0,
+    supersededJobs: 0,
+    completedJobs: 0,
+    maxJobAgeMs: 0,
+    maxUninterruptedSliceMs: 0,
   }
   private readonly jobStartedAt = new Map<string, number>()
 
@@ -172,20 +195,64 @@ export class JanitorService {
     }
   }
 
+  /** Monotonic state-machine progress token used to gate systemd watchdog pets. */
+  progressVersion(): number {
+    return this.progress
+  }
+
+  metrics(): JanitorMetrics {
+    return this.snapshotCounters()
+  }
+
   tick(): Promise<void> {
-    if (this.tickFlight) return this.tickFlight
-    const flight = this.runTick().then(
-      () => {
-        if (this.tickFlight === flight) this.tickFlight = undefined
-      },
-      (error) => {
+    if (this.tickFlight) {
+      this.counters.coalescedJobs += 1
+      return this.tickFlight
+    }
+    const enqueuedAt = performance.now()
+    this.counters.queueDepth = 1
+    this.advanceProgress()
+    let flight!: Promise<void>
+    const settle = (error?: unknown): void => {
+      if (this.tickFlight === flight) this.tickFlight = undefined
+      this.counters.queueDepth = 0
+      this.counters.maxJobAgeMs = Math.max(
+        this.counters.maxJobAgeMs,
+        performance.now() - enqueuedAt,
+      )
+      if (error === undefined) {
+        this.counters.completedJobs += 1
+        this.advanceProgress()
+      } else {
         this.counters.failures += 1
-        if (this.tickFlight === flight) this.tickFlight = undefined
+      }
+    }
+    flight = this.runTick().then(
+      () => settle(),
+      (error) => {
+        settle(error)
         throw error
       },
     )
     this.tickFlight = flight
     return flight
+  }
+
+  private advanceProgress(): void {
+    this.progress += 1
+  }
+
+  /** Measure only the synchronous call segment, never time spent awaiting I/O. */
+  private invokeMeasured<T>(operation: () => T): T {
+    const started = performance.now()
+    try {
+      return operation()
+    } finally {
+      this.counters.maxUninterruptedSliceMs = Math.max(
+        this.counters.maxUninterruptedSliceMs,
+        performance.now() - started,
+      )
+    }
   }
 
   private async runTick(): Promise<void> {
@@ -195,11 +262,14 @@ export class JanitorService {
     this.tickCount += 1
 
     if (!this.lease || Date.parse(this.lease.expiresAt) <= this.now() + LEASE_RENEW_AHEAD_MS) {
-      const reply = await this.deps.handshake({
-        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
-        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
-        generationId: this.generationId,
-      })
+      const reply = await this.invokeMeasured(() =>
+        this.deps.handshake({
+          protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+          schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+          generationId: this.generationId,
+        }),
+      )
+      this.advanceProgress()
       if (reply.status === 'incompatible') {
         this.lease = undefined
         throw new MaintenanceCompatibilityError(
@@ -216,7 +286,6 @@ export class JanitorService {
 
     const lease = this.lease
     const nowMs = this.now()
-
     // Message expiry — every tick (high cadence durable work).
     await this.runMessageExpiry(lease, nowMs)
 
@@ -237,11 +306,15 @@ export class JanitorService {
 
   private async runMessageExpiry(lease: ReadyLease, nowMs: number): Promise<void> {
     this.markJobStart('message-expiry', nowMs)
-    const candidates = await this.deps.readExpiryCandidates({
-      now: new Date(nowMs).toISOString(),
-      waitImplicitCutoff: new Date(nowMs - lease.messageWaitTtlMs).toISOString(),
-      limit: CANDIDATE_LIMIT,
-    })
+    const candidates = await this.invokeMeasured(() =>
+      this.deps.readExpiryCandidates({
+        now: new Date(nowMs).toISOString(),
+        waitImplicitCutoff: new Date(nowMs - lease.messageWaitTtlMs).toISOString(),
+        limit: CANDIDATE_LIMIT,
+      }),
+    )
+    this.advanceProgress()
+    this.counters.queueDepth = Math.max(1, candidates.length)
     for (const observed of candidates) {
       const cont = await this.applyOne({
         protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
@@ -251,6 +324,8 @@ export class JanitorService {
         fencingToken: lease.fencingToken,
         observed,
       })
+      this.advanceProgress()
+      this.counters.queueDepth = Math.max(1, this.counters.queueDepth - 1)
       if (!cont) break
     }
     this.markJobEnd('message-expiry')
@@ -861,9 +936,12 @@ export function createMaintenanceHttpClient(
   token: string,
   fetchFn: typeof fetch = fetch,
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  shutdownSignal?: AbortSignal,
 ): MaintenanceHttpClient {
   const base = serverUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/$/, '')
   const post = async (path: string, body: unknown): Promise<unknown> => {
+    const timeoutSignal = AbortSignal.timeout(requestTimeoutMs)
+    const signal = shutdownSignal ? AbortSignal.any([shutdownSignal, timeoutSignal]) : timeoutSignal
     const response = await fetchFn(`${base}${path}`, {
       method: 'POST',
       headers: {
@@ -871,7 +949,7 @@ export function createMaintenanceHttpClient(
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(requestTimeoutMs),
+      signal,
     })
     const payload = await response.json()
     if (!response.ok) {
@@ -898,7 +976,14 @@ export async function startJanitor(options: {
   dbPath?: string
   tickMs?: number
 }): Promise<JanitorHandle> {
-  const client = createMaintenanceHttpClient(options.serverUrl, options.token)
+  const shutdown = new AbortController()
+  const client = createMaintenanceHttpClient(
+    options.serverUrl,
+    options.token,
+    fetch,
+    undefined,
+    shutdown.signal,
+  )
   const db = openDatabase(options.dbPath ?? join(stateDir(), 'podium.db'), { readOnly: true })
   db.exec('PRAGMA query_only = ON')
   db.exec('PRAGMA busy_timeout = 1000')
@@ -947,6 +1032,7 @@ export async function startJanitor(options: {
     service,
     close: () => {
       clearInterval(timer)
+      shutdown.abort(new Error('janitor shutting down'))
       db.close()
     },
   }

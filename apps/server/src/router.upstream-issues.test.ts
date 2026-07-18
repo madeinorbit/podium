@@ -92,6 +92,7 @@ function makeNode(repoPaths: string[] = []) {
  *  forwarding test input. */
 const FORWARD_INPUTS: Record<string, Record<string, unknown>> = {
   claim: { id: HUB_ID, assignee: 'me' },
+  setCoordinator: { id: HUB_ID, sessionId: null },
   update: { id: HUB_ID, patch: { title: 'T' } },
   close: { id: HUB_ID },
   defer: { id: HUB_ID, until: null },

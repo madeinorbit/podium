@@ -33,6 +33,47 @@ const readyLease = (
 })
 
 describe('JanitorService [spec:SP-c29e]', () => {
+  it('exposes progress and queue/coalescing/failure counters without mistaking a hung tick for progress', async () => {
+    let finishHandshake: ((reply: MaintenanceHandshakeReply) => void) | undefined
+    const handshake = vi.fn(
+      () =>
+        new Promise<MaintenanceHandshakeReply>((resolve) => {
+          finishHandshake = resolve
+        }),
+    )
+    const service = new JanitorService({
+      generationId: 'gen_metrics',
+      handshake,
+      readExpiryCandidates: () => [],
+      apply: vi.fn(),
+    })
+
+    const first = service.tick()
+    const startedProgress = service.progressVersion()
+    const coalesced = service.tick()
+    expect(coalesced).toBe(first)
+    expect(service.progressVersion()).toBe(startedProgress)
+    expect(service.metrics()).toMatchObject({
+      queueDepth: 1,
+      coalescedJobs: 1,
+      supersededJobs: 0,
+      completedJobs: 0,
+      failures: 0,
+    })
+
+    finishHandshake?.({
+      status: 'ready',
+      fencingToken: 1,
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      messageWaitTtlMs: 60_000,
+    })
+    await first
+    expect(service.progressVersion()).toBeGreaterThan(startedProgress)
+    expect(service.metrics()).toMatchObject({ queueDepth: 0, failures: 0 })
+    expect(service.metrics().maxJobAgeMs).toBeGreaterThanOrEqual(0)
+    expect(service.metrics().maxUninterruptedSliceMs).toBeGreaterThanOrEqual(0)
+  })
+
   it('aborts a wedged maintenance request so a later tick can retry', async () => {
     let signal: AbortSignal | undefined
     let requests = 0
@@ -59,6 +100,35 @@ describe('JanitorService [spec:SP-c29e]', () => {
     await expect(service.tick()).rejects.toBeDefined()
     expect(signal?.aborted).toBe(true)
     expect(requests).toBe(2)
+  })
+
+  it('composes shutdown cancellation with the per-request timeout', async () => {
+    const shutdown = new AbortController()
+    let requestSignal: AbortSignal | undefined
+    const client = createMaintenanceHttpClient(
+      'http://localhost:18787',
+      'secret',
+      ((_url: string, init?: RequestInit) => {
+        requestSignal = init?.signal ?? undefined
+        return new Promise((_resolve, reject) => {
+          requestSignal?.addEventListener('abort', () => reject(requestSignal?.reason), {
+            once: true,
+          })
+        })
+      }) as typeof fetch,
+      60_000,
+      shutdown.signal,
+    )
+
+    const pending = client.handshake({
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      generationId: 'gen_shutdown',
+    })
+    await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    shutdown.abort(new Error('janitor shutting down'))
+    await expect(pending).rejects.toThrow('janitor shutting down')
+    expect(requestSignal?.aborted).toBe(true)
   })
 
   it('handshakes before reading durable candidates and sends the fenced deterministic command', async () => {

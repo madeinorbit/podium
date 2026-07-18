@@ -212,7 +212,7 @@ describe.skipIf(!hasDevSigningKey)('podium update swap crash-safety', () => {
   it('swaps the install dir to the new version (same-filesystem staging)', async () => {
     const dir = stageInstall('0.1.0')
     const feed = await startFeed('0.1.1', makeTarball('0.1.1'))
-    await runUpdate(feed, testPubkeyB64)
+    await runUpdate(feed, testPubkeyB64, () => false)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.1')
     expect(existsSync(join(dir, 'podium'))).toBe(true)
     expect(existsSync(`${dir}.old`)).toBe(false)

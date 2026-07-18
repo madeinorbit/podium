@@ -34,16 +34,31 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
-import { applyBaselineSchema } from '../apps/server/src/migrations'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
 
 const CREDENTIAL = 'sk-test-xyz'
 
+function openAccountsDatabase() {
+  const db = openDatabase(':memory:')
+  // This lane owns only the managed-account aggregate. Keeping its fixture at
+  // that boundary avoids coupling a real PTY spawn test to the Bun-only full
+  // server migration runner used by SessionStore.
+  db.exec(`CREATE TABLE accounts (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    credential TEXT NOT NULL,
+    identity TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  )`)
+  return db
+}
+
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
 function managedAccountEnv(): Record<string, string> | undefined {
-  const db = openDatabase(':memory:')
-  applyBaselineSchema(db)
+  const db = openAccountsDatabase()
   const accounts = new AccountsRepository(db)
   accounts.upsert({
     id: 'managed:anthropic',
@@ -54,7 +69,9 @@ function managedAccountEnv(): Record<string, string> | undefined {
     scope: 'role',
     createdAt: 1,
   })
-  return resolveAccountEnv(accounts, 'managed:anthropic').env
+  const env = resolveAccountEnv(accounts, 'managed:anthropic').env
+  db.close()
+  return env
 }
 
 interface Harness {
@@ -84,6 +101,14 @@ function makeHarness(settingsDir: string): Harness {
     launch: agentLaunchCommand,
     settingsDir,
     bridges: new Map(),
+    // Draft sync is outside this env-propagation lane; keep the real spawn,
+    // frame, and exit path explicit while disabling its optional driver.
+    composerEngine: {
+      attach: () => false,
+      onData: () => {},
+      detach: () => {},
+      has: () => false,
+    },
     // wireBridge pipes every PTY frame here — this is the daemon's real relay seam,
     // so we assert on exactly the bytes the daemon would have shipped to the server.
     outputScheduler: {
@@ -243,8 +268,7 @@ describe('managed account -> real spawned process env (#216)', () => {
   })
 
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
-    const db = openDatabase(':memory:')
-    applyBaselineSchema(db)
+    const db = openAccountsDatabase()
     const accounts = new AccountsRepository(db)
     accounts.upsert({
       id: 'managed:claude-oauth',
@@ -256,6 +280,7 @@ describe('managed account -> real spawned process env (#216)', () => {
       createdAt: 1,
     })
     const { env } = resolveAccountEnv(accounts, 'managed:claude-oauth')
+    db.close()
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 
     const h = makeHarness(settingsDir)
