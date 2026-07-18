@@ -26,6 +26,24 @@ describe('proposed lane migration [spec:SP-6144]', () => {
       `INSERT INTO podium_events (ts, kind, subject, payload)
        VALUES ('2026-01-02', 'issue.stage_changed', 'operator-touched', '{}')`,
     ).run()
+    // A read-through is NOT curation — must still move to proposed.
+    insert.run('only-read', 5, 'Only read')
+    db.prepare(
+      `INSERT INTO podium_events (ts, kind, subject, payload)
+       VALUES ('2026-01-02', 'issue.read', 'only-read', '{}')`,
+    ).run()
+    // A pin IS explicit curation — stays in backlog.
+    insert.run('pinned', 6, 'Pinned')
+    db.prepare(
+      `INSERT INTO podium_events (ts, kind, subject, payload)
+       VALUES ('2026-01-02', 'issue.pinned', 'pinned', '{}')`,
+    ).run()
+    // An AGENT-caused stage change does not count as operator touch.
+    insert.run('agent-staged', 7, 'Agent staged')
+    db.prepare(
+      `INSERT INTO podium_events (ts, kind, subject, payload)
+       VALUES ('2026-01-02', 'issue.stage_changed', 'agent-staged', '{"causedBySessionId":"sess_1"}')`,
+    ).run()
 
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
@@ -34,6 +52,9 @@ describe('proposed lane migration [spec:SP-6144]', () => {
     expect(stage('untouched')).toBe('proposed')
     expect(stage('touched')).toBe('backlog')
     expect(stage('operator-touched')).toBe('backlog')
+    expect(stage('only-read')).toBe('proposed')
+    expect(stage('pinned')).toBe('backlog')
+    expect(stage('agent-staged')).toBe('proposed')
     expect(() =>
       db.prepare("UPDATE issues SET stage = 'proposed' WHERE id = 'parent'").run(),
     ).not.toThrow()

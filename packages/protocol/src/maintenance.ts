@@ -7,8 +7,10 @@ import { z } from 'zod'
  * Additive job kinds are backward-compatible for older janitors that only send
  * previously defined kinds. [spec:SP-c29e]
  */
-export const MAINTENANCE_PROTOCOL_VERSION = 1
-export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v1'
+// v2: the session-auto-archive job kind [spec:SP-6144] — a new janitor sending
+// it to a v1 server must be version-gated out, not hard-fail command parsing.
+export const MAINTENANCE_PROTOCOL_VERSION = 2
+export const MAINTENANCE_SCHEMA_VERSION = 'maintenance-v2'
 export const MESSAGE_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 
 /** Shared retention constants the janitor and server both honor. */

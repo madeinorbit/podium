@@ -385,6 +385,33 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     h.svc.close(parent.id)
     expect(h.svc.get(child.id)?.archived).toBe(true)
   })
+
+  it('parent-close cascade archives ONLY closed+read children — open, unread, and live-session children survive (B4)', () => {
+    const sessions: SessionMeta[] = []
+    const h = harness(sessions)
+    const parent = h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const mk = (title: string) =>
+      h.svc.create({ repoPath: '/r', title, parentId: parent.id, startNow: false })
+    const open = mk('still in progress')
+    h.svc.update(open.id, { stage: 'in_progress' })
+    const unread = mk('done but unread')
+    h.svc.close(unread.id)
+    const withLive = mk('done, read, agent still running')
+    h.svc.close(withLive.id)
+    h.svc.markIssueRead(withLive.id)
+    sessions.push({ ...sess('/r/wt-live'), issueId: withLive.id } as unknown as SessionMeta)
+    const done = mk('done and read')
+    h.svc.close(done.id)
+    h.svc.markIssueRead(done.id)
+
+    h.svc.close(parent.id)
+    expect(h.svc.get(open.id)?.archived).toBe(false)
+    expect(h.svc.get(unread.id)?.archived).toBe(false)
+    expect(h.svc.get(withLive.id)?.archived).toBe(false)
+    expect(h.svc.get(done.id)?.archived).toBe(true)
+    // The open child's agent keeps its session — the cascade never touched it.
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/wt-live', true)
+  })
 })
 
 describe('IssueService archive cascade to sessions (#133)', () => {

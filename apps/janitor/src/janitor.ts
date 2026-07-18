@@ -739,6 +739,7 @@ export class IssueAutoArchiveReader {
              AND read_at IS NOT NULL
              AND read_at <= ?
              AND (stage = 'done' OR closed_reason IS NOT NULL)
+             AND parent_id IS NULL
              ${after}
            ORDER BY read_at ASC, id ASC
            LIMIT ?`,

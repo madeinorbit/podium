@@ -120,7 +120,7 @@ export const SessionMeta = z.object({
   readAt: z.string().nullable().catch(null).default(null),
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),
-  stopReason: z.enum(['self', 'parent', 'forced']).optional(),
+  stopReason: z.enum(['self', 'parent', 'forced', 'exited']).optional(),
   /** Server-DERIVED: there is activity the operator hasn't seen —
    *  `lastActiveAt > readAt`, or `readAt` is null (never opened). Defaulted so a
    *  pre-field cached payload still validates (unread → false). */

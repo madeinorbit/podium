@@ -99,7 +99,8 @@ describe('stopSession [spec:SP-9904]', () => {
     const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta?.status).toBe('hibernated')
     expect(meta?.stoppedAt).toBeTruthy()
-    expect(meta?.stopReason).toBe('forced')
+    // A plain (no --force) operator stop is an orderly park — never 'forced'.
+    expect(meta?.stopReason).toBe('parent')
     expect(meta?.readAt).toBeNull()
     expect(meta?.unread).toBe(true)
     expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })

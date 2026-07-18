@@ -191,12 +191,37 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     } catch {}
   }
 
-  /** Closing a parent retires its descendant progress record and stopped sessions. [spec:SP-6144] */
-  private archiveClosedSubtree(parentId: string): void {
+  /** Closing a parent retires its descendant progress record and stopped
+   *  sessions [spec:SP-6144]. The cascade archives ONLY children that are
+   *  themselves closed, already read, and have no live member session — open
+   *  work, unread results, and running agents are skipped (and surfaced via a
+   *  single issue.cascade_skipped event on the parent) instead of vanishing
+   *  from the live views out from under the operator. */
+  private archiveClosedSubtree(parentId: string, sessionList?: SessionMeta[]): void {
+    sessionList ??= this.deps.listSessions()
+    const skipped: Array<{ seq: number; why: string }> = []
     for (const child of this.rows.values()) {
       if (child.parentId !== parentId || child.archived || child.deletedAt) continue
-      this.archiveClosedSubtree(child.id)
+      if (!this.isClosed(child)) continue // open work is never swept by a parent close
+      if (child.readAt == null) {
+        skipped.push({ seq: child.seq, why: 'unread' })
+        continue
+      }
+      const live = sessionList.some(
+        (s) => s.issueId === child.id && !s.archived && s.status !== 'exited',
+      )
+      if (live) {
+        skipped.push({ seq: child.seq, why: 'live session' })
+        continue
+      }
+      this.archiveClosedSubtree(child.id, sessionList)
       this.update(child.id, { archived: true })
+    }
+    if (skipped.length) {
+      const parent = this.rows.get(parentId)
+      if (parent) {
+        this.emitEvent('issue.cascade_skipped', parentId, { seq: parent.seq, skipped })
+      }
     }
   }
 
@@ -670,6 +695,21 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       cur = this.rows.get(cur)?.parentId ?? null
     }
     return out
+  }
+
+  /** True when the issue or ANY ancestor sits in the proposed lane — the whole
+   *  proposal subtree is inert until an operator promotes the root. Fails
+   *  closed: an unresolvable ref counts as proposed. [spec:SP-6144] */
+  inProposedSubtree(id: string): boolean {
+    let row: IssueRow | undefined
+    try {
+      row = this.rows.get(this.resolveRef(id))
+    } catch {
+      row = undefined
+    }
+    if (!row) return true
+    if (row.stage === 'proposed') return true
+    return this.ancestorIds(row.id).some((a) => this.rows.get(a)?.stage === 'proposed')
   }
 
   claim(id: string, assignee: string): IssueWire {

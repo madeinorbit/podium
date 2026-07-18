@@ -141,7 +141,7 @@ export interface SessionInit {
    *  session. Absent/null = never opened (unread). */
   readAt?: string | null
   stoppedAt?: string | null
-  stopReason?: 'self' | 'parent' | 'forced' | null
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -198,7 +198,7 @@ export interface SessionDurableState {
   archived: boolean
   readAt: string | null
   stoppedAt: string | undefined
-  stopReason: 'self' | 'parent' | 'forced' | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -280,7 +280,7 @@ export class Session {
   readAt: string | null = null
   /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
   stoppedAt: string | undefined
-  stopReason: 'self' | 'parent' | 'forced' | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -774,6 +774,13 @@ export class Session {
     if (this.status === 'hibernated') return
     this.status = 'exited'
     this.exitCode = code
+    // EVERY terminal transition stamps stop metadata and re-arms unread — a
+    // daemon-observed death decays (and badges) exactly like an explicit stop.
+    // The explicit-stop path may already have stamped a richer reason; keep it.
+    // [spec:SP-6144]
+    this.stoppedAt ??= new Date().toISOString()
+    this.stopReason ??= 'exited'
+    this.readAt = null
     // The harness-observed phase described a running agent; that agent is gone.
     // Leaving it set would make the home board / superagent / Continue button
     // keep treating a dead session as 'working' or 'errored'.
@@ -786,6 +793,10 @@ export class Session {
     this.status = 'exited'
     this.exitCode = -1
     this.agentState = undefined
+    // Terminal transition — same stop metadata as onExit [spec:SP-6144].
+    this.stoppedAt ??= new Date().toISOString()
+    this.stopReason ??= 'exited'
+    this.readAt = null
     console.warn(`[podium] spawn failed for ${this.sessionId}: ${message}`)
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }

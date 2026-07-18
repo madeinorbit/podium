@@ -74,8 +74,12 @@ CREATE UNIQUE INDEX `idx_issues_repo_id_seq` ON `issues` (`repo_id`,`seq`);--> s
 CREATE INDEX `idx_issues_parent` ON `issues` (`parent_id`);--> statement-breakpoint
 CREATE INDEX `idx_issues_repo` ON `issues` (`repo_path`);
 --> statement-breakpoint
--- Backfill only untouched agent discoveries. Events without a causing session are
--- conservatively treated as operator/system touch. [spec:SP-6144]
+-- Backfill only untouched agent discoveries [spec:SP-6144]. "Touched" means an
+-- EXPLICIT operator lifecycle action still in the event log: a stage change /
+-- claim (issue.stage_changed), a pin, or an answered needs-human question — all
+-- with no causing session. A mere read-through (issue.read) is NOT curation and
+-- must not pin an issue in backlog. Event retention (14d/50k) makes this fuzzy
+-- for older touches; accepted — the sweep is one-shot and operator-reversible.
 UPDATE issues
 SET stage = 'proposed'
 WHERE archived = 0
@@ -87,7 +91,6 @@ WHERE archived = 0
   AND NOT EXISTS (
     SELECT 1 FROM podium_events e
     WHERE e.subject = issues.id
-      AND e.kind <> 'issue.created'
-      AND e.kind LIKE 'issue.%'
+      AND e.kind IN ('issue.stage_changed', 'issue.pinned', 'issue.needs_human_cleared')
       AND json_extract(e.payload, '$.causedBySessionId') IS NULL
   );

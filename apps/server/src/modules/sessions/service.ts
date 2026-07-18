@@ -2342,9 +2342,11 @@ export class SessionsService {
       // A terminal transition is new unread information; acknowledgment begins only
       // after the operator opens it again. [spec:SP-6144]
       session.stoppedAt = new Date(this.now()).toISOString()
+      // 'forced' is reserved for --force (work may be discarded); a plain
+      // operator/parent stop is an orderly park, labeled 'parent'. [spec:SP-6144]
       session.stopReason = input.force
         ? 'forced'
-        : (input.stopReason ?? (input.selfStop ? 'self' : 'forced'))
+        : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
       session.readAt = null
       this.persist(session)
       this.broadcastSessions()
