@@ -1260,9 +1260,8 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    // A NEW work cycle: leave idle, settle again, exit after that settle —
-    // leave-idle retires phase-reported so exit-after-done silence re-arms for
-    // the new cycle (settle re-fires via event id; exit still suppressed).
+    // Phantom leave-idle → re-settle WITHOUT parent ack (POD-917): sticky holds,
+    // no second wake, and exit still suppressed.
     store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
@@ -1277,7 +1276,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
       payload: { phase: 'idle', verdict: 'done' },
     })
     await steward.tick()
-    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
     store.events.appendEvent({
       ts: 't4',
       kind: 'session.exited',
@@ -1285,7 +1284,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
       payload: { code: 0, spawnedBy: 'session:parent' },
     })
     await steward.tick()
-    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
   it('needs_human clear→set re-fires the needs_human parentnudge', async () => {
@@ -1538,7 +1537,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
-  it('re-fires on a genuine RE-completion (child left idle, then settled again)', async () => {
+  it('phantom leave-idle then re-settle (no parent ack) does NOT re-wake (POD-917)', async () => {
+    // Acceptance (b): zombie / grok cwd-watch idle-cycle must not re-arm the
+    // parent wake. Leave-idle retires ackfallback settle: only — not phase-reported.
     const sessions = [
       fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
@@ -1550,7 +1551,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     ]
     const { steward, sendTextWhenReady, store } = harness({ sessions })
 
-    // First settle → wake once.
+    // First settle → wake once (a/d).
     store.events.appendEvent({
       ts: 't1',
       kind: 'session.phase',
@@ -1559,9 +1560,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     })
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
 
-    // A per-poll re-emit of the SAME completion (no leave-idle between) must NOT
-    // re-fire — this is the storm the sticky suppresses.
+    // Per-poll re-emit of the SAME completion must NOT re-fire.
     store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
@@ -1571,8 +1572,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    // Child picks up new work (leaves idle) → condition-clear retires the sticky,
-    // re-arming the wake for the next completion (mirrors the ackfallback path).
+    // Phantom work cycle (leave idle → re-idle) WITHOUT parent ack — sticky holds.
     store.events.appendEvent({
       ts: 't3',
       kind: 'session.phase',
@@ -1580,8 +1580,6 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       payload: { phase: 'working' },
     })
     await steward.tick()
-
-    // A genuinely NEW completion → wakes AGAIN. Parent still parked.
     store.events.appendEvent({
       ts: 't4',
       kind: 'session.phase',
@@ -1589,8 +1587,80 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       payload: { phase: 'idle', verdict: 'done' },
     })
     await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('parent ack (consume sticky) then genuine re-settle wakes ONCE more (POD-917)', async () => {
+    // Acceptance (c): sticky cleared only by parent acknowledgment; then a later
+    // settle re-claims and re-wakes exactly once.
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store, arbiter } = harness({ sessions })
+
+    store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Leave-idle alone must NOT re-arm (phantom cycle still suppressed).
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Parent acknowledges (MessageGate awaitAgent → retireNotificationFact).
+    // Simulated here via the arbiter (same store path the gate wires).
+    arbiter.retire('sessionparentnudge:phase-reported:child', 'parent')
+
+    // Subsequent genuine settle → wakes once more.
+    store.events.appendEvent({
+      ts: 't4',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't5',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
     expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('parent')
+
+    // And stays once until next ack (no storm on re-emit).
+    store.events.appendEvent({
+      ts: 't6',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
   })
 
   it('issue needs_human parentnudge path is unchanged (issue parent, live targets)', async () => {
