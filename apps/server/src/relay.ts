@@ -1170,6 +1170,16 @@ export class SessionRegistry {
       createIssue: (o) => issues.create({ ...o, startNow: false }),
       appendEvent: (e) => this.store.events.appendEvent(e),
       now: () => new Date(this.now()).toISOString(),
+      // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
+      // wake sticky when the parent observes the child settled, so a later
+      // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
+      retireNotificationFact: (factKey, target) => {
+        this.store.notificationFacts.retire(
+          factKey,
+          target,
+          new Date(this.now()).toISOString(),
+        )
+      },
     })
     readToolkit = new SessionReadToolkit({
       listSessions: () => sessionsSvc.listSessions(),

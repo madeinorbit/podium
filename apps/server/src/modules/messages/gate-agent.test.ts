@@ -63,6 +63,10 @@ function harness(opts?: {
   now?: () => string
   /** Reuse a prior harness's store — simulates a server restart. */
   store?: SessionStore
+  /** Optional override; default wires store.notificationFacts.retire (POD-917). */
+  retireNotificationFact?: MessageGateDeps['retireNotificationFact']
+  /** When true, omit retireNotificationFact entirely (optional-safe path). */
+  omitRetireNotificationFact?: boolean
 }) {
   const store = opts?.store ?? new SessionStore(':memory:')
   const sessions = opts?.sessions ?? []
@@ -70,6 +74,7 @@ function harness(opts?: {
   const created: Record<string, unknown>[] = []
   const issues = fakeIssues(created)
   const sent: { fn: string; sessionId: string; text: string }[] = []
+  const retired: { factKey: string; target: string }[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
     notificationFacts: store.notificationFacts,
@@ -92,6 +97,10 @@ function harness(opts?: {
     }),
     now: opts?.now ?? (() => new Date().toISOString()),
   })
+  const defaultRetire: MessageGateDeps['retireNotificationFact'] = (factKey, target) => {
+    retired.push({ factKey, target })
+    store.notificationFacts.retire(factKey, target, opts?.now?.() ?? new Date().toISOString())
+  }
   const gate = new MessageGate({
     messages: () => svc,
     issues: () => issues,
@@ -112,8 +121,13 @@ function harness(opts?: {
     sleep: opts?.sleep ?? (() => Promise.resolve()), // never actually blocks the test
     awaitPollMs: opts?.awaitPollMs ?? 1,
     ...(opts?.now ? { now: opts.now } : {}),
+    ...(opts?.omitRetireNotificationFact
+      ? {}
+      : {
+          retireNotificationFact: opts?.retireNotificationFact ?? defaultRetire,
+        }),
   })
-  return { gate, svc, store, spawns, created, sessions, sent }
+  return { gate, svc, store, spawns, created, sessions, sent, retired }
 }
 
 describe('agent spawn (gate)', () => {
@@ -575,6 +589,80 @@ describe('agent await (bounded, never hangs)', () => {
       timeoutSeconds: 0,
     })) as { result: string }
     expect(r.result).toBe('working')
+  })
+
+  // POD-917/POD-923: parent await observing settled consumes the session-parent
+  // wake sticky so a later genuine re-completion can re-fire once.
+  it('parent await on settled child retires sessionparentnudge:phase-reported (consume-on-ack)', async () => {
+    const now = () => '2026-01-01T00:00:00.000Z'
+    const { gate, store, retired } = harness({
+      sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
+      now,
+    })
+    // Pre-claim as the steward would after the first parent wake.
+    expect(
+      store.notificationFacts.claim({
+        factKey: 'sessionparentnudge:phase-reported:child1',
+        target: 'sParent',
+        source: 'steward.session-parent-nudge:done',
+        issueId: null,
+        createdAt: now(),
+        expiresAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ).toBe(true)
+
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+    expect(retired).toEqual([
+      { factKey: 'sessionparentnudge:phase-reported:child1', target: 'sParent' },
+    ])
+    // Fact is re-claimable after consume (genuine later re-completion path).
+    expect(
+      store.notificationFacts.claim({
+        factKey: 'sessionparentnudge:phase-reported:child1',
+        target: 'sParent',
+        source: 'steward.session-parent-nudge:done',
+        issueId: null,
+        createdAt: now(),
+        expiresAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ).toBe(true)
+  })
+
+  it('parent await on working child does NOT retire the sticky', async () => {
+    const h = harness({ sessions: [child({})] })
+    const r = (await h.gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 0,
+    })) as { result: string }
+    expect(r.result).toBe('working')
+    expect(h.retired).toEqual([])
+  })
+
+  it('parent await gone/exited also consumes the sticky', async () => {
+    const h = harness({ sessions: [child({ status: 'exited' })] })
+    await h.gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })
+    expect(h.retired).toEqual([
+      { factKey: 'sessionparentnudge:phase-reported:child1', target: 'sParent' },
+    ])
+  })
+
+  it('missing retireNotificationFact dep is optional-safe (await still returns)', async () => {
+    const { gate } = harness({
+      sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
+      omitRetireNotificationFact: true,
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
   })
 })
 

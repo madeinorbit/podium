@@ -143,6 +143,13 @@ export interface MessageGateDeps {
   sleep?(ms: number): Promise<void>
   awaitPollMs?: number
   now?(): string
+  /**
+   * Consume a notification_facts claim (POD-917/POD-923): when a parent
+   * await observes its child settled, clear `sessionparentnudge:phase-reported`
+   * so a later genuine re-completion can re-wake once. Optional — absent in
+   * partial test harnesses; never required for await correctness.
+   */
+  retireNotificationFact?(factKey: string, target: string): void
 }
 
 /** The wire shape `podium mail` renders. */
@@ -582,7 +589,13 @@ export class MessageGate {
     // biome-ignore lint/nursery/noConstantCondition: loop exits via return
     for (;;) {
       const s = this.deps.listSessions().find((x) => x.sessionId === input.sessionId)
-      if (!s) return { done: true, result: 'gone', snapshot: null }
+      if (!s) {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'gone',
+          snapshot: null,
+        })
+      }
       // Rich agent ack first (it carries WHAT the child did): the child's most
       // recent ack addressed back to this caller since the wait began. Wins over
       // exit/settle classification — reported-then-exited is acked, not gone.
@@ -592,23 +605,44 @@ export class MessageGate {
           (m) => m.kind === 'ack' && m.fromSession === input.sessionId && m.createdAt >= waitStart,
         )
         .at(-1)
-      if (ack) return { done: true, result: 'acked', ack: this.wire(ack), snapshot: snap(s) }
+      if (ack) {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'acked',
+          ack: this.wire(ack),
+          snapshot: snap(s),
+        })
+      }
       // Actionable phase/status — parent must never read these as "working".
       const phase = s.agentState?.phase
       // Exit without a fresh report: process gone, nothing for the parent to
       // re-prompt on this session (the other overnight-stall case).
       if (s.status === 'exited') {
-        return { done: true, result: 'gone', snapshot: snap(s) }
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'gone',
+          snapshot: snap(s),
+        }, phase, s.status)
       }
       // Blocked: needs parent/human (question menu) or escalation (error).
       if (phase === 'needs_user' || phase === 'errored') {
-        return { done: true, result: 'blocked', snapshot: snap(s) }
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'blocked',
+          snapshot: snap(s),
+        }, phase, s.status)
       }
       // Clean finish: idle/ended harness phase, or hibernated (parked cleanly).
       if (s.status === 'hibernated' || phase === 'idle' || phase === 'ended') {
-        return { done: true, result: 'done', snapshot: snap(s) }
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'done',
+          snapshot: snap(s),
+        }, phase, s.status)
       }
-      if (Date.now() >= deadline) return { done: false, result: 'working', snapshot: snap(s) }
+      if (Date.now() >= deadline) {
+        return { done: false, result: 'working', snapshot: snap(s) }
+      }
       await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
     }
     function snap(s: SessionMeta) {
@@ -625,6 +659,53 @@ export class MessageGate {
         ...(s.queuedMessageCount ? { queuedMessageCount: s.queuedMessageCount } : {}),
       }
     }
+  }
+
+  /**
+   * Parent-await consume-on-ack (POD-917/POD-923): when the caller is the child's
+   * session parent and the await observed a settled/terminal state, retire the
+   * session-parent wake sticky so a later genuine re-completion can re-fire once.
+   * Never throws — missing dep or store errors must not break await.
+   */
+  private finishAwait(
+    isParent: boolean,
+    caller: { capability: Capability },
+    childSessionId: string,
+    outcome: { done: boolean; result: string; snapshot: unknown; ack?: unknown },
+    phase?: string,
+    status?: string,
+  ): { done: boolean; result: string; snapshot: unknown; ack?: unknown } {
+    if (isParent && this.shouldConsumeSessionParentSettle(outcome.result, phase, status)) {
+      const parentId = caller.capability.actorSessionId
+      if (parentId) {
+        try {
+          this.deps.retireNotificationFact?.(
+            `sessionparentnudge:phase-reported:${childSessionId}`,
+            parentId,
+          )
+        } catch {
+          // never throw from await
+        }
+      }
+    }
+    return outcome
+  }
+
+  /** Settled/terminal outcomes that mean the parent has observed the child settle. */
+  private shouldConsumeSessionParentSettle(
+    result: string,
+    phase?: string,
+    status?: string,
+  ): boolean {
+    if (result === 'settled' || result === 'done' || result === 'gone') return true
+    // Parent observed via rich ack (still a consume of the settle wake).
+    if (result === 'acked') return true
+    // result === 'blocked' with terminal error phase (parent nudge fires on errored).
+    if (phase === 'idle' || phase === 'ended' || phase === 'errored' || phase === 'exited') {
+      return true
+    }
+    if (status === 'exited' || status === 'hibernated') return true
+    return false
   }
 
   /**
