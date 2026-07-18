@@ -159,6 +159,10 @@ export const SessionMeta = z.object({
    *  by when its prompt was last edited (a draft edit is recent user intent on
    *  that session). Absent = no draft (or an empty one). */
   draftUpdatedAt: z.string().optional(),
+  /** Draft Sync v2 (POD-859): true when the session's daemon runs the composer
+   *  scrape/inject engine. A client uses it to retire its own native sampler +
+   *  chat→native flush (the daemon owns that now). Absent/false = legacy path. */
+  draftSyncEngine: z.boolean().optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the

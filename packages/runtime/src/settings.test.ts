@@ -324,6 +324,21 @@ describe('normalizeSettings — autoContinue', () => {
   })
 })
 
+describe('normalizeSettings — draftSync (POD-859)', () => {
+  it('defaults draftSync to disabled', () => {
+    expect(normalizeSettings({}).draftSync).toEqual({ enabled: false })
+  })
+
+  it('fills draftSync defaults for old blobs without the key', () => {
+    const s = normalizeSettings({ sessionDefaults: { agent: 'grok' } })
+    expect(s.draftSync).toEqual({ enabled: false })
+  })
+
+  it('keeps an explicit draftSync value', () => {
+    expect(normalizeSettings({ draftSync: { enabled: true } }).draftSync).toEqual({ enabled: true })
+  })
+})
+
 describe('auto-continue backoff constants', () => {
   it('escalates from 10s and caps at 5 minutes', () => {
     expect(AUTO_CONTINUE_BASE_DELAY_MS).toBe(10_000)

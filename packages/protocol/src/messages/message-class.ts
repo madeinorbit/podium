@@ -113,6 +113,9 @@ export const CLIENT_MESSAGE_CLASS = {
   transcriptSubscribe: 'bulk',
   transcriptUnsubscribe: 'bulk',
   setSessionDraft: 'durable',
+  // Draft Sync v2 (POD-859): the versioned sibling of setSessionDraft — same
+  // durable+synced draft entity, just with optimistic-concurrency baseRev.
+  draftEdit: 'durable',
   sessionOpenUrlCallback: 'command',
   sessionOpenUrlDismiss: 'command',
 } as const satisfies Record<ClientMessage['type'], MessageSyncClass>
@@ -142,6 +145,8 @@ export const CONTROL_MESSAGE_CLASS = {
   spawn: 'command',
   reattach: 'command',
   kill: 'command',
+  // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
+  draftTarget: 'command',
   sessionResumeRefAck: 'command',
   transcriptMirrorRead: 'bulk',
   sessionPriority: 'command',
@@ -187,6 +192,9 @@ export const DAEMON_MESSAGE_CLASS = {
   imageUploadResult: 'command',
   sessionResumeRef: 'command',
   sessionCwd: 'command',
+  // Draft Sync v2 (POD-859): the daemon's scraped native composer — a live runtime
+  // stream the server sequences into a durable draft edit.
+  nativeDraft: 'live',
   inventoryReport: 'command',
   bind: 'live',
   agentFrame: 'live',

@@ -15,6 +15,7 @@ import {
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
+  type DraftEditMessage,
   formatSessionRef,
   type Geometry,
   type IssueWire,
@@ -59,6 +60,7 @@ import type { MachinesService } from '../machines/service'
 import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
+import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
 import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
 import { createViewKey, type PublicationView, type ViewKey } from './publish-worker-actor'
@@ -286,6 +288,24 @@ export class SessionsService {
   // coalesces a burst of keystrokes into a single SQLite write.
   private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
+  // Draft Sync v2 (POD-859): the versioned authoritative draft docs, keyed by
+  // session. Populated + emitted only when the `draftSync` flag is on — a parallel
+  // path to the legacy `draftBySession` above, which stays byte-for-byte when off.
+  private draftDocs = new Map<string, DraftDoc>()
+  private readonly draftDocWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Pending "inject this chat draft into native" timers (phase 4). A chat edit
+  // schedules injection one lease window later (inject on pause); a fresh chat edit
+  // resets it; a native edit cancels it.
+  private readonly draftInjectTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Cached draftSync flag (reviewer fix 7): read on the per-keystroke setSessionDraft
+  // path, so avoid an uncached getSettings() each time. Seeded at boot, refreshed on
+  // settings.changed.
+  private draftSyncEnabledCached = false
+  // Per-session window during which the server is typing an outgoing message into the
+  // PTY (reviewer fix 5). While set, an inbound nativeDraft is ignored so the
+  // message-in-flight isn't republished as a draft.
+  private readonly draftSendSuppressUntil = new Map<string, number>()
+  private static readonly DRAFT_SEND_SUPPRESS_MS = 1_000
   // Server-only dirty generation [spec:SP-c29e]. It schedules projection work and
   // invalidates the legacy snapshot cache; ledger seq remains the sole durable and
   // client-visible ordering/catch-up primitive. Every successful persisted or
@@ -355,6 +375,8 @@ export class SessionsService {
     // map, so it lives here as a bus subscriber (this service is constructed AFTER
     // NotifyService, so the notification replay keeps firing first).
     this.bus.on('settings.changed', ({ previous, next }) => {
+      // Keep the cached draftSync flag current (POD-859).
+      this.draftSyncEnabledCached = next.draftSync.enabled
       const wasEnabled = previous.autoContinue.enabled
       const nowEnabled = next.autoContinue.enabled
       if (nowEnabled === wasEnabled) return
@@ -795,12 +817,26 @@ export class SessionsService {
   }
 
   loadFromStore(): void {
+    // Seed the cached draftSync flag (POD-859) before any keystroke arrives.
+    this.draftSyncEnabledCached = this.store.settings.getSettings().draftSync.enabled
     const drafts = this.store.sessions.loadDrafts()
     // Drafts historically replay independently of session-row existence. Keep
     // that contract for crash/orphan recovery; active rows additionally receive
     // their draft timestamp and runtime metadata below.
     for (const [sessionId, text] of Object.entries(drafts)) {
       this.draftBySession.set(sessionId, text)
+    }
+    // Versioned draft docs (POD-859) — seeded alongside the legacy map so the
+    // flag-on path resumes with the persisted rev/origin/history after a restart.
+    for (const [sessionId, d] of Object.entries(this.store.sessions.loadDraftDocs())) {
+      this.draftDocs.set(sessionId, {
+        sessionId,
+        text: d.text,
+        rev: d.rev,
+        origin: d.origin ?? 'seed',
+        editedAt: d.updatedAt,
+        history: d.history,
+      })
     }
     const draftTimes = this.store.sessions.loadDraftTimes()
     const snoozes = this.store.sessions.listSnoozes()
@@ -931,6 +967,7 @@ export class SessionsService {
         ...(Number.isFinite(Date.parse(s.createdAt))
           ? { createdAtMs: Date.parse(s.createdAt) }
           : {}),
+        ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
       })
     }
     // Headless sessions have no PTY to reattach; instead re-establish their
@@ -1550,6 +1587,14 @@ export class SessionsService {
     // A submitted message re-engages the session — drop any snooze so it returns
     // to the normal attention flow (covers chat send + resumeAndSend paths).
     if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+    // The outgoing message transits the composer; suppress republishing it as a
+    // native draft while it's in flight (POD-859 reviewer fix 5).
+    if (this.draftSyncEnabled()) {
+      this.draftSendSuppressUntil.set(
+        sessionId,
+        Date.now() + SessionsService.DRAFT_SEND_SUPPRESS_MS,
+      )
+    }
     // A user turn consumes any pending agent action offer [spec:SP-c7f1] — a
     // button click sends its prompt through this same path, so it self-clears.
     if (session.offer !== undefined) this.clearOffer(sessionId)
@@ -1622,6 +1667,18 @@ export class SessionsService {
   }
 
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
+    if (this.draftSyncEnabled()) {
+      // Versioned path (POD-859): a legacy `setSessionDraft` (or the spawn seed) is
+      // an unconditional edit — it bases off the current rev, so it is never
+      // rejected. Origin is the sending client, or 'seed' for a server-side seed.
+      const cur = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
+      this.applyVersionedEdit(
+        input.sessionId,
+        { baseRev: cur.rev, text: input.text, origin: fromClientId ?? 'seed' },
+        fromClientId,
+      )
+      return
+    }
     const previousDraft = this.draftBySession.get(input.sessionId)
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
@@ -1687,6 +1744,161 @@ export class SessionsService {
     } catch (e) {
       console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
     }
+  }
+
+  // ---- versioned drafts (POD-859, Draft Sync v2) ----
+
+  private draftSyncEnabled(): boolean {
+    return this.draftSyncEnabledCached
+  }
+
+  /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
+   *  send `setSessionDraft` are handled by that method's flag gate. */
+  private handleDraftEdit(input: DraftEditMessage, fromClientId: string): void {
+    if (!this.draftSyncEnabled()) {
+      this.setSessionDraft({ sessionId: input.sessionId, text: input.text }, fromClientId)
+      return
+    }
+    this.applyVersionedEdit(
+      input.sessionId,
+      { baseRev: input.baseRev, text: input.text, origin: fromClientId },
+      fromClientId,
+    )
+  }
+
+  /**
+   * Apply an edit to a session's versioned draft doc (the server is the single
+   * sequencer). Accepted edits broadcast the new doc to every OTHER client and
+   * persist (debounced); a rejected stale edit replies to the sender alone with the
+   * authoritative doc so it rebases. See draft-doc.ts and design §1/§3.
+   */
+  private applyVersionedEdit(
+    sessionId: string,
+    edit: { baseRev: number; text: string; origin: string },
+    fromClientId?: string,
+  ): void {
+    const cur = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
+    const at = new Date().toISOString()
+    const result = applyDraftEdit(cur, {
+      baseRev: edit.baseRev,
+      text: edit.text,
+      origin: edit.origin,
+      at,
+    })
+    if (result.status === 'rejected') {
+      if (fromClientId) this.clients.get(fromClientId)?.send(this.draftDocWire(result.doc))
+      return
+    }
+    if (!result.changed) return
+    const doc = result.doc
+    this.draftDocs.set(sessionId, doc)
+    const session = this.sessions.get(sessionId)
+    const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!doc.text
+    if (session) session.draftUpdatedAt = doc.text ? doc.editedAt : undefined
+    if (presenceChanged && session) {
+      // Persist the session row so the DRAFT-tag meta delta reaches delta clients;
+      // best-effort (the versioned edit is already in memory + about to broadcast).
+      try {
+        this.persist(session)
+      } catch (err) {
+        console.warn(`[podium] failed to persist DRAFT tag for ${sessionId}:`, err)
+      }
+    }
+    this.broadcastToClients(this.draftDocWire(doc), {
+      ...(fromClientId !== undefined ? { exceptClientId: fromClientId } : {}),
+    })
+    this.persistDraftDoc(sessionId, doc)
+    if (presenceChanged) this.broadcastSessions()
+    // Drive the change into the native composer. A native-origin edit already IS
+    // native, so cancel any pending injection; a chat/seed edit schedules one for a
+    // lease window later (reset by each new chat edit → inject when the user pauses).
+    if (doc.origin === 'native') this.cancelDraftInject(sessionId)
+    else this.scheduleDraftInject(sessionId)
+  }
+
+  private draftDocWire(doc: DraftDoc): LiveServerMessage {
+    return {
+      type: 'sessionDraftChanged',
+      sessionId: doc.sessionId,
+      text: doc.text,
+      rev: doc.rev,
+      origin: doc.origin,
+      editedAt: doc.editedAt,
+    }
+  }
+
+  /** Debounced persistence of a versioned doc — mirrors {@link persistDraft} but
+   *  writes the full doc (rev/origin/history). An empty draft flushes immediately. */
+  private persistDraftDoc(sessionId: string, doc: DraftDoc): void {
+    const existing = this.draftDocWriteTimers.get(sessionId)
+    if (existing) {
+      clearTimeout(existing)
+      this.draftDocWriteTimers.delete(sessionId)
+    }
+    if (!doc.text) {
+      this.writeDraftDoc(doc)
+      return
+    }
+    const timer = setTimeout(() => {
+      this.draftDocWriteTimers.delete(sessionId)
+      this.writeDraftDoc(this.draftDocs.get(sessionId) ?? doc)
+    }, SessionsService.DRAFT_WRITE_DEBOUNCE_MS)
+    timer.unref?.()
+    this.draftDocWriteTimers.set(sessionId, timer)
+  }
+
+  private writeDraftDoc(doc: DraftDoc): void {
+    try {
+      this.store.sessions.setDraftDoc(doc.sessionId, {
+        text: doc.text,
+        updatedAt: doc.editedAt,
+        rev: doc.rev,
+        origin: doc.origin,
+        history: doc.history,
+      })
+    } catch (e) {
+      console.warn(`[podium] failed to persist versioned draft for ${doc.sessionId}:`, e)
+    }
+  }
+
+  /** Schedule (or reset) native injection of the current chat draft, one lease
+   *  window from now — so we inject the settled text, not every keystroke. */
+  private scheduleDraftInject(sessionId: string): void {
+    const existing = this.draftInjectTimers.get(sessionId)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      this.draftInjectTimers.delete(sessionId)
+      const doc = this.draftDocs.get(sessionId)
+      const session = this.sessions.get(sessionId)
+      if (!doc || !session) return
+      if (doc.origin === 'native') return
+      this.toMachine(session.machineId, { type: 'draftTarget', sessionId, text: doc.text })
+    }, DEFAULT_LEASE_MS)
+    timer.unref?.()
+    this.draftInjectTimers.set(sessionId, timer)
+  }
+
+  private cancelDraftInject(sessionId: string): void {
+    const t = this.draftInjectTimers.get(sessionId)
+    if (t) {
+      clearTimeout(t)
+      this.draftInjectTimers.delete(sessionId)
+    }
+  }
+
+  /**
+   * Catchup on (re)bind (design §6): seed the native composer with the persisted
+   * chat draft ONLY when that draft is newer than the session's last activity — i.e.
+   * chat edited it while the session was down. Otherwise the live native composer's
+   * own scrape wins. The daemon injects only if native differs and is stable.
+   */
+  private maybeCatchupInject(sessionId: string, machineId: string): void {
+    if (!this.draftSyncEnabled()) return
+    const doc = this.draftDocs.get(sessionId)
+    if (!doc || !doc.text) return
+    const lastLive = this.sessions.get(sessionId)?.lastActiveAt
+    if (lastLive && doc.editedAt <= lastLive) return
+    this.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
   }
 
   // ---- durable queued sends (docs/spec/outbox-write-path.md §2.2) ----
@@ -2664,6 +2876,7 @@ export class SessionsService {
       geometry: session.geometry,
       ...this.modelDefaults(session.agentKind),
       ...this.accountEnv(session.agentKind, session.accountId),
+      ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     preparedInstructions.commit()
     this.broadcastSessions()
@@ -2803,6 +3016,7 @@ export class SessionsService {
     session?.detachAll()
     this.sessions.delete(sessionId)
     this.draftBySession.delete(sessionId)
+    this.draftDocs.delete(sessionId)
     this.lastPriority.delete(sessionId)
     this.titleDebouncers.get(sessionId)?.dispose()
     this.titleDebouncers.delete(sessionId)
@@ -2811,6 +3025,13 @@ export class SessionsService {
       clearTimeout(draftTimer)
       this.draftWriteTimers.delete(sessionId)
     }
+    const draftDocTimer = this.draftDocWriteTimers.get(sessionId)
+    if (draftDocTimer) {
+      clearTimeout(draftDocTimer)
+      this.draftDocWriteTimers.delete(sessionId)
+    }
+    this.cancelDraftInject(sessionId)
+    this.draftSendSuppressUntil.delete(sessionId)
     for (const c of this.clients.values()) c.attached.delete(sessionId)
     this.pendingVolatileSessions.delete(sessionId)
     this.capturedSessionStates.delete(sessionId)
@@ -2969,6 +3190,7 @@ export class SessionsService {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       ...this.accountEnv(input.agentKind, accountId),
+      ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     this.broadcastSessions()
     return {
@@ -3087,8 +3309,16 @@ export class SessionsService {
       send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
       send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
       send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
-      for (const [sessionId, text] of this.draftBySession) {
-        send({ type: 'sessionDraftChanged', sessionId, text })
+      if (this.draftSyncEnabled()) {
+        // Versioned replay (POD-859): send the full doc (rev/origin/editedAt) so the
+        // attaching client starts from the authoritative rev. Skip cleared docs.
+        for (const doc of this.draftDocs.values()) {
+          if (doc.text) send(this.draftDocWire(doc))
+        }
+      } else {
+        for (const [sessionId, text] of this.draftBySession) {
+          send({ type: 'sessionDraftChanged', sessionId, text })
+        }
       }
       send({
         type: 'conversationsChanged',
@@ -3341,6 +3571,9 @@ export class SessionsService {
       case 'setSessionDraft':
         this.setSessionDraft(msg, id)
         break
+      case 'draftEdit':
+        this.handleDraftEdit(msg, id)
+        break
       case 'sessionOpenUrlCallback':
         this.submitOpenUrlCallback(client, msg)
         break
@@ -3431,12 +3664,38 @@ export class SessionsService {
       case 'bind': {
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
         const s = this.sessions.get(msg.sessionId)
-        if (s) this.persist(s)
+        if (s) {
+          // Whether the daemon runs the composer engine for this session (POD-859)
+          // — surfaced in meta so a client retires its own sampler/flush.
+          s.draftSyncEngine = msg.draftSyncEngine ?? false
+          this.persist(s)
+        }
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
         // (or across a server restart), start a delivery attempt — the drain loop
         // itself waits out the boot-settle before typing.
         this.drainQueuedMessages(msg.sessionId)
+        // Catchup (POD-859 §6): seed native with a chat draft edited while the
+        // session was down — on BIND (the engine is attached by the time the daemon
+        // reports draftSyncEngine), not on reattach (dispatched before attach).
+        if (msg.draftSyncEngine) this.maybeCatchupInject(msg.sessionId, machineId)
+        break
+      }
+      case 'nativeDraft': {
+        // The daemon's composer engine scraped the native composer (POD-859).
+        // Sequence it as an origin='native' versioned edit and broadcast. Skip a
+        // message the server is currently typing OUT (reviewer fix 5).
+        if (this.draftSyncEnabled()) {
+          const suppressUntil = this.draftSendSuppressUntil.get(msg.sessionId) ?? 0
+          if (Date.now() >= suppressUntil) {
+            const cur = this.draftDocs.get(msg.sessionId) ?? emptyDraftDoc(msg.sessionId)
+            this.applyVersionedEdit(
+              msg.sessionId,
+              { baseRev: cur.rev, text: msg.text, origin: 'native' },
+              undefined,
+            )
+          }
+        }
         break
       }
       case 'agentFrame':

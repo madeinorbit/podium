@@ -755,6 +755,39 @@ describe('session draft messages', () => {
   })
 })
 
+describe('versioned draft messages (POD-859)', () => {
+  it('sessionDraftChanged carries optional rev/origin/editedAt; legacy shape still parses', () => {
+    expect(
+      ServerMessage.parse({
+        type: 'sessionDraftChanged',
+        sessionId: 's',
+        text: 'hi',
+        rev: 4,
+        origin: 'clientA',
+        editedAt: '2026-07-17T12:00:00.000Z',
+      }),
+    ).toMatchObject({ rev: 4, origin: 'clientA', editedAt: '2026-07-17T12:00:00.000Z' })
+    expect(
+      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' }),
+    ).toMatchObject({ type: 'sessionDraftChanged', text: 'hi' })
+  })
+
+  it('parses draftEdit (client -> server) carrying baseRev', () => {
+    const m = { type: 'draftEdit', sessionId: 's', baseRev: 3, text: 'hello' } as const
+    expect(parseClientMessage(encode(m))).toEqual(m)
+  })
+
+  it('parses nativeDraft (daemon -> server)', () => {
+    const m = { type: 'nativeDraft', sessionId: 's', text: 'scraped from native' } as const
+    expect(parseDaemonMessage(encode(m))).toEqual(m)
+  })
+
+  it('parses draftTarget (server -> daemon)', () => {
+    const m = { type: 'draftTarget', sessionId: 's', text: 'inject me into native' } as const
+    expect(parseControlMessage(encode(m))).toEqual(m)
+  })
+})
+
 describe('multi-machine protocol', () => {
   it('parses a hello handshake frame', () => {
     const m = parseDaemonHandshake(

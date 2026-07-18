@@ -311,6 +311,14 @@ export const PodiumSettings = z.object({
       promptDismissed: z.boolean().default(false),
     })
     .default({}),
+  /** Draft Sync v2 (POD-859): bidirectional chat<->native composer draft sync with
+   *  the daemon-side scrape/inject engine. EXPERIMENTAL — ships dark, default off.
+   *  Off = today's client-scraped draft behavior (no new code paths active). */
+  draftSync: z
+    .object({
+      enabled: z.boolean().default(false),
+    })
+    .default({}),
   /**
    * User toggles for experimental features [spec:SP-f4b9]. Keys are feature ids
    * from the protocol registry; unknown ids are kept (a flag may exist in a

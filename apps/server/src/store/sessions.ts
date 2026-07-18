@@ -466,4 +466,115 @@ export class SessionsRepository {
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
     return undefined
   }
+
+  // ---- versioned drafts (POD-859, Draft Sync v2) ----
+  // The same `session_drafts` row, read/written with its versioning columns
+  // (`rev`, `origin`, `history`). Used only by the flag-on versioned path; the
+  // legacy `loadDrafts`/`setDraft` above stay byte-for-byte for the flag-off path.
+  // `updatedAt` doubles as the doc's `editedAt`.
+  //
+  // COLUMN-GUARDED as defense-in-depth: the drizzle migration adds these columns,
+  // and drizzle applies by NAME so a fresh unique migration always runs (unlike the
+  // old skip-by-version runner). But loadDraftDocs() runs UNCONDITIONALLY at boot
+  // (flag-independent), so if the columns are somehow absent — a DB opened before
+  // its migration applied, a schema-ahead lineage — degrade to the legacy shape
+  // instead of a `no such column: rev` crash-loop with the flag OFF.
+  private hasVersionedDraftCols: boolean | undefined
+
+  private versionedDraftColumns(): boolean {
+    if (this.hasVersionedDraftCols === undefined) {
+      const cols = new Set(
+        (this.db.prepare('PRAGMA table_info(session_drafts)').all() as { name: string }[]).map(
+          (c) => c.name,
+        ),
+      )
+      this.hasVersionedDraftCols = cols.has('rev') && cols.has('origin') && cols.has('history')
+      if (!this.hasVersionedDraftCols) {
+        // Surface the silent degradation once: the versioned-draft columns are
+        // missing, so Draft Sync v2's versioned persistence is inert on this DB.
+        console.warn(
+          '[podium] session_drafts is missing the versioned-draft columns ' +
+            '(rev/origin/history) — the session-drafts-versioned migration has not applied; ' +
+            'Draft Sync v2 falls back to legacy drafts.',
+        )
+      }
+    }
+    return this.hasVersionedDraftCols
+  }
+
+  /** All persisted draft docs, keyed by session. Legacy rows (or a DB where the
+   *  versioning migration has not applied) read back with `rev: 0`, `origin: null`,
+   *  and an empty history. */
+  loadDraftDocs(): Record<string, StoredDraftDoc> {
+    const versioned = this.versionedDraftColumns()
+    const sql = versioned
+      ? 'SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts'
+      : 'SELECT session_id, text, updated_at FROM session_drafts'
+    const rows = this.db.prepare(sql).all() as {
+      session_id: string
+      text: string
+      updated_at: string
+      rev?: number | null
+      origin?: string | null
+      history?: string | null
+    }[]
+    const out: Record<string, StoredDraftDoc> = {}
+    for (const r of rows) {
+      out[r.session_id] = {
+        text: r.text,
+        updatedAt: r.updated_at,
+        rev: r.rev ?? 0,
+        origin: r.origin ?? null,
+        history: parseHistory(r.history ?? null),
+      }
+    }
+    return out
+  }
+
+  /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
+   *  removes the row just like {@link setDraft}, so a cleared draft never lingers.
+   *  On a DB without the versioning columns, degrades to a legacy text-only write. */
+  setDraftDoc(sessionId: string, doc: StoredDraftDoc): void {
+    const id = sessionId.trim()
+    if (!id) return
+    if (!doc.text) {
+      this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+      return
+    }
+    if (!this.versionedDraftColumns()) {
+      // Columns absent: persist text only. rev/history won't survive a restart on
+      // this DB, but nothing crashes and no data is lost.
+      this.setDraft(id, doc.text)
+      return
+    }
+    this.db
+      .prepare(
+        `INSERT INTO session_drafts (session_id, text, updated_at, rev, origin, history)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           text = excluded.text, updated_at = excluded.updated_at,
+           rev = excluded.rev, origin = excluded.origin, history = excluded.history`,
+      )
+      .run(id, doc.text, doc.updatedAt, doc.rev, doc.origin, JSON.stringify(doc.history))
+  }
+}
+
+/** A persisted versioned draft, as stored in `session_drafts`. */
+export interface StoredDraftDoc {
+  text: string
+  /** ISO-8601; the doc's `editedAt`. */
+  updatedAt: string
+  rev: number
+  origin: string | null
+  history: string[]
+}
+
+function parseHistory(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
 }

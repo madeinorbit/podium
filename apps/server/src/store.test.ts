@@ -8,6 +8,58 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
+import { SessionsRepository } from './store/sessions'
+
+describe('versioned drafts — column guard (POD-859)', () => {
+  // A DB where the versioned-draft migration has not applied → session_drafts lacks
+  // rev/origin/history. The versioned store path must degrade, never crash — boot
+  // (loadFromStore → loadDraftDocs) runs unconditionally, so this would otherwise
+  // crash-loop with the flag OFF. drizzle applies by name so this is defense-in-depth.
+  function legacyDraftsDb() {
+    const db = openDatabase(':memory:')
+    db.exec(
+      `CREATE TABLE session_drafts (
+         session_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL
+       )`,
+    )
+    return db
+  }
+
+  it('loadDraftDocs returns the legacy shape (rev 0) instead of "no such column: rev"', () => {
+    const db = legacyDraftsDb()
+    db.prepare('INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?,?,?)').run(
+      'sess',
+      'legacy draft',
+      '2026-01-01T00:00:00.000Z',
+    )
+    const repo = new SessionsRepository(db)
+    expect(() => repo.loadDraftDocs()).not.toThrow()
+    expect(repo.loadDraftDocs().sess).toEqual({
+      text: 'legacy draft',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      rev: 0,
+      origin: null,
+      history: [],
+    })
+    db.close()
+  })
+
+  it('setDraftDoc degrades to a text-only write when the versioning columns are absent', () => {
+    const db = legacyDraftsDb()
+    const repo = new SessionsRepository(db)
+    expect(() =>
+      repo.setDraftDoc('sess', {
+        text: 'v2 text',
+        updatedAt: '2026-02-02T00:00:00.000Z',
+        rev: 5,
+        origin: 'clientA',
+        history: ['old'],
+      }),
+    ).not.toThrow()
+    expect(repo.loadDraftDocs().sess).toMatchObject({ text: 'v2 text', rev: 0, history: [] })
+    db.close()
+  })
+})
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -20,7 +72,6 @@ function trackTmp(prefix: string): string {
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
-
 
 async function tmpDbPath(): Promise<string> {
   const dir = trackTmp('podium-store-')
@@ -524,9 +575,7 @@ describe('SessionStore offers', () => {
     const store = new SessionStore(':memory:')
     store.sessions.setOffer('good', OFFER)
     // Simulate a corrupt persisted row.
-    ;(
-      store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }
-    ).db
+    ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
       .run('{not json', 'good')
     expect(store.sessions.listOffers()).toEqual({})

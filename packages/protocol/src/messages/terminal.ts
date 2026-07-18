@@ -233,6 +233,30 @@ export const SetSessionDraftMessage = z.object({
 })
 export type SetSessionDraftMessage = z.infer<typeof SetSessionDraftMessage>
 
+// Draft Sync v2 (POD-859): the versioned-draft client→server edit. Unlike the
+// legacy `setSessionDraft` (unconditional last-writer-wins), a `draftEdit` names
+// the `baseRev` it was typed against so the server can arbitrate concurrent edits
+// (LWW by server-assigned rev + a soft edit lease). Additive — old clients keep
+// sending `setSessionDraft`; the server treats that as an unconditional edit.
+export const DraftEditMessage = z.object({
+  type: z.literal('draftEdit'),
+  sessionId: z.string(),
+  /** The rev the sender believed it was editing from (0 = from-empty). */
+  baseRev: z.number().int().nonnegative(),
+  text: z.string(),
+})
+export type DraftEditMessage = z.infer<typeof DraftEditMessage>
+
+// server -> daemon: drive this text into the session's native composer (Draft Sync
+// v2). The server sends it once a chat edit's soft lease has settled (and on
+// catchup), so the daemon's injection state machine mirrors chat → native.
+export const DraftTargetMessage = z.object({
+  type: z.literal('draftTarget'),
+  sessionId: z.string(),
+  text: z.string(),
+})
+export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
+
 // ---- Server -> browser client: terminal control frames ----
 export const WelcomeMessage = z.object({ type: z.literal('welcome'), clientId: z.string() })
 export const AttachedMessage = z.object({
@@ -314,6 +338,10 @@ export const SpawnMessage = z.object({
   // terminal's issue-tinted colours (roles.coding.seedCliTheme, [spec:SP-a04d]).
   // Absent = the setting's default (on) — older servers simply get the default.
   seedCliTheme: z.boolean().optional(),
+  // Draft Sync v2 (POD-859): the server's `draftSync` flag for this session — the
+  // daemon runs its composer scrape/inject engine (and disables codex kitty
+  // keyboard enhancement) only when true. Additive; older servers omit it (off).
+  draftSync: z.boolean().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -334,6 +362,9 @@ export const ReattachMessage = z.object({
   // daemon restart — without a floor the reattached observer could never bind it
   // and the session would stay status-blind forever.
   createdAtMs: z.number().optional(),
+  // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
+  // composer engine for this reattached session only when true.
+  draftSync: z.boolean().optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
@@ -357,6 +388,10 @@ export const BindMessage = z.object({
   cwd: z.string(),
   agentKind: AgentKind,
   geometry: Geometry,
+  // Draft Sync v2 (POD-859): true when the daemon runs its composer scrape/inject
+  // engine for this session. Surfaced in SessionMeta so a client retires its own
+  // sampler/flush. Additive; older daemons omit it (no engine).
+  draftSyncEngine: z.boolean().optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

@@ -303,6 +303,10 @@ export class Session {
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
    *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
   draftUpdatedAt: string | undefined = undefined
+  /** Draft Sync v2 (POD-859): true when this session's daemon runs the composer
+   *  scrape/inject engine (reported on bind). Transient — not persisted; re-set on
+   *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
+  draftSyncEngine = false
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
@@ -1051,6 +1055,7 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
+      ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
       ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),

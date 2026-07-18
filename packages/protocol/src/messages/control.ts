@@ -40,6 +40,7 @@ import {
 import { InventoryRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import {
+  DraftTargetMessage,
   InputMessage,
   KillMessage,
   ReattachMessage,
@@ -75,6 +76,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   SpawnMessage,
   ReattachMessage,
   KillMessage,
+  DraftTargetMessage,
   SessionResumeRefAckMessage,
   TranscriptMirrorReadMessage,
   SessionPriorityMessage,
