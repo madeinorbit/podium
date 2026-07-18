@@ -1464,7 +1464,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
-  it('dedups: same settle re-tick and exit-after-done do not storm the parent', async () => {
+  it('a terminal child re-emitting settle each poll (fresh event id) wakes the parent ONCE (POD-921)', async () => {
     const sessions = [
       fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
@@ -1475,25 +1475,33 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       }),
     ]
     const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
-      ts: 't',
-      kind: 'session.phase',
-      subject: 'child',
-      payload: { phase: 'idle', verdict: 'done' },
-    })
-    await steward.tick()
-    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    // Cursor rewind + same settle event (same durable id): transition-instance
-    // fact holds — flapping / crash-replay does not re-wake.
+    // The live storm: a terminal child yields a NEW durable session.phase event
+    // (fresh id) on every poll. A per-EVENT fact key changes each tick and would
+    // re-wake the parent forever; the sticky phase-reported fact dedups the whole
+    // completion cycle down to ONE wake. Six distinct settle events, one wake.
+    for (let i = 0; i < 6; i++) {
+      store.events.appendEvent({
+        ts: `t${i}`,
+        kind: 'session.phase',
+        subject: 'child',
+        payload: { phase: 'idle', verdict: 'done' },
+      })
+      await steward.tick()
+    }
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    // First wake still delivered (M4 parked-parent resurrection, 8773cdbf).
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+
+    // Crash-replay of the whole log (cursor rewind) still does not re-wake.
     store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    // Exit after a clean done settle is not exit-without-report — phase-reported
-    // sticky suppresses the exit wake (distinct event id alone would re-fire).
+    // Exit trailing a clean done is not exit-without-report — the same sticky
+    // suppresses the exit wake within the cycle (POD-907).
     store.events.appendEvent({
-      ts: 't',
+      ts: 'tx',
       kind: 'session.exited',
       subject: 'child',
       payload: { code: 0, spawnedBy: 'session:parent' },
@@ -1502,7 +1510,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
-  it('re-fires on a genuinely NEW later settle of the same child (transition instance)', async () => {
+  it('re-fires on a genuine RE-completion (child left idle, then settled again)', async () => {
     const sessions = [
       fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
       fakeSession({
@@ -1524,8 +1532,8 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    // Distinct later settle (new durable event id) → wake AGAIN. Same child,
-    // parent still parked — must not be swallowed by a child-only fact key.
+    // A per-poll re-emit of the SAME completion (no leave-idle between) must NOT
+    // re-fire — this is the storm the sticky suppresses.
     store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
@@ -1533,16 +1541,28 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       payload: { phase: 'idle', verdict: 'done' },
     })
     await steward.tick()
-    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
-    expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('parent')
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    // Re-process the second settle only (cursor rewind to just before it): still
-    // one wake for that event id — not a third.
-    const events = store.events.listEventsSince(0, { kinds: ['session.phase'] })
-    expect(events.length).toBe(2)
-    store.events.setStewardState('cursor', String(events[0]!.id))
+    // Child picks up new work (leaves idle) → condition-clear retires the sticky,
+    // re-arming the wake for the next completion (mirrors the ackfallback path).
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+
+    // A genuinely NEW completion → wakes AGAIN. Parent still parked.
+    store.events.appendEvent({
+      ts: 't4',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('parent')
   })
 
   it('issue needs_human parentnudge path is unchanged (issue parent, live targets)', async () => {

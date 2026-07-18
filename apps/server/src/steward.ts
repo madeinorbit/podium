@@ -450,8 +450,8 @@ export class StewardService {
    *
    * Fact map (what each clear retires):
    * - session leaves idle/errored → `settle:<sid>`,
-   *   `sessionparentnudge:phase-reported:<sid>`,
-   *   `sessionparentnudge:settle:<sid>:<eventId>` (prefix)
+   *   `sessionparentnudge:phase-reported:<sid>` (the session-parent wake dedup),
+   *   `sessionparentnudge:settle:<sid>:` (legacy per-event prefix, POD-921)
    * - issue leaves review → `parentnudge:review:<parentId>:<seq>`,
    *   `sub:issue.stage_changed:review:<issueId>`,
    *   `sub:issue.stage_changed:<issueId>`
@@ -495,10 +495,12 @@ export class StewardService {
     const at = this.now()
     // Ack-fallback / settle fact (target is usually the session itself).
     this.arbiter.retireFactKey(`settle:${sessionId}`, at)
-    // POD-907 sticky: exit-after-done silence is per completion cycle; a new
-    // work cycle (left idle) must re-arm exit-without-report detection.
+    // POD-907/POD-921 sticky: this is the sole session-parent wake dedup fact;
+    // exit-after-done silence AND re-fire suppression are per completion cycle,
+    // so a new work cycle (left idle) must re-arm both. Re-claim → re-wake.
     this.arbiter.retireFactKey(`sessionparentnudge:phase-reported:${sessionId}`, at)
-    // Prior settle transition instances for this child (event-id suffix).
+    // Legacy per-event settle instances (pre-POD-921 `…:<eventId>` keys). No
+    // longer written; retired here to reap any that predate the deploy.
     this.arbiter.retireFactKeyPrefix(`sessionparentnudge:settle:${sessionId}:`, at)
   }
 
@@ -766,13 +768,15 @@ export class StewardService {
    * handleParentNudge, which is ISSUE-parent oriented and deliberately does NOT
    * resurrect parked sessions.
    *
-   * Dedup (mirrors handleParentNudge's `…:${lastChildSeq}` transition instance):
-   * fact key is `sessionparentnudge:settle:<childId>:<eventId>` — the durable
-   * podium_events id of the triggering event. Same settle re-ticked / crash-
-   * replayed reuses that id (no storm); a genuinely NEW later settle is a new
-   * event id and re-fires. Exit-without-report is gated by a sticky
-   * `phase-reported` claim set on done/errored so exit-after-done stays silent
-   * within one completion cycle; leaving idle retires that sticky (POD-890).
+   * Dedup (POD-921): one sticky `sessionparentnudge:phase-reported:<childId>`
+   * fact per completion CYCLE, not per event. The first of done/errored/exited
+   * claims it and wakes the parent; later ticks in the same cycle — the terminal
+   * phase re-emitted with a fresh event id every poll, or an exit trailing a
+   * prior done/errored — find it held and stay silent. Leaving idle/errored
+   * retires it (retireSessionSettledFacts / POD-890), so a genuine re-completion
+   * re-fires. This mirrors the ackfallback `settle:<sid>` fact; an earlier
+   * per-EVENT key (`…:<eventId>`) stormed because a terminal child yields a new
+   * event id each tick — the key changed every poll and never dedup'd.
    *
    * Deliberately NOT already-communicated-suppressed (§07b, POD-913): this is
    * the WAKE-RIGHTS path — its entire purpose is resurrecting a PARKED parent
@@ -812,24 +816,22 @@ export class StewardService {
       source: `steward.session-parent-nudge:${group}`,
       issueId: parent.issueId ?? child?.issueId ?? undefined,
     }
-    // Transition-instance: durable event id. New settle → new id → re-fires;
-    // same-event re-tick / crash-replay → same id → dedups.
-    const factKey = `sessionparentnudge:settle:${childSessionId}:${last.id}`
-    if (!this.arbiter.claim(factKey, parentId, claimOpts)) return
-    // Exit-without-report: only wake when no prior done/errored reported this
-    // child to the parent. done/errored claim the sticky; exit probes it.
-    if (group === 'exited') {
-      if (
-        !this.arbiter.claim(`sessionparentnudge:phase-reported:${childSessionId}`, parentId, {
-          ...claimOpts,
-          source: 'steward.session-parent-nudge:exited-probe',
-        })
-      ) {
-        return
-      }
-    } else {
-      // Best-effort sticky — ignore failure if already held from an earlier settle.
-      this.arbiter.claim(`sessionparentnudge:phase-reported:${childSessionId}`, parentId, claimOpts)
+    // Wake the parent EXACTLY ONCE per completion cycle (POD-921). The sticky
+    // `phase-reported` fact is the single dedup boundary: the first of
+    // done / errored / exited to observe this child's completion claims it and
+    // wakes the parent; every later tick within the same cycle finds it held and
+    // stays silent. This covers BOTH storm sources — the terminal phase
+    // re-emitted with a fresh durable event id on every poll (the live re-fire
+    // storm, POD-921), and an exit trailing a prior done/errored (exit-after-
+    // done, POD-907). Leaving idle/errored retires the sticky
+    // (retireSessionSettledFacts), so a genuine RE-completion re-claims and
+    // re-fires — mirroring the ackfallback `settle:<sid>` fact. Keyed per child,
+    // targeted per parent. NB: do NOT key on the event id — a terminal session
+    // yields a new id every poll, so a per-event key never dedups.
+    if (
+      !this.arbiter.claim(`sessionparentnudge:phase-reported:${childSessionId}`, parentId, claimOpts)
+    ) {
+      return
     }
     const rawLabel = child?.name || child?.title || childSessionId
     const label = firstLineCapped(rawLabel) || childSessionId
