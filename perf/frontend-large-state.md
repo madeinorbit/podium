@@ -17,12 +17,13 @@ bun run test:perf:frontend
 The lane runs under Bun/Vitest and happy-dom in one worker with no retries. It
 gates deterministic signals rather than runner-dependent wall-clock values:
 
-- Tasks renders every generated issue while staying at or below 13,000 DOM
-  elements and 1,200 buttons. This brackets the live POD-991 remainder
-  (~11.4–12.1k elements / 921–1109 buttons) without freezing the current exact
-  markup.
-- Tasks render property reads stay below a fixed synchronous-work budget, and a
-  card click dispatches its issue id without rescanning the issue collection.
+- Tasks keeps its initial board render to the 40-card-per-stage progressive
+  boundary from POD-1000: 200 of 674 cards, at or below 4,000 DOM elements and
+  225 buttons. This fails closed if the pre-POD-1000 full render returns.
+- Tasks render property reads stay below a fixed synchronous-work budget. The
+  lane reveals exactly one 40-card chunk, then proves full-order keyboard
+  navigation can mount an initially hidden card in the next stage and open it
+  with Enter.
 - Sidebar ownership resolves each session cwd once per derivation. The test
   deliberately runs both the direct ownership index and the complete sidebar,
   so the ceiling is two cwd reads per session; an issue × session regression is

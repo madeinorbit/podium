@@ -16,6 +16,7 @@ import {
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssuesView } from '@/features/issues/IssuesView'
+import { ISSUE_RENDER_CHUNK } from '@/features/issues/progressive-render'
 
 /** Generated/anonymized Ludovico cardinalities captured in POD-981/POD-991. */
 const SCALE = {
@@ -26,9 +27,9 @@ const SCALE = {
 } as const
 
 const BUDGET = {
-  tasksElements: 13_000,
-  tasksButtons: 1_200,
-  tasksIssueReads: 80_000,
+  tasksInitialElements: 4_000,
+  tasksInitialButtons: 225,
+  tasksInitialIssueReads: 55_000,
   sidebarCwdReads: SCALE.sessions * 2,
   sidebarIssueReads: SCALE.issues * 30,
   replicaIncomingReads: SCALE.issues * 100,
@@ -154,7 +155,7 @@ afterEach(() => {
 })
 
 describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8]', () => {
-  it('bounds Tasks DOM/render work and dispatches issue navigation directly', () => {
+  it('bounds initial Tasks DOM and preserves progressive reveal plus full-order navigation', () => {
     const issueReads: Counter = { gets: 0, ownKeys: 0 }
     const issues = Array.from({ length: SCALE.issues }, (_, index) =>
       counted(issueAt(index), issueReads),
@@ -176,39 +177,61 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8]', () => 
 
     const started = performance.now()
     const originalConsoleError = console.error
-    const baseUiWarning = vi.spyOn(console, 'error').mockImplementation((...args) => {
+    vi.spyOn(console, 'error').mockImplementation((...args) => {
       if (!String(args[0]).startsWith('Base UI: A component that acts as a button')) {
         originalConsoleError(...args)
       }
     })
     const { container } = render(<IssuesView />)
-    baseUiWarning.mockRestore()
     const renderMs = performance.now() - started
-    const elements = container.querySelectorAll('*').length
-    const buttons = container.querySelectorAll('button').length
-    const renderedCards = container.querySelectorAll('[data-issue-id]').length
-    const renderReads = issueReads.gets
+    const initialElements = container.querySelectorAll('*').length
+    const initialButtons = container.querySelectorAll('button').length
+    const initialCards = container.querySelectorAll('[data-issue-id]').length
+    const initialIssueReads = issueReads.gets
+    const boundedInitialCards = ISSUE_STAGES.length * ISSUE_RENDER_CHUNK
 
-    expect(renderedCards).toBe(SCALE.issues)
-    expect(elements).toBeLessThanOrEqual(BUDGET.tasksElements)
-    expect(buttons).toBeLessThanOrEqual(BUDGET.tasksButtons)
-    expect(renderReads).toBeLessThanOrEqual(BUDGET.tasksIssueReads)
+    expect(ISSUE_RENDER_CHUNK).toBe(40)
+    expect(initialCards).toBe(boundedInitialCards)
+    expect(initialCards).toBeLessThan(SCALE.issues)
+    expect(initialElements).toBeLessThanOrEqual(BUDGET.tasksInitialElements)
+    expect(initialButtons).toBeLessThanOrEqual(BUDGET.tasksInitialButtons)
+    expect(initialIssueReads).toBeLessThanOrEqual(BUDGET.tasksInitialIssueReads)
 
-    issueReads.gets = 0
-    const target = container.querySelector('[data-issue-id="issue-0000"]')
-    expect(target).not.toBeNull()
-    fireEvent.click(target as Element)
+    const reveal = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith(`Show ${ISSUE_RENDER_CHUNK} more tasks`),
+    )
+    expect(reveal).toBeDefined()
+    fireEvent.click(reveal as HTMLButtonElement)
+    const revealedCards = container.querySelectorAll('[data-issue-id]').length
+    expect(revealedCards).toBe(initialCards + ISSUE_RENDER_CHUNK)
+
+    // Shift-click the newly revealed 41st card, then cross to the 41st card in
+    // the next stage. Full-order navigation must mount that hidden target.
+    const selected = container.querySelectorAll<HTMLElement>('[data-issue-id]')[
+      ISSUE_RENDER_CHUNK
+    ] as HTMLElement
+    expect(selected).toBeDefined()
+    fireEvent.click(selected, { shiftKey: true })
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    const keyboardCards = container.querySelectorAll('[data-issue-id]').length
+    expect(keyboardCards).toBe(revealedCards + 1)
+    const focused = container.querySelector<HTMLElement>('[data-issue-id].ring-2')
+    expect(focused).not.toBeNull()
+    const focusedId = focused?.dataset.issueId
+    expect(focusedId).toBeDefined()
+    expect(focusedId).not.toBe(selected.dataset.issueId)
+    fireEvent.keyDown(window, { key: 'Enter' })
     expect(setOpenIssueId).toHaveBeenCalledOnce()
-    expect(setOpenIssueId).toHaveBeenCalledWith('issue-0000')
-    expect(issueReads.gets).toBeLessThanOrEqual(2)
+    expect(setOpenIssueId).toHaveBeenCalledWith(focusedId)
 
     metric('tasks', {
       issues: SCALE.issues,
-      elements,
-      buttons,
-      renderedCards,
-      issuePropertyReads: renderReads,
-      clickIssueReads: issueReads.gets,
+      initialElements,
+      initialButtons,
+      initialCards,
+      revealedCards,
+      keyboardCards,
+      initialIssuePropertyReads: initialIssueReads,
       renderMs: Math.round(renderMs * 10) / 10,
     })
   })
