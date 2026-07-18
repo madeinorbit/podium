@@ -20,7 +20,10 @@ import type {
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
 export class SessionsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SqlDatabase,
+    private readonly purgeObservationCheckpoint: (sessionId: string) => void = () => {},
+  ) {}
 
   // ---- sessions ----
   loadSessions(): SessionRow[] {
@@ -262,6 +265,7 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: string): void {
+    this.purgeObservationCheckpoint(id)
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)

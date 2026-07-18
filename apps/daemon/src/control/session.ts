@@ -383,6 +383,7 @@ export const sessionHandlers: Pick<
   | 'resize'
   | 'redraw'
   | 'draftTarget'
+  | 'agentObservationAck'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
   | 'sessionOpenUrlCallback'
@@ -436,6 +437,11 @@ export const sessionHandlers: Pick<
   },
   redraw: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.redraw()
+  },
+  agentObservationAck: (_ctx, _msg) => {
+    // Provider tranches attach bootstrap-buffer release to this durable ack.
+    // Until then no causal observation is emitted, so there is no buffered live
+    // stream to release [spec:SP-cdb2].
   },
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.codexIdentityReceipts

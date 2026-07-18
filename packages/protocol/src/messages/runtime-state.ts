@@ -69,6 +69,160 @@ export const AgentRuntimeState = z.object({
   error: AgentError.optional(), // present when phase === 'errored'
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
+// ---- Causal observation protocol [spec:SP-cdb2] ----
+// Provider history restores one snapshot. Only a fenced, cursor-new live
+// observation is eligible to become a transition with downstream effects.
+export const ObservationProvider = z.enum(['claude-code', 'codex', 'grok'])
+export type ObservationProvider = z.infer<typeof ObservationProvider>
+
+/**
+ * An ordered position inside one exact provider segment. components is a
+ * monotonic vector so providers with two channels (for example Codex rollout +
+ * hooks) do not flatten incomparable evidence into receipt order.
+ */
+export const ProviderCursor = z.object({
+  segmentId: z.string().min(1),
+  predecessorSegmentId: z.string().min(1).optional(),
+  pathHint: z.string().optional(),
+  device: z.string().optional(),
+  inode: z.string().optional(),
+  components: z.record(z.string().min(1), z.number().int().nonnegative()),
+})
+export type ProviderCursor = z.infer<typeof ProviderCursor>
+
+export const ObservationProvenance = z.enum(['bootstrap', 'live', 'replay'])
+export type ObservationProvenance = z.infer<typeof ObservationProvenance>
+
+export const ObservationInputOrigin = z.enum([
+  'human',
+  'controller',
+  'steward',
+  'mail',
+  'auto_continue',
+  'system',
+  'provider',
+  'unknown',
+])
+export type ObservationInputOrigin = z.infer<typeof ObservationInputOrigin>
+
+/** Provider-normalized causal role; sourceEventKind retains native detail. */
+export const ObservationTransitionKind = z.enum([
+  'turn_opened',
+  'activity',
+  'needs_user',
+  'compaction',
+  'turn_terminal',
+  'subagent_bookkeeping',
+  'session_terminal',
+  'snapshot',
+])
+export type ObservationTransitionKind = z.infer<typeof ObservationTransitionKind>
+
+export const ObservationRejectionReason = z.enum([
+  'stale_observer_generation',
+  'provider_binding_mismatch',
+  'cursor_not_after_checkpoint',
+  'duplicate_transition',
+  'bootstrap_has_no_live_effects',
+  'replay_has_no_live_effects',
+  'terminal_epoch_closed',
+  'noncausal_epoch_open',
+  'unproven_segment_rotation',
+  'invalid_provider_timestamp',
+  'legacy_unfenced_observation',
+])
+export type ObservationRejectionReason = z.infer<typeof ObservationRejectionReason>
+
+export const TerminalFence = z.object({
+  turnEpoch: z.number().int().nonnegative(),
+  providerCursor: ProviderCursor,
+  verdict: z.enum([
+    'done',
+    'question',
+    'approval',
+    'open_todos',
+    'interrupted',
+    'errored',
+    'ended',
+  ]),
+  transitionId: z.string().min(1),
+  /** A terminal with live children is closed to activity but may still accept
+   * matching subagent bookkeeping until the count reaches zero. */
+  closing: z.boolean().optional(),
+})
+export type TerminalFence = z.infer<typeof TerminalFence>
+
+export const AgentObservation = z.object({
+  podiumSessionId: z.string().min(1),
+  provider: ObservationProvider,
+  providerSessionId: z.string().min(1).nullable(),
+  bindingVersion: z.number().int().nonnegative(),
+  providerTurnId: z.string().min(1).nullable(),
+  providerPromptId: z.string().min(1).nullable(),
+  observerGeneration: z.number().int().positive(),
+  providerCursor: ProviderCursor,
+  providerAt: z.string().datetime().nullable(),
+  receivedAt: z.string().datetime(),
+  sourceEventKind: z.string().min(1),
+  transitionKind: ObservationTransitionKind,
+  provenance: ObservationProvenance,
+  inputOrigin: ObservationInputOrigin,
+  turnEpoch: z.number().int().nonnegative(),
+  priorPhase: AgentPhase,
+  nextPhase: AgentPhase,
+  transitionId: z.string().min(1),
+  state: AgentRuntimeState,
+})
+export type AgentObservation = z.infer<typeof AgentObservation>
+
+export const SessionObservationCheckpointV1 = z.object({
+  schemaVersion: z.literal(1),
+  podiumSessionId: z.string().min(1),
+  provider: ObservationProvider,
+  providerSessionId: z.string().min(1).nullable(),
+  bindingVersion: z.number().int().nonnegative(),
+  lifecycleObservationGeneration: z.number().int().nonnegative(),
+  providerCursor: ProviderCursor.nullable(),
+  bootstrapCursor: ProviderCursor.nullable(),
+  lastAcceptedLiveCursor: ProviderCursor.nullable(),
+  turnEpoch: z.number().int().nonnegative(),
+  providerTurnId: z.string().min(1).nullable(),
+  providerPromptId: z.string().min(1).nullable(),
+  turnState: AgentRuntimeState,
+  terminalFence: TerminalFence.nullable(),
+  providerAt: z.string().datetime().nullable(),
+  acceptedAt: z.string().datetime(),
+  lastLiveReceiptAt: z.string().datetime().nullable(),
+  lastTransitionId: z.string().min(1).nullable(),
+})
+export type SessionObservationCheckpointV1 = z.infer<typeof SessionObservationCheckpointV1>
+
+export const ObservationAcceptanceKind = z.enum([
+  'snapshot_applied',
+  'live_transition_accepted',
+  'live_refresh_accepted',
+  'rejected',
+])
+export type ObservationAcceptanceKind = z.infer<typeof ObservationAcceptanceKind>
+
+// daemon -> server
+export const AgentObservationMessage = z.object({
+  type: z.literal('agentObservation'),
+  observation: AgentObservation,
+})
+export type AgentObservationMessage = z.infer<typeof AgentObservationMessage>
+
+// server -> daemon. The durable commit precedes an accepted ack.
+export const AgentObservationAckMessage = z.object({
+  type: z.literal('agentObservationAck'),
+  sessionId: z.string().min(1),
+  observerGeneration: z.number().int().positive(),
+  transitionId: z.string().min(1),
+  result: ObservationAcceptanceKind,
+  rejectionReason: ObservationRejectionReason.optional(),
+  acceptedCursor: ProviderCursor.nullable().optional(),
+})
+export type AgentObservationAckMessage = z.infer<typeof AgentObservationAckMessage>
 
 export const SessionOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('spawn') }),

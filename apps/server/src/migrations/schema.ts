@@ -68,6 +68,17 @@ index("idx_sessions_deleted_at").on(table.deletedAt),
 check("sessions_stop_reason_check", sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`),
 ]);
 
+export const sessionObservationCheckpoints = sqliteTable("session_observation_checkpoints", {
+	sessionId: text("session_id").primaryKey(),
+	schemaVersion: integer("schema_version").default(1).notNull(),
+	provider: text().notNull(),
+	providerSessionId: text("provider_session_id"),
+	bindingVersion: integer("binding_version").default(0).notNull(),
+	observationGeneration: integer("observation_generation").default(0).notNull(),
+	checkpointJson: text("checkpoint_json", {"mode":"json"}),
+	updatedAt: text("updated_at").notNull(),
+});
+
 export const meta = sqliteTable("meta", {
 	key: text().primaryKey(),
 	value: text().notNull(),

@@ -1,4 +1,9 @@
-import type { AgentRuntimeState, LiveServerMessage, ServerMessage } from '@podium/protocol'
+import type {
+  AgentObservation,
+  AgentRuntimeState,
+  LiveServerMessage,
+  ServerMessage,
+} from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import {
   type AttentionNotice,
@@ -84,9 +89,9 @@ export class NotifyService {
     private readonly pushers: NotificationPushers = DEFAULT_NOTIFICATION_PUSHERS,
     bus: EventBus,
   ) {
-    bus.on('session.stateChanged', ({ sessionId, prev, next }) => {
+    bus.on('session.stateChanged', ({ sessionId, prev, next, observation }) => {
       const info = this.deps.sessionInfo(sessionId)
-      if (info) this.notifyAttention(info, prev, next)
+      if (info) this.notifyAttention(info, prev, next, observation)
     })
     bus.on('settings.changed', ({ previous, next }) => {
       this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
@@ -162,6 +167,7 @@ export class NotifyService {
     info: SessionNoticeInfo,
     prev: AgentRuntimeState | undefined,
     next: AgentRuntimeState,
+    observation?: AgentObservation,
   ): void {
     // Durable event log: one row per REAL phase transition (the caller fires on
     // every agentState message, including same-phase refreshes). prev==null is the
@@ -176,6 +182,24 @@ export class NotifyService {
           payload: {
             phase: next.phase,
             ...(next.idle?.kind ? { verdict: next.idle.kind } : {}),
+            ...(observation
+              ? {
+                  transitionId: observation.transitionId,
+                  provider: observation.provider,
+                  providerSessionId: observation.providerSessionId,
+                  providerTurnId: observation.providerTurnId,
+                  providerPromptId: observation.providerPromptId,
+                  observerGeneration: observation.observerGeneration,
+                  providerCursor: observation.providerCursor,
+                  providerAt: observation.providerAt,
+                  receivedAt: observation.receivedAt,
+                  sourceEventKind: observation.sourceEventKind,
+                  provenance: observation.provenance,
+                  inputOrigin: observation.inputOrigin,
+                  priorPhase: observation.priorPhase,
+                  nextPhase: observation.nextPhase,
+                }
+              : {}),
             agentKind: info.agentKind,
             cwd: info.cwd,
           },

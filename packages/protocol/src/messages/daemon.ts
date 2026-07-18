@@ -21,11 +21,6 @@ import {
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
 } from './handoff'
-import {
-  WorkspaceCleanResultMessage,
-  WorkspaceExportResultMessage,
-  WorkspaceImportResultMessage,
-} from './workspace'
 import { HarnessExecResultMessage } from './harness'
 import {
   HeadlessBindResultMessage,
@@ -40,7 +35,7 @@ import {
 } from './host'
 import { InventoryReportMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
-import { AgentStateMessage } from './runtime-state'
+import { AgentObservationMessage, AgentStateMessage } from './runtime-state'
 import {
   AgentColorMessage,
   AgentExitMessage,
@@ -57,6 +52,11 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
+import {
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
+} from './workspace'
 
 // The daemon learned how to resume this session later (e.g. the Claude session
 // uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
@@ -147,6 +147,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ReattachFailedMessage,
   TitleMessage,
   AgentStateMessage,
+  AgentObservationMessage,
   AgentColorMessage,
   ScanResultMessage,
   ConversationsChangedMessage,

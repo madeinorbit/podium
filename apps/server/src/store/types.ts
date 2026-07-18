@@ -4,7 +4,11 @@
  */
 
 import type { IssueColorSlot } from '@podium/domain'
-import type { Geometry } from '@podium/protocol'
+import type {
+  Geometry,
+  ObservationProvider,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 
 export type PinKind = 'panel' | 'worktree' | 'repo'
 
@@ -28,6 +32,17 @@ export type OfferMap = Record<string, OfferRecord>
 
 export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
 export type SessionDeletionSource = 'issue' | 'standalone'
+
+/** Durable observer lease plus the last accepted causal checkpoint. */
+export interface ObservationLeaseRecord {
+  sessionId: string
+  provider: ObservationProvider
+  providerSessionId: string | null
+  bindingVersion: number
+  observationGeneration: number
+  checkpoint: SessionObservationCheckpointV1 | null
+  updatedAt: string
+}
 
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {

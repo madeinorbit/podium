@@ -1,6 +1,6 @@
 # First-principles session reattachment
 
-Status: proposal for human review; no implementation is authorized by this document
+Status: approved for implementation
 Issues: POD-997, POD-1015
 Date: 2026-07-18
 
@@ -423,4 +423,4 @@ The implementation should be organized around contracts, not provider patches:
 3. **Legacy terminal sessions and auto-reap.** Recommended: allow a v1 bootstrap-reconciled terminal checkpoint to become auto-reap eligible only after two unchanged live-generation validation passes and all POD-955 safety checks, while emitting no completion effects. Alternative: require a new live terminal transition, which leaves old finished fleet sessions ineligible indefinitely.
 4. **Provider ID fallback.** Recommended: when a provider exposes no stable turn ID, use a Podium monotonic epoch anchored to the provider-confirmed prompt cursor/native IDs. Do not block the whole design on providers adding IDs, and do not use timestamps as identity.
 
-No observer implementation should begin until these decisions and the causal checkpoint contract are approved.
+The human approved the recommended resolution of all four decisions and the causal checkpoint contract on 2026-07-18.

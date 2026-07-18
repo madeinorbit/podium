@@ -7,6 +7,7 @@ import type {
   ResumeRef,
   ServerMessage,
   SessionMeta,
+  SessionObservationCheckpointV1,
   SessionOffer,
   SessionOrigin,
   TranscriptItem,
@@ -781,10 +782,8 @@ export class Session {
     this.stoppedAt ??= new Date().toISOString()
     this.stopReason ??= 'exited'
     this.readAt = null
-    // The harness-observed phase described a running agent; that agent is gone.
-    // Leaving it set would make the home board / superagent / Continue button
-    // keep treating a dead session as 'working' or 'errored'.
-    this.agentState = undefined
+    // Preserve the final turn diagnosis; lifecycle status owns liveness while
+    // the causal checkpoint remains inspectable [spec:SP-cdb2].
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code })
   }
 
@@ -803,6 +802,19 @@ export class Session {
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
   /** Harness-observed runtime state (hooks-driven). The cumulative compute base is persisted. */
+  applyObservationCheckpoint(checkpoint: SessionObservationCheckpointV1): void {
+    const state = checkpoint.turnState
+    this.workingMsTotal = state.workingMsTotal
+    this.incomingWorkingMsTotal = undefined
+    this.agentState = state
+    const providerAt = checkpoint.providerAt
+    if (providerAt && providerAt > this.lastActiveAt) this.lastActiveAt = providerAt
+  }
+
+  /**
+   * Legacy unfenced state path. Kept during mixed deployment only; causal v1
+   * sessions bypass its daemon-counter reset heuristic.
+   */
   setAgentState(state: AgentRuntimeState): void {
     // The daemon reducer's total restarts at zero with each tracker. Persist only
     // positive deltas within one tracker epoch on top of our durable total; a

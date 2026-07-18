@@ -144,6 +144,7 @@ export const CONTROL_MESSAGE_CLASS = {
   imageUploadRequest: 'command',
   spawn: 'command',
   reattach: 'command',
+  agentObservationAck: 'command',
   kill: 'command',
   // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
   draftTarget: 'command',
@@ -204,6 +205,7 @@ export const DAEMON_MESSAGE_CLASS = {
   reattachFailed: 'command',
   title: 'live',
   agentState: 'live',
+  agentObservation: 'live',
   agentColor: 'live',
   scanResult: 'command',
   conversationsChanged: 'durable',

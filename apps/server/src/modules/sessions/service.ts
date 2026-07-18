@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
+import { acceptAgentObservation } from '@podium/agent-bridge'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AgentInstruction,
   AgentKind,
   type AgentRuntimeState,
   type ApprovalWire,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationRunWire,
   type AutomationWire,
   agentSupportsEffort,
@@ -23,6 +24,7 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
+  type ObservationProvider,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -44,7 +46,7 @@ import {
 } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { assertModelSelectionValid } from '../../model-validation'
-import type { SessionRow, SessionStore } from '../../store'
+import type { ObservationLeaseRecord, SessionRow, SessionStore } from '../../store'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -82,6 +84,11 @@ import {
 } from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
+
+function observationProviderFor(kind: AgentKind): ObservationProvider | undefined {
+  if (kind === 'claude-code' || kind === 'codex' || kind === 'grok') return kind
+  return undefined
+}
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
 // lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
 // paste-end marker → the message types in but never submits). See sendText().
@@ -260,6 +267,9 @@ export class SessionsService {
   readonly sessions = new Map<string, Session>()
   readonly clients = new Map<string, ClientConn>()
 
+  /** Durable observer leases, hydrated before session state restoration. */
+  private readonly observationLeases = new Map<string, ObservationLeaseRecord>()
+
   private readonly store: SessionStore
   private readonly now: () => number
   private readonly bus: EventBus
@@ -417,6 +427,21 @@ export class SessionsService {
 
   private conversations(): ConversationsService {
     return this.deps.conversations()
+  }
+  /**
+   * Allocate and durably store the observer lease before its control message is
+   * sent. Shells and non-causal adapters intentionally have no lease.
+   */
+  private fenceObservation(session: Session): ObservationLeaseRecord | undefined {
+    const provider = observationProviderFor(session.agentKind)
+    if (!provider) return undefined
+    const lease = this.store.observationCheckpoints.advanceGeneration(
+      session.sessionId,
+      provider,
+      session.resume?.value ?? null,
+    )
+    this.observationLeases.set(session.sessionId, lease)
+    return lease
   }
 
   dispose(): void {
@@ -822,6 +847,11 @@ export class SessionsService {
   }
 
   loadFromStore(): void {
+    this.observationLeases.clear()
+    for (const lease of this.store.observationCheckpoints.loadAll()) {
+      this.observationLeases.set(lease.sessionId, lease)
+    }
+
     // Seed the cached draftSync flag (POD-859) before any keystroke arrives.
     // Resolved through the canonical experiments system [spec:SP-f4b9].
     this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', this.store.settings.getSettings())
@@ -851,6 +881,8 @@ export class SessionsService {
       const session = this.sessionFromStoredRow(r, 'boot')
       if (!session) continue
       this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
+      const checkpoint = this.observationLeases.get(r.id)?.checkpoint
+      if (checkpoint) session.applyObservationCheckpoint(checkpoint)
       if (r.status !== session.status) this.persist(session)
     }
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
@@ -959,6 +991,7 @@ export class SessionsService {
         (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''),
     )
     for (const s of probes) {
+      const observationLease = this.fenceObservation(s)
       this.toMachine(machineId, {
         type: 'reattach',
         sessionId: s.sessionId,
@@ -966,6 +999,12 @@ export class SessionsService {
         agentKind: s.agentKind,
         cwd: s.cwd,
         geometry: s.geometry,
+        ...(observationLease
+          ? {
+              observationGeneration: observationLease.observationGeneration,
+              observationBindingVersion: observationLease.bindingVersion,
+            }
+          : {}),
         ...(s.resume ? { resume: s.resume } : {}),
         ...(this.rpc.transcriptPathHint(s) ?? {}),
         // Spawn-time floor for observer-based harnesses (codex): lets a reattached
@@ -2943,12 +2982,19 @@ export class SessionsService {
     // lastActiveAt makes it immediately eligible to be parked again.
     session.markResumed()
     this.persist(session)
+    const observationLease = this.fenceObservation(session)
     this.toMachine(session.machineId, {
       type: 'spawn',
       sessionId,
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+          }
+        : {}),
       ...(session.resume ? { resume: session.resume } : {}),
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
@@ -3259,12 +3305,19 @@ export class SessionsService {
     // for a genuinely issueless spawn) — allocate the permanent ref now.
     const additionalWrite = this.prepareSessionRefAllocation(session)
     this.persist(session, additionalWrite)
+    const observationLease = this.fenceObservation(session)
     this.toMachine(machineId, {
       type: 'spawn',
       sessionId,
       durableLabel: session.durableLabel,
       agentKind: input.agentKind,
       cwd: input.cwd,
+      ...(observationLease
+        ? {
+            observationGeneration: observationLease.observationGeneration,
+            observationBindingVersion: observationLease.bindingVersion,
+          }
+        : {}),
       ...(input.resume ? { resume: input.resume } : {}),
       ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
@@ -3850,9 +3903,100 @@ export class SessionsService {
         this.broadcastSessions()
         break
       }
+      case 'agentObservation': {
+        const observation = msg.observation
+        const session = this.sessions.get(observation.podiumSessionId)
+        if (!session || session.machineId !== machineId) break
+        const lease =
+          this.observationLeases.get(observation.podiumSessionId) ??
+          this.store.observationCheckpoints.get(observation.podiumSessionId)
+        const outcome =
+          observation.podiumSessionId !== session.sessionId || !lease
+            ? ({ kind: 'rejected', rejectionReason: 'legacy_unfenced_observation' } as const)
+            : acceptAgentObservation(
+                lease.checkpoint,
+                {
+                  provider: lease.provider,
+                  providerSessionId: lease.providerSessionId,
+                  bindingVersion: lease.bindingVersion,
+                  observationGeneration: lease.observationGeneration,
+                },
+                observation,
+                new Date(this.now()).toISOString(),
+              )
+
+        if (outcome.kind === 'rejected') {
+          this.toMachine(session.machineId, {
+            type: 'agentObservationAck',
+            sessionId: session.sessionId,
+            observerGeneration: observation.observerGeneration,
+            transitionId: observation.transitionId,
+            result: 'rejected',
+            rejectionReason: outcome.rejectionReason,
+          })
+          break
+        }
+
+        const prev = session.agentState
+        session.applyObservationCheckpoint(outcome.checkpoint)
+        this.persist(session, () => this.store.observationCheckpoints.save(outcome.checkpoint))
+        this.observationLeases.set(session.sessionId, {
+          ...(lease as ObservationLeaseRecord),
+          providerSessionId: outcome.checkpoint.providerSessionId,
+          checkpoint: outcome.checkpoint,
+          updatedAt: outcome.checkpoint.acceptedAt,
+        })
+        const next = session.agentState ?? outcome.checkpoint.turnState
+
+        // The durable commit above is the release point for daemon-side
+        // bootstrap buffering [spec:SP-cdb2].
+        this.toMachine(session.machineId, {
+          type: 'agentObservationAck',
+          sessionId: session.sessionId,
+          observerGeneration: observation.observerGeneration,
+          transitionId: observation.transitionId,
+          result: outcome.kind,
+          acceptedCursor: outcome.checkpoint.providerCursor,
+        })
+
+        this.broadcastToClients({
+          type: 'sessionAgentStateChanged',
+          sessionId: session.sessionId,
+          state: next,
+        })
+
+        // Snapshot and same-phase refresh update display/checkpoint only. Every
+        // effect below is exclusive to one accepted causal live phase edge.
+        if (outcome.kind !== 'live_transition_accepted') break
+        this.autoContinue.onStateChange(session.sessionId, next)
+        this.issues().onSessionActivity(session.sessionId)
+        this.bus.emit('session.stateChanged', {
+          sessionId: session.sessionId,
+          prev,
+          next,
+          observation,
+        })
+        if (
+          session.snoozedUntil !== undefined &&
+          SessionsService.isAttentionPhase(prev) &&
+          !SessionsService.isAttentionPhase(next)
+        ) {
+          this.clearSnooze(session.sessionId)
+        }
+        if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
+          this.issues().onSessionAttention(session.sessionId)
+        }
+        break
+      }
       case 'agentState': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        // Mixed deployment: legacy remains visible until the first v1
+        // checkpoint. It can never downgrade or overwrite causal truth.
+        if (this.observationLeases.get(msg.sessionId)?.checkpoint) {
+          console.warn(`[podium] rejected legacy unfenced observation for ${msg.sessionId}`)
+          break
+        }
         const prev = session.agentState
         session.setAgentState(msg.state)
         const next = session.agentState ?? msg.state

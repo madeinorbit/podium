@@ -342,6 +342,10 @@ export const SpawnMessage = z.object({
   // daemon runs its composer scrape/inject engine (and disables codex kitty
   // keyboard enhancement) only when true. Additive; older servers omit it (off).
   draftSync: z.boolean().optional(),
+  /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
+  observationGeneration: z.number().int().positive().optional(),
+  /** Version of the exact provider binding carried by this lease. */
+  observationBindingVersion: z.number().int().positive().optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -365,6 +369,10 @@ export const ReattachMessage = z.object({
   // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
   // composer engine for this reattached session only when true.
   draftSync: z.boolean().optional(),
+  /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
+  observationGeneration: z.number().int().positive().optional(),
+  /** Version of the exact provider binding carried by this lease. */
+  observationBindingVersion: z.number().int().positive().optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
