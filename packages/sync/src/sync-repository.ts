@@ -6,6 +6,7 @@
  * (`upstream_outbox`, docs/spec/node-hub-issues.md §2.2).
  */
 
+import type { ObservationInputOrigin } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ChangePrunePlan } from './change-log'
 
@@ -168,26 +169,35 @@ export class SyncRepository {
 
   /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
    *  Returns false when the id already existed (replay). */
-  enqueueMessage(row: { id: string; sessionId: string; text: string; queuedAt: number }): boolean {
+  enqueueMessage(row: {
+    id: string
+    sessionId: string
+    text: string
+    queuedAt: number
+    inputOrigin?: ObservationInputOrigin
+  }): boolean {
     const r = this.db
       .prepare(
-        'INSERT OR IGNORE INTO queued_messages (id, session_id, text, queued_at) VALUES (?, ?, ?, ?)',
+        'INSERT OR IGNORE INTO queued_messages (id, session_id, text, queued_at, input_origin) VALUES (?, ?, ?, ?, ?)',
       )
-      .run(row.id, row.sessionId, row.text, row.queuedAt)
+      .run(row.id, row.sessionId, row.text, row.queuedAt, row.inputOrigin ?? 'unknown')
     return Number(r.changes) > 0
   }
 
   /** FIFO head-first queue for one session. */
-  listQueuedMessages(sessionId: string): { id: string; text: string; attempts: number }[] {
+  listQueuedMessages(
+    sessionId: string,
+  ): { id: string; text: string; attempts: number; inputOrigin: ObservationInputOrigin }[] {
     const rows = this.db
       .prepare(
-        'SELECT id, text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC, rowid ASC',
+        'SELECT id, text, attempts, input_origin FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC, rowid ASC',
       )
       .all(sessionId) as Record<string, unknown>[]
     return rows.map((r) => ({
       id: r.id as string,
       text: r.text as string,
       attempts: r.attempts as number,
+      inputOrigin: (r.input_origin as ObservationInputOrigin | null) ?? 'unknown',
     }))
   }
 

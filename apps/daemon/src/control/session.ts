@@ -422,6 +422,10 @@ export const sessionHandlers: Pick<
     removeSessionInstructions(ctx, msg.sessionId)
   },
   input: (ctx, msg) => {
+    const input = Buffer.from(msg.data, 'base64').toString('utf8')
+    if (input.includes('\r') || input.includes('\n')) {
+      ctx.observers.recordInputOrigin(msg.sessionId, msg.inputOrigin)
+    }
     ctx.bridges.get(msg.sessionId)?.write(msg.data)
     // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
     // replica is hot, so the engine defers injection. No-op for unflagged sessions.
@@ -438,10 +442,8 @@ export const sessionHandlers: Pick<
   redraw: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.redraw()
   },
-  agentObservationAck: (_ctx, _msg) => {
-    // Provider tranches attach bootstrap-buffer release to this durable ack.
-    // Until then no causal observation is emitted, so there is no buffered live
-    // stream to release [spec:SP-cdb2].
+  agentObservationAck: (ctx, msg) => {
+    ctx.observers.onObservationAck(msg)
   },
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.codexIdentityReceipts

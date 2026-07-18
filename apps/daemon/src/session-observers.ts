@@ -1,4 +1,6 @@
+import { stat } from 'node:fs/promises'
 import {
+  ClaudeCausalObserver,
   type AgentRuntimeState,
   type AgentSession,
   type AgentStateEvent,
@@ -11,7 +13,13 @@ import {
   initialAgentState,
   reduceAgentState,
 } from '@podium/agent-bridge'
-import type { AgentKind, ControlMessage, DaemonMessage, TranscriptItem } from '@podium/protocol'
+import type {
+  AgentKind,
+  ControlMessage,
+  DaemonMessage,
+  ObservationInputOrigin,
+  TranscriptItem,
+} from '@podium/protocol'
 import {
   createSharedStatTick,
   recordToItemsForKind,
@@ -103,6 +111,134 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     string,
     { adapter: HarnessAdapter; observation: HarnessObservation }
   >()
+  type ClaudeLease = {
+    observerGeneration: number
+    bindingVersion: number
+    cwd: string
+  }
+  type ClaudeCausalTracker = {
+    observer: ClaudeCausalObserver
+    bootstrapTransitionId: string
+    awaitingBootstrapAck: boolean
+    bufferedHooks: unknown[]
+    processing: Promise<void>
+  }
+  const claudeLeases = new Map<string, ClaudeLease>()
+  const claudeCausal = new Map<string, ClaudeCausalTracker>()
+  const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
+  const claudeStarting = new Map<string, unknown[]>()
+
+  const applyClaudeHook = async (
+    sessionId: string,
+    causal: ClaudeCausalTracker,
+    payload: unknown,
+  ): Promise<void> => {
+    const p = payload as Record<string, unknown>
+    const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
+    let observedOffset = 0
+    try {
+      observedOffset = (await stat(path)).size
+    } catch {}
+    const observation = await causal.observer.observeHook(
+      payload,
+      causal.observer.nextHookOffset(observedOffset),
+    )
+    if (observation) send({ type: 'agentObservation', observation })
+  }
+
+  const startClaudeCausal = async (sessionId: string, payload: unknown): Promise<void> => {
+    const lease = claudeLeases.get(sessionId)
+    const tracker = trackers.get(sessionId)
+    const p = payload as Record<string, unknown> | null
+    const providerSessionId = typeof p?.session_id === 'string' ? p.session_id : ''
+    const transcriptPath = typeof p?.transcript_path === 'string' ? p.transcript_path : ''
+    if (!lease || !tracker || !providerSessionId || !transcriptPath) {
+      claudeStarting.delete(sessionId)
+      return
+    }
+
+    let bootstrapOffset = 0
+    try {
+      bootstrapOffset = (await stat(transcriptPath)).size
+    } catch {}
+    let bootstrapState = initialAgentState(new Date().toISOString())
+    try {
+      for (const event of (await tracker.provider.bootEvents?.({
+        cwd: lease.cwd,
+        resumeValue: providerSessionId,
+        pathHint: transcriptPath,
+      })) ?? []) {
+        bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
+      }
+    } catch {}
+    // UserPromptSubmit is the causal boundary. Claude may append the prompt to
+    // JSONL before posting the hook, so a tail classification at hook receipt
+    // can already say working. Snapshot the pre-signal side of that boundary;
+    // the buffered provider hook then owns the sole live working edge.
+    if (
+      p?.hook_event_name === 'UserPromptSubmit' &&
+      (bootstrapState.phase === 'working' || bootstrapState.phase === 'compacting')
+    ) {
+      bootstrapState = reduceAgentState(
+        bootstrapState,
+        { kind: 'turn_completed' },
+        new Date().toISOString(),
+      )
+    }
+    const observer = new ClaudeCausalObserver({
+      podiumSessionId: sessionId,
+      observerGeneration: lease.observerGeneration,
+      bindingVersion: lease.bindingVersion,
+      providerSessionId,
+      transcriptPath,
+      bootstrapState,
+      bootstrapOffset,
+    })
+    for (const origin of pendingClaudeOrigins.get(sessionId) ?? [])
+      observer.recordInputOrigin(origin)
+    pendingClaudeOrigins.delete(sessionId)
+
+    const snapshot = observer.bootstrap()
+    if (!snapshot) return
+    const causal: ClaudeCausalTracker = {
+      observer,
+      bootstrapTransitionId: snapshot.transitionId,
+      awaitingBootstrapAck: true,
+      bufferedHooks: claudeStarting.get(sessionId) ?? [payload],
+      processing: Promise.resolve(),
+    }
+    claudeCausal.set(sessionId, causal)
+    claudeStarting.delete(sessionId)
+    tracker.state = bootstrapState
+    send({ type: 'agentObservation', observation: snapshot })
+  }
+
+  const onObservationAck = (
+    msg: Extract<ControlMessage, { type: 'agentObservationAck' }>,
+  ): void => {
+    const causal = claudeCausal.get(msg.sessionId)
+    if (!causal) return
+    causal.observer.acknowledgeCursor(msg.acceptedCursor)
+    if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) return
+    causal.awaitingBootstrapAck = false
+    const buffered = causal.bufferedHooks.splice(0)
+    for (const payload of buffered) {
+      causal.processing = causal.processing.then(() =>
+        applyClaudeHook(msg.sessionId, causal, payload),
+      )
+    }
+  }
+
+  const recordInputOrigin = (
+    sessionId: string,
+    origin: ObservationInputOrigin | undefined,
+  ): void => {
+    if (!origin) return
+    const causal = claudeCausal.get(sessionId)
+    if (causal) causal.observer.recordInputOrigin(origin)
+    else
+      pendingClaudeOrigins.set(sessionId, [...(pendingClaudeOrigins.get(sessionId) ?? []), origin])
+  }
 
   // Live-tail SEED window (POD-613): the first read only refills the server's
   // gap-bridging per-session buffer (chat-capability flag, first-prompt title
@@ -315,6 +451,17 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         state: initialAgentState(new Date().toISOString()),
       })
     }
+    if (
+      msg.agentKind === 'claude-code' &&
+      msg.observationGeneration !== undefined &&
+      msg.observationBindingVersion !== undefined
+    ) {
+      claudeLeases.set(msg.sessionId, {
+        observerGeneration: msg.observationGeneration,
+        bindingVersion: msg.observationBindingVersion,
+        cwd: msg.cwd,
+      })
+    }
     const adapter = harnessAdapterFor(msg.agentKind)
     if (adapter) {
       const pathHint = pathHintOf(msg)
@@ -335,7 +482,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         ...(pathHint ? { pathHint } : {}),
       })
     }
-    if (provider?.bootEvents) {
+    if (provider?.bootEvents && !claudeLeases.has(msg.sessionId)) {
       // const capture so the narrowing survives into the onFrame closure.
       const bootProvider = provider
       const seed = (): void => {
@@ -425,6 +572,24 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (typeof hookCwd === 'string' && hookCwd) {
       void deps.cwdTracker.onHookCwd(sessionId, hookCwd)
     }
+    if (bound.adapter.kind === 'claude-code' && claudeLeases.has(sessionId)) {
+      const causal = claudeCausal.get(sessionId)
+      if (!causal) {
+        const starting = claudeStarting.get(sessionId)
+        if (starting) starting.push(payload)
+        else {
+          claudeStarting.set(sessionId, [payload])
+          void startClaudeCausal(sessionId, payload)
+        }
+      } else if (causal.awaitingBootstrapAck) {
+        causal.bufferedHooks.push(payload)
+      } else {
+        causal.processing = causal.processing.then(() =>
+          applyClaudeHook(sessionId, causal, payload),
+        )
+      }
+      return
+    }
     void tracker.provider
       .translate(payload)
       .then((events) => applyAgentStateEvents(sessionId, events))
@@ -440,6 +605,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cancelPendingIdleEmit(sessionId)
     trackers.delete(sessionId)
     stopObservation(sessionId)
+    claudeLeases.delete(sessionId)
+    claudeCausal.delete(sessionId)
+    claudeStarting.delete(sessionId)
+    pendingClaudeOrigins.delete(sessionId)
     stopTranscriptTail(sessionId)
   }
 
@@ -460,6 +629,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     bindHeadlessSession,
     onHookPayload,
     trackedState,
+    onObservationAck,
+    recordInputOrigin,
     clearSession,
     stopAllTails,
     disposeObservers,

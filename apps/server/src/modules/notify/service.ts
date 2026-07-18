@@ -191,6 +191,8 @@ export class NotifyService {
                   providerPromptId: observation.providerPromptId,
                   observerGeneration: observation.observerGeneration,
                   providerCursor: observation.providerCursor,
+                  turnEpoch: observation.turnEpoch,
+                  transitionKind: observation.transitionKind,
                   providerAt: observation.providerAt,
                   receivedAt: observation.receivedAt,
                   sourceEventKind: observation.sourceEventKind,

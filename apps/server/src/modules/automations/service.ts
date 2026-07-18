@@ -49,7 +49,12 @@ export interface AutomationsDeps {
   }): { sessionId: string }
   /** SessionsService.queueText — the durable outbox (see `spawn` below for why
    *  this and not `initialPrompt`). */
-  queueText(input: { sessionId: string; text: string; mutationId?: string }): {
+  queueText(input: {
+    sessionId: string
+    text: string
+    mutationId?: string
+    inputOrigin?: 'system'
+  }): {
     ok: boolean
     reason?: string
   }
@@ -583,7 +588,12 @@ export class AutomationsService {
       title: automation.name,
       issueId: issue.id,
     })
-    const queued = this.deps.queueText({ sessionId, text: automation.prompt, mutationId: runId })
+    const queued = this.deps.queueText({
+      sessionId,
+      text: automation.prompt,
+      mutationId: runId,
+      inputOrigin: 'system',
+    })
     if (!queued.ok) {
       throw new AutomationSpawnError(
         `session ${sessionId} spawned but the prompt was rejected: ${queued.reason}`,

@@ -610,7 +610,7 @@ export class Session {
       }
       this.inputAtMs = Date.now()
       this.activityDirty_ = true
-      this.toDaemon({ type: 'input', sessionId: this.sessionId, data })
+      this.toDaemon({ type: 'input', sessionId: this.sessionId, data, inputOrigin: 'human' })
     }
   }
 

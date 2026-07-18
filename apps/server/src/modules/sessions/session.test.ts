@@ -91,7 +91,12 @@ describe('Session', () => {
     s.handleInput('b', 'eA==')
     expect(toDaemon).not.toHaveBeenCalled()
     s.handleInput('a', 'eA==')
-    expect(toDaemon).toHaveBeenCalledWith({ type: 'input', sessionId: 's1', data: 'eA==' })
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'input',
+      sessionId: 's1',
+      data: 'eA==',
+      inputOrigin: 'human',
+    })
   })
 
   it('shell is busy only while a submitted command runs, not on prompt-draw/echo', () => {

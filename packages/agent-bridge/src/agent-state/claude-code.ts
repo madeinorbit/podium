@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +10,8 @@ import {
 } from './claude-code-classifier.js'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
+import type { AgentObservation, AgentRuntimeState, ObservationInputOrigin } from '@podium/protocol'
+import { reduceAgentState } from './reducer.js'
 import type { AgentInstrumentation, AgentStateEvent, AgentStateProvider } from './types.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
@@ -222,8 +225,253 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
       return [{ kind: 'compaction', phase: 'end' }]
     case 'SessionEnd':
       return [{ kind: 'session_ended' }]
+
     default:
       return []
+  }
+}
+export interface ClaudeCausalObserverOptions {
+  podiumSessionId: string
+  observerGeneration: number
+  bindingVersion: number
+  providerSessionId: string
+  transcriptPath: string
+  bootstrapState: AgentRuntimeState
+  bootstrapOffset: number
+  now?: () => string
+}
+
+/**
+ * Claude's provider-owned causal barrier. Hook receipt is not itself a turn:
+ * only an exact-binding UserPromptSubmit opens an epoch, and Stop/StopFailure
+ * closes it absorbingly except for matching child-stop bookkeeping.
+ * [spec:SP-cdb2]
+ */
+export class ClaudeCausalObserver {
+  private readonly segmentId: string
+  private predecessorSegmentId: string | null = null
+  private readonly now: () => string
+  private state: AgentRuntimeState
+  private turnEpoch = 0
+  private providerPromptId: string | null = null
+  private lastOffset: number
+  private bootstrapped = false
+  private epochOpen = false
+  private closing = false
+  private currentOrigin: ObservationInputOrigin = 'unknown'
+  private readonly pendingOrigins: ObservationInputOrigin[] = []
+  private readonly seen = new Set<string>()
+  private readonly activeChildren = new Set<string>()
+
+  constructor(private readonly options: ClaudeCausalObserverOptions) {
+    this.state = options.bootstrapState
+    this.lastOffset = options.bootstrapOffset
+    this.now = options.now ?? (() => new Date().toISOString())
+    this.segmentId = `claude:${options.providerSessionId}:${options.transcriptPath}`
+  }
+  /** Rebase after the server's durable ack (including replay rejection, whose
+   * acceptedCursor is the already-committed fence) before releasing hooks. */
+  acknowledgeCursor(cursor: AgentObservation['providerCursor'] | null | undefined): void {
+    if (!cursor) return
+    if (cursor.segmentId !== this.segmentId) {
+      this.predecessorSegmentId = cursor.segmentId
+      this.lastOffset = 0
+      return
+    }
+    const offset = cursor.components.transcript
+    if (Number.isSafeInteger(offset)) this.lastOffset = Math.max(this.lastOffset, offset ?? 0)
+  }
+
+  /** Hooks sharing a transcript byte boundary still need distinct cursor
+   * positions; the ack-rebased fence makes the local suffix restart-safe. */
+  nextHookOffset(observedOffset: number): number {
+    return Math.max(
+      this.lastOffset + 1,
+      Number.isSafeInteger(observedOffset) ? observedOffset : this.lastOffset + 1,
+    )
+  }
+
+  recordInputOrigin(origin: ObservationInputOrigin): void {
+    if (origin !== 'provider' && origin !== 'unknown') this.pendingOrigins.push(origin)
+  }
+
+  bootstrap(): AgentObservation | null {
+    if (this.bootstrapped) return null
+    this.bootstrapped = true
+    return this.observation({
+      sourceEventKind: 'bootstrap',
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      inputOrigin: 'provider',
+      priorPhase: 'unknown',
+      state: this.state,
+      offset: this.options.bootstrapOffset,
+      identity: `bootstrap:${this.options.bootstrapOffset}`,
+    })
+  }
+
+  async observeHook(
+    payload: unknown,
+    transcriptOffset: number,
+    inputOrigin?: ObservationInputOrigin,
+  ): Promise<AgentObservation | null> {
+    if (typeof payload !== 'object' || payload === null || !this.bootstrapped) return null
+    const p = payload as Record<string, unknown>
+    if (
+      p.session_id !== this.options.providerSessionId ||
+      p.transcript_path !== this.options.transcriptPath ||
+      !Number.isSafeInteger(transcriptOffset) ||
+      transcriptOffset <= this.lastOffset
+    ) {
+      return null
+    }
+
+    const hook = str(p.hook_event_name)
+    if (!hook) return null
+    const baseIdentity = this.hookIdentity(hook, p)
+    const identity = hook === 'UserPromptSubmit' ? baseIdentity : `${this.turnEpoch}:${baseIdentity}`
+    if (this.seen.has(identity)) return null
+    this.seen.add(identity)
+    this.lastOffset = transcriptOffset
+
+    if (hook === 'SessionStart') return null
+    if (hook === 'UserPromptSubmit') {
+      this.turnEpoch += 1
+      this.providerPromptId = str(p.prompt_id) ?? null
+      this.epochOpen = true
+      this.closing = false
+      this.activeChildren.clear()
+      const origin =
+        inputOrigin ??
+        this.pendingOrigins.shift() ??
+        (p.promptSource === 'system' || p.prompt_source === 'system' ? 'system' : 'unknown')
+      this.currentOrigin = origin
+      const prior = this.state
+      this.state = reduceAgentState(prior, { kind: 'prompt_submitted' }, this.now())
+      return this.observation({
+        sourceEventKind: hook,
+        transitionKind: 'turn_opened',
+        provenance: 'live',
+        inputOrigin: origin,
+        priorPhase: prior.phase,
+        state: this.state,
+        offset: transcriptOffset,
+        identity,
+      })
+    }
+
+    if (!this.epochOpen && !this.closing) return null
+    if (this.closing) {
+      if (hook !== 'SubagentStop') return null
+      const agentId = str(p.agent_id)
+      if (!agentId || !this.activeChildren.has(agentId)) return null
+    }
+
+    let events = await translateClaudeHookPayload(payload)
+    const scheduledSelfWake =
+      hook === 'Stop' &&
+      (p.scheduled_self_wake === true || (events.length === 1 && events[0]?.kind === 'activity'))
+    if (scheduledSelfWake) {
+      events = [{ kind: 'turn_completed' }]
+      this.pendingOrigins.unshift('auto_continue')
+    }
+    if (events.length !== 1) return null
+    const event = events[0]!
+    if (hook === 'SubagentStart') {
+      const agentId = str(p.agent_id)
+      if (agentId) this.activeChildren.add(agentId)
+    } else if (hook === 'SubagentStop') {
+      const agentId = str(p.agent_id)
+      if (agentId) this.activeChildren.delete(agentId)
+    }
+
+    const prior = this.state
+    const next = reduceAgentState(prior, event, this.now())
+    if (next === prior) return null
+    this.state = next
+
+    const terminal = hook === 'Stop' || hook === 'StopFailure' || hook === 'SessionEnd'
+    let transitionKind: AgentObservation['transitionKind'] =
+      hook === 'SubagentStop' ? 'subagent_bookkeeping' : 'activity'
+    if (terminal) {
+      transitionKind = 'turn_terminal'
+      this.epochOpen = false
+      this.closing = next.awaitingSubagents === true && this.activeChildren.size > 0
+    } else if (this.closing && this.activeChildren.size === 0) {
+      this.closing = false
+    }
+
+    return this.observation({
+      sourceEventKind: hook,
+      transitionKind,
+      provenance: 'live',
+      inputOrigin: this.currentOrigin,
+      priorPhase: prior.phase,
+      state: next,
+      offset: transcriptOffset,
+      identity,
+      providerAt: str(p.timestamp) ?? null,
+    })
+  }
+
+  private hookIdentity(hook: string, p: Record<string, unknown>): string {
+    const native =
+      str(p.agent_id) ??
+      str(p.tool_use_id) ??
+      str(p.tool_use?.toString()) ??
+      str(p.error_type) ??
+      str(p.prompt_id) ??
+      ''
+    return [hook, native, str(p.tool_name) ?? '', str(p.stop_hook_active) ?? ''].join(':')
+  }
+
+  private observation(input: {
+    sourceEventKind: string
+    transitionKind: AgentObservation['transitionKind']
+    provenance: AgentObservation['provenance']
+    inputOrigin: ObservationInputOrigin
+    priorPhase: AgentRuntimeState['phase']
+    state: AgentRuntimeState
+    offset: number
+    identity: string
+    providerAt?: string | null
+  }): AgentObservation {
+    const receivedAt = this.now()
+    const transitionId = createHash('sha256')
+      .update(
+        [this.segmentId, this.turnEpoch, input.identity, input.priorPhase, input.state.phase].join(
+          '|',
+        ),
+      )
+      .digest('hex')
+    return {
+      podiumSessionId: this.options.podiumSessionId,
+      provider: 'claude-code',
+      providerSessionId: this.options.providerSessionId,
+      bindingVersion: this.options.bindingVersion,
+      providerTurnId: null,
+      providerPromptId: this.providerPromptId,
+      observerGeneration: this.options.observerGeneration,
+      providerCursor: {
+        segmentId: this.segmentId,
+        components: { transcript: input.offset },
+        ...(this.predecessorSegmentId
+          ? { predecessorSegmentId: this.predecessorSegmentId }
+          : {}),
+      },
+      providerAt:
+        input.providerAt && Number.isFinite(Date.parse(input.providerAt)) ? input.providerAt : null,
+      receivedAt,
+      sourceEventKind: input.sourceEventKind,
+      transitionKind: input.transitionKind,
+      provenance: input.provenance,
+      inputOrigin: input.inputOrigin,
+      turnEpoch: this.turnEpoch,
+      priorPhase: input.priorPhase,
+      nextPhase: input.state.phase,
+      transitionId,
+      state: input.state,
+    }
   }
 }
 

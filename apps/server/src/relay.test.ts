@@ -807,7 +807,12 @@ describe('SessionRegistry', () => {
     const id = reg.modules.sessions.attachClient(c.send)
     reg.modules.sessions.onClientMessage(id, { type: 'attach', sessionId: s1 })
     reg.modules.sessions.onClientMessage(id, { type: 'input', sessionId: s1, data: 'eA==' })
-    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
+    expect(daemon).toContainEqual({
+      type: 'input',
+      sessionId: s1,
+      data: 'eA==',
+      inputOrigin: 'human',
+    })
   })
 
   it('takeover on one session leaves another session epoch untouched', () => {
@@ -2801,7 +2806,12 @@ describe('reconnect identity (hello reclaim)', () => {
     const idA = reg.modules.sessions.attachClient(a.send)
     reg.modules.sessions.onClientMessage(idA, { type: 'attach', sessionId: s1 })
     reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eA==' })
-    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eA==' })
+    expect(daemon).toContainEqual({
+      type: 'input',
+      sessionId: s1,
+      data: 'eA==',
+      inputOrigin: 'human',
+    })
 
     // The socket goes half-open; a new socket connects and re-presents idA in hello,
     // then re-attaches the way the client does on reconnect.
@@ -2813,7 +2823,12 @@ describe('reconnect identity (hello reclaim)', () => {
     daemon.length = 0
     // B now drives input (it inherited control)...
     reg.modules.sessions.onClientMessage(idB, { type: 'input', sessionId: s1, data: 'eQ==' })
-    expect(daemon).toContainEqual({ type: 'input', sessionId: s1, data: 'eQ==' })
+    expect(daemon).toContainEqual({
+      type: 'input',
+      sessionId: s1,
+      data: 'eQ==',
+      inputOrigin: 'human',
+    })
     // ...and the stale A is gone: its messages are dropped, not honored.
     reg.modules.sessions.onClientMessage(idA, { type: 'input', sessionId: s1, data: 'eg==' })
     expect(daemon).not.toContainEqual({ type: 'input', sessionId: s1, data: 'eg==' })

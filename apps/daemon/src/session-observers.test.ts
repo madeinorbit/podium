@@ -1,4 +1,11 @@
-import type { AgentStateEvent, AgentStateProvider } from '@podium/agent-bridge'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  agentStateProviderFor,
+  type AgentStateEvent,
+  type AgentStateProvider,
+} from '@podium/agent-bridge'
 import type { DaemonMessage } from '@podium/protocol'
 import type { StatTick } from '@podium/transcript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -177,5 +184,88 @@ describe('session observer →idle debounce', () => {
 
     await vi.advanceTimersByTimeAsync(IDLE_TRANSITION_DEBOUNCE_MS + 50)
     expect(agentStateMsgs(sent, sessionId).every((m) => m.state.phase !== 'idle')).toBe(true)
+  })
+})
+describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
+  it('buffers live hooks behind one bootstrap ack and preserves the submitted steward origin', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-causal-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    await writeFile(transcript, '')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    observers.initSessionObservers(
+      {
+        type: 'spawn',
+        sessionId: 'podium-1',
+        agentKind: 'claude-code',
+        cwd: dir,
+        geometry: G,
+        durableLabel: 'podium-podium-1',
+        observationGeneration: 7,
+        observationBindingVersion: 2,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('claude-code'),
+      { seedOnFrame: false },
+    )
+    observers.recordInputOrigin('podium-1', 'steward')
+    const prompt = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+      prompt_id: 'prompt-1',
+    }
+    observers.onHookPayload('podium-1', prompt)
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
+    })
+    const snapshot = sent.find((m) => m.type === 'agentObservation')!
+    expect(snapshot.observation).toMatchObject({
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+    })
+    expect(sent.some((m) => m.type === 'agentState')).toBe(false)
+
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      transitionId: snapshot.observation.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: snapshot.observation.providerCursor,
+    })
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(2)
+    })
+    const working = sent.filter((m) => m.type === 'agentObservation').at(-1)!
+    expect(working.observation).toMatchObject({
+      provenance: 'live',
+      transitionKind: 'turn_opened',
+      inputOrigin: 'steward',
+      observerGeneration: 7,
+      providerSessionId: 'claude-1',
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+
+    const stop = { ...prompt, hook_event_name: 'Stop' }
+    observers.onHookPayload('podium-1', stop)
+    await vi.waitFor(() => {
+      expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
+    })
+    expect(sent.filter((m) => m.type === 'agentObservation').at(-1)?.observation).toMatchObject({
+      transitionKind: 'turn_terminal',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+    })
+    observers.onHookPayload('podium-1', stop)
+    await Promise.resolve()
+    expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
+    observers.clearSession('podium-1')
   })
 })

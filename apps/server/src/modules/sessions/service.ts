@@ -25,6 +25,7 @@ import {
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
   type ObservationProvider,
+  type ObservationInputOrigin,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -1542,6 +1543,7 @@ export class SessionsService {
     this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
+      inputOrigin: 'auto_continue',
       data: Buffer.from('continue\r').toString('base64'),
     })
     return { ok: true }
@@ -1553,7 +1555,15 @@ export class SessionsService {
    * (FIFO) instead of jumping the queue — otherwise a live-chat send would land
    * before messages the user typed earlier while the agent was parked.
    */
-  sendText({ sessionId, text }: { sessionId: string; text: string }): {
+  sendText({
+    sessionId,
+    text,
+    inputOrigin = 'controller',
+  }: {
+    sessionId: string
+    text: string
+    inputOrigin?: ObservationInputOrigin
+  }): {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -1562,9 +1572,9 @@ export class SessionsService {
     if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (session && (session.queuedMessageCount > 0 || this.activeDrains.has(sessionId))) {
-      return this.queueText({ sessionId, text })
+      return this.queueText({ sessionId, text, inputOrigin })
     }
-    return this.typeText({ sessionId, text })
+    return this.typeText({ sessionId, text, inputOrigin })
   }
 
   /**
@@ -1574,7 +1584,15 @@ export class SessionsService {
    * Callers are already authority-gated (superagent/parent/operator only —
    * the clamp matrix downgrades everyone else before reaching here).
    */
-  interruptText({ sessionId, text }: { sessionId: string; text: string }): {
+  interruptText({
+    sessionId,
+    text,
+    inputOrigin = 'controller',
+  }: {
+    sessionId: string
+    text: string
+    inputOrigin?: ObservationInputOrigin
+  }): {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -1594,7 +1612,10 @@ export class SessionsService {
     // so it lands in a separate PTY read. afterEsc bypasses the needs_user guard
     // (this is the one legitimate write into a menu-waiting session) and jumps
     // the queue — an interrupt is meant to.
-    setTimeout(() => this.typeText({ sessionId, text, afterEsc: true }), SUBMIT_CR_DELAY_MS)
+    setTimeout(
+      () => this.typeText({ sessionId, text, inputOrigin, afterEsc: true }),
+      SUBMIT_CR_DELAY_MS,
+    )
     return { ok: true }
   }
 
@@ -1604,9 +1625,11 @@ export class SessionsService {
   private typeText({
     sessionId,
     text,
+    inputOrigin = 'controller',
     afterEsc,
   }: {
     sessionId: string
+    inputOrigin?: ObservationInputOrigin
     text: string
     /** Set ONLY by interruptText, which just sent an ESC that cancels an
      *  on-screen menu — its follow-up text is the one legitimate write into a
@@ -1647,6 +1670,7 @@ export class SessionsService {
       this.toMachine(session.machineId, {
         type: 'input',
         sessionId,
+        inputOrigin,
         data: Buffer.from(data).toString('base64'),
       })
     // Bracketed paste so the harness takes the message as one input block (newlines
@@ -1968,10 +1992,12 @@ export class SessionsService {
   queueText({
     sessionId,
     text,
+    inputOrigin = 'controller',
     mutationId,
   }: {
     sessionId: string
     text: string
+    inputOrigin?: ObservationInputOrigin
     mutationId?: string
   }): { ok: boolean; queued?: boolean; reason?: string } {
     const rejected = this.upstreamRejection(sessionId)
@@ -1989,6 +2015,7 @@ export class SessionsService {
       id: mutationId ?? randomUUID(),
       sessionId,
       text,
+      inputOrigin,
       queuedAt: this.now(),
     })
     if (inserted) {
@@ -2045,7 +2072,7 @@ export class SessionsService {
         return
       }
       this.store.sync.bumpQueuedAttempts(head.id)
-      const sent = this.typeText({ sessionId, text: head.text })
+      const sent = this.typeText({ sessionId, text: head.text, inputOrigin: head.inputOrigin })
       if (!sent.ok) {
         stop() // status raced to parked — rows remain
         return
@@ -2915,10 +2942,12 @@ export class SessionsService {
     sessionId,
     text,
     mutationId,
+    inputOrigin = 'controller',
   }: {
     sessionId: string
     text: string
     mutationId?: string
+    inputOrigin?: ObservationInputOrigin
   }): {
     ok: boolean
     reason?: string
@@ -2928,12 +2957,12 @@ export class SessionsService {
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
     if (session.status === 'live' && session.queuedMessageCount === 0) {
-      return this.sendText({ sessionId, text })
+      return this.sendText({ sessionId, text, inputOrigin })
     }
     // Everything else — parked (wakes), starting (waits for settle), reconnecting
     // (waits for the daemon), or live-behind-a-queue (FIFO) — goes through the
     // durable queue instead of the old drop-after-25s in-memory timer.
-    return this.queueText({ sessionId, text, mutationId })
+    return this.queueText({ sessionId, text, mutationId, inputOrigin })
   }
 
   /** Wake a hibernated session: respawn under the same id with its resume ref.
@@ -3212,6 +3241,7 @@ export class SessionsService {
    * not undo the exit side-effects already applied.
    */
   private emitSessionExited(sessionId: string, code: number, spawnedBy?: string | null): void {
+    const causalCheckpoint = this.store.observationCheckpoints.get(sessionId) !== undefined
     this.bus.emit('session.exited', { sessionId, code })
     try {
       this.store.events.appendEvent({
@@ -3220,6 +3250,7 @@ export class SessionsService {
         subject: sessionId,
         payload: {
           code,
+          ...(causalCheckpoint ? { causalCheckpoint: true } : {}),
           ...(spawnedBy ? { spawnedBy } : {}),
         },
       })
@@ -3933,6 +3964,9 @@ export class SessionsService {
             transitionId: observation.transitionId,
             result: 'rejected',
             rejectionReason: outcome.rejectionReason,
+            ...(lease?.checkpoint?.providerCursor
+              ? { acceptedCursor: lease.checkpoint.providerCursor }
+              : {}),
           })
           break
         }

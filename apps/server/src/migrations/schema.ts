@@ -242,6 +242,7 @@ export const queuedMessages = sqliteTable("queued_messages", {
 	sessionId: text("session_id").notNull(),
 	text: text().notNull(),
 	queuedAt: integer("queued_at").notNull(),
+	inputOrigin: text("input_origin").default("unknown").notNull(),
 	attempts: integer().default(0).notNull(),
 },
 (table) => [index("queued_messages_session").on(table.sessionId, table.queuedAt),

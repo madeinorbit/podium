@@ -182,6 +182,20 @@ export const InputMessage = z.object({
   type: z.literal('input'),
   sessionId: z.string(),
   data: z.string(),
+  /** Intended causal source of a provider-confirmed prompt. Optional for mixed
+   * deployments; the daemon never treats intent alone as a turn edge. */
+  inputOrigin: z
+    .enum([
+      'human',
+      'controller',
+      'steward',
+      'mail',
+      'auto_continue',
+      'system',
+      'provider',
+      'unknown',
+    ])
+    .optional(),
 })
 // Client's requested terminal grid; controller-authoritative. Geometry shape + sessionId.
 export const ResizeMessage = z.object({
