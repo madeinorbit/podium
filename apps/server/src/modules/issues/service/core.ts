@@ -247,8 +247,7 @@ export abstract class IssueServiceCore {
     }
   }
 
-  list(repoPath?: string): IssueWire[] {
-    const sessionList = this.deps.listSessions()
+  list(repoPath?: string, sessionList: SessionMeta[] = this.deps.listSessions()): IssueWire[] {
     const commentCounts = this.deps.store.issues.countIssueCommentsByIssue()
     // POD-723 memo inputs, computed ONCE per list() so the per-issue key stays
     // cheap. Each session is projected to its issue-relevant slice (the same trio
@@ -386,8 +385,8 @@ export abstract class IssueServiceCore {
     return ref
   }
 
-  allWire(): IssueWire[] {
-    return this.list()
+  allWire(sessionList?: SessionMeta[]): IssueWire[] {
+    return this.list(undefined, sessionList)
   }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */

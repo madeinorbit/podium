@@ -71,6 +71,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     geometry: noop,
     agentExit: noop,
     sessionsChanged: noop,
+    sessionViewDelta: noop,
     conversationsChanged: noop,
     automationsChanged: noop,
     automationRunsChanged: noop,

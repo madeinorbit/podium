@@ -52,6 +52,8 @@ export const SERVER_MESSAGE_CLASS = {
   welcome: 'live',
   attached: 'live',
   pong: 'live',
+  // Authority-only view removal; ordered on one client publication sequencer.
+  sessionViewDelta: 'live',
 
   // Ephemeral per-session streams: the durable truth lands in the next
   // sessionsChanged / transcript lake read; these only keep open views hot.

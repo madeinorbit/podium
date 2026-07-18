@@ -227,6 +227,13 @@ export const SessionsChangedMessage = z.object({
   sessions: z.array(SessionMeta),
 })
 
+// Connection-scoped authorization revocation. These ids were already visible
+// to this client; removing them reveals no entity the client did not know.
+export const SessionViewDeltaMessage = z.object({
+  type: z.literal('sessionViewDelta'),
+  removedSessionIds: z.array(z.string()),
+})
+
 // One session's runtime phase changed. A dedicated message — not a full
 // sessionsChanged rebroadcast — because hook events fire often (a TodoWrite
 // mutation, every turn boundary, across all sessions) and re-serializing the

@@ -166,6 +166,8 @@ interface SessionsServiceDeps {
   /** The write-seam change log ([spec:SP-3fe2] #256): persist() commits the row
    *  write + declared session change atomically; loadFromStore reconciles. */
   ledger: SessionLedger
+  /** Test/fault-injection seam; production owns the default daemon client. */
+  publicationWorker?: PublishWorkerClient
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
@@ -177,7 +179,7 @@ interface SessionsServiceDeps {
   /** Full issue-list fan-out through the publisher (ledger reconcile + legacy
    *  snapshot). Mutually recursive with the broadcast pipeline by design — the
    *  publisher's own deps point back at fanOutSnapshot/sendMetadataDelta here. */
-  publishIssues(): void
+  publishIssues(sessions: SessionMeta[]): void
   /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
   /** Durable scheduled definitions and run history for bootstrap/snapshot sync. */
@@ -265,7 +267,7 @@ export class SessionsService {
     generation: number
     ids: readonly string[]
   }
-  private readonly publicationWorker = new PublishWorkerClient()
+  private readonly publicationWorker: PublishWorkerClient
 
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
@@ -331,6 +333,7 @@ export class SessionsService {
     this.headless = deps.headless
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
+    this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.autoContinue = new AutoContinueController({
       isEnabled: () => this.store.settings.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
@@ -3738,7 +3741,7 @@ export class SessionsService {
         perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
       } else {
         const tIssues0 = performance.now()
-        this.deps.publishIssues()
+        this.deps.publishIssues(sessions)
         // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
         this.lastIssueSessionProjection = issueProjection
@@ -3815,11 +3818,39 @@ export class SessionsService {
   ): boolean {
     const accepted = client.publicationAccepted
     return (
+      !client.publicationReplacementRequired &&
       accepted !== undefined &&
       accepted.viewKey === descriptor.view.key &&
       accepted.viewRevision === descriptor.view.revision &&
       accepted.allowedSignature === descriptor.allowedSignature
     )
+  }
+
+  private sendPublicationRevocations(
+    client: ClientConn,
+    descriptor: { view: PublicationView; allowedSignature: string; global: boolean },
+  ): void {
+    const accepted = client.publicationAccepted
+    if (!client.publication || descriptor.global || !accepted) return
+    if (
+      accepted.viewKey === descriptor.view.key &&
+      accepted.viewRevision === descriptor.view.revision &&
+      accepted.allowedSignature === descriptor.allowedSignature
+    ) {
+      return
+    }
+    const allowed = new Set(descriptor.view.allowedSessionIds)
+    const alreadyRemoved = client.publicationRevokedSessionIds ?? new Set<string>()
+    const removedSessionIds = accepted.allowedSessionIds.filter(
+      (sessionId) => !allowed.has(sessionId) && !alreadyRemoved.has(sessionId),
+    )
+    if (removedSessionIds.length === 0) return
+    client.publication.sendPrepared(
+      JSON.stringify({ type: 'sessionViewDelta', removedSessionIds } satisfies ServerMessage),
+    )
+    for (const sessionId of removedSessionIds) alreadyRemoved.add(sessionId)
+    client.publicationRevokedSessionIds = alreadyRemoved
+    client.publicationReplacementRequired = true
   }
 
   private schedulePreparedSessionPublications(
@@ -3844,6 +3875,7 @@ export class SessionsService {
       const deltaCapable = client.caps.has(CAP_METADATA_DELTA)
       if (deltaCapable && !includeDeltaCapable) continue
       const matches = this.publicationMatches(client, descriptor)
+      if (deltaCapable && !matches) this.sendPublicationRevocations(client, descriptor)
       // Proven-global delta clients ride the raw funnel after their sequenced
       // bootstrap. Scoped clients always return through the filtering actor.
       if (descriptor.global && deltaCapable && matches) continue
@@ -3923,7 +3955,10 @@ export class SessionsService {
               viewRevision: publication.viewRevision,
               allowedSignature: group.allowedSignature,
               cursor: publication.ledgerCursor,
+              allowedSessionIds: current.global ? [] : [...current.view.allowedSessionIds],
             }
+            client.publicationReplacementRequired = false
+            client.publicationRevokedSessionIds = undefined
             if (current.global && client.caps.has(CAP_METADATA_DELTA)) {
               const buffered = client.publicationBufferedChanges?.splice(0) ?? []
               for (const changes of buffered) {

@@ -85,6 +85,10 @@ describe('SocketHub', () => {
     sock.recv({ type: 'sessionsChanged', sessions: [meta] })
     expect(hub.sessions()).toEqual([meta])
     expect(seen.at(-1)).toBe(1)
+
+    sock.recv({ type: 'sessionViewDelta', removedSessionIds: ['s1'] })
+    expect(hub.sessions()).toEqual([])
+    expect(seen.at(-1)).toBe(0)
   })
 
   it('quarantines a poisoned session in a batch and still exposes the rest (lenient route)', () => {

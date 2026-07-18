@@ -49,6 +49,7 @@ import {
 } from './modules/notify/service'
 import { type PerfRegistry, perf } from './modules/perf/registry'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
+import type { PublishWorkerClient } from './modules/sessions/publish-worker-client'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { DEFAULT_GEOMETRY, SessionsService } from './modules/sessions/service'
 import type { Session } from './modules/sessions/session'
@@ -104,6 +105,8 @@ interface SessionRegistryOptions {
   pairing?: PairingCodes
   /** Lazy — production wires MessagingService after registry construction. */
   telegramNotice?: () => TelegramNoticePort | undefined
+  /** Deterministic publication-worker fault injection for service-level tests. */
+  publicationWorker?: PublishWorkerClient
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -345,7 +348,7 @@ export class SessionRegistry {
       sendDelta: (changes) => sessionsSvc.sendMetadataDelta(changes),
     })
     const publisher = new IssuePublisher({
-      allWire: () => issues?.allWire(),
+      allWire: (sessionList) => issues?.allWire(sessionList),
       withUpstreamIssues: (local) => upstreamIssues.withUpstreamIssues(local),
       // Write-less full-list rebroadcasts (session churn, staleness flips):
       // reconcile against the ledger baseline (durable append, #255), then fan
@@ -934,14 +937,15 @@ export class SessionRegistry {
       funnel,
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
+      ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
       machines,
       rpc,
       hosts,
       headless,
       conversations: () => conversations,
       issues: () => issues,
-      publishIssues: () => publisher.publishIssues(publisher.safeIssuesList()),
-      issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.safeIssuesList()),
+      publishIssues: (sessions) => publisher.publishIssues(publisher.safeIssuesList(sessions)),
+      issuesWire: () => upstreamIssues.withUpstreamIssues(publisher.currentIssuesList()),
       automationsWire: () => automations.list(),
       automationRunsWire: () => automations.allRuns(),
       runAgentRelay: (machineId, msg) => void agentRelayGate.run(machineId, msg),

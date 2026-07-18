@@ -11,7 +11,11 @@ import {
   WorktreesChangedMessage,
 } from './host'
 import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
-import { SessionAgentStateChangedMessage, SessionsChangedMessage } from './runtime-state'
+import {
+  SessionAgentStateChangedMessage,
+  SessionsChangedMessage,
+  SessionViewDeltaMessage,
+} from './runtime-state'
 import { MetadataDeltaMessage } from './sync'
 import {
   AgentExitMessage,
@@ -50,6 +54,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   GeometryMessage,
   AgentExitMessage,
   SessionsChangedMessage,
+  SessionViewDeltaMessage,
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
   SessionAgentStateChangedMessage,

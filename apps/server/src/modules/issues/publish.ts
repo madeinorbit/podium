@@ -1,4 +1,4 @@
-import type { IssueWire, ServerMessage } from '@podium/protocol'
+import type { IssueWire, ServerMessage, SessionMeta } from '@podium/protocol'
 import type { IssuePublishSpecs } from './service/types'
 
 /** One publishable issue state change: the wire rows the ledger reconciles
@@ -15,7 +15,7 @@ export interface IssuePublisherDeps {
   /** The LOCAL issue list builder (IssueService.allWire) — may be undefined while
    *  the registry constructor hasn't assigned the service yet (broadcasts can run
    *  via loadFromStore before that). */
-  allWire(): IssueWire[] | undefined
+  allWire(sessionList?: SessionMeta[]): IssueWire[] | undefined
   /** Local ∪ upstream union (modules/issues/upstream). */
   withUpstreamIssues(local: IssueWire[]): IssueWire[]
   /** Full-list publish tail ([spec:SP-3fe2] #255): ledger reconcile of the
@@ -31,6 +31,7 @@ export interface IssuePublisherDeps {
  *  the durable change log before clients see anything (oplog-read-path §2.5). */
 export class IssuePublisher implements IssuePublishSpecs {
   constructor(private readonly deps: IssuePublisherDeps) {}
+  private currentLocalIssues?: IssueWire[]
 
   /**
    * Build the issue-list payload, degrading to an empty list if the DERIVED build
@@ -39,13 +40,20 @@ export class IssuePublisher implements IssuePublishSpecs {
    * handler that triggered it. The `?? []` also guards construction-time calls
    * (broadcasts can run before the IssueService is set).
    */
-  safeIssuesList(): IssueWire[] {
+  safeIssuesList(sessionList?: SessionMeta[]): IssueWire[] {
     try {
-      return this.deps.allWire() ?? []
+      const issues = this.deps.allWire(sessionList) ?? []
+      this.currentLocalIssues = issues
+      return issues
     } catch (err) {
       console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
       return []
     }
+  }
+
+  /** Last successfully built local wire projection for connection bootstrap. */
+  currentIssuesList(): IssueWire[] {
+    return this.currentLocalIssues ?? this.safeIssuesList()
   }
 
   /** Spec for a full issue list (every issuesChanged path). Takes the LOCAL
@@ -54,6 +62,7 @@ export class IssuePublisher implements IssuePublishSpecs {
    *  local ∪ upstream without knowing about the mirror (node-hub-issues §2.1). */
   issuesChanged(localIssues: IssueWire[]): PublishSpec {
     const issues = this.deps.withUpstreamIssues(localIssues)
+    this.currentLocalIssues = localIssues
     return {
       rows: issues.map((i) => ({ id: i.id, value: i })),
       snapshot: { type: 'issuesChanged', issues },
@@ -65,6 +74,15 @@ export class IssuePublisher implements IssuePublishSpecs {
    *  ordered onAppended pipe, legacy clients get the issueUpdated message
    *  they already merge by id. */
   issueUpdated(issue: IssueWire): PublishSpec {
+    if (this.currentLocalIssues) {
+      const index = this.currentLocalIssues.findIndex((candidate) => candidate.id === issue.id)
+      this.currentLocalIssues =
+        index === -1
+          ? [...this.currentLocalIssues, issue]
+          : this.currentLocalIssues.map((candidate) =>
+              candidate.id === issue.id ? issue : candidate,
+            )
+    }
     return {
       rows: [{ id: issue.id, value: issue }],
       snapshot: { type: 'issueUpdated', issue },

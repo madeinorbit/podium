@@ -78,6 +78,41 @@ function receiveSessionIds(url: string, world: string): Promise<string[]> {
     })
   })
 }
+async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!check()) {
+    if (Date.now() >= deadline) throw new Error('timed out waiting for websocket publication')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+async function connectDeltaClient(url: string, world: string) {
+  const frames: string[] = []
+  const ws = new WebSocket(url, { headers: { 'x-world': world } })
+  ws.on('message', (raw) => frames.push(raw.toString()))
+  await new Promise<void>((resolve, reject) => {
+    ws.on('open', () => {
+      ws.send(
+        JSON.stringify({
+          type: 'hello',
+          clientId: '',
+          viewport: { cols: 80, rows: 24, dpr: 1 },
+          caps: ['metadataDelta'],
+        }),
+      )
+      resolve()
+    })
+    ws.on('error', reject)
+  })
+  return { frames, ws }
+}
+
+function sessionStateFrames(frames: string[]): string[] {
+  return frames.filter((raw) => {
+    const type = (JSON.parse(raw) as ServerMessage).type
+    return type === 'sessionsChanged' || type === 'metadataDelta' || type === 'sessionViewDelta'
+  })
+}
 
 describe('/client WS auth gate', () => {
   test('accepts the client when the gate authorizes it', async () => {
@@ -151,5 +186,93 @@ describe('/client WS auth gate', () => {
     ])
     expect(alice).toEqual([aliceSession])
     expect(bob).toEqual([bobSession])
+  })
+
+  test('filters every real socket delta through its scoped world', async () => {
+    let aliceSession = ''
+    let bobSession = ''
+    const url = await start(
+      () => true,
+      (req) => {
+        const principal = String(req.headers['x-world'])
+        const allowedSessionIds =
+          principal === 'alice' ? [aliceSession] : principal === 'bob' ? [bobSession] : []
+        return {
+          principal,
+          scope: 'principal:' + principal,
+          serverRole: 'standalone',
+          protocolVersion: 1,
+          global: false,
+          snapshot: () => ({
+            revision: 1,
+            allowedSignature: JSON.stringify(allowedSessionIds),
+            allowedSessionIds,
+          }),
+        }
+      },
+    )
+    if (!registry) throw new Error('missing test registry')
+    aliceSession = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/alice-visible',
+    }).sessionId
+    bobSession = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/bob-hidden-secret',
+    }).sessionId
+    registry.modules.sessions.flushBroadcasts()
+
+    const [alice, bob] = await Promise.all([
+      connectDeltaClient(url, 'alice'),
+      connectDeltaClient(url, 'bob'),
+    ])
+    await until(
+      () =>
+        sessionStateFrames(alice.frames).length === 1 &&
+        sessionStateFrames(bob.frames).length === 1,
+    )
+
+    registry.modules.sessions.renameSession({ sessionId: bobSession, name: 'BOB-SECRET' })
+    registry.modules.sessions.flushBroadcasts()
+    await until(
+      () =>
+        sessionStateFrames(alice.frames).length === 2 &&
+        sessionStateFrames(bob.frames).length === 2,
+    )
+
+    const aliceHidden = sessionStateFrames(alice.frames)[1] ?? ''
+    const bobVisible = sessionStateFrames(bob.frames)[1] ?? ''
+    expect(JSON.parse(aliceHidden)).toMatchObject({ type: 'metadataDelta', changes: [] })
+    expect(aliceHidden).not.toContain(bobSession)
+    expect(aliceHidden).not.toContain('BOB-SECRET')
+    expect(JSON.parse(bobVisible)).toMatchObject({
+      type: 'metadataDelta',
+      changes: [{ entity: 'session', id: bobSession, op: 'upsert' }],
+    })
+
+    const cursor = registry.modules.sessions.syncChangesSince(null).cursor
+    registry.modules.sessions.sendMetadataDelta([
+      { seq: cursor + 1, entity: 'issue', id: 'hidden-issue', op: 'remove' },
+      {
+        seq: cursor + 2,
+        entity: 'conversation',
+        id: 'hidden-conversation',
+        op: 'remove',
+      },
+    ])
+    await until(
+      () =>
+        sessionStateFrames(alice.frames).length === 3 &&
+        sessionStateFrames(bob.frames).length === 3,
+    )
+    for (const scoped of [alice, bob]) {
+      const hiddenEntities = sessionStateFrames(scoped.frames)[2] ?? ''
+      expect(JSON.parse(hiddenEntities)).toMatchObject({ type: 'metadataDelta', changes: [] })
+      expect(hiddenEntities).not.toContain('hidden-issue')
+      expect(hiddenEntities).not.toContain('hidden-conversation')
+    }
+
+    alice.ws.close()
+    bob.ws.close()
   })
 })

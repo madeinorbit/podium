@@ -55,7 +55,12 @@ export interface ClientConn {
     viewRevision: number
     allowedSignature: string
     cursor: number
+    allowedSessionIds: readonly string[]
   }
+  /** A revocation frame was emitted and must be followed by a replacement. */
+  publicationReplacementRequired?: boolean
+  /** Previously-visible ids already removed while a replacement is pending. */
+  publicationRevokedSessionIds?: Set<string>
   /** Global-only funnel frames held behind an in-flight bootstrap/replacement. */
   publicationBufferedChanges?: MetadataChange[][]
   /** Last grid this client measured for each terminal it mounted. Geometry is

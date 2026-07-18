@@ -1,6 +1,9 @@
 import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { SessionPublicationActor } from './publish-worker-actor.js'
+import { PublishWorkerClient, type PublishWorkerLike } from './publish-worker-client.js'
+import type { PublishWorkerCommand, PublishWorkerResult } from './publish-worker-protocol.js'
 
 async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
@@ -24,6 +27,66 @@ function encodedAt(publications: string[], index: number): string {
   const bytes = publications.at(index)
   if (bytes === undefined) throw new Error(`missing encoded publication ${index}`)
   return bytes
+}
+
+type WorkerEvent = 'message' | 'error' | 'exit'
+
+function controlledWorker() {
+  const actor = new SessionPublicationActor()
+  const handlers: Record<WorkerEvent, Array<(value: unknown) => void>> = {
+    message: [],
+    error: [],
+    exit: [],
+  }
+  const worker: PublishWorkerLike & {
+    sent: PublishWorkerCommand[]
+    emit(event: WorkerEvent, value: unknown): void
+    reply(index?: number): void
+  } = {
+    sent: [],
+    postMessage(message) {
+      const command = message as PublishWorkerCommand
+      this.sent.push(command)
+      if (command.type === 'reset') actor.reset(command.state)
+      if (command.type === 'patch') actor.applyPatch(command.event)
+    },
+    on(event, handler) {
+      handlers[event].push(handler as (value: unknown) => void)
+    },
+    terminate() {},
+    emit(event, value) {
+      for (const handler of handlers[event]) handler(value)
+    },
+    reply(index = -1) {
+      const command = this.sent
+        .filter(
+          (candidate): candidate is Extract<PublishWorkerCommand, { type: 'prepare' }> =>
+            candidate.type === 'prepare',
+        )
+        .at(index)
+      if (!command) throw new Error('missing controlled prepare command')
+      this.emit('message', {
+        id: command.id,
+        ok: true,
+        durationMs: 1,
+        publication: actor.prepare(command.input),
+      } satisfies PublishWorkerResult)
+    },
+  }
+  return worker
+}
+
+type ControlledWorker = ReturnType<typeof controlledWorker>
+
+function registryWithControlledWorkers(workers: ControlledWorker[]): SessionRegistry {
+  const publicationWorker = new PublishWorkerClient({
+    spawn: () => {
+      const worker = controlledWorker()
+      workers.push(worker)
+      return worker
+    },
+  })
+  return new SessionRegistry(undefined, undefined, { publicationWorker })
 }
 
 describe('SessionsService publication worker integration', () => {
@@ -131,10 +194,18 @@ describe('SessionsService publication worker integration', () => {
     revision += 1
     allowed = [first]
     registry.modules.sessions.refreshClientPublication(clientId)
-    await until(() => encoded.length === 2)
-    expect(sessions(encodedAt(encoded, 1))).toEqual([first])
-    expect(encoded[1]).not.toContain(revoked)
-    expect(encoded.every((bytes) => decoded(bytes).type === 'sessionsChanged')).toBe(true)
+    await until(() => encoded.length === 3)
+    expect(decoded(encodedAt(encoded, 1))).toEqual({
+      type: 'sessionViewDelta',
+      removedSessionIds: [revoked],
+    })
+    expect(sessions(encodedAt(encoded, 2))).toEqual([first])
+    expect(encoded[2]).not.toContain(revoked)
+    expect(encoded.map((bytes) => decoded(bytes).type)).toEqual([
+      'sessionsChanged',
+      'sessionViewDelta',
+      'sessionsChanged',
+    ])
     expect(objectMessages.every((message) => message.type === 'welcome')).toBe(true)
   })
 
@@ -193,6 +264,24 @@ describe('SessionsService publication worker integration', () => {
       type: 'metadataDelta',
       changes: [{ entity: 'session', id: bobSession, op: 'remove' }],
     })
+
+    const cursor = registry.modules.sessions.syncChangesSince(null).cursor
+    registry.modules.sessions.sendMetadataDelta([
+      { seq: cursor + 1, entity: 'issue', id: 'hidden-issue', op: 'remove' },
+      {
+        seq: cursor + 2,
+        entity: 'conversation',
+        id: 'hidden-conversation',
+        op: 'remove',
+      },
+    ])
+    await until(() => alice.encoded.length === 3 && bob.encoded.length === 3)
+
+    for (const publication of [alice.encoded[2], bob.encoded[2]]) {
+      expect(decoded(publication ?? '')).toMatchObject({ type: 'metadataDelta', changes: [] })
+      expect(publication).not.toContain('hidden-issue')
+      expect(publication).not.toContain('hidden-conversation')
+    }
     expect(alice.objects.every((message) => message.type === 'welcome')).toBe(true)
     expect(bob.objects.every((message) => message.type === 'welcome')).toBe(true)
   })
@@ -319,5 +408,217 @@ describe('SessionsService publication worker integration', () => {
     expect(sessions(encodedAt(encoded, 0))).toEqual([sessionId])
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(encoded).toHaveLength(1)
+  })
+
+  it('retries a sole scoped bootstrap after worker crash without another trigger', async () => {
+    const workers: ControlledWorker[] = []
+    const registry = registryWithControlledWorkers(workers)
+    registries.push(registry)
+    const sessionId = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/crash-retry',
+    }).sessionId
+    registry.modules.sessions.flushBroadcasts()
+
+    const encoded: string[] = []
+    registry.modules.sessions.attachClient(() => {}, {
+      sendPrepared: (bytes) => encoded.push(bytes),
+      principal: 'alice',
+      scope: 'principal:alice',
+      serverRole: 'standalone',
+      protocolVersion: 1,
+      global: false,
+      snapshot: () => ({
+        revision: 1,
+        allowedSignature: sessionId,
+        allowedSessionIds: [sessionId],
+      }),
+    })
+
+    expect(workers).toHaveLength(1)
+    workers[0]?.emit('exit', 1)
+    expect(workers).toHaveLength(2)
+    expect(encoded).toEqual([])
+
+    workers[1]?.reply()
+    await until(() => encoded.length === 1)
+    expect(sessions(encodedAt(encoded, 0))).toEqual([sessionId])
+  })
+
+  it('holds scoped deltas until a current delayed bootstrap is sent', async () => {
+    const workers: ControlledWorker[] = []
+    const registry = registryWithControlledWorkers(workers)
+    registries.push(registry)
+    const sessionId = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/ordering',
+    }).sessionId
+    registry.modules.sessions.flushBroadcasts()
+
+    const encoded: string[] = []
+    const clientId = registry.modules.sessions.attachClient(() => {}, {
+      sendPrepared: (bytes) => encoded.push(bytes),
+      principal: 'alice',
+      scope: 'principal:alice',
+      serverRole: 'standalone',
+      protocolVersion: 1,
+      global: false,
+      snapshot: () => ({
+        revision: 1,
+        allowedSignature: sessionId,
+        allowedSessionIds: [sessionId],
+      }),
+    })
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'hello',
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['metadataDelta'],
+    })
+    registry.modules.sessions.renameSession({ sessionId, name: 'renamed-before-bootstrap' })
+    registry.modules.sessions.flushBroadcasts()
+
+    expect(encoded).toEqual([])
+    workers[0]?.reply()
+    expect(encoded).toEqual([])
+    workers.at(-1)?.reply()
+    await until(() => encoded.length === 1)
+
+    const bootstrap = decoded(encodedAt(encoded, 0))
+    expect(bootstrap.type).toBe('sessionsChanged')
+    expect(
+      bootstrap.type === 'sessionsChanged'
+        ? bootstrap.sessions.find((session) => session.sessionId === sessionId)?.name
+        : undefined,
+    ).toBe('renamed-before-bootstrap')
+
+    registry.modules.sessions.renameSession({ sessionId, name: 'ordered-after-bootstrap' })
+    registry.modules.sessions.flushBroadcasts()
+    expect(encoded).toHaveLength(1)
+    workers.at(-1)?.reply()
+    await until(() => encoded.length === 2)
+
+    const delta = decoded(encodedAt(encoded, 1))
+    expect(delta.type).toBe('metadataDelta')
+    expect(
+      delta.type === 'metadataDelta'
+        ? delta.changes.some(
+            (change) =>
+              change.entity === 'session' &&
+              change.id === sessionId &&
+              change.op === 'upsert' &&
+              change.value?.name === 'ordered-after-bootstrap',
+          )
+        : false,
+    ).toBe(true)
+  })
+
+  it('orders a view-revision removal before its current replacement and ignores stale work', async () => {
+    const workers: ControlledWorker[] = []
+    const registry = registryWithControlledWorkers(workers)
+    registries.push(registry)
+    const first = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/replacement-first',
+    }).sessionId
+    const revoked = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/replacement-revoked',
+    }).sessionId
+    registry.modules.sessions.flushBroadcasts()
+
+    let revision = 1
+    let allowed = [first, revoked]
+    const encoded: string[] = []
+    const clientId = registry.modules.sessions.attachClient(() => {}, {
+      sendPrepared: (bytes) => encoded.push(bytes),
+      principal: 'alice',
+      scope: 'principal:alice',
+      serverRole: 'standalone',
+      protocolVersion: 1,
+      global: false,
+      snapshot: () => ({
+        revision,
+        allowedSignature: JSON.stringify(allowed),
+        allowedSessionIds: allowed,
+      }),
+    })
+    workers.at(-1)?.reply()
+    await until(() => encoded.length === 1)
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'hello',
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['metadataDelta'],
+    })
+    encoded.length = 0
+
+    revision = 2
+    allowed = [first]
+    registry.modules.sessions.refreshClientPublication(clientId)
+    expect(decoded(encodedAt(encoded, 0))).toEqual({
+      type: 'sessionViewDelta',
+      removedSessionIds: [revoked],
+    })
+    const staleWorker = workers.at(-1)
+    registry.modules.sessions.renameSession({ sessionId: first, name: 'replacement-current' })
+    registry.modules.sessions.flushBroadcasts()
+
+    staleWorker?.reply()
+    expect(encoded).toHaveLength(1)
+    workers.at(-1)?.reply()
+    await until(() => encoded.length === 2)
+
+    const replacement = decoded(encodedAt(encoded, 1))
+    expect(replacement.type).toBe('sessionsChanged')
+    expect(sessions(encodedAt(encoded, 1))).toEqual([first])
+    expect(encoded[1]).not.toContain(revoked)
+  })
+
+  it('does not multiply a 588-session projection across same-ViewKey clients', async () => {
+    const registry = new SessionRegistry()
+    registries.push(registry)
+    const sessionIds: string[] = []
+    for (let index = 0; index < 588; index += 1) {
+      sessionIds.push(
+        registry.modules.sessions.createSession({
+          agentKind: 'shell',
+          cwd: '/world-' + index,
+        }).sessionId,
+      )
+    }
+    registry.modules.sessions.flushBroadcasts()
+
+    const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
+    const publications = Array.from({ length: 4 }, () => [] as string[])
+    for (const encoded of publications) {
+      registry.modules.sessions.attachClient(() => {}, {
+        sendPrepared: (bytes) => encoded.push(bytes),
+        principal: 'operator',
+        scope: 'all',
+        serverRole: 'standalone',
+        protocolVersion: 1,
+        global: true,
+        snapshot: () => ({
+          revision: 0,
+          allowedSignature: 'global',
+          allowedSessionIds: [],
+        }),
+      })
+    }
+    await until(() => publications.every((encoded) => encoded.length === 1))
+    expect(listSessions).not.toHaveBeenCalled()
+
+    const completedBefore = registry.modules.sessions.publicationMetrics().completedJobs
+    listSessions.mockClear()
+    registry.modules.sessions.renameSession({
+      sessionId: sessionIds[0] ?? '',
+      name: 'one-projection',
+    })
+    registry.modules.sessions.flushBroadcasts()
+    await until(() => publications.every((encoded) => encoded.length === 2))
+
+    expect(listSessions).toHaveBeenCalledTimes(1)
+    expect(registry.modules.sessions.publicationMetrics().completedJobs - completedBefore).toBe(1)
   })
 })

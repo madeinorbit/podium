@@ -960,6 +960,12 @@ export class SocketHub {
       this.sessionList = msg.sessions
       this.emit('sessions', this.sessionList)
     },
+    sessionViewDelta: (msg) => {
+      const removed = new Set(msg.removedSessionIds)
+      this.sessionList = this.sessionList.filter((session) => !removed.has(session.sessionId))
+      this.emit('sessions', this.sessionList)
+    },
+
     conversationsChanged: (msg) => {
       this.conversationList = msg.conversations
       this.emit('conversations', this.conversationList)
