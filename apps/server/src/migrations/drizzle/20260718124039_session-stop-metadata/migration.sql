@@ -44,7 +44,7 @@ CREATE TABLE `__new_sessions` (
 	`terminal_cols` integer DEFAULT 80 NOT NULL,
 	`terminal_rows` integer DEFAULT 24 NOT NULL,
 	`working_ms_total` integer,
-	CONSTRAINT "sessions_stop_reason_check" CHECK(stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced'))
+	CONSTRAINT "sessions_stop_reason_check" CHECK(stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited'))
 );
 --> statement-breakpoint
 INSERT INTO `__new_sessions`(`id`, `agent_kind`, `model`, `effort`, `account_id`, `cwd`, `title`, `origin_kind`, `conversation_id`, `resume_kind`, `resume_value`, `status`, `exit_code`, `durable_label`, `created_at`, `last_active_at`, `name`, `archived`, `work_state`, `machine_id`, `last_output_at`, `last_input_at`, `last_resumed_at`, `spawned_by`, `headless`, `issue_id`, `read_at`, `deleted_at`, `deleted_by_issue_id`, `deletion_source`, `workflow_run_id`, `workflow_step_id`, `execution_profile_id`, `name_source`, `ref_issue_id`, `ref_letter`, `ref_draft`, `terminal_cols`, `terminal_rows`, `working_ms_total`) SELECT `id`, `agent_kind`, `model`, `effort`, `account_id`, `cwd`, `title`, `origin_kind`, `conversation_id`, `resume_kind`, `resume_value`, `status`, `exit_code`, `durable_label`, `created_at`, `last_active_at`, `name`, `archived`, `work_state`, `machine_id`, `last_output_at`, `last_input_at`, `last_resumed_at`, `spawned_by`, `headless`, `issue_id`, `read_at`, `deleted_at`, `deleted_by_issue_id`, `deletion_source`, `workflow_run_id`, `workflow_step_id`, `execution_profile_id`, `name_source`, `ref_issue_id`, `ref_letter`, `ref_draft`, `terminal_cols`, `terminal_rows`, `working_ms_total` FROM `sessions`;--> statement-breakpoint

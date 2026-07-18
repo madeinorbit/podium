@@ -123,6 +123,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const wasClosed = this.isClosed(row)
     if (wasClosed) {
       row.closedReason = null
+      row.closedAt = null
       row.supersededBy = null
       row.duplicateOf = null
     }

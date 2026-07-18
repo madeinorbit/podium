@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "23ed8468-35c3-4e70-9255-4c2d9c025a70",
+  "id": "b870f4ac-62c5-4071-a5eb-5dcedd8b3a93",
   "prevIds": [
-    "ef5ef472-4750-4f81-b282-2b1b20feb752"
+    "23ed8468-35c3-4e70-9255-4c2d9c025a70"
   ],
   "ddl": [
     {
@@ -1685,6 +1685,16 @@
       "default": null,
       "generated": null,
       "name": "closed_reason",
+      "entityType": "columns",
+      "table": "issues"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "closed_at",
       "entityType": "columns",
       "table": "issues"
     },

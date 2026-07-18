@@ -1275,13 +1275,28 @@ const rowRank = (sessions: SessionMeta[], now: number): number =>
  * session's issue via {@link nestStartedByIssues} (M6 started-by tree).
  */
 const SIDEBAR_FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
+/** How long an UNREAD finished issue stays visible waiting for acknowledgment.
+ *  Bounded so the historical population of never-read done issues (readAt did
+ *  not always exist) cannot resurface forever with an unread badge. */
+const SIDEBAR_FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/** When the issue finished: closedAt when stamped (stable — moves only on
+ *  closed-predicate flips), else updatedAt for legacy rows. [spec:SP-6144] */
+function issueFinishedAt(issue: IssueWire): number {
+  return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
+}
 
 /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
 export function issueVisibleInSidebar(issue: IssueWire, now: number): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished) return true
-  if (issue.unread || !issue.readAt) return true
-  const anchor = Math.max(Date.parse(issue.updatedAt) || 0, Date.parse(issue.readAt) || 0)
+  const finishedAt = issueFinishedAt(issue)
+  // Unread keeps a finished row visible only within 7 days of finishing —
+  // beyond that it is history, not pending acknowledgment.
+  if (issue.unread || !issue.readAt) {
+    return now - finishedAt <= SIDEBAR_FINISHED_UNREAD_WINDOW_MS
+  }
+  const anchor = Math.max(finishedAt, Date.parse(issue.readAt) || 0)
   return now - anchor <= SIDEBAR_FINISHED_GRACE_MS
 }
 
@@ -1338,27 +1353,34 @@ function buildUnifiedRows(
   const presentIssueIds = new Set(
     rows.filter((row): row is UnifiedIssueRow => row.kind === 'issue').map((row) => row.issue.id),
   )
+  // Walk each row's FULL ancestor chain (not just the direct parent) and
+  // materialize every missing live human-audience ancestor, so a live session
+  // deep under internal bookkeeping nodes always surfaces under its nearest
+  // visible ancestor — and that ancestor renders under ITS tracked root rather
+  // than posing as one. Finished (done/closed) ancestors are never resurrected
+  // as rescue rows: a live descendant belongs under the nearest LIVE ancestor.
+  const issueById = new Map(issues.map((issue) => [issue.id, issue]))
   for (const child of [...rows]) {
-    if (child.kind !== 'issue' || !child.issue.parentId) continue
-    const parent = issues.find((issue) => issue.id === child.issue.parentId)
-    if (
-      !parent ||
-      presentIssueIds.has(parent.id) ||
-      parent.audience !== 'human' ||
-      parent.stage === 'proposed' ||
-      parent.archived ||
-      parent.deletedAt
-    ) {
-      continue
+    if (child.kind !== 'issue') continue
+    let parentId = child.issue.parentId
+    const walked = new Set<string>([child.issue.id])
+    while (parentId && !walked.has(parentId)) {
+      walked.add(parentId)
+      const parent = issueById.get(parentId)
+      if (!parent || parent.archived || parent.deletedAt || parent.stage === 'proposed') break
+      const parentFinished = parent.stage === 'done' || parent.closedReason != null
+      if (!presentIssueIds.has(parent.id) && parent.audience === 'human' && !parentFinished) {
+        rows.push({
+          kind: 'issue',
+          issue: parent,
+          sessions: [],
+          activityAt: Date.parse(parent.updatedAt) || 0,
+          rank: UNIFIED_ROW_EMPTY_RANK,
+        })
+        presentIssueIds.add(parent.id)
+      }
+      parentId = parent.parentId
     }
-    rows.push({
-      kind: 'issue',
-      issue: parent,
-      sessions: [],
-      activityAt: Date.parse(parent.updatedAt) || 0,
-      rank: UNIFIED_ROW_EMPTY_RANK,
-    })
-    presentIssueIds.add(parent.id)
   }
   const liveIssueIds = new Set(issues.filter((i) => !i.archived && !i.deletedAt).map((i) => i.id))
   const seen = new Set<string>()
@@ -1453,6 +1475,7 @@ export function nestStartedByIssues(
   if (issueRows.length === 0) return rows
   const visibleIssues = issueRows.map((r) => r.issue)
   const byId = new Map(issueRows.map((r) => [r.issue.id, r]))
+  const allById = new Map(allIssues.map((issue) => [issue.id, issue]))
   const parentOf = new Map<string, string>()
 
   for (const row of issueRows) {
@@ -1467,7 +1490,7 @@ export function nestStartedByIssues(
         break
       }
       seenParents.add(parentId)
-      parentId = allIssues.find((candidate) => candidate.id === parentId)?.parentId
+      parentId = allById.get(parentId)?.parentId
     }
     if (!parentId && !issue.parentId && issue.startedBySession) {
       parentId =
@@ -1619,9 +1642,16 @@ function rowSessions(row: UnifiedWorkRow): SessionMeta[] {
 function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number): UnifiedWorkRow {
   const activityAt = keep.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
   if (row.kind === 'issue') {
+    // Recompute the bubbled aggregate too — a stale aggregate would keep
+    // counting a lifted session in the row's status. [spec:SP-6144]
+    const aggregate = [
+      ...keep,
+      ...(row.startedByChildren ?? []).flatMap((child) => child.aggregateSessions ?? child.sessions),
+    ]
     return {
       ...row,
       sessions: keep,
+      aggregateSessions: aggregate,
       rank: rowRank(keep, now),
       activityAt: activityAt || Date.parse(row.issue.updatedAt) || 0,
     }
@@ -1663,18 +1693,30 @@ export function partitionUnifiedWork(
   for (const row of rows) {
     if (row.kind === 'issue' && row.issue.pinned) {
       work.push(row)
-      if (row.sessions.some(isSessionWorking)) working.push({ kind: 'issue', row })
+      // Aggregate-aware mirror: a working nested child lights the pinned row up
+      // in WORKING too (it's the same row shown twice by design).
+      if (rowSessions(row).some(isSessionWorking)) working.push({ kind: 'issue', row })
       continue
     }
-    const mine = rowSessions(row)
-    const runningNow = mine.filter(isSessionWorking)
-    if (runningNow.length > 0 && runningNow.length === mine.length) {
+    // Lift decisions run over OWN sessions only [spec:SP-6144]: a descendant's
+    // working session already renders under its own nested child row, so
+    // lifting it here (or moving the whole subtree out because a descendant
+    // works) would show the same session twice. Descendant activity reaches
+    // the row through its bubbled aggregate status instead.
+    const own = row.kind === 'issue' ? row.sessions : row.worktree.sessions
+    const hasNestedChildren = row.kind === 'issue' && (row.startedByChildren?.length ?? 0) > 0
+    const runningNow = own.filter(isSessionWorking)
+    if (
+      !hasNestedChildren &&
+      runningNow.length > 0 &&
+      runningNow.length === own.length
+    ) {
       working.push(row.kind === 'issue' ? { kind: 'issue', row } : { kind: 'worktree', row })
     } else if (runningNow.length > 0) {
       work.push(
         rowWithSessions(
           row,
-          mine.filter((s) => !isSessionWorking(s)),
+          own.filter((s) => !isSessionWorking(s)),
           now,
         ),
       )

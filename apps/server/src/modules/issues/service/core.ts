@@ -220,6 +220,7 @@ export abstract class IssueServiceCore {
       ...(row.dueAt ? { dueAt: row.dueAt } : {}),
       ...(row.deferUntil ? { deferUntil: row.deferUntil } : {}),
       ...(row.closedReason ? { closedReason: row.closedReason } : {}),
+      ...(row.closedAt ? { closedAt: row.closedAt } : {}),
       ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
       ...(row.panel ? { panel: this.parsePanel(row) } : {}),
       labels,

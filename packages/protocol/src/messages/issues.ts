@@ -162,6 +162,9 @@ export const IssueWire = z.object({
   dueAt: z.string().optional(),
   deferUntil: z.string().optional(),
   closedReason: z.string().optional(),
+  /** When the closed-predicate last flipped true — the stable completion-decay
+   *  anchor (updatedAt churns on any touch). [spec:SP-6144] */
+  closedAt: z.string().optional(),
   supersededBy: z.string().optional(),
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),

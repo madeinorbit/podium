@@ -65,7 +65,7 @@ export const sessions = sqliteTable("sessions", {
 },
 (table) => [index("idx_sessions_deleted_by_issue").on(table.deletedByIssueId),
 index("idx_sessions_deleted_at").on(table.deletedAt),
-check("sessions_stop_reason_check", sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced')`),
+check("sessions_stop_reason_check", sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`),
 ]);
 
 export const meta = sqliteTable("meta", {
@@ -400,6 +400,9 @@ export const issues = sqliteTable("issues", {
 	dueAt: text("due_at"),
 	deferUntil: text("defer_until"),
 	closedReason: text("closed_reason"),
+	// When the closed-predicate last flipped true; null while open. The stable
+	// completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
+	closedAt: text("closed_at"),
 	supersededBy: text("superseded_by").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	duplicateOf: text("duplicate_of").references((): AnySQLiteColumn => issues.id, { onDelete: "set null" } ),
 	pinned: integer().default(0).notNull(),

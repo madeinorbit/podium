@@ -178,6 +178,8 @@ export interface IssueRow {
   dueAt: string | null
   deferUntil: string | null
   closedReason: string | null
+  /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
+  closedAt: string | null
   supersededBy: string | null
   duplicateOf: string | null
   pinned: boolean

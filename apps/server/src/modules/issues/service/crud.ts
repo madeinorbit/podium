@@ -273,6 +273,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       dueAt: null,
       deferUntil: null,
       closedReason: null,
+      closedAt: null,
       supersededBy: null,
       duplicateOf: null,
       pinned: false,
@@ -351,6 +352,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     } else {
       Object.assign(row, patch)
     }
+    // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
+    // flips, so post-close touches (notes, deps, steward writes) never restart
+    // the sidebar's completion-decay window the way updatedAt would.
+    if (!wasClosed && this.isClosed(row)) row.closedAt = this.now()
+    else if (wasClosed && !this.isClosed(row)) row.closedAt = null
     const wire = this.persist(row)
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent

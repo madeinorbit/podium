@@ -7,6 +7,7 @@ import {
   isIssueSnoozed,
   isRowUnread,
   issueReturnedFromDefer,
+  issueVisibleInSidebar,
   mostUrgentSession,
   partitionUnifiedWork,
   type RepoNavView,
@@ -680,5 +681,141 @@ describe('repoUsageAt', () => {
     const r = wire('/src/a')
     const s1 = sess('s1', '/src/a-other')
     expect(repoUsageAt(r, [s1])).toBe(0)
+  })
+})
+
+describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no double-render', () => {
+  const DAY = 24 * HOUR
+
+  it('H1/L6: a live internal session deep under sessionless ancestors surfaces under its tracked human root', () => {
+    const root = issue({ id: 'root', title: 'Epic', audience: 'human' })
+    const mid = issue({ id: 'mid', audience: 'agent' as IssueWire['audience'], parentId: 'root' })
+    const leaf = issue({ id: 'leaf', audience: 'agent' as IssueWire['audience'], parentId: 'mid' })
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [root, mid, leaf],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [],
+      NOW,
+    )
+    // Exactly one top-level row: the human root. The working leaf is nested
+    // beneath it (via the leaf row), never dropped, never a bare top-level row.
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['root'])
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect((rootRow.aggregateSessions ?? []).map((s) => s.sessionId)).toContain('w')
+  })
+
+  it('H1: rescued human ancestors render under their tracked root, not as extra roots', () => {
+    const root = issue({ id: 'root', title: 'Root', audience: 'human' })
+    const mid = issue({ id: 'mid', title: 'Mid', audience: 'human', parentId: 'root' })
+    const leaf = issue({ id: 'leaf', audience: 'agent' as IssueWire['audience'], parentId: 'mid' })
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [root, mid, leaf],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [],
+      NOW,
+    )
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['root'])
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect((rootRow.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['mid'])
+  })
+
+  it('B5: a finished ancestor is not resurrected as a rescue row', () => {
+    const doneParent = issue({
+      id: 'p',
+      stage: 'done',
+      audience: 'human',
+      closedAt: new Date(NOW - 30 * DAY).toISOString(),
+    })
+    const leaf = issue({ id: 'leaf', audience: 'agent' as IssueWire['audience'], parentId: 'p' })
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [doneParent, leaf],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [],
+      NOW,
+    )
+    // No live human ancestor: the long-closed epic must not reappear.
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).not.toContain('p')
+  })
+
+  it('B5: unread keeps a finished issue visible only within 7 days of finishing (closedAt anchor)', () => {
+    const base = { stage: 'done' as IssueWire['stage'], unread: true, readAt: undefined }
+    expect(
+      issueVisibleInSidebar(
+        issue({ ...base, closedAt: new Date(NOW - 2 * DAY).toISOString() }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      issueVisibleInSidebar(
+        issue({ ...base, closedAt: new Date(NOW - 10 * DAY).toISOString() }),
+        NOW,
+      ),
+    ).toBe(false)
+    // Legacy row without closedAt falls back to updatedAt.
+    expect(
+      issueVisibleInSidebar(
+        issue({ ...base, updatedAt: new Date(NOW - 10 * DAY).toISOString() }),
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  it('M3: post-close churn (updatedAt) does not restart the 24h read grace — closedAt anchors', () => {
+    const churned = issue({
+      stage: 'done',
+      unread: false,
+      readAt: new Date(NOW - 3 * DAY).toISOString(),
+      closedAt: new Date(NOW - 3 * DAY).toISOString(),
+      updatedAt: new Date(NOW - HOUR).toISOString(), // steward touch after close
+    })
+    expect(issueVisibleInSidebar(churned, NOW)).toBe(false)
+    const fresh = issue({
+      stage: 'done',
+      unread: false,
+      readAt: new Date(NOW - 2 * HOUR).toISOString(),
+      closedAt: new Date(NOW - 3 * DAY).toISOString(),
+    })
+    expect(issueVisibleInSidebar(fresh, NOW)).toBe(true)
+  })
+
+  it('H3: a working nested child session is not lifted out of its parent row (no double-render)', () => {
+    const parent = issue({ id: 'p', title: 'Parent', audience: 'human' })
+    const child = issue({ id: 'c', audience: 'agent' as IssueWire['audience'], parentId: 'p' })
+    const idleOwn = { ...idle('own', '/x'), issueId: 'p' } as SessionMeta
+    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionMeta
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [parent, child],
+      [idleOwn, workingChild],
+      [],
+      NOW,
+    )
+    // The child's working session renders once, under the kept parent row —
+    // nothing is lifted into WORKING.
+    expect(w).toEqual([])
+    expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p'])
+    const row = work[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(row.sessions.map((s) => s.sessionId)).toEqual(['own'])
+    expect((row.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['c'])
+  })
+
+  it('H3: a row with nested children never moves whole into WORKING off a descendant', () => {
+    const parent = issue({ id: 'p', title: 'Parent', audience: 'human' })
+    const child = issue({ id: 'c', audience: 'agent' as IssueWire['audience'], parentId: 'p' })
+    const workingOwn = { ...working('own', '/x'), issueId: 'p' } as SessionMeta
+    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionMeta
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [parent, child],
+      [workingOwn, workingChild],
+      [],
+      NOW,
+    )
+    // Own working session lifts individually; the row (with its child) stays.
+    expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p'])
+    expect(w.map((e) => (e.kind === 'session' ? e.session.sessionId : e.kind))).toEqual(['own'])
   })
 })
