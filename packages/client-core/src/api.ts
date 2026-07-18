@@ -70,7 +70,7 @@ export interface PodiumClientApi {
     kill: ApiMutation<{ sessionId: string }>
     continue: ApiMutation<{ sessionId: string }>
     hibernate: ApiMutation<{ sessionId: string }>
-    resurrect: ApiMutation<{ sessionId: string }>
+    resurrect: ApiMutation<{ sessionId: string }, { ok: boolean; reason?: string }>
   }
   snoozes: {
     set: ApiMutation<WithMutationId<{ sessionId: string; until: string | null }>>

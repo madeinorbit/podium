@@ -1407,7 +1407,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
       },
       resurrectSession: async (sessionId: string) => {
-        await api.sessions.resurrect.mutate({ sessionId }).catch(() => {})
+        try {
+          const result = await api.sessions.resurrect.mutate({ sessionId })
+          if (!result.ok) {
+            this.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
+          }
+        } catch (err) {
+          this.notices.error(
+            `Couldn't resume the session — ${err instanceof Error ? err.message : 'unknown error'}`,
+          )
+        }
       },
       resumeAndSend: async (sessionId: string, text: string) => {
         // Outboxed: the wake+deliver is durably queued server-side once it lands,

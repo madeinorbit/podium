@@ -2907,13 +2907,14 @@ export class SessionsService {
     // Still recorded → use it (hibernate / normal park leaves the path).
     if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
 
-    // Freed by stop (or cleared out-of-band): recreate from the kept branch.
+    // An issue can own a session without ever owning a dedicated worktree. In
+    // that valid shape both fields are null and the session's cwd (typically
+    // the repository root) remains the source of truth. A stopped issue
+    // worktree is distinguishable because stop keeps its branch [spec:SP-9904].
     if (!issue.branch) {
-      return {
-        ok: false,
-        reason: 'worktree missing for issue and no branch to recreate from',
-      }
+      return { ok: true, cwd: session.cwd }
     }
+    // Freed by stop (or cleared out-of-band): recreate from the kept branch.
     const recreated = await this.issues().ensureWorktree(issueId)
     if (!recreated.ok || !recreated.worktreePath) {
       return {

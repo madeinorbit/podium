@@ -161,6 +161,28 @@ async function flush(): Promise<void> {
 }
 
 describe('AgentPanel active wiring', () => {
+  it('makes a rejected hibernated resume retryable', async () => {
+    storeSessions = [meta({ status: 'hibernated', controllerId: null })]
+    stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
+    await act(async () => {
+      root.render(<AgentPanel sessionId="s1" active />)
+    })
+    await flush()
+    const button = [...container.querySelectorAll('button')].find(
+      (candidate) => candidate.textContent === 'Resume',
+    )
+    expect(button).toBeTruthy()
+
+    await act(async () => {
+      button?.click()
+      await Promise.resolve()
+    })
+
+    expect(stableStoreFns.resurrectSession).toHaveBeenCalledWith('s1')
+    expect(button?.textContent).toBe('Resume')
+    expect(button?.disabled).toBe(false)
+  })
+
   it('passes initial active to mountSession for a live native panel', async () => {
     await act(async () => {
       root.render(<AgentPanel sessionId="s1" active />)

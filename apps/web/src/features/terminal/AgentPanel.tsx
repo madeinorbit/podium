@@ -1051,7 +1051,10 @@ function ExitedPane({
           disabled={waking}
           onClick={() => {
             setWaking(true)
-            void resurrectSession(sessionId)
+            void resurrectSession(sessionId).then(
+              () => setWaking(false),
+              () => setWaking(false),
+            )
           }}
         >
           {waking
@@ -1121,7 +1124,10 @@ function ExitedBanner({
           disabled={waking}
           onClick={() => {
             setWaking(true)
-            void resurrectSession(sessionId)
+            void resurrectSession(sessionId).then(
+              () => setWaking(false),
+              () => setWaking(false),
+            )
           }}
         >
           {waking
@@ -1154,7 +1160,10 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
         disabled={waking}
         onClick={() => {
           setWaking(true)
-          void resurrectSession(sessionId)
+          void resurrectSession(sessionId).then(
+            () => setWaking(false),
+            () => setWaking(false),
+          )
         }}
       >
         {waking ? 'Waking…' : 'Resume'}
@@ -1179,7 +1188,10 @@ function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
         disabled={waking}
         onClick={() => {
           setWaking(true)
-          void resurrectSession(sessionId)
+          void resurrectSession(sessionId).then(
+            () => setWaking(false),
+            () => setWaking(false),
+          )
         }}
       >
         {waking ? 'Waking…' : 'Resume session'}

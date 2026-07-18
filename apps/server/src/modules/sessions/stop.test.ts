@@ -2,6 +2,7 @@
  * session/issue stop [spec:SP-9904]: park process, free worktree keep branch,
  * resume recreates worktree; unsaved guard + force.
  */
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { ControlMessage } from '@podium/protocol'
@@ -309,6 +310,37 @@ describe('stopSession [spec:SP-9904]', () => {
       type: 'spawn',
       sessionId,
       cwd: wt,
+      resume: { kind: 'claude-session', value: 'native-1' },
+    })
+  })
+
+  it('resurrects an issue session that never owned a dedicated worktree', async () => {
+    const { reg, daemon, repoOps } = makeRegistry()
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Repository root session',
+      startNow: false,
+    })
+    expect(reg.modules.issues.getMeta(issue.id)).toMatchObject({
+      worktreePath: null,
+      branch: null,
+    })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+      issueId: issue.id,
+    })
+    bindLive(reg, sessionId, '/r')
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    daemon.length = 0
+    const woke = await reg.modules.sessions.resurrectSession({ sessionId })
+    expect(woke).toEqual({ ok: true })
+    expect(repoOps.some((call) => call.op === 'worktreeAddExisting')).toBe(false)
+    expect(daemon.find((message) => message.type === 'spawn')).toMatchObject({
+      type: 'spawn',
+      sessionId,
+      cwd: '/r',
       resume: { kind: 'claude-session', value: 'native-1' },
     })
   })

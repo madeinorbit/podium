@@ -246,6 +246,34 @@ describe('engine lifecycle', () => {
   })
 })
 
+describe('session resurrection', () => {
+  it('reports a rejected resurrection instead of silently swallowing it', async () => {
+    const api = makeApi()
+    api.sessions.resurrect = {
+      mutate: vi.fn(async () => ({ ok: false, reason: 'worktree unavailable' })),
+    }
+    const { engine, errors } = makeEngine({ api })
+
+    await engine.getSnapshot().resurrectSession('sleeping')
+
+    expect(errors).toEqual(["Couldn't resume the session — worktree unavailable"])
+  })
+
+  it('reports a resurrection transport failure', async () => {
+    const api = makeApi()
+    api.sessions.resurrect = {
+      mutate: vi.fn(async () => {
+        throw new Error('server offline')
+      }),
+    }
+    const { engine, errors } = makeEngine({ api })
+
+    await engine.getSnapshot().resurrectSession('sleeping')
+
+    expect(errors).toEqual(["Couldn't resume the session — server offline"])
+  })
+})
+
 describe('single URL writer (React #185 regression, engine-level)', () => {
   it('an unknown ?wt deep link settles on the known fallback without ping-pong', async () => {
     const { engine, rw, fatals } = makeEngine({
