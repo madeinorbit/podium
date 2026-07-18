@@ -244,6 +244,7 @@ export interface ClaudeCausalObserverOptions {
   bootstrapState: AgentRuntimeState
   bootstrapOffset: number
   acceptedCheckpoint?: SessionObservationCheckpointV1
+  bootstrapAdvanced?: boolean
   now?: () => string
 }
 
@@ -271,9 +272,18 @@ export class ClaudeCausalObserver {
   private readonly activeChildren = new Set<string>()
   constructor(private readonly options: ClaudeCausalObserverOptions) {
     const checkpoint = options.acceptedCheckpoint
-    this.state = checkpoint?.turnState ?? options.bootstrapState
-    this.turnEpoch = checkpoint?.turnEpoch ?? 0
-    this.providerPromptId = checkpoint?.providerPromptId ?? null
+    const reconciledState = checkpoint && options.bootstrapAdvanced
+    this.state = reconciledState
+      ? options.bootstrapState
+      : (checkpoint?.turnState ?? options.bootstrapState)
+    const reconciledOpenTurn =
+      reconciledState &&
+      checkpoint.terminalFence !== null &&
+      (this.state.phase === 'working' ||
+        this.state.phase === 'compacting' ||
+        this.state.phase === 'needs_user')
+    this.turnEpoch = (checkpoint?.turnEpoch ?? 0) + (reconciledOpenTurn ? 1 : 0)
+    this.providerPromptId = reconciledOpenTurn ? null : (checkpoint?.providerPromptId ?? null)
     this.now = options.now ?? (() => new Date().toISOString())
     this.segmentId = `claude:${options.providerSessionId}:${options.transcriptPath}`
     this.bootstrapOffset = options.bootstrapOffset
@@ -288,12 +298,18 @@ export class ClaudeCausalObserver {
     } else if (acceptedCursor) {
       this.predecessorSegmentId = acceptedCursor.segmentId
     }
-    if (checkpoint?.terminalFence?.closing) {
+    if (checkpoint?.terminalFence?.closing && !reconciledOpenTurn && this.state.awaitingSubagents) {
       this.closing = true
-      for (const child of checkpoint.turnState.nativeSubagents ?? []) {
+      for (const child of this.state.nativeSubagents ?? []) {
         this.activeChildren.add(child.id)
       }
-    } else if (checkpoint && checkpoint.terminalFence === null && checkpoint.turnEpoch > 0) {
+    } else if (
+      checkpoint &&
+      this.turnEpoch > 0 &&
+      (this.state.phase === 'working' ||
+        this.state.phase === 'compacting' ||
+        this.state.phase === 'needs_user')
+    ) {
       this.epochOpen = true
     }
   }

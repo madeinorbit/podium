@@ -27,6 +27,12 @@ class ManualStatTick implements StatTick {
 
 const G = { cols: 80, rows: 24 }
 
+function claudeProvider(): AgentStateProvider {
+  const provider = agentStateProviderFor('claude-code')
+  if (!provider) throw new Error('Claude provider missing')
+  return provider
+}
+
 function agentStateMsgs(sent: DaemonMessage[], sessionId: string) {
   return sent.filter(
     (m): m is Extract<DaemonMessage, { type: 'agentState' }> =>
@@ -403,6 +409,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       bindingVersion: 2,
       observationGeneration: 8,
     }
+    const bootEvents = vi.fn(async (): Promise<AgentStateEvent[]> => [{ kind: 'prompt_submitted' }])
     const sent: DaemonMessage[] = []
     const observers = createSessionObservers({
       send: (message) => sent.push(message),
@@ -424,7 +431,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         observationCheckpoint: checkpoint,
       },
       { onFrame: () => () => {} } as never,
-      agentStateProviderFor('claude-code'),
+      { ...claudeProvider(), bootEvents },
       { seedOnFrame: false },
     )
     const sessionStart = {
@@ -438,6 +445,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(1)
     })
     const bootstrap = sent.find((m) => m.type === 'agentObservation')!.observation
+    expect(bootEvents).not.toHaveBeenCalled()
     expect(bootstrap).toMatchObject({
       provenance: 'bootstrap',
       transitionKind: 'snapshot',
@@ -518,6 +526,163 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(terminalResult.kind).toBe('live_transition_accepted')
     if (terminalResult.kind === 'rejected') throw new Error(terminalResult.rejectionReason)
     expect(terminalResult.checkpoint.terminalFence?.turnEpoch).toBe(6)
+    observers.clearSession('podium-1')
+  })
+
+  it.each([
+    { lostStop: true, rotated: false },
+    { lostStop: false, rotated: false },
+    { lostStop: false, rotated: true },
+  ])('reconciles a newer transcript gap for lostStop=$lostStop rotated=$rotated without a bootstrap live edge', async ({
+    lostStop,
+    rotated,
+  }) => {
+    const at = '2026-07-19T00:00:00.000Z'
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-gap-reconcile-'))
+    const oldTranscript = join(dir, rotated ? 'claude-old.jsonl' : 'claude.jsonl')
+    const transcript = join(dir, rotated ? 'claude-new.jsonl' : 'claude.jsonl')
+    await writeFile(oldTranscript, 'x'.repeat(100))
+    await writeFile(transcript, 'x'.repeat(150))
+    const acceptedCursor = {
+      segmentId: `claude:claude-1:${oldTranscript}`,
+      components: { transcript: 100 },
+    }
+    const checkpoint: SessionObservationCheckpointV1 = {
+      schemaVersion: 1,
+      podiumSessionId: 'podium-1',
+      provider: 'claude-code',
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      lifecycleObservationGeneration: 7,
+      providerCursor: acceptedCursor,
+      bootstrapCursor: acceptedCursor,
+      lastAcceptedLiveCursor: acceptedCursor,
+      turnEpoch: 5,
+      providerTurnId: null,
+      providerPromptId: 'prompt-5',
+      turnState: lostStop
+        ? {
+            phase: 'working',
+            since: at,
+            workingMsTotal: 0,
+            nativeSubagentCount: 0,
+          }
+        : {
+            phase: 'idle',
+            idle: { kind: 'done' },
+            since: at,
+            workingMsTotal: 0,
+            nativeSubagentCount: 0,
+          },
+      terminalFence: lostStop
+        ? null
+        : {
+            turnEpoch: 5,
+            providerCursor: acceptedCursor,
+            verdict: 'done',
+            transitionId: 'terminal-5',
+          },
+      providerAt: at,
+      acceptedAt: at,
+      lastLiveReceiptAt: at,
+      lastTransitionId: lostStop ? 'working-5' : 'terminal-5',
+    }
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      observationGeneration: 8,
+    }
+    const bootEvents = vi.fn(
+      async (): Promise<AgentStateEvent[]> => [
+        lostStop ? { kind: 'turn_completed' } : { kind: 'prompt_submitted' },
+      ],
+    )
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId: 'podium-1',
+        durableLabel: 'podium-podium-1',
+        agentKind: 'claude-code',
+        cwd: dir,
+        geometry: G,
+        resume: { kind: 'claude-session', value: 'claude-1' },
+        pathHint: transcript,
+        observationGeneration: 8,
+        observationBindingVersion: 2,
+        observationCheckpoint: checkpoint,
+      },
+      { onFrame: () => () => {} } as never,
+      { ...claudeProvider(), bootEvents },
+      { seedOnFrame: false },
+    )
+    const sessionStart = {
+      hook_event_name: 'SessionStart',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+    }
+    observers.onHookPayload('podium-1', sessionStart)
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+    })
+    expect(bootEvents).toHaveBeenCalledTimes(1)
+    const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
+    expect(bootstrap).toMatchObject({
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+      turnEpoch: lostStop ? 5 : 6,
+      providerPromptId: lostStop ? 'prompt-5' : null,
+      nextPhase: lostStop ? 'idle' : 'working',
+      providerCursor: { components: { transcript: 150 } },
+    })
+    if (rotated) {
+      expect(bootstrap.providerCursor.predecessorSegmentId).toBe(acceptedCursor.segmentId)
+    }
+    const bootResult = acceptAgentObservation(checkpoint, lease, bootstrap, at)
+    expect(bootResult.kind).toBe('snapshot_applied')
+    if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
+    expect(bootResult.checkpoint).toMatchObject({
+      turnEpoch: lostStop ? 5 : 6,
+      turnState: { phase: lostStop ? 'idle' : 'working' },
+      terminalFence: lostStop ? { turnEpoch: 5 } : null,
+    })
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 8,
+      transitionId: bootstrap.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: bootResult.checkpoint.providerCursor,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+
+    if (!lostStop) {
+      observers.onHookPayload('podium-1', { ...sessionStart, hook_event_name: 'Stop' })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+      })
+      const terminal = sent
+        .filter((message) => message.type === 'agentObservation')
+        .at(-1)!.observation
+      expect(terminal).toMatchObject({
+        provenance: 'live',
+        transitionKind: 'turn_terminal',
+        turnEpoch: 6,
+        priorPhase: 'working',
+        nextPhase: 'idle',
+      })
+      const terminalResult = acceptAgentObservation(bootResult.checkpoint, lease, terminal, at)
+      expect(terminalResult.kind).toBe('live_transition_accepted')
+    }
     observers.clearSession('podium-1')
   })
 })

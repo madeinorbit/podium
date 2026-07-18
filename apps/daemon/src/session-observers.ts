@@ -170,8 +170,19 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     try {
       bootstrapOffset = (await stat(transcriptPath)).size
     } catch {}
+    const segmentId = `claude:${providerSessionId}:${transcriptPath}`
+    const acceptedCursor = checkpoint?.providerCursor
+    const acceptedOffset = acceptedCursor?.components.transcript
+    const bootstrapAdvanced = Boolean(
+      checkpoint &&
+        (acceptedCursor === null ||
+          (acceptedCursor?.segmentId === segmentId
+            ? Number.isSafeInteger(acceptedOffset) && bootstrapOffset > (acceptedOffset ?? 0)
+            : bootstrapOffset > 0)),
+    )
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
-    if (!checkpoint) {
+    if (!checkpoint || bootstrapAdvanced) {
+      bootstrapState = initialAgentState(new Date().toISOString())
       try {
         for (const event of (await tracker.provider.bootEvents?.({
           cwd: lease.cwd,
@@ -204,6 +215,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       transcriptPath,
       bootstrapState,
       ...(checkpoint ? { acceptedCheckpoint: checkpoint } : {}),
+      bootstrapAdvanced,
       bootstrapOffset,
     })
     for (const origin of pendingClaudeOrigins.get(sessionId) ?? [])
