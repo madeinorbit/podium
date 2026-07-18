@@ -32,18 +32,41 @@ export function sdNotify(state: string): void {
   execFile('systemd-notify', [state], () => {})
 }
 
+export interface WatchdogOptions {
+  /** When present, pets require a changed token. This lets state machines stop
+   * a green event-loop timer from masking liveness-without-progress. */
+  readProgress?: () => number
+  /** Test seam; production uses {@link watchdogPetIntervalMs}. */
+  intervalMs?: number
+  /** Test seam; production sends through {@link sdNotify}. */
+  notify?: (state: string) => void
+}
+
 /**
  * Signal READY and start petting the watchdog. Returns a stop fn (clears the timer);
  * returns undefined when there's no watchdog to pet, so callers can `?.()` on cleanup.
+ *
+ * A progress reader changes the contract from event-loop liveness to state-machine
+ * progress [spec:SP-c29e]. The first scheduled pet consumes progress completed
+ * before startup; later pets require the token to advance.
  */
-export function startWatchdog(): (() => void) | undefined {
+export function startWatchdog(options: WatchdogOptions = {}): (() => void) | undefined {
   if (!process.env.NOTIFY_SOCKET) return undefined
-  sdNotify('READY=1')
+  const notify = options.notify ?? sdNotify
+  notify('READY=1')
   // First pet IMMEDIATELY, not at the first interval tick: a stall right after
   // boot (e.g. a daemon-reattach storm on redeploy) then has the full WatchdogSec
   // budget instead of WatchdogSec minus the first pet interval (~half the window).
-  sdNotify('WATCHDOG=1')
-  const timer = setInterval(() => sdNotify('WATCHDOG=1'), watchdogPetIntervalMs())
+  notify('WATCHDOG=1')
+  let lastPetProgress: number | undefined
+  const timer = setInterval(() => {
+    if (options.readProgress) {
+      const progress = options.readProgress()
+      if (progress === lastPetProgress) return
+      lastPetProgress = progress
+    }
+    notify('WATCHDOG=1')
+  }, options.intervalMs ?? watchdogPetIntervalMs())
   timer.unref?.()
   return () => clearInterval(timer)
 }

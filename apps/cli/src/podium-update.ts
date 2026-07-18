@@ -23,7 +23,44 @@ import { verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
+import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
 import { PODIUM_UPDATE_PUBKEY } from './podium-update-pubkey'
+
+export type SystemctlExec = (command: string, args: string[]) => string
+
+const execSystemctl: SystemctlExec = (command, args) =>
+  execFileSync(command, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+
+/**
+ * A schema-blocked janitor exits 78 and RestartPreventExitStatus deliberately
+ * leaves it stopped. After a bundle catch-up, revive exactly that instance's
+ * blocked unit; healthy, absent, and differently-failed units are untouched.
+ * [spec:SP-c29e]
+ */
+export function reviveCompatibilityBlockedJanitor(
+  instanceId: string = resolveInstanceId(),
+  exec: SystemctlExec = execSystemctl,
+): boolean {
+  const unit = instanceServiceName('janitor', instanceId)
+  try {
+    const status = exec('systemctl', [
+      '--user',
+      'show',
+      unit,
+      '--property=ExecMainStatus',
+      '--value',
+    ]).trim()
+    if (status !== '78') return false
+    exec('systemctl', ['--user', 'reset-failed', unit])
+    exec('systemctl', ['--user', 'start', unit])
+    return true
+  } catch {
+    return false
+  }
+}
 
 export function isNewer(candidate: string, current: string): boolean {
   const pa = candidate.split('.').map(Number)
@@ -124,6 +161,7 @@ export async function runUpdate(
   // ephemeral keypair on checkouts that don't have the (gitignored) dev signing key. The
   // CLI never passes this, so production installs always verify against the committed key.
   pubkeyB64: string = PODIUM_UPDATE_PUBKEY,
+  reviveJanitor: () => boolean = reviveCompatibilityBlockedJanitor,
 ): Promise<void> {
   const { channel, feedOverride } =
     typeof arg === 'string' ? { channel: 'stable' as const, feedOverride: arg } : arg
@@ -188,8 +226,12 @@ export async function runUpdate(
     }
     rmSync(backup, { recursive: true, force: true })
     console.log(`[podium update] updated to ${version}; restart podium to apply`)
+    if (reviveJanitor()) {
+      console.log(`[podium update] restarted compatibility-blocked janitor`)
+    }
     // Exit 10 = "actually updated" (distinct from 0 = already current, 1 = failure). The
-    // systemd update timer keys off this code to restart the daemon ONLY on a real swap.
+    // systemd update timer keys off this code to restart the daemon only on a real swap;
+    // compatibility-blocked janitors need the explicit reset/start above.
     process.exitCode = 10
   } finally {
     rmSync(tmp, { recursive: true, force: true })

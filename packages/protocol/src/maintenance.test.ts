@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAINTENANCE_SCHEMA_VERSION,
   eventLogPruneRunKey,
   issueAutoArchiveRunKey,
   MaintenanceCommand,
@@ -30,6 +31,10 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     changeMaxAgeMs: 1,
     maintenanceCommandMaxAgeMs: 1,
   }
+
+  it('bumps compatibility for the indexed expiry-reader schema', () => {
+    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v2')
+  })
 
   it('requires an exact compatibility claim before a lease can be issued', () => {
     expect(

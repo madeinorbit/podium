@@ -809,7 +809,10 @@ export interface HostModules {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
-  startJanitor(opts: { serverUrl: string; token: string }): Promise<{ close(): void }>
+  startJanitor(opts: { serverUrl: string; token: string }): Promise<{
+    service: { progressVersion(): number }
+    close(): void
+  }>
 }
 
 type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
@@ -1076,7 +1079,9 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
       }
       console.log(`podium janitor up → ${plan.serverUrl}`)
       const { startWatchdog } = await import('@podium/runtime/sd-notify')
-      const stopWatchdog = startWatchdog()
+      // A live timer is not proof that maintenance advances: only completed
+      // janitor state-machine phases may keep the watchdog green [spec:SP-c29e].
+      const stopWatchdog = startWatchdog({ readProgress: () => handle.service.progressVersion() })
       const shutdown = (): void => {
         stopWatchdog?.()
         handle.close()
