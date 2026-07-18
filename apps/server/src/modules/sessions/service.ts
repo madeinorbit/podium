@@ -2544,24 +2544,38 @@ export class SessionsService {
     if (session.machineId === input.machineId) throw new Error('session is already on that machine')
 
     const repos = this.store.repos.listRepos()
+    const issue = session.issueId ? this.issues().getMeta(session.issueId) : undefined
+    // A resumed old daemon can report a transcript's pre-handoff cwd after rollback.
+    // The issue's machine-local worktree is the durable workspace anchor; consult it
+    // before the session's momentary cwd when resolving the source repository.
+    const sourceAnchors = [
+      ...(issue?.machineId === session.machineId && issue.worktreePath ? [issue.worktreePath] : []),
+      session.cwd,
+    ]
     const sourceRepo = repos
       .filter(
         (repo) =>
           repo.machineId === session.machineId &&
-          (session.cwd === repo.path || session.cwd.startsWith(`${repo.path}/`)),
+          sourceAnchors.some(
+            (anchor) => anchor === repo.path || anchor.startsWith(`${repo.path}/`),
+          ),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
+    if (!sourceRepo?.repoId)
+      throw new Error(
+        `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
+      )
     // [spec:SP-3f7a] `session.cwd` drifts — the daemon follows the shell, so an
     // agent that ran a command against the main checkout is stamped at the repo
     // root. Its issue's worktree is still its home, so offer that as a fallback
     // source instead of refusing. Restricted to this repo, so the package's repo
     // identity always matches the tree it carries. Which candidate wins is the
     // exporter's call (it asks git); refuse up front only when neither exists.
-    const issue = session.issueId ? this.issues().getMeta(session.issueId) : undefined
-    const issueWorktree = issue?.worktreePath?.startsWith(`${sourceRepo.path}/`)
-      ? issue.worktreePath
-      : undefined
+    const issueWorktree =
+      issue?.machineId === session.machineId &&
+      issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
+        ? issue.worktreePath
+        : undefined
     if (session.cwd === sourceRepo.path && !issueWorktree)
       throw new Error('only worktree sessions can be handed off')
     const targetRepo = repos.find(

@@ -339,6 +339,30 @@ describe('session handoff orchestration', () => {
     }
   })
 
+  it('resolves the source repo from the issue worktree when rollback restored a stale cwd', async () => {
+    const { reg, source, sessionId, issueId } = await handoffRegistry({ withIssue: true })
+    // The old daemon restamped only the session after rollback; kind=none does not
+    // adopt the stale location onto the issue, so its real worktree survives.
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '/old-machine/repo',
+      kind: 'none',
+    })
+    expect(reg.modules.issues.getMeta(issueId!)).toMatchObject({
+      worktreePath: '/source/repo/.worktrees/x',
+      machineId: 'm1',
+    })
+    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+    expect(source).toContainEqual(
+      expect.objectContaining({
+        type: 'handoffExportRequest',
+        cwd: '/old-machine/repo',
+        fallbackCwd: '/source/repo/.worktrees/x',
+      }),
+    )
+  })
+
   it('protects worktrees owned by another target session during import', async () => {
     const { reg, target, sessionId } = await handoffRegistry()
     await reg.modules.sessions.resumeSession({
