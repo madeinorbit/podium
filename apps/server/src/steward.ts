@@ -44,7 +44,7 @@ export function isAcceptedLiveTerminalEvent(e: StewardEvent): boolean {
   return (
     terminal &&
     p.provenance === 'live' &&
-    p.transitionKind === 'turn_terminal' &&
+    (p.transitionKind === 'turn_terminal' || p.transitionKind === 'subagent_bookkeeping') &&
     typeof p.transitionId === 'string' &&
     p.transitionId.length > 0 &&
     Number.isInteger(p.observerGeneration) &&
