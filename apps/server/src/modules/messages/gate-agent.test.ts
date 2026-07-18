@@ -875,7 +875,7 @@ describe('mail dismiss — recipient-only clear', () => {
       id: sent.message.id,
     })) as Record<string, unknown>
     expect(wire).toMatchObject({ id: sent.message.id, status: 'read' })
-    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     await expect(
       gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
     ).rejects.toThrow(/only the recipient/)

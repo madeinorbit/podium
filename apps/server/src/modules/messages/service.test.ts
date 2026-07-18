@@ -279,7 +279,7 @@ describe('MessagesRepository (store CRUD)', () => {
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)
     expect(store.messages.listMessagesFor({ kind: 'issue', id: 'iss_a' })).toEqual([m])
-    expect(store.messages.pendingFor({ kind: 'issue', id: 'iss_a' })).toHaveLength(1)
+    expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
     expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
 
     expect(store.messages.markDelivered('msg_1', 's1', 't1')).toBe(true)
@@ -439,7 +439,7 @@ describe('MessageDeliveryService.send', () => {
     const h3 = harness([])
     const r3 = h3.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
     expect(r3.message.status).toBe('queued')
-    expect(h3.store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(1)
+    expect(h3.store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(1)
   })
 
   it('actionable issue-addressed mail prefers the live coordinator session', () => {
@@ -574,7 +574,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     // Ledger-only: consumed (never queued), so no stop-hook / sweep re-surfaces it.
     expect(r.message.status).toBe('delivered')
     expect(r.message.deliveredTo).toBeNull()
-    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     // …and the legacy mirror is marked read so mailPending stops nagging too.
     expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
     // Observable as a distinct ledger transition, not a real delivery.
@@ -638,7 +638,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(queued).toHaveLength(0)
     expect(r.message.status).toBe('delivered')
     expect(r.message.deliveredTo).toBeNull()
-    expect(store.messages.pendingFor({ kind: 'session', id: 's1' })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'session', id: 's1' })).toBe(0)
   })
 })
 
@@ -2048,11 +2048,11 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
         notificationFact,
       },
     )
-    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(1)
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(1)
     expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(1)
 
     expect(svc.dismiss(notice.message.id, 's1').status).toBe('read')
-    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
     expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
   })
@@ -3234,6 +3234,59 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     svc.onSessionIdle(idle)
     expect(store.messages.countPending({ kind: 'session', id: 's1' })).toBe(0)
     svc.dispose()
+  })
+
+  it('fences a reentrant fresh trigger outside the finite idle snapshot', () => {
+    vi.useFakeTimers()
+    try {
+      const idle = session({ sessionId: 's1', cwd: '/detached', issueId: undefined })
+      let store!: SessionStore
+      let svc!: MessageDeliveryService
+      let retriggered = false
+      const h = harness([idle], {
+        sendText: () => {
+          if (!retriggered) {
+            retriggered = true
+            store.messages.addMessage(
+              queuedDeliveryRow(
+                'msg_reentrant_fresh',
+                { kind: 'session', id: 's1' },
+                '2026-07-13T00:00:01.000Z',
+              ),
+            )
+            svc.onSessionEligibilityChanged('s1', idle)
+          }
+          return { ok: true }
+        },
+      })
+      store = h.store
+      svc = h.svc
+      for (let i = 0; i < 200; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_snapshot_${String(i).padStart(3, '0')}`,
+            { kind: 'session', id: 's1' },
+            `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+          ),
+        )
+      }
+      const pageQuery = vi.spyOn(store.messages, 'pendingForPage')
+
+      svc.onSessionIdle(idle)
+
+      expect(h.sent).toHaveLength(200)
+      expect(pageQuery).toHaveBeenCalledTimes(3)
+
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(h.sent).toHaveLength(201)
+      expect(h.sent.at(-1)?.text).toContain('msg_reentrant_fresh')
+      expect(pageQuery).toHaveBeenCalledTimes(5)
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('enumerates more than 2000 distinct restart targets in bounded turns', () => {

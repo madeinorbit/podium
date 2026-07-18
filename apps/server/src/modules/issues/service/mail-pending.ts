@@ -9,7 +9,7 @@ import type { SessionStore } from '../../../store'
  * never resurrects the nag via a lagging issue_messages unread mirror.
  *
  * Predicate NOTE:
- * - `pendingFor` / status='queued' → not yet in context → COUNT
+ * - status='queued' → not yet in context → COUNT
  * - status='delivered' (transcript echo) → already in context → EXCLUDE
  * - status='read' / terminal → consumed or gone → EXCLUDE
  * - legacy unread with a substrate twin → trust substrate (already covered or excluded)
@@ -20,18 +20,18 @@ export function countContextAwarePendingMail(
   issueId: string,
   formatFromIssue: (fromIssue: string) => string = (id) => id,
 ): { unread: number; senders: string[] } {
-  // Substrate: only queued rows — never echoed into the transcript, never pulled.
-  const queued = store.messages.pendingFor({ kind: 'issue', id: issueId })
-  const queuedCount = store.messages.countPending({ kind: 'issue', id: issueId })
+  const target = { kind: 'issue' as const, id: issueId }
+  const queuedSenders = store.messages.listPendingSenders(target)
+  const queuedCount = store.messages.countPending(target)
   // Legacy fallback covers pre-substrate writers only. Shared ids: if a twin
   // exists on the substrate, trust that ledger (even when status is still
-  // queued — those are already in `queued` above).
+  // queued — those are already in `queuedCount` above).
   const pureLegacy = store.issues
     .listIssueMessages(issueId, { status: 'unread' })
     .filter((m) => !store.messages.getMessage(m.id))
   const senders = [
     ...new Set(
-      queued.map((m) => {
+      queuedSenders.map((m) => {
         if (m.fromKind !== 'agent') return m.fromKind
         if (m.fromIssue) return formatFromIssue(m.fromIssue)
         return m.fromSession ? `session:${m.fromSession}` : 'agent'

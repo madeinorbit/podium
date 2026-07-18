@@ -19,6 +19,12 @@ export interface MessagePageCursor {
   id: string
 }
 
+export interface PendingMessageSender {
+  fromKind: MessageRow['fromKind']
+  fromIssue: string | null
+  fromSession: string | null
+}
+
 function mapMessage(r: Record<string, unknown>): MessageRow {
   return {
     id: r.id as string,
@@ -152,15 +158,10 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
-  /** Undelivered (queued) messages awaiting a principal, oldest first. */
-  pendingFor(to: MessagePrincipalRef, limit = 200): MessageRow[] {
-    return this.pendingForPage(to, { limit })
-  }
-
   /** One bounded keyset page of queued rows for a principal. */
   pendingForPage(
     to: MessagePrincipalRef,
-    opts: { after?: MessagePageCursor; limit?: number } = {},
+    opts: { after?: MessagePageCursor; through?: MessagePageCursor; limit?: number } = {},
   ): MessageRow[] {
     const where = ['to_kind = ?', "status = 'queued'"]
     const params: unknown[] = [to.kind]
@@ -172,6 +173,10 @@ export class MessagesRepository {
       where.push('(created_at > ? OR (created_at = ? AND id > ?))')
       params.push(opts.after.createdAt, opts.after.createdAt, opts.after.id)
     }
+    if (opts.through) {
+      where.push('(created_at < ? OR (created_at = ? AND id <= ?))')
+      params.push(opts.through.createdAt, opts.through.createdAt, opts.through.id)
+    }
     params.push(Math.min(500, Math.max(1, opts.limit ?? 200)))
     const rows = this.db
       .prepare(
@@ -180,6 +185,45 @@ export class MessagesRepository {
       )
       .all(...(params as never[])) as Record<string, unknown>[]
     return rows.map(mapMessage)
+  }
+
+  /** Last queued row in stable delivery order; captures a finite scan snapshot. */
+  pendingHighWater(to: MessagePrincipalRef): MessagePageCursor | null {
+    const params: unknown[] = [to.kind]
+    const idPredicate = to.kind === 'operator' ? '' : ' AND to_id = ?'
+    if (to.kind !== 'operator') params.push(to.id ?? null)
+    const row = this.db
+      .prepare(
+        `SELECT created_at, id FROM messages
+         WHERE to_kind = ?${idPredicate} AND status = 'queued'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .get(...(params as never[])) as { created_at: string; id: string } | undefined
+    return row ? { createdAt: row.created_at, id: row.id } : null
+  }
+
+  /** Complete queued-sender projection for nag/inbox aggregates. */
+  listPendingSenders(to: MessagePrincipalRef): PendingMessageSender[] {
+    const params: unknown[] = [to.kind]
+    const idPredicate = to.kind === 'operator' ? '' : ' AND to_id = ?'
+    if (to.kind !== 'operator') params.push(to.id ?? null)
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT from_kind, from_issue, from_session
+         FROM messages
+         WHERE to_kind = ?${idPredicate} AND status = 'queued'
+         ORDER BY from_kind ASC, from_issue ASC, from_session ASC`,
+      )
+      .all(...(params as never[])) as {
+      from_kind: MessageRow['fromKind']
+      from_issue: string | null
+      from_session: string | null
+    }[]
+    return rows.map((row) => ({
+      fromKind: row.from_kind,
+      fromIssue: row.from_issue,
+      fromSession: row.from_session,
+    }))
   }
 
   countQueued(): number {

@@ -315,6 +315,7 @@ export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
 interface DeliveryTargetWork {
   target: DeliveryTarget
   after?: MessagePageCursor
+  through?: MessagePageCursor
   preferred?: SessionMeta
   enqueuedAt: number
 }
@@ -374,6 +375,10 @@ export class MessageDeliveryService {
 
   /** Bounded delivery jobs coalesce by durable recipient principal. */
   private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
+  /** A synchronous idle drain owns these finite-snapshot targets. Fresh,
+   * reentrant triggers are retained separately for the next macrotask. */
+  private readonly activeBoundaryTargets = new Map<string, number>()
+  private readonly deferredBoundaryTargets = new Map<string, DeliveryTarget>()
   private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
   private reconcileTimer: ReturnType<typeof setTimeout> | null = null
   private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
@@ -399,7 +404,10 @@ export class MessageDeliveryService {
   onSessionEligibilityChanged(
     sessionId: string,
     changed?: SessionMeta,
-    opts?: { preferThisIdleSession?: boolean },
+    opts?: {
+      preferThisIdleSession?: boolean
+      boundaryThrough?: ReadonlyMap<string, MessagePageCursor>
+    },
   ): void {
     const session =
       changed ??
@@ -416,11 +424,18 @@ export class MessageDeliveryService {
       opts?.preferThisIdleSession && session && this.stateOf(session) === 'idle'
         ? session
         : undefined
-    this.queueDeliveryTarget({ kind: 'session', id: sessionId }, preferred)
+    const queue = (target: DeliveryTarget, targetPreferred?: SessionMeta) =>
+      this.queueDeliveryTarget(
+        target,
+        targetPreferred,
+        undefined,
+        opts?.boundaryThrough?.get(deliveryTargetKey(target)),
+      )
+    queue({ kind: 'session', id: sessionId }, preferred)
     if (previousIssueId && previousIssueId !== nextIssueId) {
-      this.queueDeliveryTarget({ kind: 'issue', id: previousIssueId })
+      queue({ kind: 'issue', id: previousIssueId })
     }
-    if (nextIssueId) this.queueDeliveryTarget({ kind: 'issue', id: nextIssueId }, preferred)
+    if (nextIssueId) queue({ kind: 'issue', id: nextIssueId }, preferred)
   }
 
   /** Issue-side target changes can alter inferred session membership and the
@@ -485,14 +500,27 @@ export class MessageDeliveryService {
   }
 
   /** Deterministic test/shutdown seam for one bounded coalesced turn. */
-  flushDeliveryTriggers(): void {
+  flushDeliveryTriggers(onlyPreferredSessionId?: string): void {
     if (this.deliveryTriggerTimer) {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
     }
     if (this.pendingDeliveryTargets.size === 0) return
-    const works = [...this.pendingDeliveryTargets.values()]
-    this.pendingDeliveryTargets.clear()
+    const works: DeliveryTargetWork[] = []
+    if (onlyPreferredSessionId) {
+      for (const [key, work] of this.pendingDeliveryTargets) {
+        if (work.preferred?.sessionId !== onlyPreferredSessionId) continue
+        works.push(work)
+        this.pendingDeliveryTargets.delete(key)
+      }
+      // Non-boundary/reentrant work is deliberately retained for the next
+      // macrotask; it cannot expand this synchronous finite snapshot.
+      if (this.pendingDeliveryTargets.size > 0) this.scheduleDeliveryFlush()
+    } else {
+      works.push(...this.pendingDeliveryTargets.values())
+      this.pendingDeliveryTargets.clear()
+    }
+    if (works.length === 0) return
     const selected = new Map<string, MessageRow>()
     const preferredGroups = new Map<
       string,
@@ -504,14 +532,20 @@ export class MessageDeliveryService {
       try {
         page = this.deps.messages.pendingForPage(work.target, {
           ...(work.after ? { after: work.after } : {}),
+          ...(work.through ? { through: work.through } : {}),
           limit: DELIVERY_TARGET_PAGE_LIMIT,
         })
       } catch (error) {
         this.recordTriggerFailure(`target page ${deliveryTargetKey(work.target)}`, error)
         continue
       }
-      if (page.length === DELIVERY_TARGET_PAGE_LIMIT) {
-        this.queueDeliveryTarget(work.target, work.preferred, cursorOf(page.at(-1)!))
+      const pageCursor = page.length > 0 ? cursorOf(page.at(-1)!) : undefined
+      if (
+        page.length === DELIVERY_TARGET_PAGE_LIMIT &&
+        pageCursor &&
+        (!work.through || this.compareCursor(pageCursor, work.through) < 0)
+      ) {
+        this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
       }
       for (const message of page) {
         selected.set(message.id, message)
@@ -582,6 +616,8 @@ export class MessageDeliveryService {
     for (const pending of this.wakeCooldownTimers.values()) clearTimeout(pending.timer)
     this.wakeCooldownTimers.clear()
     this.pendingDeliveryTargets.clear()
+    this.activeBoundaryTargets.clear()
+    this.deferredBoundaryTargets.clear()
     this.sessionIssueTargets.clear()
   }
 
@@ -589,7 +625,15 @@ export class MessageDeliveryService {
     target: DeliveryTarget,
     preferred?: SessionMeta,
     after?: MessagePageCursor,
+    through?: MessagePageCursor,
   ): void {
+    const key = deliveryTargetKey(target)
+    if (!after && !through && this.activeBoundaryTargets.has(key)) {
+      if (this.deferredBoundaryTargets.has(key)) this.coalescedTriggerCount += 1
+      else this.deferredBoundaryTargets.set(key, target)
+      return
+    }
+
     try {
       if (this.deps.messages.countPending(target) === 0) return
     } catch (error) {
@@ -597,18 +641,20 @@ export class MessageDeliveryService {
       return
     }
 
-    const key = deliveryTargetKey(target)
     const existing = this.pendingDeliveryTargets.get(key)
     if (existing) {
       this.coalescedTriggerCount += 1
+      if (through) existing.through = through
       if (!after) existing.after = undefined
       else if (existing.after && this.compareCursor(after, existing.after) < 0)
         existing.after = after
+      else if (!existing.after) existing.after = after
       if (preferred) existing.preferred = preferred
     } else {
       this.pendingDeliveryTargets.set(key, {
         target,
         ...(after ? { after } : {}),
+        ...(through ? { through } : {}),
         ...(preferred ? { preferred } : {}),
         enqueuedAt: this.nowMs(),
       })
@@ -1129,6 +1175,13 @@ export class MessageDeliveryService {
    */
   onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): void {
     const issueId = this.issueForSession(session)
+    const targets: DeliveryTarget[] = [{ kind: 'session', id: session.sessionId }]
+    if (issueId) targets.push({ kind: 'issue', id: issueId })
+    const boundaryThrough = new Map<string, MessagePageCursor>()
+    for (const target of targets) {
+      const highWater = this.deps.messages.pendingHighWater(target)
+      if (highWater) boundaryThrough.set(deliveryTargetKey(target), highWater)
+    }
     // Turn-boundary confirmation [POD-853]: the turn that just reached idle
     // consumed every echo-mode row already pushed into THIS session's PTY — flip
     // them delivered even though their envelope never echoed as a clean role=user
@@ -1147,13 +1200,14 @@ export class MessageDeliveryService {
     // the confirm on a clean turn: an errored turn leaves the rows queued and the
     // sweep re-queues them for a retry [coordinator caution POD-833].
     if (opts?.priorPhase !== 'errored') {
-      const targets: DeliveryTarget[] = [{ kind: 'session', id: session.sessionId }]
-      if (issueId) targets.push({ kind: 'issue', id: issueId })
       for (const target of targets) {
+        const through = boundaryThrough.get(deliveryTargetKey(target))
+        if (!through) continue
         let after: MessagePageCursor | undefined
         while (true) {
           const page = this.deps.messages.pendingForPage(target, {
             ...(after ? { after } : {}),
+            through,
             limit: DELIVERY_TARGET_PAGE_LIMIT,
           })
           for (const message of page) {
@@ -1177,19 +1231,34 @@ export class MessageDeliveryService {
     // enqueue the same durable target keys and synchronously flush so existing
     // turn-boundary ordering remains exact. The keyed gate handles confirmation,
     // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
-    this.onSessionEligibilityChanged(session.sessionId, session, {
-      preferThisIdleSession: true,
-    })
-    do {
-      this.flushDeliveryTriggers()
-      // A live idle boundary is a one-shot eligibility edge. Consume every
-      // bounded keyset continuation carrying that preferred session before the
-      // first injection can start its next turn and make the snapshot stale.
-    } while (
-      [...this.pendingDeliveryTargets.values()].some(
-        (work) => work.preferred?.sessionId === session.sessionId,
+    for (const key of boundaryThrough.keys()) {
+      this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
+    }
+    try {
+      this.onSessionEligibilityChanged(session.sessionId, session, {
+        preferThisIdleSession: true,
+        boundaryThrough,
+      })
+      do {
+        this.flushDeliveryTriggers(session.sessionId)
+        // Each preferred continuation is bounded by the captured high-water.
+        // A fresh/reentrant trigger is held for the next macrotask instead of
+        // resetting this snapshot's cursor or expanding its synchronous work.
+      } while (
+        [...this.pendingDeliveryTargets.values()].some(
+          (work) => work.preferred?.sessionId === session.sessionId,
+        )
       )
-    )
+    } finally {
+      for (const key of boundaryThrough.keys()) {
+        const depth = this.activeBoundaryTargets.get(key) ?? 0
+        if (depth <= 1) this.activeBoundaryTargets.delete(key)
+        else this.activeBoundaryTargets.set(key, depth - 1)
+      }
+      const deferred = [...this.deferredBoundaryTargets.values()]
+      this.deferredBoundaryTargets.clear()
+      for (const target of deferred) this.queueDeliveryTarget(target)
+    }
   }
 
   /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human

@@ -2758,7 +2758,7 @@ describe('IssueService agent mail (#103)', () => {
     })
     store.messages.addMessage(substrateRow(a.id, id, 'delivered'))
     // Substrate no longer pending; legacy still unread — old Math.max would nag.
-    expect(store.messages.pendingFor({ kind: 'issue', id: a.id })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'issue', id: a.id })).toBe(0)
     expect(store.issues.countUnreadIssueMessages(a.id)).toBe(1)
     expect(svc.mailPending(a.id)).toMatchObject({ unread: 0, senders: [] })
     // Prime uses the same predicate.
@@ -2794,6 +2794,27 @@ describe('IssueService agent mail (#103)', () => {
     }
 
     expect(svc.mailPending(a.id).unread).toBe(201)
+  })
+
+  it('mailPending includes a sender whose only queued row is number 201', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    for (let i = 0; i < 200; i += 1) {
+      store.messages.addMessage({
+        ...substrateRow(a.id, `msg_head_${String(i).padStart(3, '0')}`, 'queued'),
+        fromIssue: 'iss_head_sender',
+      })
+    }
+    store.messages.addMessage({
+      ...substrateRow(a.id, 'msg_tail_200', 'queued'),
+      fromIssue: 'iss_tail_sender',
+      createdAt: '2026-06-30T00:00:01.000Z',
+    })
+
+    expect(svc.mailPending(a.id)).toEqual({
+      unread: 201,
+      senders: ['iss_head_sender', 'iss_tail_sender'],
+    })
   })
 
   it('mailPending pure-legacy unread (no substrate twin) still nags', () => {

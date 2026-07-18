@@ -88,7 +88,7 @@ export abstract class IssueServiceMail extends IssueServiceAttention {
    *    - `queued`  — never transcript-confirmed / never pulled → count it
    *    - `delivered` — envelope echoed as a turn → already in context → EXCLUDE
    *    - `read` / terminal — consumed or gone → EXCLUDE
-   *  `pendingFor` already returns status='queued' only. The legacy
+   *  `countPending` counts status='queued' only. The legacy
    *  issue_messages unread count is a transition fallback for pre-substrate
    *  rows only: a dual-written twin that has left `queued` must not resurrect
    *  the nag when the mirror lags. `senders` lets the stop-hook render the
