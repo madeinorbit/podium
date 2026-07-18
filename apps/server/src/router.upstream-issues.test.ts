@@ -18,6 +18,7 @@ const HUB_REPO = '/hub/only/repo'
 function hubIssue(id: string): IssueWire {
   return {
     id,
+    revision: 7,
     repoPath: HUB_REPO,
     seq: 1,
     title: 'hub issue',
@@ -176,6 +177,31 @@ describe('viaHub forwarding detection (per proc)', () => {
 })
 
 describe('viaHub forwarding boundaries', () => {
+  it('leaves stale mirrored expectedRevision arbitration to the hub authority', async () => {
+    const { registry, forwarded, caller } = makeNode()
+    const listed = registry.modules.upstreamIssues
+      .withUpstreamIssues(registry.issues.list())
+      .find((issue) => issue.id === HUB_ID)
+
+    // Local-store isolation invariant: direct get excludes hub mirrors.
+    expect(registry.issues.get(HUB_ID)).toBeNull()
+    // Wire-union invariant: list folding still exposes the hub mirror.
+    expect(listed).toBeDefined()
+    // Mirror-ingest invariant: the node preserves the revision sent by the hub verbatim.
+    expect(listed?.revision).toBe(7)
+
+    await caller().issues.update({
+      id: HUB_ID,
+      patch: { title: 'forward stale token' },
+      expectedRevision: 3,
+    })
+
+    // Home-authority invariant: a mirror-stale token forwards instead of conflicting locally.
+    expect(forwarded).toHaveLength(1)
+    // Forwarding invariant: expectedRevision reaches the hub unchanged for arbitration.
+    expect(forwarded[0]?.input.expectedRevision).toBe(3)
+  })
+
   it('a LOCAL target never forwards (IssueService handles it as before)', async () => {
     const { forwarded, caller } = makeNode()
     const c = caller()
