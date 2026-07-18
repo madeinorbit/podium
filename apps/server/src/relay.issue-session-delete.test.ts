@@ -31,6 +31,12 @@ describe('issue/session deletion lifecycle', () => {
       agentKind: 'shell',
       cwd: '/repo',
     }).sessionId
+    const projectionEvents: Array<
+      Parameters<Parameters<typeof registry.modules.sessions.onSessionProjection>[0]>[0]
+    > = []
+    const offProjection = registry.modules.sessions.onSessionProjection((event) =>
+      projectionEvents.push(event),
+    )
 
     const result = registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
 
@@ -54,6 +60,11 @@ describe('issue/session deletion lifecycle', () => {
       .filter((message) => message.type === 'kill')
       .map((message) => message.sessionId)
     expect(new Set(killed)).toEqual(new Set([attached, inWorktree]))
+    expect(projectionEvents).toHaveLength(1)
+    expect(projectionEvents[0]?.changes.map((change) => change.op)).toEqual(['remove', 'remove'])
+    expect(projectionEvents[0]?.ledgerCursor).toBeGreaterThanOrEqual(
+      projectionEvents[0]?.changes.at(-1)?.seq ?? 0,
+    )
 
     const restored = registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
     expect(restored.issue.deletedAt).toBeUndefined()
@@ -67,6 +78,13 @@ describe('issue/session deletion lifecycle', () => {
       .listSessions()
       .filter((s) => restored.restoredSessionIds.includes(s.sessionId))
     expect(restoredMetas.map((s) => s.status)).toEqual(['exited', 'exited'])
+    expect(projectionEvents).toHaveLength(2)
+    expect(projectionEvents[1]?.generation).toBeGreaterThan(projectionEvents[0]?.generation ?? 0)
+    expect(projectionEvents[1]?.changes.map((change) => change.op)).toEqual(['upsert', 'upsert'])
+    expect(projectionEvents[1]?.ledgerCursor).toBeGreaterThanOrEqual(
+      projectionEvents[1]?.changes.at(-1)?.seq ?? 0,
+    )
+    offProjection()
     registry.dispose()
   })
 

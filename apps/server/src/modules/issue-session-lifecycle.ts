@@ -42,15 +42,17 @@ export class IssueSessionLifecycle {
       .filter((s) => !deletedIds.has(s.sessionId))
     const issuePlan = this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
 
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => {
         sessionPlan.write()
         issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
     })
+    const ledgerCursor = changes.at(-1)?.seq
+    if (ledgerCursor === undefined) throw new Error('issue/session delete committed no changes')
 
-    sessionPlan.apply()
+    sessionPlan.apply(changes, ledgerCursor)
     issuePlan.apply()
     this.deps.sessions.broadcastSessions()
     issuePlan.publish()
@@ -74,15 +76,17 @@ export class IssueSessionLifecycle {
     ]
     const issuePlan = this.deps.issues.prepareRestore(current.id, restoredSessions)
 
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => {
         sessionPlan.write()
         issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
     })
+    const ledgerCursor = changes.at(-1)?.seq
+    if (ledgerCursor === undefined) throw new Error('issue/session restore committed no changes')
 
-    sessionPlan.apply()
+    sessionPlan.apply(changes, ledgerCursor)
     issuePlan.apply()
     this.deps.sessions.broadcastSessions()
     issuePlan.publish()

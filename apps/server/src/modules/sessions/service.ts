@@ -119,12 +119,18 @@ export interface SessionLedger {
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
 }
 
+export interface SessionProjectionEvent {
+  generation: number
+  changes: MetadataChange[]
+  ledgerCursor: number
+}
+
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
   sessionIds: string[]
   write(): void
   changes(): EntityChangeSpec[]
-  apply(): void
+  apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 /** Prepared half of restoring issue-owned session tombstones. */
@@ -133,7 +139,7 @@ export interface SessionRestorePlan {
   restoredSessions: SessionMeta[]
   write(): void
   changes(): EntityChangeSpec[]
-  apply(): void
+  apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 interface SessionsServiceDeps {
@@ -260,7 +266,11 @@ export class SessionsService {
   // client-visible ordering/catch-up primitive. Every successful persisted or
   // explicitly captured wire mutation bumps once. The value is never serialized.
   private sessionsGeneration_ = 0
-  private readonly sessionsDirtyListeners = new Set<(generation: number) => void>()
+  private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
+  private volatileSessionMutationVersion = 0
+  private readonly pendingVolatileSessions = new Map<string, number>()
+  private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
+  private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
   // The generation whose legacy sessionsChanged snapshot completed successfully.
   // Generation equality replaces byte-string equality so A→B→A inside one
   // coalescing window still invalidates work even though the final bytes match.
@@ -373,19 +383,28 @@ export class SessionsService {
     return this.sessionsGeneration_
   }
 
-  /** Subscribe projection schedulers to server-local dirty generations. */
-  onSessionsDirty(listener: (generation: number) => void): () => void {
-    this.sessionsDirtyListeners.add(listener)
-    return () => this.sessionsDirtyListeners.delete(listener)
+  /** Ordered post-capture patches for projection workers [spec:SP-c29e]. */
+  onSessionProjection(listener: (event: SessionProjectionEvent) => void): () => void {
+    this.sessionProjectionListeners.add(listener)
+    return () => this.sessionProjectionListeners.delete(listener)
   }
 
-  private bumpSessionsGeneration(): void {
-    const generation = ++this.sessionsGeneration_
-    for (const listener of this.sessionsDirtyListeners) {
+  private publishSessionProjection(
+    changes: MetadataChange[],
+    ledgerCursor: number | undefined = changes.at(-1)?.seq,
+  ): void {
+    const sessionChanges = changes.filter((change) => change.entity === 'session')
+    if (sessionChanges.length === 0 || ledgerCursor === undefined) return
+    const event: SessionProjectionEvent = {
+      generation: ++this.sessionsGeneration_,
+      changes: sessionChanges,
+      ledgerCursor,
+    }
+    for (const listener of this.sessionProjectionListeners) {
       try {
-        listener(generation)
+        listener(event)
       } catch (err) {
-        console.error('[sessions] dirty listener threw', err)
+        console.error('[sessions] projection listener threw', err)
       }
     }
   }
@@ -394,44 +413,85 @@ export class SessionsService {
   private captureSessionSpecs(specs: EntityChangeSpec[]): MetadataChange[] {
     if (specs.length === 0) return []
     const changes = this.deps.ledger.capture(specs)
-    if (changes.some((change) => change.entity === 'session')) this.bumpSessionsGeneration()
+    this.publishSessionProjection(changes)
     return changes
   }
 
-  private captureSessionWire(session: Session): MetadataChange[] {
-    return this.captureSessionSpecs([
-      {
-        entity: 'session',
-        id: session.sessionId,
-        op: 'upsert',
-        value: this.sessionWire(session),
-      },
-    ])
+  private markVolatileSessionDirty(sessionId: string): void {
+    this.pendingVolatileSessions.set(sessionId, ++this.volatileSessionMutationVersion)
+    this.scheduleVolatileSessionCapture()
   }
 
-  /**
-   * Central volatile Session-view mutation seam. It captures only the touched
-   * session and notifies projection schedulers iff its wire value changed.
-   */
+  private scheduleVolatileSessionCapture(delayMs = 0): void {
+    if (this.volatileSessionCaptureTimer) return
+    this.volatileSessionCaptureTimer = setTimeout(() => {
+      this.volatileSessionCaptureTimer = null
+      try {
+        this.flushBroadcasts()
+      } catch (err) {
+        console.warn('[podium] volatile session capture failed', err)
+      }
+    }, delayMs)
+    this.volatileSessionCaptureTimer.unref?.()
+  }
+
+  private clearVolatileSessionCaptureTimer(): void {
+    if (!this.volatileSessionCaptureTimer) return
+    clearTimeout(this.volatileSessionCaptureTimer)
+    this.volatileSessionCaptureTimer = null
+  }
+
+  private flushVolatileSessionCaptures(): MetadataChange[] {
+    this.clearVolatileSessionCaptureTimer()
+    if (this.pendingVolatileSessions.size === 0) return []
+    const pending = [...this.pendingVolatileSessions]
+    const specs: EntityChangeSpec[] = []
+    for (const [sessionId] of pending) {
+      const session = this.sessions.get(sessionId)
+      if (!session) continue
+      specs.push({
+        entity: 'session',
+        id: sessionId,
+        op: 'upsert',
+        value: this.sessionWire(session),
+      })
+    }
+    try {
+      const changes = this.captureSessionSpecs(specs)
+      // A volatile A→B→A batch legitimately dedups to no durable patch, but it
+      // still invalidates the legacy snapshot pipeline once. Do not fabricate a
+      // projection event: patch consumers need only the captured final truth.
+      if (!changes.some((change) => change.entity === 'session')) {
+        this.sessionsGeneration_++
+      }
+      for (const [sessionId, version] of pending) {
+        if (this.pendingVolatileSessions.get(sessionId) === version) {
+          this.pendingVolatileSessions.delete(sessionId)
+        }
+      }
+      return changes
+    } catch (err) {
+      this.scheduleVolatileSessionCapture(SessionsService.VOLATILE_CAPTURE_RETRY_MS)
+      throw err
+    }
+  }
+
+  /** Central volatile Session-view mutation seam. The latest value is captured
+   * once per session by the coalesced broadcast flush, keeping interaction paths
+   * free of synchronous SQLite writes [spec:SP-c29e]. */
   private mutateSessionView(sessionId: string, mutate: (session: Session) => void): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     mutate(session)
-    return this.captureSessionWire(session).length > 0
+    this.markVolatileSessionDirty(sessionId)
+    return true
   }
 
   /** Machine-owned derived fields changed (machineId and/or machineName). */
   sessionsChangedForMachine(machineId: string): void {
-    this.captureSessionSpecs(
-      [...this.sessions.values()]
-        .filter((session) => session.machineId === machineId)
-        .map((session) => ({
-          entity: 'session' as const,
-          id: session.sessionId,
-          op: 'upsert' as const,
-          value: this.sessionWire(session),
-        })),
-    )
+    for (const session of this.sessions.values()) {
+      if (session.machineId === machineId) this.markVolatileSessionDirty(session.sessionId)
+    }
     this.broadcastSessions()
   }
 
@@ -454,6 +514,7 @@ export class SessionsService {
    * authoritative recency delta clients order the sidebar by.
    */
   persist(session: Session): void {
+    const pendingVersion = this.pendingVolatileSessions.get(session.sessionId)
     const { changes } = this.deps.ledger.commit({
       write: () => this.store.sessions.upsertSession(session.toRow()),
       changes: () => [
@@ -465,7 +526,14 @@ export class SessionsService {
         },
       ],
     })
-    if (changes.some((change) => change.entity === 'session')) this.bumpSessionsGeneration()
+    if (
+      pendingVersion !== undefined &&
+      this.pendingVolatileSessions.get(session.sessionId) === pendingVersion
+    ) {
+      this.pendingVolatileSessions.delete(session.sessionId)
+      if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
+    }
+    this.publishSessionProjection(changes)
   }
 
   /** The exact wire shape broadcasts carry for this session — toMeta() plus the
@@ -659,7 +727,6 @@ export class SessionsService {
         session.resume.value,
       )
     }
-    this.bumpSessionsGeneration()
   }
 
   loadFromStore(): void {
@@ -708,10 +775,11 @@ export class SessionsService {
     // baseline is unobservable and self-healing: adoption
     // (ensureLocalMachine → adoptPlaceholderRows) explicitly captures affected
     // sessions before its broadcast — all before the server accepts connections.
-    this.deps.ledger.reconcile(
+    const recovered = this.deps.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
     )
+    this.publishSessionProjection(recovered)
   }
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
@@ -839,14 +907,7 @@ export class SessionsService {
       if (s.markReconnecting()) changed.push(s)
     }
     if (changed.length > 0) {
-      this.captureSessionSpecs(
-        changed.map((session) => ({
-          entity: 'session',
-          id: session.sessionId,
-          op: 'upsert',
-          value: this.sessionWire(session),
-        })),
-      )
+      for (const session of changed) this.markVolatileSessionDirty(session.sessionId)
       this.broadcastSessions()
     }
     this.machines.broadcastMachines()
@@ -2314,6 +2375,7 @@ export class SessionsService {
     }
     return specs
   }
+
   /** Prepare deletion of every LOCAL session belonging to an issue. The caller
    *  commits `write` + `changes` together with the issue tombstone, then invokes
    *  `apply` only after that durable transaction succeeds. */
@@ -2329,8 +2391,9 @@ export class SessionsService {
           this.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
       changes: () => sessionIds.flatMap((sessionId) => this.sessionRemovalSpecs(sessionId)),
-      apply: () => {
+      apply: (changes, ledgerCursor) => {
         for (const sessionId of sessionIds) this.removeSessionRuntime(sessionId)
+        this.publishSessionProjection(changes, ledgerCursor)
       },
     }
   }
@@ -2354,7 +2417,7 @@ export class SessionsService {
           op: 'upsert' as const,
           value: this.sessionWire(session),
         })),
-      apply: () => {
+      apply: (changes, ledgerCursor) => {
         const drafts = this.store.sessions.loadDrafts()
         const draftTimes = this.store.sessions.loadDraftTimes()
         const snoozes = this.store.sessions.listSnoozes()
@@ -2362,6 +2425,7 @@ export class SessionsService {
         for (const { session } of restored) {
           this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
         }
+        this.publishSessionProjection(changes, ledgerCursor)
       },
     }
   }
@@ -2388,7 +2452,8 @@ export class SessionsService {
       this.draftWriteTimers.delete(sessionId)
     }
     for (const c of this.clients.values()) c.attached.delete(sessionId)
-    if (session) this.bumpSessionsGeneration()
+    this.pendingVolatileSessions.delete(sessionId)
+    if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
   }
 
   killSession(input: { sessionId: string }): void {
@@ -2409,7 +2474,7 @@ export class SessionsService {
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => {
         this.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
@@ -2417,6 +2482,7 @@ export class SessionsService {
       changes: () => this.sessionRemovalSpecs(input.sessionId),
     })
     this.removeSessionRuntime(input.sessionId)
+    this.publishSessionProjection(changes)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty
     // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.
@@ -3444,6 +3510,13 @@ export class SessionsService {
   private broadcastPending = false
 
   broadcastSessions(): void {
+    // Volatile view changes always cross an event-loop boundary before SQLite.
+    // The keyed buffer folds resize/disconnect bursts into one capture batch.
+    if (this.pendingVolatileSessions.size > 0) {
+      this.broadcastPending = true
+      this.scheduleVolatileSessionCapture()
+      return
+    }
     if (this.broadcastCooldown) {
       this.broadcastPending = true
       return
@@ -3475,7 +3548,7 @@ export class SessionsService {
       clearTimeout(this.broadcastCooldown)
       this.broadcastCooldown = null
     }
-    if (this.broadcastPending) {
+    if (this.broadcastPending || this.pendingVolatileSessions.size > 0) {
       this.broadcastPending = false
       this.runSessionsBroadcast()
     }
@@ -3484,18 +3557,22 @@ export class SessionsService {
 
   private runSessionsBroadcast(): void {
     const t0 = performance.now()
-    const generation = this.sessionsGeneration_
-    if (generation === this.lastSessionsBroadcastGeneration) {
-      perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
-      return
-    }
     if (this.runningSessionsBroadcastGeneration !== -1) {
       this.broadcastPending = true
       perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
       return
     }
-    this.runningSessionsBroadcastGeneration = generation
+    // Reserve the runner before capture: projection listeners are synchronous and
+    // may request another broadcast while the successful batch is being published.
+    this.runningSessionsBroadcastGeneration = -2
     try {
+      this.flushVolatileSessionCaptures()
+      const generation = this.sessionsGeneration_
+      if (generation === this.lastSessionsBroadcastGeneration) {
+        perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+        return
+      }
+      this.runningSessionsBroadcastGeneration = generation
       const sessions = this.listSessions()
       const tList = performance.now()
       perf.record('phase', 'sessionsBroadcast.list', tList - t0)
@@ -3552,9 +3629,7 @@ export class SessionsService {
       }
       this.lastSessionsBroadcastGeneration = generation
     } finally {
-      if (this.runningSessionsBroadcastGeneration === generation) {
-        this.runningSessionsBroadcastGeneration = -1
-      }
+      this.runningSessionsBroadcastGeneration = -1
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
   }
