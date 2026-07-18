@@ -349,4 +349,34 @@ describe('stopIssue [spec:SP-9904]', () => {
     expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBeNull()
     expect(reg.modules.issues.getMeta(issue.id)?.branch).toBe('issue/6-all')
   })
+
+  it('resolves a human ref/seq before matching members (POD-985 regression)', async () => {
+    const { reg } = makeRegistry()
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Issue stop by ref',
+      startNow: false,
+    })
+    const wt = '/r/.worktrees/issue-7-ref'
+    reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/7-ref' })
+    const a = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: issue.id,
+    }).sessionId
+    const b = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: issue.id,
+    }).sessionId
+    bindLive(reg, a, wt)
+    bindLive(reg, b, wt)
+
+    // The CLI passes the ref verbatim (resolution is server-side); before the fix,
+    // stopIssue compared the raw ref against stored internal ids and stopped 0.
+    const r = await reg.modules.sessions.stopIssue({ issueId: String(issue.seq) })
+    expect(r.ok).toBe(true)
+    expect(r.stopped.sort()).toEqual([a, b].sort())
+    expect(r.worktreeFreed).toBe(true)
+  })
 })

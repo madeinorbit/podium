@@ -2386,7 +2386,9 @@ export class SessionsService {
   }> {
     const issue = this.issues().getMeta(input.issueId)
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
-    const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), input.issueId)
+    // sessionsForIssue matches on the canonical issue id; input.issueId may be a
+    // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
+    const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), issue.id)
     const stopped: string[] = []
     let deferredKill = false
     // Non-self members first (immediate kill). Self last so sibling stops + free
