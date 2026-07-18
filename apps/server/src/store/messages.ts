@@ -182,6 +182,13 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
+  countQueued(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE status = 'queued'")
+      .get() as { n: number }
+    return row.n
+  }
+
   countPending(to: MessagePrincipalRef): number {
     const params: unknown[] = to.kind === 'operator' ? [to.kind] : [to.kind, to.id ?? null]
     const r = this.db

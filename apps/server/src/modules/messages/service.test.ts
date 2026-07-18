@@ -193,12 +193,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     notificationFacts: store.notificationFacts,
     events: store.events,
     issues: () =>
-      fakeIssues(
-        issueGetLists,
-        opts?.archivedIds,
-        opts?.coordinatorByIssue,
-        opts?.issueForCwd,
-      ),
+      fakeIssues(issueGetLists, opts?.archivedIds, opts?.coordinatorByIssue, opts?.issueForCwd),
     sessions: () => ({
       listSessions: () => {
         listCalls.n += 1
@@ -228,7 +223,11 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
 }
 
 const IDLE = { phase: 'idle', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
-const WORKING = { phase: 'working', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
+const WORKING = {
+  phase: 'working',
+  since: 't',
+  nativeSubagentCount: 0,
+} as SessionMeta['agentState']
 const NEEDS_USER = {
   phase: 'needs_user',
   since: 't',
@@ -1285,7 +1284,10 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
       { kind: 'agent', issueId: SENDER_ISSUE.id },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'one' },
     )
-    const r2 = svc.send({ kind: 'superagent' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'two' })
+    const r2 = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'two' },
+    )
     expect(r1.message.status).toBe('queued')
     expect(r2.message.status).toBe('queued')
     const s = session({ sessionId: 's1', issueId: ISSUE.id })
@@ -3207,6 +3209,33 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
     }
   })
 
+  it('drains every page of a 201-row target at one idle boundary', () => {
+    const idle = session({ sessionId: 's1' })
+    const { store, svc, sent } = harness([idle])
+    for (let i = 0; i < 201; i += 1) {
+      store.messages.addMessage(
+        queuedDeliveryRow(
+          `msg_idle_page_${String(i).padStart(3, '0')}`,
+          { kind: 'session', id: 's1' },
+          `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+        ),
+      )
+    }
+
+    svc.onSessionIdle(idle)
+
+    expect(sent).toHaveLength(201)
+    expect(
+      store.messages
+        .listMessagesFor({ kind: 'session', id: 's1' }, { status: 'queued', limit: 500 })
+        .every((message) => message.injectedAt !== null),
+    ).toBe(true)
+
+    svc.onSessionIdle(idle)
+    expect(store.messages.countPending({ kind: 'session', id: 's1' })).toBe(0)
+    svc.dispose()
+  })
+
   it('enumerates more than 2000 distinct restart targets in bounded turns', () => {
     vi.useFakeTimers()
     try {
@@ -3405,6 +3434,23 @@ describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () 
 })
 
 describe('delivery trigger isolation and observability [POD-842]', () => {
+  it('does not issue per-principal counts on an empty-queue startup', () => {
+    const sessions = Array.from({ length: 588 }, (_, i) =>
+      session({
+        sessionId: `startup_${i}`,
+        issueId: ISSUE.id,
+        cwd: ISSUE.worktreePath,
+      }),
+    )
+    const { store, svc } = harness(sessions)
+    const countPending = vi.spyOn(store.messages, 'countPending')
+
+    svc.reconcileQueued()
+
+    expect(countPending).toHaveBeenCalledTimes(0)
+    svc.dispose()
+  })
+
   it('continues startup recovery after one target transport throws', () => {
     const sessions = [session({ sessionId: 'bad' }), session({ sessionId: 'good' })]
     const { store, svc } = harness(sessions, {

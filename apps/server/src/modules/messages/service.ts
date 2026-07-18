@@ -444,7 +444,18 @@ export class MessageDeliveryService {
   /** Begin a bounded startup walk. Each page schedules the next macrotask so
    * every durable principal is enumerated without one unbounded boot turn. */
   reconcileQueued(): void {
-    for (const session of this.deps.sessions().listSessions()) {
+    const sessions = this.deps.sessions().listSessions()
+    if (this.deps.messages.countQueued() === 0) {
+      // Preserve the before-state needed by detach/reassign events without
+      // issuing two principal COUNTs per live session on the overwhelmingly
+      // common empty-queue boot path.
+      for (const session of sessions) {
+        const issueId = this.issueForSession(session)
+        if (issueId) this.sessionIssueTargets.set(session.sessionId, issueId)
+      }
+      return
+    }
+    for (const session of sessions) {
       this.onSessionEligibilityChanged(session.sessionId, session)
     }
     this.runReconcilePage()
@@ -1118,10 +1129,6 @@ export class MessageDeliveryService {
    */
   onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): void {
     const issueId = this.issueForSession(session)
-    const all = [
-      ...this.deps.messages.pendingFor({ kind: 'session', id: session.sessionId }),
-      ...(issueId ? this.deps.messages.pendingFor({ kind: 'issue', id: issueId }) : []),
-    ]
     // Turn-boundary confirmation [POD-853]: the turn that just reached idle
     // consumed every echo-mode row already pushed into THIS session's PTY — flip
     // them delivered even though their envelope never echoed as a clean role=user
@@ -1140,10 +1147,23 @@ export class MessageDeliveryService {
     // the confirm on a clean turn: an errored turn leaves the rows queued and the
     // sweep re-queues them for a retry [coordinator caution POD-833].
     if (opts?.priorPhase !== 'errored') {
-      for (const m of all) {
-        if (!m.injectedAt || m.deliveredTo !== session.sessionId) continue
-        if (this.deliveryMode(m) === 'pointer') continue
-        this.markDelivered(m, session.sessionId, 'boundary')
+      const targets: DeliveryTarget[] = [{ kind: 'session', id: session.sessionId }]
+      if (issueId) targets.push({ kind: 'issue', id: issueId })
+      for (const target of targets) {
+        let after: MessagePageCursor | undefined
+        while (true) {
+          const page = this.deps.messages.pendingForPage(target, {
+            ...(after ? { after } : {}),
+            limit: DELIVERY_TARGET_PAGE_LIMIT,
+          })
+          for (const message of page) {
+            if (!message.injectedAt || message.deliveredTo !== session.sessionId) continue
+            if (this.deliveryMode(message) === 'pointer') continue
+            this.markDelivered(message, session.sessionId, 'boundary')
+          }
+          if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
+          after = cursorOf(page.at(-1)!)
+        }
       }
     }
     // Clear the finished turn's hop context AFTER the confirm loop: markDelivered
@@ -1160,7 +1180,16 @@ export class MessageDeliveryService {
     this.onSessionEligibilityChanged(session.sessionId, session, {
       preferThisIdleSession: true,
     })
-    this.flushDeliveryTriggers()
+    do {
+      this.flushDeliveryTriggers()
+      // A live idle boundary is a one-shot eligibility edge. Consume every
+      // bounded keyset continuation carrying that preferred session before the
+      // first injection can start its next turn and make the snapshot stale.
+    } while (
+      [...this.pendingDeliveryTargets.values()].some(
+        (work) => work.preferred?.sessionId === session.sessionId,
+      )
+    )
   }
 
   /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human

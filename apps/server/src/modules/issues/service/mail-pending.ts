@@ -22,6 +22,7 @@ export function countContextAwarePendingMail(
 ): { unread: number; senders: string[] } {
   // Substrate: only queued rows — never echoed into the transcript, never pulled.
   const queued = store.messages.pendingFor({ kind: 'issue', id: issueId })
+  const queuedCount = store.messages.countPending({ kind: 'issue', id: issueId })
   // Legacy fallback covers pre-substrate writers only. Shared ids: if a twin
   // exists on the substrate, trust that ledger (even when status is still
   // queued — those are already in `queued` above).
@@ -37,5 +38,5 @@ export function countContextAwarePendingMail(
       }),
     ),
   ]
-  return { unread: queued.length + pureLegacy.length, senders }
+  return { unread: queuedCount + pureLegacy.length, senders }
 }

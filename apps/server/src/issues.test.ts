@@ -2707,11 +2707,7 @@ describe('IssueService agent mail (#103)', () => {
   // The "run mail inbox" nag must count only messages not yet in the agent's
   // context. status='delivered' = transcript echo = already seen.
 
-  function substrateRow(
-    issueId: string,
-    id: string,
-    status: 'queued' | 'delivered' | 'read',
-  ) {
+  function substrateRow(issueId: string, id: string, status: 'queued' | 'delivered' | 'read') {
     return {
       id,
       threadId: id,
@@ -2787,6 +2783,17 @@ describe('IssueService agent mail (#103)', () => {
     store.messages.addMessage(substrateRow(a.id, id, 'queued'))
     expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
     expect(svc.prime({ boundIssueId: a.id })).toContain('1 unread mail')
+  })
+
+  it('mailPending counts every queued substrate row beyond the listing page cap', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    for (let i = 0; i < 201; i += 1) {
+      const id = `msg_queued_${String(i).padStart(3, '0')}`
+      store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    }
+
+    expect(svc.mailPending(a.id).unread).toBe(201)
   })
 
   it('mailPending pure-legacy unread (no substrate twin) still nags', () => {
