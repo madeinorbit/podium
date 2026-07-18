@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import acceptanceConfig from '../vitest.acceptance.config'
 import frontendPerfConfig from '../apps/web/vitest.frontend-perf.config'
 import agentSmokeConfig from '../vitest.agent-smoke.config'
 import rootConfig from '../vitest.config'
@@ -44,6 +45,11 @@ describe('test lane configuration', () => {
     expect(config(integrationConfig).test?.include).toContain('apps/daemon/src/daemon.test.ts')
     expect(config(integrationConfig).test?.exclude).toContain('**/*.smoke.test.{ts,tsx}')
     expect(config(integrationConfig).test?.projects).toBeUndefined()
+    expect(config(acceptanceConfig).test?.include).toEqual([
+      'scripts/loop-split-load.integration.test.ts',
+    ])
+    expect(config(acceptanceConfig).test?.fileParallelism).toBe(false)
+    expect(config(acceptanceConfig).test?.maxWorkers).toBe(1)
     // The smoke config must NOT set PODIUM_REAL_CLI via test.env: vitest writes test.env
     // into worker process.env before files load, which would defeat the opt-in gate and
     // launch real agent CLIs on a bare `vitest run --config vitest.agent-smoke.config.ts`.
@@ -67,6 +73,10 @@ describe('test lane configuration', () => {
       scripts: Record<string, string>
     }
     expect(pkg.scripts['test:unit']).toContain('--project node')
+    expect(pkg.scripts['test:integration']).toContain('test:acceptance')
+    expect(pkg.scripts['test:acceptance:process']).toContain(
+      'loop-split-process.acceptance.bun.test.ts',
+    )
     expect(pkg.scripts.test).toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:integration')
     expect(pkg.scripts.test).not.toContain('test:smoke:agents')
