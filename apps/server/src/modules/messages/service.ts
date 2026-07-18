@@ -36,9 +36,9 @@ import type {
   MessageUrgency,
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
-import type { MessagesRepository } from '../../store/messages'
-import { NotificationArbiter } from '../../store/notification-facts'
+import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
+import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
@@ -312,6 +312,32 @@ export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
 /** Five minutes: event triggers are primary; this only heals a missed edge. */
 export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
 
+interface DeliveryTargetWork {
+  target: DeliveryTarget
+  after?: MessagePageCursor
+  preferred?: SessionMeta
+  enqueuedAt: number
+}
+
+export interface MessageDeliveryStats {
+  pendingTargetCount: number
+  coalescedTriggerCount: number
+  oldestJobAgeMs: number
+  retryPageCursor: MessagePageCursor | null
+  retryPagesProcessed: number
+  triggerFailures: number
+}
+
+const DELIVERY_TARGET_PAGE_LIMIT = 200
+const DELIVERY_RECONCILE_PAGE_LIMIT = 100
+
+function cursorOf(message: MessageRow): MessagePageCursor {
+  return {
+    createdAt: message.createdAt,
+    id: message.id,
+  }
+}
+
 const deliveryTargetKey = (target: DeliveryTarget): string => `${target.kind}:${target.id}`
 
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
@@ -330,10 +356,8 @@ export class MessageDeliveryService {
   /** Lost-echo requeues per message id [POD-853 stopgap]; in-memory is fine —
    *  a restart resets the count and the row simply earns its cap again. */
   private readonly requeueCounts = new Map<string, number>()
-  /** last wake timestamp (ms) per `${senderKey}|${issueKey}` (brake 1) — a
-   *  write-through cache over the durable rows: a cold key falls back to the
-   *  delivered wake rows in `messages`, so a server restart (this repo
-   *  redeploys on every main commit) never resets the cooldown. */
+  /** Last wake timestamp per sender+resolved-target brake key. This is a
+   * write-through cache over message_wake_cooldowns; cold reads are keyed. */
   private readonly lastWakeAt = new Map<string, number>()
   /** message-triggered spawns per issue for the current UTC day (brake 2) — a
    *  cache over the `message.spawned` event ledger (restart-proof). */
@@ -348,14 +372,20 @@ export class MessageDeliveryService {
     this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
   }
 
-  /** Eligibility changes coalesce by durable recipient key. A session event may
-   *  enqueue both its session principal and its resolved issue principal; a burst
-   *  of bind/resume/membership events still scans and attempts each row once. */
-  private readonly pendingDeliveryTargets = new Map<string, DeliveryTarget>()
-  private readonly pendingPreferredSessions = new Map<string, SessionMeta>()
+  /** Bounded delivery jobs coalesce by durable recipient principal. */
+  private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
   private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
-  /** One restart-recoverable wake-cooldown timer per sender+target brake key.
-   *  Targets are durable message principals derived again by reconcileQueued(). */
+  private reconcileTimer: ReturnType<typeof setTimeout> | null = null
+  private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
+  private retryBackstopCursor: MessagePageCursor | null = null
+  private retryPassStartedAt: number | null = null
+  private retryPagesProcessed = 0
+  private coalescedTriggerCount = 0
+  private triggerFailures = 0
+  /** Last resolved issue per session. This is the before-state needed for detach,
+   * reassignment, inferred-cwd movement, and remove events. */
+  private readonly sessionIssueTargets = new Map<string, string>()
+  /** One restart-recoverable wake-cooldown timer per sender+target brake key. */
   private readonly wakeCooldownTimers = new Map<
     string,
     {
@@ -365,79 +395,125 @@ export class MessageDeliveryService {
     }
   >()
 
-  /** Queue the delivery principals affected by a session metadata transition
-   *  (bind/live, resume-ref acquisition, issue attachment, cwd/draft change).
-   *  The zero-delay timer folds same-turn metadata bursts into one keyed pass. */
+  /** Queue the session principal plus both sides of its issue-resolution change. */
   onSessionEligibilityChanged(
     sessionId: string,
     changed?: SessionMeta,
     opts?: { preferThisIdleSession?: boolean },
   ): void {
-    // Durable metadata events already carry the post-commit SessionMeta. Using it
-    // avoids rebuilding the full session wire list on every state/bind mutation.
     const session =
       changed ??
       this.deps
         .sessions()
         .listSessions()
         .find((candidate) => candidate.sessionId === sessionId)
+    const previousIssueId = this.sessionIssueTargets.get(sessionId)
+    const nextIssueId = this.issueForSession(session)
+    if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
+    else this.sessionIssueTargets.delete(sessionId)
+
     const preferred =
       opts?.preferThisIdleSession && session && this.stateOf(session) === 'idle'
         ? session
         : undefined
     this.queueDeliveryTarget({ kind: 'session', id: sessionId }, preferred)
-    const issueId = this.issueForSession(session)
-    if (issueId) this.queueDeliveryTarget({ kind: 'issue', id: issueId }, preferred)
+    if (previousIssueId && previousIssueId !== nextIssueId) {
+      this.queueDeliveryTarget({ kind: 'issue', id: previousIssueId })
+    }
+    if (nextIssueId) this.queueDeliveryTarget({ kind: 'issue', id: nextIssueId }, preferred)
   }
 
-  /** Queue delivery rows whose issue resolution changed (worktree, archive,
-   *  lifecycle, or any future issue-side targeting input). */
+  /** Issue-side target changes can alter inferred session membership and the
+   * cooldown key of session-addressed wakes. Recompute affected sessions and
+   * queue their principals plus both old/new issues. */
   onIssueEligibilityChanged(issueId: string): void {
     this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+    for (const session of this.deps.sessions().listSessions()) {
+      const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
+      const nextIssueId = this.issueForSession(session)
+      if (
+        previousIssueId === issueId ||
+        nextIssueId === issueId ||
+        previousIssueId !== nextIssueId
+      ) {
+        this.onSessionEligibilityChanged(session.sessionId, session)
+      }
+    }
   }
 
-  /** One-time boot reconcile: derive pending principals and cooldown timers from
-   *  durable queued rows, then immediately attempt everything currently eligible. */
+  /** Begin a bounded startup walk. Each page schedules the next macrotask so
+   * every durable principal is enumerated without one unbounded boot turn. */
   reconcileQueued(): void {
-    for (const message of this.deps.messages.listQueued(2_000)) {
-      const target = this.deliveryTargetOf(message)
-      if (target) this.queueDeliveryTarget(target)
-    }
     for (const session of this.deps.sessions().listSessions()) {
       this.onSessionEligibilityChanged(session.sessionId, session)
     }
-    this.flushDeliveryTriggers()
+    this.runReconcilePage()
   }
 
-  /** Deterministic test/shutdown seam for the coalesced trigger. */
+  private runReconcilePage(after?: MessagePageCursor): void {
+    this.reconcileTimer = null
+    let page: MessageRow[]
+    try {
+      page = this.deps.messages.listQueuedPage({
+        ...(after ? { after } : {}),
+        limit: DELIVERY_RECONCILE_PAGE_LIMIT,
+      })
+    } catch (error) {
+      this.recordTriggerFailure('startup page query', error)
+      return
+    }
+    for (const message of page) {
+      const target = this.deliveryTargetOf(message)
+      if (target) this.queueDeliveryTarget(target)
+    }
+    this.flushDeliveryTriggers()
+    if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
+    const next = cursorOf(page.at(-1)!)
+    this.reconcileTimer = setTimeout(() => this.runReconcilePage(next), 0)
+    this.reconcileTimer.unref?.()
+  }
+
+  /** Deterministic test/shutdown seam for one bounded coalesced turn. */
   flushDeliveryTriggers(): void {
     if (this.deliveryTriggerTimer) {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
     }
     if (this.pendingDeliveryTargets.size === 0) return
-    const targets = [...this.pendingDeliveryTargets.values()]
-    const preferredByTarget = new Map(this.pendingPreferredSessions)
+    const works = [...this.pendingDeliveryTargets.values()]
     this.pendingDeliveryTargets.clear()
-    this.pendingPreferredSessions.clear()
     const selected = new Map<string, MessageRow>()
     const preferredGroups = new Map<
       string,
       { session: SessionMeta; messages: Map<string, MessageRow> }
     >()
-    for (const target of targets) {
-      const preferred = preferredByTarget.get(deliveryTargetKey(target))
-      for (const message of this.deps.messages.pendingFor(target)) {
+
+    for (const work of works) {
+      let page: MessageRow[]
+      try {
+        page = this.deps.messages.pendingForPage(work.target, {
+          ...(work.after ? { after: work.after } : {}),
+          limit: DELIVERY_TARGET_PAGE_LIMIT,
+        })
+      } catch (error) {
+        this.recordTriggerFailure(`target page ${deliveryTargetKey(work.target)}`, error)
+        continue
+      }
+      if (page.length === DELIVERY_TARGET_PAGE_LIMIT) {
+        this.queueDeliveryTarget(work.target, work.preferred, cursorOf(page.at(-1)!))
+      }
+      for (const message of page) {
         selected.set(message.id, message)
-        if (!preferred) continue
-        let group = preferredGroups.get(preferred.sessionId)
+        if (!work.preferred) continue
+        let group = preferredGroups.get(work.preferred.sessionId)
         if (!group) {
-          group = { session: preferred, messages: new Map() }
-          preferredGroups.set(preferred.sessionId, group)
+          group = { session: work.preferred, messages: new Map() }
+          preferredGroups.set(work.preferred.sessionId, group)
         }
         group.messages.set(message.id, message)
       }
     }
+
     if (selected.size === 0) return
     const all = this.deps.sessions().listSessions()
     const nowMs = this.nowMs()
@@ -448,43 +524,116 @@ export class MessageDeliveryService {
       const messages = [...group.messages.values()]
       for (const message of messages) handled.add(message.id)
       if (this.draftHoldActive(session)) continue
-      const eligible = messages.filter((message) => this.prepareQueuedAttempt(message, nowMs))
+      const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
       eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-      this.deliverBatch(session, eligible)
-      for (const message of eligible) this.scheduleQueuedWakeRetry(message)
+      try {
+        this.deliverBatch(session, eligible)
+        for (const message of eligible) this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        this.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
+      }
     }
     for (const message of selected.values()) {
       if (handled.has(message.id)) continue
-      if (!this.prepareQueuedAttempt(message, nowMs)) continue
-      this.attemptDelivery(message, all, { viaSweep: true })
-      this.scheduleQueuedWakeRetry(message)
+      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
+      try {
+        this.attemptDelivery(message, all, { viaSweep: true })
+        this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        this.recordTriggerFailure(`message ${message.id}`, error)
+      }
+    }
+  }
+
+  deliveryStats(): MessageDeliveryStats {
+    const now = this.nowMs()
+    let oldest = this.retryPassStartedAt
+    for (const work of this.pendingDeliveryTargets.values()) {
+      oldest = oldest === null ? work.enqueuedAt : Math.min(oldest, work.enqueuedAt)
+    }
+    return {
+      pendingTargetCount: this.pendingDeliveryTargets.size,
+      coalescedTriggerCount: this.coalescedTriggerCount,
+      oldestJobAgeMs: oldest === null ? 0 : Math.max(0, now - oldest),
+      retryPageCursor: this.retryBackstopCursor,
+      retryPagesProcessed: this.retryPagesProcessed,
+      triggerFailures: this.triggerFailures,
     }
   }
 
   dispose(): void {
     if (this.deliveryTriggerTimer) clearTimeout(this.deliveryTriggerTimer)
+    if (this.reconcileTimer) clearTimeout(this.reconcileTimer)
+    if (this.retryBackstopTimer) clearTimeout(this.retryBackstopTimer)
     this.deliveryTriggerTimer = null
+    this.reconcileTimer = null
+    this.retryBackstopTimer = null
     for (const pending of this.wakeCooldownTimers.values()) clearTimeout(pending.timer)
     this.wakeCooldownTimers.clear()
     this.pendingDeliveryTargets.clear()
-    this.pendingPreferredSessions.clear()
+    this.sessionIssueTargets.clear()
   }
 
-  private queueDeliveryTarget(target: DeliveryTarget, preferred?: SessionMeta): void {
-    if (this.deps.messages.countPending(target) === 0) return
+  private queueDeliveryTarget(
+    target: DeliveryTarget,
+    preferred?: SessionMeta,
+    after?: MessagePageCursor,
+  ): void {
+    try {
+      if (this.deps.messages.countPending(target) === 0) return
+    } catch (error) {
+      this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
+      return
+    }
+
     const key = deliveryTargetKey(target)
-    this.pendingDeliveryTargets.set(key, target)
-    if (preferred) this.pendingPreferredSessions.set(key, preferred)
+    const existing = this.pendingDeliveryTargets.get(key)
+    if (existing) {
+      this.coalescedTriggerCount += 1
+      if (!after) existing.after = undefined
+      else if (existing.after && this.compareCursor(after, existing.after) < 0)
+        existing.after = after
+      if (preferred) existing.preferred = preferred
+    } else {
+      this.pendingDeliveryTargets.set(key, {
+        target,
+        ...(after ? { after } : {}),
+        ...(preferred ? { preferred } : {}),
+        enqueuedAt: this.nowMs(),
+      })
+    }
+    this.scheduleDeliveryFlush()
+  }
+
+  private scheduleDeliveryFlush(): void {
     if (this.deliveryTriggerTimer) return
     this.deliveryTriggerTimer = setTimeout(() => {
       this.deliveryTriggerTimer = null
       try {
         this.flushDeliveryTriggers()
       } catch (error) {
-        console.warn('[podium] coalesced message delivery trigger failed', error)
+        this.recordTriggerFailure('coalesced delivery flush', error)
       }
     }, 0)
     this.deliveryTriggerTimer.unref?.()
+  }
+
+  private compareCursor(a: MessagePageCursor, b: MessagePageCursor): number {
+    return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+  }
+
+  private prepareQueuedAttemptSafely(message: MessageRow, nowMs: number): boolean {
+    try {
+      return this.prepareQueuedAttempt(message, nowMs)
+    } catch (error) {
+      this.recordTriggerFailure(`prepare message ${message.id}`, error)
+      return false
+    }
+  }
+
+  private recordTriggerFailure(context: string, error: unknown): void {
+    this.triggerFailures += 1
+    console.warn(`[podium] message delivery trigger failed (${context})`, error)
   }
 
   private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
@@ -942,7 +1091,7 @@ export class MessageDeliveryService {
     // A spawn attempt IS a wake — record it against the cooldown so the sweep
     // does not re-run the spawn seam every 60s.
     if (message.fromKind !== 'operator') {
-      this.lastWakeAt.set(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`, this.nowMs())
+      this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
     }
     const r = this.deps.spawnOnWake.spawn({ issueId, message })
     if (r.ok && r.sessionId) {
@@ -1074,24 +1223,53 @@ export class MessageDeliveryService {
    *  (delivery is state-resolved, so this is idempotent and cheap). */
   sweep(): void {
     const now = this.deps.now()
-    // Implicit TTL for wait-lifecycle rows with no explicit expiry [POD-817]:
-    // issue mail with no live idle member re-queues forever otherwise, and the
-    // sweep's cost scales with the queue — the backlog made every sweep slower.
-    // Expiry only stops redelivery: the row stays readable in inbox/ledger.
     const waitImplicitCutoff = new Date(Date.parse(now) - QUEUED_WAIT_TTL_MS).toISOString()
     for (const expired of this.deps.messages.expireQueued(now, { waitImplicitCutoff })) {
       this.emitTransition(expired, 'message.expired')
     }
-    // One session listing per sweep pass [POD-817]: listSessions() builds a
-    // full wire meta for EVERY session, and a per-row call made the sweep
-    // O(queued × sessions) — 8s of main-loop CPU per minute on the live host.
-    const all = this.deps.sessions().listSessions()
-    const nowMs = Date.parse(now)
-    for (const m of this.deps.messages.listQueued(DELIVERY_RETRY_BACKSTOP_LIMIT)) {
-      if (!this.prepareQueuedAttempt(m, nowMs)) continue
-      this.attemptDelivery(m, all, { viaSweep: true })
-      this.scheduleQueuedWakeRetry(m)
+    if (this.retryBackstopTimer) return
+    this.retryBackstopCursor = null
+    this.retryPassStartedAt = Date.parse(now)
+    this.runRetryBackstopPage()
+  }
+
+  private runRetryBackstopPage(after?: MessagePageCursor): void {
+    this.retryBackstopTimer = null
+    let page: MessageRow[]
+    try {
+      page = this.deps.messages.listQueuedPage({
+        ...(after ? { after } : {}),
+        limit: DELIVERY_RETRY_BACKSTOP_LIMIT,
+      })
+    } catch (error) {
+      this.recordTriggerFailure('retry page query', error)
+      this.retryBackstopCursor = null
+      this.retryPassStartedAt = null
+      return
     }
+
+    const all = this.deps.sessions().listSessions()
+    const nowMs = this.nowMs()
+    for (const message of page) {
+      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
+      try {
+        this.attemptDelivery(message, all, { viaSweep: true })
+        this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        this.recordTriggerFailure(`retry message ${message.id}`, error)
+      }
+    }
+    this.retryPagesProcessed += 1
+
+    if (page.length < DELIVERY_RETRY_BACKSTOP_LIMIT) {
+      this.retryBackstopCursor = null
+      this.retryPassStartedAt = null
+      return
+    }
+    const next = cursorOf(page.at(-1)!)
+    this.retryBackstopCursor = next
+    this.retryBackstopTimer = setTimeout(() => this.runRetryBackstopPage(next), 0)
+    this.retryBackstopTimer.unref?.()
   }
 
   /** Deliver a pending batch into an idle session. Inline rows go FIFO; fyi
@@ -1681,19 +1859,12 @@ export class MessageDeliveryService {
   private wakeCooldownHot(key: string): boolean {
     const cutoff = this.nowMs() - WAKE_COOLDOWN_MS
     const last = this.lastWakeAt.get(key)
-    if (last !== undefined) return last >= cutoff
-    // Cold key (fresh process): derive from the durable rows so a restart
-    // never resets the brake, then cache the answer.
-    let derived = 0
-    try {
-      for (const m of this.deps.messages.listRecentWakes(new Date(cutoff).toISOString())) {
-        if (this.wakeKeyOfRow(m) !== key) continue
-        const at = Date.parse(m.deliveredAt ?? m.createdAt)
-        if (Number.isFinite(at)) derived = Math.max(derived, at)
-      }
-    } catch {}
+    if (last !== undefined) return last > cutoff
+    const attemptedAt = this.deps.messages.getWakeCooldown(key)
+    const parsed = attemptedAt ? Date.parse(attemptedAt) : 0
+    const derived = Number.isFinite(parsed) ? parsed : 0
     this.lastWakeAt.set(key, derived)
-    return derived >= cutoff
+    return derived > cutoff
   }
 
   /** Arm one timer for every queued target sharing a sender+issue cooldown key.
@@ -1704,7 +1875,7 @@ export class MessageDeliveryService {
     if (!target) return
     const last = this.lastWakeAt.get(key)
     if (last === undefined) return
-    const deadline = last + WAKE_COOLDOWN_MS + 1
+    const deadline = last + WAKE_COOLDOWN_MS
     const existing = this.wakeCooldownTimers.get(key)
     if (existing && existing.deadline === deadline) {
       existing.targets.set(deliveryTargetKey(target), target)
@@ -1731,10 +1902,16 @@ export class MessageDeliveryService {
   private recordWake(message: MessageRow, target: SessionMeta | undefined): void {
     if (message.fromKind === 'operator') return
     const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
-    this.lastWakeAt.set(
-      `${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`,
-      this.nowMs(),
-    )
+    this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
+  }
+
+  /** Durable write happens before queueText/spawn, so a crash or transport
+   * failure cannot erase the cooldown attempt. */
+  private recordWakeKey(key: string): void {
+    const attemptedAt = this.deps.now()
+    this.deps.messages.recordWakeCooldown(key, attemptedAt)
+    const parsed = Date.parse(attemptedAt)
+    this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : this.nowMs())
   }
 
   // ---- rendering ----

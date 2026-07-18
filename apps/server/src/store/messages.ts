@@ -13,6 +13,12 @@ export interface MessagePrincipalRef {
   id?: string | null
 }
 
+/** Stable keyset cursor for bounded queued-message scans. */
+export interface MessagePageCursor {
+  createdAt: string
+  id: string
+}
+
 function mapMessage(r: Record<string, unknown>): MessageRow {
   return {
     id: r.id as string,
@@ -147,8 +153,33 @@ export class MessagesRepository {
   }
 
   /** Undelivered (queued) messages awaiting a principal, oldest first. */
-  pendingFor(to: MessagePrincipalRef): MessageRow[] {
-    return this.listMessagesFor(to, { status: 'queued' })
+  pendingFor(to: MessagePrincipalRef, limit = 200): MessageRow[] {
+    return this.pendingForPage(to, { limit })
+  }
+
+  /** One bounded keyset page of queued rows for a principal. */
+  pendingForPage(
+    to: MessagePrincipalRef,
+    opts: { after?: MessagePageCursor; limit?: number } = {},
+  ): MessageRow[] {
+    const where = ['to_kind = ?', "status = 'queued'"]
+    const params: unknown[] = [to.kind]
+    if (to.kind !== 'operator') {
+      where.push('to_id = ?')
+      params.push(to.id ?? null)
+    }
+    if (opts.after) {
+      where.push('(created_at > ? OR (created_at = ? AND id > ?))')
+      params.push(opts.after.createdAt, opts.after.createdAt, opts.after.id)
+    }
+    params.push(Math.min(500, Math.max(1, opts.limit ?? 200)))
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE ${where.join(' AND ')}
+         ORDER BY created_at ASC, id ASC LIMIT ?`,
+      )
+      .all(...(params as never[])) as Record<string, unknown>[]
+    return rows.map(mapMessage)
   }
 
   countPending(to: MessagePrincipalRef): number {
@@ -249,27 +280,42 @@ export class MessagesRepository {
 
   /** Every queued (undelivered) row, oldest first — the slow sweep's retry set. */
   listQueued(limit = 500): MessageRow[] {
+    return this.listQueuedPage({ limit })
+  }
+
+  /** One bounded keyset page of the global queued delivery set. */
+  listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): MessageRow[] {
+    const where = ["status = 'queued'"]
+    const params: unknown[] = []
+    if (opts.after) {
+      where.push('(created_at > ? OR (created_at = ? AND id > ?))')
+      params.push(opts.after.createdAt, opts.after.createdAt, opts.after.id)
+    }
+    params.push(Math.min(2000, Math.max(1, opts.limit ?? 500)))
     const rows = this.db
       .prepare(
-        `SELECT * FROM messages WHERE status = 'queued'
+        `SELECT * FROM messages WHERE ${where.join(' AND ')}
          ORDER BY created_at ASC, id ASC LIMIT ?`,
       )
-      .all(Math.min(2000, Math.max(1, limit))) as Record<string, unknown>[]
+      .all(...(params as never[])) as Record<string, unknown>[]
     return rows.map(mapMessage)
   }
 
-  /** Wake-lifecycle rows attempted since `sinceIso` (delivered_at, falling
-   *  back to created_at for still-queued attempts) — restart-proof backing for
-   *  the wake-cooldown brake (#237) [spec:SP-34d7 brakes]. */
-  listRecentWakes(sinceIso: string): MessageRow[] {
-    const rows = this.db
+  /** Persist a keyed wake attempt before its external side effect. */
+  recordWakeCooldown(key: string, attemptedAt: string): void {
+    this.db
       .prepare(
-        `SELECT * FROM messages
-         WHERE lifecycle = 'wake' AND COALESCE(delivered_at, created_at) >= ?
-         ORDER BY created_at ASC, id ASC LIMIT 500`,
+        `INSERT INTO message_wake_cooldowns (key, attempted_at) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET attempted_at = excluded.attempted_at`,
       )
-      .all(sinceIso) as Record<string, unknown>[]
-    return rows.map(mapMessage)
+      .run(key, attemptedAt)
+  }
+
+  getWakeCooldown(key: string): string | null {
+    const row = this.db
+      .prepare('SELECT attempted_at FROM message_wake_cooldowns WHERE key = ?')
+      .get(key) as { attempted_at: string } | undefined
+    return row?.attempted_at ?? null
   }
 
   /** Expire queued rows whose expires_at has passed; returns the expired rows.

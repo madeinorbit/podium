@@ -37,6 +37,7 @@ function fakeIssues(
   archivedIds?: Set<string>,
   /** Per-issue coordinator session id (bare id) for prefer-coordinator routing tests. */
   coordinatorByIssue?: Map<string, string>,
+  resolveIssueForCwd?: (cwd: string) => string | null,
 ) {
   const byId = new Map([
     [ISSUE.id, ISSUE],
@@ -73,6 +74,14 @@ function fakeIssues(
     },
     has: (id: string) => byId.has(id),
     ancestorIds: () => [],
+    issueForCwd:
+      resolveIssueForCwd ??
+      ((cwd: string) =>
+        [...byId.values()].find(
+          (issue) =>
+            issue.worktreePath &&
+            (cwd === issue.worktreePath || cwd.startsWith(`${issue.worktreePath}/`)),
+        )?.id ?? null),
   } as unknown as IssueService
 }
 
@@ -142,6 +151,11 @@ interface HarnessOpts {
     queued?: boolean
     reason?: string
   }
+  sendText?: (i: { sessionId: string; text: string }) => {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  }
   spawnOnWake?: import('./service').SpawnOnWake
   now?: () => string
   /** Issue ids the fake issues dep reports as archived (dead-letter path). */
@@ -151,6 +165,8 @@ interface HarnessOpts {
   /** Reuse a prior harness's store — simulates a server restart (fresh
    *  service, same durable rows/ledger). */
   store?: SessionStore
+  /** Override inferred issue membership for cwd/rehome transition tests. */
+  issueForCwd?: (cwd: string) => string | null
 }
 
 function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -176,7 +192,13 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
-    issues: () => fakeIssues(issueGetLists, opts?.archivedIds, opts?.coordinatorByIssue),
+    issues: () =>
+      fakeIssues(
+        issueGetLists,
+        opts?.archivedIds,
+        opts?.coordinatorByIssue,
+        opts?.issueForCwd,
+      ),
     sessions: () => ({
       listSessions: () => {
         listCalls.n += 1
@@ -184,7 +206,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       },
       sendText: (i) => {
         sent.push(i)
-        return { ok: true }
+        return opts?.sendText?.(i) ?? { ok: true }
       },
       queueText: (i) => {
         queued.push(i)
@@ -3066,5 +3088,353 @@ describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
     svc.flushDeliveryTriggers()
 
     expect(sent).toHaveLength(1)
+  })
+})
+
+function queuedDeliveryRow(
+  id: string,
+  to: { kind: MessageRow['toKind']; id: string | null },
+  createdAt: string,
+  overrides: Partial<MessageRow> = {},
+): MessageRow {
+  return {
+    id,
+    threadId: id,
+    inReplyTo: null,
+    fromKind: 'superagent',
+    fromSession: null,
+    fromIssue: null,
+    toKind: to.kind,
+    toId: to.id,
+    kind: 'message',
+    urgency: 'next-turn',
+    lifecycle: 'wait',
+    body: id,
+    expiresAt: null,
+    createdAt,
+    status: 'queued',
+    deliveredAt: null,
+    deliveredTo: null,
+    readAt: null,
+    injectedAt: null,
+    deadLetteredAt: null,
+    ackedBy: null,
+    hop: 0,
+    clampedFrom: null,
+    remindedAt: null,
+    expectsResponse: false,
+    ...overrides,
+  }
+}
+
+describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () => {
+  it('continues the bounded backstop past 100 permanently ineligible rows', () => {
+    vi.useFakeTimers()
+    try {
+      const { store, svc, sent } = harness([session({ sessionId: 'deliverable' })])
+      for (let i = 0; i < 100; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_operator_${String(i).padStart(3, '0')}`,
+            { kind: 'operator', id: null },
+            `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+          ),
+        )
+      }
+      store.messages.addMessage(
+        queuedDeliveryRow(
+          'msg_newer_deliverable',
+          { kind: 'session', id: 'deliverable' },
+          '2026-07-13T00:00:01.000Z',
+        ),
+      )
+
+      svc.sweep()
+      expect(sent).toHaveLength(0)
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.text).toContain('msg_newer_deliverable')
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('continues a target scan past 200 awaiting-confirmation rows', () => {
+    vi.useFakeTimers()
+    try {
+      const { store, svc, sent } = harness([session({ sessionId: 's1' })])
+      for (let i = 0; i < 201; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_awaiting_${String(i).padStart(3, '0')}`,
+            { kind: 'session', id: 's1' },
+            `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+            {
+              urgency: 'fyi',
+              injectedAt: '2026-07-13T00:00:00.000Z',
+              deliveredTo: 's1',
+            },
+          ),
+        )
+        store.messages.markInjected(
+          `msg_awaiting_${String(i).padStart(3, '0')}`,
+          's1',
+          '2026-07-13T00:00:00.000Z',
+        )
+      }
+      store.messages.addMessage(
+        queuedDeliveryRow(
+          'msg_after_awaiting',
+          { kind: 'session', id: 's1' },
+          '2026-07-13T00:00:01.000Z',
+        ),
+      )
+
+      svc.onSessionEligibilityChanged('s1')
+      svc.flushDeliveryTriggers()
+      expect(sent).toHaveLength(0)
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.text).toContain('msg_after_awaiting')
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('enumerates more than 2000 distinct restart targets in bounded turns', () => {
+    vi.useFakeTimers()
+    try {
+      const { store, svc } = harness([])
+      for (let i = 0; i < 2001; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_restart_${String(i).padStart(4, '0')}`,
+            { kind: 'issue', id: `iss_missing_${String(i).padStart(4, '0')}` },
+            '2026-07-13T00:00:00.000Z',
+          ),
+        )
+      }
+
+      svc.reconcileQueued()
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(store.messages.getMessage('msg_restart_2000')?.status).toBe('dead_letter')
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('persists an old failed wake attempt across restart despite 500 unrelated wakes', () => {
+    vi.useFakeTimers()
+    try {
+      let clock = Date.parse('2026-07-13T00:00:00.000Z')
+      const sessions = [
+        session({
+          sessionId: 's1',
+          status: 'hibernated',
+          agentState: undefined,
+          issueId: ISSUE.id,
+          resume: { kind: 'claude', value: 'native-1' },
+        }),
+      ]
+      const first = harness(sessions, {
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: false, reason: 'offline' }),
+      })
+      for (let i = 0; i < 501; i += 1) {
+        first.store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_unrelated_wake_${String(i).padStart(3, '0')}`,
+            { kind: 'session', id: `unrelated_${i}` },
+            `2026-07-12T23:59:59.${String(i).padStart(3, '0')}Z`,
+            {
+              lifecycle: 'wake',
+              status: 'delivered',
+              deliveredAt: '2026-07-13T00:00:00.000Z',
+            },
+          ),
+        )
+      }
+      first.store.messages.addMessage(
+        queuedDeliveryRow(
+          'msg_old_failed_wake',
+          { kind: 'session', id: 's1' },
+          '2026-01-01T00:00:00.000Z',
+          { lifecycle: 'wake' },
+        ),
+      )
+
+      first.svc.onSessionEligibilityChanged('s1')
+      first.svc.flushDeliveryTriggers()
+      expect(first.queued).toHaveLength(1)
+      expect(first.store.messages.getWakeCooldown('superagent|iss_a')).toBe(
+        '2026-07-13T00:00:00.000Z',
+      )
+      first.svc.dispose()
+
+      const recovered = harness(sessions, {
+        store: first.store,
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: true, queued: true }),
+      })
+      recovered.svc.reconcileQueued()
+      expect(recovered.queued).toHaveLength(0)
+
+      clock += WAKE_COOLDOWN_MS
+      vi.advanceTimersByTime(WAKE_COOLDOWN_MS)
+      recovered.svc.flushDeliveryTriggers()
+      expect(recovered.queued).toHaveLength(1)
+      recovered.svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  for (const transition of [
+    {
+      name: 'detach',
+      initial: { issueId: ISSUE.id, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions[0] = session({
+          sessionId: 'moving',
+          cwd: '/detached',
+          draftUpdatedAt: undefined,
+        })
+        return sessions[0]
+      },
+    },
+    {
+      name: 'A to B reassignment',
+      initial: { issueId: ISSUE.id, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions[0] = session({
+          sessionId: 'moving',
+          issueId: SENDER_ISSUE.id,
+          cwd: SENDER_ISSUE.worktreePath,
+          draftUpdatedAt: undefined,
+        })
+        return sessions[0]
+      },
+    },
+    {
+      name: 'inferred cwd move',
+      initial: { issueId: undefined, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions[0] = session({
+          sessionId: 'moving',
+          cwd: SENDER_ISSUE.worktreePath,
+          draftUpdatedAt: undefined,
+        })
+        return sessions[0]
+      },
+    },
+    {
+      name: 'remove',
+      initial: { issueId: ISSUE.id, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions.splice(0, 1)
+        return undefined
+      },
+    },
+  ] as const) {
+    it(`retries the old issue principal on session ${transition.name} without an idle edge`, () => {
+      const sessions: SessionMeta[] = [
+        session({
+          sessionId: 'moving',
+          ...transition.initial,
+          draftUpdatedAt: '2026-07-13T00:00:00.000Z',
+          lastActiveAt: 'z',
+        }),
+        session({ sessionId: 'remaining', issueId: ISSUE.id, lastActiveAt: 'a' }),
+      ]
+      const { svc, sent } = harness(sessions)
+      svc.onSessionEligibilityChanged('moving', sessions[0])
+      svc.flushDeliveryTriggers()
+      svc.send(
+        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+        { to: { kind: 'issue', id: ISSUE.id }, body: `old target after ${transition.name}` },
+      )
+      expect(sent).toHaveLength(0)
+
+      const changed = transition.apply(sessions)
+      svc.onSessionEligibilityChanged('moving', changed)
+      svc.flushDeliveryTriggers()
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.sessionId).toBe('remaining')
+    })
+  }
+
+  it('retries affected session principals after an issue rehome', () => {
+    let issueForCwd = (cwd: string) => (cwd === ISSUE.worktreePath ? ISSUE.id : null)
+    const sessions = [
+      session({
+        sessionId: 's1',
+        issueId: undefined,
+        cwd: ISSUE.worktreePath,
+        draftUpdatedAt: '2026-07-13T00:00:00.000Z',
+      }),
+    ]
+    const { svc, sent } = harness(sessions, {
+      issueForCwd: (cwd) => issueForCwd(cwd),
+    })
+    svc.onSessionEligibilityChanged('s1', sessions[0])
+    svc.flushDeliveryTriggers()
+    svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'session after rehome' },
+    )
+    expect(sent).toHaveLength(0)
+
+    issueForCwd = () => null
+    sessions[0] = session({ sessionId: 's1', issueId: undefined, cwd: ISSUE.worktreePath })
+    svc.onIssueEligibilityChanged(ISSUE.id)
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.text).toContain('session after rehome')
+  })
+})
+
+describe('delivery trigger isolation and observability [POD-842]', () => {
+  it('continues startup recovery after one target transport throws', () => {
+    const sessions = [session({ sessionId: 'bad' }), session({ sessionId: 'good' })]
+    const { store, svc } = harness(sessions, {
+      sendText: ({ sessionId }) => {
+        if (sessionId === 'bad') throw new Error('transport exploded')
+        return { ok: true }
+      },
+    })
+    store.messages.addMessage(
+      queuedDeliveryRow(
+        'msg_bad_startup',
+        { kind: 'session', id: 'bad' },
+        '2026-07-13T00:00:00.000Z',
+      ),
+    )
+    store.messages.addMessage(
+      queuedDeliveryRow(
+        'msg_good_startup',
+        { kind: 'session', id: 'good' },
+        '2026-07-13T00:00:01.000Z',
+      ),
+    )
+
+    expect(() => svc.reconcileQueued()).not.toThrow()
+    expect(store.messages.getMessage('msg_good_startup')?.injectedAt).not.toBeNull()
+    expect(svc.deliveryStats()).toMatchObject({
+      pendingTargetCount: 0,
+      triggerFailures: 1,
+    })
+    expect(svc.deliveryStats().coalescedTriggerCount).toBeGreaterThan(0)
+    svc.dispose()
   })
 })

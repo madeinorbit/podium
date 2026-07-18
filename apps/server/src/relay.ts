@@ -1127,7 +1127,14 @@ export class SessionRegistry {
     issues.boot()
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
-    messagesSvc.reconcileQueued()
+    try {
+      messagesSvc.reconcileQueued()
+    } catch (error) {
+      console.warn(
+        '[podium] queued message startup recovery failed; retry backstop remains active',
+        error,
+      )
+    }
     this.steward = new StewardService({
       store: this.store.events,
       facts: this.store.notificationFacts,

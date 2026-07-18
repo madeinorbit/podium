@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentPhase, AgentRuntimeState, ControlMessage, ServerMessage } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { MessageDeliveryService } from './modules/messages/service'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
 
@@ -3113,4 +3114,30 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       registry.dispose()
     }
   })
+
+describe('message startup recovery isolation [POD-842] [spec:SP-c29e]', () => {
+  it('keeps registry boot alive when the recovery job throws', () => {
+    const reconcile = vi
+      .spyOn(MessageDeliveryService.prototype, 'reconcileQueued')
+      .mockImplementationOnce(() => {
+        throw new Error('corrupt recovery row')
+      })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    let registry: SessionRegistry | undefined
+    try {
+      expect(() => {
+        registry = new SessionRegistry()
+      }).not.toThrow()
+      expect(warn).toHaveBeenCalledWith(
+        '[podium] queued message startup recovery failed; retry backstop remains active',
+        expect.any(Error),
+      )
+    } finally {
+      registry?.dispose()
+      reconcile.mockRestore()
+      warn.mockRestore()
+    }
+  })
+})
+
 })

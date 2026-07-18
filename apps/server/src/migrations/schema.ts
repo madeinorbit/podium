@@ -529,6 +529,8 @@ export const messages = sqliteTable("messages", {
 (table) => [index("idx_messages_delivered_to").on(table.deliveredTo),
 index("idx_messages_thread").on(table.threadId),
 index("idx_messages_recipient").on(table.toKind, table.toId, table.status),
+index("idx_messages_recipient_order").on(table.toKind, table.toId, table.status, table.createdAt, table.id),
+index("idx_messages_queue_order").on(table.status, table.createdAt, table.id),
 check("messages_check_5", sql`from_kind IN ('operator','superagent','agent','system')`),
 check("messages_check_6", sql`to_kind IN ('issue','session','operator')`),
 check("messages_check_7", sql`kind IN ('message','ack','notification','question')`),
@@ -536,6 +538,11 @@ check("messages_check_8", sql`urgency IN ('fyi','next-turn','interrupt')`),
 check("messages_check_9", sql`lifecycle IN ('wait','wake')`),
 check("messages_check_10", sql`status IN ('queued','delivered','read','dead_letter','expired','cancelled')`),
 ]);
+
+export const messageWakeCooldowns = sqliteTable("message_wake_cooldowns", {
+	key: text().primaryKey(),
+	attemptedAt: text("attempted_at").notNull(),
+});
 
 export const recapWatermarks = sqliteTable("recap_watermarks", {
 	reader: text().notNull(),
