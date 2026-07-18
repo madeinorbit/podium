@@ -173,6 +173,13 @@ export const sessionDrafts = sqliteTable("session_drafts", {
 	sessionId: text("session_id").primaryKey(),
 	text: text().notNull(),
 	updatedAt: text("updated_at").notNull(),
+	// Draft Sync v2 (POD-859): versioned-draft columns — server-assigned rev, the
+	// last-writer origin, and a JSON history ring. Additive; legacy rows default
+	// (rev 0, origin/history NULL). The store reads/writes are ALSO column-guarded
+	// as defense-in-depth, but drizzle applies by NAME so this migration always runs.
+	rev: integer("rev").default(0).notNull(),
+	origin: text("origin"),
+	history: text("history"),
 });
 
 export const snoozes = sqliteTable("snoozes", {
