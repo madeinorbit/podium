@@ -57,8 +57,15 @@ import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
 import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
+import { createViewKey, type PublicationView, type ViewKey } from './publish-worker-actor'
+import {
+  PublicationSupersededError,
+  PublishWorkerClient,
+  type PublishWorkerMetrics,
+} from './publish-worker-client'
 import {
   type ClientConn,
+  type ClientPublicationAuthority,
   type Send,
   Session,
   type SessionDurableState,
@@ -253,6 +260,7 @@ export class SessionsService {
   private readonly autoContinue: AutoContinueController
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
   private readonly funnel: WriteFunnel
+  private readonly publicationWorker = new PublishWorkerClient()
 
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
@@ -386,6 +394,7 @@ export class SessionsService {
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
     this.flushBroadcasts()
+    this.publicationWorker.stop()
   }
 
   /** Current server-local session projection generation. Never sent to clients. */
@@ -410,6 +419,7 @@ export class SessionsService {
       changes: sessionChanges,
       ledgerCursor,
     }
+    this.publicationWorker.applyProjection(event)
     for (const listener of this.sessionProjectionListeners) {
       try {
         listener(event)
@@ -480,6 +490,11 @@ export class SessionsService {
       // projection event: patch consumers need only the captured final truth.
       if (!changes.some((change) => change.entity === 'session')) {
         this.sessionsGeneration_++
+        this.publicationWorker.replaceProjection({
+          generation: this.sessionsGeneration_,
+          ledgerCursor: this.funnel.cursor(),
+          sessions: this.listSessions(),
+        })
       }
       for (const [sessionId, pendingState] of pending) {
         const session = this.sessions.get(sessionId)
@@ -821,6 +836,13 @@ export class SessionsService {
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
     )
     this.publishSessionProjection(recovered)
+    // A fully deduped boot reconcile emits no patch. Reset explicitly so a new
+    // worker (or one recovering from a crash) still begins from restored truth.
+    this.publicationWorker.replaceProjection({
+      generation: this.sessionsGeneration_,
+      ledgerCursor: this.funnel.cursor(),
+      sessions: this.listSessions(),
+    })
   }
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
@@ -2555,11 +2577,7 @@ export class SessionsService {
    * Hibernate does not land here. Best-effort log write — a store throw must
    * not undo the exit side-effects already applied.
    */
-  private emitSessionExited(
-    sessionId: string,
-    code: number,
-    spawnedBy?: string | null,
-  ): void {
+  private emitSessionExited(sessionId: string, code: number, spawnedBy?: string | null): void {
     this.bus.emit('session.exited', { sessionId, code })
     try {
       this.store.events.appendEvent({
@@ -2743,11 +2761,13 @@ export class SessionsService {
   }
 
   // ---- ws data plane: clients ----
-  attachClient(send: Send<ServerMessage>): string {
+  attachClient(send: Send<ServerMessage>, publication?: ClientPublicationAuthority): string {
     const id = `c${this.nextClientNum++}`
     this.clients.set(id, {
       id,
       send,
+      ...(publication ? { publication } : {}),
+      publicationBootstrapped: false,
       viewports: new Map(),
       attached: new Set(),
       // No caps until hello — the bootstrap snapshots below are sent to everyone
@@ -2769,7 +2789,8 @@ export class SessionsService {
       viewModes: {},
     })
     send({ type: 'welcome', clientId: id })
-    send({ type: 'sessionsChanged', sessions: this.listSessions() })
+    if (publication) this.schedulePreparedSessionPublications()
+    else send({ type: 'sessionsChanged', sessions: this.listSessions() })
     send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
     send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
     send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
@@ -2788,6 +2809,16 @@ export class SessionsService {
     // needs-attention affordance for the next client. [spec:SP-a43e]
     for (const request of this.pendingOpenUrls.values()) send(request)
     return id
+  }
+
+  /** Authorization/view invalidation seam: the main authority changed one client world. */
+  refreshClientPublication(id: string): void {
+    if (!this.clients.get(id)?.publication) return
+    this.schedulePreparedSessionPublications()
+  }
+
+  publicationMetrics(): PublishWorkerMetrics {
+    return this.publicationWorker.metrics()
   }
 
   detachClient(id: string): void {
@@ -2933,6 +2964,12 @@ export class SessionsService {
         // Feature negotiation (spec §2.3): from here on this client gets metadata
         // deltas instead of full-list snapshot rebroadcasts.
         if (msg.caps) client.caps = new Set(msg.caps)
+        // The worker bootstrap may have been prepared against the pre-hello
+        // capability ViewKey. Rebuild under the negotiated key; the stale result
+        // is rejected at the main-loop send boundary.
+        if (client.publication && !client.publicationBootstrapped) {
+          this.schedulePreparedSessionPublications()
+        }
         // Reconnect identity. A client re-presents the id it was given on its
         // previous socket. Hand that now-stale client's controller roles to this
         // one and evict it, so a dropped or half-open socket doesn't strand the
@@ -3005,6 +3042,7 @@ export class SessionsService {
           this.mutateSessionView(sid, (session) => session.reconcileGeometry(id))
         }
         this.pushPriorities()
+        this.reprioritizePreparedSessionPublications()
         break
       case 'setSessionDraft':
         this.setSessionDraft(msg, id)
@@ -3631,14 +3669,24 @@ export class SessionsService {
       perf.record('phase', 'sessionsBroadcast.list', tList - t0)
       // Every non-boot mutation was already captured at its owning seam. This hot
       // path only builds the legacy snapshot; full reconcile is boot/recovery-only.
-      const key = JSON.stringify(sessions)
-      const tStringify = performance.now()
-      perf.record('phase', 'sessionsBroadcast.stringify', tStringify - tList, key.length)
+      const hasMainEncodedReceivers = [...this.clients.values()].some(
+        (client) => !client.caps.has(CAP_METADATA_DELTA) && !client.publication,
+      )
+      const mainEncodedBytes = hasMainEncodedReceivers ? JSON.stringify(sessions).length : 0
+      perf.record(
+        'phase',
+        'sessionsBroadcast.stringify',
+        performance.now() - tList,
+        mainEncodedBytes,
+      )
       // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
       // captured at their owning seams and ride the funnel's ordered onAppended
       // pipe — recording here again would double-append.
       const tFanout0 = performance.now()
-      this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
+      if (hasMainEncodedReceivers) {
+        this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
+      }
+      this.schedulePreparedSessionPublications()
       // Snapshot receivers = the non-delta-cap clients (see fanOutSnapshot).
       let receivers = 0
       for (const c of this.clients.values()) {
@@ -3648,7 +3696,7 @@ export class SessionsService {
         'phase',
         'sessionsBroadcast.fanout',
         performance.now() - tFanout0,
-        key.length * receivers,
+        mainEncodedBytes * receivers,
       )
       // Session changes also change issues' DERIVED member data (sessions/summary),
       // so keep issue clients live. The publisher builds the payload ONCE (allWire()
@@ -3695,12 +3743,116 @@ export class SessionsService {
    */
   fanOutSnapshot(snapshot: ServerMessage, opts: { snapshotToCapClients?: boolean } = {}): void {
     for (const c of this.clients.values()) {
+      if (snapshot.type === 'sessionsChanged' && c.publication) continue
       if (c.caps.has(CAP_METADATA_DELTA)) {
         if (opts.snapshotToCapClients) c.send(snapshot)
       } else {
         c.send(snapshot)
       }
     }
+  }
+
+  private publicationView(client: ClientConn): PublicationView | undefined {
+    const authority = client.publication
+    if (!authority) return undefined
+    return {
+      key: createViewKey({
+        principal: authority.principal,
+        scope: authority.scope,
+        serverRole: authority.serverRole,
+        protocolVersion: authority.protocolVersion,
+        capabilities: [...client.caps],
+      }),
+      revision: authority.revision(),
+      // The worker filters only an already-authorized id set. It never receives
+      // a capability object or enough issue data to make this decision itself.
+      allowedSessionIds: [...authority.allowedSessionIds()],
+    }
+  }
+
+  private schedulePreparedSessionPublications(): void {
+    type Group = {
+      view: PublicationView
+      clients: ClientConn[]
+      focused: boolean
+      allowedSignature: string
+    }
+    const groups = new Map<ViewKey, Group>()
+    for (const client of this.clients.values()) {
+      if (!client.publication) continue
+      if (client.publicationBootstrapped && client.caps.has(CAP_METADATA_DELTA)) continue
+      const view = this.publicationView(client)
+      if (!view) continue
+      const allowedSignature = JSON.stringify([...new Set(view.allowedSessionIds)].sort())
+      const group = groups.get(view.key)
+      if (group) {
+        // Equal ViewKeys must be equal worlds. Fail closed if an authority violates
+        // that invariant instead of sharing one client's bytes with another.
+        if (group.view.revision !== view.revision || group.allowedSignature !== allowedSignature) {
+          console.error('[sessions] conflicting authorization result for equal publication ViewKey')
+          continue
+        }
+        group.clients.push(client)
+        group.focused ||= client.focused !== null
+      } else {
+        groups.set(view.key, {
+          view,
+          clients: [client],
+          focused: client.focused !== null,
+          allowedSignature,
+        })
+      }
+    }
+
+    // Submit focused worlds first so an idle worker never starts background work
+    // merely because that client happened to connect first.
+    const ordered = [...groups.values()].sort(
+      (left, right) => Number(right.focused) - Number(left.focused),
+    )
+    for (const group of ordered) {
+      const recipientIds = group.clients.map((client) => client.id)
+      void this.publicationWorker
+        .request({ view: group.view, sinceCursor: null }, { focused: group.focused })
+        .then((publication) => {
+          perf.record(
+            'phase',
+            'sessionsBroadcast.workerBytes',
+            0,
+            publication.bytes.length * recipientIds.length,
+          )
+          for (const id of recipientIds) {
+            const client = this.clients.get(id)
+            if (!client?.publication) continue
+            if (client.publicationBootstrapped && client.caps.has(CAP_METADATA_DELTA)) continue
+            const current = this.publicationView(client)
+            if (
+              !current ||
+              current.key !== publication.viewKey ||
+              current.revision !== publication.viewRevision ||
+              JSON.stringify([...new Set(current.allowedSessionIds)].sort()) !==
+                group.allowedSignature
+            ) {
+              continue
+            }
+            client.publication.sendPrepared(publication.bytes)
+            client.publicationBootstrapped = true
+          }
+        })
+        .catch((error) => {
+          if (error instanceof PublicationSupersededError) return
+          console.warn('[sessions] prepared publication failed', error)
+        })
+    }
+  }
+
+  private reprioritizePreparedSessionPublications(): void {
+    const focused = new Set<ViewKey>()
+    for (const client of this.clients.values()) {
+      if (client.focused === null) continue
+      const view = this.publicationView(client)
+      if (view) focused.add(view.key)
+    }
+    this.publicationWorker.prioritize(focused)
   }
 
   /** The delta half of the split fan-out: one `metadataDelta` batch (stamped

@@ -18,9 +18,23 @@ import { perf } from '../perf/registry'
 
 export type Send<T> = (msg: T) => void
 
+/** Main-authority result used to construct and filter a publication ViewKey. */
+export interface ClientPublicationAuthority {
+  sendPrepared: Send<string>
+  principal: string
+  scope: string
+  serverRole: string
+  protocolVersion: number
+  revision(): number
+  allowedSessionIds(): readonly string[]
+}
+
 export interface ClientConn {
   id: string
   send: Send<ServerMessage>
+  publication?: ClientPublicationAuthority
+  /** Raw worker bootstrap has reached this socket (delta-cap clients need it once). */
+  publicationBootstrapped?: boolean
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one

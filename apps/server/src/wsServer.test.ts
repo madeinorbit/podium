@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
 import { encode } from '@podium/protocol'
-import { type HeartbeatSocket, safeSend, type SendSocket, sweepClientLiveness } from './wsServer'
+import { describe, expect, it, vi } from 'vitest'
+import { type HeartbeatSocket, safeSend, safeSendEncoded, sweepClientLiveness } from './wsServer'
 
 function fakeSocket(readyState = 1) {
   return { readyState, ping: vi.fn(), terminate: vi.fn() }
@@ -25,6 +25,13 @@ describe('safeSend', () => {
     expect(ws.send).toHaveBeenCalledOnce()
     expect(ws.send).toHaveBeenCalledWith(encode(msg))
     expect(ws.terminate).not.toHaveBeenCalled()
+  })
+
+  it('sends already-prepared publication bytes without encoding them again', () => {
+    const ws = fakeSendSocket()
+    const bytes = '{"type":"sessionsChanged","sessions":[]}'
+    safeSendEncoded(ws, bytes, LIMIT)
+    expect(ws.send).toHaveBeenCalledWith(bytes)
   })
 
   it('terminates (does not send) a slow socket whose send buffer exceeds the limit', () => {

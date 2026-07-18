@@ -8,10 +8,11 @@ import {
   parseDaemonHandshake,
   parseDaemonMessage,
   versionSupport,
+  WIRE_VERSION,
 } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
-import type { SessionRegistry } from './relay'
 import type { Send } from './modules/sessions/session'
+import type { SessionRegistry } from './relay'
 
 export interface WsHandle {
   close(): Promise<void>
@@ -25,6 +26,10 @@ export interface WsAuthOptions {
    * link is unaffected — it has its own pre-auth handshake.
    */
   authorizeClient?: (req: IncomingMessage) => boolean
+  /** ViewKey identity supplied by the main authority (defaults to local operator). */
+  principal?: string
+  scope?: string
+  serverRole?: string
 }
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
@@ -125,13 +130,18 @@ export interface SendSocket {
  * this process's memory unbounded. Exported for deterministic unit testing.
  */
 export function safeSend(ws: SendSocket, msg: Parameters<typeof encode>[0], limit: number): void {
+  safeSendEncoded(ws, encode(msg), limit)
+}
+
+/** Same backpressure/dead-socket gate for bytes already encoded in the worker. */
+export function safeSendEncoded(ws: SendSocket, bytes: string, limit: number): void {
   if (ws.readyState !== 1 /* OPEN */) return
   if (ws.bufferedAmount > limit) {
     ws.terminate()
     return
   }
   try {
-    ws.send(encode(msg))
+    ws.send(bytes)
   } catch {
     // Socket went away between the readyState check and the send — drop the frame;
     // the heartbeat sweep (or this same gate next time) reaps it.
@@ -321,8 +331,23 @@ export function attachWebSockets(
 
   // Liveness marks for client sockets: present = ponged since the last sweep.
   const aliveClients = new WeakSet<HeartbeatSocket>()
-  clientWss.on('connection', (ws) => {
-    const id = registry.modules.sessions.attachClient((msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES))
+  clientWss.on('connection', (ws, req) => {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
+    const protocolVersion = rawVersion === null ? WIRE_VERSION : Number(rawVersion)
+    const id = registry.modules.sessions.attachClient(
+      (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES),
+      {
+        sendPrepared: (bytes) => safeSendEncoded(ws, bytes, SEND_BUFFER_LIMIT_BYTES),
+        principal: auth.principal ?? 'operator',
+        scope: auth.scope ?? 'all',
+        serverRole: auth.serverRole ?? 'standalone',
+        protocolVersion,
+        revision: () => 0,
+        allowedSessionIds: () =>
+          registry.modules.sessions.listSessions().map((session) => session.sessionId),
+      },
+    )
     aliveClients.add(ws)
     ws.on('pong', () => aliveClients.add(ws))
     ws.on('message', (raw: import('ws').RawData) => {
