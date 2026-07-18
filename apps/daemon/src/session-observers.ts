@@ -1,10 +1,10 @@
 import { stat } from 'node:fs/promises'
 import {
-  ClaudeCausalObserver,
   type AgentRuntimeState,
   type AgentSession,
   type AgentStateEvent,
   type AgentStateProvider,
+  ClaudeCausalObserver,
   type HarnessAdapter,
   type HarnessObservation,
   type HarnessObserveInput,
@@ -20,6 +20,7 @@ import type {
   ObservationInputOrigin,
   TranscriptItem,
 } from '@podium/protocol'
+import { SessionObservationCheckpointV1 } from '@podium/protocol'
 import {
   createSharedStatTick,
   recordToItemsForKind,
@@ -117,6 +118,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     { adapter: HarnessAdapter; observation: HarnessObservation }
   >()
   type ClaudeLease = {
+    checkpoint?: SessionObservationCheckpointV1
     observerGeneration: number
     bindingVersion: number
     cwd: string
@@ -163,20 +165,28 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       return
     }
 
+    const checkpoint =
+      lease.checkpoint &&
+      (lease.checkpoint.providerSessionId === null ||
+        lease.checkpoint.providerSessionId === providerSessionId)
+        ? lease.checkpoint
+        : undefined
     let bootstrapOffset = 0
     try {
       bootstrapOffset = (await stat(transcriptPath)).size
     } catch {}
-    let bootstrapState = initialAgentState(new Date().toISOString())
-    try {
-      for (const event of (await tracker.provider.bootEvents?.({
-        cwd: lease.cwd,
-        resumeValue: providerSessionId,
-        pathHint: transcriptPath,
-      })) ?? []) {
-        bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
-      }
-    } catch {}
+    let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
+    if (!checkpoint) {
+      try {
+        for (const event of (await tracker.provider.bootEvents?.({
+          cwd: lease.cwd,
+          resumeValue: providerSessionId,
+          pathHint: transcriptPath,
+        })) ?? []) {
+          bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
+        }
+      } catch {}
+    }
     // UserPromptSubmit is the causal boundary. Claude may append the prompt to
     // JSONL before posting the hook, so a tail classification at hook receipt
     // can already say working. Snapshot the pre-signal side of that boundary;
@@ -198,6 +208,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       providerSessionId,
       transcriptPath,
       bootstrapState,
+      ...(checkpoint ? { acceptedCheckpoint: checkpoint } : {}),
       bootstrapOffset,
     })
     for (const origin of pendingClaudeOrigins.get(sessionId) ?? [])
@@ -467,10 +478,17 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       msg.observationGeneration !== undefined &&
       msg.observationBindingVersion !== undefined
     ) {
+      const checkpoint = SessionObservationCheckpointV1.safeParse(msg.observationCheckpoint)
       claudeLeases.set(msg.sessionId, {
         observerGeneration: msg.observationGeneration,
         bindingVersion: msg.observationBindingVersion,
         cwd: msg.cwd,
+        ...(checkpoint.success &&
+        checkpoint.data.podiumSessionId === msg.sessionId &&
+        checkpoint.data.provider === 'claude-code' &&
+        checkpoint.data.bindingVersion === msg.observationBindingVersion
+          ? { checkpoint: checkpoint.data }
+          : {}),
       })
     }
     const adapter = harnessAdapterFor(msg.agentKind)

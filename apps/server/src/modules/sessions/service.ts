@@ -24,8 +24,8 @@ import {
   type LiveServerMessage,
   MAX_AGENT_TITLE_LENGTH,
   type MetadataChange,
-  type ObservationProvider,
   type ObservationInputOrigin,
+  type ObservationProvider,
   type ResumeRef,
   type ServerMessage,
   type SessionMeta,
@@ -1042,6 +1042,9 @@ export class SessionsService {
           ? {
               observationGeneration: observationLease.observationGeneration,
               observationBindingVersion: observationLease.bindingVersion,
+              ...(observationLease.checkpoint
+                ? { observationCheckpoint: observationLease.checkpoint }
+                : {}),
             }
           : {}),
         ...(s.resume ? { resume: s.resume } : {}),
@@ -3269,6 +3272,9 @@ export class SessionsService {
         ? {
             observationGeneration: observationLease.observationGeneration,
             observationBindingVersion: observationLease.bindingVersion,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
@@ -3606,6 +3612,9 @@ export class SessionsService {
         ? {
             observationGeneration: observationLease.observationGeneration,
             observationBindingVersion: observationLease.bindingVersion,
+            ...(observationLease.checkpoint
+              ? { observationCheckpoint: observationLease.checkpoint }
+              : {}),
           }
         : {}),
       ...(input.resume ? { resume: input.resume } : {}),
