@@ -76,6 +76,18 @@ export interface IssueCommandDeps {
     sessionId: string,
     answer: string,
   ): Promise<{ ok: true; via: 'menu' | 'text' } | { ok: false; message: string }>
+  /** Stop every session on an issue and free its worktree (keep branch)
+   *  [spec:SP-9904]. Injected from SessionsService; optional in bare tests. */
+  stopIssueSessions?(input: {
+    issueId: string
+    force?: boolean
+    callerSessionId?: string
+  }): Promise<{
+    ok: boolean
+    reason?: string
+    stopped: string[]
+    worktreeFreed: boolean
+  }>
 }
 
 export type IssueCommandKind = 'query' | 'mutation'
@@ -829,6 +841,48 @@ const defs = {
         })
       }
       return ctx.issues.cleanup(input.id)
+    },
+  }),
+  // Stop every session on the issue and free the worktree, keeping the branch
+  // [spec:SP-9904]. Scope-gated like other issue writes (self/subtree free;
+  // outside needs --outside-scope). Local-only — hub-mirrored issues refuse.
+  stop: def({
+    kind: 'mutation',
+    input: z.object({
+      id: z.string(),
+      force: z.boolean().optional(),
+    }),
+    action: 'write',
+    scope: 'issue',
+    target: targetId,
+    handler: async (ctx, input) => {
+      if (ctx.deps.isUpstreamIssue(input.id)) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            'stop is local-only: this issue is managed via the hub — run stop on the machine that owns its sessions',
+        })
+      }
+      if (!ctx.deps.stopIssueSessions) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'stopIssueSessions is not wired',
+        })
+      }
+      const r = await ctx.deps.stopIssueSessions({
+        issueId: input.id,
+        ...(input.force ? { force: true } : {}),
+        ...(ctx.caller.capability.actorSessionId
+          ? { callerSessionId: ctx.caller.capability.actorSessionId }
+          : {}),
+      })
+      if (!r.ok) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: r.reason ?? 'stop refused',
+        })
+      }
+      return r
     },
   }),
   // Write, not manage: builds/reset a dedicated integration worktree+branch only —

@@ -137,6 +137,7 @@ export const ISSUE_COMMAND_NAMES = [
   'stale',
   'start',
   'stats',
+  'stop',
   'subscriptionAdd',
   'subscriptionList',
   'subscriptionRemove',

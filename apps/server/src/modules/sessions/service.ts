@@ -1355,7 +1355,7 @@ export class SessionsService {
       : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
   }
 
-  resumeSession(input: {
+  async resumeSession(input: {
     agentKind: AgentKind
     cwd: string
     resume: ResumeRef
@@ -1366,7 +1366,7 @@ export class SessionsService {
      *  lands on an existing row (reuse/resurrect below), that row's original
      *  spawnedBy is kept — a resume never rewrites who created the session. */
     spawnedBy?: string
-  }): { sessionId: string } {
+  }): Promise<{ sessionId: string }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1378,7 +1378,8 @@ export class SessionsService {
     const existing = this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
-        this.resurrectSession({ sessionId: existing.sessionId })
+        const woke = await this.resurrectSession({ sessionId: existing.sessionId })
+        if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
         // timer — the user is back on it even with no new message. (resurrectSession
@@ -1741,7 +1742,13 @@ export class SessionsService {
       if (session.offer !== undefined) this.clearOffer(sessionId)
       this.broadcastSessions()
     }
-    if (parked) this.resurrectSession({ sessionId })
+    if (parked) {
+      // Fire-and-forget wake; drain re-arms on liveness. Async so a freed
+      // worktree can be recreated before spawn [spec:SP-9904].
+      void this.resurrectSession({ sessionId }).then((r) => {
+        if (!r.ok) console.warn(`[podium] wake-on-queue failed for ${sessionId}: ${r.reason}`)
+      })
+    }
     this.drainQueuedMessages(sessionId)
     return { ok: true, queued: true }
   }
@@ -2003,6 +2010,191 @@ export class SessionsService {
   }
 
   /**
+   * Cleanly end a session [spec:SP-9904]: stop its process, free the issue
+   * worktree when safe, KEEP branch + transcript + session row (reversible —
+   * resume recreates the worktree from the branch). Distinct from hibernate
+   * (keeps worktree) and kill/delete (removes the row).
+   *
+   * Unsaved-work guard: dirty/conflicted working tree refuses without `force`.
+   * Self-stop (`selfStop`) defers the process kill so the CLI/relay reply
+   * lands before the agent dies.
+   */
+  async stopSession(input: {
+    sessionId: string
+    force?: boolean
+    /** True when the CALLER is stopping itself — defer process kill. */
+    selfStop?: boolean
+  }): Promise<{
+    ok: boolean
+    reason?: string
+    worktreeFreed?: boolean
+    deferredKill?: boolean
+  }> {
+    const rejected = this.upstreamRejection(input.sessionId)
+    if (rejected) return rejected
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+
+    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
+    const issue = issueId ? this.issues().getMeta(issueId) : undefined
+    const worktreePath = issue?.worktreePath ?? null
+
+    // Unsaved-work guard: inspect the working copy when present. Branch commits
+    // alone are not a refusal — the branch is always kept.
+    if (worktreePath && !input.force) {
+      const st = await this.rpc.repoOp(
+        'status',
+        worktreePath,
+        undefined,
+        session.machineId === LOCAL_PLACEHOLDER ? undefined : session.machineId,
+      )
+      if (st.ok) {
+        const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
+        if (dirty.length > 0) {
+          return {
+            ok: false,
+            reason: `refusing stop: unsaved changes in the working tree (re-run with --force to free the worktree and discard them; branch is kept either way):\n${dirty.join('\n')}`,
+          }
+        }
+      } else if (!/cannot change to .*: no such file or directory/i.test(st.output)) {
+        return {
+          ok: false,
+          reason: `refusing stop: cannot inspect worktree: ${st.output}`,
+        }
+      }
+    }
+
+    const wasRunning =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+
+    // Park the row first (keep resume ref + transcript). Shells have no resume
+    // ref — stop still parks them as exited so they stay inspectable.
+    if (wasRunning) {
+      if (session.agentKind !== 'shell' && !session.resume) {
+        // No resume ref yet: still stop the process but mark exited rather than
+        // hibernated (same inspectability; resume may not recover conversation).
+        session.status = 'exited'
+        session.exitCode = session.exitCode ?? 0
+      } else {
+        session.status = 'hibernated'
+      }
+      this.autoContinue.onSessionGone(input.sessionId)
+      this.persist(session)
+      this.broadcastSessions()
+
+      const kill = (): void => {
+        this.toMachine(session.machineId, {
+          type: 'kill',
+          sessionId: input.sessionId,
+          durableLabel: session.durableLabel,
+        })
+      }
+      if (input.selfStop) {
+        // Let the agentRelayResult / CLI response return before the PTY dies.
+        setTimeout(kill, 250)
+      } else {
+        kill()
+      }
+    } else if (session.status !== 'hibernated' && session.status !== 'exited') {
+      return { ok: false, reason: `cannot stop session in status '${session.status}'` }
+    }
+
+    // Free worktree only when no live/starting sessions remain on this issue.
+    let worktreeFreed = false
+    if (issueId && worktreePath) {
+      const members = sessionsForIssue(worktreePath, this.listSessions(), issueId)
+      const stillLive = members.some(
+        (m) =>
+          m.sessionId !== input.sessionId &&
+          (m.status === 'live' || m.status === 'starting' || m.status === 'reconnecting'),
+      )
+      if (!stillLive) {
+        const freed = await this.issues().freeWorktreeKeepBranch(issueId, {
+          force: input.force === true,
+        })
+        if (!freed.ok) {
+          // Process already parked; surface the free failure but report partial ok
+          // so the agent knows the session stopped even if the worktree stayed.
+          return {
+            ok: true,
+            reason: `session stopped but worktree not freed: ${freed.output}`,
+            worktreeFreed: false,
+            deferredKill: input.selfStop === true && wasRunning,
+          }
+        }
+        worktreeFreed = freed.worktreeFreed
+      }
+    }
+
+    return {
+      ok: true,
+      worktreeFreed,
+      deferredKill: input.selfStop === true && wasRunning,
+    }
+  }
+
+  /**
+   * Stop every session on an issue, then free the issue worktree (keep branch)
+   * [spec:SP-9904].
+   */
+  async stopIssue(input: {
+    issueId: string
+    force?: boolean
+    /** Session performing the stop (for self-stop deferral when it is a member). */
+    callerSessionId?: string
+  }): Promise<{
+    ok: boolean
+    reason?: string
+    stopped: string[]
+    worktreeFreed: boolean
+  }> {
+    const issue = this.issues().getMeta(input.issueId)
+    if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
+    const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), input.issueId)
+    const stopped: string[] = []
+    for (const m of members) {
+      const r = await this.stopSession({
+        sessionId: m.sessionId,
+        force: input.force,
+        selfStop: input.callerSessionId === m.sessionId,
+      })
+      if (!r.ok) {
+        return {
+          ok: false,
+          reason: r.reason ?? `failed to stop session ${m.sessionId}`,
+          stopped,
+          worktreeFreed: false,
+        }
+      }
+      stopped.push(m.sessionId)
+    }
+    // Final free pass (in case members were already parked and free deferred).
+    // A member stop may already have freed; treat path-null + branch-kept as freed.
+    let worktreeFreed = false
+    const stillHasWt = this.issues().getMeta(input.issueId)?.worktreePath
+    if (stillHasWt) {
+      const freed = await this.issues().freeWorktreeKeepBranch(input.issueId, {
+        force: input.force === true,
+      })
+      if (!freed.ok) {
+        return {
+          ok: true,
+          reason: `sessions stopped but worktree not freed: ${freed.output}`,
+          stopped,
+          worktreeFreed: false,
+        }
+      }
+      worktreeFreed = freed.worktreeFreed
+    } else {
+      const after = this.issues().getMeta(input.issueId)
+      worktreeFreed = Boolean(after?.branch && !after.worktreePath)
+    }
+    return { ok: true, stopped, worktreeFreed }
+  }
+
+  /**
    * Park a live session: kill its process (and durable host) but keep the row,
    * its transcript, and the resume ref. One click brings it back. Returns false
    * when the session can't come back later (no resume ref) — we refuse rather
@@ -2197,7 +2389,7 @@ export class SessionsService {
           worktreePath: imported.worktreeRoot,
         })
       }
-      const resumed = this.resumeSession({
+      const resumed = await this.resumeSession({
         agentKind: session.agentKind,
         cwd: session.cwd,
         resume: session.resume,
@@ -2215,7 +2407,7 @@ export class SessionsService {
       session.cwd = source.cwd
       session.status = 'hibernated'
       this.persist(session)
-      const rollback = this.resurrectSession({ sessionId: session.sessionId })
+      const rollback = await this.resurrectSession({ sessionId: session.sessionId })
       if (!rollback.ok)
         console.warn(
           `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
@@ -2378,8 +2570,14 @@ export class SessionsService {
     return this.queueText({ sessionId, text, mutationId })
   }
 
-  /** Wake a hibernated session: respawn under the same id with its resume ref. */
-  resurrectSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+  /** Wake a hibernated session: respawn under the same id with its resume ref.
+   *  If stop freed the worktree, recreates it from the preserved branch first
+   *  [spec:SP-9904]. */
+  async resurrectSession({
+    sessionId,
+  }: {
+    sessionId: string
+  }): Promise<{ ok: boolean; reason?: string }> {
     const rejected = this.upstreamRejection(sessionId)
     if (rejected) return rejected
     const session = this.sessions.get(sessionId)
@@ -2396,6 +2594,15 @@ export class SessionsService {
     if (session.agentKind !== 'shell' && !session.resume) {
       return { ok: false, reason: 'no resume ref' }
     }
+
+    // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
+    // so the agent has a real cwd. Transcript inspection does not need this.
+    const ensured = await this.ensureSessionWorktree(session)
+    if (!ensured.ok) return { ok: false, reason: ensured.reason }
+    if (ensured.cwd && ensured.cwd !== session.cwd) {
+      session.cwd = ensured.cwd
+    }
+
     const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: session.cwd,
@@ -2426,6 +2633,42 @@ export class SessionsService {
     preparedInstructions.commit()
     this.broadcastSessions()
     return { ok: true }
+  }
+
+  /**
+   * Ensure the session's cwd exists on disk before spawn. After stop frees the
+   * issue worktree it clears the path of record but keeps the branch; resume
+   * recreates via worktreeAddExisting [spec:SP-9904]. When worktreePath is
+   * still set we trust it (no probe — keeps unit tests daemon-free and avoids
+   * a 35s rpc timeout on the common hibernate→resurrect path).
+   */
+  private async ensureSessionWorktree(
+    session: Session,
+  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
+    if (!issueId) return { ok: true, cwd: session.cwd }
+
+    const issue = this.issues().getMeta(issueId)
+    if (!issue) return { ok: true, cwd: session.cwd }
+
+    // Still recorded → use it (hibernate / normal park leaves the path).
+    if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
+
+    // Freed by stop (or cleared out-of-band): recreate from the kept branch.
+    if (!issue.branch) {
+      return {
+        ok: false,
+        reason: 'worktree missing for issue and no branch to recreate from',
+      }
+    }
+    const recreated = await this.issues().ensureWorktree(issueId)
+    if (!recreated.ok || !recreated.worktreePath) {
+      return {
+        ok: false,
+        reason: recreated.output || 'failed to recreate worktree from branch',
+      }
+    }
+    return { ok: true, cwd: recreated.worktreePath }
   }
 
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/

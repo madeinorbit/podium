@@ -193,7 +193,7 @@ describe('multi-daemon routing', () => {
   })
 })
 
-function handoffRegistry(
+async function handoffRegistry(
   opts: { failExport?: boolean; landInSubdir?: boolean; oldDaemon?: boolean; withIssue?: boolean } = {},
 ) {
   const store = new SessionStore(':memory:')
@@ -300,7 +300,7 @@ function handoffRegistry(
       machineId: 'm1',
     })
   }
-  const { sessionId } = reg.modules.sessions.resumeSession({
+  const { sessionId } = await reg.modules.sessions.resumeSession({
     agentKind: 'claude-code',
     cwd: '/source/repo/.worktrees/x',
     resume: { kind: 'claude-session', value: 'native-id' },
@@ -316,7 +316,7 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, source, target, sessionId } = handoffRegistry()
+      const { reg, source, target, sessionId } = await handoffRegistry()
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
       expect(reg.modules.sessions.listSessions()).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
@@ -340,7 +340,7 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId } = handoffRegistry()
+      const { reg, sessionId } = await handoffRegistry()
       const client: ServerMessage[] = []
       reg.modules.sessions.attachClient((message) => client.push(message))
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
@@ -362,7 +362,7 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId, issueId } = handoffRegistry({ withIssue: true, landInSubdir: true })
+      const { reg, sessionId, issueId } = await handoffRegistry({ withIssue: true, landInSubdir: true })
       const before = reg.modules.issues.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
@@ -387,7 +387,7 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId, issueId } = handoffRegistry({ withIssue: true, oldDaemon: true })
+      const { reg, sessionId, issueId } = await handoffRegistry({ withIssue: true, oldDaemon: true })
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
@@ -401,7 +401,7 @@ describe('session handoff orchestration', () => {
   })
 
   it('resumes the unchanged source row when export fails', async () => {
-    const { reg, source, sessionId } = handoffRegistry({ failExport: true })
+    const { reg, source, sessionId } = await handoffRegistry({ failExport: true })
     await expect(
       reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }),
     ).rejects.toThrow('export exploded')

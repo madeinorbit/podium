@@ -296,6 +296,10 @@ describe('issue protocol types', () => {
     expect(RepoOp.parse('isMergedInto')).toBe('isMergedInto')
   })
 
+  it('accepts worktreeAddExisting for stop→resume [spec:SP-9904]', () => {
+    expect(RepoOp.parse('worktreeAddExisting')).toBe('worktreeAddExisting')
+  })
+
   it('round-trips issue broadcast messages', () => {
     const issue = IssueWire.parse({
       id: 'iss_1',

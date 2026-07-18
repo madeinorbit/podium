@@ -387,6 +387,8 @@ export class SessionRegistry {
         )
         return r.ok ? { ok: true, via: r.via } : r
       },
+      // issue stop [spec:SP-9904]: park every member session + free worktree.
+      stopIssueSessions: (input) => sessionsSvc.stopIssue(input),
     })
     const specs = new SpecsService({
       repoRoots: () => this.store.repos.listRepoPaths(),
@@ -780,6 +782,55 @@ export class SessionRegistry {
               throw new Error('name is required')
             }
             return Promise.resolve(sessionsSvc.setAgentName({ sessionId: actorSessionId, name }))
+          }
+          // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
+          // No id → self-stop (the calling session). Outside subtree needs
+          // --outside-scope; self / same-issue siblings / subtree are free.
+          if (proc === 'stop') {
+            return (async () => {
+              const raw = (input ?? {}) as Record<string, unknown>
+              const actorSessionId = capability.actorSessionId
+              const requestedId =
+                typeof raw.sessionId === 'string' && raw.sessionId ? raw.sessionId : undefined
+              const sessionId = requestedId ?? actorSessionId
+              if (!sessionId) {
+                throw new Error(
+                  'sessions.stop needs a session id, or must be called from a session (self-stop)',
+                )
+              }
+              const selfStop = actorSessionId !== undefined && sessionId === actorSessionId
+              if (!selfStop) {
+                const target = sessionsSvc.listSessions().find((s) => s.sessionId === sessionId)
+                if (!target) throw new Error('session not found')
+                const targetIssueId = target.issueId ?? issues.issueForCwd(target.cwd)
+                if (targetIssueId) {
+                  checkIssueAccess(
+                    { capability, ...(overrideScope ? { overrideScope: true } : {}) },
+                    issues,
+                    'sessions.stop',
+                    'write',
+                    targetIssueId,
+                  )
+                } else {
+                  const isOperator = capability.scope.kind === 'all'
+                  const isParent =
+                    actorSessionId !== undefined &&
+                    target.spawnedBy === `session:${actorSessionId}`
+                  if (!isOperator && !isParent) {
+                    throw new Error(
+                      'target session has no issue; only its parent or the operator may stop it (or pass --outside-scope is not a substitute for issueless targets)',
+                    )
+                  }
+                }
+              }
+              const r = await sessionsSvc.stopSession({
+                sessionId,
+                force: raw.force === true,
+                selfStop,
+              })
+              if (!r.ok) throw new Error(r.reason ?? 'stop refused')
+              return r
+            })()
           }
           if (proc !== 'sendText' && proc !== 'resumeAndSend' && proc !== 'continue') {
             return undefined

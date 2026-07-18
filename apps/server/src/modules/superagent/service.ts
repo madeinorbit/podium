@@ -611,7 +611,7 @@ export class SuperagentService {
    * one writer at a time. sendTurn rejects while the terminal session is live;
    * the lock clears lazily once that session exits.
    */
-  openInTerminal({ threadId }: { threadId: string }): { sessionId: string } {
+  async openInTerminal({ threadId }: { threadId: string }): Promise<{ sessionId: string }> {
     const thread = this.store.superagent.getSuperagentThread(threadId)
     if (!thread) throw new Error(`unknown thread: ${threadId}`)
     if (this.turnInFlight.has(threadId)) {
@@ -623,7 +623,7 @@ export class SuperagentService {
     }
     // Re-opening while an earlier terminal attachment is still live just
     // focuses it (resumeSession reuses the row for the same resume ref).
-    const { sessionId } = this.modules.sessions.resumeSession({
+    const { sessionId } = await this.modules.sessions.resumeSession({
       agentKind: agent.data,
       cwd: this.threadCwd(thread),
       resume: { kind: RESUME_KIND[agent.data], value: thread.harnessSessionId },

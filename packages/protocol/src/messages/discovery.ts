@@ -187,6 +187,10 @@ export const RepoOp = z.enum([
   'branches',
   'revParseVerify',
   'worktreeAdd',
+  // stop→resume [spec:SP-9904]: re-materialize a worktree for an EXISTING branch
+  // (no -b/-B). worktreeAdd always creates a new branch; this attaches the
+  // preserved branch after free-worktree-keep-branch.
+  'worktreeAddExisting',
   'rebase',
   'mergeFfOnly',
   'prCreate',

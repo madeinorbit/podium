@@ -21,7 +21,9 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // title = the agent naming its OWN session (#490): it carries no sessionId, the
   // target is the CALLING session (bound from the capability), and the user's own
   // name always wins — so it grants no reach over any other session.
-  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title']),
+  // stop = clean end + free worktree keep branch [spec:SP-9904]; self/subtree
+  // free, outside needs --outside-scope (gated in the dispatch arm).
+  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title', 'stop']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
   // parent identity are stamped from the capability; MessageGate owns target-

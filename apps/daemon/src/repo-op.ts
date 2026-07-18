@@ -43,6 +43,19 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
         argv: ['worktree', 'add', '-b', branch, '--', path, ...(startPoint ? [startPoint] : [])],
       }
     }
+    case 'worktreeAddExisting': {
+      // [spec:SP-9904] Attach an EXISTING branch (no -b/-B). Path and branch
+      // ride after `--` so dash values never parse as options. Branch is also
+      // validated (defense in depth; git rejects '-…' refnames anyway).
+      const { path, branch } = args
+      if (!path || !branch) return { error: 'missing args' }
+      const bad = assertSafeRef(branch, 'branch')
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: ['worktree', 'add', '--', path, branch],
+      }
+    }
     case 'rebase': {
       // `git rebase -- <upstream>` is supported: a '-D' upstream fails with
       // "fatal: invalid upstream '-D'" instead of parsing as an option.
@@ -58,11 +71,19 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       return { bin: 'git', argv: ['merge', '--ff-only', '--', branch] }
     }
     case 'worktreeRemove': {
-      // NO --force, ever: git refuses to remove a dirty/locked worktree and we
-      // surface its message instead of overriding it. `--` protects the path.
-      const { path } = args
+      // Default: no --force — git refuses a dirty/locked worktree and we surface
+      // its message. `--force` is ONLY for stop --force [spec:SP-9904], which
+      // knowingly discards the working copy after the unsaved-work guard. The
+      // path rides after `--` either way.
+      const { path, force } = args
       if (!path) return { error: 'missing args' }
-      return { bin: 'git', argv: ['worktree', 'remove', '--', path] }
+      return {
+        bin: 'git',
+        argv:
+          force === '1' || force === 'true'
+            ? ['worktree', 'remove', '--force', '--', path]
+            : ['worktree', 'remove', '--', path],
+      }
     }
     case 'branchDelete': {
       // Lowercase -d only (never -D): git refuses to delete an unmerged branch.

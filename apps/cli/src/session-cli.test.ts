@@ -50,6 +50,12 @@ function client(
   ask: unknown = ASK,
   title: { ok: boolean; name?: string; reason?: string } = { ok: true, name: 'Named thing' },
   status: unknown = STATUS,
+  stop: {
+    ok: boolean
+    reason?: string
+    worktreeFreed?: boolean
+    deferredKill?: boolean
+  } = { ok: true, worktreeFreed: true, deferredKill: true },
 ) {
   return {
     sessions: {
@@ -61,6 +67,7 @@ function client(
       recap: { query: vi.fn(async (): Promise<unknown> => RECAP) },
       ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
       title: { mutate: vi.fn(async () => title) },
+      stop: { mutate: vi.fn(async () => stop) },
     },
   } satisfies SessionControlClient
 }
@@ -112,6 +119,47 @@ describe('podium session CLI', () => {
     expect(out).toContain('send <session-id>')
     expect(out).toContain('resume-and-send')
     expect(out).toContain('continue <session-id>')
+  })
+})
+
+// [spec:SP-9904] — clean end; no id = self-stop.
+describe('podium session stop [spec:SP-9904]', () => {
+  it('self-stop sends no sessionId and reports deferred kill + worktree free', async () => {
+    const c = client()
+    const out = await runSessionCli(['stop'], c, { hasRelay: true })
+    expect(c.sessions.stop.mutate).toHaveBeenCalledWith({})
+    expect(out).toContain('stopped this session')
+    expect(out).toContain('worktree freed')
+    expect(out).toContain('after this turn')
+  })
+
+  it('stop with an id targets that session and passes --force', async () => {
+    const c = client()
+    await runSessionCli(['stop', 's9', '--force'], c)
+    expect(c.sessions.stop.mutate).toHaveBeenCalledWith({ sessionId: 's9', force: true })
+  })
+
+  it('self-stop without relay is refused', async () => {
+    await expect(runSessionCli(['stop'], client(), { hasRelay: false })).rejects.toThrow(
+      /PODIUM_AGENT_RELAY is not set/,
+    )
+  })
+
+  it('surfaces a refused stop (unsaved work)', async () => {
+    const c = client(
+      { ok: true },
+      ASK,
+      { ok: true, name: 'x' },
+      STATUS,
+      { ok: false, reason: 'refusing stop: unsaved changes' },
+    )
+    await expect(runSessionCli(['stop', 's1'], c)).rejects.toThrow(/unsaved changes/)
+  })
+
+  it('documents stop in help', async () => {
+    const out = await runSessionCli(['help'], client())
+    expect(out).toContain('stop [<session-id>]')
+    expect(out).toContain('--force')
   })
 })
 

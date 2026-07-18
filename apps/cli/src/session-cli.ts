@@ -9,6 +9,14 @@ type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
  *  already named it) comes back as ok:false + reason, not as a thrown error. */
 type TitleResult = { ok: boolean; name?: string; reason?: string }
 
+/** `sessions.stop` [spec:SP-9904]: clean end; free worktree, keep branch. */
+type StopResult = {
+  ok: boolean
+  reason?: string
+  worktreeFreed?: boolean
+  deferredKill?: boolean
+}
+
 export interface SessionControlClient {
   sessions: {
     sendText: SessionProc
@@ -21,6 +29,8 @@ export interface SessionControlClient {
     ask: { mutate(input: Record<string, unknown>): Promise<unknown> }
     /** Self-titling (#490) — no sessionId: the server binds the CALLING session. */
     title: { mutate(input: Record<string, unknown>): Promise<TitleResult> }
+    /** Clean end [spec:SP-9904] — no sessionId = stop the CALLING session. */
+    stop: { mutate(input: Record<string, unknown>): Promise<StopResult> }
   }
 }
 
@@ -139,7 +149,7 @@ export function parseSessionArgs(argv: string[]): {
   const [command, ...rest] = argv
   const args: Record<string, string | boolean> = {}
   const positionals: string[] = []
-  const booleans = new Set(['json', 'outside-scope', 'wake', 'help'])
+  const booleans = new Set(['json', 'outside-scope', 'wake', 'force', 'help'])
   for (let i = 0; i < rest.length; i++) {
     const token = rest[i]
     if (!token?.startsWith('--')) {
@@ -190,6 +200,12 @@ function helpText(): string {
     '      this session from the others on the same issue. Re-run to retitle as the',
     '      work becomes clear. A name the USER set always wins and is never overwritten.',
     '      Only works inside a Podium-managed agent session (PODIUM_AGENT_RELAY).',
+    '  stop [<session-id>] [--force] [--outside-scope]',
+    '      Cleanly end a session: stop its process, FREE the worktree, KEEP the branch',
+    '      + transcript (reversible — resume recreates the worktree from the branch).',
+    '      No id = stop THIS session (an agent\'s last act when done). Refuses when the',
+    '      working tree has unsaved changes unless --force. Stopping a session outside',
+    '      your issue subtree requires --outside-scope (human permission asserted).',
   ].join('\n')
 }
 
@@ -207,6 +223,7 @@ export async function runSessionCli(
     'wake',
     'json',
     'outside-scope',
+    'force',
     'turns',
     'cursor',
     'since',
@@ -236,6 +253,38 @@ export async function runSessionCli(
     return args.json === true
       ? JSON.stringify({ command, ok: true, name: r.name ?? title })
       : `session titled "${r.name ?? title}"`
+  }
+
+  // `podium session stop [<id>]` [spec:SP-9904] — no id = stop the CALLING session.
+  if (command === 'stop') {
+    if (positionals.length > 1) throw new SessionCliError(`unexpected argument: ${positionals[1]}`)
+    const sessionId = positionals[0]
+    if (!sessionId && opts.hasRelay === false) {
+      throw new SessionCliError(
+        'PODIUM_AGENT_RELAY is not set — `session stop` without an id stops the calling session, so it only works inside a Podium-managed agent session (or pass an explicit session id).',
+      )
+    }
+    const r = await client.sessions.stop.mutate({
+      ...(sessionId ? { sessionId } : {}),
+      ...(args.force === true ? { force: true } : {}),
+    })
+    if (!r.ok) throw new SessionCliError(r.reason ?? 'stop was not accepted')
+    const parts = [
+      sessionId ? `stopped ${sessionId}` : 'stopped this session',
+      r.worktreeFreed ? 'worktree freed (branch kept)' : null,
+      r.deferredKill ? 'process will exit after this turn' : null,
+      r.reason ?? null,
+    ].filter(Boolean)
+    return args.json === true
+      ? JSON.stringify({
+          command: 'stop',
+          ok: true,
+          ...(sessionId ? { sessionId } : {}),
+          worktreeFreed: r.worktreeFreed === true,
+          deferredKill: r.deferredKill === true,
+          ...(r.reason ? { reason: r.reason } : {}),
+        })
+      : parts.join('; ')
   }
 
   const sessionId = positionals[0]

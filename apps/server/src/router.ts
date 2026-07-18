@@ -546,6 +546,16 @@ export const appRouter = t.router({
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),
+    // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
+    // Operator path (web/tRPC) — no self-stop deferral; force discards dirty tree.
+    stop: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          force: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => mods(ctx).sessions.stopSession(input)),
     resurrect: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.resurrectSession(input)),

@@ -555,6 +555,37 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     },
   },
   {
+    name: 'stop',
+    summary:
+      'Stop every session on an issue and free its worktree (branch + transcripts kept): stop <id> [--force] [--outside-scope]. Reversible — resume recreates the worktree from the branch. Refuses unsaved working-tree changes without --force. Outside your subtree needs --outside-scope.',
+    args: z.strictObject({
+      id: idArg,
+      force: z.boolean().optional(),
+      outsideScope: z.boolean().optional(),
+    }),
+    positionals: ['id'],
+    async run(c, a) {
+      const r = (await c.issues.stop.mutate({
+        id: a.id as string,
+        ...(a.force === true ? { force: true } : {}),
+      })) as {
+        ok: boolean
+        reason?: string
+        stopped: string[]
+        worktreeFreed: boolean
+      }
+      const n = r.stopped?.length ?? 0
+      const text = [
+        `stopped ${n} session${n === 1 ? '' : 's'}`,
+        r.worktreeFreed ? 'worktree freed (branch kept)' : 'worktree left in place',
+        r.reason,
+      ]
+        .filter(Boolean)
+        .join('; ')
+      return { text, data: r }
+    },
+  },
+  {
     name: 'add-session',
     summary:
       "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code] [--force-unknown-model]. Model/effort follow the issue defaults (update --model/--effort).",

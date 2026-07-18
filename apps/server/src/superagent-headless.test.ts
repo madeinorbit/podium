@@ -151,7 +151,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     h.resolveTurn(h.turnReqs[1]!)
     await h.settle()
     // "Open in terminal" is available again (it gates on harnessSessionId).
-    expect(() => h.sa.openInTerminal({ threadId: 'global' })).not.toThrow()
+    await expect(h.sa.openInTerminal({ threadId: 'global' })).resolves.toBeDefined()
   })
 
   it('refuses to clear while a turn is running', async () => {
@@ -165,7 +165,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
     await h.settle()
-    const { sessionId } = h.sa.openInTerminal({ threadId: 'global' })
+    const { sessionId } = await h.sa.openInTerminal({ threadId: 'global' })
     await expect(h.sa.sendTurn({ threadId: 'global', text: 'x' })).rejects.toThrow(
       /open in a terminal/,
     )
@@ -458,7 +458,7 @@ describe('openInTerminal + one-writer lock', () => {
 
   it('opens a normal PTY session with the per-agent resume ref and locks the thread', async () => {
     const h = await threadWithHarnessSession()
-    const { sessionId } = h.sa.openInTerminal({ threadId: 'global' })
+    const { sessionId } = await h.sa.openInTerminal({ threadId: 'global' })
     // A REAL spawn went to the daemon, carrying the harness resume ref.
     expect(h.spawns).toHaveLength(1)
     expect(h.spawns[0]).toMatchObject({
@@ -485,9 +485,9 @@ describe('openInTerminal + one-writer lock', () => {
 
   it('refuses before a harness session exists and while a turn is running', async () => {
     const h = await harness()
-    expect(() => h.sa.openInTerminal({ threadId: 'global' })).toThrow(/no harness session/)
+    await expect(h.sa.openInTerminal({ threadId: 'global' })).rejects.toThrow(/no harness session/)
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
-    expect(() => h.sa.openInTerminal({ threadId: 'global' })).toThrow(/turn is running/)
+    await expect(h.sa.openInTerminal({ threadId: 'global' })).rejects.toThrow(/turn is running/)
   })
 
   it('interruptTurn routes to the headless session', async () => {

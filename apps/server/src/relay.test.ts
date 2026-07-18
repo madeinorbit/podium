@@ -523,11 +523,11 @@ describe('SessionRegistry', () => {
     warn.mockRestore()
   })
 
-  it('resume spawns with the resume ref + resume origin', () => {
+  it('resume spawns with the resume ref + resume origin', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.modules.sessions.resumeSession({
+    const { sessionId } = await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -551,14 +551,14 @@ describe('SessionRegistry', () => {
     })
   })
 
-  it('resume reuses an existing LIVE row for the same conversation instead of spawning a duplicate', () => {
+  it('resume reuses an existing LIVE row for the same conversation instead of spawning a duplicate', async () => {
     // The bug: each resume of one conversation minted a fresh row + its own
     // durable master. dedupeSessionsByResume only HID the siblings, so closing
     // the visible row revealed a masked one (its own title/transcript/stage).
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-    const first = reg.modules.sessions.resumeSession({
+    const first = await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -566,7 +566,7 @@ describe('SessionRegistry', () => {
     })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(first.sessionId))
     const spawnsBefore = daemon.filter((m) => m.type === 'spawn').length
-    const second = reg.modules.sessions.resumeSession({
+    const second = await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -578,11 +578,11 @@ describe('SessionRegistry', () => {
     expect(daemon.filter((m) => m.type === 'spawn').length).toBe(spawnsBefore)
   })
 
-  it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', () => {
+  it('resume resurrects an existing HIBERNATED row for the same conversation (one row, same id)', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-    const first = reg.modules.sessions.resumeSession({
+    const first = await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -590,7 +590,7 @@ describe('SessionRegistry', () => {
     })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(first.sessionId))
     reg.modules.sessions.hibernateSession({ sessionId: first.sessionId })
-    const second = reg.modules.sessions.resumeSession({
+    const second = await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -602,7 +602,7 @@ describe('SessionRegistry', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
-  it('resume keeps the original provenance on an existing row, stamps its own only on the fresh-spawn fallback (issue #60)', () => {
+  it('resume keeps the original provenance on an existing row, stamps its own only on the fresh-spawn fallback (issue #60)', async () => {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})
     // An issue-spawned session that later learned its resume ref.
@@ -618,7 +618,7 @@ describe('SessionRegistry', () => {
       resume: { kind: 'claude-session', value: 'r1' },
     })
     // Resuming that conversation reuses the row — the resume's own tag must NOT win.
-    const reused = reg.modules.sessions.resumeSession({
+    const reused = await reg.modules.sessions.resumeSession({
       agentKind: 'claude-code',
       cwd: '/w',
       resume: { kind: 'claude-session', value: 'r1' },
@@ -629,7 +629,7 @@ describe('SessionRegistry', () => {
     const metaOf = (id: string) => reg.modules.sessions.listSessions().find((s) => s.sessionId === id)
     expect(metaOf(sessionId)?.spawnedBy).toBe('issue:iss_1')
     // No existing row for this ref → fresh spawn carries the caller's tag.
-    const fresh = reg.modules.sessions.resumeSession({
+    const fresh = await reg.modules.sessions.resumeSession({
       agentKind: 'claude-code',
       cwd: '/w',
       resume: { kind: 'claude-session', value: 'r2' },
@@ -640,16 +640,16 @@ describe('SessionRegistry', () => {
     expect(metaOf(fresh.sessionId)?.spawnedBy).toBe('user')
   })
 
-  it('resume still spawns a fresh row when no session exists for that conversation', () => {
+  it('resume still spawns a fresh row when no session exists for that conversation', async () => {
     const reg = new SessionRegistry()
     reg.modules.sessions.attachDaemon('local', () => {})
-    reg.modules.sessions.resumeSession({
+    await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't1' },
       conversationId: 'c1',
     })
-    reg.modules.sessions.resumeSession({
+    await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't2' },
@@ -1210,12 +1210,12 @@ describe('SessionRegistry', () => {
     expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/)
   })
 
-  it('boot reconcile: persisted live sessions retain geometry and trigger a same-size reattach', () => {
+  it('boot reconcile: persisted live sessions retain geometry and trigger a same-size reattach', async () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file)
     const reg1 = new SessionRegistry(store1)
     reg1.modules.sessions.attachDaemon('local', () => {})
-    const { sessionId } = reg1.modules.sessions.resumeSession({
+    const { sessionId } = await reg1.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/w',
       resume: { kind: 'codex-thread', value: 't9' },
@@ -2002,7 +2002,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
-    const { sessionId } = reg.modules.sessions.resumeSession({
+    const { sessionId } = await reg.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/repo',
       resume: { kind: 'codex-rollout', value: '/r/rollout.jsonl' },
@@ -2356,7 +2356,7 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.hibernateSession({ sessionId }).ok).toBe(false)
   })
 
-  it('resurrect respawns under the same id with the resume ref', () => {
+  it('resurrect respawns under the same id with the resume ref', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
@@ -2364,7 +2364,7 @@ describe('hibernation', () => {
     reg.modules.sessions.hibernateSession({ sessionId })
     daemon.length = 0
 
-    expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -2379,7 +2379,7 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
-  it('resurrect revives an exited (crashed) session with a resume ref', () => {
+  it('resurrect revives an exited (crashed) session with a resume ref', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
@@ -2389,7 +2389,7 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
-    expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
     expect(daemon).toContainEqual(
       expect.objectContaining({
         type: 'spawn',
@@ -2400,7 +2400,7 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
   })
 
-  it('restarts an exited shell fresh in the same cwd — no resume ref needed', () => {
+  it('restarts an exited shell fresh in the same cwd — no resume ref needed', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
@@ -2410,18 +2410,18 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
     daemon.length = 0
 
-    expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+    expect(await reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
     const spawn = daemon.find((m) => m.type === 'spawn')
     expect(spawn).toMatchObject({ sessionId, agentKind: 'shell', cwd: '/w' })
     expect(spawn && 'resume' in spawn ? spawn.resume : undefined).toBeUndefined()
   })
 
-  it('refuses to resurrect a live session', () => {
+  it('refuses to resurrect a live session', async () => {
     const reg = new SessionRegistry()
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
     const sessionId = liveSession(reg, daemon)
-    expect(reg.modules.sessions.resurrectSession({ sessionId }).ok).toBe(false)
+    expect((await reg.modules.sessions.resurrectSession({ sessionId })).ok).toBe(false)
   })
 
   it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
@@ -2468,7 +2468,7 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
   })
 
-  it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', () => {
+  it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', async () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
@@ -2492,7 +2492,7 @@ describe('hibernation', () => {
     const internal = (reg as any).modules.sessions.sessions.get(sessionId)
     internal.lastActiveAt = new Date(Date.now() - 3_600_000).toISOString()
     reg.modules.sessions.hibernateSession({ sessionId })
-    reg.modules.sessions.resurrectSession({ sessionId })
+    await reg.modules.sessions.resurrectSession({ sessionId })
     reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId)) // respawn binds → live
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'hostMetrics',
