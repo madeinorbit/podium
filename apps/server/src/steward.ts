@@ -14,6 +14,48 @@ export interface StewardEvent {
   repoPath: string | null
   payload: unknown
 }
+type CausalPhasePayload = {
+  phase?: string
+  verdict?: string
+  transitionId?: string
+  transitionKind?: string
+  provenance?: string
+  observerGeneration?: number
+  providerCursor?: { segmentId?: string; components?: Record<string, number> }
+  turnEpoch?: number
+  priorPhase?: string
+  nextPhase?: string
+}
+
+/** Fully legacy rows remain routable until a v1 checkpoint exists. Once a row
+ * carries any causal field, however, it must prove one accepted live terminal
+ * edge; partial/bootstrap/replay/same-phase shapes fail closed. [spec:SP-cdb2] */
+export function isAcceptedLiveTerminalEvent(e: StewardEvent): boolean {
+  if (e.kind !== 'session.phase') return false
+  const p = (e.payload ?? {}) as CausalPhasePayload
+  const causal =
+    p.transitionId !== undefined ||
+    p.provenance !== undefined ||
+    p.observerGeneration !== undefined ||
+    p.providerCursor !== undefined ||
+    p.turnEpoch !== undefined
+  if (!causal) return true
+  const terminal = (p.phase === 'idle' && p.verdict === 'done') || p.phase === 'errored'
+  return (
+    terminal &&
+    p.provenance === 'live' &&
+    p.transitionKind === 'turn_terminal' &&
+    typeof p.transitionId === 'string' &&
+    p.transitionId.length > 0 &&
+    Number.isInteger(p.observerGeneration) &&
+    (p.observerGeneration ?? 0) > 0 &&
+    Number.isInteger(p.turnEpoch) &&
+    (p.turnEpoch ?? 0) > 0 &&
+    typeof p.providerCursor?.segmentId === 'string' &&
+    p.priorPhase !== p.nextPhase &&
+    p.nextPhase === p.phase
+  )
+}
 
 /**
  * Event kind → coalescing key(s). Events sharing a key in one poll are handled
@@ -59,17 +101,24 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
   'session.phase': (e) => {
     const p = e.payload as { phase?: string; verdict?: string } | null
     if (p?.phase === 'idle' && p.verdict === 'done') {
-      return [`ackfallback:${e.subject}`, `sessionparentnudge:done:${e.subject}`]
+      return isAcceptedLiveTerminalEvent(e)
+        ? [`ackfallback:${e.subject}`, `sessionparentnudge:done:${e.subject}`]
+        : `ackfallback:${e.subject}`
     }
     if (p?.phase === 'errored') {
-      return [`ackfallback:${e.subject}`, `sessionparentnudge:errored:${e.subject}`]
+      return isAcceptedLiveTerminalEvent(e)
+        ? [`ackfallback:${e.subject}`, `sessionparentnudge:errored:${e.subject}`]
+        : `ackfallback:${e.subject}`
     }
     return undefined
   },
   // Child process gone (exit-without-report half of §09-D). Handler skips when
   // the child already settled done/errored (shared settle fact) or has no
   // session-spawner parent.
-  'session.exited': (e) => `sessionparentnudge:exited:${e.subject}`,
+  'session.exited': (e) =>
+    (e.payload as { causalCheckpoint?: boolean } | null)?.causalCheckpoint
+      ? undefined
+      : `sessionparentnudge:exited:${e.subject}`,
   'issue.needs_human': (e) => {
     // Always leave the breadcrumb; ALSO notify the parent when the child has one.
     const breadcrumb = `needshuman:${e.subject}`
@@ -193,12 +242,18 @@ export function sessionSpawnerParentId(spawnedBy: string | null | undefined): st
 export function subscriptionEventKinds(e: StewardEvent): string[] {
   if (e.kind === 'session.phase') {
     const p = e.payload as { phase?: string; verdict?: string } | null
+    if ((p?.phase === 'idle' || p?.phase === 'errored') && !isAcceptedLiveTerminalEvent(e))
+      return []
     if (p?.phase === 'idle' && p.verdict === 'done') return ['session.finished']
     if (p?.phase === 'errored') return ['session.errored']
     if (p?.phase === 'needs_user') return ['session.waiting']
     return []
   }
-  if (e.kind === 'session.exited') return ['session.exited']
+  if (e.kind === 'session.exited') {
+    return (e.payload as { causalCheckpoint?: boolean } | null)?.causalCheckpoint
+      ? []
+      : ['session.exited']
+  }
   if (e.kind.startsWith('issue.')) {
     if (e.kind === 'issue.stage_changed') {
       const to = (e.payload as { to?: string } | null)?.to
@@ -450,9 +505,7 @@ export class StewardService {
     // re-fires — without shortening the 24h cross-producer TTL ceiling.
     this.retireClearedConditions(events)
     if (deliveryFailed) {
-      console.warn(
-        '[podium:steward] holding cursor — delivery failed; will retry the same window',
-      )
+      console.warn('[podium:steward] holding cursor — delivery failed; will retry the same window')
       return
     }
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
@@ -522,10 +575,7 @@ export class StewardService {
   }
 
   /** Issue left review — free review parentnudge + stage_changed sub facts. */
-  private retireIssueReviewFacts(
-    issueId: string,
-    p: { parentId?: string; seq?: number },
-  ): void {
+  private retireIssueReviewFacts(issueId: string, p: { parentId?: string; seq?: number }): void {
     const at = this.now()
     if (p.parentId != null && p.seq != null) {
       this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
@@ -820,8 +870,7 @@ export class StewardService {
     const child = sessions.find((s) => s.sessionId === childSessionId)
     // Prefer live meta; fall back to the event payload (session.exited stamps
     // spawnedBy so a race that drops the row still finds the parent).
-    const spawnedBy =
-      child?.spawnedBy ?? (last.payload as { spawnedBy?: string } | null)?.spawnedBy
+    const spawnedBy = child?.spawnedBy ?? (last.payload as { spawnedBy?: string } | null)?.spawnedBy
     const parentId = sessionSpawnerParentId(spawnedBy)
     if (!parentId) return
     // Never self-wake (a mis-tagged spawnedBy).

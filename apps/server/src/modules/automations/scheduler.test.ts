@@ -417,6 +417,7 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.queueText).toHaveBeenCalledWith({
       sessionId: 'sess_1',
       text: 'Run the test suite and report.',
+      inputOrigin: 'system',
       // Replay-safe: the run id doubles as the outbox mutation id.
       mutationId: expect.stringMatching(/^arun_/),
     })

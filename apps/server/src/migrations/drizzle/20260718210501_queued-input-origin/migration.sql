@@ -1,0 +1,1 @@
+ALTER TABLE `queued_messages` ADD `input_origin` text DEFAULT 'unknown' NOT NULL;

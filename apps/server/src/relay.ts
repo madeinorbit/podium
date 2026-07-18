@@ -1263,6 +1263,7 @@ export class SessionRegistry {
           sessionId,
           text,
           ...(mutationId ? { mutationId } : {}),
+          inputOrigin: 'steward',
         })
         if (!result.ok) throw new Error(result.reason ?? 'failed to durably queue steward nudge')
       },

@@ -6,6 +6,7 @@ import { agentStateProviderFor } from '../harness/registry.js'
 import {
   classifyClaudeTranscriptState,
   classifyIdleTranscript,
+  ClaudeCausalObserver,
   claudeCodeStateProvider,
   translateClaudeHookPayload,
 } from './claude-code'
@@ -275,6 +276,190 @@ describe('translateClaudeHookPayload', () => {
     expect(await translateClaudeHookPayload(null)).toEqual([])
     expect(await translateClaudeHookPayload('x')).toEqual([])
     expect(await translateClaudeHookPayload({ hook_event_name: 'SomethingNew' })).toEqual([])
+  })
+})
+describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
+  const at = '2026-07-18T12:00:00.000Z'
+  const idle = { phase: 'idle' as const, since: at, workingMsTotal: 0, nativeSubagentCount: 0 }
+  const observer = (state: Parameters<typeof reduceAgentState>[0] = idle, generation = 7) =>
+    new ClaudeCausalObserver({
+      podiumSessionId: 'podium-1',
+      observerGeneration: generation,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: state,
+      bootstrapOffset: 100,
+      now: () => at,
+    })
+  const hook = (hook_event_name: string, extra: Record<string, unknown> = {}) => ({
+    hook_event_name,
+    session_id: 'claude-1',
+    transcript_path: '/exact/claude-1.jsonl',
+    ...extra,
+  })
+
+  it('emits exactly one bootstrap snapshot with the exact binding and no live edge', () => {
+    const causal = observer()
+    expect(causal.bootstrap()).toMatchObject({
+      podiumSessionId: 'podium-1',
+      provider: 'claude-code',
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observerGeneration: 7,
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      turnEpoch: 0,
+      inputOrigin: 'provider',
+      providerCursor: {
+        segmentId: 'claude:claude-1:/exact/claude-1.jsonl',
+        components: { transcript: 100 },
+      },
+    })
+    expect(causal.bootstrap()).toBeNull()
+  })
+
+  it('folds frozen history and reconnect into snapshots, then emits one real working+terminal turn', async () => {
+    const first = observer()
+    expect(first.bootstrap()?.provenance).toBe('bootstrap')
+    expect(await first.observeHook(hook('Stop', { prompt_id: 'old' }), 100)).toBeNull()
+    const restarted = observer(idle, 8)
+    expect(restarted.bootstrap()).toMatchObject({
+      observerGeneration: 8,
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+    })
+    expect(await restarted.observeHook(hook('SessionStart'), 100)).toBeNull()
+    restarted.recordInputOrigin('human')
+    expect(
+      await restarted.observeHook(hook('UserPromptSubmit', { prompt_id: 'prompt-1' }), 120),
+    ).toMatchObject({
+      transitionKind: 'turn_opened',
+      inputOrigin: 'human',
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      providerPromptId: 'prompt-1',
+    })
+    expect(await restarted.observeHook(hook('Stop', { prompt_id: 'prompt-1' }), 180)).toMatchObject(
+      {
+        transitionKind: 'turn_terminal',
+        inputOrigin: 'human',
+        turnEpoch: 1,
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        state: { idle: { kind: 'done' } },
+      },
+    )
+  })
+
+  it('makes terminal absorbing: duplicate stop and late same-epoch hooks emit nothing', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110, 'controller')
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)).not.toBeNull()
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 120)).toBeNull()
+    expect(
+      await causal.observeHook(
+        hook('PreToolUse', { prompt_id: 'p1', tool_use_id: 'late-tool' }),
+        130,
+      ),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'late' }), 140),
+    ).toBeNull()
+  })
+
+  it('allows only matching child bookkeeping to close a terminal epoch', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p1' }), 110)
+    await causal.observeHook(hook('SubagentStart', { prompt_id: 'p1', agent_id: 'child-1' }), 120)
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'p1' }), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'working',
+      state: { awaitingSubagents: true, nativeSubagentCount: 1 },
+    })
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'other' }), 140),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('SubagentStop', { prompt_id: 'p1', agent_id: 'child-1' }), 150),
+    ).toMatchObject({
+      transitionKind: 'subagent_bookkeeping',
+      priorPhase: 'working',
+      nextPhase: 'idle',
+      state: { nativeSubagentCount: 0, idle: { kind: 'done' } },
+    })
+  })
+
+  it('opens epochs only on exact-session provider-confirmed prompts and preserves input origins', async () => {
+    const causal = observer({ ...idle, idle: { kind: 'done' as const } })
+    causal.bootstrap()
+    causal.recordInputOrigin('mail')
+    expect(await causal.observeHook(hook('PostToolUse', { tool_use_id: 'noise' }), 110)).toBeNull()
+    expect(
+      await causal.observeHook(
+        { ...hook('UserPromptSubmit', { prompt_id: 'wrong' }), session_id: 'other' },
+        120,
+      ),
+    ).toBeNull()
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'mail-prompt' }), 130),
+    ).toMatchObject({ inputOrigin: 'mail', turnEpoch: 1 })
+    const system = observer()
+    system.bootstrap()
+    expect(
+      await system.observeHook(
+        hook('UserPromptSubmit', { prompt_id: 'system-prompt', promptSource: 'system' }),
+        110,
+      ),
+    ).toMatchObject({ inputOrigin: 'system' })
+  })
+
+  it('settles scheduled self-wake and attributes its next confirmed prompt to auto_continue', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'loop-1' }), 110, 'human')
+    expect(
+      await causal.observeHook(
+        hook('Stop', { prompt_id: 'loop-1', scheduled_self_wake: true }),
+        120,
+      ),
+    ).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'loop-2' }), 130),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2, inputOrigin: 'auto_continue' })
+  })
+  it('links a fresh transcript segment to the accepted restart cursor and permits later epochs', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    causal.acknowledgeCursor({
+      segmentId: 'claude:claude-1:/previous/transcript.jsonl',
+      components: { transcript: 900 },
+    })
+    const opened = await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'fresh-1' }),
+      causal.nextHookOffset(12),
+      'steward',
+    )
+    expect(opened).toMatchObject({
+      transitionKind: 'turn_opened',
+      providerCursor: {
+        segmentId: 'claude:claude-1:/exact/claude-1.jsonl',
+        predecessorSegmentId: 'claude:claude-1:/previous/transcript.jsonl',
+      },
+    })
+    await causal.observeHook(hook('Stop', { prompt_id: 'fresh-1' }), 14)
+    expect(
+      await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'fresh-2' }), 15),
+    ).toMatchObject({ turnEpoch: 2, transitionKind: 'turn_opened' })
+    expect(await causal.observeHook(hook('Stop'), 16)).toMatchObject({
+      turnEpoch: 2,
+      transitionKind: 'turn_terminal',
+    })
   })
 })
 

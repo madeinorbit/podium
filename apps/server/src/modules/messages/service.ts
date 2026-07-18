@@ -184,18 +184,18 @@ export interface MessageDeliveryDeps {
   issues(): IssueService
   sessions(): {
     listSessions(): SessionMeta[]
-    sendText(input: { sessionId: string; text: string }): {
+    sendText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
-    queueText(input: { sessionId: string; text: string }): {
+    queueText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
     }
     /** ESC + queue-as-next-turn (#237 hard interrupt). */
-    interruptText(input: { sessionId: string; text: string }): {
+    interruptText(input: { sessionId: string; text: string; inputOrigin?: 'mail' }): {
       ok: boolean
       queued?: boolean
       reason?: string
@@ -1081,10 +1081,10 @@ export class MessageDeliveryService {
     const text = this.renderFor(message, sessionId)
     const r =
       via === 'now'
-        ? sessions.sendText({ sessionId, text })
+        ? sessions.sendText({ sessionId, text, inputOrigin: 'mail' })
         : via === 'interrupt'
-          ? sessions.interruptText({ sessionId, text })
-          : sessions.queueText({ sessionId, text })
+          ? sessions.interruptText({ sessionId, text, inputOrigin: 'mail' })
+          : sessions.queueText({ sessionId, text, inputOrigin: 'mail' })
     // Transport rejected the push (e.g. the daemon dropped offline mid-send). The
     // row was still captured + durably queued, so the SWEEP will re-attempt it —
     // `disposition: 'queued'` describes that row position, while `ok: false`
@@ -1380,6 +1380,7 @@ export class MessageDeliveryService {
       const r = sessions.sendText({
         sessionId: session.sessionId,
         text: this.renderFor(m, session.sessionId),
+        inputOrigin: 'mail',
       })
       if (r.ok) this.recordPush(m, session.sessionId)
     }
@@ -1390,6 +1391,7 @@ export class MessageDeliveryService {
       const r = sessions.sendText({
         sessionId: session.sessionId,
         text: this.renderFor(m, session.sessionId),
+        inputOrigin: 'mail',
       })
       if (r.ok) this.recordPush(m, session.sessionId)
     } else if (pointerRows.length > 0) {
@@ -1399,6 +1401,7 @@ export class MessageDeliveryService {
       const r = sessions.sendText({
         sessionId: session.sessionId,
         text: this.pointerText(pointerRows),
+        inputOrigin: 'mail',
       })
       if (r.ok) for (const m of pointerRows) this.markInjected(m, session.sessionId)
     }
