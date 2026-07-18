@@ -96,6 +96,69 @@ describe('podium mail CLI (argv shape)', () => {
     expect(c.messages.send.mutate).toHaveBeenCalledWith({ to: '#1', body: 'landed the fix' })
   })
 
+  it('[POD-959] --expires-in computes and forwards an ISO expiresAt', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-18T10:00:00.000Z'))
+    try {
+      const c = client()
+      await runMailCli(['send', '--to', '#1', '--body', 'expiry probe', '--expires-in', '2m'], c)
+      expect(c.messages.send.mutate).toHaveBeenCalledWith({
+        to: '#1',
+        body: 'expiry probe',
+        expiresAt: '2026-07-18T10:02:00.000Z',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('[POD-959] --expires-in rejects missing, malformed, and non-positive durations', async () => {
+    const c = client()
+    for (const argv of [
+      ['send', '--to', '#1', '--body', 'x', '--expires-in'],
+      ['send', '--to', '#1', '--body', 'x', '--expires-in', 'soon'],
+      ['send', '--to', '#1', '--body', 'x', '--expires-in', '0m'],
+    ]) {
+      await expect(runMailCli(argv, c)).rejects.toThrow(/--expires-in/)
+    }
+    expect(c.messages.send.mutate).not.toHaveBeenCalled()
+  })
+
+  it('[POD-845/925] --expires-in converts a duration to absolute expiresAt ISO', async () => {
+    const c = client()
+    const before = Date.now()
+    await runMailCli(
+      [
+        'send',
+        '--to',
+        '#845',
+        '--body',
+        'POD-845/925 verification probe',
+        '--expires-in',
+        '2m',
+      ],
+      c,
+    )
+    const after = Date.now()
+    const call = c.messages.send.mutate.mock.calls[0]?.[0] as {
+      to: string
+      body: string
+      expiresAt: string
+    }
+    expect(call.to).toBe('#845')
+    expect(call.body).toBe('POD-845/925 verification probe')
+    const expiresMs = Date.parse(call.expiresAt)
+    expect(expiresMs).toBeGreaterThanOrEqual(before + 120_000)
+    expect(expiresMs).toBeLessThanOrEqual(after + 120_000)
+  })
+
+  it('[POD-845/925] --expires-in rejects bad durations', async () => {
+    const c = client()
+    await expect(
+      runMailCli(['send', '--to', '#1', '--body', 'x', '--expires-in', 'soon'], c),
+    ).rejects.toThrow(/--expires-in/)
+  })
+
   it('surfaces the clamp note on a downgraded send', async () => {
     const c = client({ send: { id: 'msg_9', ok: true, queued: true, clamped: true } })
     await expect(runMailCli(['send', '--to', '#1', '--body', 'x'], c)).resolves.toContain(
@@ -166,5 +229,6 @@ describe('podium mail CLI (argv shape)', () => {
     const out = await runMailCli(['help'], client())
     for (const verb of ['send --to', 'inbox', 'show <id>', 'dismiss <id>', 'reply <id>'])
       expect(out).toContain(verb)
+    expect(out).toContain('--expires-in <duration>')
   })
 })

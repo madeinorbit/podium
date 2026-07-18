@@ -39,6 +39,17 @@ export class MailCliError extends Error {}
 // 'expect-response' [POD-835] arms a reply request on `mail send`.
 const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help', 'worktree', 'expect-response'])
 
+/** Parse a human duration (`10m`, `30s`, `2h`, bare seconds) to milliseconds. */
+export function parseExpiresIn(raw: string): number {
+  const m = /^(\d+)([smh]?)$/.exec(raw.trim())
+  if (!m) throw new MailCliError(`invalid --expires-in '${raw}' (use e.g. 2m, 30s, 1h, or seconds)`)
+  const n = Number(m[1])
+  const mult = m[2] === 'h' ? 3_600_000 : m[2] === 'm' ? 60_000 : m[2] === 's' ? 1_000 : 1_000
+  const ms = n * mult
+  if (ms <= 0) throw new MailCliError(`invalid --expires-in '${raw}': must be positive`)
+  return ms
+}
+
 export function parseMailArgs(argv: string[]): {
   command?: string
   args: Record<string, string | boolean>
@@ -73,12 +84,13 @@ function helpText(): string {
   return [
     'podium mail <command> [arguments]',
     '',
-    '  send --to <#issue|session-id> --body "…" [--urgency fyi|next-turn|interrupt] [--lifecycle wait|wake] [--expect-response]',
+    '  send --to <#issue|session-id> --body "…" [--urgency fyi|next-turn|interrupt] [--lifecycle wait|wake] [--expect-response] [--expires-in 2m]',
     '      Send a message. Issue-addressed is the durable default; requests above',
     '      your authority are downgraded (never rejected) and marked clamped.',
     '      Receipt is mechanical (the ledger records delivery — pull it with',
     '      `podium mail status <id>`); pass --expect-response only when you want a',
     '      reply back (a question does this implicitly). No reply is owed otherwise.',
+    '      --expires-in sets an absolute TTL (2m/30s/1h or bare seconds).',
     '  inbox [--issue <ref>]',
     '      Read your mailbox (marks messages received). --issue peeks at another box.',
     '  show <id>',
@@ -193,6 +205,7 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
     'issue',
     'kind',
     'expect-response',
+    'expires-in',
     'json',
     'outside-scope',
   ])
@@ -223,12 +236,20 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       if (args.lifecycle !== undefined && !['wait', 'wake'].includes(String(args.lifecycle))) {
         throw new MailCliError('--lifecycle must be wait|wake')
       }
+      let expiresAt: string | undefined
+      if (args['expires-in'] !== undefined) {
+        if (typeof args['expires-in'] !== 'string' || args['expires-in'] === true) {
+          throw new MailCliError('send needs --expires-in <duration> (e.g. 2m)')
+        }
+        expiresAt = new Date(Date.now() + parseExpiresIn(args['expires-in'])).toISOString()
+      }
       const r = (await client.messages.send.mutate({
         to,
         body,
         ...(args.urgency ? { urgency: args.urgency } : {}),
         ...(args.lifecycle ? { lifecycle: args.lifecycle } : {}),
         ...(args['expect-response'] === true ? { expectResponse: true } : {}),
+        ...(expiresAt ? { expiresAt } : {}),
       })) as {
         id: string
         ok: boolean

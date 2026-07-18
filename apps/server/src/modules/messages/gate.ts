@@ -21,6 +21,8 @@ const sendInput = z.object({
   /** Opt into a reply [POD-835 §04b]: `--expect-response`. Off = receipt-only, no
    *  ack traffic (receipt is proven by the ledger). A `question` implies it. */
   expectResponse: z.boolean().optional(),
+  /** Explicit absolute expiry (ISO-8601). CLI `--expires-in` converts a duration. */
+  expiresAt: z.string().datetime().optional(),
 })
 const inboxInput = z.object({ issue: z.string().optional() }).optional()
 const showInput = z.object({ id: z.string() })
@@ -249,6 +251,7 @@ export class MessageGate {
         ...(input.urgency ? { urgency: input.urgency } : {}),
         ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
         ...(input.expectResponse ? { expectsResponse: true } : {}),
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
       },
       {
         ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
