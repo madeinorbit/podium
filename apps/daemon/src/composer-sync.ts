@@ -291,6 +291,20 @@ export class SessionComposerSync {
       this.prevScrape = scrape
       return 'waiting'
     }
+    // PRECHECK (spec §5) also requires the scrape to EQUAL the last-known native text.
+    // If native has MOVED since the target arrived — the user typed into the TUI while
+    // a chat target was pending; the FSM suppresses those native publishes, so the
+    // server never learned and can't cancel the target — their edit is the truth. Drop
+    // the target and publish the native truth instead of clearing their work to inject
+    // a now-stale chat draft (reviewer finding 1).
+    if (this.lastPublished !== null && scrape !== this.lastPublished) {
+      this.target = null
+      this.prevScrape = scrape
+      this.lastPublished = scrape
+      if (this.stats) this.stats.nativePublishes += 1
+      this.publish(this.sessionId, scrape)
+      return 'blocked'
+    }
     // WRITE: clear the whole composer, then type the target — as ONE burst. Codex's
     // clearSequence is null on an empty composer (Ctrl-C would arm quit), so skip it.
     const clear = this.driver.clearSequence(scrape) ?? ''
@@ -310,10 +324,16 @@ export class SessionComposerSync {
     if (v === 'match' || v === 'placeholder') {
       this.injecting = false
       this.target = null
-      this.expected = null
       this.mismatch = 0
       this.prevScrape = scrape
-      if (scrape !== null) this.lastPublished = scrape
+      // Seed the comparator with what the composer now LOGICALLY holds. On 'match'
+      // that is the scraped native text. On 'placeholder' the scrape is a collapsed
+      // literal ("[Pasted text #N]" / "[Pasted Content N chars]"), NOT the draft —
+      // seeding it would let that literal become the doc (republished on the next
+      // read-only frame, or injected by a later catchup). Seed the EXPECTED target we
+      // just wrote instead (reviewer finding 2).
+      this.lastPublished = v === 'placeholder' ? this.expected : (scrape ?? this.lastPublished)
+      this.expected = null
       return
     }
     // Give the echo a few frames to render before ruling it a mismatch.

@@ -351,6 +351,63 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
     // The scraped native truth was republished (not left silently wrong).
     expect(published).toContain('stuck native')
   })
+
+  it('drops a pending target and publishes native truth when the user typed since it arrived (spec §5 precheck)', () => {
+    // A chat target is dispatched, but the user has since typed into the native TUI —
+    // and those native scrapes are suppressed while a target is pending, so the server
+    // never learns. When the user pauses (native no longer hot), the engine must NOT
+    // clear their work to inject the now-stale chat draft: it drops the target and
+    // publishes the native truth so the server can cancel (reviewer finding 1).
+    const term = scriptedTerminal(claudeComposerDriver)
+    const published: string[] = []
+    const sync = new SessionComposerSync(
+      's1',
+      claudeComposerDriver,
+      term.reader,
+      (_s, t) => published.push(t),
+      { writePty: term.applyBytes },
+    )
+    sync.seed('') // the engine's last-known native text: an empty composer
+    sync.setTarget('stale chat draft')
+    term.setComposer('my native edit') // the user typed since the target arrived
+    pump(sync)
+    expect(term.composer).toBe('my native edit') // NOT cleared and overwritten
+    expect(published).toContain('my native edit') // published so the server can cancel
+  })
+
+  it('on a placeholder-collapsed injection, seeds the comparator with the target — not the placeholder literal (reviewer finding 2)', () => {
+    const screen = fakeScreen()
+    const published: string[] = []
+    const target = 'a long draft that claude collapses to a placeholder'
+    const box = (content: string): string[] => [
+      'transcript',
+      '╭──────────────╮',
+      `│ > ${content}   │`,
+      '╰──────────────╯',
+      '  ? for shortcuts',
+    ]
+    const sync = new SessionComposerSync(
+      's1',
+      claudeComposerDriver,
+      screen,
+      (_s, t) => published.push(t),
+      // The harness collapses the injected paste to its "[Pasted text #N]" marker.
+      { writePty: () => screen.set(box('[Pasted text #1]')) },
+    )
+    screen.set(box('')) // empty composer, injectable
+    sync.seed('')
+    sync.setTarget(target)
+    sync.scrape() // precheck: 2-frame stability — 'waiting'
+    sync.scrape() // precheck stable → WRITE → harness now shows the placeholder
+    sync.scrape() // verify sees the placeholder → 'placeholder' → target consumed
+    // Claude expands the collapsed paste back to the real text as the user resumes;
+    // because the comparator was seeded with the TARGET (not "[Pasted text #1]"), the
+    // expanded text is recognised as the injected content — NOT a fresh native edit,
+    // so the placeholder literal never leaks into the doc.
+    screen.set(box(target))
+    sync.scrape() // read-only
+    expect(published).toEqual([])
+  })
 })
 
 describe('ComposerSyncEngine', () => {
