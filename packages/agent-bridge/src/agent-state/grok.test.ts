@@ -37,6 +37,9 @@ describe('grok live state provider', () => {
     await expect(event('user_message_chunk')).resolves.toEqual([{ kind: 'prompt_submitted' }])
     await expect(event('agent_thought_chunk')).resolves.toEqual([{ kind: 'activity' }])
     await expect(event('agent_message_chunk')).resolves.toEqual([{ kind: 'activity' }])
+    await expect(event('retry_state', { type: 'retrying', attempt: 1 })).resolves.toEqual([
+      { kind: 'activity' },
+    ])
     await expect(event('hook_execution', { event_name: 'user_prompt_submit' })).resolves.toEqual([
       { kind: 'prompt_submitted' },
     ])
@@ -49,6 +52,53 @@ describe('grok live state provider', () => {
     await expect(event('hook_execution', { event_name: 'session_end' })).resolves.toEqual([
       { kind: 'session_ended' },
     ])
+  })
+
+  it('classifies Grok structured provider failures', async () => {
+    const usageLimit = `API error (status 402 Payment Required): Grok Build usage balance exhausted
+
+Request URL: https://cli-chat-proxy.grok.com/v1/responses`
+
+    await expect(
+      translateGrokUpdatePayload({
+        method: '_x.ai/session/update',
+        params: {
+          update: {
+            sessionUpdate: 'retry_state',
+            type: 'failed',
+            error_type: 'api',
+            message: usageLimit,
+          },
+        },
+      }),
+    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }])
+
+    await expect(
+      translateGrokUpdatePayload({
+        method: '_x.ai/session/update',
+        params: {
+          update: {
+            sessionUpdate: 'retry_state',
+            type: 'exhausted',
+            reason: 'API error (status 429 Too Many Requests): service at capacity',
+            is_rate_limited: true,
+          },
+        },
+      }),
+    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+
+    await expect(
+      translateGrokUpdatePayload({
+        method: '_x.ai/session/update',
+        params: {
+          update: {
+            sessionUpdate: 'turn_completed',
+            stop_reason: 'error',
+            agent_result: usageLimit,
+          },
+        },
+      }),
+    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }])
   })
 
   it('maps native camelCase Grok hooks and classifies Stop from chat history', async () => {
@@ -161,6 +211,21 @@ describe('grok turn completion ([spec:SP-8b0e])', () => {
       update('turn_completed', { stop_reason: 'end_turn' }),
     ])
     expect(state.phase).toBe('idle')
+  })
+
+  it('an errored turn boundary overrides the preceding clean Stop hook', async () => {
+    const state = await reduceSequence([
+      update('user_message_chunk'),
+      update('hook_execution', { event_name: 'stop' }),
+      update('turn_completed', {
+        stop_reason: 'error',
+        agent_result: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+      }),
+    ])
+    expect(state).toMatchObject({
+      phase: 'errored',
+      error: { class: 'usage_limit', retryable: false },
+    })
   })
 
   it('a backgrounded task completing after the turn does not resurrect working', async () => {
