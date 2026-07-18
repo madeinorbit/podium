@@ -77,7 +77,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       generationId,
     })
 
-  it('renews one generation without changing its fence and advances after lease expiry', () => {
+  it('renews one generation without changing its fence and advances after lease expiry', async () => {
     const first = handshake('gen_a')
     expect(first).toMatchObject({ status: 'ready', fencingToken: 1 })
     nowMs += 10_000
@@ -87,7 +87,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(handshake('gen_b')).toMatchObject({ status: 'ready', fencingToken: 2 })
   })
 
-  it('does not issue or renew a lease across protocol/schema incompatibility', () => {
+  it('does not issue or renew a lease across protocol/schema incompatibility', async () => {
     expect(
       service.handshake({
         protocolVersion: MAINTENANCE_PROTOCOL_VERSION + 1,
@@ -98,7 +98,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(handshake('gen_current')).toMatchObject({ status: 'ready', fencingToken: 1 })
   })
 
-  it('expires through one atomic idempotent command and emits one durable transition', () => {
+  it('expires through one atomic idempotent command and emits one durable transition', async () => {
     const message = baseMessage({
       deliveredTo: 'sess_previous',
       hop: 2,
@@ -124,9 +124,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       observed,
     }
 
-    expect(service.apply(command)).toMatchObject({ status: 'applied' })
+    expect(await service.apply(command)).toMatchObject({ status: 'applied' })
     expect(store.messages.getMessage(message.id)?.status).toBe('expired')
-    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+    expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
     const events = store.events
       .listEventsSince(0)
       .filter((event) => event.kind === 'message.expired')
@@ -139,7 +139,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(funnelWrites).toBe(3)
   })
 
-  it('returns stale for a superseded fence, changed facts, and not-yet-due work', () => {
+  it('returns stale for a superseded fence, changed facts, and not-yet-due work', async () => {
     const explicit = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
     store.messages.addMessage(explicit)
     const lease = handshake('gen_a')
@@ -159,10 +159,10 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       fencingToken: lease.fencingToken,
       observed,
     }
-    expect(service.apply(command)).toMatchObject({ status: 'stale', reason: 'not-due' })
+    expect(await service.apply(command)).toMatchObject({ status: 'stale', reason: 'not-due' })
 
     expect(
-      service.apply({ ...command, observed: { ...observed, createdAt: 'changed' } }),
+      await service.apply({ ...command, observed: { ...observed, createdAt: 'changed' } }),
     ).toMatchObject({
       status: 'stale',
       reason: 'invalid-run-key',
@@ -172,13 +172,13 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     nowMs += 91_000
     const next = handshake('gen_b')
     if (next.status !== 'ready') throw new Error('expected successor lease')
-    expect(service.apply(command)).toMatchObject({ status: 'stale', reason: 'fenced' })
-    expect(service.apply({ ...command, fencingToken: next.fencingToken })).toMatchObject({
+    expect(await service.apply(command)).toMatchObject({ status: 'stale', reason: 'fenced' })
+    expect(await service.apply({ ...command, fencingToken: next.fencingToken })).toMatchObject({
       status: 'applied',
     })
   })
 
-  it('[POD-925] event-log prune applies one bounded batch idempotently', () => {
+  it('[POD-925] event-log prune applies one bounded batch idempotently', async () => {
     for (let i = 0; i < 3; i++) {
       store.events.appendEvent({
         ts: '2026-06-01T00:00:00.000Z',
@@ -208,12 +208,12 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       fencingToken: lease.fencingToken,
       observed,
     }
-    expect(service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
-    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+    expect(await service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
+    expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
     expect(store.events.listEventsSince(0)).toHaveLength(0)
   })
 
-  it('[POD-925] change-log prune applies one bounded batch under the plan', () => {
+  it('[POD-925] change-log prune applies one bounded batch under the plan', async () => {
     const now = nowMs
     for (let i = 0; i < 5; i++) {
       store.sync.appendChanges(
@@ -244,13 +244,13 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       fencingToken: lease.fencingToken,
       observed,
     }
-    const reply = service.apply(command)
+    const reply = await service.apply(command)
     expect(reply).toMatchObject({ status: 'applied' })
     expect(reply.status === 'applied' && (reply.deleted ?? 0) > 0).toBe(true)
-    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+    expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
   })
 
-  it('[POD-925] issue auto-archive revalidates via issues seam at apply', () => {
+  it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {
     const tryAutoArchiveObserved = vi.fn(
       (): 'applied' | 'precondition' | 'not-due' => 'applied',
     )
@@ -282,9 +282,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       fencingToken: lease.fencingToken,
       observed,
     }
-    expect(service.apply(command)).toMatchObject({ status: 'applied' })
+    expect(await service.apply(command)).toMatchObject({ status: 'applied' })
     expect(tryAutoArchiveObserved).toHaveBeenCalledWith(observed, nowMs)
-    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+    expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
     tryAutoArchiveObserved.mockReturnValueOnce('not-due')
     const second = {
       ...observed,
@@ -292,7 +292,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       readAt: '2026-07-17T00:00:00.000Z',
     }
     expect(
-      service.apply({
+      await service.apply({
         ...command,
         observed: second,
         runKey: issueAutoArchiveRunKey(second),
@@ -300,7 +300,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     ).toMatchObject({ status: 'stale', reason: 'not-due' })
   })
 
-  it('[POD-925] maintenance_commands prune deletes aged rows in batches', () => {
+  it('[POD-925] maintenance_commands prune deletes aged rows in batches', async () => {
     const lease = handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     // Seed applied commands with old applied_at via direct SQL.
@@ -331,7 +331,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       fencingToken: lease.fencingToken,
       observed,
     }
-    expect(service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
+    expect(await service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
   })
 
   it('[POD-925 review] rejects maintenance-commands prune with a future/aggressive cutoff', async () => {

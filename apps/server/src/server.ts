@@ -259,9 +259,8 @@ export async function startServer(
     localMachineId: LOCAL_MACHINE_ID,
     log: (message) => console.log(`[podium:repo-discovery] ${message}`),
   })
-  registry.modules.bus.on('machine.connected', ({ machineId }) =>
-    repoDiscovery.onMachineConnected(machineId),
-  )
+  // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
+  // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = new SuperagentService(registry.modules, repos, store)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
@@ -290,6 +289,19 @@ export async function startServer(
     authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
+      automations: registry.modules.automations,
+      liveSessionIds: () =>
+        new Set(
+          registry.modules.sessions
+            .listSessions()
+            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
+            .map((s) => s.sessionId),
+        ),
+      stewardTick: () => registry.runStewardTick(),
+      connectScan: (machineId) => {
+        void repoDiscovery.scan(machineId, { deep: false })
+      },
+      localMachineId: LOCAL_MACHINE_ID,
     }),
   })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)

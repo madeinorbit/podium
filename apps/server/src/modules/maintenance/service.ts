@@ -1,9 +1,11 @@
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  automationFireRunKey,
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
   CHANGE_PRUNE_BATCH_ROWS,
   changeLogPruneRunKey,
+  connectScanRunKey,
   EVENT_PRUNE_BATCH_ROWS,
   EVENT_RETENTION_MAX_AGE_DAYS,
   EVENT_RETENTION_MAX_ROWS,
@@ -21,20 +23,31 @@ import {
   maintenanceCommandsPruneRunKey,
   MESSAGE_WAIT_TTL_MS,
   messageExpiryRunKey,
+  stewardPollRunKey,
 } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MessageRow } from '../../store/types'
+import type { AutomationsService } from '../automations/service'
 import type { WriteFunnel } from '../funnel'
 import type { IssueService } from '../issues/service'
 
 const LEASE_NAME = 'janitor'
 const DEFAULT_LEASE_TTL_MS = 90_000
+/** Connect-scan requires lastSeenAt within this window at apply time. */
+const CONNECT_SCAN_LIVE_MS = 5 * 60_000
 
 export interface MaintenanceServiceOptions {
   now?: () => number
   leaseTtlMs?: number
   /** Optional until issue auto-archive migrates; tests may omit. */
   issues?: Pick<IssueService, 'tryAutoArchiveObserved'>
+  automations?: Pick<AutomationsService, 'applyObservedOccurrence'>
+  liveSessionIds?: () => Set<string>
+  /** Steward poll: deliveries durable before cursor advance. */
+  stewardTick?: () => void | Promise<void>
+  /** Automatic shallow connect-scan; server rechecks connectivity. */
+  connectScan?: (machineId: string) => void | Promise<void>
+  localMachineId?: string
 }
 
 /**
@@ -46,6 +59,11 @@ export class MaintenanceService {
   private readonly now: () => number
   private readonly leaseTtlMs: number
   private readonly issues: MaintenanceServiceOptions['issues']
+  private readonly automations: MaintenanceServiceOptions['automations']
+  private readonly liveSessionIds: () => Set<string>
+  private readonly stewardTick: MaintenanceServiceOptions['stewardTick']
+  private readonly connectScan: MaintenanceServiceOptions['connectScan']
+  private readonly localMachineId: string | undefined
 
   constructor(
     private readonly store: SessionStore,
@@ -55,6 +73,11 @@ export class MaintenanceService {
     this.now = options.now ?? Date.now
     this.leaseTtlMs = options.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS
     this.issues = options.issues
+    this.automations = options.automations
+    this.liveSessionIds = options.liveSessionIds ?? (() => new Set())
+    this.stewardTick = options.stewardTick
+    this.connectScan = options.connectScan
+    this.localMachineId = options.localMachineId
   }
 
   handshake(request: MaintenanceHandshake): MaintenanceHandshakeReply {
@@ -106,7 +129,7 @@ export class MaintenanceService {
     })
   }
 
-  apply(command: MaintenanceCommand): MaintenanceCommandReply {
+  async apply(command: MaintenanceCommand): Promise<MaintenanceCommandReply> {
     if (
       command.protocolVersion !== MAINTENANCE_PROTOCOL_VERSION ||
       command.schemaVersion !== MAINTENANCE_SCHEMA_VERSION
@@ -114,34 +137,29 @@ export class MaintenanceService {
       return this.stale(command, 'incompatible')
     }
 
+    // Side-effecting jobs: fence/idempotency check inside the write funnel, then
+    // run spawn/scan/steward work OUTSIDE the SQLite transaction, then record.
+    if (
+      command.jobKind === 'automation-fire' ||
+      command.jobKind === 'steward-poll' ||
+      command.jobKind === 'connect-scan'
+    ) {
+      const gate = this.write(() => this.gateCommand(command))
+      if (gate) return gate
+      const nowMs = this.now()
+      if (command.jobKind === 'automation-fire') {
+        return this.applyAutomationFire(command, nowMs)
+      }
+      if (command.jobKind === 'steward-poll') {
+        return await this.applyStewardPoll(command)
+      }
+      return this.applyConnectScan(command, nowMs)
+    }
+
     return this.write(() => {
       const nowMs = this.now()
-      const lease = this.store.maintenance.getLease(LEASE_NAME)
-      if (!lease || lease.fencingToken !== command.fencingToken) {
-        return this.stale(command, 'fenced')
-      }
-      if (Date.parse(lease.expiresAt) <= nowMs) {
-        return this.stale(command, 'lease-expired')
-      }
-      if (
-        lease.protocolVersion !== command.protocolVersion ||
-        lease.schemaVersion !== command.schemaVersion
-      ) {
-        return this.stale(command, 'incompatible')
-      }
-
-      const prior = this.store.maintenance.getCommand(command.jobKind, command.runKey)
-      if (prior) {
-        return {
-          status: 'already-applied',
-          jobKind: command.jobKind,
-          runKey: command.runKey,
-          ...(prior.status !== 'stale' && 'deleted' in prior && prior.deleted !== undefined
-            ? { deleted: prior.deleted }
-            : {}),
-        }
-      }
-
+      const gate = this.gateCommand(command)
+      if (gate) return gate
       switch (command.jobKind) {
         case 'message-expiry':
           return this.applyMessageExpiry(command, nowMs)
@@ -155,6 +173,36 @@ export class MaintenanceService {
           return this.applyIssueAutoArchive(command, nowMs)
       }
     })
+  }
+
+  /** Shared fence + already-applied check. Caller must be inside write() for pure jobs. */
+  private gateCommand(command: MaintenanceCommand): MaintenanceCommandReply | undefined {
+    const nowMs = this.now()
+    const lease = this.store.maintenance.getLease(LEASE_NAME)
+    if (!lease || lease.fencingToken !== command.fencingToken) {
+      return this.stale(command, 'fenced')
+    }
+    if (Date.parse(lease.expiresAt) <= nowMs) {
+      return this.stale(command, 'lease-expired')
+    }
+    if (
+      lease.protocolVersion !== command.protocolVersion ||
+      lease.schemaVersion !== command.schemaVersion
+    ) {
+      return this.stale(command, 'incompatible')
+    }
+    const prior = this.store.maintenance.getCommand(command.jobKind, command.runKey)
+    if (prior) {
+      return {
+        status: 'already-applied',
+        jobKind: command.jobKind,
+        runKey: command.runKey,
+        ...(prior.status !== 'stale' && 'deleted' in prior && prior.deleted !== undefined
+          ? { deleted: prior.deleted }
+          : {}),
+      }
+    }
+    return undefined
   }
 
   private applyMessageExpiry(
@@ -296,6 +344,103 @@ export class MaintenanceService {
       runKey: command.runKey,
     }
     this.store.maintenance.recordCommand(applied, command.fencingToken, new Date(nowMs).toISOString())
+    return applied
+  }
+
+  private applyAutomationFire(
+    command: Extract<MaintenanceCommand, { jobKind: 'automation-fire' }>,
+    nowMs: number,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (automationFireRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (!this.automations) return this.stale(command, 'precondition')
+    const result = this.automations.applyObservedOccurrence({
+      automationId: observed.automationId,
+      nextRunAt: observed.nextRunAt,
+      enabled: true,
+      liveSessionIds: this.liveSessionIds(),
+      now: new Date(nowMs),
+    })
+    if (result === 'not-due') return this.stale(command, 'not-due')
+    if (result === 'precondition') return this.stale(command, 'precondition')
+    const applied: MaintenanceCommandReply = {
+      status: result === 'already' ? 'already-applied' : 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    }
+    this.write(() => {
+      if (!this.store.maintenance.getCommand(command.jobKind, command.runKey)) {
+        this.store.maintenance.recordCommand(
+          { status: 'applied', jobKind: command.jobKind, runKey: command.runKey },
+          command.fencingToken,
+          new Date(this.now()).toISOString(),
+        )
+      }
+    })
+    return applied
+  }
+
+  private async applyStewardPoll(
+    command: Extract<MaintenanceCommand, { jobKind: 'steward-poll' }>,
+  ): Promise<MaintenanceCommandReply> {
+    const observed = command.observed
+    if (stewardPollRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (observed.toEventId <= observed.fromCursor) {
+      return this.stale(command, 'precondition')
+    }
+    if (!this.stewardTick) return this.stale(command, 'precondition')
+    // StewardService.tick advances the cursor only after durable deliveries.
+    await this.stewardTick()
+    const applied: MaintenanceCommandReply = {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    }
+    this.write(() => {
+      this.store.maintenance.recordCommand(
+        applied,
+        command.fencingToken,
+        new Date(this.now()).toISOString(),
+      )
+    })
+    return applied
+  }
+
+  private applyConnectScan(
+    command: Extract<MaintenanceCommand, { jobKind: 'connect-scan' }>,
+    nowMs: number,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (connectScanRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (observed.deep !== false) return this.stale(command, 'precondition')
+    if (this.localMachineId && observed.machineId === this.localMachineId) {
+      return this.stale(command, 'precondition')
+    }
+    const machine = this.store.machines.getMachine(observed.machineId)
+    if (!machine) return this.stale(command, 'precondition')
+    // Recheck connectivity at apply: lastSeenAt must still be fresh.
+    if (Date.parse(machine.lastSeenAt) < nowMs - CONNECT_SCAN_LIVE_MS) {
+      return this.stale(command, 'not-due')
+    }
+    if (!this.connectScan) return this.stale(command, 'precondition')
+    // Kick the shallow scan; do not await deep work — orchestration only.
+    void Promise.resolve(this.connectScan(observed.machineId)).catch((err) => {
+      console.warn('[podium:maintenance] connect-scan failed:', err)
+    })
+    const applied: MaintenanceCommandReply = {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    }
+    this.write(() => {
+      this.store.maintenance.recordCommand(applied, command.fencingToken, new Date(nowMs).toISOString())
+    })
     return applied
   }
 

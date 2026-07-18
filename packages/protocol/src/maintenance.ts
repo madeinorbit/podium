@@ -111,6 +111,35 @@ export const IssueAutoArchiveObservation = z.object({
 })
 export type IssueAutoArchiveObservation = z.infer<typeof IssueAutoArchiveObservation>
 
+/** One due automation occurrence. firedAt is the scheduled nextRunAt, not wall clock. */
+export const AutomationFireObservation = z.object({
+  automationId: z.string().min(1).max(256),
+  enabled: z.literal(true),
+  nextRunAt: z.string().datetime(),
+  scheduleKind: z.enum(['cron', 'once']),
+  cron: z.string().nullable(),
+  lastSessionId: z.string().nullable(),
+})
+export type AutomationFireObservation = z.infer<typeof AutomationFireObservation>
+
+/**
+ * Steward poll window: process durable events (cursor, maxEventId].
+ * Cursor advances only after deliveries for the window are durable.
+ */
+export const StewardPollObservation = z.object({
+  fromCursor: z.number().int().nonnegative(),
+  toEventId: z.number().int().positive(),
+})
+export type StewardPollObservation = z.infer<typeof StewardPollObservation>
+
+/** Automatic connect-scan orchestration only (deep scans stay interactive). */
+export const ConnectScanObservation = z.object({
+  machineId: z.string().min(1).max(256),
+  lastSeenAt: z.string().datetime(),
+  deep: z.literal(false),
+})
+export type ConnectScanObservation = z.infer<typeof ConnectScanObservation>
+
 const MessageExpiryCommand = z.object({
   ...VersionClaim,
   jobKind: z.literal('message-expiry'),
@@ -151,12 +180,39 @@ const IssueAutoArchiveCommand = z.object({
   observed: IssueAutoArchiveObservation,
 })
 
+const AutomationFireCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('automation-fire'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: AutomationFireObservation,
+})
+
+const StewardPollCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('steward-poll'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: StewardPollObservation,
+})
+
+const ConnectScanCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('connect-scan'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: ConnectScanObservation,
+})
+
 export const MaintenanceCommand = z.discriminatedUnion('jobKind', [
   MessageExpiryCommand,
   EventLogPruneCommand,
   ChangeLogPruneCommand,
   MaintenanceCommandsPruneCommand,
   IssueAutoArchiveCommand,
+  AutomationFireCommand,
+  StewardPollCommand,
+  ConnectScanCommand,
 ])
 export type MaintenanceCommand = z.infer<typeof MaintenanceCommand>
 
@@ -166,6 +222,9 @@ export const MaintenanceJobKind = z.enum([
   'change-log-prune',
   'maintenance-commands-prune',
   'issue-auto-archive',
+  'automation-fire',
+  'steward-poll',
+  'connect-scan',
 ])
 export type MaintenanceJobKind = z.infer<typeof MaintenanceJobKind>
 
@@ -254,4 +313,21 @@ export function issueAutoArchiveRunKey(observed: IssueAutoArchiveObservation): s
     encode(observed.stage),
     encode(observed.closedReason ?? 'none'),
   ].join('/')
+}
+
+/** Deterministic occurrence identity — also the spawn/outbox mutation id. */
+export function automationOccurrenceRunId(automationId: string, firedAt: string): string {
+  return `arun_${encode(automationId)}_${encode(firedAt)}`.slice(0, 128)
+}
+
+export function automationFireRunKey(observed: AutomationFireObservation): string {
+  return ['automation-fire', encode(observed.automationId), encode(observed.nextRunAt)].join('/')
+}
+
+export function stewardPollRunKey(observed: StewardPollObservation): string {
+  return ['steward-poll', String(observed.fromCursor), String(observed.toEventId)].join('/')
+}
+
+export function connectScanRunKey(observed: ConnectScanObservation): string {
+  return ['connect-scan', encode(observed.machineId), encode(observed.lastSeenAt)].join('/')
 }

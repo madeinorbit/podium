@@ -140,6 +140,27 @@ export class AutomationsRepository {
       .run(run.id, run.automationId, run.firedAt, run.sessionId, run.outcome, run.detail)
   }
 
+  getRun(id: string): AutomationRunRow | undefined {
+    const r = this.db.prepare('SELECT * FROM automation_runs WHERE id = ?').get(id) as
+      | Record<string, unknown>
+      | undefined
+    return r ? rowToRun(r) : undefined
+  }
+
+  /** Finalize a reserved occurrence after side effects [POD-925]. */
+  updateRun(
+    id: string,
+    patch: { sessionId: string | null; outcome: AutomationRunOutcome; detail: string | null },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE automation_runs
+         SET session_id = ?, outcome = ?, detail = ?
+         WHERE id = ?`,
+      )
+      .run(patch.sessionId, patch.outcome, patch.detail, id)
+  }
+
   /** Most recent runs first — the tab's "Recent runs" list. */
   listRuns(automationId: string, limit = 20): AutomationRunRow[] {
     const rows = this.db

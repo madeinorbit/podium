@@ -1243,7 +1243,8 @@ export class SessionRegistry {
           })().catch(() => {}),
       },
     })
-    this.steward.start()
+    // Steward timer RETIRED [POD-925]: janitor owns steward-poll cadence.
+    // this.steward.start()
     // Message delivery retriggers (#237) [spec:SP-34d7]: a turn ending (phase →
     // idle) drains that session's queued messages (and clears its hop context);
     // the slow sweep expires + retries whatever the event triggers missed.
@@ -1307,8 +1308,9 @@ export class SessionRegistry {
         ),
       now: () => new Date(this.now()),
     })
+    // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
-    this.automationScheduler.start()
+    // this.automationScheduler.start()
 
     this.issues = issues
     this.issueCommands = issueCommands
@@ -1407,5 +1409,10 @@ export class SessionRegistry {
     // durable change log is already complete — commits happen at persist time).
     this.modules.sessions.dispose()
     this.steward.dispose()
+  }
+
+  /** Fenced janitor entry: one steward poll with deliveries-before-cursor-advance. */
+  runStewardTick(): Promise<void> {
+    return this.steward.tick()
   }
 }

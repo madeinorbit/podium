@@ -13,7 +13,12 @@
 
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import type { AgentKind, AutomationScheduleKind, AutomationSessionMode } from '@podium/protocol'
+import {
+  automationOccurrenceRunId,
+  type AgentKind,
+  type AutomationScheduleKind,
+  type AutomationSessionMode,
+} from '@podium/protocol'
 import type { Ledger } from '@podium/sync'
 import type {
   AutomationRow,
@@ -342,50 +347,36 @@ export class AutomationsService {
   private apply(decision: AutomationDecision): void {
     const automation = this.deps.store.get(decision.automationId)
     if (!automation) return
-    let outcome: AutomationRunOutcome
-    let sessionId: string | null = null
-    let detail = decision.detail ?? null
-    const runId = `arun_${randomUUID()}`
-    if (decision.kind === 'spawn') {
-      try {
-        sessionId = this.spawn(automation, runId)
-        outcome = 'spawned'
-      } catch (err) {
-        outcome = 'error'
-        if (err instanceof AutomationSpawnError) sessionId = err.sessionId
-        detail = err instanceof Error ? err.message : String(err)
-        console.warn(`[podium:automations] ${automation.name} failed to spawn:`, err)
-      }
-    } else {
-      outcome = decision.kind
-    }
+    // Occurrence id reserved BEFORE side effects and reused as mutation id [POD-925].
+    const runId = automationOccurrenceRunId(automation.id, decision.firedAt)
+    if (this.deps.store.getRun(runId)) return
 
-    const run: AutomationRunRow = {
-      id: runId,
-      automationId: automation.id,
-      firedAt: decision.firedAt,
-      sessionId,
-      outcome,
-      detail,
-    }
     const rearmed: AutomationRow = {
       ...automation,
       enabled: automation.scheduleKind === 'once' ? false : automation.enabled,
       nextRunAt: decision.nextRunAt,
       lastRunAt: decision.firedAt,
     }
+    // Reserve the occurrence row + re-arm next fire BEFORE any spawn/outbox work.
     this.deps.ledger.commit({
       write: () => {
-        this.deps.store.addRun(run)
+        this.deps.store.addRun({
+          id: runId,
+          automationId: automation.id,
+          firedAt: decision.firedAt,
+          sessionId: null,
+          outcome: decision.kind === 'spawn' ? 'error' : decision.kind,
+          detail: decision.kind === 'spawn' ? 'reserved' : (decision.detail ?? null),
+        })
         this.deps.store.update(rearmed)
-        return { run, automation: rearmed }
+        return { runId, automation: rearmed }
       },
       changes: (result) => [
         {
           entity: 'automationRun',
-          id: result.run.id,
+          id: result.runId,
           op: 'upsert',
-          value: result.run,
+          value: this.deps.store.getRun(result.runId)!,
         },
         {
           entity: 'automation',
@@ -395,8 +386,72 @@ export class AutomationsService {
         },
       ],
     })
+
+    let outcome: AutomationRunOutcome =
+      decision.kind === 'spawn' ? 'error' : decision.kind
+    let sessionId: string | null = null
+    let detail = decision.detail ?? null
+    if (decision.kind === 'spawn') {
+      try {
+        sessionId = this.spawn(automation, runId)
+        outcome = 'spawned'
+        detail = null
+      } catch (err) {
+        outcome = 'error'
+        if (err instanceof AutomationSpawnError) sessionId = err.sessionId
+        detail = err instanceof Error ? err.message : String(err)
+        console.warn(`[podium:automations] ${automation.name} failed to spawn:`, err)
+      }
+      this.deps.ledger.commit({
+        write: () => {
+          this.deps.store.updateRun(runId, { sessionId, outcome, detail })
+          return this.deps.store.getRun(runId)!
+        },
+        changes: (run) => [
+          { entity: 'automationRun', id: run.id, op: 'upsert', value: run },
+        ],
+      })
+    }
     this.publishRuns()
     this.publishAutomations()
+  }
+
+  /**
+   * Fenced maintenance entry [POD-925]: apply one observed due occurrence after
+   * the server revalidates schedule facts. Returns whether a run was applied.
+   */
+  applyObservedOccurrence(input: {
+    automationId: string
+    nextRunAt: string
+    enabled: true
+    liveSessionIds: Set<string>
+    now: Date
+  }): 'applied' | 'precondition' | 'not-due' | 'already' {
+    const automation = this.deps.store.get(input.automationId)
+    if (!automation || !automation.enabled || !input.enabled) return 'precondition'
+    if (automation.nextRunAt !== input.nextRunAt) return 'precondition'
+    const due = Date.parse(input.nextRunAt)
+    if (!Number.isFinite(due) || due > input.now.getTime()) return 'not-due'
+    const runId = automationOccurrenceRunId(automation.id, input.nextRunAt)
+    if (this.deps.store.getRun(runId)) return 'already'
+    const decisions = decideTick({
+      now: input.now,
+      automations: [
+        {
+          id: automation.id,
+          enabled: automation.enabled,
+          scheduleKind: automation.scheduleKind,
+          cron: automation.cron,
+          nextRunAt: automation.nextRunAt,
+          lastSessionId: this.deps.store.lastSpawnedSessions().get(automation.id) ?? null,
+        },
+      ],
+      liveSessionIds: input.liveSessionIds,
+    })
+    const decision = decisions[0]
+    if (!decision) return 'not-due'
+    this.apply(decision)
+    return 'applied'
   }
 
   /**

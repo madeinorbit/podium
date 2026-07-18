@@ -12,7 +12,7 @@ export interface MaintenanceRouteDeps {
   authenticateToken(token: string): boolean
   service: {
     handshake(request: Handshake): MaintenanceHandshakeReply
-    apply(request: Command): MaintenanceCommandReply
+    apply(request: Command): MaintenanceCommandReply | Promise<MaintenanceCommandReply>
   }
 }
 
@@ -51,6 +51,6 @@ export function registerMaintenanceRoute(app: Hono, deps: MaintenanceRouteDeps):
     }
     const parsed = MaintenanceCommand.safeParse(body)
     if (!parsed.success) return c.json({ error: 'invalid-command' }, 400)
-    return c.json(deps.service.apply(parsed.data))
+    return c.json(await deps.service.apply(parsed.data))
   })
 }

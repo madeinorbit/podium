@@ -436,12 +436,14 @@ describe('AutomationsService.tick — spawn', () => {
     h.service.tick()
 
     const changes = h.ledger.changesSince(0)
+    // create → reserve occurrence (run + re-arm) → finalize spawn outcome [POD-925]
     expect(changes?.map((change) => [change.entity, change.id, change.op])).toEqual([
       ['automation', a.id, 'upsert'],
       ['automationRun', expect.stringMatching(/^arun_/), 'upsert'],
       ['automation', a.id, 'upsert'],
+      ['automationRun', expect.stringMatching(/^arun_/), 'upsert'],
     ])
-    expect(changes?.map((change) => change.seq)).toEqual([1, 2, 3])
+    expect(changes?.map((change) => change.seq)).toEqual([1, 2, 3, 4])
     expect(h.funnel.publishComputed).toHaveBeenCalledWith({
       type: 'automationRunsChanged',
       automationRuns: [expect.objectContaining({ automationId: a.id, outcome: 'spawned' })],

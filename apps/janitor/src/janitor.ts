@@ -2,11 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
+  type AutomationFireObservation,
+  automationFireRunKey,
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
   CHANGE_PRUNE_BATCH_ROWS,
   changeLogPruneRunKey,
   type ChangeLogPruneObservation,
+  type ConnectScanObservation,
+  connectScanRunKey,
   EVENT_PRUNE_BATCH_ROWS,
   EVENT_RETENTION_MAX_AGE_DAYS,
   EVENT_RETENTION_MAX_ROWS,
@@ -27,6 +31,8 @@ import {
   type MessageExpiryObservation as ExpiryObservation,
   MessageExpiryObservation,
   messageExpiryRunKey,
+  type StewardPollObservation,
+  stewardPollRunKey,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
@@ -104,6 +110,11 @@ export interface JanitorDeps {
   readAutoArchiveCandidates?(
     input: AutoArchiveReadInput,
   ): IssueAutoArchiveObservation[] | Promise<IssueAutoArchiveObservation[]>
+  readDueAutomations?(nowIso: string): AutomationFireObservation[] | Promise<AutomationFireObservation[]>
+  readStewardPollWindow?(): StewardPollObservation | null | Promise<StewardPollObservation | null>
+  readConnectScanCandidates?(
+    nowIso: string,
+  ): ConnectScanObservation[] | Promise<ConnectScanObservation[]>
   apply(request: MaintenanceCommand): Promise<MaintenanceCommandReply>
 }
 
@@ -208,6 +219,9 @@ export class JanitorService {
       await this.runChangeLogPrune(lease, nowMs)
       await this.runMaintenanceCommandsPrune(lease, nowMs)
       await this.runAutoArchive(lease, nowMs)
+      await this.runAutomationFires(lease, nowMs)
+      await this.runStewardPoll(lease)
+      await this.runConnectScans(lease, nowMs)
     }
 
     this.counters.jobAgeMs.tick = this.now() - tickStarted
@@ -321,6 +335,59 @@ export class JanitorService {
       if (!cont) break
     }
     this.markJobEnd('issue-auto-archive')
+  }
+
+  private async runAutomationFires(lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.readDueAutomations) return
+    this.markJobStart('automation-fire', nowMs)
+    const due = await this.deps.readDueAutomations(new Date(nowMs).toISOString())
+    for (const observed of due) {
+      const cont = await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'automation-fire',
+        runKey: automationFireRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+      if (!cont) break
+    }
+    this.markJobEnd('automation-fire')
+  }
+
+  private async runStewardPoll(lease: ReadyLease): Promise<void> {
+    if (!this.deps.readStewardPollWindow) return
+    this.markJobStart('steward-poll', this.now())
+    const observed = await this.deps.readStewardPollWindow()
+    if (observed) {
+      await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'steward-poll',
+        runKey: stewardPollRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+    }
+    this.markJobEnd('steward-poll')
+  }
+
+  private async runConnectScans(lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.readConnectScanCandidates) return
+    this.markJobStart('connect-scan', nowMs)
+    const candidates = await this.deps.readConnectScanCandidates(new Date(nowMs).toISOString())
+    for (const observed of candidates) {
+      const cont = await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'connect-scan',
+        runKey: connectScanRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+      if (!cont) break
+    }
+    this.markJobEnd('connect-scan')
   }
 
   /** @returns false when the tick must stop (fence/lease/incompatible). */
@@ -653,6 +720,78 @@ export class IssueAutoArchiveReader {
   }
 }
 
+/** Due automations from durable schedule state (overlap revalidated at apply). */
+export class AutomationDueReader {
+  constructor(private readonly db: SqlDatabase) {}
+
+  read(nowIso: string): AutomationFireObservation[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, enabled, schedule_kind, cron, next_run_at
+         FROM automations
+         WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+         ORDER BY next_run_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(nowIso, CANDIDATE_LIMIT) as Array<{
+      id: string
+      enabled: number
+      schedule_kind: 'cron' | 'once'
+      cron: string | null
+      next_run_at: string
+    }>
+    return rows.map((row) => ({
+      automationId: row.id,
+      enabled: true as const,
+      nextRunAt: row.next_run_at,
+      scheduleKind: row.schedule_kind,
+      cron: row.cron,
+      lastSessionId: null,
+    }))
+  }
+}
+
+/** Steward poll window from durable cursor + event log head. */
+export class StewardPollReader {
+  constructor(private readonly db: SqlDatabase) {}
+
+  read(): StewardPollObservation | null {
+    const raw = this.db
+      .prepare("SELECT value FROM steward_state WHERE key = 'cursor'")
+      .get() as { value: string } | undefined
+    const max = this.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM podium_events').get() as {
+      m: number
+    }
+    if (max.m <= 0) return null
+    const fromCursor =
+      raw !== undefined && Number.isFinite(Number(raw.value)) ? Number(raw.value) : 0
+    if (max.m <= fromCursor) return null
+    return { fromCursor, toEventId: max.m }
+  }
+}
+
+/** Recently-seen remote machines for automatic shallow connect-scan. */
+export class ConnectScanReader {
+  constructor(private readonly db: SqlDatabase) {}
+
+  read(nowIso: string, localMachineId = 'local'): ConnectScanObservation[] {
+    const cutoff = new Date(Date.parse(nowIso) - 5 * 60_000).toISOString()
+    const rows = this.db
+      .prepare(
+        `SELECT id, last_seen_at FROM machines
+         WHERE id != ? AND last_seen_at >= ?
+         ORDER BY last_seen_at DESC, id ASC
+         LIMIT ?`,
+      )
+      .all(localMachineId, cutoff, CANDIDATE_LIMIT) as Array<{ id: string; last_seen_at: string }>
+    return rows.map((row) => ({
+      machineId: row.id,
+      lastSeenAt: row.last_seen_at,
+      deep: false as const,
+    }))
+  }
+}
+
 export interface MaintenanceHttpClient {
   handshake(request: MaintenanceHandshake): Promise<MaintenanceHandshakeReply>
   apply(request: MaintenanceCommand): Promise<MaintenanceCommandReply>
@@ -709,6 +848,9 @@ export async function startJanitor(options: {
   const changePlanner = new ChangeLogPrunePlanner(db)
   const commandPlanner = new MaintenanceCommandsPrunePlanner(db)
   const archiveReader = new IssueAutoArchiveReader(db)
+  const automationReader = new AutomationDueReader(db)
+  const stewardReader = new StewardPollReader(db)
+  const connectScanReader = new ConnectScanReader(db)
   const service = new JanitorService({
     handshake: client.handshake,
     apply: client.apply,
@@ -717,6 +859,9 @@ export async function startJanitor(options: {
     planChangeLogPrune: (input) => changePlanner.plan(input),
     planMaintenanceCommandsPrune: (input) => commandPlanner.plan(input),
     readAutoArchiveCandidates: (input) => archiveReader.read(input),
+    readDueAutomations: (nowIso) => automationReader.read(nowIso),
+    readStewardPollWindow: () => stewardReader.read(),
+    readConnectScanCandidates: (nowIso) => connectScanReader.read(nowIso),
   })
   try {
     await service.tick()

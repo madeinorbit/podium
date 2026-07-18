@@ -94,9 +94,11 @@ janitor from acquiring or renewing a lease after an incompatible protocol/schema
 POD-845's first review cut moves message expiry and establishes the shared fenced surface and
 real sibling lifecycle. POD-925 Batch 1 moves event-log retention, ledger change-log cadence
 prune, issue auto-archive, and maintenance_commands retention onto that surface (server timers
-and ledger append-cadence prune retired after parity tests). Batch 2 covers steward poll,
-automations cron, and automatic connect-scan orchestration. Until each cut lands, its existing
-owner remains authoritative rather than running two writers.
+and ledger append-cadence prune retired after parity tests). POD-925 Batch 2 moves steward
+poll (cursor advances only after durable deliveries), automations cron (occurrence id reserved
+before side effects and reused as mutation id), and automatic connect-scan orchestration
+(deep scans stay interactive; server rechecks connectivity at apply). Until each cut lands,
+its existing owner remains authoritative rather than running two writers.
 
 ---
 
