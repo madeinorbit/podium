@@ -91,7 +91,7 @@ describe.each([
       apply: async (command): Promise<MaintenanceCommandReply> => {
         if (crash) {
           crash = false
-          if (boundary === 'after-apply-before-ack') server.apply(command)
+          if (boundary === 'after-apply-before-ack') await server.apply(command)
           throw new Error(`injected crash ${boundary}`)
         }
         return server.apply(command)
@@ -154,7 +154,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
         expiresAt: null,
       },
     }
-    expect(server.apply(stale)).toMatchObject({ status: 'stale', reason: 'fenced' })
+    expect(await server.apply(stale)).toMatchObject({ status: 'stale', reason: 'fenced' })
     store.close()
   })
 
