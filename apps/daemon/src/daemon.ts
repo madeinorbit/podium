@@ -42,6 +42,7 @@ import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { createBrowserOpenManager } from './browser-open'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
+import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
@@ -350,6 +351,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // Draft Sync v2 (POD-859): read-only/inject composer engine. Publishes scraped
+  // native drafts up to the server; injects chat drafts into the PTY (bytes are a
+  // UTF-8 string of control chars + text; the bridge takes base64). Declared here so
+  // the session observers can feed it agent-idle state.
+  const bridges = new Map<string, AgentSession>()
+  const composerEngine = new ComposerSyncEngine(
+    (sessionId, text) => send({ type: 'nativeDraft', sessionId, text }),
+    {
+      writePty: (sessionId, bytes) =>
+        bridges.get(sessionId)?.write(Buffer.from(bytes, 'utf8').toString('base64')),
+      onDemote: (sessionId) =>
+        console.warn(`[podium] draft-sync self-demoted to read-only for ${sessionId}`),
+    },
+  )
+
   // The /proc memory walk AND the conversation discovery scan both run on the
   // worker thread so neither stalls the interactive daemon loop; stopped in
   // disposeAll(). The worker owns discovery.db exclusively, so the every-15s
@@ -401,6 +417,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     homeDir,
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
+    // Draft Sync v2 (POD-859): the composer engine only scrapes/injects while the
+    // agent is idle — fed from the agent-state tracker's phase transitions.
+    onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onExactCodexBinding: async (sessionId, nativeId) => {
       if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
       // Replay sends ackRequested:true. If the socket is offline, the receipt
@@ -535,7 +554,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     launch,
     settingsDir,
     homeDir,
-    bridges: new Map<string, AgentSession>(),
+    bridges,
+    composerEngine,
     outputScheduler,
     observers,
     sessionCwdTracker,
@@ -624,6 +644,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     ctx.runningHeadlessTurns.clear()
     observers.disposeObservers()
+    composerEngine.disposeAll()
   }
 
   const handle: DaemonHandle = {

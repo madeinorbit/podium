@@ -1,5 +1,6 @@
 import type { AgentSession, agentLaunchCommand } from '@podium/agent-bridge'
 import type { ControlMessage, DaemonMessage, UsageBucketWire } from '@podium/protocol'
+import type { ComposerSyncEngine } from '../composer-sync'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
 import type { BrowserOpenManager } from '../browser-open'
@@ -43,6 +44,8 @@ export interface DaemonContext {
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */
   bridges: Map<string, AgentSession>
+  /** Draft Sync v2 (POD-859): read-only/inject composer engine for flagged sessions. */
+  composerEngine: ComposerSyncEngine
   /** Coalesced, prioritized PTY frame relay. */
   outputScheduler: OutputScheduler
   /** Agent-state trackers, transcript tails, per-harness observers. */

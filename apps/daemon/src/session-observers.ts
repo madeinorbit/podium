@@ -50,6 +50,9 @@ export interface SessionObserversDeps {
    *  burst) — narrow concurrency, and held until the burst's bridge wiring has
    *  settled (POD-612). Omitted (tests) = seeds run immediately. */
   tailSeedGate?: (fn: () => Promise<void>) => Promise<void>
+  /** Draft Sync v2 (POD-859): agent-idle transitions, so the composer engine only
+   *  scrapes/injects while the composer is the live input. Omitted (tests) = no-op. */
+  onIdleState?: (sessionId: string, idle: boolean) => void
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -187,6 +190,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           // without leaving the phase; non-idle would have cancelled us).
           if (current?.phase === 'idle') {
             send({ type: 'agentState', sessionId, state: current })
+            deps.onIdleState?.(sessionId, true)
           }
         }, IDLE_TRANSITION_DEBOUNCE_MS)
         pendingIdleEmits.set(sessionId, timer)
@@ -195,6 +199,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
       cancelPendingIdleEmit(sessionId)
       send({ type: 'agentState', sessionId, state: next })
+      deps.onIdleState?.(sessionId, next.phase === 'idle')
     }
   }
 
@@ -288,6 +293,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       if (next === tracker.state) continue
       tracker.state = next
       send({ type: 'agentState', sessionId, state: next })
+      deps.onIdleState?.(sessionId, next.phase === 'idle')
     }
   }
 
