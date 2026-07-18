@@ -238,6 +238,44 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
+  it('nudges exactly once when final child bookkeeping closes working to idle', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({ sessionId: 'child', status: 'live', cwd: '/r/c', spawnedBy: 'session:parent' }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    const closure = {
+      ...accepted,
+      transitionId: 'child-close-1',
+      transitionKind: 'subagent_bookkeeping',
+      providerCursor: { segmentId: 'claude:one', components: { transcript: 55 } },
+    }
+    expect(isAcceptedLiveTerminalEvent({ ...baseEvent, payload: closure })).toBe(true)
+    expect(
+      isAcceptedLiveTerminalEvent({
+        ...baseEvent,
+        payload: { ...closure, priorPhase: 'idle' },
+      }),
+    ).toBe(false)
+
+    store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: closure,
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: closure,
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('StewardService cursor', () => {
