@@ -77,7 +77,12 @@ import {
   verifiedCommonBundleBases,
 } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
-import { createViewKey, type PublicationView, type ViewKey } from './publish-worker-actor'
+import {
+  createViewKey,
+  type PreparedPublication,
+  type PublicationView,
+  type ViewKey,
+} from './publish-worker-actor'
 import {
   PublicationSupersededError,
   PublishWorkerClient,
@@ -174,6 +179,11 @@ export interface SessionProjectionEvent {
   ledgerCursor: number
 }
 
+export interface SessionPublicationMetrics extends PublishWorkerMetrics {
+  shadowComparisons: number
+  shadowMismatches: number
+}
+
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
   sessionIds: string[]
@@ -203,6 +213,8 @@ interface SessionsServiceDeps {
   ledger: SessionLedger
   /** Test/fault-injection seam; production owns the default daemon client. */
   publicationWorker?: PublishWorkerClient
+  /** Rollout-only old/new semantic comparison; never changes delivered bytes. */
+  publicationShadowCompare?: boolean
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
@@ -238,28 +250,6 @@ interface SessionsServiceDeps {
     workflowRevisionId?: string
     existingOnly?: boolean
   }): PreparedSessionInstructions
-}
-
-// Session fields that DON'T feed issue wire data [POD-722]. IssueWire.sessions
-// embeds each member SessionMeta VERBATIM (issue-util sessionsForIssue → toWire),
-// so every SessionMeta field is issue-relevant EXCEPT the connection-plumbing trio
-// a bare attach/detach/control-transfer moves: clientCount, controllerId, epoch.
-// Denylisting (strip these) rather than allow-picking keeps any newly-added
-// SessionMeta field issue-relevant by default — over-broadcast is safe, under-
-// broadcast leaves a stale issue panel. Interim until POD-308 deletes the
-// snapshot fan-out.
-const NON_ISSUE_SESSION_FIELDS = ['clientCount', 'controllerId', 'epoch'] as const
-
-/** Stable serialization of the issue-relevant slice of every session — the input
- *  that decides whether a session broadcast must republish issues [POD-722]. */
-function issueRelevantSessionProjection(sessions: SessionMeta[]): string {
-  return JSON.stringify(
-    sessions.map((s) => {
-      const proj: Record<string, unknown> = { ...s }
-      for (const f of NON_ISSUE_SESSION_FIELDS) delete proj[f]
-      return proj
-    }),
-  )
 }
 
 /**
@@ -307,6 +297,9 @@ export class SessionsService {
   }
   private readonly publicationWorker: PublishWorkerClient
 
+  private readonly publicationShadowCompare: boolean
+  private publicationShadowComparisons = 0
+  private publicationShadowMismatches = 0
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
    * by attachClient to replay on connect); it is also debounced to the store so it
@@ -347,7 +340,7 @@ export class SessionsService {
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<
     string,
-    { version: number; preserve: Set<SessionVolatileField> }
+    { version: number; preserve: Set<SessionVolatileField>; issueRelevant: boolean }
   >()
   private readonly capturedSessionStates = new Map<string, SessionDurableState>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -366,7 +359,8 @@ export class SessionsService {
   // epoch, none of which feed issue wire data, so it can be skipped. Stamped only
   // after a successful publishIssues(), so a throw retries on the next broadcast.
   // Interim until POD-308 deletes the snapshot fan-out.
-  private lastIssueSessionProjection = ''
+  private issueProjectionGeneration = 0
+  private lastIssueProjectionGeneration = -1
   private nextClientNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
@@ -390,6 +384,7 @@ export class SessionsService {
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
     this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
+    this.publicationShadowCompare = deps.publicationShadowCompare ?? false
     this.autoContinue = new AutoContinueController({
       isEnabled: () => this.store.settings.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
@@ -494,6 +489,7 @@ export class SessionsService {
   private publishSessionProjection(
     changes: MetadataChange[],
     ledgerCursor: number | undefined = changes.at(-1)?.seq,
+    issueRelevant = true,
   ): void {
     const sessionChanges = changes.filter((change) => change.entity === 'session')
     if (sessionChanges.length === 0 || ledgerCursor === undefined) return
@@ -502,6 +498,7 @@ export class SessionsService {
       changes: sessionChanges,
       ledgerCursor,
     }
+    if (issueRelevant) this.issueProjectionGeneration += 1
     this.publicationWorker.applyProjection(event)
     for (const listener of this.sessionProjectionListeners) {
       try {
@@ -513,21 +510,23 @@ export class SessionsService {
   }
 
   /** Explicit non-row capture seam [spec:SP-c29e]. */
-  private captureSessionSpecs(specs: EntityChangeSpec[]): MetadataChange[] {
+  private captureSessionSpecs(specs: EntityChangeSpec[], issueRelevant = true): MetadataChange[] {
     if (specs.length === 0) return []
     const changes = this.deps.ledger.capture(specs)
-    this.publishSessionProjection(changes)
+    this.publishSessionProjection(changes, undefined, issueRelevant)
     return changes
   }
 
   private markVolatileSessionDirty(
     sessionId: string,
     preserve: SessionVolatileField[] = ['geometry', 'handoffTarget'],
+    issueRelevant = true,
   ): void {
     const previous = this.pendingVolatileSessions.get(sessionId)
     this.pendingVolatileSessions.set(sessionId, {
       version: ++this.volatileSessionMutationVersion,
       preserve: new Set([...(previous?.preserve ?? []), ...preserve]),
+      issueRelevant: (previous?.issueRelevant ?? false) || issueRelevant,
     })
     this.scheduleVolatileSessionCapture()
   }
@@ -555,6 +554,7 @@ export class SessionsService {
     this.clearVolatileSessionCaptureTimer()
     if (this.pendingVolatileSessions.size === 0) return []
     const pending = [...this.pendingVolatileSessions]
+    const issueRelevant = pending.some(([, state]) => state.issueRelevant)
     const specs: EntityChangeSpec[] = []
     for (const [sessionId] of pending) {
       const session = this.sessions.get(sessionId)
@@ -567,12 +567,13 @@ export class SessionsService {
       })
     }
     try {
-      const changes = this.captureSessionSpecs(specs)
+      const changes = this.captureSessionSpecs(specs, issueRelevant)
       // A volatile A→B→A batch legitimately dedups to no durable patch, but it
       // still invalidates the legacy snapshot pipeline once. Do not fabricate a
       // projection event: patch consumers need only the captured final truth.
       if (!changes.some((change) => change.entity === 'session')) {
         this.sessionsGeneration_++
+        if (issueRelevant) this.issueProjectionGeneration += 1
         this.publicationWorker.replaceProjection({
           generation: this.sessionsGeneration_,
           ledgerCursor: this.funnel.cursor(),
@@ -596,11 +597,15 @@ export class SessionsService {
   /** Central volatile Session-view mutation seam. The latest value is captured
    * once per session by the coalesced broadcast flush, keeping interaction paths
    * free of synchronous SQLite writes [spec:SP-c29e]. */
-  private mutateSessionView(sessionId: string, mutate: (session: Session) => void): boolean {
+  private mutateSessionView(
+    sessionId: string,
+    mutate: (session: Session) => void,
+    issueRelevant = true,
+  ): boolean {
     const session = this.sessions.get(sessionId)
     if (!session) return false
     mutate(session)
-    this.markVolatileSessionDirty(sessionId)
+    this.markVolatileSessionDirty(sessionId, undefined, issueRelevant)
     return true
   }
 
@@ -4001,15 +4006,60 @@ export class SessionsService {
     this.schedulePreparedSessionPublications()
   }
 
-  publicationMetrics(): PublishWorkerMetrics {
-    return this.publicationWorker.metrics()
+  publicationMetrics(): SessionPublicationMetrics {
+    return {
+      ...this.publicationWorker.metrics(),
+      shadowComparisons: this.publicationShadowComparisons,
+      shadowMismatches: this.publicationShadowMismatches,
+    }
+  }
+
+  /**
+   * Rollout guard [spec:SP-c29e]: rebuild the publication through the legacy
+   * main-loop semantics and compare it without changing which bytes are sent.
+   */
+  private shadowComparePublication(publication: PreparedPublication, view: PublicationView): void {
+    if (!this.publicationShadowCompare) return
+    this.publicationShadowComparisons += 1
+    const allowed = new Set(view.allowedSessionIds)
+    let legacy: ServerMessage | undefined
+    if (publication.kind === 'snapshot') {
+      legacy = {
+        type: 'sessionsChanged',
+        sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
+      }
+    } else {
+      const fromExclusive = publication.sourceRange.fromExclusive
+      const source = fromExclusive === null ? null : this.funnel.changesSince(fromExclusive)
+      if (fromExclusive !== null && source) {
+        legacy = {
+          type: 'metadataDelta',
+          fromExclusive,
+          seq: publication.sourceRange.toInclusive,
+          changes: source.filter(
+            (change) =>
+              change.seq <= publication.sourceRange.toInclusive &&
+              change.entity === 'session' &&
+              allowed.has(change.id),
+          ),
+        }
+      }
+    }
+    if (legacy && JSON.stringify(legacy) === publication.bytes) return
+    this.publicationShadowMismatches += 1
+    console.error('[sessions] publication shadow mismatch', {
+      viewKey: publication.viewKey,
+      kind: publication.kind,
+      generation: publication.generation,
+      ledgerCursor: publication.ledgerCursor,
+    })
   }
 
   detachClient(id: string): void {
     const client = this.clients.get(id)
     if (!client) return
     for (const sessionId of client.attached) {
-      this.mutateSessionView(sessionId, (session) => session.detachClient(id))
+      this.mutateSessionView(sessionId, (session) => session.detachClient(id), false)
     }
     // Transcript subscriptions are independent of PTY attachment — sweep just the ones
     // THIS client made (audit P2-18), not every session on the host (the old full scan
@@ -4167,8 +4217,10 @@ export class SessionsService {
         const session = this.sessions.get(msg.sessionId)
         if (!session) return
         client.attached.add(msg.sessionId)
-        this.mutateSessionView(msg.sessionId, (current) =>
-          current.attachClient(client, msg.sinceSeq),
+        this.mutateSessionView(
+          msg.sessionId,
+          (current) => current.attachClient(client, msg.sinceSeq),
+          false,
         )
         this.broadcastSessions()
         this.pushPriorities()
@@ -4178,7 +4230,7 @@ export class SessionsService {
       case 'detach': {
         const t0 = performance.now()
         client.attached.delete(msg.sessionId)
-        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id))
+        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id), false)
         this.broadcastSessions()
         this.pushPriorities()
         perf.record('phase', 'ws.detach', performance.now() - t0)
@@ -4193,7 +4245,7 @@ export class SessionsService {
         )
         break
       case 'requestControl':
-        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id))
+        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id), false)
         this.broadcastSessions()
         break
       case 'redrawRequest':
@@ -5191,14 +5243,15 @@ export class SessionsService {
         return
       }
       this.runningSessionsBroadcastGeneration = generation
-      const sessions = this.listSessions()
-      const tList = performance.now()
-      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
-      // Every non-boot mutation was already captured at its owning seam. This hot
-      // path only builds the legacy snapshot; full reconcile is boot/recovery-only.
       const hasMainEncodedReceivers = [...this.clients.values()].some(
         (client) => !client.caps.has(CAP_METADATA_DELTA) && !client.publication,
       )
+      const issueProjectionChanged =
+        this.issueProjectionGeneration !== this.lastIssueProjectionGeneration
+      // Worker-only connection churn needs neither legacy nor issue snapshots.
+      const sessions = hasMainEncodedReceivers || issueProjectionChanged ? this.listSessions() : []
+      const tList = performance.now()
+      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
       const mainEncodedBytes = hasMainEncodedReceivers ? JSON.stringify(sessions).length : 0
       perf.record(
         'phase',
@@ -5239,7 +5292,7 @@ export class SessionsService {
       // POD-722: skip that O(issues×sessions) rebuild when this broadcast touched
       // no field that feeds issue wire data. The session-switch hot path POD-701
       // measured (attach + detach, ~2 broadcasts) moves only clientCount/
-      // controllerId/epoch — stripped from the projection below — so the issue
+      // controllerId/epoch — classified at the mutation boundary — so the issue
       // payloads are byte-identical to the last publish and republishing them is
       // pure waste. When a real issue-relevant field DID change (status, workState,
       // activity, membership, …) the projection differs and publishIssues() runs
@@ -5247,15 +5300,14 @@ export class SessionsService {
       // broadcastList in modules/issues), unaffected by this skip. Interim until
       // POD-308 deletes the snapshot fan-out.
       const tSkip0 = performance.now()
-      const issueProjection = issueRelevantSessionProjection(sessions)
-      if (issueProjection === this.lastIssueSessionProjection) {
+      if (!issueProjectionChanged) {
         perf.record('phase', 'sessionsBroadcast.publishIssuesSkipped', performance.now() - tSkip0)
       } else {
         const tIssues0 = performance.now()
         this.deps.publishIssues(sessions)
         // Stamp only AFTER a clean publish: a throw leaves this projection unchanged,
         // so the next broadcast re-publishes instead of silently skipping.
-        this.lastIssueSessionProjection = issueProjection
+        this.lastIssueProjectionGeneration = this.issueProjectionGeneration
         perf.record('phase', 'sessionsBroadcast.publishIssues', performance.now() - tIssues0)
       }
       this.lastSessionsBroadcastGeneration = generation
@@ -5438,6 +5490,7 @@ export class SessionsService {
       void this.publicationWorker
         .request({ view: group.view, sinceCursor: group.sinceCursor }, { focused: group.focused })
         .then((publication) => {
+          this.shadowComparePublication(publication, group.view)
           perf.record(
             'phase',
             'sessionsBroadcast.workerBytes',

@@ -108,6 +108,8 @@ interface SessionRegistryOptions {
   telegramNotice?: () => TelegramNoticePort | undefined
   /** Deterministic publication-worker fault injection for service-level tests. */
   publicationWorker?: PublishWorkerClient
+  /** Rollout-only semantic comparison of legacy and worker publications. */
+  publicationShadowCompare?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -1043,6 +1045,9 @@ export class SessionRegistry {
       // Session writes commit through the write-seam ledger at persist() (#256).
       ledger,
       ...(options.publicationWorker ? { publicationWorker: options.publicationWorker } : {}),
+      ...(options.publicationShadowCompare !== undefined
+        ? { publicationShadowCompare: options.publicationShadowCompare }
+        : {}),
       machines,
       rpc,
       hosts,
