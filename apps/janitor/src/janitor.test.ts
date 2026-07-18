@@ -24,7 +24,7 @@ const readyLease = (
   fencingToken: over.fencingToken ?? 1,
   expiresAt: over.expiresAt ?? '2026-07-18T00:01:30.000Z',
   messageWaitTtlMs: 7 * 24 * 60 * 60_000,
-  autoArchiveReadWindowMs: 24 * 60 * 60 * 1000,
+  autoArchiveReadWindowMs: 7 * 24 * 60 * 60 * 1000,
   eventRetentionMaxAgeDays: 14,
   eventRetentionMaxRows: 50_000,
   changeKeepRows: 20_000,
@@ -283,6 +283,15 @@ describe('JanitorService [spec:SP-c29e]', () => {
           deletedAt: null,
         },
       ],
+      readSessionAutoArchiveCandidates: async () => [
+        {
+          sessionId: 'ses_1',
+          issueId: null,
+          stoppedAt: '2026-07-01T00:00:00.000Z',
+          readAt: '2026-07-02T00:00:00.000Z',
+          archived: false,
+        },
+      ],
       apply: async (request) => {
         applies.push(request.jobKind)
         return {
@@ -295,11 +304,16 @@ describe('JanitorService [spec:SP-c29e]', () => {
     })
 
     await service.tick()
-    expect(applies).toEqual(['event-log-prune', 'change-log-prune', 'issue-auto-archive'])
+    expect(applies).toEqual([
+      'event-log-prune',
+      'change-log-prune',
+      'issue-auto-archive',
+      'session-auto-archive',
+    ])
     const counters = service.snapshotCounters()
-    expect(counters.applied).toBe(3)
+    expect(counters.applied).toBe(4)
     expect(counters.ticks).toBe(1)
-    expect(counters.applies).toBe(3)
+    expect(counters.applies).toBe(4)
     expect(counters.stale).toBe(0)
     expect(counters.failures).toBe(0)
     expect(counters.maxBatchDeleted).toBe(1)

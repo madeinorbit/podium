@@ -6,9 +6,24 @@ import { SessionMeta } from './runtime-state'
 // ---------------------------------------------------------------------------
 
 // Ordered lifecycle stages an issue moves through. [spec:SP-0078]
-export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done'])
+// Agent-proposed work is deliberately inert until an operator accepts it. [spec:SP-6144]
+export const IssueStage = z.enum([
+  'proposed',
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'done',
+])
 export type IssueStage = z.infer<typeof IssueStage>
-export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'done']
+export const ISSUE_STAGES: IssueStage[] = [
+  'proposed',
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'done',
+]
 
 export const IssueSessionSummary = z.object({
   total: z.number().int().nonnegative(),
@@ -115,6 +130,8 @@ export const IssueWire = z.object({
   seq: z.number().int(),
   title: z.string(),
   description: z.string(),
+  /** Technical handoff for agents; description remains the human summary. [spec:SP-6144] */
+  brief: z.string().optional(),
   stage: IssueStage,
   worktreePath: z.string().nullable(),
   branch: z.string().nullable(),

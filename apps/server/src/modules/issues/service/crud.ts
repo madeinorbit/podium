@@ -191,6 +191,15 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     } catch {}
   }
 
+  /** Closing a parent retires its descendant progress record and stopped sessions. [spec:SP-6144] */
+  private archiveClosedSubtree(parentId: string): void {
+    for (const child of this.rows.values()) {
+      if (child.parentId !== parentId || child.archived || child.deletedAt) continue
+      this.archiveClosedSubtree(child.id)
+      this.update(child.id, { archived: true })
+    }
+  }
+
   create(input: CreateIssueInput): IssueWire {
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
@@ -208,7 +217,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       seq,
       title: input.title,
       description: input.description ?? '',
-      stage: 'backlog',
+      brief: input.brief ?? null,
+      stage: input.stage ?? 'backlog',
       worktreePath: null,
       branch: null,
       parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
@@ -356,6 +366,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
       this.emitReadyAfterClose(row, opts?.actorSessionId)
+      this.archiveClosedSubtree(row.id)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.

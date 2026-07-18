@@ -177,6 +177,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     refDraft: null,
     // And email-style read state (issue #124): always present, null = never opened.
     readAt: null,
+    // Durable completion metadata drives acknowledgment-gated decay [spec:SP-6144].
+    stoppedAt: null,
+    stopReason: null,
     // #285 workflow pass-through metadata (#237 [spec:SP-34d7 cross-harness]):
     // always projected, null = none stamped at spawn.
     workflowRunId: null,
@@ -386,6 +389,17 @@ describe('SessionStore sessions', () => {
   // Email-style read state (issue #124): read_at persists like the other additive columns.
   // (A separate schema-PRAGMA "column exists" test was dropped as redundant — this
   // round-trip already fails if the column is missing. POD-619 [spec:SP-0be7].)
+  it('round-trips stoppedAt and stopReason [spec:SP-6144]', () => {
+    const store = new SessionStore(':memory:')
+    const stopped = row({
+      stoppedAt: '2026-07-18T12:00:00.000Z',
+      stopReason: 'forced',
+    })
+    store.sessions.upsertSession(stopped)
+    expect(store.sessions.loadSessions()).toEqual([stopped])
+    store.close()
+  })
+
   it('round-trips read_at; a row that never had it reads null', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(

@@ -166,7 +166,7 @@ export abstract class IssueServiceCore {
       : this.deps.store.issues.countIssueComments(row.id)
     const blocked = this.computeBlocked(row)
     const deferred = this.isDeferred(row)
-    const ready = !this.isClosed(row) && !deferred && !blocked
+    const ready = row.stage !== 'proposed' && !this.isClosed(row) && !deferred && !blocked
     const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
     const displayRef = prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
     return {
@@ -178,6 +178,7 @@ export abstract class IssueServiceCore {
       seq: row.seq,
       title: row.title,
       description: row.description,
+      ...(row.brief ? { brief: row.brief } : {}),
       stage: row.stage as IssueWire['stage'],
       worktreePath: row.worktreePath,
       branch: row.branch,

@@ -289,6 +289,7 @@ export async function startServer(
     authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
+      sessions: registry.modules.sessions,
       automations: registry.modules.automations,
       liveSessionIds: () =>
         new Set(

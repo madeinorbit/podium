@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AgentInstruction,
   AgentKind,
   type AgentRuntimeState,
@@ -782,6 +783,8 @@ export class SessionsService {
       ...(r.executionProfileId ? { executionProfileId: r.executionProfileId } : {}),
       archived: r.archived,
       readAt: r.readAt ?? null,
+      stoppedAt: r.stoppedAt ?? null,
+      stopReason: r.stopReason ?? null,
       ...(Session.parseWorkState(r.workState)
         ? { workState: Session.parseWorkState(r.workState) }
         : {}),
@@ -2184,6 +2187,40 @@ export class SessionsService {
     if (archived) this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
   }
 
+  /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
+  tryAutoArchiveStoppedObserved(
+    observed: {
+      sessionId: string
+      issueId: string | null
+      stoppedAt: string
+      readAt: string
+      archived: false
+    },
+    nowMs: number,
+  ): 'applied' | 'precondition' | 'not-due' {
+    const session = this.sessions.get(observed.sessionId)
+    if (!session || session.archived) return 'precondition'
+    if (
+      (session.issueId ?? null) !== observed.issueId ||
+      session.stoppedAt !== observed.stoppedAt ||
+      session.readAt !== observed.readAt
+    ) {
+      return 'precondition'
+    }
+    const stoppedMs = Date.parse(session.stoppedAt ?? '')
+    const readMs = Date.parse(session.readAt ?? '')
+    if (!Number.isFinite(stoppedMs) || !Number.isFinite(readMs) || readMs < stoppedMs) {
+      return 'precondition'
+    }
+    if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
+    if (session.issueId) {
+      const issue = this.deps.issuesWire().find((candidate) => candidate.id === session.issueId)
+      if (!issue || issue.parentId) return 'precondition'
+    }
+    this.setArchived({ sessionId: session.sessionId, archived: true })
+    return 'applied'
+  }
+
   /** Mark a session read (issue #124): stamp read_at = now, persist + broadcast. The
    *  derived `unread` in the session meta flips to false immediately (read_at is now the
    *  latest timestamp) and re-arms on the next activity. Read state is GLOBAL —
@@ -2243,6 +2280,8 @@ export class SessionsService {
     force?: boolean
     /** True when the CALLER is stopping itself — defer process kill. */
     selfStop?: boolean
+    /** Parent-close/issue-stop provenance; direct forced stops derive below. */
+    stopReason?: 'self' | 'parent' | 'forced'
   }): Promise<{
     ok: boolean
     reason?: string
@@ -2300,6 +2339,13 @@ export class SessionsService {
         session.status = 'hibernated'
       }
       this.autoContinue.onSessionGone(input.sessionId)
+      // A terminal transition is new unread information; acknowledgment begins only
+      // after the operator opens it again. [spec:SP-6144]
+      session.stoppedAt = new Date(this.now()).toISOString()
+      session.stopReason = input.force
+        ? 'forced'
+        : (input.stopReason ?? (input.selfStop ? 'self' : 'forced'))
+      session.readAt = null
       this.persist(session)
       this.broadcastSessions()
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
@@ -2402,6 +2448,7 @@ export class SessionsService {
         sessionId: m.sessionId,
         force: input.force,
         selfStop: input.callerSessionId === m.sessionId,
+        stopReason: input.force ? 'forced' : 'parent',
       })
       if (!r.ok) {
         return {

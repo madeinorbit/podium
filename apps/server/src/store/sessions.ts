@@ -48,7 +48,7 @@ export class SessionsRepository {
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
+                spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
                 ref_issue_id, ref_letter, ref_draft
          FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
@@ -103,6 +103,11 @@ export class SessionsRepository {
       refLetter: (r.ref_letter as string | null) ?? null,
       refDraft: (r.ref_draft as number | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
+      stoppedAt: (r.stopped_at as string | null) ?? null,
+      stopReason:
+        r.stop_reason === 'self' || r.stop_reason === 'parent' || r.stop_reason === 'forced'
+          ? r.stop_reason
+          : null,
       workflowRunId: (r.workflow_run_id as string | null) ?? null,
       workflowStepId: (r.workflow_step_id as string | null) ?? null,
       executionProfileId: (r.execution_profile_id as string | null) ?? null,
@@ -129,10 +134,10 @@ export class SessionsRepository {
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
+            spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            model = excluded.model,
            effort = excluded.effort,
@@ -160,6 +165,8 @@ export class SessionsRepository {
            spawned_by = excluded.spawned_by,
            issue_id = excluded.issue_id,
            read_at = excluded.read_at,
+           stopped_at = excluded.stopped_at,
+           stop_reason = excluded.stop_reason,
            deleted_at = excluded.deleted_at,
            deletion_source = excluded.deletion_source,
            deleted_by_issue_id = excluded.deleted_by_issue_id,
@@ -205,6 +212,8 @@ export class SessionsRepository {
         row.headless ? 1 : 0,
         row.issueId ?? null,
         row.readAt ?? null,
+        row.stoppedAt ?? null,
+        row.stopReason ?? null,
         row.deletedAt ?? null,
         row.deletionSource ?? null,
         row.deletedByIssueId ?? null,

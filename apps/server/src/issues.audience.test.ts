@@ -4,9 +4,8 @@
  * internal issue would be invisible. Exercised through the tRPC command layer
  * (issues.create), which is where the derivation lives.
  *
- * M6 / decision q6 (docs/agent-comms-target.html §11): agent-created top-level
- * issues force audience:'human' + needsHuman (board-visible, flagged for
- * attention). No approval gate — create always succeeds immediately.
+ * SP-6144: agent-created top-level issues are human-facing proposals, inert until
+ * an operator promotes them. needsHuman remains reserved for actual questions.
  */
 import { describe, expect, it } from 'vitest'
 import { type Capability, OPERATOR } from './issue-authz'
@@ -42,7 +41,7 @@ describe('issues.create provenance (#198)', () => {
     }
   })
 
-  it('agent top-level create → board-visible (audience human) + needsHuman attention flag', async () => {
+  it('agent top-level create → human-facing proposed, without needsHuman', async () => {
     const reg = new SessionRegistry()
     try {
       const op = ctx(reg, OPERATOR)
@@ -53,13 +52,12 @@ describe('issues.create provenance (#198)', () => {
         title: 'agent-filed top-level work',
         startNow: false,
       })
-      // Create succeeds immediately — no approval gate (M6 q6).
       expect(created.origin).toBe('agent')
-      // Forced onto the human board so it is not internal/agent-only.
       expect(created.audience).toBe('human')
-      // Flagged for attention so the human notices.
-      expect(created.needsHuman).toBe(true)
-      expect(created.humanQuestion).toMatch(/top-level/i)
+      expect(created.stage).toBe('proposed')
+      expect(created.ready).toBe(false)
+      expect(created.needsHuman).toBe(false)
+      expect(created.humanQuestion).toBeUndefined()
       // No orphan-invisible warning: it is board-visible.
       expect(withWarning(created)).toBeUndefined()
     } finally {
@@ -81,14 +79,15 @@ describe('issues.create provenance (#198)', () => {
       })
       expect(created.origin).toBe('agent')
       expect(created.audience).toBe('human')
-      expect(created.needsHuman).toBe(true)
+      expect(created.stage).toBe('proposed')
+      expect(created.needsHuman).toBe(false)
       expect(withWarning(created)).toBeUndefined()
     } finally {
       reg.dispose()
     }
   })
 
-  it('agent can still pass audience human on top-level — origin agent, attention-flagged', async () => {
+  it('agent top-level audience input cannot bypass proposed curation', async () => {
     const reg = new SessionRegistry()
     try {
       const op = ctx(reg, OPERATOR)
@@ -102,7 +101,8 @@ describe('issues.create provenance (#198)', () => {
       })
       expect(created.origin).toBe('agent')
       expect(created.audience).toBe('human')
-      expect(created.needsHuman).toBe(true)
+      expect(created.stage).toBe('proposed')
+      expect(created.needsHuman).toBe(false)
       expect(withWarning(created)).toBeUndefined()
     } finally {
       reg.dispose()
@@ -154,6 +154,32 @@ describe('issues.create provenance (#198)', () => {
       expect(leaf.audience).toBe('agent')
       expect(leaf.needsHuman).toBe(false)
       expect(withWarning(leaf)).toBeUndefined()
+    } finally {
+      reg.dispose()
+    }
+  })
+  it('rejects agent promotion while allowing operator promotion', async () => {
+    const reg = new SessionRegistry()
+    try {
+      const op = ctx(reg, OPERATOR)
+      const root = await op.issues.create({ repoPath: '/r', title: 'root', startNow: false })
+      const worker = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: root.id } })
+      const proposal = await worker.issues.create({
+        repoPath: '/r',
+        title: 'proposal',
+        startNow: false,
+      })
+      const proposalWorker = ctx(reg, {
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: proposal.id },
+      })
+      await expect(proposalWorker.issues.promote({ id: proposal.id })).rejects.toThrow(/operator/i)
+      await expect(
+        proposalWorker.issues.update({ id: proposal.id, patch: { stage: 'backlog' } }),
+      ).rejects.toThrow(/operator/i)
+      const promoted = await op.issues.promote({ id: proposal.id })
+      expect(promoted.stage).toBe('backlog')
+      expect(promoted.ready).toBe(true)
     } finally {
       reg.dispose()
     }

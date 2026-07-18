@@ -143,9 +143,8 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       branch: row.branch,
       worktreePath: row.worktreePath,
     })
-    // Hand the agent the description as its first prompt AT SPAWN. createSession
-    // delivers it via argv for claude/codex/grok (`claude "<prompt>"` — consumed at
-    // startup, no TUI-readiness race) or seeds the composer draft for other agents.
+    // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
+    const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
     const spawned = this.d.spawnSession({
       cwd: path,
       issueId: row.id,
@@ -153,7 +152,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       model: selection.model,
       effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      ...(row.description.trim() ? { initialPrompt: row.description } : {}),
+      ...(initialPrompt ? { initialPrompt } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })

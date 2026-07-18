@@ -140,6 +140,8 @@ export interface SessionInit {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session. Absent/null = never opened (unread). */
   readAt?: string | null
+  stoppedAt?: string | null
+  stopReason?: 'self' | 'parent' | 'forced' | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -195,6 +197,8 @@ export interface SessionDurableState {
   nameSource: 'user' | 'agent' | undefined
   archived: boolean
   readAt: string | null
+  stoppedAt: string | undefined
+  stopReason: 'self' | 'parent' | 'forced' | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -274,6 +278,9 @@ export class Session {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null = never opened. Persisted via toRow() (read_at column). */
   readAt: string | null = null
+  /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
+  stoppedAt: string | undefined
+  stopReason: 'self' | 'parent' | 'forced' | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -396,6 +403,8 @@ export class Session {
     if (init.nameSource) this.nameSource = init.nameSource
     if (init.archived) this.archived = init.archived
     if (init.readAt != null) this.readAt = init.readAt
+    this.stoppedAt = init.stoppedAt ?? undefined
+    this.stopReason = init.stopReason ?? undefined
     if (init.workState) this.workState = init.workState
     this.onActivity = init.onActivity
   }
@@ -430,6 +439,8 @@ export class Session {
    * lastActiveAt, which is authoritative for recency ordering.
    */
   markResumed(): void {
+    this.stoppedAt = undefined
+    this.stopReason = undefined
     this.resumedAtMs = Date.now()
     this.activityDirty_ = true
   }
@@ -895,6 +906,8 @@ export class Session {
       nameSource: this.nameSource,
       archived: this.archived,
       readAt: this.readAt,
+      stoppedAt: this.stoppedAt,
+      stopReason: this.stopReason,
       workState: this.workState,
       cmd: this.cmd,
       status: this.status,
@@ -938,6 +951,8 @@ export class Session {
     this.nameSource = state.nameSource
     this.archived = state.archived
     this.readAt = state.readAt
+    this.stoppedAt = state.stoppedAt
+    this.stopReason = state.stopReason
     this.workState = state.workState
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
@@ -997,6 +1012,8 @@ export class Session {
       refLetter: this.refLetter,
       refDraft: this.refDraft,
       readAt: this.readAt,
+      stoppedAt: this.stoppedAt ?? null,
+      stopReason: this.stopReason ?? null,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
@@ -1042,6 +1059,8 @@ export class Session {
       // hasn't seen: never opened (readAt null), or lastActiveAt postdates readAt.
       // Both are ISO-8601, so the lexical compare is chronological.
       readAt: this.readAt,
+      ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
+      ...(this.stopReason ? { stopReason: this.stopReason } : {}),
       unread: this.readAt == null || this.lastActiveAt > this.readAt,
       // The registry overwrites machineName in listSessions() from the machines
       // table; an empty default keeps toMeta() self-contained for callers that

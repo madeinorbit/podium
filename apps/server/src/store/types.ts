@@ -93,6 +93,9 @@ export interface SessionRow {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null
+  /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
+  stoppedAt?: string | null
+  stopReason?: 'self' | 'parent' | 'forced' | null
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides
@@ -133,6 +136,8 @@ export interface IssueRow {
   seq: number
   title: string
   description: string
+  /** Agent-facing technical handoff, separate from the human summary. [spec:SP-6144] */
+  brief?: string | null
   stage: string
   worktreePath: string | null
   branch: string | null

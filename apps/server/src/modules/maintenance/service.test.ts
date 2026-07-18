@@ -15,6 +15,7 @@ import {
   MAINTENANCE_SCHEMA_VERSION,
   maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
+  sessionAutoArchiveRunKey,
   stewardPollRunKey,
 } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -253,9 +254,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {
-    const tryAutoArchiveObserved = vi.fn(
-      (): 'applied' | 'precondition' | 'not-due' => 'applied',
-    )
+    const tryAutoArchiveObserved = vi.fn((): 'applied' | 'precondition' | 'not-due' => 'applied')
     service = new MaintenanceService(
       store,
       {
@@ -300,6 +299,36 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
         runKey: issueAutoArchiveRunKey(second),
       }),
     ).toMatchObject({ status: 'stale', reason: 'not-due' })
+  })
+
+  it('[spec:SP-6144] stopped-session auto-archive revalidates via sessions seam', async () => {
+    const tryAutoArchiveStoppedObserved = vi.fn(
+      (): 'applied' | 'precondition' | 'not-due' => 'applied',
+    )
+    service = new MaintenanceService(
+      store,
+      { run: <T>({ write }: { write: () => T }): T => write() },
+      { now: () => nowMs, sessions: { tryAutoArchiveStoppedObserved } },
+    )
+    const lease = handshake('gen_session_archive')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    const observed = {
+      sessionId: 'ses_done',
+      issueId: null,
+      stoppedAt: '2026-07-01T00:00:00.000Z',
+      readAt: '2026-07-02T00:00:00.000Z',
+      archived: false as const,
+    }
+    const command = {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'session-auto-archive' as const,
+      runKey: sessionAutoArchiveRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    }
+    expect(await service.apply(command)).toMatchObject({ status: 'applied' })
+    expect(tryAutoArchiveStoppedObserved).toHaveBeenCalledWith(observed, nowMs)
   })
 
   it('[POD-925] maintenance_commands prune deletes aged rows in batches', async () => {

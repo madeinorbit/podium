@@ -21,8 +21,8 @@ export const CHANGE_PRUNE_BATCH_ROWS = 100
 /** Keep applied maintenance command rows long enough for overlap/replay proof. */
 export const MAINTENANCE_COMMAND_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
 export const MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS = 500
-/** Read-gated auto-archive window (issue #127). */
-export const AUTO_ARCHIVE_READ_WINDOW_MS = 24 * 60 * 60 * 1000
+/** Read-gated completion decay window [spec:SP-6144]. */
+export const AUTO_ARCHIVE_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 const VersionClaim = {
   protocolVersion: z.number().int().positive(),
@@ -111,6 +111,15 @@ export const IssueAutoArchiveObservation = z.object({
 })
 export type IssueAutoArchiveObservation = z.infer<typeof IssueAutoArchiveObservation>
 
+export const SessionAutoArchiveObservation = z.object({
+  sessionId: z.string().min(1).max(256),
+  issueId: z.string().min(1).max(256).nullable(),
+  stoppedAt: z.string().datetime(),
+  readAt: z.string().datetime(),
+  archived: z.literal(false),
+})
+export type SessionAutoArchiveObservation = z.infer<typeof SessionAutoArchiveObservation>
+
 /** One due automation occurrence. firedAt is the scheduled nextRunAt, not wall clock. */
 export const AutomationFireObservation = z.object({
   automationId: z.string().min(1).max(256),
@@ -180,6 +189,14 @@ const IssueAutoArchiveCommand = z.object({
   observed: IssueAutoArchiveObservation,
 })
 
+const SessionAutoArchiveCommand = z.object({
+  ...VersionClaim,
+  jobKind: z.literal('session-auto-archive'),
+  runKey: z.string().min(1).max(1024),
+  fencingToken: z.number().int().positive(),
+  observed: SessionAutoArchiveObservation,
+})
+
 const AutomationFireCommand = z.object({
   ...VersionClaim,
   jobKind: z.literal('automation-fire'),
@@ -210,6 +227,7 @@ export const MaintenanceCommand = z.discriminatedUnion('jobKind', [
   ChangeLogPruneCommand,
   MaintenanceCommandsPruneCommand,
   IssueAutoArchiveCommand,
+  SessionAutoArchiveCommand,
   AutomationFireCommand,
   StewardPollCommand,
   ConnectScanCommand,
@@ -222,6 +240,7 @@ export const MaintenanceJobKind = z.enum([
   'change-log-prune',
   'maintenance-commands-prune',
   'issue-auto-archive',
+  'session-auto-archive',
   'automation-fire',
   'steward-poll',
   'connect-scan',
@@ -302,6 +321,15 @@ export function maintenanceCommandsPruneRunKey(
     encode(observed.cutoffAppliedAt),
     String(observed.batchSize),
     String(observed.fromRowId),
+  ].join('/')
+}
+
+export function sessionAutoArchiveRunKey(observed: SessionAutoArchiveObservation): string {
+  return [
+    'session-auto-archive',
+    encode(observed.sessionId),
+    encode(observed.stoppedAt),
+    encode(observed.readAt),
   ].join('/')
 }
 

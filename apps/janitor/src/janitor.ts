@@ -18,6 +18,8 @@ import {
   type EventLogPruneObservation,
   type IssueAutoArchiveObservation,
   issueAutoArchiveRunKey,
+  type SessionAutoArchiveObservation,
+  sessionAutoArchiveRunKey,
   MAINTENANCE_COMMAND_MAX_AGE_MS,
   MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
   MAINTENANCE_PROTOCOL_VERSION,
@@ -110,7 +112,12 @@ export interface JanitorDeps {
   readAutoArchiveCandidates?(
     input: AutoArchiveReadInput,
   ): IssueAutoArchiveObservation[] | Promise<IssueAutoArchiveObservation[]>
-  readDueAutomations?(nowIso: string): AutomationFireObservation[] | Promise<AutomationFireObservation[]>
+  readSessionAutoArchiveCandidates?(
+    input: AutoArchiveReadInput,
+  ): SessionAutoArchiveObservation[] | Promise<SessionAutoArchiveObservation[]>
+  readDueAutomations?(
+    nowIso: string,
+  ): AutomationFireObservation[] | Promise<AutomationFireObservation[]>
   readStewardPollWindow?(): StewardPollObservation | null | Promise<StewardPollObservation | null>
   readConnectScanCandidates?(
     nowIso: string,
@@ -219,6 +226,7 @@ export class JanitorService {
       await this.runChangeLogPrune(lease, nowMs)
       await this.runMaintenanceCommandsPrune(lease, nowMs)
       await this.runAutoArchive(lease, nowMs)
+      await this.runSessionAutoArchive(lease, nowMs)
       await this.runAutomationFires(lease, nowMs)
       await this.runStewardPoll(lease)
       await this.runConnectScans(lease, nowMs)
@@ -335,6 +343,27 @@ export class JanitorService {
       if (!cont) break
     }
     this.markJobEnd('issue-auto-archive')
+  }
+
+  private async runSessionAutoArchive(lease: ReadyLease, nowMs: number): Promise<void> {
+    if (!this.deps.readSessionAutoArchiveCandidates) return
+    this.markJobStart('session-auto-archive', nowMs)
+    const candidates = await this.deps.readSessionAutoArchiveCandidates({
+      cutoffReadAt: new Date(nowMs - lease.autoArchiveReadWindowMs).toISOString(),
+      limit: CANDIDATE_LIMIT,
+    })
+    for (const observed of candidates) {
+      const cont = await this.applyOne({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'session-auto-archive',
+        runKey: sessionAutoArchiveRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      })
+      if (!cont) break
+    }
+    this.markJobEnd('session-auto-archive')
   }
 
   private async runAutomationFires(lease: ReadyLease, nowMs: number): Promise<void> {
@@ -536,23 +565,17 @@ export class EventLogPrunePlanner {
   constructor(private readonly db: SqlDatabase) {}
 
   async plan(input: EventLogPrunePlanInput): Promise<EventLogPruneObservation[]> {
-    const cutoff = new Date(
-      input.nowMs - input.maxAgeDays * 24 * 60 * 60 * 1000,
-    ).toISOString()
+    const cutoff = new Date(input.nowMs - input.maxAgeDays * 24 * 60 * 60 * 1000).toISOString()
     const cap = this.db
       .prepare('SELECT id FROM podium_events ORDER BY id DESC LIMIT 1 OFFSET ?')
       .get(input.maxRows) as { id: number } | undefined
     const capThroughId = cap?.id ?? 0
     const head = this.db
-      .prepare(
-        `SELECT MIN(id) AS m FROM podium_events WHERE ts < ? OR id <= ?`,
-      )
+      .prepare(`SELECT MIN(id) AS m FROM podium_events WHERE ts < ? OR id <= ?`)
       .get(cutoff, capThroughId) as { m: number | null }
     if (head.m == null) return []
     const eligible = this.db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM podium_events WHERE ts < ? OR id <= ?`,
-      )
+      .prepare(`SELECT COUNT(*) AS n FROM podium_events WHERE ts < ? OR id <= ?`)
       .get(cutoff, capThroughId) as { n: number }
     if (eligible.n <= 0) return []
     const batchCount = Math.ceil(eligible.n / input.batchSize)
@@ -587,9 +610,7 @@ export class ChangeLogPrunePlanner {
     ).m
     const rowCapSeq = maxSeq - input.keepRows
     const aged = this.db
-      .prepare(
-        'SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?',
-      )
+      .prepare('SELECT MAX(seq) AS seq FROM changes WHERE event_time < ?')
       .get(input.nowMs - input.maxAgeMs) as { seq: number | null }
     const thresholdSeq = Math.max(rowCapSeq, aged.seq ?? 0)
     if (thresholdSeq <= 0) return []
@@ -600,9 +621,9 @@ export class ChangeLogPrunePlanner {
     ).m
     if (minSeq == null) return []
     const eligible = (
-      this.db
-        .prepare('SELECT COUNT(*) AS n FROM changes WHERE seq <= ?')
-        .get(thresholdSeq) as { n: number }
+      this.db.prepare('SELECT COUNT(*) AS n FROM changes WHERE seq <= ?').get(thresholdSeq) as {
+        n: number
+      }
     ).n
     if (eligible <= 0) return []
     const batchCount = Math.ceil(eligible / input.batchSize)
@@ -634,9 +655,7 @@ export class MaintenanceCommandsPrunePlanner {
   ): Promise<MaintenanceCommandsPruneObservation[]> {
     const cutoffAppliedAt = new Date(input.nowMs - input.maxAgeMs).toISOString()
     const head = this.db
-      .prepare(
-        'SELECT MIN(rowid) AS m FROM maintenance_commands WHERE applied_at < ?',
-      )
+      .prepare('SELECT MIN(rowid) AS m FROM maintenance_commands WHERE applied_at < ?')
       .get(cutoffAppliedAt) as { m: number | null }
     if (head.m == null) return []
     const eligible = (
@@ -666,6 +685,37 @@ export class MaintenanceCommandsPrunePlanner {
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
  * Live unread revalidation happens on the server at apply time.
  */
+/** Durable read + stopped session candidates [spec:SP-6144]. */
+export class SessionAutoArchiveReader {
+  constructor(private readonly db: SqlDatabase) {}
+
+  async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
+    return this.db
+      .prepare(
+        `SELECT s.id, s.issue_id, s.stopped_at, s.read_at, s.archived
+         FROM sessions s
+         LEFT JOIN issues i ON i.id = s.issue_id
+         WHERE s.archived = 0
+           AND s.stopped_at IS NOT NULL
+           AND s.read_at IS NOT NULL
+           AND s.read_at >= s.stopped_at
+           AND s.read_at <= ?
+           AND s.stopped_at <= ?
+           AND (s.issue_id IS NULL OR i.parent_id IS NULL)
+         ORDER BY s.read_at ASC, s.id ASC
+         LIMIT ?`,
+      )
+      .all(input.cutoffReadAt, input.cutoffReadAt, input.limit)
+      .map((row: any) => ({
+        sessionId: row.id,
+        issueId: row.issue_id,
+        stoppedAt: row.stopped_at,
+        readAt: row.read_at,
+        archived: false as const,
+      }))
+  }
+}
+
 export class IssueAutoArchiveReader {
   constructor(private readonly db: SqlDatabase) {}
 
@@ -756,9 +806,9 @@ export class StewardPollReader {
   constructor(private readonly db: SqlDatabase) {}
 
   read(): StewardPollObservation | null {
-    const raw = this.db
-      .prepare("SELECT value FROM steward_state WHERE key = 'cursor'")
-      .get() as { value: string } | undefined
+    const raw = this.db.prepare("SELECT value FROM steward_state WHERE key = 'cursor'").get() as
+      | { value: string }
+      | undefined
     const max = this.db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM podium_events').get() as {
       m: number
     }
@@ -856,6 +906,7 @@ export async function startJanitor(options: {
   const changePlanner = new ChangeLogPrunePlanner(db)
   const commandPlanner = new MaintenanceCommandsPrunePlanner(db)
   const archiveReader = new IssueAutoArchiveReader(db)
+  const sessionArchiveReader = new SessionAutoArchiveReader(db)
   const automationReader = new AutomationDueReader(db)
   const stewardReader = new StewardPollReader(db)
   const connectScanReader = new ConnectScanReader(db)
@@ -867,6 +918,7 @@ export async function startJanitor(options: {
     planChangeLogPrune: (input) => changePlanner.plan(input),
     planMaintenanceCommandsPrune: (input) => commandPlanner.plan(input),
     readAutoArchiveCandidates: (input) => archiveReader.read(input),
+    readSessionAutoArchiveCandidates: (input) => sessionArchiveReader.read(input),
     readDueAutomations: (nowIso) => automationReader.read(nowIso),
     readStewardPollWindow: () => stewardReader.read(),
     readConnectScanCandidates: (nowIso) => connectScanReader.read(nowIso),

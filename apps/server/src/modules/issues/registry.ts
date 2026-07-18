@@ -597,6 +597,7 @@ const defs = {
       repoPath: z.string(),
       title: z.string().min(1),
       description: z.string().optional(),
+      brief: z.string().optional(),
       parentBranch: z.string().optional(),
       defaultAgent: z.string().optional(),
       defaultModel: z.string().optional(),
@@ -643,10 +644,8 @@ const defs = {
       //    agent's creates default to 'agent' (internal working detail) and are
       //    opted onto the board only when the agent passes audience: 'human'.
       //
-      // M6 / decision q6 (docs/agent-comms-target.html §11): an agent may create a
-      // top-level issue with NO approval gate — it lands on the human board
-      // immediately, flagged for attention (force audience:'human' + needsHuman).
-      // Sub-issues (parentId set) stay internal by default; human creates unchanged.
+      // Top-level agent discoveries are human-facing proposals. Stage, audience,
+      // and start behavior are forced at this authenticated boundary. [spec:SP-6144]
       const isOperator = ctx.caller.capability.scope.kind === 'all'
       const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
       const isAgentTopLevel = origin === 'agent' && !input.parentId
@@ -670,20 +669,15 @@ const defs = {
             ? ctx.caller.capability.actorSessionId
             : null
         const created = await ctx.issues.createAndMaybeStart(
-          { ...input, origin, audience, startedBySession },
+          {
+            ...input,
+            origin,
+            audience,
+            startedBySession,
+            ...(isAgentTopLevel ? { stage: 'proposed' as const, startNow: false } : {}),
+          },
           { spawnedBy: ctx.spawnProvenance() },
         )
-        // Flag for attention so the human notices agent-filed top-level work.
-        // Reuses needsHuman — no new column (S3 owns issues-table schema).
-        if (isAgentTopLevel) {
-          return ctx.issues.setNeedsHuman(
-            created.id,
-            'Agent created a top-level issue — review, claim, or reparent.',
-            ctx.caller.capability.actorSessionId
-              ? { askedBy: ctx.caller.capability.actorSessionId }
-              : undefined,
-          )
-        }
         if (audience === 'agent' && !ctx.hasHumanAudienceAncestor(created)) {
           return {
             ...created,
@@ -708,12 +702,21 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.issues.start(input.id, input.agentKind, {
+      ctx.issueWrite(input, () => {
+        if (
+          ctx.issues.get(input.id)?.stage === 'proposed' &&
+          ctx.caller.capability.scope.kind !== 'all'
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only an operator may start a proposed issue',
+          })
+        }
+        return ctx.issues.start(input.id, input.agentKind, {
           spawnedBy: ctx.spawnProvenance(),
           ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-        }),
-      ),
+        })
+      }),
   }),
   update: def({
     kind: 'mutation',
@@ -722,6 +725,7 @@ const defs = {
       patch: z.object({
         title: z.string().optional(),
         description: z.string().optional(),
+        brief: z.string().optional(),
         stage: IssueStage.optional(),
         parentBranch: z.string().optional(),
         defaultAgent: z.string().optional(),
@@ -751,12 +755,45 @@ const defs = {
     target: targetId,
     handler: (ctx, input) =>
       ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () =>
-          ctx.issues.update(input.id, input.patch, {
+        ctx.withMutation(input.mutationId, () => {
+          const current = ctx.issues.get(input.id)
+          if (
+            current?.stage === 'proposed' &&
+            input.patch.stage != null &&
+            input.patch.stage !== 'proposed' &&
+            ctx.caller.capability.scope.kind !== 'all'
+          ) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'only an operator may promote a proposed issue',
+            })
+          }
+          return ctx.issues.update(input.id, input.patch, {
             actorSessionId: ctx.caller.capability.actorSessionId,
-          }),
-        ),
+          })
+        }),
       ),
+  }),
+  promote: def({
+    kind: 'mutation',
+    input: z.object({ id: z.string() }),
+    action: 'write',
+    scope: 'issue',
+    target: targetId,
+    handler: (ctx, input) => {
+      if (ctx.caller.capability.scope.kind !== 'all') {
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: 'only an operator may promote a proposed issue',
+        })
+      }
+      const issue = ctx.issues.get(input.id)
+      if (!issue) throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + input.id })
+      if (issue.stage !== 'proposed') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'issue is not proposed' })
+      }
+      return ctx.issues.update(input.id, { stage: 'backlog' })
+    },
   }),
   // Agent self-organization (issue-as-workspace): re-home the calling session
   // onto an existing issue or a fresh sub-issue. sessionId comes from the daemon
@@ -793,7 +830,19 @@ const defs = {
     action: 'write',
     scope: 'issue',
     target: targetId,
-    handler: (ctx, input) => ctx.issueWrite(input, () => ctx.issues.archive(input.id)),
+    handler: (ctx, input) =>
+      ctx.issueWrite(input, () => {
+        if (
+          ctx.issues.get(input.id)?.stage === 'proposed' &&
+          ctx.caller.capability.scope.kind !== 'all'
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only an operator may archive a proposed issue',
+          })
+        }
+        return ctx.issues.archive(input.id)
+      }),
   }),
   delete: def({
     kind: 'mutation',
@@ -1161,7 +1210,18 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.claim(input.id, input.assignee)),
+      ctx.issueWrite(input, () => {
+        if (
+          ctx.issues.get(input.id)?.stage === 'proposed' &&
+          ctx.caller.capability.scope.kind !== 'all'
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only an operator may claim a proposed issue',
+          })
+        }
+        return ctx.issues.claim(input.id, input.assignee)
+      }),
   }),
   /** Claim / set / clear the issue's designated coordinator session
    *  (docs/agent-comms-target.html §05 q1). Actionable issue-addressed mail
@@ -1212,13 +1272,22 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () =>
-        ctx.withMutation(input.mutationId, () =>
+      ctx.issueWrite(input, () => {
+        if (
+          ctx.issues.get(input.id)?.stage === 'proposed' &&
+          ctx.caller.capability.scope.kind !== 'all'
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only an operator may close a proposed issue',
+          })
+        }
+        return ctx.withMutation(input.mutationId, () =>
           ctx.issues.close(input.id, input.reason, {
             actorSessionId: ctx.caller.capability.actorSessionId,
           }),
-        ),
-      ),
+        )
+      }),
   }),
   supersede: def({
     kind: 'mutation',
@@ -1229,7 +1298,18 @@ const defs = {
     scope: 'issue',
     target: (i) => i.oldId as string,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.supersede(input.oldId, input.newId)),
+      ctx.issueWrite(input, () => {
+        if (
+          ctx.issues.get(input.oldId)?.stage === 'proposed' &&
+          ctx.caller.capability.scope.kind !== 'all'
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only an operator may supersede a proposed issue',
+          })
+        }
+        return ctx.issues.supersede(input.oldId, input.newId)
+      }),
   }),
   duplicate: def({
     kind: 'mutation',
@@ -1240,7 +1320,18 @@ const defs = {
     scope: 'issue',
     target: targetId,
     handler: (ctx, input) =>
-      ctx.issueWrite(input, () => ctx.issues.duplicate(input.id, input.canonicalId)),
+      ctx.issueWrite(input, () => {
+        if (
+          ctx.issues.get(input.id)?.stage === 'proposed' &&
+          ctx.caller.capability.scope.kind !== 'all'
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'only an operator may mark a proposed issue duplicate',
+          })
+        }
+        return ctx.issues.duplicate(input.id, input.canonicalId)
+      }),
   }),
 
   // ---- agent mail (issue #103). Local-only (never hub-forwarded): message ids

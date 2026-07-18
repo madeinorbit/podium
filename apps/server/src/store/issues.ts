@@ -40,7 +40,7 @@ export class IssuesRepository {
     this.db
       .prepare(
         `INSERT INTO issues
-           (id, repo_path, repo_id, seq, title, description, stage, worktree_path, branch, parent_branch,
+           (id, repo_path, repo_id, seq, title, description, brief, stage, worktree_path, branch, parent_branch,
             default_agent, default_model, default_effort, machine_id,
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
@@ -50,10 +50,10 @@ export class IssuesRepository {
             human_question_asked_by, human_question_asked_at, panel,
             created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at,
             coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
-           title = excluded.title, description = excluded.description, stage = excluded.stage,
+           title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
            parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
@@ -89,6 +89,7 @@ export class IssuesRepository {
         row.seq,
         row.title,
         row.description,
+        row.brief ?? null,
         row.stage,
         row.worktreePath,
         row.branch,
@@ -149,6 +150,7 @@ export class IssuesRepository {
       seq: r.seq as number,
       title: r.title as string,
       description: (r.description as string) ?? '',
+      brief: (r.brief as string | null) ?? null,
       stage: r.stage as string,
       worktreePath: (r.worktree_path as string | null) ?? null,
       branch: (r.branch as string | null) ?? null,

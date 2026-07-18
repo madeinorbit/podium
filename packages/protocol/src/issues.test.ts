@@ -3,7 +3,15 @@ import { ISSUE_STAGES, IssueStage, IssueWire, RepoOp, ServerMessage } from './me
 
 describe('issue protocol types', () => {
   it('has the five ordered stages', () => {
-    expect(ISSUE_STAGES).toEqual(['backlog', 'planning', 'in_progress', 'review', 'done'])
+    expect(ISSUE_STAGES).toEqual([
+      'proposed',
+      'backlog',
+      'planning',
+      'in_progress',
+      'review',
+      'done',
+    ])
+    expect(IssueStage.parse('proposed')).toBe('proposed')
     expect(IssueStage.parse('review')).toBe('review')
     expect(IssueStage.safeParse('verifying').success).toBe(false)
   })

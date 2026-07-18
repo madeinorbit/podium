@@ -311,9 +311,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     return { ...h, id: w.id }
   }
 
-  it('archives a done issue read > 24h ago; emits issue.auto_archived (not issue.archived)', () => {
+  it('archives a top-level done issue read > 7d ago; emits issue.auto_archived (not issue.archived)', () => {
     const { svc, store, deps, id } = doneAndRead()
-    const archived = svc.sweepAutoArchive(readAtMs + DAY_MS + 3600_000) // 25h later
+    const archived = svc.sweepAutoArchive(readAtMs + 8 * DAY_MS) // eight days later
     expect(archived.map((w) => w.id)).toEqual([id])
     expect(archived[0]!.archived).toBe(true)
     expect(svc.get(id)!.archived).toBe(true)
@@ -323,9 +323,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect(deps.broadcast).toHaveBeenCalled()
   })
 
-  it('leaves a done+read issue read < 24h ago alone', () => {
+  it('leaves a done+read issue read < 7d ago alone', () => {
     const { svc, store, id } = doneAndRead()
-    const archived = svc.sweepAutoArchive(readAtMs + 12 * 3600_000) // only 12h later
+    const archived = svc.sweepAutoArchive(readAtMs + 6 * DAY_MS) // only six days later
     expect(archived).toEqual([])
     expect(svc.get(id)!.archived).toBe(false)
     expect(store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(0)
@@ -352,21 +352,38 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
 
   it('does not re-archive: skips already-archived rows (idempotent, no duplicate event)', () => {
     const { svc, store, id } = doneAndRead()
-    expect(svc.sweepAutoArchive(readAtMs + 2 * DAY_MS).map((w) => w.id)).toEqual([id])
+    expect(svc.sweepAutoArchive(readAtMs + 8 * DAY_MS).map((w) => w.id)).toEqual([id])
     // A second sweep touches nothing and emits no further event.
-    expect(svc.sweepAutoArchive(readAtMs + 3 * DAY_MS)).toEqual([])
+    expect(svc.sweepAutoArchive(readAtMs + 9 * DAY_MS)).toEqual([])
     expect(store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(1)
   })
 
-  it('treats a closed-by-reason issue (not stage done) as archivable when read > 24h ago', () => {
+  it('treats a closed-by-reason top-level issue (not stage done) as archivable when read > 7d ago', () => {
     const h = harness()
     const canonical = h.svc.create({ repoPath: '/r', title: 'canonical', startNow: false })
     const dup = h.svc.create({ repoPath: '/r', title: 'dup', startNow: false })
     h.svc.duplicate(dup.id, canonical.id) // closedReason set (stage may not be 'done')
     h.svc.markIssueRead(dup.id)
-    const archived = h.svc.sweepAutoArchive(readAtMs + 2 * DAY_MS)
+    const archived = h.svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)
     expect(archived.map((w) => w.id)).toContain(dup.id)
     expect(h.svc.get(canonical.id)!.archived).toBe(false) // still open → untouched
+  })
+  it('keeps done children until their parent closes, then archives the subtree', () => {
+    const h = harness()
+    const parent = h.svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    const child = h.svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: parent.id,
+      startNow: false,
+    })
+    h.svc.close(child.id)
+    h.svc.markIssueRead(child.id)
+    expect(h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)).toEqual([])
+    expect(h.svc.get(child.id)?.archived).toBe(false)
+
+    h.svc.close(parent.id)
+    expect(h.svc.get(child.id)?.archived).toBe(true)
   })
 })
 
@@ -406,7 +423,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     svc.markIssueRead(w.id) // read at harness now
     setSessionArchived.mockClear()
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
-    const archived = svc.sweepAutoArchive(nowMs + 25 * 3600_000)
+    const archived = svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((a) => a.id)).toEqual([w.id])
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
   })

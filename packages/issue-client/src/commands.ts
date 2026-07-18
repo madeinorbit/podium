@@ -68,6 +68,7 @@ interface ShowWire {
   seq: number
   title: string
   description: string
+  brief?: string | null
   stage: string
   priority: number
   ready: boolean
@@ -183,10 +184,7 @@ function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
   const sessions = i.sessions ?? []
   const sessionBlock = sessions.length
     ? `\n\nsessions (${sessions.length}):\n${sessions
-        .map(
-          (s) =>
-            `  ${formatSessionLine(s, { coordinatorSessionId: i.coordinatorSessionId })}`,
-        )
+        .map((s) => `  ${formatSessionLine(s, { coordinatorSessionId: i.coordinatorSessionId })}`)
         .join('\n')}`
     : ''
   const thread = comments.length
@@ -194,7 +192,8 @@ function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
         .map((cm) => `- ${cm.author} (${cm.createdAt}): ${cm.body}`)
         .join('\n')}`
     : ''
-  return `#${i.seq} ${i.title}\n${meta}${sessionBlock}\n\n${i.description}${thread}`
+  const brief = i.brief ? `\n\nBrief:\n${i.brief}` : ''
+  return `#${i.seq} ${i.title}\n${meta}${sessionBlock}\n\n${i.description}${brief}${thread}`
 }
 
 /** One node of the issues.tree payload (issue #82) as the CLI renders it. */
@@ -341,11 +340,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'create',
-    summary: `Create an issue: create --title "…" (see --help for flags). --audience human puts it on the human board; agent-created issues default to internal (audience agent). ${TITLE_RULE_TERSE}`,
+    summary: `Create an issue: create --title "…". Agent top-level discoveries land in Proposed; sub-issues are internal decomposition. Description is human-facing; use --brief for technical detail. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       ...repoArg,
       title: z.string().min(1),
       description: z.string().optional(),
+      brief: z.string().optional(),
       priority: z.coerce.number().int().min(0).max(4).optional(),
       type: z.string().optional(),
       parentId: idArg.optional(),
@@ -367,6 +367,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         title: a.title as string,
         startNow: a.start === true,
         ...(a.description ? { description: a.description as string } : {}),
+        ...(a.brief ? { brief: a.brief as string } : {}),
         ...(a.priority != null ? { priority: a.priority as number } : {}),
         ...(a.type ? { type: a.type as never } : {}),
         ...(a.parentId ? { parentId: a.parentId as string } : {}),
@@ -437,6 +438,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       assignee: z.string().optional(),
       title: z.string().optional(),
       description: z.string().optional(),
+      brief: z.string().optional(),
       type: z.string().optional(),
       agent: z.string().min(1).optional(),
       model: z.string().min(1).optional(),
@@ -464,6 +466,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         'assignee',
         'title',
         'description',
+        'brief',
         'type',
         'parentId',
         'parentBranch',
@@ -513,6 +516,16 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.confirmRehome ? { confirmRehome: true } : {}),
       } as never)) as { seq: number; title: string }
       return { text: `attached to #${i.seq} ${i.title}`, data: i }
+    },
+  },
+  {
+    name: 'promote',
+    summary: 'Approve a proposed issue into Backlog (operator only): promote <id>.',
+    args: z.strictObject({ id: idArg }),
+    positionals: ['id'],
+    async run(c, a) {
+      const i = (await c.issues.promote.mutate({ id: a.id as string })) as { seq: number }
+      return { text: `promoted #${i.seq} to backlog`, data: i }
     },
   },
   {

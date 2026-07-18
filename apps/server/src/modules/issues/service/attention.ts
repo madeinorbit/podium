@@ -210,11 +210,11 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
   /**
    * Read-gated auto-archive sweep (issue #127). Archive every issue that is
    * DONE (or otherwise closed), has been READ, and whose read happened at least
-   * `AUTO_ARCHIVE_READ_WINDOW_MS` (24h) ago. This declutters the sidebar (S1 hides
+   * `AUTO_ARCHIVE_READ_WINDOW_MS` (7 days) ago. This declutters the sidebar (S1 hides
    * archived) while keeping the result reachable via the board's Archived filter.
    *
    * Read-gating is the point: a done-but-unread issue is left alone — the operator
-   * hasn't seen the result yet, and *reading* it is what starts the 24h clock
+   * hasn't seen the result yet, and *reading* it is what starts the seven-day clock
    * (see `computeUnread`: any activity after `readAt` re-flips it to unread).
    *
    * Cheap + idempotent: already-archived rows are skipped, the four cheap gates
@@ -231,7 +231,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
     for (const row of this.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
-      if (!this.isClosed(row)) continue // not done / not closed
+      if (!this.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
       if (row.readAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(row.readAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
@@ -268,7 +268,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       return 'precondition'
     }
     if (row.readAt !== observed.readAt) return 'precondition'
-    if (!this.isClosed(row)) return 'precondition'
+    if (!this.isClosed(row) || row.parentId) return 'precondition'
     const readMs = Date.parse(row.readAt ?? '')
     if (!Number.isFinite(readMs)) return 'precondition'
     if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'

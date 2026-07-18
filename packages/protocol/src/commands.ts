@@ -125,6 +125,7 @@ export const ISSUE_COMMAND_NAMES = [
   'panelApply',
   'preflight',
   'prime',
+  'promote',
   'ready',
   'refreshAssistant',
   'reparent',

@@ -23,6 +23,7 @@ import {
   maintenanceCommandsPruneRunKey,
   MESSAGE_WAIT_TTL_MS,
   messageExpiryRunKey,
+  sessionAutoArchiveRunKey,
   stewardPollRunKey,
 } from '@podium/protocol'
 import type { SessionStore } from '../../store'
@@ -38,6 +39,12 @@ export interface MaintenanceServiceOptions {
   leaseTtlMs?: number
   /** Optional until issue auto-archive migrates; tests may omit. */
   issues?: Pick<IssueService, 'tryAutoArchiveObserved'>
+  sessions?: {
+    tryAutoArchiveStoppedObserved(
+      observed: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>['observed'],
+      nowMs: number,
+    ): 'applied' | 'precondition' | 'not-due'
+  }
   automations?: Pick<AutomationsService, 'applyObservedOccurrence'>
   liveSessionIds?: () => Set<string>
   /** Steward poll: deliveries durable before cursor advance. */
@@ -56,6 +63,7 @@ export class MaintenanceService {
   private readonly now: () => number
   private readonly leaseTtlMs: number
   private readonly issues: MaintenanceServiceOptions['issues']
+  private readonly sessions: MaintenanceServiceOptions['sessions']
   private readonly automations: MaintenanceServiceOptions['automations']
   private readonly liveSessionIds: () => Set<string>
   private readonly stewardTick: MaintenanceServiceOptions['stewardTick']
@@ -70,6 +78,7 @@ export class MaintenanceService {
     this.now = options.now ?? Date.now
     this.leaseTtlMs = options.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS
     this.issues = options.issues
+    this.sessions = options.sessions
     this.automations = options.automations
     this.liveSessionIds = options.liveSessionIds ?? (() => new Set())
     this.stewardTick = options.stewardTick
@@ -168,6 +177,8 @@ export class MaintenanceService {
           return this.applyMaintenanceCommandsPrune(command)
         case 'issue-auto-archive':
           return this.applyIssueAutoArchive(command, nowMs)
+        case 'session-auto-archive':
+          return this.applySessionAutoArchive(command, nowMs)
       }
     })
   }
@@ -340,7 +351,36 @@ export class MaintenanceService {
       jobKind: command.jobKind,
       runKey: command.runKey,
     }
-    this.store.maintenance.recordCommand(applied, command.fencingToken, new Date(nowMs).toISOString())
+    this.store.maintenance.recordCommand(
+      applied,
+      command.fencingToken,
+      new Date(nowMs).toISOString(),
+    )
+    return applied
+  }
+
+  private applySessionAutoArchive(
+    command: Extract<MaintenanceCommand, { jobKind: 'session-auto-archive' }>,
+    nowMs: number,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (sessionAutoArchiveRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (!this.sessions) return this.stale(command, 'precondition')
+    const result = this.sessions.tryAutoArchiveStoppedObserved(observed, nowMs)
+    if (result === 'not-due') return this.stale(command, 'not-due')
+    if (result === 'precondition') return this.stale(command, 'precondition')
+    const applied: MaintenanceCommandReply = {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    }
+    this.store.maintenance.recordCommand(
+      applied,
+      command.fencingToken,
+      new Date(nowMs).toISOString(),
+    )
     return applied
   }
 
@@ -461,10 +501,7 @@ export class MaintenanceService {
     })
   }
 
-  private recordPrune(
-    command: MaintenanceCommand,
-    deleted: number,
-  ): MaintenanceCommandReply {
+  private recordPrune(command: MaintenanceCommand, deleted: number): MaintenanceCommandReply {
     const applied: MaintenanceCommandReply = {
       status: 'applied',
       jobKind: command.jobKind,

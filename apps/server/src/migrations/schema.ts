@@ -47,6 +47,8 @@ export const sessions = sqliteTable("sessions", {
 	headless: integer().default(0).notNull(),
 	issueId: text("issue_id"),
 	readAt: text("read_at"),
+	stoppedAt: text("stopped_at"),
+	stopReason: text("stop_reason"),
 	deletedAt: text("deleted_at"),
 	deletedByIssueId: text("deleted_by_issue_id"),
 	deletionSource: text("deletion_source"),
@@ -63,6 +65,7 @@ export const sessions = sqliteTable("sessions", {
 },
 (table) => [index("idx_sessions_deleted_by_issue").on(table.deletedByIssueId),
 index("idx_sessions_deleted_at").on(table.deletedAt),
+check("sessions_stop_reason_check", sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced')`),
 ]);
 
 export const meta = sqliteTable("meta", {
@@ -368,6 +371,7 @@ export const issues = sqliteTable("issues", {
 	seq: integer().notNull(),
 	title: text().notNull(),
 	description: text().default("").notNull(),
+	brief: text(),
 	stage: text().notNull(),
 	worktreePath: text("worktree_path"),
 	branch: text(),
@@ -427,7 +431,7 @@ export const issues = sqliteTable("issues", {
 uniqueIndex("idx_issues_repo_id_seq").on(table.repoId, table.seq),
 index("idx_issues_parent").on(table.parentId),
 index("idx_issues_repo").on(table.repoPath),
-check("issues_check_1", sql`stage IN ('backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')`),
+check("issues_check_1", sql`stage IN ('proposed', 'backlog', 'planning', 'in_progress', 'review', 'verifying', 'done')`),
 check("issues_check_2", sql`priority BETWEEN 0 AND 4`),
 check("issues_check_3", sql`type IN ('task', 'bug', 'feature', 'chore', 'epic', 'decision', 'spike', 'story', 'milestone', 'automation')`),
 ]);

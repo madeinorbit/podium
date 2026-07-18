@@ -33,9 +33,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
-  const rpc = (
-    reg.modules.sessions as unknown as { rpc: { repoOp: RepoOpStub } }
-  ).rpc
+  const rpc = (reg.modules.sessions as unknown as { rpc: { repoOp: RepoOpStub } }).rpc
   let impl: RepoOpStub = async (op, cwd, args) => {
     repoOps.push({ op, cwd, ...(args ? { args } : {}) })
     if (op === 'status') return { ok: true, output: statusOutput }
@@ -92,12 +90,18 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     bindLive(reg, sessionId, '/r/.worktrees/issue-1-stop-target')
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+    reg.modules.sessions.markSessionRead(sessionId)
+    expect(reg.modules.sessions.listSessions()[0]?.unread).toBe(false)
 
     const r = await reg.modules.sessions.stopSession({ sessionId })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
     const meta = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
     expect(meta?.status).toBe('hibernated')
+    expect(meta?.stoppedAt).toBeTruthy()
+    expect(meta?.stopReason).toBe('forced')
+    expect(meta?.readAt).toBeNull()
+    expect(meta?.unread).toBe(true)
     expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
     // Row kept (not deleted).
     expect(meta).toBeTruthy()
@@ -173,6 +177,9 @@ describe('stopSession [spec:SP-9904]', () => {
     const r = await reg.modules.sessions.stopSession({ sessionId, force: true })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
+    expect(
+      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.stopReason,
+    ).toBe('forced')
     expect(reg.modules.issues.getMeta(issue.id)?.branch).toBe('issue/3-force')
     expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBeNull()
   })
@@ -188,6 +195,9 @@ describe('stopSession [spec:SP-9904]', () => {
     const r = await reg.modules.sessions.stopSession({ sessionId, selfStop: true })
     expect(r.ok).toBe(true)
     expect(r.deferredKill).toBe(true)
+    expect(
+      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.stopReason,
+    ).toBe('self')
     // No timer — kill is not sent until the relay replies.
     expect(daemon.some((m) => m.type === 'kill')).toBe(false)
     reg.modules.sessions.finalizeDeferredStopKill(sessionId)

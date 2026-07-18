@@ -118,6 +118,9 @@ export const SessionMeta = z.object({
   /** Email-style read state (issue #124). Global (single-operator) — the ISO time
    *  the operator last opened this session, or null if never opened. */
   readAt: z.string().nullable().catch(null).default(null),
+  /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
+  stoppedAt: z.string().optional(),
+  stopReason: z.enum(['self', 'parent', 'forced']).optional(),
   /** Server-DERIVED: there is activity the operator hasn't seen —
    *  `lastActiveAt > readAt`, or `readAt` is null (never opened). Defaulted so a
    *  pre-field cached payload still validates (unread → false). */

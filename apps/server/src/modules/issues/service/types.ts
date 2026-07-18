@@ -55,7 +55,7 @@ export interface IssuePublishSpecs {
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
  *  this long after it was read. Reading starts the clock; unread issues wait. */
-export const AUTO_ARCHIVE_READ_WINDOW_MS = 24 * 60 * 60 * 1000
+export const AUTO_ARCHIVE_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Manual unsnooze backdate (issue #133): `undefer` sets deferUntil this far in the
  *  past rather than to exactly "now". The sidebar reads snooze state off a coarse
@@ -255,6 +255,9 @@ export interface CreateIssueInput {
   repoPath: string
   title: string
   description?: string
+  brief?: string
+  /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
+  stage?: 'proposed' | 'backlog'
   parentBranch?: string
   defaultAgent?: string
   defaultModel?: string
@@ -293,6 +296,7 @@ export type IssuePatch = Partial<
     IssueRow,
     | 'title'
     | 'description'
+    | 'brief'
     | 'stage'
     | 'worktreePath'
     | 'branch'
