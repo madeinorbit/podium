@@ -1265,15 +1265,16 @@ export class SessionRegistry {
     })
     this.messageSweep = setInterval(() => messagesSvc.sweep(), DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
+    // jobs now run on the fenced janitor surface (parity-proven in unit tests).
+    // Classes remain for tests / manual pruneNow; start() is no longer called.
     this.eventRetention = new EventLogRetention(this.store.events, {
       onMetrics: (metrics) => {
         perf.record('phase', 'eventLogPrune.total', metrics.totalDurationMs)
         perf.record('phase', 'eventLogPrune.maxSlice', metrics.maxUninterruptedSliceMs)
       },
     })
-    this.eventRetention.start()
     this.issueAutoArchive = new IssueAutoArchive(issues)
-    this.issueAutoArchive.start()
     // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
     // SessionsService.createSession with its own provenance tag (the tRPC
     // `sessions.create` proc stamps spawnedBy 'user'), and the prompt rides the

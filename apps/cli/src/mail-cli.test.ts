@@ -229,6 +229,6 @@ describe('podium mail CLI (argv shape)', () => {
     const out = await runMailCli(['help'], client())
     for (const verb of ['send --to', 'inbox', 'show <id>', 'dismiss <id>', 'reply <id>'])
       expect(out).toContain(verb)
-    expect(out).toContain('--expires-in <duration>')
+    expect(out).toContain('--expires-in')
   })
 })

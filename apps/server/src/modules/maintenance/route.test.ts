@@ -13,6 +13,12 @@ describe('maintenance route [spec:SP-c29e]', () => {
     fencingToken: 4,
     expiresAt: '2026-07-18T00:01:30.000Z',
     messageWaitTtlMs: 7 * 24 * 60 * 60_000,
+    autoArchiveReadWindowMs: 24 * 60 * 60 * 1000,
+    eventRetentionMaxAgeDays: 14,
+    eventRetentionMaxRows: 50_000,
+    changeKeepRows: 20_000,
+    changeMaxAgeMs: 3 * 24 * 60 * 60 * 1000,
+    maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
   }))
   const apply = vi.fn((command) => ({
     status: 'applied' as const,

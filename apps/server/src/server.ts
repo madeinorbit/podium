@@ -288,7 +288,9 @@ export async function startServer(
   registerVersionRoute(app)
   registerMaintenanceRoute(app, {
     authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
-    service: new MaintenanceService(store, registry.modules.funnel),
+    service: new MaintenanceService(store, registry.modules.funnel, {
+      issues: registry.modules.issues,
+    }),
   })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is

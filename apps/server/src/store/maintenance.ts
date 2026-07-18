@@ -76,4 +76,26 @@ export class MaintenanceRepository {
       )
       .run(reply.jobKind, reply.runKey, fencingToken, JSON.stringify(reply), appliedAt)
   }
+
+  /**
+   * Bounded head prune of the maintenance idempotency ledger [POD-845 residual].
+   * Deletes oldest rows with applied_at strictly before cutoff, in batches.
+   */
+  pruneCommandsBatch(cutoffAppliedAt: string, batchSize: number): number {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new RangeError('batchSize must be a positive integer')
+    }
+    const result = this.db
+      .prepare(
+        `DELETE FROM maintenance_commands
+         WHERE rowid IN (
+           SELECT rowid FROM maintenance_commands
+           WHERE applied_at < ?
+           ORDER BY applied_at ASC, job_kind ASC, run_key ASC
+           LIMIT ?
+         )`,
+      )
+      .run(cutoffAppliedAt, batchSize)
+    return Number(result.changes)
+  }
 }

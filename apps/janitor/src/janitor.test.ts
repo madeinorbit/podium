@@ -8,7 +8,27 @@ import {
 } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
-import { createMaintenanceHttpClient, JanitorService, MessageExpiryReader } from './janitor'
+import {
+  createMaintenanceHttpClient,
+  EventLogPrunePlanner,
+  JanitorService,
+  MessageExpiryReader,
+} from './janitor'
+
+const readyLease = (
+  over: Partial<{ fencingToken: number; expiresAt: string }> = {},
+): Extract<MaintenanceHandshakeReply, { status: 'ready' }> => ({
+  status: 'ready',
+  fencingToken: over.fencingToken ?? 1,
+  expiresAt: over.expiresAt ?? '2026-07-18T00:01:30.000Z',
+  messageWaitTtlMs: 7 * 24 * 60 * 60_000,
+  autoArchiveReadWindowMs: 24 * 60 * 60 * 1000,
+  eventRetentionMaxAgeDays: 14,
+  eventRetentionMaxRows: 50_000,
+  changeKeepRows: 20_000,
+  changeMaxAgeMs: 3 * 24 * 60 * 60 * 1000,
+  maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
+})
 
 describe('JanitorService [spec:SP-c29e]', () => {
   it('aborts a wedged maintenance request so a later tick can retry', async () => {
@@ -47,12 +67,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       now: () => Date.parse('2026-07-18T00:00:00.000Z'),
       handshake: async (request: MaintenanceHandshake): Promise<MaintenanceHandshakeReply> => {
         calls.push(`handshake:${request.protocolVersion}:${request.schemaVersion}`)
-        return {
-          status: 'ready',
-          fencingToken: 9,
-          expiresAt: '2026-07-18T00:01:30.000Z',
-          messageWaitTtlMs: 7 * 24 * 60 * 60_000,
-        }
+        return readyLease({ fencingToken: 9, expiresAt: '2026-07-18T00:01:30.000Z' })
       },
       readExpiryCandidates: (input) => {
         calls.push(`read:${input.limit}`)
@@ -111,12 +126,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       now: () => Date.parse('2026-07-18T00:00:00.000Z'),
       handshake: async () => {
         handshakes += 1
-        return {
-          status: 'ready',
-          fencingToken: handshakes,
-          expiresAt: '2026-07-18T00:01:30.000Z',
-          messageWaitTtlMs: 7 * 24 * 60 * 60_000,
-        }
+        return readyLease({ fencingToken: handshakes, expiresAt: '2026-07-18T00:01:30.000Z' })
       },
       readExpiryCandidates: () => [
         {
@@ -229,6 +239,95 @@ describe('JanitorService [spec:SP-c29e]', () => {
       expect(planDetails(explicitSql, '2026-07-18T00:00:00.000Z', 25)).toContain(
         'SEARCH messages USING INDEX idx_messages_expiry_explicit',
       )
+    } finally {
+      db.close()
+    }
+  })
+
+  it('[POD-925] runs housekeeping planners and applies fenced batch commands once', async () => {
+    const applies: string[] = []
+    const service = new JanitorService({
+      generationId: 'gen_house',
+      now: () => Date.parse('2026-07-18T00:00:00.000Z'),
+      handshake: async () => readyLease({ fencingToken: 3 }),
+      readExpiryCandidates: () => [],
+      planEventLogPrune: async () => [
+        {
+          maxAgeDays: 14,
+          maxRows: 50_000,
+          cutoff: '2026-07-04T00:00:00.000Z',
+          capThroughId: 0,
+          batchSize: 500,
+          batchIndex: 0,
+        },
+      ],
+      planChangeLogPrune: async () => [
+        {
+          keepRows: 20_000,
+          maxAgeMs: 3 * 24 * 60 * 60 * 1000,
+          thresholdSeq: 9,
+          batchSize: 100,
+          batchIndex: 0,
+        },
+      ],
+      planMaintenanceCommandsPrune: async () => [],
+      readAutoArchiveCandidates: async () => [
+        {
+          issueId: 'iss_1',
+          stage: 'done',
+          closedReason: null,
+          readAt: '2026-07-01T00:00:00.000Z',
+          archived: false,
+          deletedAt: null,
+        },
+      ],
+      apply: async (request) => {
+        applies.push(request.jobKind)
+        return {
+          status: 'applied',
+          jobKind: request.jobKind,
+          runKey: request.runKey,
+          deleted: request.jobKind.endsWith('prune') ? 1 : undefined,
+        }
+      },
+    })
+
+    await service.tick()
+    expect(applies).toEqual(['event-log-prune', 'change-log-prune', 'issue-auto-archive'])
+    const counters = service.snapshotCounters()
+    expect(counters.applied).toBe(3)
+    expect(counters.maxBatchDeleted).toBe(1)
+    expect(counters.lastProgressAt).not.toBeNull()
+  })
+
+  it('[POD-925] EventLogPrunePlanner emits one observation per bounded batch', async () => {
+    const db = openDatabase(':memory:')
+    try {
+      db.exec(`CREATE TABLE podium_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        repo_path TEXT,
+        payload TEXT
+      )`)
+      const insert = db.prepare(
+        'INSERT INTO podium_events (ts, kind, subject, payload) VALUES (?, ?, ?, ?)',
+      )
+      for (let i = 0; i < 5; i++) {
+        insert.run('2026-06-01T00:00:00.000Z', 'old', `s${i}`, '{}')
+      }
+      const planner = new EventLogPrunePlanner(db)
+      const batches = await planner.plan({
+        maxAgeDays: 14,
+        maxRows: 50_000,
+        batchSize: 2,
+        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
+      })
+      expect(batches).toHaveLength(3)
+      expect(batches[0]?.batchIndex).toBe(0)
+      expect(batches[2]?.batchIndex).toBe(2)
+      expect(new Set(batches.map((b) => b.cutoff)).size).toBe(1)
     } finally {
       db.close()
     }

@@ -207,7 +207,7 @@ describe('Ledger', () => {
     expect(calls).toEqual(['plan', 'delete', 'delete', 'fold'])
   })
 
-  it('prunes aged rows after PRUNE_EVERY append batches (retention thresholds)', () => {
+  it('[POD-925] append cadence no longer prunes — janitor owns ongoing retention', () => {
     const repo = createTestSyncRepository()
     const t0 = 1_000_000
     const young = t0 + CHANGE_MAX_AGE_MS + 60_000
@@ -216,31 +216,20 @@ describe('Ledger', () => {
     commit(ledger, [issueSpec('a', 0)]) // batch 1, aged
     now = young
     for (let i = 1; i < CHANGE_PRUNE_EVERY - 1; i++) commit(ledger, [issueSpec('a', i)])
-    expect(repo.minChangeSeq()).toBe(1) // 63 batches in — no prune yet
-    commit(ledger, [issueSpec('a', CHANGE_PRUNE_EVERY)]) // batch 64 triggers the prune
-    expect(repo.minChangeSeq()).toBe(2) // the aged head row is gone
+    expect(repo.minChangeSeq()).toBe(1)
+    commit(ledger, [issueSpec('a', CHANGE_PRUNE_EVERY)]) // was the old cadence trigger
+    // Head row remains — only prepareLedgerBoot / janitor prune may delete it.
+    expect(repo.minChangeSeq()).toBe(1)
     expect(repo.maxChangeSeq()).toBe(CHANGE_PRUNE_EVERY)
-    // Deduped commits (no append) must NOT count toward the prune cadence.
     expect(commit(ledger, [issueSpec('a', CHANGE_PRUNE_EVERY)]).changes).toEqual([])
   })
 
-  it('coalesces overlapping cadence prunes into the current job plus one rerun', async () => {
+  it('[POD-925] overlapping append batches never schedule ledger retention flights', async () => {
     const inner = createTestSyncRepository()
-    let monotonicMs = 0
-    let planId = 0
-    const callsByPlan = new Map<number, number>()
-    const planChangePrune = vi.fn(() => ({ thresholdSeq: ++planId }))
+    const planChangePrune = vi.fn(() => ({ thresholdSeq: 1 }))
     const repo = new Proxy(inner, {
       get(target, prop, receiver) {
         if (prop === 'planChangePrune') return planChangePrune
-        if (prop === 'pruneChangeBatch') {
-          return (plan: { thresholdSeq: number }) => {
-            monotonicMs += 13
-            const calls = callsByPlan.get(plan.thresholdSeq) ?? 0
-            callsByPlan.set(plan.thresholdSeq, calls + 1)
-            return calls === 0 && plan.thresholdSeq === 1 ? 100 : 0
-          }
-        }
         const value = Reflect.get(target, prop, receiver)
         return typeof value === 'function' ? value.bind(target) : value
       },
@@ -250,46 +239,15 @@ describe('Ledger', () => {
       repo,
       now: Date.now,
       transact: passthrough,
-      monotonicNow: () => monotonicMs,
       onPruneMetrics,
     })
 
     for (let i = 0; i < CHANGE_PRUNE_EVERY * 3; i++) {
       commit(ledger, [issueSpec(`single-flight-${i}`, i)])
     }
-    await vi.waitFor(() => expect(onPruneMetrics).toHaveBeenCalledTimes(2))
-
-    expect(planChangePrune).toHaveBeenCalledTimes(2)
-    ledger.dispose()
-  })
-
-  it('runs a coalesced cadence rerun before logging an active-pass failure', async () => {
-    const error = new Error('plan failed')
-    const inner = createTestSyncRepository()
-    const planChangePrune = vi
-      .fn()
-      .mockImplementationOnce(() => {
-        throw error
-      })
-      .mockReturnValue({ thresholdSeq: 0 })
-    const repo = new Proxy(inner, {
-      get(target, prop, receiver) {
-        if (prop === 'planChangePrune') return planChangePrune
-        const value = Reflect.get(target, prop, receiver)
-        return typeof value === 'function' ? value.bind(target) : value
-      },
-    })
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const onPruneMetrics = vi.fn()
-    const ledger = new Ledger({ repo, now: Date.now, transact: passthrough, onPruneMetrics })
-
-    for (let i = 0; i < CHANGE_PRUNE_EVERY * 2; i++) {
-      commit(ledger, [issueSpec(`error-rerun-${i}`, i)])
-    }
-    await vi.waitFor(() => expect(onPruneMetrics).toHaveBeenCalledTimes(2))
-    await vi.waitFor(() => expect(errors).toHaveBeenCalledOnce())
-
-    expect(planChangePrune).toHaveBeenCalledTimes(2)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(planChangePrune).not.toHaveBeenCalled()
+    expect(onPruneMetrics).not.toHaveBeenCalled()
     ledger.dispose()
   })
 

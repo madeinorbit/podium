@@ -92,8 +92,11 @@ returns `applied`, `already-applied`, or `stale`. Compatibility negotiation prev
 janitor from acquiring or renewing a lease after an incompatible protocol/schema change.
 
 POD-845's first review cut moves message expiry and establishes the shared fenced surface and
-real sibling lifecycle. The remaining matrix rows migrate job-by-job behind the same contract;
-until each cut lands, its existing owner remains authoritative rather than running two writers.
+real sibling lifecycle. POD-925 Batch 1 moves event-log retention, ledger change-log cadence
+prune, issue auto-archive, and maintenance_commands retention onto that surface (server timers
+and ledger append-cadence prune retired after parity tests). Batch 2 covers steward poll,
+automations cron, and automatic connect-scan orchestration. Until each cut lands, its existing
+owner remains authoritative rather than running two writers.
 
 ---
 

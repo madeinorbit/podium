@@ -1,9 +1,21 @@
 import {
+  CHANGE_KEEP_ROWS,
+  CHANGE_MAX_AGE_MS,
+  CHANGE_PRUNE_BATCH_ROWS,
+  changeLogPruneRunKey,
+  EVENT_PRUNE_BATCH_ROWS,
+  EVENT_RETENTION_MAX_AGE_DAYS,
+  EVENT_RETENTION_MAX_ROWS,
+  eventLogPruneRunKey,
+  issueAutoArchiveRunKey,
+  MAINTENANCE_COMMAND_MAX_AGE_MS,
+  MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
+  maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
 } from '@podium/protocol'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type MessageRow, SessionStore } from '../../store'
 import { MaintenanceService } from './service'
 
@@ -164,5 +176,161 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(service.apply({ ...command, fencingToken: next.fencingToken })).toMatchObject({
       status: 'applied',
     })
+  })
+
+  it('[POD-925] event-log prune applies one bounded batch idempotently', () => {
+    for (let i = 0; i < 3; i++) {
+      store.events.appendEvent({
+        ts: '2026-06-01T00:00:00.000Z',
+        kind: 'test.old',
+        subject: `s${i}`,
+      })
+    }
+    const lease = handshake('gen_a')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    const plan = store.events.planEventPrune({
+      maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
+      maxRows: EVENT_RETENTION_MAX_ROWS,
+    })
+    const observed = {
+      maxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
+      maxRows: EVENT_RETENTION_MAX_ROWS,
+      cutoff: plan.cutoff,
+      capThroughId: plan.capThroughId,
+      batchSize: EVENT_PRUNE_BATCH_ROWS,
+      batchIndex: 0,
+    }
+    const command = {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'event-log-prune' as const,
+      runKey: eventLogPruneRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    }
+    expect(service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
+    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+    expect(store.events.listEventsSince(0)).toHaveLength(0)
+  })
+
+  it('[POD-925] change-log prune applies one bounded batch under the plan', () => {
+    const now = nowMs
+    for (let i = 0; i < 5; i++) {
+      store.sync.appendChanges(
+        [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
+        now - CHANGE_MAX_AGE_MS - 1_000,
+      )
+    }
+    const lease = handshake('gen_a')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    const plan = store.sync.planChangePrune({
+      keepRows: CHANGE_KEEP_ROWS,
+      maxAgeMs: CHANGE_MAX_AGE_MS,
+      now: nowMs,
+    })
+    expect(plan.thresholdSeq).toBeGreaterThan(0)
+    const observed = {
+      keepRows: CHANGE_KEEP_ROWS,
+      maxAgeMs: CHANGE_MAX_AGE_MS,
+      thresholdSeq: plan.thresholdSeq,
+      batchSize: CHANGE_PRUNE_BATCH_ROWS,
+      batchIndex: 0,
+    }
+    const command = {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'change-log-prune' as const,
+      runKey: changeLogPruneRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    }
+    const reply = service.apply(command)
+    expect(reply).toMatchObject({ status: 'applied' })
+    expect(reply.status === 'applied' && (reply.deleted ?? 0) > 0).toBe(true)
+    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+  })
+
+  it('[POD-925] issue auto-archive revalidates via issues seam at apply', () => {
+    const tryAutoArchiveObserved = vi.fn(
+      (): 'applied' | 'precondition' | 'not-due' => 'applied',
+    )
+    service = new MaintenanceService(
+      store,
+      {
+        run<T>({ write }: { authorize?: () => void; write: () => T }): T {
+          funnelWrites += 1
+          return write()
+        },
+      },
+      { now: () => nowMs, leaseTtlMs: 90_000, issues: { tryAutoArchiveObserved } },
+    )
+    const lease = handshake('gen_a')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    const observed = {
+      issueId: 'iss_1',
+      stage: 'done',
+      closedReason: null,
+      readAt: '2026-07-01T00:00:00.000Z',
+      archived: false as const,
+      deletedAt: null,
+    }
+    const command = {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'issue-auto-archive' as const,
+      runKey: issueAutoArchiveRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    }
+    expect(service.apply(command)).toMatchObject({ status: 'applied' })
+    expect(tryAutoArchiveObserved).toHaveBeenCalledWith(observed, nowMs)
+    expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
+    tryAutoArchiveObserved.mockReturnValueOnce('not-due')
+    const second = {
+      ...observed,
+      issueId: 'iss_2',
+      readAt: '2026-07-17T00:00:00.000Z',
+    }
+    expect(
+      service.apply({
+        ...command,
+        observed: second,
+        runKey: issueAutoArchiveRunKey(second),
+      }),
+    ).toMatchObject({ status: 'stale', reason: 'not-due' })
+  })
+
+  it('[POD-925] maintenance_commands prune deletes aged rows in batches', () => {
+    const lease = handshake('gen_a')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    // Seed applied commands with old applied_at via direct SQL.
+    store.transact(() => {
+      for (let i = 0; i < 3; i++) {
+        store.maintenance.recordCommand(
+          {
+            status: 'applied',
+            jobKind: 'message-expiry',
+            runKey: `old/${i}`,
+          },
+          lease.fencingToken,
+          '2026-06-01T00:00:00.000Z',
+        )
+      }
+    })
+    const observed = {
+      maxAgeMs: MAINTENANCE_COMMAND_MAX_AGE_MS,
+      cutoffAppliedAt: new Date(nowMs - MAINTENANCE_COMMAND_MAX_AGE_MS).toISOString(),
+      batchSize: MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
+      batchIndex: 0,
+    }
+    const command = {
+      protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+      schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+      jobKind: 'maintenance-commands-prune' as const,
+      runKey: maintenanceCommandsPruneRunKey(observed),
+      fencingToken: lease.fencingToken,
+      observed,
+    }
+    expect(service.apply(command)).toMatchObject({ status: 'applied', deleted: 3 })
   })
 })

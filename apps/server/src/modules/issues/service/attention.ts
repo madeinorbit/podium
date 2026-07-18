@@ -245,6 +245,39 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     return out
   }
 
+  /**
+   * Single-issue auto-archive for the fenced janitor command [POD-925].
+   * Revalidates every durable + live precondition at apply time; the janitor
+   * observation is only a proposal.
+   */
+  tryAutoArchiveObserved(
+    observed: {
+      issueId: string
+      stage: string
+      closedReason: string | null
+      readAt: string
+      archived: false
+      deletedAt: null
+    },
+    nowMs: number = Date.parse(this.now()),
+  ): 'applied' | 'precondition' | 'not-due' {
+    const row = this.rows.get(observed.issueId)
+    if (!row) return 'precondition'
+    if (row.archived || row.deletedAt) return 'precondition'
+    if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
+      return 'precondition'
+    }
+    if (row.readAt !== observed.readAt) return 'precondition'
+    if (!this.isClosed(row)) return 'precondition'
+    const readMs = Date.parse(row.readAt ?? '')
+    if (!Number.isFinite(readMs)) return 'precondition'
+    if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
+    const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+    if (this.computeUnread(row, sessions)) return 'precondition'
+    this.autoArchive(row)
+    return 'applied'
+  }
+
   /** Archive `row` as the passive auto-archive sweep (issue #127). Reuses the same
    *  persist machinery `archive()` funnels through (sets archived + broadcasts
    *  issueUpdated & issuesChanged) but logs a DISTINCT `issue.auto_archived` event

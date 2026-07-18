@@ -1,4 +1,16 @@
 import {
+  AUTO_ARCHIVE_READ_WINDOW_MS,
+  CHANGE_KEEP_ROWS,
+  CHANGE_MAX_AGE_MS,
+  CHANGE_PRUNE_BATCH_ROWS,
+  changeLogPruneRunKey,
+  EVENT_PRUNE_BATCH_ROWS,
+  EVENT_RETENTION_MAX_AGE_DAYS,
+  EVENT_RETENTION_MAX_ROWS,
+  eventLogPruneRunKey,
+  issueAutoArchiveRunKey,
+  MAINTENANCE_COMMAND_MAX_AGE_MS,
+  MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS,
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
   type MaintenanceCommand,
@@ -6,12 +18,14 @@ import {
   type MaintenanceHandshake,
   type MaintenanceHandshakeReply,
   type MaintenanceStaleReason,
+  maintenanceCommandsPruneRunKey,
   MESSAGE_WAIT_TTL_MS,
   messageExpiryRunKey,
 } from '@podium/protocol'
 import type { SessionStore } from '../../store'
 import type { MessageRow } from '../../store/types'
 import type { WriteFunnel } from '../funnel'
+import type { IssueService } from '../issues/service'
 
 const LEASE_NAME = 'janitor'
 const DEFAULT_LEASE_TTL_MS = 90_000
@@ -19,6 +33,8 @@ const DEFAULT_LEASE_TTL_MS = 90_000
 export interface MaintenanceServiceOptions {
   now?: () => number
   leaseTtlMs?: number
+  /** Optional until issue auto-archive migrates; tests may omit. */
+  issues?: Pick<IssueService, 'tryAutoArchiveObserved'>
 }
 
 /**
@@ -29,6 +45,7 @@ export interface MaintenanceServiceOptions {
 export class MaintenanceService {
   private readonly now: () => number
   private readonly leaseTtlMs: number
+  private readonly issues: MaintenanceServiceOptions['issues']
 
   constructor(
     private readonly store: SessionStore,
@@ -37,6 +54,7 @@ export class MaintenanceService {
   ) {
     this.now = options.now ?? Date.now
     this.leaseTtlMs = options.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS
+    this.issues = options.issues
   }
 
   handshake(request: MaintenanceHandshake): MaintenanceHandshakeReply {
@@ -78,6 +96,12 @@ export class MaintenanceService {
         fencingToken,
         expiresAt,
         messageWaitTtlMs: MESSAGE_WAIT_TTL_MS,
+        autoArchiveReadWindowMs: AUTO_ARCHIVE_READ_WINDOW_MS,
+        eventRetentionMaxAgeDays: EVENT_RETENTION_MAX_AGE_DAYS,
+        eventRetentionMaxRows: EVENT_RETENTION_MAX_ROWS,
+        changeKeepRows: CHANGE_KEEP_ROWS,
+        changeMaxAgeMs: CHANGE_MAX_AGE_MS,
+        maintenanceCommandMaxAgeMs: MAINTENANCE_COMMAND_MAX_AGE_MS,
       }
     })
   }
@@ -112,40 +136,181 @@ export class MaintenanceService {
           status: 'already-applied',
           jobKind: command.jobKind,
           runKey: command.runKey,
+          ...(prior.status !== 'stale' && 'deleted' in prior && prior.deleted !== undefined
+            ? { deleted: prior.deleted }
+            : {}),
         }
       }
-      if (messageExpiryRunKey(command.observed) !== command.runKey) {
-        return this.stale(command, 'invalid-run-key')
-      }
 
-      const current = this.store.messages.getMessage(command.observed.messageId)
-      if (!current || !this.matchesObservation(current, command)) {
-        return this.stale(command, 'precondition')
+      switch (command.jobKind) {
+        case 'message-expiry':
+          return this.applyMessageExpiry(command, nowMs)
+        case 'event-log-prune':
+          return this.applyEventLogPrune(command)
+        case 'change-log-prune':
+          return this.applyChangeLogPrune(command, nowMs)
+        case 'maintenance-commands-prune':
+          return this.applyMaintenanceCommandsPrune(command)
+        case 'issue-auto-archive':
+          return this.applyIssueAutoArchive(command, nowMs)
       }
-      if (!this.expiryDue(current, nowMs)) {
-        return this.stale(command, 'not-due')
-      }
-      if (
-        !this.store.messages.expireObserved({
-          id: current.id,
-          createdAt: current.createdAt,
-          lifecycle: current.lifecycle,
-          expiresAt: current.expiresAt,
-        })
-      ) {
-        return this.stale(command, 'precondition')
-      }
-
-      const applied: MaintenanceCommandReply = {
-        status: 'applied',
-        jobKind: command.jobKind,
-        runKey: command.runKey,
-      }
-      const appliedAt = new Date(nowMs).toISOString()
-      this.appendExpiredEvent(current, appliedAt)
-      this.store.maintenance.recordCommand(applied, command.fencingToken, appliedAt)
-      return applied
     })
+  }
+
+  private applyMessageExpiry(
+    command: Extract<MaintenanceCommand, { jobKind: 'message-expiry' }>,
+    nowMs: number,
+  ): MaintenanceCommandReply {
+    if (messageExpiryRunKey(command.observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    const current = this.store.messages.getMessage(command.observed.messageId)
+    if (!current || !this.matchesObservation(current, command.observed)) {
+      return this.stale(command, 'precondition')
+    }
+    if (!this.expiryDue(current, nowMs)) {
+      return this.stale(command, 'not-due')
+    }
+    if (
+      !this.store.messages.expireObserved({
+        id: current.id,
+        createdAt: current.createdAt,
+        lifecycle: current.lifecycle,
+        expiresAt: current.expiresAt,
+      })
+    ) {
+      return this.stale(command, 'precondition')
+    }
+    const applied: MaintenanceCommandReply = {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    }
+    const appliedAt = new Date(nowMs).toISOString()
+    this.appendExpiredEvent(current, appliedAt)
+    this.store.maintenance.recordCommand(applied, command.fencingToken, appliedAt)
+    return applied
+  }
+
+  private applyEventLogPrune(
+    command: Extract<MaintenanceCommand, { jobKind: 'event-log-prune' }>,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (eventLogPruneRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (
+      observed.maxAgeDays !== EVENT_RETENTION_MAX_AGE_DAYS ||
+      observed.maxRows !== EVENT_RETENTION_MAX_ROWS ||
+      observed.batchSize !== EVENT_PRUNE_BATCH_ROWS
+    ) {
+      return this.stale(command, 'precondition')
+    }
+    const plan = this.store.events.planEventPrune({
+      maxAgeDays: observed.maxAgeDays,
+      maxRows: observed.maxRows,
+    })
+    // Accept plans that are at least as aggressive as observed (cutoff not later,
+    // capThroughId not lower) so concurrent writers cannot stale a valid batch.
+    if (plan.cutoff < observed.cutoff || plan.capThroughId < observed.capThroughId) {
+      return this.stale(command, 'precondition')
+    }
+    const deleted = this.store.events.pruneEventBatch(
+      { cutoff: observed.cutoff, capThroughId: observed.capThroughId },
+      observed.batchSize,
+    )
+    return this.recordPrune(command, deleted)
+  }
+
+  private applyChangeLogPrune(
+    command: Extract<MaintenanceCommand, { jobKind: 'change-log-prune' }>,
+    nowMs: number,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (changeLogPruneRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (
+      observed.keepRows !== CHANGE_KEEP_ROWS ||
+      observed.maxAgeMs !== CHANGE_MAX_AGE_MS ||
+      observed.batchSize !== CHANGE_PRUNE_BATCH_ROWS
+    ) {
+      return this.stale(command, 'precondition')
+    }
+    const plan = this.store.sync.planChangePrune({
+      keepRows: observed.keepRows,
+      maxAgeMs: observed.maxAgeMs,
+      now: nowMs,
+    })
+    if (plan.thresholdSeq < observed.thresholdSeq) {
+      return this.stale(command, 'precondition')
+    }
+    const deleted = this.store.sync.pruneChangeBatch(
+      { thresholdSeq: observed.thresholdSeq },
+      observed.batchSize,
+    )
+    return this.recordPrune(command, deleted)
+  }
+
+  private applyMaintenanceCommandsPrune(
+    command: Extract<MaintenanceCommand, { jobKind: 'maintenance-commands-prune' }>,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (maintenanceCommandsPruneRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (
+      observed.maxAgeMs !== MAINTENANCE_COMMAND_MAX_AGE_MS ||
+      observed.batchSize !== MAINTENANCE_COMMAND_PRUNE_BATCH_ROWS
+    ) {
+      return this.stale(command, 'precondition')
+    }
+    const deleted = this.store.maintenance.pruneCommandsBatch(
+      observed.cutoffAppliedAt,
+      observed.batchSize,
+    )
+    return this.recordPrune(command, deleted)
+  }
+
+  private applyIssueAutoArchive(
+    command: Extract<MaintenanceCommand, { jobKind: 'issue-auto-archive' }>,
+    nowMs: number,
+  ): MaintenanceCommandReply {
+    const observed = command.observed
+    if (issueAutoArchiveRunKey(observed) !== command.runKey) {
+      return this.stale(command, 'invalid-run-key')
+    }
+    if (!this.issues) {
+      return this.stale(command, 'precondition')
+    }
+    const result = this.issues.tryAutoArchiveObserved(observed, nowMs)
+    if (result === 'not-due') return this.stale(command, 'not-due')
+    if (result === 'precondition') return this.stale(command, 'precondition')
+    const applied: MaintenanceCommandReply = {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+    }
+    this.store.maintenance.recordCommand(applied, command.fencingToken, new Date(nowMs).toISOString())
+    return applied
+  }
+
+  private recordPrune(
+    command: MaintenanceCommand,
+    deleted: number,
+  ): MaintenanceCommandReply {
+    const applied: MaintenanceCommandReply = {
+      status: 'applied',
+      jobKind: command.jobKind,
+      runKey: command.runKey,
+      deleted,
+    }
+    this.store.maintenance.recordCommand(
+      applied,
+      command.fencingToken,
+      new Date(this.now()).toISOString(),
+    )
+    return applied
   }
 
   private stale(
@@ -161,8 +326,10 @@ export class MaintenanceService {
     })
   }
 
-  private matchesObservation(current: MessageRow, command: MaintenanceCommand): boolean {
-    const observed = command.observed
+  private matchesObservation(
+    current: MessageRow,
+    observed: Extract<MaintenanceCommand, { jobKind: 'message-expiry' }>['observed'],
+  ): boolean {
     return (
       current.status === observed.status &&
       current.createdAt === observed.createdAt &&

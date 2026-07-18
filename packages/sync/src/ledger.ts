@@ -284,9 +284,11 @@ export class Ledger {
         console.error('[ledger] onAppended listener threw', err)
       }
     }
+    // Cadence prune RETIRED [POD-925]: ongoing change-log retention is owned by
+    // the fenced janitor surface. Boot readiness prune (prepareLedgerBoot) stays.
+    // Keep the counter so tests that inspect append batching remain meaningful.
     if (++this.appendsSincePrune >= CHANGE_PRUNE_EVERY) {
       this.appendsSincePrune = 0
-      this.schedulePrune()
     }
     return changes
   }
