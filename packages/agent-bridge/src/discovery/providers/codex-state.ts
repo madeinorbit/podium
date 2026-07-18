@@ -4,7 +4,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { compactText, dateFromEpochMillis, isRecord } from '../jsonl.js'
 import type { AgentConversationDiagnostic, AgentConversationGitMetadata } from '../types.js'
 
-export type CodexThreadMetadata = {
+export type CodexThreadMetadata = Readonly<{
   id: string
   rolloutPath?: string
   title?: string
@@ -15,11 +15,11 @@ export type CodexThreadMetadata = {
   createdAt?: Date
   updatedAt?: Date
   git?: AgentConversationGitMetadata
-}
+}>
 
 export type CodexStateMetadataResult = {
-  byThreadId: Map<string, CodexThreadMetadata>
-  byRolloutPath: Map<string, CodexThreadMetadata>
+  byThreadId: ReadonlyMap<string, CodexThreadMetadata>
+  byRolloutPath: ReadonlyMap<string, CodexThreadMetadata>
   diagnostics: AgentConversationDiagnostic[]
 }
 
@@ -115,6 +115,8 @@ export function createCodexStateMetadataReader(
   let cachedStatePath: string | undefined
   let cachedMtimeMs: number | undefined
   let cachedResult: CodexStateMetadataResult | undefined
+  let inFlightKey: string | undefined
+  let inFlight: Promise<CodexStateMetadataResult> | undefined
 
   return async (root: string): Promise<CodexStateMetadataResult> => {
     let statePath: string | undefined
@@ -142,14 +144,70 @@ export function createCodexStateMetadataReader(
       return cachedResult
     }
 
-    const result = await read(root)
-    cachedRoot = root
-    cachedStatePath = statePath
-    cachedMtimeMs = mtimeMs
-    cachedResult = result
-    return result
+    const key = root + '\0' + statePath + '\0' + mtimeMs
+    if (inFlight && inFlightKey === key) return inFlight
+
+    const pending = read(root)
+      .then((result) => {
+        cachedRoot = root
+        cachedStatePath = statePath
+        cachedMtimeMs = mtimeMs
+        cachedResult = result
+        return result
+      })
+      .finally(() => {
+        if (inFlight === pending) {
+          inFlight = undefined
+          inFlightKey = undefined
+        }
+      })
+    inFlightKey = key
+    inFlight = pending
+    return pending
   }
 }
+
+export interface SharedCodexStateMetadataReader {
+  read(): Promise<CodexStateMetadataResult>
+  release(): void
+}
+
+export function createSharedCodexStateMetadataReaders(
+  read: (root: string) => Promise<CodexStateMetadataResult> = readCodexStateMetadata,
+): { acquire(root: string): SharedCodexStateMetadataReader; activeRoots(): number } {
+  const entries = new Map<
+    string,
+    { refs: number; read: (root: string) => Promise<CodexStateMetadataResult> }
+  >()
+  return {
+    acquire(root) {
+      let entry = entries.get(root)
+      if (!entry) {
+        entry = { refs: 0, read: createCodexStateMetadataReader(read) }
+        entries.set(root, entry)
+      }
+      entry.refs++
+      let released = false
+      return {
+        read: () => entry.read(root),
+        release: () => {
+          if (released) return
+          released = true
+          entry.refs--
+          if (entry.refs === 0 && entries.get(root) === entry) entries.delete(root)
+        },
+      }
+    },
+    activeRoots: () => entries.size,
+  }
+}
+
+/** Root-keyed, ref-counted readers for live Codex observers. Shared in-flight
+ * coalescing prevents the daemon shared tick from materializing the same multi-MB
+ * threads table once per observer. The last observer releases the cached reader.
+ * Shared metadata rows are readonly; all consumers treat result maps as read-only.
+ * [spec:SP-c29e] */
+export const sharedCodexStateMetadataReaders = createSharedCodexStateMetadataReaders()
 
 async function findLatestStateDatabase(root: string): Promise<string | undefined> {
   let entries: string[]
