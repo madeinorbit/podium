@@ -4,7 +4,7 @@ import {
   messageExpiryRunKey,
 } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore, type MessageRow } from '../../store'
+import { type MessageRow, SessionStore } from '../../store'
 import { MaintenanceService } from './service'
 
 const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
@@ -87,7 +87,11 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('expires through one atomic idempotent command and emits one durable transition', () => {
-    const message = baseMessage()
+    const message = baseMessage({
+      deliveredTo: 'sess_previous',
+      hop: 2,
+      clampedFrom: 'interrupt',
+    })
     store.messages.addMessage(message)
     const lease = handshake('gen_a')
     expect(lease.status).toBe('ready')
@@ -111,9 +115,15 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(service.apply(command)).toMatchObject({ status: 'applied' })
     expect(store.messages.getMessage(message.id)?.status).toBe('expired')
     expect(service.apply(command)).toMatchObject({ status: 'already-applied' })
-    expect(
-      store.events.listEventsSince(0).filter((event) => event.kind === 'message.expired'),
-    ).toHaveLength(1)
+    const events = store.events
+      .listEventsSince(0)
+      .filter((event) => event.kind === 'message.expired')
+    expect(events).toHaveLength(1)
+    expect(events[0]?.payload).toMatchObject({
+      deliveredTo: 'sess_previous',
+      hop: 2,
+      clampedFrom: 'interrupt',
+    })
     expect(funnelWrites).toBe(3)
   })
 

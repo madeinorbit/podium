@@ -18,6 +18,7 @@ export const DRIZZLE_MIGRATIONS: DrizzleMigration[] = [
   { name: "20260717215846_deterministic-session-status", sql: "ALTER TABLE `sessions` ADD `model` text;--> statement-breakpoint\nALTER TABLE `sessions` ADD `effort` text;--> statement-breakpoint\nALTER TABLE `sessions` ADD `account_id` text;" },
   { name: "20260717225739_coordinator-session-issue-provenance", sql: "ALTER TABLE `issues` ADD `coordinator_session_id` text;--> statement-breakpoint\nALTER TABLE `issues` ADD `started_by_session` text;" },
   { name: "20260718013423_janitor-maintenance-fencing", sql: "CREATE TABLE `maintenance_commands` (\n\t`job_kind` text NOT NULL,\n\t`run_key` text NOT NULL,\n\t`fencing_token` integer NOT NULL,\n\t`result_json` text NOT NULL,\n\t`applied_at` text NOT NULL,\n\tCONSTRAINT `maintenance_commands_pk` PRIMARY KEY(`job_kind`, `run_key`)\n);\n--> statement-breakpoint\nCREATE TABLE `maintenance_leases` (\n\t`name` text PRIMARY KEY,\n\t`generation_id` text NOT NULL,\n\t`fencing_token` integer NOT NULL,\n\t`expires_at` text NOT NULL,\n\t`protocol_version` integer NOT NULL,\n\t`schema_version` text NOT NULL,\n\t`updated_at` text NOT NULL\n);\n" },
+  { name: "20260718030038_janitor-expiry-indexes", sql: "CREATE INDEX `idx_messages_expiry_explicit` ON `messages` (`status`,`expires_at`,`id`);--> statement-breakpoint\nCREATE INDEX `idx_messages_expiry_implicit` ON `messages` (`status`,`lifecycle`,`expires_at`,`created_at`,`id`);" },
 ]
 
 /**

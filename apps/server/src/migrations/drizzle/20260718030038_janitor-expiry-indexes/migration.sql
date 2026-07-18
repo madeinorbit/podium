@@ -1,0 +1,2 @@
+CREATE INDEX `idx_messages_expiry_explicit` ON `messages` (`status`,`expires_at`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_messages_expiry_implicit` ON `messages` (`status`,`lifecycle`,`expires_at`,`created_at`,`id`);

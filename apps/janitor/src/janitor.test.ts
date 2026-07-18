@@ -8,9 +8,37 @@ import {
 } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
-import { JanitorService, MessageExpiryReader } from './janitor'
+import { createMaintenanceHttpClient, JanitorService, MessageExpiryReader } from './janitor'
 
 describe('JanitorService [spec:SP-c29e]', () => {
+  it('aborts a wedged maintenance request so a later tick can retry', async () => {
+    let signal: AbortSignal | undefined
+    let requests = 0
+    const client = createMaintenanceHttpClient(
+      'http://localhost:18787',
+      'secret',
+      ((_url: string, init?: RequestInit) => {
+        requests += 1
+        signal = init?.signal ?? undefined
+        return new Promise((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal?.reason), { once: true })
+        })
+      }) as typeof fetch,
+      5,
+    )
+    const service = new JanitorService({
+      generationId: 'gen_timeout',
+      handshake: client.handshake,
+      readExpiryCandidates: () => [],
+      apply: client.apply,
+    })
+
+    await expect(service.tick()).rejects.toBeDefined()
+    await expect(service.tick()).rejects.toBeDefined()
+    expect(signal?.aborted).toBe(true)
+    expect(requests).toBe(2)
+  })
+
   it('handshakes before reading durable candidates and sends the fenced deterministic command', async () => {
     const calls: string[] = []
     let command: MaintenanceCommand | undefined
@@ -122,7 +150,11 @@ describe('JanitorService [spec:SP-c29e]', () => {
         lifecycle TEXT NOT NULL,
         created_at TEXT NOT NULL,
         expires_at TEXT
-      )`)
+      );
+      CREATE INDEX idx_messages_expiry_explicit
+        ON messages(status, expires_at, id);
+      CREATE INDEX idx_messages_expiry_implicit
+        ON messages(status, lifecycle, expires_at, created_at, id);`)
       const insert = db.prepare(
         'INSERT INTO messages (id, status, lifecycle, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
       )
@@ -144,6 +176,7 @@ describe('JanitorService [spec:SP-c29e]', () => {
       )
 
       const reader = new MessageExpiryReader(db)
+      const prepare = vi.spyOn(db, 'prepare')
       const rows = await reader.read({
         now: '2026-07-18T00:00:00.000Z',
         waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
@@ -151,12 +184,51 @@ describe('JanitorService [spec:SP-c29e]', () => {
       })
       expect(rows.map((row) => row.messageId)).toEqual(['msg_wait', 'msg_explicit'])
 
+      for (let index = 0; index < 30; index += 1) {
+        const suffix = index.toString().padStart(2, '0')
+        insert.run(`msg_wait_${suffix}`, 'queued', 'wait', '2026-07-01T00:00:00.000Z', null)
+        insert.run(
+          `msg_explicit_${suffix}`,
+          'queued',
+          'wake',
+          '2026-07-17T00:00:00.000Z',
+          '2026-07-18T00:00:00.000Z',
+        )
+      }
+      const paged = await reader.read({
+        now: '2026-07-18T00:00:00.000Z',
+        waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
+        limit: 100,
+      })
+      expect(paged).toHaveLength(62)
+      expect(new Set(paged.map((row) => row.messageId)).size).toBe(62)
+
       const bounded = await reader.read({
         now: '2026-07-18T00:00:00.000Z',
         waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
         limit: 1,
       })
       expect(bounded).toHaveLength(1)
+      const queries = prepare.mock.calls.map(([sql]) => sql).join('\n')
+      expect(queries).toContain('INDEXED BY idx_messages_expiry_explicit')
+      expect(queries).toContain('INDEXED BY idx_messages_expiry_implicit')
+      const planDetails = (sql: string, ...params: Array<string | number>): string =>
+        (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>)
+          .map((row) => row.detail)
+          .join('\n')
+      const implicitSql = prepare.mock.calls
+        .map(([sql]) => sql)
+        .find((sql) => sql.includes('idx_messages_expiry_implicit'))
+      const explicitSql = prepare.mock.calls
+        .map(([sql]) => sql)
+        .find((sql) => sql.includes('idx_messages_expiry_explicit'))
+      if (!implicitSql || !explicitSql) throw new Error('expected both indexed expiry queries')
+      expect(planDetails(implicitSql, '2026-07-11T00:00:00.000Z', 25)).toContain(
+        'SEARCH messages USING COVERING INDEX idx_messages_expiry_implicit',
+      )
+      expect(planDetails(explicitSql, '2026-07-18T00:00:00.000Z', 25)).toContain(
+        'SEARCH messages USING INDEX idx_messages_expiry_explicit',
+      )
     } finally {
       db.close()
     }

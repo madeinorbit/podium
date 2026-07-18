@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
+  type MessageExpiryObservation as ExpiryObservation,
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
+  type MaintenanceCommand,
   MaintenanceCommandReply,
+  type MaintenanceHandshake,
   MaintenanceHandshakeReply,
   MessageExpiryObservation,
   messageExpiryRunKey,
-  type MaintenanceCommand,
-  type MaintenanceHandshake,
-  type MessageExpiryObservation as ExpiryObservation,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
@@ -19,6 +19,7 @@ const CANDIDATE_LIMIT = 100
 const CANDIDATE_PAGE_SIZE = 25
 const LEASE_RENEW_AHEAD_MS = 30_000
 const DEFAULT_TICK_MS = 30_000
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 
 type ReadyLease = Extract<MaintenanceHandshakeReply, { status: 'ready' }>
 
@@ -131,32 +132,28 @@ export class MessageExpiryReader {
 
   async read(input: ExpiryReadInput): Promise<ExpiryObservation[]> {
     const candidates: ExpiryObservation[] = []
-    let cursor: { createdAt: string; id: string } | undefined
+    let implicitCursor: { createdAt: string; id: string } | undefined
+    let explicitCursor: { expiresAt: string; id: string } | undefined
+    let implicitDone = false
+    let explicitDone = false
+    let nextSource: 'implicit' | 'explicit' = 'implicit'
     await runTimeBudgetedJob(() => {
       const remaining = input.limit - candidates.length
-      if (remaining <= 0) return 'done'
+      if (remaining <= 0 || (implicitDone && explicitDone)) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, remaining)
-      const params: Array<string | number> = [input.now, input.waitImplicitCutoff]
-      let after = ''
-      if (cursor) {
-        after = 'AND (created_at > ? OR (created_at = ? AND id > ?))'
-        params.push(cursor.createdAt, cursor.createdAt, cursor.id)
-      }
-      params.push(pageSize)
-      const rows = this.db
-        .prepare(
-          `SELECT id, status, lifecycle, created_at, expires_at
-           FROM messages
-           WHERE status = 'queued'
-             AND (
-               (expires_at IS NOT NULL AND expires_at <= ?)
-               OR (expires_at IS NULL AND lifecycle = 'wait' AND created_at <= ?)
-             )
-             ${after}
-           ORDER BY created_at ASC, id ASC
-           LIMIT ?`,
-        )
-        .all(...params) as Record<string, unknown>[]
+      const source =
+        nextSource === 'implicit' && !implicitDone
+          ? 'implicit'
+          : nextSource === 'explicit' && !explicitDone
+            ? 'explicit'
+            : implicitDone
+              ? 'explicit'
+              : 'implicit'
+      nextSource = source === 'implicit' ? 'explicit' : 'implicit'
+      const rows =
+        source === 'implicit'
+          ? this.readImplicitPage(input.waitImplicitCutoff, pageSize, implicitCursor)
+          : this.readExplicitPage(input.now, pageSize, explicitCursor)
       for (const row of rows) {
         candidates.push(
           MessageExpiryObservation.parse({
@@ -169,11 +166,62 @@ export class MessageExpiryReader {
         )
       }
       const last = rows.at(-1)
-      if (!last || rows.length < pageSize || candidates.length >= input.limit) return 'done'
-      cursor = { createdAt: last.created_at as string, id: last.id as string }
+      if (source === 'implicit') {
+        implicitDone = rows.length < pageSize
+        if (last) {
+          implicitCursor = { createdAt: last.created_at as string, id: last.id as string }
+        }
+      } else {
+        explicitDone = rows.length < pageSize
+        if (last) {
+          explicitCursor = { expiresAt: last.expires_at as string, id: last.id as string }
+        }
+      }
+      if (candidates.length >= input.limit || (implicitDone && explicitDone)) return 'done'
       return 'continue'
     })
     return candidates
+  }
+
+  private readImplicitPage(
+    cutoff: string,
+    limit: number,
+    cursor?: { createdAt: string; id: string },
+  ): Record<string, unknown>[] {
+    const params: Array<string | number> = [cutoff]
+    const after = cursor ? 'AND (created_at, id) > (?, ?)' : ''
+    if (cursor) params.push(cursor.createdAt, cursor.id)
+    params.push(limit)
+    return this.db
+      .prepare(
+        `SELECT id, status, lifecycle, created_at, expires_at
+         FROM messages INDEXED BY idx_messages_expiry_implicit
+         WHERE status = 'queued' AND lifecycle = 'wait' AND expires_at IS NULL
+           AND created_at <= ? ${after}
+         ORDER BY created_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(...params) as Record<string, unknown>[]
+  }
+
+  private readExplicitPage(
+    now: string,
+    limit: number,
+    cursor?: { expiresAt: string; id: string },
+  ): Record<string, unknown>[] {
+    const params: Array<string | number> = [now]
+    const after = cursor ? 'AND (expires_at, id) > (?, ?)' : ''
+    if (cursor) params.push(cursor.expiresAt, cursor.id)
+    params.push(limit)
+    return this.db
+      .prepare(
+        `SELECT id, status, lifecycle, created_at, expires_at
+         FROM messages INDEXED BY idx_messages_expiry_explicit
+         WHERE status = 'queued' AND expires_at IS NOT NULL AND expires_at <= ? ${after}
+         ORDER BY expires_at ASC, id ASC
+         LIMIT ?`,
+      )
+      .all(...params) as Record<string, unknown>[]
   }
 }
 
@@ -186,6 +234,7 @@ export function createMaintenanceHttpClient(
   serverUrl: string,
   token: string,
   fetchFn: typeof fetch = fetch,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 ): MaintenanceHttpClient {
   const base = serverUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/$/, '')
   const post = async (path: string, body: unknown): Promise<unknown> => {
@@ -196,6 +245,7 @@ export function createMaintenanceHttpClient(
         'content-type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(requestTimeoutMs),
     })
     const payload = await response.json()
     if (!response.ok) {

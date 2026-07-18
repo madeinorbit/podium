@@ -1,17 +1,17 @@
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
-  MESSAGE_WAIT_TTL_MS,
-  messageExpiryRunKey,
   type MaintenanceCommand,
   type MaintenanceCommandReply,
   type MaintenanceHandshake,
   type MaintenanceHandshakeReply,
   type MaintenanceStaleReason,
+  MESSAGE_WAIT_TTL_MS,
+  messageExpiryRunKey,
 } from '@podium/protocol'
 import type { SessionStore } from '../../store'
-import type { WriteFunnel } from '../funnel'
 import type { MessageRow } from '../../store/types'
+import type { WriteFunnel } from '../funnel'
 
 const LEASE_NAME = 'janitor'
 const DEFAULT_LEASE_TTL_MS = 90_000
@@ -197,6 +197,9 @@ export class MaintenanceService {
         urgency: message.urgency,
         lifecycle: message.lifecycle,
         status: 'expired',
+        ...(message.hop ? { hop: message.hop } : {}),
+        ...(message.clampedFrom ? { clampedFrom: message.clampedFrom } : {}),
+        ...(message.deliveredTo ? { deliveredTo: message.deliveredTo } : {}),
       },
     })
   }

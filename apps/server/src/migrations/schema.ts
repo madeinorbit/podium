@@ -531,6 +531,8 @@ index("idx_messages_thread").on(table.threadId),
 index("idx_messages_recipient").on(table.toKind, table.toId, table.status),
 index("idx_messages_recipient_order").on(table.toKind, table.toId, table.status, table.createdAt, table.id),
 index("idx_messages_queue_order").on(table.status, table.createdAt, table.id),
+index("idx_messages_expiry_explicit").on(table.status, table.expiresAt, table.id),
+index("idx_messages_expiry_implicit").on(table.status, table.lifecycle, table.expiresAt, table.createdAt, table.id),
 check("messages_check_5", sql`from_kind IN ('operator','superagent','agent','system')`),
 check("messages_check_6", sql`to_kind IN ('issue','session','operator')`),
 check("messages_check_7", sql`kind IN ('message','ack','notification','question')`),
@@ -752,4 +754,3 @@ export const automationRuns = sqliteTable("automation_runs", {
 (table) => [index("idx_automation_runs_automation").on(table.automationId, table.firedAt),
 check("automation_runs_check_20", sql`outcome IN ('spawned','missed','skipped_overlap','error')`),
 ]);
-
