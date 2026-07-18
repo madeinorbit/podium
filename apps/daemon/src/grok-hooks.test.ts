@@ -136,6 +136,10 @@ describe('ensurePodiumGrokHooks', () => {
 })
 
 describe('Podium Grok hook command', () => {
+  it('contains no variables for Grok to pre-expand as required environment', () => {
+    expect(PODIUM_GROK_HOOK_COMMAND).not.toMatch(/\$[A-Za-z_{]/)
+  })
+
   it('exits successfully and performs no callback when PODIUM_GROK_HOOK_URL is absent', async () => {
     const dir = trackTmp('podium-grok-hook-cmd-')
     const marker = join(dir, 'curl-called')
