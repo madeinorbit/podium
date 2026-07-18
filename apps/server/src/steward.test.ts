@@ -1028,18 +1028,18 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'working' } })).toBeUndefined()
   })
 
-  it('maps session.exited to a sessionparentnudge:exited key', () => {
+  it('routes legacy and causal nonterminal exits but suppresses terminal-fenced duplicates', () => {
     const e = { id: 1, ts: 't', kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
     expect(TRIGGER_RULES['session.exited']!(e)).toBe('sessionparentnudge:exited:s9')
-    expect(
-      TRIGGER_RULES['session.exited']!({
-        ...e,
-        payload: { causalCheckpoint: true },
-      }),
-    ).toBeUndefined()
-    expect(
-      subscriptionEventKinds({ ...e, payload: { causalCheckpoint: true } }),
-    ).toEqual([])
+    const nonterminal = { ...e, payload: { terminalFenceReported: false } }
+    expect(TRIGGER_RULES['session.exited']!(nonterminal)).toBe(
+      'sessionparentnudge:exited:s9',
+    )
+    expect(subscriptionEventKinds(nonterminal)).toEqual(['session.exited'])
+
+    const terminal = { ...e, payload: { terminalFenceReported: true } }
+    expect(TRIGGER_RULES['session.exited']!(terminal)).toBeUndefined()
+    expect(subscriptionEventKinds(terminal)).toEqual([])
   })
 
   it('invokes the messaging seam once per settled session with the outcome', async () => {

@@ -3499,7 +3499,8 @@ export class SessionsService {
    * not undo the exit side-effects already applied.
    */
   private emitSessionExited(sessionId: string, code: number, spawnedBy?: string | null): void {
-    const causalCheckpoint = this.store.observationCheckpoints.get(sessionId) !== undefined
+    const terminalFenceReported =
+      this.store.observationCheckpoints.get(sessionId)?.checkpoint?.terminalFence != null
     this.bus.emit('session.exited', { sessionId, code })
     try {
       this.store.events.appendEvent({
@@ -3508,7 +3509,7 @@ export class SessionsService {
         subject: sessionId,
         payload: {
           code,
-          ...(causalCheckpoint ? { causalCheckpoint: true } : {}),
+          ...(terminalFenceReported ? { terminalFenceReported: true } : {}),
           ...(spawnedBy ? { spawnedBy } : {}),
         },
       })
