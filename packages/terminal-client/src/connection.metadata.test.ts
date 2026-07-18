@@ -270,6 +270,23 @@ describe('SocketHub metadata delta mode', () => {
     expect(hub.issues().map((i) => i.title)).toEqual(['next'])
   })
 
+  it('accepts filtered source ranges and advances across hidden-only rows', async () => {
+    const { sock, hub, calls } = setup([snapshot(5)])
+    hub.connect()
+    sock.open()
+    await flush()
+
+    sock.recv({ type: 'metadataDelta', fromExclusive: 5, seq: 8, changes: [] })
+    sock.recv({
+      type: 'metadataDelta',
+      fromExclusive: 8,
+      seq: 10,
+      changes: [{ seq: 10, entity: 'issue', id: 'visible', op: 'remove' }],
+    })
+
+    expect(calls).toEqual([null])
+  })
+
   it('queues deltas that race the bootstrap and drains them after', async () => {
     let resolveBoot: ((r: SyncChangesSinceResult) => void) | undefined
     const sock = new FakeSocket()

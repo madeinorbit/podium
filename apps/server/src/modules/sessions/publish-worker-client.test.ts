@@ -139,14 +139,14 @@ describe('PublishWorkerClient', () => {
     })
     void client.request({ view: view('target'), sinceCursor: null })
 
-    const patch = worker.sent.find(
-      (command): command is Extract<PublishWorkerCommand, { type: 'patch' }> =>
-        command.type === 'patch',
+    const reset = worker.sent.findLast(
+      (command): command is Extract<PublishWorkerCommand, { type: 'reset' }> =>
+        command.type === 'reset',
     )
-    expect(patch?.event).toMatchObject({
+    expect(reset?.state).toMatchObject({
       generation: 3,
       ledgerCursor: 4,
-      changes: [{ seq: 3 }, { seq: 4 }],
+      sessions: [],
     })
     client.stop()
   })
@@ -204,19 +204,24 @@ describe('PublishWorkerClient', () => {
     client.stop()
   })
 
-  it('discards an in-flight result after that ViewKey changes and builds the replacement', async () => {
-    const worker = fakeWorker()
-    const client = new PublishWorkerClient({ spawn: () => worker })
+  it('aborts an in-flight same-ViewKey build and ignores its late worker result', async () => {
+    const workers = [fakeWorker(), fakeWorker()]
+    let spawnIndex = 0
+    const client = new PublishWorkerClient({
+      spawn: () => spawnedWorker(workers, spawnIndex++),
+    })
     client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
 
+    const staleWorker = spawnedWorker(workers, 0)
     const stale = client.request({ view: view('target', 1), sinceCursor: null })
-    const staleCommand = prepareCommand(worker, 0)
+    const staleCommand = prepareCommand(staleWorker, 0)
     const current = client.request({ view: view('target', 2), sinceCursor: null })
     await expect(stale).rejects.toBeInstanceOf(PublicationSupersededError)
 
-    reply(worker, staleCommand)
-    expect(prepareCommands(worker)[1]?.input.view.revision).toBe(2)
-    reply(worker, prepareCommand(worker, 1))
+    const replacement = spawnedWorker(workers, 1)
+    expect(prepareCommand(replacement, 0).input.view.revision).toBe(2)
+    reply(staleWorker, staleCommand)
+    reply(replacement, prepareCommand(replacement, 0))
     await expect(current).resolves.toMatchObject({ viewRevision: 2 })
     client.stop()
   })
@@ -234,21 +239,18 @@ describe('PublishWorkerClient', () => {
 
     const crashed = client.request({ view: view('target'), sinceCursor: null })
     spawnedWorker(workers, 0).emit('exit', 1)
-    await expect(crashed).rejects.toThrow(/exited 1/)
-
-    const recovered = client.request({ view: view('target'), sinceCursor: null })
     expect(spawnedWorker(workers, 1).sent[0]).toMatchObject({
       type: 'reset',
       state: { generation: 1, ledgerCursor: 1, sessions: [{ sessionId: 's1' }] },
     })
     const recoveredWorker = spawnedWorker(workers, 1)
     reply(recoveredWorker, prepareCommand(recoveredWorker, 0))
-    await recovered
+    await crashed
     expect(client.metrics().failures).toBe(1)
     client.stop()
   })
 
-  it('times out a stuck job, rejects it, and respawns for later work', async () => {
+  it('times out a stuck job and completes that same job after automatic recovery', async () => {
     vi.useFakeTimers()
     try {
       const workers = [fakeWorker(), fakeWorker()]
@@ -260,13 +262,36 @@ describe('PublishWorkerClient', () => {
       client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
       const stuck = client.request({ view: view('stuck'), sinceCursor: null })
       await vi.advanceTimersByTimeAsync(25)
-      await expect(stuck).rejects.toThrow(/timed out/)
-
-      const next = client.request({ view: view('next'), sinceCursor: null })
       expect(spawnIndex).toBe(2)
       const respawned = spawnedWorker(workers, 1)
       reply(respawned, prepareCommand(respawned, 0))
-      await next
+      await stuck
+      client.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('keeps a crash-loop retry armed while focus priority changes', async () => {
+    vi.useFakeTimers()
+    try {
+      const workers = [fakeWorker(), fakeWorker(), fakeWorker()]
+      let spawnIndex = 0
+      const client = new PublishWorkerClient({
+        spawn: () => spawnedWorker(workers, spawnIndex++),
+      })
+      client.replaceProjection({ generation: 1, ledgerCursor: 1, sessions: [session('s1')] })
+      const pending = client.request({ view: view('target'), sinceCursor: null })
+
+      spawnedWorker(workers, 0).emit('exit', 1)
+      spawnedWorker(workers, 1).emit('exit', 1)
+      expect(spawnIndex).toBe(2)
+      client.prioritize(new Set([view('target').key]))
+      await vi.advanceTimersByTimeAsync(3_000)
+
+      expect(spawnIndex).toBe(3)
+      const recovered = spawnedWorker(workers, 2)
+      reply(recovered, prepareCommand(recovered, 0))
+      await pending
       client.stop()
     } finally {
       vi.useRealTimers()

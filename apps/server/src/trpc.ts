@@ -4,6 +4,7 @@ import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { Capability } from './issue-authz'
 import type { IssueCaller } from './modules/issues/registry'
 import { perf } from './modules/perf/registry'
+import type { PublicationAuthority } from './modules/sessions/session'
 import type { SuperagentService } from './modules/superagent'
 import type { RegistryModules, SessionRegistry } from './relay'
 import type { MachineRepoDiscovery } from './repo-discovery'
@@ -26,6 +27,8 @@ export interface Context {
   discovery?: MachineRepoDiscovery
   superagent: SuperagentService
   cloud?: CloudRuntimeProvider
+  /** Request-scoped world used by websocket publication and sync catch-up. */
+  publicationAuthority?: PublicationAuthority
   /** What this caller may do with issues (authz, distinct from the login authn on /trpc).
    *  Every HTTP caller is the OPERATOR today; the in-process MCP passes its own. */
   capability: Capability

@@ -1093,6 +1093,18 @@ export class SocketHub {
   private applyDelta(msg: MetadataDeltaMessageLenient): boolean {
     const cursor = this.metadataCursor as number
     if (msg.seq <= cursor) return true // entirely stale — already healed past it
+    if (msg.fromExclusive !== undefined) {
+      if (msg.fromExclusive > cursor) return false
+      const fresh = msg.changes.filter((change) => change.seq > cursor)
+      let previous = cursor
+      for (const change of fresh) {
+        if (change.seq <= previous || change.seq > msg.seq) return false
+        previous = change.seq
+      }
+      if (fresh.length > 0) this.applyChanges(fresh)
+      this.metadataCursor = msg.seq
+      return true
+    }
     const fresh = msg.changes.filter((c) => c.seq > cursor)
     if (fresh.length === 0) return true
     if ((fresh[0] as MetadataChangeLenient).seq !== cursor + 1) return false

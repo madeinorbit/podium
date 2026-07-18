@@ -30,6 +30,13 @@ const sessionValue = (sessionId: string) =>
 
 const delta = (changes: unknown[], cursor: number) => ({ kind: 'delta', changes, cursor })
 
+const filteredDelta = (changes: unknown[], fromExclusive: number, cursor: number) => ({
+  kind: 'delta',
+  changes,
+  fromExclusive,
+  cursor,
+})
+
 const sessionUpsert = (seq: number, id: string, value: unknown = sessionValue(id)) => ({
   seq,
   entity: 'session',
@@ -81,6 +88,23 @@ describe('parseChangesSinceResult semantic validation', () => {
     // persisted cursor to 42 permanently — seqs 5..42 skipped forever.
     expect(parseChangesSinceResult(delta([], 42), { fromCursor: 4 })).toBeNull()
     expect(parseChangesSinceResult(delta([], 3), { fromCursor: 4 })).toBeNull()
+  })
+
+  it('accepts an explicitly filtered source range with hidden gaps or no visible rows', () => {
+    expect(
+      parseChangesSinceResult(filteredDelta([sessionUpsert(8, 'visible')], 4, 9), {
+        fromCursor: 4,
+      })?.kind,
+    ).toBe('delta')
+    expect(parseChangesSinceResult(filteredDelta([], 4, 9), { fromCursor: 4 })?.kind).toBe('delta')
+  })
+
+  it('rejects a filtered range that does not begin at the requested cursor', () => {
+    expect(
+      parseChangesSinceResult(filteredDelta([sessionUpsert(8, 'visible')], 6, 9), {
+        fromCursor: 4,
+      }),
+    ).toBeNull()
   })
 
   it('accepts an empty delta when fromCursor is OMITTED (no basis to check)', () => {

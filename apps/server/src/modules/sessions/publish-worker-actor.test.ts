@@ -113,9 +113,36 @@ describe('SessionPublicationActor', () => {
       seq: 4,
       changes: [{ seq: 3, id: 'a' }],
     })
-    expect(decoded(hidden)).toEqual({ type: 'metadataDelta', seq: 4, changes: [] })
+    expect(decoded(hidden)).toEqual({
+      type: 'metadataDelta',
+      fromExclusive: 2,
+      seq: 4,
+      changes: [],
+    })
     expect(hidden.bytes).not.toContain('"id":"a"')
     expect(hidden.bytes).not.toContain('renamed')
+  })
+
+  it('accepts a cursor-only source advance without inventing a dirty generation', () => {
+    const actor = new SessionPublicationActor()
+    const alice = view('alice', ['a'])
+    actor.applyPatch({
+      generation: 1,
+      ledgerCursor: 1,
+      changes: [upsert(1, session('a'))],
+    })
+    actor.prepare({ view: alice, sinceCursor: null })
+
+    actor.applyPatch({ generation: 1, ledgerCursor: 3, changes: [] })
+    const publication = actor.prepare({ view: alice, sinceCursor: 1 })
+
+    expect(decoded(publication)).toEqual({
+      type: 'metadataDelta',
+      fromExclusive: 1,
+      seq: 3,
+      changes: [],
+    })
+    expect(publication.generation).toBe(1)
   })
 
   it('falls back to a scoped snapshot on revocation or a compacted reconnect cursor', () => {

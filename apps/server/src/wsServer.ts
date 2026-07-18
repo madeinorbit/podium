@@ -11,7 +11,7 @@ import {
   WIRE_VERSION,
 } from '@podium/protocol'
 import { WebSocketServer } from 'ws'
-import type { Send } from './modules/sessions/session'
+import type { PublicationAuthority, Send } from './modules/sessions/session'
 import type { SessionRegistry } from './relay'
 
 export interface WsHandle {
@@ -26,6 +26,8 @@ export interface WsAuthOptions {
    * link is unaffected — it has its own pre-auth handshake.
    */
   authorizeClient?: (req: IncomingMessage) => boolean
+  /** Resolve a revocable, request-specific publication world on the real socket path. */
+  resolvePublicationAuthority?: (req: IncomingMessage) => PublicationAuthority
   /** ViewKey identity supplied by the main authority (defaults to local operator). */
   principal?: string
   scope?: string
@@ -335,17 +337,30 @@ export function attachWebSockets(
     const url = new URL(req.url ?? '/', 'http://localhost')
     const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
     const protocolVersion = rawVersion === null ? WIRE_VERSION : Number(rawVersion)
-    const id = registry.modules.sessions.attachClient(
-      (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES),
-      {
-        sendPrepared: (bytes) => safeSendEncoded(ws, bytes, SEND_BUFFER_LIMIT_BYTES),
+    let authority: PublicationAuthority
+    try {
+      authority = auth.resolvePublicationAuthority?.(req) ?? {
         principal: auth.principal ?? 'operator',
         scope: auth.scope ?? 'all',
         serverRole: auth.serverRole ?? 'standalone',
         protocolVersion,
-        revision: () => 0,
-        allowedSessionIds: () =>
-          registry.modules.sessions.listSessions().map((session) => session.sessionId),
+        global: true,
+        snapshot: () => ({
+          revision: 0,
+          allowedSignature: 'global',
+          allowedSessionIds: [],
+        }),
+      }
+    } catch (error) {
+      console.warn('[podium] rejected client with invalid publication authority', error)
+      ws.terminate()
+      return
+    }
+    const id = registry.modules.sessions.attachClient(
+      (msg) => safeSend(ws, msg, SEND_BUFFER_LIMIT_BYTES),
+      {
+        ...authority,
+        sendPrepared: (bytes) => safeSendEncoded(ws, bytes, SEND_BUFFER_LIMIT_BYTES),
       },
     )
     aliveClients.add(ws)

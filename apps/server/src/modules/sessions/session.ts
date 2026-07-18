@@ -3,6 +3,7 @@ import type {
   AgentRuntimeState,
   ControlMessage,
   Geometry,
+  MetadataChange,
   ResumeRef,
   ServerMessage,
   SessionMeta,
@@ -18,23 +19,45 @@ import { perf } from '../perf/registry'
 
 export type Send<T> = (msg: T) => void
 
+export interface PublicationAuthoritySnapshot {
+  revision: number
+  /** Stable, authority-owned identity for this exact allowed-id set. */
+  allowedSignature: string
+  /** Immutable for the lifetime of this snapshot. */
+  allowedSessionIds: readonly string[]
+}
+
 /** Main-authority result used to construct and filter a publication ViewKey. */
-export interface ClientPublicationAuthority {
-  sendPrepared: Send<string>
+export interface PublicationAuthority {
   principal: string
   scope: string
   serverRole: string
   protocolVersion: number
-  revision(): number
-  allowedSessionIds(): readonly string[]
+  /** Only a proven global authority may receive unfiltered non-session feeds. */
+  global: boolean
+  snapshot(): PublicationAuthoritySnapshot
+}
+
+export interface ClientPublicationAuthority extends PublicationAuthority {
+  sendPrepared: Send<string>
 }
 
 export interface ClientConn {
   id: string
   send: Send<ServerMessage>
   publication?: ClientPublicationAuthority
-  /** Raw worker bootstrap has reached this socket (delta-cap clients need it once). */
+  /** A current worker publication has reached this socket. */
   publicationBootstrapped?: boolean
+  publicationPending?: boolean
+  publicationRequestVersion?: number
+  publicationAccepted?: {
+    viewKey: string
+    viewRevision: number
+    allowedSignature: string
+    cursor: number
+  }
+  /** Global-only funnel frames held behind an in-flight bootstrap/replacement. */
+  publicationBufferedChanges?: MetadataChange[][]
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one

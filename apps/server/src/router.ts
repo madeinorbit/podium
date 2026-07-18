@@ -654,7 +654,9 @@ export const appRouter = t.router({
     // falls back to snapshot. The client heals every WS (re)connect through this.
     changesSince: t.procedure
       .input(z.object({ cursor: z.number().int().nonnegative().nullable() }))
-      .query(({ ctx, input }) => mods(ctx).sessions.syncChangesSince(input.cursor)),
+      .query(({ ctx, input }) =>
+        mods(ctx).sessions.syncChangesSince(input.cursor, ctx.publicationAuthority),
+      ),
   }),
   pins: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listPins()),

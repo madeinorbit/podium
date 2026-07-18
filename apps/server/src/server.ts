@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Server } from 'node:http'
+import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,17 +25,17 @@ import { registerAssetRoute } from './file-asset-route'
 import { PairingManager } from './hub/pairing'
 import { OPERATOR } from './issue-authz'
 import { IssueToolProvider } from './issue-mcp'
-import { readOrCreateDaemonSecret, stateDir } from './local-machine'
+import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { perf } from './modules/perf/registry'
+import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
-import { LOCAL_MACHINE_ID } from './local-machine'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -123,6 +123,12 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
+    /** Request-scoped publication worlds. Both transports must resolve through
+     *  the same authority source so catch-up and live publication cannot drift. */
+    resolvePublicationAuthority?: {
+      http(request: Request): PublicationAuthority
+      websocket(request: IncomingMessage): PublicationAuthority
+    }
   } = {},
 ): Promise<ServerHandle> {
   const instanceId = resolveInstanceId()
@@ -345,21 +351,25 @@ export async function startServer(
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
-      createContext: () => ({
-        registry,
-        repos,
-        discovery: repoDiscovery,
-        superagent,
-        cloud,
-        capability: OPERATOR,
-        modules: registry.modules,
-        // Only so telemetry.preview can show the REAL report [spec:SP-f933];
-        // consent lives in config.json and is never read through the context.
-        telemetry,
-        // Hub-only procs (machines fleet admin + pairing) 404 when the hub
-        // role is off — see the hubProc guard in router.ts.
-        role,
-      }),
+      createContext: (_request, hono) => {
+        const publicationAuthority = opts.resolvePublicationAuthority?.http(hono.req.raw)
+        return {
+          registry,
+          repos,
+          discovery: repoDiscovery,
+          superagent,
+          cloud,
+          capability: OPERATOR,
+          modules: registry.modules,
+          ...(publicationAuthority ? { publicationAuthority } : {}),
+          // Only so telemetry.preview can show the REAL report [spec:SP-f933];
+          // consent lives in config.json and is never read through the context.
+          telemetry,
+          // Hub-only procs (machines fleet admin + pairing) 404 when the hub
+          // role is off — see the hubProc guard in router.ts.
+          role,
+        }
+      },
     }),
   )
 
@@ -465,6 +475,9 @@ export async function startServer(
           // session cookie on the upgrade request.
           authorizeClient: (req) =>
             !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
+          ...(opts.resolvePublicationAuthority
+            ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
+            : {}),
         })
         // Server-side stall reporter (POD-600): a lightweight analog of the
         // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,

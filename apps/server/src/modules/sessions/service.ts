@@ -66,6 +66,7 @@ import {
 import {
   type ClientConn,
   type ClientPublicationAuthority,
+  type PublicationAuthority,
   type Send,
   Session,
   type SessionDurableState,
@@ -260,6 +261,10 @@ export class SessionsService {
   private readonly autoContinue: AutoContinueController
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
   private readonly funnel: WriteFunnel
+  private globalPublicationIdsCache?: {
+    generation: number
+    ids: readonly string[]
+  }
   private readonly publicationWorker = new PublishWorkerClient()
 
   /**
@@ -2768,6 +2773,9 @@ export class SessionsService {
       send,
       ...(publication ? { publication } : {}),
       publicationBootstrapped: false,
+      publicationPending: false,
+      publicationRequestVersion: 0,
+      publicationBufferedChanges: [],
       viewports: new Map(),
       attached: new Set(),
       // No caps until hello — the bootstrap snapshots below are sent to everyone
@@ -2791,23 +2799,28 @@ export class SessionsService {
     send({ type: 'welcome', clientId: id })
     if (publication) this.schedulePreparedSessionPublications()
     else send({ type: 'sessionsChanged', sessions: this.listSessions() })
-    send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
-    send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
-    send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
-    for (const [sessionId, text] of this.draftBySession) {
-      send({ type: 'sessionDraftChanged', sessionId, text })
+    // Until an authority supplies per-kind worlds, a scoped socket is explicitly
+    // session-only. Sending the global issue/conversation feeds would re-embed
+    // hidden SessionMeta values and defeat the worker boundary.
+    if (!publication || publication.global) {
+      send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
+      send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
+      send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
+      for (const [sessionId, text] of this.draftBySession) {
+        send({ type: 'sessionDraftChanged', sessionId, text })
+      }
+      send({
+        type: 'conversationsChanged',
+        conversations: this.conversations().allConversations(),
+        diagnostics: this.conversations().diagnostics(),
+      })
+      send({ type: 'machinesChanged', machines: this.machines.listMachines() })
+      send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
+      this.hosts.snapshotFor(send)
+      // A request captured while no browser was connected remains an explicit
+      // needs-attention affordance for the next client. [spec:SP-a43e]
+      for (const request of this.pendingOpenUrls.values()) send(request)
     }
-    send({
-      type: 'conversationsChanged',
-      conversations: this.conversations().allConversations(),
-      diagnostics: this.conversations().diagnostics(),
-    })
-    send({ type: 'machinesChanged', machines: this.machines.listMachines() })
-    send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
-    this.hosts.snapshotFor(send)
-    // A request captured while no browser was connected remains an explicit
-    // needs-attention affordance for the next client. [spec:SP-a43e]
-    for (const request of this.pendingOpenUrls.values()) send(request)
     return id
   }
 
@@ -3686,7 +3699,10 @@ export class SessionsService {
       if (hasMainEncodedReceivers) {
         this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
       }
-      this.schedulePreparedSessionPublications()
+      // Delta-capable publications schedule at the funnel's ordered flush, after
+      // every same-tick entity append fixed the source cursor. Starting one here
+      // would be superseded by that flush and discard the actor's prior view.
+      this.schedulePreparedSessionPublications({ includeDeltaCapable: false })
       // Snapshot receivers = the non-delta-cap clients (see fanOutSnapshot).
       let receivers = 0
       for (const c of this.clients.values()) {
@@ -3743,7 +3759,7 @@ export class SessionsService {
    */
   fanOutSnapshot(snapshot: ServerMessage, opts: { snapshotToCapClients?: boolean } = {}): void {
     for (const c of this.clients.values()) {
-      if (snapshot.type === 'sessionsChanged' && c.publication) continue
+      if (c.publication && (snapshot.type === 'sessionsChanged' || !c.publication.global)) continue
       if (c.caps.has(CAP_METADATA_DELTA)) {
         if (opts.snapshotToCapClients) c.send(snapshot)
       } else {
@@ -3752,94 +3768,186 @@ export class SessionsService {
     }
   }
 
-  private publicationView(client: ClientConn): PublicationView | undefined {
+  private globalPublicationIds(): readonly string[] {
+    const cached = this.globalPublicationIdsCache
+    if (cached?.generation === this.sessionsGeneration_) return cached.ids
+    const ids = [...new Set([...this.sessions.keys(), ...this.upstreamSessions.keys()])].sort()
+    this.globalPublicationIdsCache = { generation: this.sessionsGeneration_, ids }
+    return ids
+  }
+
+  private publicationView(
+    client: ClientConn,
+  ): { view: PublicationView; allowedSignature: string; global: boolean } | undefined {
     const authority = client.publication
     if (!authority) return undefined
+    let snapshot: ReturnType<PublicationAuthority['snapshot']>
+    try {
+      snapshot = authority.snapshot()
+    } catch (error) {
+      console.error('[sessions] publication authority snapshot failed', error)
+      return undefined
+    }
+    const allowedSessionIds = authority.global
+      ? this.globalPublicationIds()
+      : snapshot.allowedSessionIds
     return {
-      key: createViewKey({
-        principal: authority.principal,
-        scope: authority.scope,
-        serverRole: authority.serverRole,
-        protocolVersion: authority.protocolVersion,
-        capabilities: [...client.caps],
-      }),
-      revision: authority.revision(),
-      // The worker filters only an already-authorized id set. It never receives
-      // a capability object or enough issue data to make this decision itself.
-      allowedSessionIds: [...authority.allowedSessionIds()],
+      view: {
+        key: createViewKey({
+          principal: authority.principal,
+          scope: authority.scope,
+          serverRole: authority.serverRole,
+          protocolVersion: authority.protocolVersion,
+          capabilities: [...client.caps],
+        }),
+        revision: snapshot.revision,
+        // The worker filters only an already-authorized immutable id set.
+        allowedSessionIds,
+      },
+      allowedSignature: authority.global ? 'global' : snapshot.allowedSignature,
+      global: authority.global,
     }
   }
 
-  private schedulePreparedSessionPublications(): void {
+  private publicationMatches(
+    client: ClientConn,
+    descriptor: { view: PublicationView; allowedSignature: string },
+  ): boolean {
+    const accepted = client.publicationAccepted
+    return (
+      accepted !== undefined &&
+      accepted.viewKey === descriptor.view.key &&
+      accepted.viewRevision === descriptor.view.revision &&
+      accepted.allowedSignature === descriptor.allowedSignature
+    )
+  }
+
+  private schedulePreparedSessionPublications(
+    options: { includeDeltaCapable?: boolean } = {},
+  ): void {
+    const includeDeltaCapable = options.includeDeltaCapable ?? true
     type Group = {
       view: PublicationView
       clients: ClientConn[]
       focused: boolean
       allowedSignature: string
+      global: boolean
+      sinceCursor: number | null
+      conflicted: boolean
     }
     const groups = new Map<ViewKey, Group>()
+    const sourceCursor = this.publicationWorker.sourceCursor()
     for (const client of this.clients.values()) {
       if (!client.publication) continue
-      if (client.publicationBootstrapped && client.caps.has(CAP_METADATA_DELTA)) continue
-      const view = this.publicationView(client)
-      if (!view) continue
-      const allowedSignature = JSON.stringify([...new Set(view.allowedSessionIds)].sort())
-      const group = groups.get(view.key)
+      const descriptor = this.publicationView(client)
+      if (!descriptor) continue
+      const deltaCapable = client.caps.has(CAP_METADATA_DELTA)
+      if (deltaCapable && !includeDeltaCapable) continue
+      const matches = this.publicationMatches(client, descriptor)
+      // Proven-global delta clients ride the raw funnel after their sequenced
+      // bootstrap. Scoped clients always return through the filtering actor.
+      if (descriptor.global && deltaCapable && matches) continue
+      const sinceCursor =
+        deltaCapable && matches ? (client.publicationAccepted?.cursor ?? null) : null
+      if (sinceCursor !== null && sinceCursor >= sourceCursor) continue
+      const group = groups.get(descriptor.view.key)
       if (group) {
-        // Equal ViewKeys must be equal worlds. Fail closed if an authority violates
-        // that invariant instead of sharing one client's bytes with another.
-        if (group.view.revision !== view.revision || group.allowedSignature !== allowedSignature) {
-          console.error('[sessions] conflicting authorization result for equal publication ViewKey')
-          continue
+        if (
+          group.view.revision !== descriptor.view.revision ||
+          group.allowedSignature !== descriptor.allowedSignature ||
+          group.global !== descriptor.global
+        ) {
+          group.conflicted = true
         }
         group.clients.push(client)
         group.focused ||= client.focused !== null
+        group.sinceCursor =
+          group.sinceCursor === null || sinceCursor === null
+            ? null
+            : Math.min(group.sinceCursor, sinceCursor)
       } else {
-        groups.set(view.key, {
-          view,
+        groups.set(descriptor.view.key, {
+          view: descriptor.view,
           clients: [client],
           focused: client.focused !== null,
-          allowedSignature,
+          allowedSignature: descriptor.allowedSignature,
+          global: descriptor.global,
+          sinceCursor,
+          conflicted: false,
         })
       }
     }
 
-    // Submit focused worlds first so an idle worker never starts background work
-    // merely because that client happened to connect first.
     const ordered = [...groups.values()].sort(
       (left, right) => Number(right.focused) - Number(left.focused),
     )
     for (const group of ordered) {
-      const recipientIds = group.clients.map((client) => client.id)
+      if (group.conflicted) {
+        console.error('[sessions] conflicting authorization result for equal publication ViewKey')
+        continue
+      }
+      const recipients = group.clients.map((client) => {
+        const version = (client.publicationRequestVersion ?? 0) + 1
+        client.publicationRequestVersion = version
+        client.publicationPending = true
+        return { id: client.id, version }
+      })
       void this.publicationWorker
-        .request({ view: group.view, sinceCursor: null }, { focused: group.focused })
+        .request({ view: group.view, sinceCursor: group.sinceCursor }, { focused: group.focused })
         .then((publication) => {
           perf.record(
             'phase',
             'sessionsBroadcast.workerBytes',
             0,
-            publication.bytes.length * recipientIds.length,
+            publication.bytes.length * recipients.length,
           )
-          for (const id of recipientIds) {
-            const client = this.clients.get(id)
-            if (!client?.publication) continue
-            if (client.publicationBootstrapped && client.caps.has(CAP_METADATA_DELTA)) continue
+          for (const recipient of recipients) {
+            const client = this.clients.get(recipient.id)
+            if (!client?.publication || client.publicationRequestVersion !== recipient.version) {
+              continue
+            }
             const current = this.publicationView(client)
             if (
               !current ||
-              current.key !== publication.viewKey ||
-              current.revision !== publication.viewRevision ||
-              JSON.stringify([...new Set(current.allowedSessionIds)].sort()) !==
-                group.allowedSignature
+              current.view.key !== publication.viewKey ||
+              current.view.revision !== publication.viewRevision ||
+              current.allowedSignature !== group.allowedSignature
             ) {
               continue
             }
             client.publication.sendPrepared(publication.bytes)
             client.publicationBootstrapped = true
+            client.publicationPending = false
+            client.publicationAccepted = {
+              viewKey: publication.viewKey,
+              viewRevision: publication.viewRevision,
+              allowedSignature: group.allowedSignature,
+              cursor: publication.ledgerCursor,
+            }
+            if (current.global && client.caps.has(CAP_METADATA_DELTA)) {
+              const buffered = client.publicationBufferedChanges?.splice(0) ?? []
+              for (const changes of buffered) {
+                const last = changes.at(-1)
+                if (!last) continue
+                client.publication.sendPrepared(
+                  JSON.stringify({
+                    type: 'metadataDelta',
+                    seq: last.seq,
+                    changes,
+                  } satisfies ServerMessage),
+                )
+              }
+            }
           }
         })
         .catch((error) => {
           if (error instanceof PublicationSupersededError) return
+          for (const recipient of recipients) {
+            const client = this.clients.get(recipient.id)
+            if (client?.publicationRequestVersion === recipient.version) {
+              client.publicationPending = false
+            }
+          }
           console.warn('[sessions] prepared publication failed', error)
         })
     }
@@ -3850,7 +3958,7 @@ export class SessionsService {
     for (const client of this.clients.values()) {
       if (client.focused === null) continue
       const view = this.publicationView(client)
-      if (view) focused.add(view.key)
+      if (view) focused.add(view.view.key)
     }
     this.publicationWorker.prioritize(focused)
   }
@@ -3863,9 +3971,34 @@ export class SessionsService {
   sendMetadataDelta(changes: MetadataChange[]): void {
     const last = changes[changes.length - 1]
     if (!last) return
+    const hasPublicationClient = [...this.clients.values()].some(
+      (client) => client.publication && client.caps.has(CAP_METADATA_DELTA),
+    )
+    if (hasPublicationClient) {
+      this.publicationWorker.advanceCursor(last.seq)
+      this.schedulePreparedSessionPublications()
+    }
     const delta: ServerMessage = { type: 'metadataDelta', seq: last.seq, changes }
+    let encoded: string | undefined
     for (const c of this.clients.values()) {
-      if (c.caps.has(CAP_METADATA_DELTA)) c.send(delta)
+      if (!c.caps.has(CAP_METADATA_DELTA)) continue
+      if (!c.publication) {
+        c.send(delta)
+        continue
+      }
+      // Scoped publication clients never see the raw global batch. The worker
+      // emits their filtered range (possibly empty) through the same sequencer.
+      if (!c.publication.global) continue
+      const current = this.publicationView(c)
+      if (!current || c.publicationPending || !this.publicationMatches(c, current)) {
+        const buffered = c.publicationBufferedChanges ?? []
+        if (buffered.length >= 512) buffered.shift()
+        buffered.push(structuredClone(changes))
+        c.publicationBufferedChanges = buffered
+        continue
+      }
+      encoded ??= JSON.stringify(delta)
+      c.publication.sendPrepared(encoded)
     }
   }
 
@@ -3875,9 +4008,28 @@ export class SessionsService {
    * full snapshot; the cursor is read in the same synchronous pass as the entity
    * lists, so nothing falls between the snapshot and the subsequent delta stream.
    */
-  syncChangesSince(cursor: number | null): SyncChangesSinceResult {
+  syncChangesSince(
+    cursor: number | null,
+    authority?: PublicationAuthority,
+  ): SyncChangesSinceResult {
+    const sourceCursor = this.funnel.cursor()
+    if (authority && !authority.global) {
+      const allowed = new Set(authority.snapshot().allowedSessionIds)
+      // A scoped heal always replaces the complete authorized session world.
+      // Other entity kinds are fail-closed until their authority contract exists.
+      return {
+        kind: 'snapshot',
+        sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
+        issues: [],
+        conversations: [],
+        automations: [],
+        automationRuns: [],
+        diagnostics: [],
+        cursor: sourceCursor,
+      }
+    }
     const changes = this.funnel.changesSince(cursor)
-    if (changes) return { kind: 'delta', changes, cursor: this.funnel.cursor() }
+    if (changes) return { kind: 'delta', changes, cursor: sourceCursor }
     return {
       kind: 'snapshot',
       sessions: this.listSessions(),
@@ -3886,7 +4038,7 @@ export class SessionsService {
       automations: this.deps.automationsWire(),
       automationRuns: this.deps.automationRunsWire(),
       diagnostics: this.conversations().diagnostics(),
-      cursor: this.funnel.cursor(),
+      cursor: sourceCursor,
     }
   }
 }

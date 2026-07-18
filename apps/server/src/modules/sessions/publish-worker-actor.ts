@@ -112,7 +112,14 @@ export class SessionPublicationActor {
   }
 
   applyPatch(event: SessionProjectionEvent): void {
-    if (!Number.isInteger(event.generation) || event.generation <= this.generation) {
+    const cursorOnlyAdvance =
+      event.changes.length === 0 &&
+      event.generation === this.generation &&
+      event.ledgerCursor > this.ledgerCursor
+    if (
+      !Number.isInteger(event.generation) ||
+      (event.generation <= this.generation && !cursorOnlyAdvance)
+    ) {
       throw new Error(
         `session projection generation must increase (${event.generation} <= ${this.generation})`,
       )
@@ -191,7 +198,12 @@ export class SessionPublicationActor {
       }
       // The range, not the filtered rows, is the cursor authority. An empty
       // hidden-only frame deliberately advances without revealing an id/count.
-      message = { type: 'metadataDelta', seq: this.ledgerCursor, changes }
+      message = {
+        type: 'metadataDelta',
+        fromExclusive: sinceCursor,
+        seq: this.ledgerCursor,
+        changes,
+      }
     } else {
       kind = 'snapshot'
       fromExclusive = null

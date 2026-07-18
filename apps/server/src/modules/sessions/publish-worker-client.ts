@@ -66,6 +66,12 @@ function defaultSpawn(): PublishWorkerLike {
     type: 'module',
   } as unknown as ConstructorParameters<typeof Worker>[1]) as unknown as PublishWorkerLike
 }
+class RespawnThrottledError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super('publish worker crash-looping — respawn throttled')
+    this.name = 'RespawnThrottledError'
+  }
+}
 
 const RESPAWN_COOLDOWN_MS = 3_000
 
@@ -83,6 +89,7 @@ export class PublishWorkerClient {
   private readonly timeoutMs: number
   private readonly log: (message: string) => void
   private generation = 0
+  private retryTimer?: ReturnType<typeof setTimeout>
   private ledgerCursor = 0
   private appliedLedgerCursor = 0
   private pendingProjectionEvents: SessionProjectionEvent[] = []
@@ -143,6 +150,25 @@ export class PublishWorkerClient {
     this.invalidateAll()
   }
 
+  sourceCursor(): number {
+    return this.ledgerCursor
+  }
+
+  advanceCursor(cursor: number): boolean {
+    if (!Number.isInteger(cursor) || cursor < 0) {
+      throw new Error('publication client received an invalid source cursor')
+    }
+    if (cursor <= this.ledgerCursor) return false
+    this.ledgerCursor = cursor
+    this.pendingProjectionEvents.push({
+      generation: this.generation,
+      ledgerCursor: cursor,
+      changes: [],
+    })
+    this.invalidateAll()
+    return true
+  }
+
   request(
     input: PreparePublicationInput,
     options: { focused?: boolean } = {},
@@ -155,7 +181,13 @@ export class PublishWorkerClient {
       this.counters.coalescedJobs += 1
       this.supersede(existing)
     }
-    if (this.active?.input.view.key === input.view.key) this.supersede(this.active)
+    if (this.active?.input.view.key === input.view.key) {
+      const stale = this.active
+      this.supersede(stale)
+      if (stale.timer) clearTimeout(stale.timer)
+      this.active = undefined
+      this.abandonWorker()
+    }
 
     const promise = new Promise<PreparedPublication>((resolve, reject) => {
       const job: QueuedJob = {
@@ -236,15 +268,16 @@ export class PublishWorkerClient {
 
   private ensureWorker(): PublishWorkerLike {
     if (this.worker) return this.worker
-    if (this.fastCrashes >= 2 && Date.now() - this.lastCrashAtMs < RESPAWN_COOLDOWN_MS) {
-      throw new Error('publish worker crash-looping — respawn throttled')
+    const sinceCrash = Date.now() - this.lastCrashAtMs
+    if (this.fastCrashes >= 2 && sinceCrash < RESPAWN_COOLDOWN_MS) {
+      throw new RespawnThrottledError(RESPAWN_COOLDOWN_MS - sinceCrash)
     }
     const worker = this.spawn()
     worker.on('message', (result: PublishWorkerResult) => this.onResult(worker, result))
     worker.on('error', (error: Error) => this.crash(worker, error))
-    worker.on('exit', (code: number) => {
-      if (code !== 0) this.crash(worker, new Error(`publish worker exited ${code}`))
-    })
+    worker.on('exit', (code: number) =>
+      this.crash(worker, new Error(`publish worker exited ${code}`)),
+    )
     this.worker = worker
     worker.postMessage({
       type: 'reset',
@@ -274,6 +307,11 @@ export class PublishWorkerClient {
       } satisfies PublishWorkerCommand)
     } catch (error) {
       this.active = undefined
+      if (error instanceof RespawnThrottledError) {
+        this.queued.set(next.input.view.key, next)
+        this.scheduleRetry(error.retryAfterMs)
+        return
+      }
       this.counters.failures += 1
       this.reject(next, error instanceof Error ? error : new Error(String(error)))
       this.dispatchNext()
@@ -315,7 +353,13 @@ export class PublishWorkerClient {
   }
 
   private invalidateAll(): void {
-    if (this.active) this.supersede(this.active)
+    if (this.active) {
+      const stale = this.active
+      this.supersede(stale)
+      if (stale.timer) clearTimeout(stale.timer)
+      this.active = undefined
+      this.abandonWorker()
+    }
     for (const job of this.queued.values()) this.supersede(job)
     this.queued.clear()
   }
@@ -334,17 +378,39 @@ export class PublishWorkerClient {
     this.lastCrashAtMs = now
     this.counters.failures += 1
     this.log(`[podium:server] publish worker crashed: ${error.message} — respawning`)
-    if (this.active) {
-      if (this.active.timer) clearTimeout(this.active.timer)
-      this.observeAge(this.active)
-      this.reject(this.active, error)
-    }
+    const job = this.active
+    if (job?.timer) clearTimeout(job.timer)
     this.active = undefined
+    this.worker = undefined
     try {
       worker.terminate()
     } catch {}
-    this.worker = undefined
+    if (job && !job.settled && !job.superseded) {
+      const newer = this.queued.get(job.input.view.key)
+      if (newer) this.supersede(job)
+      else this.queued.set(job.input.view.key, job)
+    }
     this.dispatchNext()
+  }
+
+  private abandonWorker(): void {
+    const worker = this.worker
+    this.worker = undefined
+    try {
+      worker?.terminate()
+    } catch {}
+  }
+
+  private scheduleRetry(delayMs: number): void {
+    if (this.retryTimer || this.stopped) return
+    this.retryTimer = setTimeout(
+      () => {
+        this.retryTimer = undefined
+        this.dispatchNext()
+      },
+      Math.max(1, delayMs),
+    )
+    this.retryTimer.unref?.()
   }
 
   private observeAge(job: QueuedJob): void {
