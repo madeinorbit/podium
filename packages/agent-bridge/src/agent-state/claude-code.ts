@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { createInterface } from 'node:readline'
 import type {
   AgentObservation,
   AgentRuntimeState,
@@ -245,6 +247,7 @@ export interface ClaudeCausalObserverOptions {
   bootstrapOffset: number
   acceptedCheckpoint?: SessionObservationCheckpointV1
   bootstrapAdvanced?: boolean
+  bootstrapPromptOrigin?: ObservationInputOrigin
   now?: () => string
 }
 
@@ -272,18 +275,19 @@ export class ClaudeCausalObserver {
   private readonly activeChildren = new Set<string>()
   constructor(private readonly options: ClaudeCausalObserverOptions) {
     const checkpoint = options.acceptedCheckpoint
-    const reconciledState = checkpoint && options.bootstrapAdvanced
+    const reconciledNewEpoch = checkpoint && options.bootstrapPromptOrigin !== undefined
+    const reconciledState =
+      checkpoint &&
+      options.bootstrapAdvanced &&
+      (checkpoint.terminalFence === null || reconciledNewEpoch)
     this.state = reconciledState
       ? options.bootstrapState
       : (checkpoint?.turnState ?? options.bootstrapState)
-    const reconciledOpenTurn =
-      reconciledState &&
-      checkpoint.terminalFence !== null &&
-      (this.state.phase === 'working' ||
-        this.state.phase === 'compacting' ||
-        this.state.phase === 'needs_user')
-    this.turnEpoch = (checkpoint?.turnEpoch ?? 0) + (reconciledOpenTurn ? 1 : 0)
-    this.providerPromptId = reconciledOpenTurn ? null : (checkpoint?.providerPromptId ?? null)
+    this.turnEpoch = (checkpoint?.turnEpoch ?? 0) + (reconciledNewEpoch ? 1 : 0)
+    this.providerPromptId = reconciledNewEpoch ? null : (checkpoint?.providerPromptId ?? null)
+    if (options.bootstrapPromptOrigin !== undefined) {
+      this.currentOrigin = options.bootstrapPromptOrigin
+    }
     this.now = options.now ?? (() => new Date().toISOString())
     this.segmentId = `claude:${options.providerSessionId}:${options.transcriptPath}`
     this.bootstrapOffset = options.bootstrapOffset
@@ -298,7 +302,7 @@ export class ClaudeCausalObserver {
     } else if (acceptedCursor) {
       this.predecessorSegmentId = acceptedCursor.segmentId
     }
-    if (checkpoint?.terminalFence?.closing && !reconciledOpenTurn && this.state.awaitingSubagents) {
+    if (checkpoint?.terminalFence?.closing && !reconciledNewEpoch && this.state.awaitingSubagents) {
       this.closing = true
       for (const child of this.state.nativeSubagents ?? []) {
         this.activeChildren.add(child.id)
@@ -525,6 +529,75 @@ type IdleClassification = {
   summary?: string
 }
 
+function promptText(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null
+  if (typeof value !== 'object' || value === null) return null
+  const block = value as Record<string, unknown>
+  if (block.type === 'tool_result') return null
+  if (block.type === 'text' && typeof block.text === 'string') return block.text.trim() || null
+  return null
+}
+
+function isInterruptMarker(text: string): boolean {
+  return /^\[Request interrupted by user(?: for tool use)?\]$/i.test(text.trim())
+}
+
+/** Provider-confirmed causal prompt evidence in the transcript suffix. Tool
+ * results, assistant output, and metadata records are deliberately excluded. */
+export interface ClaudePromptEvidence {
+  origin: ObservationInputOrigin
+  hasAssistantOutputAfter: boolean
+}
+export async function claudePromptEvidenceAfter(
+  path: string,
+  startOffset: number,
+): Promise<ClaudePromptEvidence | undefined> {
+  if (!Number.isSafeInteger(startOffset) || startOffset < 0) return undefined
+  const input = createReadStream(path, { encoding: 'utf8', start: startOffset })
+  const lines = createInterface({ input, crlfDelay: Infinity })
+  let evidence: ClaudePromptEvidence | undefined
+  try {
+    for await (const line of lines) {
+      let record: Record<string, unknown>
+      try {
+        const parsed = JSON.parse(line) as unknown
+        if (typeof parsed !== 'object' || parsed === null) continue
+        record = parsed as Record<string, unknown>
+      } catch {
+        continue
+      }
+      const message = record.message
+      if (typeof message !== 'object' || message === null) continue
+      const m = message as Record<string, unknown>
+      if (evidence && record.type === 'assistant' && m.role === 'assistant') {
+        evidence.hasAssistantOutputAfter = true
+        continue
+      }
+      const userRecord = record.type === 'user' && m.role === 'user'
+      const systemRecord = m.role === 'system'
+      if (!userRecord && !systemRecord) continue
+      const content = Array.isArray(m.content) ? m.content : [m.content]
+      const texts = content.map(promptText).filter((text): text is string => text !== null)
+      if (texts.length === 0 || texts.every(isInterruptMarker)) continue
+      const provablySystem =
+        systemRecord ||
+        record.isMeta === true ||
+        record.promptSource === 'system' ||
+        record.prompt_source === 'system' ||
+        record.source === 'system'
+      evidence = {
+        origin: provablySystem ? 'system' : 'unknown',
+        hasAssistantOutputAfter: false,
+      }
+    }
+  } catch {
+    return undefined
+  } finally {
+    lines.close()
+    input.destroy()
+  }
+  return evidence
+}
 /** Last `maxBytes` of a JSONL file as parsed records (first partial line dropped). */
 async function readTranscriptTail(path: string, maxBytes = TAIL_BYTES): Promise<unknown[]> {
   const handle = await open(path, 'r')

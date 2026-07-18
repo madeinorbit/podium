@@ -5,6 +5,7 @@ import {
   type AgentStateEvent,
   type AgentStateProvider,
   ClaudeCausalObserver,
+  claudePromptEvidenceAfter,
   type HarnessAdapter,
   type HarnessObservation,
   type HarnessObserveInput,
@@ -180,16 +181,36 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             ? Number.isSafeInteger(acceptedOffset) && bootstrapOffset > (acceptedOffset ?? 0)
             : bootstrapOffset > 0)),
     )
+    const promptStartOffset =
+      acceptedCursor?.segmentId === segmentId
+        ? Number.isSafeInteger(acceptedOffset)
+          ? (acceptedOffset ?? 0)
+          : null
+        : 0
+    const bootstrapPromptEvidence =
+      bootstrapAdvanced && promptStartOffset !== null && p?.hook_event_name !== 'UserPromptSubmit'
+        ? await claudePromptEvidenceAfter(transcriptPath, promptStartOffset)
+        : undefined
+    const bootstrapPromptOrigin = bootstrapPromptEvidence?.origin
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
     if (!checkpoint || bootstrapAdvanced) {
       bootstrapState = initialAgentState(new Date().toISOString())
       try {
-        for (const event of (await tracker.provider.bootEvents?.({
-          cwd: lease.cwd,
-          resumeValue: providerSessionId,
-          pathHint: transcriptPath,
-        })) ?? []) {
+        const bootEvents =
+          (await tracker.provider.bootEvents?.({
+            cwd: lease.cwd,
+            resumeValue: providerSessionId,
+            pathHint: transcriptPath,
+          })) ?? []
+        for (const event of bootEvents) {
           bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
+        }
+        if (bootstrapPromptEvidence?.hasAssistantOutputAfter === false) {
+          bootstrapState = reduceAgentState(
+            initialAgentState(new Date().toISOString()),
+            { kind: 'prompt_submitted' },
+            new Date().toISOString(),
+          )
         }
       } catch {}
     }
@@ -216,6 +237,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bootstrapState,
       ...(checkpoint ? { acceptedCheckpoint: checkpoint } : {}),
       bootstrapAdvanced,
+      ...(bootstrapPromptOrigin !== undefined ? { bootstrapPromptOrigin } : {}),
       bootstrapOffset,
     })
     for (const origin of pendingClaudeOrigins.get(sessionId) ?? [])
