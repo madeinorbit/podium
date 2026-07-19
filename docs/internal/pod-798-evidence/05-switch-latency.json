@@ -1,0 +1,3125 @@
+{
+  "mode": "chat",
+  "base": "http://localhost:28798",
+  "traces": [
+    {
+      "switchId": "6816004c-bfb9-47f6-908e-693b7a2829e7",
+      "startedAt": 1784419006493,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": true,
+      "totalMs": 798.0999994277954,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.0999994277954102
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 141.79999923706055
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 142
+        },
+        {
+          "name": "viewstate:sent",
+          "atMs": 142.5999994277954
+        },
+        {
+          "name": "panel:mount",
+          "atMs": 142.5999994277954
+        },
+        {
+          "name": "panel:active",
+          "atMs": 142.69999980926514
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 149.89999961853027
+        },
+        {
+          "name": "transcript:read-end",
+          "atMs": 761.0999994277954
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 798.0999994277954
+        }
+      ],
+      "meta": {
+        "rows": 0,
+        "mode": "native",
+        "items": 0,
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "8f89360c-1054-4535-9397-36ed562a1662",
+      "startedAt": 1784419009277,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": true,
+      "totalMs": 796.5999994277954,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.3999996185302734
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 153.5999994277954
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 153.79999923706055
+        },
+        {
+          "name": "viewstate:sent",
+          "atMs": 154.29999923706055
+        },
+        {
+          "name": "panel:mount",
+          "atMs": 154.29999923706055
+        },
+        {
+          "name": "panel:active",
+          "atMs": 154.29999923706055
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 159.89999961853027
+        },
+        {
+          "name": "transcript:read-end",
+          "atMs": 765.5999994277954
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 796.5999994277954
+        }
+      ],
+      "meta": {
+        "rows": 0,
+        "mode": "native",
+        "items": 0,
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "25bbd728-b426-4114-9659-0a1ab77b8b94",
+      "startedAt": 1784419012049,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": true,
+      "totalMs": 887.0999994277954,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 126.19999980926514
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 126.30000019073486
+        },
+        {
+          "name": "viewstate:sent",
+          "atMs": 126.80000019073486
+        },
+        {
+          "name": "panel:mount",
+          "atMs": 126.80000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 126.80000019073486
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 131.89999961853027
+        },
+        {
+          "name": "transcript:read-end",
+          "atMs": 844.8999996185303
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 887.0999994277954
+        }
+      ],
+      "meta": {
+        "rows": 0,
+        "mode": "native",
+        "items": 0,
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "746b4e62-a639-49aa-9018-849384aa332e",
+      "startedAt": 1784419014771,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": true,
+      "totalMs": 869,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.7999992370605469
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 173.5
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 173.5999994277954
+        },
+        {
+          "name": "viewstate:sent",
+          "atMs": 174.39999961853027
+        },
+        {
+          "name": "panel:mount",
+          "atMs": 174.39999961853027
+        },
+        {
+          "name": "panel:active",
+          "atMs": 174.39999961853027
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 183.0999994277954
+        },
+        {
+          "name": "transcript:read-end",
+          "atMs": 847.8999996185303
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 869
+        }
+      ],
+      "meta": {
+        "rows": 0,
+        "mode": "native",
+        "items": 0,
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "59bc039b-7224-4cc7-80bd-385726cf3b9a",
+      "startedAt": 1784419017563,
+      "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+      "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+      "mode": "chat",
+      "cold": true,
+      "totalMs": 843.7999992370605,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1999998092651367
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 153.29999923706055
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 153.5
+        },
+        {
+          "name": "viewstate:sent",
+          "atMs": 154
+        },
+        {
+          "name": "panel:mount",
+          "atMs": 154
+        },
+        {
+          "name": "panel:active",
+          "atMs": 154
+        },
+        {
+          "name": "chat:rows-built",
+          "atMs": 160.19999980926514
+        },
+        {
+          "name": "transcript:read-end",
+          "atMs": 815.8999996185303
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 843.7999992370605
+        }
+      ],
+      "meta": {
+        "rows": 0,
+        "mode": "native",
+        "items": 0,
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "9446b4d7-adca-4105-894c-8f5afa701846",
+      "startedAt": 1784419020364,
+      "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+      "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+      "mode": "native",
+      "cold": true,
+      "totalMs": 341.79999923706055,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "viewstate:sent",
+          "atMs": 165.0999994277954
+        },
+        {
+          "name": "panel:mount",
+          "atMs": 165.0999994277954
+        },
+        {
+          "name": "panel:active",
+          "atMs": 165.0999994277954
+        },
+        {
+          "name": "term:mount",
+          "atMs": 241.5
+        },
+        {
+          "name": "term:fit:measured",
+          "atMs": 250.0999994277954
+        },
+        {
+          "name": "term:fit:action",
+          "atMs": 250.39999961853027
+        },
+        {
+          "name": "term:fit:measured",
+          "atMs": 252.29999923706055
+        },
+        {
+          "name": "term:fit:action",
+          "atMs": 252.39999961853027
+        },
+        {
+          "name": "term:connection:reset",
+          "atMs": 336.79999923706055
+        },
+        {
+          "name": "term:connection:attached",
+          "atMs": 341.69999980926514
+        },
+        {
+          "name": "term:ready",
+          "atMs": 341.79999923706055
+        }
+      ],
+      "meta": {
+        "mode": "native"
+      }
+    },
+    {
+      "switchId": "d6f555a7-6d80-4904-a08b-eebcf9b622e0",
+      "startedAt": 1784419023324,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 208.5,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8999996185302734
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 173.5
+        },
+        {
+          "name": "panel:active",
+          "atMs": 173.69999980926514
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 208.5
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "2dfee06e-22a1-4a85-b07f-d60a713023a5",
+      "startedAt": 1784419026126,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 176.19999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1999998092651367
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 155.5
+        },
+        {
+          "name": "panel:active",
+          "atMs": 155.80000019073486
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 176.19999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "2d84a6e9-e4d4-4f2b-9e09-e6bc3086a603",
+      "startedAt": 1784419028914,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 183.69999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 2.09999942779541
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 157.69999980926514
+        },
+        {
+          "name": "panel:active",
+          "atMs": 158
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 183.69999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "9f6d6cd7-ffc2-4b1c-bb3e-8cb81953afa9",
+      "startedAt": 1784419032142,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 168.19999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8000001907348633
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 145.80000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 146.10000038146973
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 168.19999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "c3ff6693-bee0-4190-b54e-9163c01e1545",
+      "startedAt": 1784419034904,
+      "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+      "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 181.19999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.0999994277954102
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 158.19999980926514
+        },
+        {
+          "name": "panel:active",
+          "atMs": 158.39999961853027
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 181.19999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "44ecbd25-2feb-4689-87a9-b802e0239c29",
+      "startedAt": 1784419037676,
+      "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+      "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+      "mode": "native",
+      "cold": false,
+      "totalMs": 134.5,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8000001907348633
+        },
+        {
+          "name": "panel:active",
+          "atMs": 133.80000019073486
+        },
+        {
+          "name": "term:panel:active-change",
+          "atMs": 134
+        },
+        {
+          "name": "term:reveal:start",
+          "atMs": 134.19999980926514
+        },
+        {
+          "name": "term:reveal:measured",
+          "atMs": 134.5
+        },
+        {
+          "name": "term:ready",
+          "atMs": 134.5
+        }
+      ],
+      "meta": {
+        "mode": "native"
+      }
+    },
+    {
+      "switchId": "decd3663-fc10-4db6-8f37-0c1defd63436",
+      "startedAt": 1784419040420,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 138.39999961853027,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1000003814697266
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 119
+        },
+        {
+          "name": "panel:active",
+          "atMs": 119.10000038146973
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 138.39999961853027
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "36f748cb-87e3-49fe-8e3a-ae61cc4f7151",
+      "startedAt": 1784419043140,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 187.5,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8000001907348633
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 160.9000005722046
+        },
+        {
+          "name": "panel:active",
+          "atMs": 161.19999980926514
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 187.5
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "7a2d09ee-1b74-445b-879b-9376039f594b",
+      "startedAt": 1784419045911,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 172.0999994277954,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8000001907348633
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 148.89999961853027
+        },
+        {
+          "name": "panel:active",
+          "atMs": 149.19999980926514
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 172.0999994277954
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "01c2c00e-d391-494f-922c-385455df7cac",
+      "startedAt": 1784419048678,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 152.10000038146973,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.6000003814697266
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 127.5
+        },
+        {
+          "name": "panel:active",
+          "atMs": 127.80000019073486
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 152.10000038146973
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "fe57e1bc-b137-4b8b-860a-a0e6fbda92df",
+      "startedAt": 1784419051421,
+      "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+      "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 153.30000019073486,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.3999996185302734
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 127.30000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 127.5
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 153.30000019073486
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "5825fc15-8443-4392-a244-b09057c5e019",
+      "startedAt": 1784419054161,
+      "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+      "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+      "mode": "native",
+      "cold": false,
+      "totalMs": 134.60000038146973,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8000001907348633
+        },
+        {
+          "name": "panel:active",
+          "atMs": 134.10000038146973
+        },
+        {
+          "name": "term:panel:active-change",
+          "atMs": 134.30000019073486
+        },
+        {
+          "name": "term:reveal:start",
+          "atMs": 134.4000005722046
+        },
+        {
+          "name": "term:reveal:measured",
+          "atMs": 134.60000038146973
+        },
+        {
+          "name": "term:ready",
+          "atMs": 134.60000038146973
+        }
+      ],
+      "meta": {
+        "mode": "native"
+      }
+    },
+    {
+      "switchId": "f973d087-91ac-4051-aeca-ee4bba088630",
+      "startedAt": 1784419056928,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 180.80000019073486,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.5
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 156.69999980926514
+        },
+        {
+          "name": "panel:active",
+          "atMs": 156.89999961853027
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 180.80000019073486
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "8dadaac6-c39d-41ae-bc77-fce516ef045e",
+      "startedAt": 1784419059716,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 173.19999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 151.19999980926514
+        },
+        {
+          "name": "panel:active",
+          "atMs": 151.39999961853027
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 173.19999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "a2488bc4-10a3-4425-b030-76c540ac6a2e",
+      "startedAt": 1784419062472,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 158.80000019073486,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.9000005722045898
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 135.60000038146973
+        },
+        {
+          "name": "panel:active",
+          "atMs": 135.80000019073486
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 158.80000019073486
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "dcaa91c2-0216-4f7e-af3f-d167fa2414dc",
+      "startedAt": 1784419065224,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 168.19999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.9000005722045898
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 144.80000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 145
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 168.19999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "9e8e38ef-2d20-4d6c-818f-a5d1ffcbd91c",
+      "startedAt": 1784419068018,
+      "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+      "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 179,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1999998092651367
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 158.80000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 158.89999961853027
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 179
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "d6ac8e37-81d2-48e1-80a5-db2324e2a9ab",
+      "startedAt": 1784419070790,
+      "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+      "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+      "mode": "native",
+      "cold": false,
+      "totalMs": 130.10000038146973,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.8000001907348633
+        },
+        {
+          "name": "panel:active",
+          "atMs": 129.5
+        },
+        {
+          "name": "term:panel:active-change",
+          "atMs": 129.60000038146973
+        },
+        {
+          "name": "term:reveal:start",
+          "atMs": 129.80000019073486
+        },
+        {
+          "name": "term:reveal:measured",
+          "atMs": 130.10000038146973
+        },
+        {
+          "name": "term:ready",
+          "atMs": 130.10000038146973
+        }
+      ],
+      "meta": {
+        "mode": "native"
+      }
+    },
+    {
+      "switchId": "05d3c99d-4c8a-4815-8438-0d6290223e9b",
+      "startedAt": 1784419073555,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 167,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1999998092651367
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 143.29999923706055
+        },
+        {
+          "name": "panel:active",
+          "atMs": 143.5999994277954
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 167
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "4f7e7f52-b33b-421c-8ab3-71c79d787137",
+      "startedAt": 1784419076303,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 164.9000005722046,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.6000003814697266
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 145.60000038146973
+        },
+        {
+          "name": "panel:active",
+          "atMs": 145.80000019073486
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 164.9000005722046
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "644a81a2-d4bf-4e92-9d4f-514985ec436e",
+      "startedAt": 1784419079039,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 168.29999923706055,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.5999994277954102
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 142.5
+        },
+        {
+          "name": "panel:active",
+          "atMs": 142.79999923706055
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 168.29999923706055
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "37257a39-0bbb-42ae-8c40-fbc6d1ce1dc8",
+      "startedAt": 1784419081958,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 186.39999961853027,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 2.3999996185302734
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 163.0999994277954
+        },
+        {
+          "name": "panel:active",
+          "atMs": 163.39999961853027
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 186.39999961853027
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "4b070015-c50b-49a8-97eb-250f3047aef0",
+      "startedAt": 1784419084758,
+      "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+      "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 164,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 142
+        },
+        {
+          "name": "panel:active",
+          "atMs": 142.19999980926514
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 164
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "50f488a3-d7e2-4ef8-bf7e-57a694ff3b31",
+      "startedAt": 1784419087525,
+      "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+      "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+      "mode": "native",
+      "cold": false,
+      "totalMs": 119.39999961853027,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.0999994277954102
+        },
+        {
+          "name": "panel:active",
+          "atMs": 118.89999961853027
+        },
+        {
+          "name": "term:panel:active-change",
+          "atMs": 119.09999942779541
+        },
+        {
+          "name": "term:reveal:start",
+          "atMs": 119.19999980926514
+        },
+        {
+          "name": "term:reveal:measured",
+          "atMs": 119.39999961853027
+        },
+        {
+          "name": "term:ready",
+          "atMs": 119.39999961853027
+        }
+      ],
+      "meta": {
+        "mode": "native"
+      }
+    },
+    {
+      "switchId": "5d6b321b-5217-4fd7-8019-91f5ea776b09",
+      "startedAt": 1784419090268,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 138.5,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1000003814697266
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 118
+        },
+        {
+          "name": "panel:active",
+          "atMs": 118.20000076293945
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 138.5
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "e9fb1305-3aa2-4ed6-bd39-83e1f8064369",
+      "startedAt": 1784419093383,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 151.5,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.5
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 129.69999980926514
+        },
+        {
+          "name": "panel:active",
+          "atMs": 129.89999961853027
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 151.5
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "e2ab9160-b82f-4b64-beb9-6a1c4600516f",
+      "startedAt": 1784419096129,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 148.19999980926514,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.1999998092651367
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 128.30000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 128.5
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 148.19999980926514
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "f722efae-0bff-49c3-bfc3-b1ea0a7b3637",
+      "startedAt": 1784419098870,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 155.80000019073486,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 0.9000005722045898
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 135.10000038146973
+        },
+        {
+          "name": "panel:active",
+          "atMs": 135.30000019073486
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 155.80000019073486
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "e27cbc79-8bcd-4c32-ae7a-9a351b6e78d3",
+      "startedAt": 1784419101607,
+      "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+      "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 168.5999994277954,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.5999994277954102
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 141.39999961853027
+        },
+        {
+          "name": "panel:active",
+          "atMs": 141.5
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 168.5999994277954
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "f0e91bad-2a60-4013-bd1d-008aa49218ef",
+      "startedAt": 1784419104364,
+      "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+      "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+      "mode": "native",
+      "cold": false,
+      "totalMs": 146.10000038146973,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "panel:active",
+          "atMs": 145.60000038146973
+        },
+        {
+          "name": "term:panel:active-change",
+          "atMs": 145.9000005722046
+        },
+        {
+          "name": "term:reveal:start",
+          "atMs": 145.9000005722046
+        },
+        {
+          "name": "term:reveal:measured",
+          "atMs": 146.10000038146973
+        },
+        {
+          "name": "term:ready",
+          "atMs": 146.10000038146973
+        }
+      ],
+      "meta": {
+        "mode": "native"
+      }
+    },
+    {
+      "switchId": "e1527404-00a3-4262-8947-d8d89980fa43",
+      "startedAt": 1784419107136,
+      "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+      "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 144.60000038146973,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 124.30000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 124.5
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 144.60000038146973
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "aee9bd62-b200-4677-8de1-9cf1cff00544",
+      "startedAt": 1784419110289,
+      "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+      "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 144.20000076293945,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.3000001907348633
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 123.30000019073486
+        },
+        {
+          "name": "panel:active",
+          "atMs": 123.5
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 144.20000076293945
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "b9d62401-2235-4bda-84c3-15108320e5a6",
+      "startedAt": 1784419113026,
+      "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+      "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 152.30000019073486,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 131.39999961853027
+        },
+        {
+          "name": "panel:active",
+          "atMs": 131.5999994277954
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 152.30000019073486
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    },
+    {
+      "switchId": "b54277a8-4442-43a2-ac3f-97a6ed5ae6a0",
+      "startedAt": 1784419115755,
+      "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+      "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+      "mode": "chat",
+      "cold": false,
+      "totalMs": 159.39999961853027,
+      "timedOut": false,
+      "marks": [
+        {
+          "name": "viewstate:sent",
+          "atMs": 1.5
+        },
+        {
+          "name": "transcript:read-start",
+          "atMs": 136.5
+        },
+        {
+          "name": "panel:active",
+          "atMs": 136.5999994277954
+        },
+        {
+          "name": "chat:first-paint",
+          "atMs": 159.39999961853027
+        }
+      ],
+      "meta": {
+        "mode": "native",
+        "paintedRows": 0
+      }
+    }
+  ],
+  "snapshot": {
+    "rpc": {
+      "sync.changesSince": {
+        "count": 1,
+        "p50Ms": 353.7498850000011,
+        "p90Ms": 353.7498850000011,
+        "p99Ms": 353.7498850000011,
+        "maxMs": 353.7498850000011,
+        "lastMs": 353.7498850000011,
+        "totalBytes": 0
+      },
+      "settings.get": {
+        "count": 9,
+        "p50Ms": 1.0438020000001416,
+        "p90Ms": 8.90962700000091,
+        "p99Ms": 8.90962700000091,
+        "maxMs": 8.90962700000091,
+        "lastMs": 0.6260340000008,
+        "totalBytes": 0
+      },
+      "pins.list": {
+        "count": 1,
+        "p50Ms": 0.7256039999992936,
+        "p90Ms": 0.7256039999992936,
+        "p99Ms": 0.7256039999992936,
+        "maxMs": 0.7256039999992936,
+        "lastMs": 0.7256039999992936,
+        "totalBytes": 0
+      },
+      "tabs.listOrders": {
+        "count": 1,
+        "p50Ms": 0.322546000003058,
+        "p90Ms": 0.322546000003058,
+        "p99Ms": 0.322546000003058,
+        "maxMs": 0.322546000003058,
+        "lastMs": 0.322546000003058,
+        "totalBytes": 0
+      },
+      "discovery.refreshRepos": {
+        "count": 1,
+        "p50Ms": 0.7391930000012508,
+        "p90Ms": 0.7391930000012508,
+        "p99Ms": 0.7391930000012508,
+        "maxMs": 0.7391930000012508,
+        "lastMs": 0.7391930000012508,
+        "totalBytes": 0
+      },
+      "discovery.lastMachineScan": {
+        "count": 1,
+        "p50Ms": 0.5337849999996251,
+        "p90Ms": 0.5337849999996251,
+        "p99Ms": 0.5337849999996251,
+        "maxMs": 0.5337849999996251,
+        "lastMs": 0.5337849999996251,
+        "totalBytes": 0
+      },
+      "quota.summary": {
+        "count": 2,
+        "p50Ms": 1.25337700000091,
+        "p90Ms": 7.198931999999331,
+        "p99Ms": 7.198931999999331,
+        "maxMs": 7.198931999999331,
+        "lastMs": 1.25337700000091,
+        "totalBytes": 0
+      },
+      "superagent.listThreads": {
+        "count": 1,
+        "p50Ms": 1.2454760000000533,
+        "p90Ms": 1.2454760000000533,
+        "p99Ms": 1.2454760000000533,
+        "maxMs": 1.2454760000000533,
+        "lastMs": 1.2454760000000533,
+        "totalBytes": 0
+      },
+      "repos.listDetailed": {
+        "count": 1,
+        "p50Ms": 0.2103179999976419,
+        "p90Ms": 0.2103179999976419,
+        "p99Ms": 0.2103179999976419,
+        "maxMs": 0.2103179999976419,
+        "lastMs": 0.2103179999976419,
+        "totalBytes": 0
+      },
+      "issues.events": {
+        "count": 10,
+        "p50Ms": 0.7182109999994282,
+        "p90Ms": 4.990837000001193,
+        "p99Ms": 8.867245000001276,
+        "maxMs": 8.867245000001276,
+        "lastMs": 0.5798420000064652,
+        "totalBytes": 0
+      },
+      "sessions.transcriptRead": {
+        "count": 35,
+        "p50Ms": 4.783073999999033,
+        "p90Ms": 11.442754999996396,
+        "p99Ms": 15.746824000001652,
+        "maxMs": 15.746824000001652,
+        "lastMs": 0.6438889999990351,
+        "totalBytes": 0
+      },
+      "issues.markRead": {
+        "count": 40,
+        "p50Ms": 11.999456000005011,
+        "p90Ms": 17.81724600000598,
+        "p99Ms": 45.97657600000093,
+        "maxMs": 45.97657600000093,
+        "lastMs": 9.220487999991747,
+        "totalBytes": 0
+      },
+      "conversations.search": {
+        "count": 13,
+        "p50Ms": 0.6191319999998086,
+        "p90Ms": 0.9801659999975527,
+        "p99Ms": 3.1534479999972973,
+        "maxMs": 3.1534479999972973,
+        "lastMs": 0.8394530000077793,
+        "totalBytes": 0
+      },
+      "perf.report": {
+        "count": 40,
+        "p50Ms": 0.8459339999972144,
+        "p90Ms": 8.265450999999302,
+        "p99Ms": 15.87111300000106,
+        "maxMs": 15.87111300000106,
+        "lastMs": 0.6475640000135172,
+        "totalBytes": 0
+      },
+      "sessions.markRead": {
+        "count": 8,
+        "p50Ms": 87.98248600000807,
+        "p90Ms": 193.6015350000016,
+        "p99Ms": 193.6015350000016,
+        "maxMs": 193.6015350000016,
+        "lastMs": 87.98248600000807,
+        "totalBytes": 0
+      }
+    },
+    "phases": {
+      "sessionsBroadcast.list": {
+        "count": 16,
+        "p50Ms": 75.80014700000174,
+        "p90Ms": 92.69362900000124,
+        "p99Ms": 93.17247900000075,
+        "maxMs": 93.17247900000075,
+        "lastMs": 72.17351000000781,
+        "totalBytes": 0
+      },
+      "sessionsBroadcast.reconcile": {
+        "count": 16,
+        "p50Ms": 4.513667999999598,
+        "p90Ms": 7.512213000001793,
+        "p99Ms": 8.293549000001804,
+        "maxMs": 8.293549000001804,
+        "lastMs": 4.527063999994425,
+        "totalBytes": 0
+      },
+      "sessionsBroadcast.stringify": {
+        "count": 16,
+        "p50Ms": 3.423934000005829,
+        "p90Ms": 4.025721000005433,
+        "p99Ms": 7.205109999995329,
+        "maxMs": 7.205109999995329,
+        "lastMs": 3.808992999998736,
+        "totalBytes": 9252909
+      },
+      "sessionsBroadcast.fanout": {
+        "count": 11,
+        "p50Ms": 0.04375599999912083,
+        "p90Ms": 0.07412299999850802,
+        "p99Ms": 0.3344640000000254,
+        "maxMs": 0.3344640000000254,
+        "lastMs": 0.033822000012150966,
+        "totalBytes": 0
+      },
+      "sessionsBroadcast.total": {
+        "count": 16,
+        "p50Ms": 84.2624109999997,
+        "p90Ms": 101.77954900000623,
+        "p99Ms": 102.68906099999731,
+        "maxMs": 102.68906099999731,
+        "lastMs": 80.60397000001103,
+        "totalBytes": 0
+      },
+      "attach.replay": {
+        "count": 1,
+        "p50Ms": 0.004897999999229796,
+        "p90Ms": 0.004897999999229796,
+        "p99Ms": 0.004897999999229796,
+        "maxMs": 0.004897999999229796,
+        "lastMs": 0.004897999999229796,
+        "totalBytes": 0
+      },
+      "ws.attach": {
+        "count": 1,
+        "p50Ms": 91.99611899999582,
+        "p90Ms": 91.99611899999582,
+        "p99Ms": 91.99611899999582,
+        "maxMs": 91.99611899999582,
+        "lastMs": 91.99611899999582,
+        "totalBytes": 0
+      }
+    },
+    "clientSwitches": [
+      {
+        "switchId": "6816004c-bfb9-47f6-908e-693b7a2829e7",
+        "startedAt": 1784419006493,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 798.0999994277954,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.0999994277954102
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 141.79999923706055
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 142
+          },
+          {
+            "name": "viewstate:sent",
+            "atMs": 142.5999994277954
+          },
+          {
+            "name": "panel:mount",
+            "atMs": 142.5999994277954
+          },
+          {
+            "name": "panel:active",
+            "atMs": 142.69999980926514
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 149.89999961853027
+          },
+          {
+            "name": "transcript:read-end",
+            "atMs": 761.0999994277954
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 798.0999994277954
+          }
+        ],
+        "meta": {
+          "rows": 0,
+          "mode": "native",
+          "items": 0,
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "8f89360c-1054-4535-9397-36ed562a1662",
+        "startedAt": 1784419009277,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 796.5999994277954,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.3999996185302734
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 153.5999994277954
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 153.79999923706055
+          },
+          {
+            "name": "viewstate:sent",
+            "atMs": 154.29999923706055
+          },
+          {
+            "name": "panel:mount",
+            "atMs": 154.29999923706055
+          },
+          {
+            "name": "panel:active",
+            "atMs": 154.29999923706055
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 159.89999961853027
+          },
+          {
+            "name": "transcript:read-end",
+            "atMs": 765.5999994277954
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 796.5999994277954
+          }
+        ],
+        "meta": {
+          "rows": 0,
+          "mode": "native",
+          "items": 0,
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "25bbd728-b426-4114-9659-0a1ab77b8b94",
+        "startedAt": 1784419012049,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 887.0999994277954,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 126.19999980926514
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 126.30000019073486
+          },
+          {
+            "name": "viewstate:sent",
+            "atMs": 126.80000019073486
+          },
+          {
+            "name": "panel:mount",
+            "atMs": 126.80000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 126.80000019073486
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 131.89999961853027
+          },
+          {
+            "name": "transcript:read-end",
+            "atMs": 844.8999996185303
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 887.0999994277954
+          }
+        ],
+        "meta": {
+          "rows": 0,
+          "mode": "native",
+          "items": 0,
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "746b4e62-a639-49aa-9018-849384aa332e",
+        "startedAt": 1784419014771,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 869,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.7999992370605469
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 173.5
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 173.5999994277954
+          },
+          {
+            "name": "viewstate:sent",
+            "atMs": 174.39999961853027
+          },
+          {
+            "name": "panel:mount",
+            "atMs": 174.39999961853027
+          },
+          {
+            "name": "panel:active",
+            "atMs": 174.39999961853027
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 183.0999994277954
+          },
+          {
+            "name": "transcript:read-end",
+            "atMs": 847.8999996185303
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 869
+          }
+        ],
+        "meta": {
+          "rows": 0,
+          "mode": "native",
+          "items": 0,
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "59bc039b-7224-4cc7-80bd-385726cf3b9a",
+        "startedAt": 1784419017563,
+        "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+        "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+        "mode": "chat",
+        "cold": true,
+        "totalMs": 843.7999992370605,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1999998092651367
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 153.29999923706055
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 153.5
+          },
+          {
+            "name": "viewstate:sent",
+            "atMs": 154
+          },
+          {
+            "name": "panel:mount",
+            "atMs": 154
+          },
+          {
+            "name": "panel:active",
+            "atMs": 154
+          },
+          {
+            "name": "chat:rows-built",
+            "atMs": 160.19999980926514
+          },
+          {
+            "name": "transcript:read-end",
+            "atMs": 815.8999996185303
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 843.7999992370605
+          }
+        ],
+        "meta": {
+          "rows": 0,
+          "mode": "native",
+          "items": 0,
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "9446b4d7-adca-4105-894c-8f5afa701846",
+        "startedAt": 1784419020364,
+        "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+        "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+        "mode": "native",
+        "cold": true,
+        "totalMs": 341.79999923706055,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "viewstate:sent",
+            "atMs": 165.0999994277954
+          },
+          {
+            "name": "panel:mount",
+            "atMs": 165.0999994277954
+          },
+          {
+            "name": "panel:active",
+            "atMs": 165.0999994277954
+          },
+          {
+            "name": "term:mount",
+            "atMs": 241.5
+          },
+          {
+            "name": "term:fit:measured",
+            "atMs": 250.0999994277954
+          },
+          {
+            "name": "term:fit:action",
+            "atMs": 250.39999961853027
+          },
+          {
+            "name": "term:fit:measured",
+            "atMs": 252.29999923706055
+          },
+          {
+            "name": "term:fit:action",
+            "atMs": 252.39999961853027
+          },
+          {
+            "name": "term:connection:reset",
+            "atMs": 336.79999923706055
+          },
+          {
+            "name": "term:connection:attached",
+            "atMs": 341.69999980926514
+          },
+          {
+            "name": "term:ready",
+            "atMs": 341.79999923706055
+          }
+        ],
+        "meta": {
+          "mode": "native"
+        }
+      },
+      {
+        "switchId": "d6f555a7-6d80-4904-a08b-eebcf9b622e0",
+        "startedAt": 1784419023324,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 208.5,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8999996185302734
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 173.5
+          },
+          {
+            "name": "panel:active",
+            "atMs": 173.69999980926514
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 208.5
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "2dfee06e-22a1-4a85-b07f-d60a713023a5",
+        "startedAt": 1784419026126,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 176.19999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1999998092651367
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 155.5
+          },
+          {
+            "name": "panel:active",
+            "atMs": 155.80000019073486
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 176.19999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "2d84a6e9-e4d4-4f2b-9e09-e6bc3086a603",
+        "startedAt": 1784419028914,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 183.69999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 2.09999942779541
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 157.69999980926514
+          },
+          {
+            "name": "panel:active",
+            "atMs": 158
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 183.69999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "9f6d6cd7-ffc2-4b1c-bb3e-8cb81953afa9",
+        "startedAt": 1784419032142,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 168.19999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8000001907348633
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 145.80000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 146.10000038146973
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 168.19999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "c3ff6693-bee0-4190-b54e-9163c01e1545",
+        "startedAt": 1784419034904,
+        "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+        "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 181.19999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.0999994277954102
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 158.19999980926514
+          },
+          {
+            "name": "panel:active",
+            "atMs": 158.39999961853027
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 181.19999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "44ecbd25-2feb-4689-87a9-b802e0239c29",
+        "startedAt": 1784419037676,
+        "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+        "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+        "mode": "native",
+        "cold": false,
+        "totalMs": 134.5,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8000001907348633
+          },
+          {
+            "name": "panel:active",
+            "atMs": 133.80000019073486
+          },
+          {
+            "name": "term:panel:active-change",
+            "atMs": 134
+          },
+          {
+            "name": "term:reveal:start",
+            "atMs": 134.19999980926514
+          },
+          {
+            "name": "term:reveal:measured",
+            "atMs": 134.5
+          },
+          {
+            "name": "term:ready",
+            "atMs": 134.5
+          }
+        ],
+        "meta": {
+          "mode": "native"
+        }
+      },
+      {
+        "switchId": "decd3663-fc10-4db6-8f37-0c1defd63436",
+        "startedAt": 1784419040420,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 138.39999961853027,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1000003814697266
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 119
+          },
+          {
+            "name": "panel:active",
+            "atMs": 119.10000038146973
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 138.39999961853027
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "36f748cb-87e3-49fe-8e3a-ae61cc4f7151",
+        "startedAt": 1784419043140,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 187.5,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8000001907348633
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 160.9000005722046
+          },
+          {
+            "name": "panel:active",
+            "atMs": 161.19999980926514
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 187.5
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "7a2d09ee-1b74-445b-879b-9376039f594b",
+        "startedAt": 1784419045911,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 172.0999994277954,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8000001907348633
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 148.89999961853027
+          },
+          {
+            "name": "panel:active",
+            "atMs": 149.19999980926514
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 172.0999994277954
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "01c2c00e-d391-494f-922c-385455df7cac",
+        "startedAt": 1784419048678,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 152.10000038146973,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.6000003814697266
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 127.5
+          },
+          {
+            "name": "panel:active",
+            "atMs": 127.80000019073486
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 152.10000038146973
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "fe57e1bc-b137-4b8b-860a-a0e6fbda92df",
+        "startedAt": 1784419051421,
+        "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+        "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 153.30000019073486,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.3999996185302734
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 127.30000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 127.5
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 153.30000019073486
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "5825fc15-8443-4392-a244-b09057c5e019",
+        "startedAt": 1784419054161,
+        "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+        "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+        "mode": "native",
+        "cold": false,
+        "totalMs": 134.60000038146973,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8000001907348633
+          },
+          {
+            "name": "panel:active",
+            "atMs": 134.10000038146973
+          },
+          {
+            "name": "term:panel:active-change",
+            "atMs": 134.30000019073486
+          },
+          {
+            "name": "term:reveal:start",
+            "atMs": 134.4000005722046
+          },
+          {
+            "name": "term:reveal:measured",
+            "atMs": 134.60000038146973
+          },
+          {
+            "name": "term:ready",
+            "atMs": 134.60000038146973
+          }
+        ],
+        "meta": {
+          "mode": "native"
+        }
+      },
+      {
+        "switchId": "f973d087-91ac-4051-aeca-ee4bba088630",
+        "startedAt": 1784419056928,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 180.80000019073486,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.5
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 156.69999980926514
+          },
+          {
+            "name": "panel:active",
+            "atMs": 156.89999961853027
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 180.80000019073486
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "8dadaac6-c39d-41ae-bc77-fce516ef045e",
+        "startedAt": 1784419059716,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 173.19999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 151.19999980926514
+          },
+          {
+            "name": "panel:active",
+            "atMs": 151.39999961853027
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 173.19999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "a2488bc4-10a3-4425-b030-76c540ac6a2e",
+        "startedAt": 1784419062472,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 158.80000019073486,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.9000005722045898
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 135.60000038146973
+          },
+          {
+            "name": "panel:active",
+            "atMs": 135.80000019073486
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 158.80000019073486
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "dcaa91c2-0216-4f7e-af3f-d167fa2414dc",
+        "startedAt": 1784419065224,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 168.19999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.9000005722045898
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 144.80000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 145
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 168.19999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "9e8e38ef-2d20-4d6c-818f-a5d1ffcbd91c",
+        "startedAt": 1784419068018,
+        "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+        "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 179,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1999998092651367
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 158.80000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 158.89999961853027
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 179
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "d6ac8e37-81d2-48e1-80a5-db2324e2a9ab",
+        "startedAt": 1784419070790,
+        "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+        "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+        "mode": "native",
+        "cold": false,
+        "totalMs": 130.10000038146973,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.8000001907348633
+          },
+          {
+            "name": "panel:active",
+            "atMs": 129.5
+          },
+          {
+            "name": "term:panel:active-change",
+            "atMs": 129.60000038146973
+          },
+          {
+            "name": "term:reveal:start",
+            "atMs": 129.80000019073486
+          },
+          {
+            "name": "term:reveal:measured",
+            "atMs": 130.10000038146973
+          },
+          {
+            "name": "term:ready",
+            "atMs": 130.10000038146973
+          }
+        ],
+        "meta": {
+          "mode": "native"
+        }
+      },
+      {
+        "switchId": "05d3c99d-4c8a-4815-8438-0d6290223e9b",
+        "startedAt": 1784419073555,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 167,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1999998092651367
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 143.29999923706055
+          },
+          {
+            "name": "panel:active",
+            "atMs": 143.5999994277954
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 167
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "4f7e7f52-b33b-421c-8ab3-71c79d787137",
+        "startedAt": 1784419076303,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 164.9000005722046,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.6000003814697266
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 145.60000038146973
+          },
+          {
+            "name": "panel:active",
+            "atMs": 145.80000019073486
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 164.9000005722046
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "644a81a2-d4bf-4e92-9d4f-514985ec436e",
+        "startedAt": 1784419079039,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 168.29999923706055,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.5999994277954102
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 142.5
+          },
+          {
+            "name": "panel:active",
+            "atMs": 142.79999923706055
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 168.29999923706055
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "37257a39-0bbb-42ae-8c40-fbc6d1ce1dc8",
+        "startedAt": 1784419081958,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 186.39999961853027,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 2.3999996185302734
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 163.0999994277954
+          },
+          {
+            "name": "panel:active",
+            "atMs": 163.39999961853027
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 186.39999961853027
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "4b070015-c50b-49a8-97eb-250f3047aef0",
+        "startedAt": 1784419084758,
+        "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+        "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 164,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 142
+          },
+          {
+            "name": "panel:active",
+            "atMs": 142.19999980926514
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 164
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "50f488a3-d7e2-4ef8-bf7e-57a694ff3b31",
+        "startedAt": 1784419087525,
+        "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+        "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+        "mode": "native",
+        "cold": false,
+        "totalMs": 119.39999961853027,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.0999994277954102
+          },
+          {
+            "name": "panel:active",
+            "atMs": 118.89999961853027
+          },
+          {
+            "name": "term:panel:active-change",
+            "atMs": 119.09999942779541
+          },
+          {
+            "name": "term:reveal:start",
+            "atMs": 119.19999980926514
+          },
+          {
+            "name": "term:reveal:measured",
+            "atMs": 119.39999961853027
+          },
+          {
+            "name": "term:ready",
+            "atMs": 119.39999961853027
+          }
+        ],
+        "meta": {
+          "mode": "native"
+        }
+      },
+      {
+        "switchId": "5d6b321b-5217-4fd7-8019-91f5ea776b09",
+        "startedAt": 1784419090268,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 138.5,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1000003814697266
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 118
+          },
+          {
+            "name": "panel:active",
+            "atMs": 118.20000076293945
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 138.5
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "e9fb1305-3aa2-4ed6-bd39-83e1f8064369",
+        "startedAt": 1784419093383,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 151.5,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.5
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 129.69999980926514
+          },
+          {
+            "name": "panel:active",
+            "atMs": 129.89999961853027
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 151.5
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "e2ab9160-b82f-4b64-beb9-6a1c4600516f",
+        "startedAt": 1784419096129,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 148.19999980926514,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.1999998092651367
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 128.30000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 128.5
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 148.19999980926514
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "f722efae-0bff-49c3-bfc3-b1ea0a7b3637",
+        "startedAt": 1784419098870,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 155.80000019073486,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 0.9000005722045898
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 135.10000038146973
+          },
+          {
+            "name": "panel:active",
+            "atMs": 135.30000019073486
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 155.80000019073486
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "e27cbc79-8bcd-4c32-ae7a-9a351b6e78d3",
+        "startedAt": 1784419101607,
+        "sessionId": "d620000a-237a-4ae6-aab7-f900a2db4f5a",
+        "issueId": "iss_660ab7dd-3339-4c76-9133-3692ffcc1ee6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 168.5999994277954,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.5999994277954102
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 141.39999961853027
+          },
+          {
+            "name": "panel:active",
+            "atMs": 141.5
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 168.5999994277954
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "f0e91bad-2a60-4013-bd1d-008aa49218ef",
+        "startedAt": 1784419104364,
+        "sessionId": "63230a3d-d7fa-4f85-9ad2-29aca44d9c0e",
+        "issueId": "iss_c084e54c-5bf8-41de-8050-8c7b17bcc4ba",
+        "mode": "native",
+        "cold": false,
+        "totalMs": 146.10000038146973,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "panel:active",
+            "atMs": 145.60000038146973
+          },
+          {
+            "name": "term:panel:active-change",
+            "atMs": 145.9000005722046
+          },
+          {
+            "name": "term:reveal:start",
+            "atMs": 145.9000005722046
+          },
+          {
+            "name": "term:reveal:measured",
+            "atMs": 146.10000038146973
+          },
+          {
+            "name": "term:ready",
+            "atMs": 146.10000038146973
+          }
+        ],
+        "meta": {
+          "mode": "native"
+        }
+      },
+      {
+        "switchId": "e1527404-00a3-4262-8947-d8d89980fa43",
+        "startedAt": 1784419107136,
+        "sessionId": "7a8277e3-176a-44e6-a3f6-5cb1f5b37e26",
+        "issueId": "iss_13fab649-d904-42f6-9264-3c68c2a82fc9",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 144.60000038146973,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 124.30000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 124.5
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 144.60000038146973
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "aee9bd62-b200-4677-8de1-9cf1cff00544",
+        "startedAt": 1784419110289,
+        "sessionId": "ed9fec91-734a-40ea-b68c-8cdda34ae279",
+        "issueId": "iss_133da723-a19a-4279-9497-679a22b1538f",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 144.20000076293945,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.3000001907348633
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 123.30000019073486
+          },
+          {
+            "name": "panel:active",
+            "atMs": 123.5
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 144.20000076293945
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "b9d62401-2235-4bda-84c3-15108320e5a6",
+        "startedAt": 1784419113026,
+        "sessionId": "04a2b54c-cb53-4020-8c09-d8b01df59706",
+        "issueId": "iss_7d46300c-4e01-43d9-8b37-0b6b67df17c6",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 152.30000019073486,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 131.39999961853027
+          },
+          {
+            "name": "panel:active",
+            "atMs": 131.5999994277954
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 152.30000019073486
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      },
+      {
+        "switchId": "b54277a8-4442-43a2-ac3f-97a6ed5ae6a0",
+        "startedAt": 1784419115755,
+        "sessionId": "ce34e78a-b3e7-41c4-ab57-adc253998cf2",
+        "issueId": "iss_30c4cc7e-4134-47dc-aa7b-94bedcb96d7c",
+        "mode": "chat",
+        "cold": false,
+        "totalMs": 159.39999961853027,
+        "timedOut": false,
+        "marks": [
+          {
+            "name": "viewstate:sent",
+            "atMs": 1.5
+          },
+          {
+            "name": "transcript:read-start",
+            "atMs": 136.5
+          },
+          {
+            "name": "panel:active",
+            "atMs": 136.5999994277954
+          },
+          {
+            "name": "chat:first-paint",
+            "atMs": 159.39999961853027
+          }
+        ],
+        "meta": {
+          "mode": "native",
+          "paintedRows": 0
+        }
+      }
+    ],
+    "sinceAt": 1784418980570
+  }
+}

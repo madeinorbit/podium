@@ -1,0 +1,13 @@
+POD-798 switch-latency bench (POD-701/736 harness: scripts/switch-bench-serve.ts + tests/e2e/switch-bench.ts)
+HEAD 10c647cc · isolated stack (BENCH_STATE=/tmp/pod-798-runtime-10c647cc/state, port 28798, PODIUM_NO_SCOPE=1)
+Seeded scale: 1001 issues / 749 sessions (read-only copy of ~/.podium/podium.db taken 2026-07-18 23:17)
+BENCH_MODE=chat BENCH_SWITCHES=40 BENCH_ROWS=6 (warm-set rotation) BENCH_DWELL=2500
+
+traces=40 quiesced=40 timedOut=0
+p50=168ms  p90=798ms  max=887ms
+
+Reference (post-722/725 main, 530-session scale): p50 548ms / p90 1012ms.
+Verdict: at/better than parity — no switch regression from the pilot. (Expected ~parity:
+the pilot's win is the agent-activity path, committed as the POD-796 bench.)
+Raw traces + server perf snapshot: 05-switch-latency.json (metric names untouched —
+packages/protocol/src/perf.ts stability contract respected; consumer only reads).
