@@ -718,6 +718,30 @@ function sameProviderCursor(left: ProviderCursor | null, right: ProviderCursor):
   )
 }
 
+function authoritativeCodexCheckpoint(
+  config: CodexCausalObserverConfig,
+  checkpoint: SessionObservationCheckpointV1 | null | undefined,
+): SessionObservationCheckpointV1 | null {
+  return checkpoint &&
+    checkpoint.podiumSessionId === config.podiumSessionId &&
+    checkpoint.provider === 'codex' &&
+    checkpoint.providerSessionId === config.providerSessionId &&
+    checkpoint.bindingVersion === config.bindingVersion &&
+    checkpoint.lifecycleObservationGeneration <= config.observerGeneration &&
+    checkpoint.providerCursor !== null
+    ? checkpoint
+    : null
+}
+
+function sameProviderFile(left: ProviderCursor, right: ProviderCursor): boolean {
+  return (
+    left.segmentId === right.segmentId &&
+    left.pathHint === right.pathHint &&
+    left.device === right.device &&
+    left.inode === right.inode
+  )
+}
+
 function codexBootstrapFromCheckpoint(
   checkpoint: SessionObservationCheckpointV1,
   providerCursor: ProviderCursor,
@@ -800,6 +824,7 @@ export class CodexCausalCursorObserver {
   private accepted: CodexRolloutBootstrap
   private pending: PendingCodexObservation | null = null
   private physicalReadOffset: number
+  private recoveredCheckpoint: SessionObservationCheckpointV1 | null = null
 
   constructor(
     private readonly config: CodexCausalObserverConfig,
@@ -826,9 +851,20 @@ export class CodexCausalCursorObserver {
     return this.pending !== null
   }
 
+  get pendingObservation(): AgentObservation | null {
+    return this.pending?.observation ?? null
+  }
+
   get readOffset(): number {
     return this.physicalReadOffset
   }
+
+  takeRecoveredCheckpoint(): SessionObservationCheckpointV1 | null {
+    const checkpoint = this.recoveredCheckpoint
+    this.recoveredCheckpoint = null
+    return checkpoint
+  }
+
   async observeRecord(record: unknown, endOffset: number): Promise<AgentObservation | null> {
     if (this.pending) return null
     if (!Number.isInteger(endOffset) || endOffset <= this.physicalReadOffset || !isRecord(record))
@@ -956,12 +992,24 @@ export class CodexCausalCursorObserver {
     ) {
       return false
     }
-    const advancesCursor =
-      ack.result !== 'rejected' ||
-      (ack.result === 'rejected' &&
-        ack.rejectionReason === 'duplicate_transition' &&
-        sameProviderCursor(durableAck.acceptedCursor ?? null, pending.observation.providerCursor))
-    if (advancesCursor) this.accepted = pending.next
+    const duplicate =
+      ack.result === 'rejected' &&
+      ack.rejectionReason === 'duplicate_transition' &&
+      sameProviderCursor(durableAck.acceptedCursor ?? null, pending.observation.providerCursor)
+    if (ack.result === 'rejected' && !duplicate) {
+      const checkpoint = authoritativeCodexCheckpoint(this.config, ack.checkpoint)
+      if (!checkpoint?.providerCursor) return true
+      const rejectedCursor = pending.observation.providerCursor
+      const durableOffset = checkpoint.providerCursor.components.file ?? 0
+      this.accepted = codexBootstrapFromCheckpoint(checkpoint, checkpoint.providerCursor)
+      this.physicalReadOffset = sameProviderFile(checkpoint.providerCursor, rejectedCursor)
+        ? Math.max(durableOffset, rejectedCursor.components.file ?? 0)
+        : durableOffset
+      this.pending = null
+      this.recoveredCheckpoint = checkpoint
+      return true
+    }
+    this.accepted = pending.next
     this.pending = null
     return true
   }
@@ -1003,6 +1051,8 @@ export interface CodexCausalStateOptions {
   onObservation(observation: AgentObservation): void
   onLivePollComplete?(providerCursor: ProviderCursor): void
   onRebindRequired(providerSessionId: string): void
+  retryMs?: number
+  retryNow?: () => number
 }
 
 export interface CodexStateObservation {
@@ -1090,9 +1140,22 @@ export function observeCodexState(opts: {
   let causalBootstrapObservation: AgentObservation | null = null
   let awaitingCausalBootstrapAck = false
   let requestedRebindSessionId: string | null = null
+  let causalRebindRetryAt = 0
   // The hot path: re-read the native (state-DB) title on every ~700ms tick. The
   // reader skips the SQLite open+`SELECT *` while the state DB's mtime is unchanged,
   // returning the prior metadata, so an idle session no longer hits sqlite per tick.
+  let causalRetryAt = 0
+  let causalAcceptedCheckpoint = opts.causal?.acceptedCheckpoint ?? null
+  const causalRetryMs = opts.causal?.retryMs ?? 2_000
+  const causalRetryNow = opts.causal?.retryNow ?? Date.now
+  const sendCausalObservation = (observation: AgentObservation, force = false): void => {
+    const causal = opts.causal
+    if (!causal) return
+    const now = causalRetryNow()
+    if (!force && now < causalRetryAt) return
+    causalRetryAt = now + causalRetryMs
+    causal.onObservation(observation)
+  }
   const stateReader = sharedCodexStateMetadataReaders.acquire(codexHome)
   const readState = stateReader.read
 
@@ -1119,6 +1182,8 @@ export function observeCodexState(opts: {
       causalBootstrapObservation = null
       awaitingCausalBootstrapAck = false
       requestedRebindSessionId = null
+      causalRebindRetryAt = 0
+      causalRetryAt = 0
     }
     if (found.id && announcedThreadId !== found.id) {
       announcedThreadId = found.id
@@ -1154,8 +1219,11 @@ export function observeCodexState(opts: {
 
   const requestCausalRebind = (providerSessionId: string): void => {
     const causal = opts.causal
-    if (!causal || requestedRebindSessionId === providerSessionId) return
+    if (!causal) return
+    const now = causalRetryNow()
+    if (requestedRebindSessionId === providerSessionId && now < causalRebindRetryAt) return
     requestedRebindSessionId = providerSessionId
+    causalRebindRetryAt = now + causalRetryMs
     causal.onRebindRequired(providerSessionId)
   }
 
@@ -1171,7 +1239,7 @@ export function observeCodexState(opts: {
     const activePath = rolloutPath
     const folded = await foldCodexRolloutBootstrap(
       activePath,
-      causal.acceptedCheckpoint,
+      causalAcceptedCheckpoint,
       causalPredecessorCursor,
     )
     if (stopped || rolloutPath !== activePath) return true
@@ -1186,12 +1254,13 @@ export function observeCodexState(opts: {
     causalBootstrapObservation = codexBootstrapObservation(config, folded)
     awaitingCausalBootstrapAck = true
     requestedRebindSessionId = null
+    causalRebindRetryAt = 0
+    causalRetryAt = 0
     causalPredecessorCursor = null
     if (!firstPromptTitled && lastEmittedTitle === undefined && folded.firstPromptTitle) {
       firstPromptTitled = true
       sendTitle(folded.firstPromptTitle)
     }
-    causal.onObservation(causalBootstrapObservation)
     return true
   }
 
@@ -1201,7 +1270,16 @@ export function observeCodexState(opts: {
   ): Promise<ProviderCursor | null> => {
     const causal = opts.causal
     const observer = causalObserver
-    if (!causal || !observer || awaitingCausalBootstrapAck || observer.waitingForAck) return null
+    if (!causal || !observer) return null
+    if (awaitingCausalBootstrapAck) {
+      if (causalBootstrapObservation) sendCausalObservation(causalBootstrapObservation)
+      return null
+    }
+    if (observer.waitingForAck) {
+      const pending = observer.pendingObservation
+      if (pending) sendCausalObservation(pending)
+      return null
+    }
     const cursor = observer.acceptedSnapshot.providerCursor
     const device = String(info.dev)
     const inode = String(info.ino)
@@ -1226,7 +1304,7 @@ export function observeCodexState(opts: {
         }
       }
       if (observation) {
-        causal.onObservation(observation)
+        sendCausalObservation(observation, true)
         return null
       }
       if (observer.readOffset <= startOffset) return null
@@ -1385,27 +1463,27 @@ export function observeCodexState(opts: {
         ack.acceptedCursor !== null &&
         ack.acceptedCursor !== undefined &&
         sameProviderCursor(ack.acceptedCursor, bootstrap.providerCursor)
-      const checkpoint = causal.acceptedCheckpoint
-      const reconciledCheckpoint =
-        ack.result === 'rejected' &&
-        (ack.rejectionReason === 'cursor_not_after_checkpoint' ||
-          ack.rejectionReason === 'terminal_epoch_closed') &&
-        ack.acceptedCursor !== null &&
-        ack.acceptedCursor !== undefined &&
-        checkpoint !== null &&
-        sameProviderCursor(checkpoint.providerCursor, ack.acceptedCursor)
-      if (ack.result === 'rejected' && !duplicateBootstrap && !reconciledCheckpoint) return
-      if (reconciledCheckpoint && checkpoint && ack.acceptedCursor && causal.providerSessionId) {
-        const config: CodexCausalObserverConfig = {
-          podiumSessionId: causal.podiumSessionId,
-          providerSessionId: causal.providerSessionId,
-          observerGeneration: causal.observerGeneration,
-          bindingVersion: causal.bindingVersion,
-          onRebindRequired: requestCausalRebind,
-        }
+      const config: CodexCausalObserverConfig | null = causal.providerSessionId
+        ? {
+            podiumSessionId: causal.podiumSessionId,
+            providerSessionId: causal.providerSessionId,
+            observerGeneration: causal.observerGeneration,
+            bindingVersion: causal.bindingVersion,
+            onRebindRequired: requestCausalRebind,
+          }
+        : null
+      const checkpoint = config ? authoritativeCodexCheckpoint(config, ack.checkpoint) : null
+      const recoveredCheckpoint =
+        ack.result === 'rejected' && !duplicateBootstrap ? checkpoint : null
+      if (ack.result === 'rejected' && !duplicateBootstrap && !recoveredCheckpoint) {
+        sendCausalObservation(bootstrap, true)
+        return
+      }
+      if (checkpoint) causalAcceptedCheckpoint = checkpoint
+      if (recoveredCheckpoint?.providerCursor && config) {
         causalObserver = new CodexCausalCursorObserver(
           config,
-          codexBootstrapFromCheckpoint(checkpoint, ack.acceptedCursor),
+          codexBootstrapFromCheckpoint(recoveredCheckpoint, recoveredCheckpoint.providerCursor),
         )
       }
       awaitingCausalBootstrapAck = false
@@ -1415,6 +1493,21 @@ export function observeCodexState(opts: {
       return
     }
     if (causalObserver?.acknowledge(ack)) {
+      const recovered = causalObserver.takeRecoveredCheckpoint()
+      if (recovered) causalAcceptedCheckpoint = recovered
+      else if (causal.providerSessionId) {
+        const checkpoint = authoritativeCodexCheckpoint(
+          {
+            podiumSessionId: causal.podiumSessionId,
+            providerSessionId: causal.providerSessionId,
+            observerGeneration: causal.observerGeneration,
+            bindingVersion: causal.bindingVersion,
+          },
+          ack.checkpoint,
+        )
+        if (checkpoint) causalAcceptedCheckpoint = checkpoint
+      }
+      if (!causalObserver.waitingForAck) causalRetryAt = 0
       causalPredecessorCursor = causalObserver.acceptedSnapshot.providerCursor
       void tick()
     }

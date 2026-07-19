@@ -28,6 +28,7 @@ import {
   observeCodexState,
   translateCodexEvent,
 } from './codex.js'
+import { reduceAgentState } from './reducer.js'
 
 const env = (ptype: string, extra: Record<string, unknown> = {}) => ({
   type: 'event_msg',
@@ -1139,6 +1140,18 @@ describe('foldCodexRolloutBootstrap', () => {
     } as Parameters<typeof observer.acknowledge>[0]
     expect(observer.acknowledge(wrongBinding)).toBe(false)
     expect(observer.waitingForAck).toBe(true)
+    const rejected = {
+      ...wrongBinding,
+      bindingVersion: 2,
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+      acceptedCursor: folded.providerCursor,
+    } as Parameters<typeof observer.acknowledge>[0]
+    expect(observer.acknowledge(rejected)).toBe(true)
+    expect(observer.waitingForAck).toBe(true)
+    expect(observer.pendingObservation?.transitionId).toBe(observation.transitionId)
+    expect(observer.acceptedSnapshot.providerCursor).toEqual(folded.providerCursor)
+    expect(observer.readOffset).toBe(offset)
     const duplicate = {
       type: 'agentObservationAck',
       sessionId: 'podium-ack',
@@ -1152,6 +1165,118 @@ describe('foldCodexRolloutBootstrap', () => {
     expect(observer.acknowledge(duplicate)).toBe(true)
     expect(observer.waitingForAck).toBe(false)
     expect(observer.acceptedSnapshot.providerCursor.components.file).toBe(offset)
+  })
+
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('adopts an authoritative checkpoint after %s and emits one later real turn', async (rejectionReason) => {
+    const threadId = 'thread-authoritative-rejection'
+    const folded = await foldCodexRolloutBootstrap(
+      await rollout(
+        line({ type: 'session_meta', payload: { id: threadId, cwd: '/repo/x' } }) +
+          event('task_started', '2026-07-19T12:00:00.000Z', { turn_id: 'closed-turn' }) +
+          event('task_complete', '2026-07-19T12:00:01.000Z'),
+      ),
+    )
+    const checkpoint = acceptBootstrap(folded, threadId)
+    expect(checkpoint.terminalFence).not.toBeNull()
+    const now = '2026-07-19T12:05:00.000Z'
+    const observer = new CodexCausalCursorObserver(
+      {
+        podiumSessionId: 'podium-checkpoint',
+        providerSessionId: threadId,
+        observerGeneration: 1,
+        bindingVersion: 1,
+        now: () => now,
+      },
+      {
+        ...folded,
+        state: reduceAgentState(checkpoint.turnState, { kind: 'prompt_submitted' }, now),
+        turnOpen: true,
+        turnEpoch: checkpoint.turnEpoch,
+      },
+    )
+    let offset = folded.providerCursor.components.file ?? 0
+    offset += 100
+    const rejected = await observer.observeRecord(
+      { type: 'event_msg', payload: { type: 'task_complete' } },
+      offset,
+    )
+    if (!rejected) throw new Error('missing rejected terminal')
+    expect(
+      observer.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: 'podium-checkpoint',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: rejected.transitionId,
+        result: 'rejected',
+        rejectionReason,
+        acceptedCursor: checkpoint.providerCursor,
+        checkpoint,
+      }),
+    ).toBe(true)
+    expect(observer.waitingForAck).toBe(false)
+    expect(observer.acceptedSnapshot).toMatchObject({
+      turnEpoch: checkpoint.turnEpoch,
+      turnOpen: false,
+      state: checkpoint.turnState,
+    })
+    expect(observer.readOffset).toBe(offset)
+
+    offset += 100
+    expect(
+      await observer.observeRecord(
+        { type: 'event_msg', payload: { type: 'agent_message' } },
+        offset,
+      ),
+    ).toBeNull()
+    offset += 100
+    const opened = await observer.observeRecord(
+      {
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'later-real-turn' },
+      },
+      offset,
+    )
+    if (!opened) throw new Error('missing later prompt')
+    expect(opened).toMatchObject({
+      transitionKind: 'turn_opened',
+      nextPhase: 'working',
+      turnEpoch: checkpoint.turnEpoch + 1,
+    })
+    const lease: ObservationLease = {
+      provider: 'codex',
+      providerSessionId: threadId,
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+    const acceptedOpen = acceptAgentObservation(checkpoint, lease, opened, now)
+    if (acceptedOpen.kind === 'rejected') throw new Error(acceptedOpen.rejectionReason)
+    observer.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-checkpoint',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: opened.transitionId,
+      result: acceptedOpen.kind,
+      acceptedCursor: acceptedOpen.checkpoint.providerCursor,
+      checkpoint: acceptedOpen.checkpoint,
+    })
+
+    offset += 100
+    const terminal = await observer.observeRecord(
+      { type: 'event_msg', payload: { type: 'task_complete' } },
+      offset,
+    )
+    if (!terminal) throw new Error('missing later terminal')
+    expect(terminal).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'idle',
+      turnEpoch: checkpoint.turnEpoch + 1,
+    })
+    expect([opened.nextPhase, terminal.nextPhase]).toEqual(['working', 'idle'])
   })
 
   it('validates exact session identity before cursor handling and blocks reads behind ack', async () => {
@@ -1209,6 +1334,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const livePath = join(resolve(path, '..'), 'rollout-2026-07-19T10-00-00-thread-poll.jsonl')
     await rename(path, livePath)
     const observations: AgentObservation[] = []
+    let retryNow = 0
     const livePolls: unknown[] = []
     const legacyEvents: unknown[] = []
     const rebinds: string[] = []
@@ -1223,6 +1349,8 @@ describe('foldCodexRolloutBootstrap', () => {
         observerGeneration: 5,
         bindingVersion: 3,
         acceptedCheckpoint: null,
+        retryMs: 1,
+        retryNow: () => retryNow,
         onObservation: (value) => observations.push(value),
         onLivePollComplete: (cursor) => livePolls.push(cursor),
         onRebindRequired: (providerSessionId) => rebinds.push(providerSessionId),
@@ -1233,6 +1361,21 @@ describe('foldCodexRolloutBootstrap', () => {
       await vi.waitFor(() => expect(observations).toHaveLength(1))
       expect(observations[0]?.transitionKind).toBe('snapshot')
       const bootstrap = observations[0]!
+      retryNow = 1
+      await vi.waitFor(() => expect(observations).toHaveLength(2))
+      expect(observations[1]?.transitionId).toBe(bootstrap.transitionId)
+      observation.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-poll',
+        observerGeneration: 5,
+        bindingVersion: 3,
+        transitionId: bootstrap.transitionId,
+        result: 'rejected',
+        rejectionReason: 'provider_binding_mismatch',
+      })
+      expect(observations).toHaveLength(3)
+      expect(observations[2]?.transitionId).toBe(bootstrap.transitionId)
+      observations.splice(1)
       observation.onObservationAck({
         type: 'agentObservationAck',
         sessionId: 'podium-poll',
@@ -1249,6 +1392,10 @@ describe('foldCodexRolloutBootstrap', () => {
       await vi.waitFor(() => expect(observations).toHaveLength(2))
       const working = observations[1]!
       expect(working).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
+      retryNow = 2
+      await vi.waitFor(() => expect(observations).toHaveLength(3))
+      expect(observations[2]?.transitionId).toBe(working.transitionId)
+      observations.splice(2)
       observation.onObservationAck({
         type: 'agentObservationAck',
         sessionId: 'podium-poll',

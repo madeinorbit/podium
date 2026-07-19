@@ -17,6 +17,8 @@ export interface GrokObservationLease {
   acceptedCheckpoint: SessionObservationCheckpointV1 | null
   onObservation(observation: AgentObservation): void
   now?: () => string
+  retryMs?: number
+  retryNow?: () => number
 }
 
 export interface GrokRecordEvidence {
@@ -26,6 +28,8 @@ export interface GrokRecordEvidence {
   sourceEventKind: string
   providerAt: string | null
 }
+
+const MAX_BUFFERED_GROK_RECORDS = 64
 
 export type GrokSegmentIdentity = {
   segmentId: string
@@ -50,7 +54,7 @@ export class GrokCausalObserver {
   private acceptedCursor: ProviderCursor | null
   private readonly queued: GrokRecordEvidence[] = []
   private inFlight: AgentObservation | null = null
-  private paused = false
+  private nextRetryAt = 0
   private draining = false
 
   constructor(private readonly lease: GrokObservationLease) {
@@ -74,6 +78,19 @@ export class GrokCausalObserver {
 
   get acceptedProviderCursor(): ProviderCursor | null {
     return this.acceptedCursor
+  }
+
+  get bufferedRecordCount(): number {
+    return this.queued.length
+  }
+
+  retryPending(force = false): boolean {
+    if (!this.inFlight) return false
+    const now = this.lease.retryNow?.() ?? Date.now()
+    if (!force && now < this.nextRetryAt) return true
+    this.nextRetryAt = now + (this.lease.retryMs ?? 2_000)
+    this.lease.onObservation(this.inFlight)
+    return true
   }
 
   /**
@@ -131,9 +148,11 @@ export class GrokCausalObserver {
     this.deliver(observation)
   }
 
-  enqueue(record: GrokRecordEvidence): void {
+  enqueue(record: GrokRecordEvidence): boolean {
+    if (this.queued.length >= MAX_BUFFERED_GROK_RECORDS) return false
     this.queued.push(record)
     void this.drain()
+    return true
   }
 
   acknowledge(ack: AgentObservationAckMessage): void {
@@ -149,21 +168,67 @@ export class GrokCausalObserver {
     }
     const acceptedCursor = ack.acceptedCursor ?? null
     const released =
-      ack.result !== 'rejected'
-        ? true
-        : ack.rejectionReason === 'duplicate_transition'
-          ? acceptedCursor !== null && sameCursor(acceptedCursor, current.providerCursor)
-          : ack.rejectionReason === 'cursor_not_after_checkpoint' ||
-              ack.rejectionReason === 'terminal_epoch_closed'
-            ? acceptedCursor !== null
-            : false
+      ack.result !== 'rejected' ||
+      (ack.rejectionReason === 'duplicate_transition' &&
+        acceptedCursor !== null &&
+        sameCursor(acceptedCursor, current.providerCursor))
     if (!released) {
-      this.paused = true
+      const checkpoint = this.authoritativeCheckpoint(ack.checkpoint)
+      if (checkpoint) {
+        this.adoptCheckpoint(checkpoint)
+        return
+      }
+      this.retryPending(true)
       return
     }
     this.acceptedCursor = acceptedCursor ?? current.providerCursor
     this.restoreAcceptedCheckpoint(this.acceptedCursor)
     this.inFlight = null
+    this.nextRetryAt = 0
+    void this.drain()
+  }
+
+  private authoritativeCheckpoint(
+    checkpoint: SessionObservationCheckpointV1 | null | undefined,
+  ): SessionObservationCheckpointV1 | null {
+    return checkpoint &&
+      checkpoint.podiumSessionId === this.lease.podiumSessionId &&
+      checkpoint.provider === 'grok' &&
+      checkpoint.providerSessionId === this.lease.providerSessionId &&
+      checkpoint.bindingVersion === this.lease.bindingVersion &&
+      checkpoint.lifecycleObservationGeneration <= this.lease.observerGeneration &&
+      checkpoint.providerCursor !== null
+      ? checkpoint
+      : null
+  }
+
+  private adoptCheckpoint(checkpoint: SessionObservationCheckpointV1): void {
+    const cursor = checkpoint.providerCursor
+    if (!cursor) return
+    this.state = checkpoint.turnState
+    this.turnEpoch = checkpoint.turnEpoch
+    this.providerTurnId = checkpoint.providerTurnId
+    this.providerPromptId = checkpoint.providerPromptId
+    this.acceptedCursor = cursor
+    this.epochOpen =
+      checkpoint.terminalFence === null &&
+      (this.state.phase === 'working' ||
+        this.state.phase === 'compacting' ||
+        this.state.phase === 'needs_user')
+    const durableOffset = cursor.components.updates
+    if (Number.isSafeInteger(durableOffset) && durableOffset !== undefined) {
+      const retained = this.queued.filter(
+        (record) =>
+          record.cursor.segmentId !== cursor.segmentId ||
+          record.cursor.pathHint !== cursor.pathHint ||
+          record.cursor.device !== cursor.device ||
+          record.cursor.inode !== cursor.inode ||
+          (record.cursor.components.updates ?? 0) > durableOffset,
+      )
+      this.queued.splice(0, this.queued.length, ...retained)
+    }
+    this.inFlight = null
+    this.nextRetryAt = 0
     void this.drain()
   }
 
@@ -182,10 +247,10 @@ export class GrokCausalObserver {
   }
 
   private async drain(): Promise<void> {
-    if (this.draining || this.inFlight || this.paused) return
+    if (this.draining || this.inFlight) return
     this.draining = true
     try {
-      while (!this.inFlight && !this.paused && this.queued.length > 0) {
+      while (!this.inFlight && this.queued.length > 0) {
         const record = this.queued.shift()!
         const observation = this.apply(record, true)
         if (observation) this.deliver(observation)
@@ -259,11 +324,11 @@ export class GrokCausalObserver {
   }
 
   private deliver(observation: AgentObservation): void {
-    if (this.inFlight || this.paused) {
+    if (this.inFlight) {
       throw new Error('Grok causal observer attempted concurrent delivery')
     }
     this.inFlight = observation
-    this.lease.onObservation(observation)
+    this.retryPending(true)
   }
 
   private observation(input: {

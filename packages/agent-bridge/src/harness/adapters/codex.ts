@@ -256,7 +256,8 @@ export const codexAdapter: HarnessAdapter = {
     const floor = input.startedAtMs ?? input.createdAtMs
     let observationLease = input.observationLease
     let boundThread = observationLease?.providerSessionId ?? input.resumeValue
-    let pendingRebind: { rebindId: string; providerSessionId: string } | null = null
+    let pendingRebind: { rebindId: string; providerSessionId: string; lastSentAt: number } | null =
+      null
     const discovered = new Map<
       string,
       { path: string; confidence: 'exact' | 'heuristic' | undefined }
@@ -274,9 +275,22 @@ export const codexAdapter: HarnessAdapter = {
       providerSessionId: string,
       lease: HarnessObservationLease,
     ): void => {
-      if (pendingRebind) return
+      if (pendingRebind) {
+        if (
+          pendingRebind.providerSessionId === providerSessionId &&
+          Date.now() - pendingRebind.lastSentAt >= 2_000
+        ) {
+          pendingRebind.lastSentAt = Date.now()
+          host.onExactProviderRebind({
+            nextProviderSessionId: providerSessionId,
+            resumeKind: 'codex-thread',
+            rebindId: pendingRebind.rebindId,
+          })
+        }
+        return
+      }
       const rebindId = `codex:${lease.bindingVersion}:${lease.observerGeneration}:${providerSessionId}`
-      pendingRebind = { rebindId, providerSessionId }
+      pendingRebind = { rebindId, providerSessionId, lastSentAt: Date.now() }
       host.onExactProviderRebind({
         nextProviderSessionId: providerSessionId,
         resumeKind: 'codex-thread',
@@ -369,7 +383,17 @@ export const codexAdapter: HarnessAdapter = {
           priorLease?.providerSessionId !== observationLease.providerSessionId ||
           priorLease.observerGeneration !== observationLease.observerGeneration ||
           priorLease.bindingVersion !== observationLease.bindingVersion
-        if (!leaseChanged) return
+        if (!leaseChanged) {
+          if (ack.result === 'rejected') {
+            pendingRebind = { ...pending, lastSentAt: Date.now() }
+            host.onExactProviderRebind({
+              nextProviderSessionId: pending.providerSessionId,
+              resumeKind: 'codex-thread',
+              rebindId: pending.rebindId,
+            })
+          }
+          return
+        }
         inner.stop()
         boundThread = ack.providerSessionId ?? undefined
         inner = start(ack.providerSessionId ?? undefined, ack.providerSessionId ? undefined : floor)

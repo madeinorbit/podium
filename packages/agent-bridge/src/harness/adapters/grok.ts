@@ -152,6 +152,7 @@ export const grokAdapter: HarnessAdapter = {
           rebindId: string
           observerGeneration: number
           bindingVersion: number
+          lastSentAt: number
         }
       | undefined
 
@@ -181,7 +182,19 @@ export const grokAdapter: HarnessAdapter = {
           if (!lease) return true
           if (lease.provider !== 'grok' || !input.podiumSessionId) return false
           if (lease.providerSessionId === grokSessionId) return true
-          if (!pendingRebind) {
+          if (pendingRebind) {
+            if (
+              pendingRebind.sessionId === grokSessionId &&
+              Date.now() - pendingRebind.lastSentAt >= 2_000
+            ) {
+              pendingRebind.lastSentAt = Date.now()
+              host.onExactProviderRebind({
+                nextProviderSessionId: grokSessionId,
+                resumeKind: 'grok-session',
+                rebindId: pendingRebind.rebindId,
+              })
+            }
+          } else {
             const rebindId = [
               'grok',
               input.podiumSessionId,
@@ -194,6 +207,7 @@ export const grokAdapter: HarnessAdapter = {
               rebindId,
               observerGeneration: lease.observerGeneration,
               bindingVersion: lease.bindingVersion,
+              lastSentAt: Date.now(),
             }
             host.onExactProviderRebind({
               nextProviderSessionId: grokSessionId,
@@ -233,6 +247,7 @@ export const grokAdapter: HarnessAdapter = {
       onObservationAck: (ack) => active?.onObservationAck?.(ack),
       onProviderRebindAck(ack) {
         const pending = pendingRebind
+        const priorLease = lease
         if (
           !pending ||
           ack.provider !== 'grok' ||
@@ -252,11 +267,29 @@ export const grokAdapter: HarnessAdapter = {
           observerGeneration: ack.observerGeneration,
           acceptedCheckpoint: ack.checkpoint,
         }
-        pendingRebind = undefined
+        const authoritativeChanged =
+          priorLease?.providerSessionId !== ack.providerSessionId ||
+          priorLease?.observerGeneration !== ack.observerGeneration ||
+          priorLease?.bindingVersion !== ack.bindingVersion
         active?.stop()
         active = undefined
-        if (acceptedCandidate) start(pending.sessionId)
-        else if (ack.providerSessionId) start(ack.providerSessionId)
+        if (acceptedCandidate) {
+          pendingRebind = undefined
+          start(pending.sessionId)
+          return
+        }
+        if (authoritativeChanged) {
+          pendingRebind = undefined
+          start(ack.providerSessionId ?? undefined)
+          return
+        }
+        pendingRebind = { ...pending, lastSentAt: Date.now() }
+        start(ack.providerSessionId ?? undefined)
+        host.onExactProviderRebind({
+          nextProviderSessionId: pending.sessionId,
+          resumeKind: 'grok-session',
+          rebindId: pending.rebindId,
+        })
       },
     }
   },
