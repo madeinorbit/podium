@@ -337,6 +337,19 @@ describe('causal session observation gate', () => {
       providerSessionId: 'thread-2',
       rejectionReason: 'provider_binding_mismatch',
     })
+    expect(
+      reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+        ?.resume,
+    ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
+    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+      providerSessionId: 'thread-2',
+      bindingVersion: 2,
+      observationGeneration: 2,
+      checkpoint: { lastTransitionId: 'thread-2-bootstrap' },
+    })
+    const thread2Conversation = store.conversations.conversationPodiumId('local', 'thread-2')
+    expect(thread2Conversation).toBeDefined()
+    expect(store.conversations.conversationPodiumId('local', 'thread-3')).toBeUndefined()
     reg.modules.sessions.onDaemonMessageFrom('local', {
       type: 'agentObservationRebind',
       sessionId,

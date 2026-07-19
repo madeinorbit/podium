@@ -142,6 +142,12 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
                   stop: vi.fn(),
                   onObservationAck: observationAck,
                   onProviderRebindAck: rebindAck,
+                  bindHookThread: (nativeId) =>
+                    nextHost.onExactProviderRebind({
+                      nextProviderSessionId: nativeId,
+                      resumeKind: 'codex-thread',
+                      rebindId: 'rebind-1',
+                    }),
                 }
               },
             }
@@ -185,7 +191,7 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
         },
       },
       { onFrame: () => () => {} } as never,
-      undefined,
+      agentStateProviderFor('codex'),
       { seedOnFrame: false },
     )
     expect(input?.observationLease).toEqual({
@@ -255,11 +261,17 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
     expect(observationAck).toHaveBeenCalledTimes(1)
 
-    host?.onExactProviderRebind({
-      nextProviderSessionId: 'thread-2',
-      resumeKind: 'codex-thread',
-      rebindId: 'rebind-1',
+    observers.onHookPayload('podium-1', {
+      session_id: 'thread-2',
+      transcript_path: '/repo/thread-2.jsonl',
+      cwd: '/repo',
+      hook_event_name: 'UserPromptSubmit',
     })
+    expect(
+      sent.some(
+        (message) => message.type === 'sessionResumeRef' && message.resume.value === 'thread-2',
+      ),
+    ).toBe(false)
     expect(sent.at(-1)).toMatchObject({
       type: 'agentObservationRebind',
       providerSessionId: 'thread-1',
@@ -385,6 +397,38 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       observerGeneration: 10,
       bindingVersion: 5,
     })
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-1',
+      provider: 'codex',
+      rebindId: 'rebind-same',
+      priorObserverGeneration: 10,
+      priorBindingVersion: 5,
+      nextProviderSessionId: 'thread-current',
+      providerSessionId: 'thread-current',
+      result: 'accepted',
+      observerGeneration: 10,
+      bindingVersion: 5,
+      checkpoint: null,
+    })
+    expect(rebindAck).toHaveBeenCalledTimes(4)
+    host?.onObservation(
+      observation({
+        providerSessionId: 'thread-current',
+        observerGeneration: 10,
+        bindingVersion: 5,
+        transitionId: 'same-id-pending-released',
+      }),
+    )
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservation',
+      observation: { transitionId: 'same-id-pending-released' },
+    })
+    host?.onExactProviderRebind({
+      nextProviderSessionId: 'thread-6',
+      resumeKind: 'codex-thread',
+      rebindId: 'rebind-lost',
+    })
     observers.initSessionObservers(
       {
         type: 'reattach',
@@ -406,17 +450,17 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       type: 'agentObservationRebindAck',
       sessionId: 'podium-1',
       provider: 'codex',
-      rebindId: 'rebind-same',
+      rebindId: 'rebind-lost',
       priorObserverGeneration: 10,
       priorBindingVersion: 5,
-      nextProviderSessionId: 'thread-current',
-      providerSessionId: 'thread-current',
+      nextProviderSessionId: 'thread-6',
+      providerSessionId: 'thread-6',
       result: 'accepted',
-      observerGeneration: 10,
-      bindingVersion: 5,
+      observerGeneration: 11,
+      bindingVersion: 6,
       checkpoint: null,
     })
-    expect(rebindAck).toHaveBeenCalledTimes(3)
+    expect(rebindAck).toHaveBeenCalledTimes(4)
     host?.onObservation(
       observation({
         providerSessionId: 'thread-5',
@@ -601,7 +645,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
     observers.clearSession('podium-1')
   })
-  it('learns a fresh Claude binding and rolls exactly once through an acknowledged rebind', async () => {
+  it('learns an ack-lost fresh Claude binding and rolls exactly once through rebind', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-roll-'))
     const firstTranscript = join(dir, 'claude-1.jsonl')
     const nextTranscript = join(dir, 'claude-2.jsonl')
@@ -647,7 +691,32 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observerGeneration: 7,
       bindingVersion: 2,
       transitionId: firstSnapshot.observation.transitionId,
-      result: 'snapshot_applied',
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+      acceptedCursor: firstSnapshot.observation.providerCursor,
+    })
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-roll',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: firstSnapshot.observation.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: {
+        ...firstSnapshot.observation.providerCursor,
+        components: { transcript: 99 },
+      },
+    })
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-roll',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: firstSnapshot.observation.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
       acceptedCursor: firstSnapshot.observation.providerCursor,
     })
     await vi.waitFor(() => {
@@ -675,6 +744,11 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       bindingVersion: 2,
     })
     expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+    expect(
+      sent.some(
+        (message) => message.type === 'sessionResumeRef' && message.resume.value === 'claude-2',
+      ),
+    ).toBe(false)
     observers.onProviderRebindAck({
       type: 'agentObservationRebindAck',
       sessionId: 'podium-roll',
@@ -810,8 +884,12 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
   })
   it.each([
     { name: 'same transcript segment', rotated: false },
+    { name: 'terminal reconciliation', rotated: false },
     { name: 'linked successor transcript segment', rotated: true },
-  ])('reattaches terminal epoch 5 on $name and accepts exactly epoch 6', async ({ rotated }) => {
+  ])('reattaches terminal epoch 5 on $name and accepts exactly epoch 6', async ({
+    name,
+    rotated,
+  }) => {
     const at = '2026-07-19T00:00:00.000Z'
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-epoch-seed-'))
     const oldTranscript = join(dir, 'claude-old.jsonl')
@@ -932,7 +1010,10 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         observerGeneration: 8,
         transitionId: bootstrap.transitionId,
         result: 'rejected',
-        rejectionReason: 'cursor_not_after_checkpoint',
+        rejectionReason:
+          name === 'terminal reconciliation'
+            ? 'terminal_epoch_closed'
+            : 'cursor_not_after_checkpoint',
         acceptedCursor: oldCursor,
       })
     }

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
   type AgentSession,
@@ -129,6 +130,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     providerSessionId: string
     observer: ClaudeCausalObserver
     bootstrapTransitionId: string
+    bootstrapCursor: AgentObservation['providerCursor']
     awaitingBootstrapAck: boolean
     bufferedHooks: unknown[]
     processing: Promise<void>
@@ -328,6 +330,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       providerSessionId,
       observer,
       bootstrapTransitionId: snapshot.transitionId,
+      bootstrapCursor: snapshot.providerCursor,
       awaitingBootstrapAck: true,
       bufferedHooks: claudeStarting.get(sessionId) ?? [payload],
       processing: Promise.resolve(),
@@ -350,14 +353,24 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (msg.bindingVersion !== undefined && msg.bindingVersion !== lease.bindingVersion) return
     bound?.observation.onObservationAck?.(msg)
     const causal = claudeCausal.get(msg.sessionId)
-    const recoveredBootstrap =
+    if (!causal) return
+    if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) {
+      causal.observer.acknowledgeCursor(msg.acceptedCursor)
+      return
+    }
+    const reconciledBootstrap =
       msg.result === 'rejected' &&
-      msg.rejectionReason === 'cursor_not_after_checkpoint' &&
-      msg.acceptedCursor !== undefined
-    if (!causal || (msg.result === 'rejected' && !recoveredBootstrap)) return
+      msg.acceptedCursor !== undefined &&
+      (msg.rejectionReason === 'cursor_not_after_checkpoint' ||
+        msg.rejectionReason === 'terminal_epoch_closed')
+    const duplicateBootstrap =
+      msg.result === 'rejected' &&
+      msg.rejectionReason === 'duplicate_transition' &&
+      msg.acceptedCursor !== undefined &&
+      isDeepStrictEqual(msg.acceptedCursor, causal.bootstrapCursor)
+    if (msg.result === 'rejected' && !reconciledBootstrap && !duplicateBootstrap) return
     causal.observer.acknowledgeCursor(msg.acceptedCursor)
-    if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) return
-    if (msg.result !== 'rejected' && lease.providerSessionId === null) {
+    if ((msg.result !== 'rejected' || duplicateBootstrap) && lease.providerSessionId === null) {
       causalLeases.set(msg.sessionId, { ...lease, providerSessionId: causal.providerSessionId })
     }
     causal.awaitingBootstrapAck = false
@@ -842,14 +855,23 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // which couples us to the harness's on-disk layout). Lets the server
     // hibernate a fresh spawn and resume it later.
     const harnessSessionId = fields?.session_id
+    const causalLease = causalLeases.get(sessionId)
+    const changedCausalBinding = Boolean(
+      typeof harnessSessionId === 'string' &&
+        harnessSessionId &&
+        causalLease &&
+        causalLease.providerSessionId !== null &&
+        harnessSessionId !== causalLease.providerSessionId,
+    )
     if (typeof harnessSessionId === 'string' && harnessSessionId) {
-      send({
-        type: 'sessionResumeRef',
-        sessionId,
-        resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
-        confidence: 'exact',
-        ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
-      })
+      if (!changedCausalBinding)
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
+          confidence: 'exact',
+          ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
+        })
       // Adapter-owned re-pin policy (codex): the hook names the thread this
       // pane REALLY runs; the observation re-pins only when its binding
       // disagrees. No-op for hook-less-repin harnesses (claude).
