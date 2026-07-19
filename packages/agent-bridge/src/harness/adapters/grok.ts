@@ -143,6 +143,19 @@ export const grokAdapter: HarnessAdapter = {
   // floor), so the latest-by-activity session is found even if it predates
   // this daemon process start.
   observer(input, host) {
+    const lease = input.observationLease
+    const causal =
+      lease?.provider === 'grok' && input.podiumSessionId
+        ? {
+            podiumSessionId: input.podiumSessionId,
+            providerSessionId: lease.providerSessionId,
+            bindingVersion: lease.bindingVersion,
+            observerGeneration: lease.observerGeneration,
+            acceptedCheckpoint: lease.acceptedCheckpoint,
+            onObservation: (observation: Parameters<typeof host.onObservation>[0]) =>
+              host.onObservation(observation),
+          }
+        : undefined
     const obs = observeGrokState({
       cwd: input.cwd,
       ...(input.statTick ? { statTick: input.statTick } : {}),
@@ -151,9 +164,8 @@ export const grokAdapter: HarnessAdapter = {
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (grokSessionId) => {
         host.onResumeValue(grokSessionId)
-        // The session's chat_history.jsonl is derivable once the id is known —
-        // tail it so chat has history before (and without) new activity.
         host.tailFile(
+          // The chat-history path is exact once the native session is bound.
           grokSessionPaths({
             cwd: input.cwd,
             sessionId: grokSessionId,
@@ -161,9 +173,19 @@ export const grokAdapter: HarnessAdapter = {
           }).chatHistoryPath,
         )
       },
-      onEvents: (events) => host.onStateEvents(events),
+      ...(causal
+        ? { causal }
+        : lease
+          ? {}
+          : {
+              onEvents: (events: Parameters<typeof host.onStateEvents>[0]) =>
+                host.onStateEvents(events),
+            }),
     })
-    return { stop: () => obs.stop() }
+    return {
+      stop: () => obs.stop(),
+      onObservationAck: (ack) => obs.onObservationAck?.(ack),
+    }
   },
 
   discovery: createGrokConversationProvider(),

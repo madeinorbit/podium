@@ -2,8 +2,10 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentObservationAckMessage } from '@podium/protocol'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { fileMtimeIso } from './boot-time.js'
+import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
 import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
@@ -25,6 +27,11 @@ export interface GrokSessionPaths {
 export interface GrokStateObserver {
   readonly path: string | undefined
   stop(): void
+  onObservationAck?(ack: AgentObservationAckMessage): void
+}
+
+type GrokCausalOptions = Omit<GrokObservationLease, 'providerSessionId'> & {
+  providerSessionId?: string | null
 }
 
 export const grokStateProvider: AgentStateProvider = {
@@ -212,7 +219,8 @@ export function observeGrokState(opts: {
   onSession?: (sessionId: string) => void
   /** Fires after history is folded through the captured complete-record EOF. */
   onBootstrap?: (lastCompleteRecordOffset: number) => void
-  onEvents: (events: AgentStateEvent[]) => void
+  onEvents?: (events: AgentStateEvent[]) => void
+  causal?: GrokCausalOptions
 }): GrokStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
   // watermarkMs is the spawn time: only sessions created at or after this point
@@ -228,14 +236,16 @@ export function observeGrokState(opts: {
 
   const attach = (paths: GrokSessionPaths): void => {
     if (attached?.sessionId === paths.sessionId) return
+    if (opts.causal?.providerSessionId && opts.causal.providerSessionId !== paths.sessionId) return
     updateTail?.stop()
     attached = paths
     boundId = paths.sessionId
     opts.onSession?.(paths.sessionId)
-    updateTail = tailGrokUpdates(paths, opts.onEvents, {
+    updateTail = tailGrokUpdates(paths, opts.onEvents ?? (() => {}), {
       pollMs,
       statTick: opts.statTick,
       onBootstrap: opts.onBootstrap,
+      ...(opts.causal ? { causal: { ...opts.causal, providerSessionId: paths.sessionId } } : {}),
     })
   }
 
@@ -269,6 +279,9 @@ export function observeGrokState(opts: {
       stopped = true
       stopDiscovery?.()
       updateTail?.stop()
+    },
+    onObservationAck(ack) {
+      updateTail?.onObservationAck?.(ack)
     },
   }
 }
@@ -383,11 +396,14 @@ function tailGrokUpdates(
     pollMs?: number
     statTick?: StatTick
     onBootstrap?: (lastCompleteRecordOffset: number) => void
+    causal?: GrokObservationLease
   } = {},
 ): GrokStateObserver {
+  const causal = opts.causal ? new GrokCausalObserver(opts.causal) : undefined
   let readOffset = 0
   let lastCompleteRecordOffset = 0
   let fileIdentity: string | undefined
+  let segmentIdentity: Parameters<GrokCausalObserver['beginSegment']>[0] | undefined
   let prefixAnchor: Buffer<ArrayBufferLike> = Buffer.alloc(0)
   let first = true
   let stopped = false
@@ -395,10 +411,10 @@ function tailGrokUpdates(
   let observedWork = false
   const decoder = new BoundedLineDecoder()
 
-  const translateLines = async (lines: string[], emit: boolean): Promise<void> => {
+  const translateLines = async (lines: DecodedGrokLine[], emit: boolean): Promise<void> => {
     const events: AgentStateEvent[] = []
     for (const line of lines) {
-      const trimmed = line.trim()
+      const trimmed = line.text.trim()
       if (!trimmed) continue
       try {
         const record = JSON.parse(trimmed) as unknown
@@ -406,29 +422,40 @@ function tailGrokUpdates(
           ? { ...record, chat_history_path: paths.chatHistoryPath }
           : record
         const next = await translateGrokUpdatePayload(payload)
-        if (isAvailableCommandsUpdate(payload) && observedWork) {
+        if (isAvailableCommandsUpdate(payload) && (causal || observedWork)) {
           next.push({ kind: 'turn_completed' })
         }
-        const at = isRecord(record)
-          ? normalizeGrokProviderTimestamp(record.timestamp)
-          : undefined
-        for (const event of withEventTime(next, at)) {
-          // Background/tool-only records are activity inside an already-open
-          // turn, never causal evidence that opens a new epoch. Likewise, a
-          // duplicate terminal after the epoch closed is inert. [spec:SP-cdb2]
-          if (
-            !observedWork &&
-            (event.kind === 'activity' ||
-              event.kind === 'needs_user' ||
-              event.kind === 'turn_completed' ||
-              event.kind === 'turn_failed' ||
-              event.kind === 'compaction' ||
-              event.kind === 'task_delta')
-          ) {
-            continue
+        const at = isRecord(record) ? normalizeGrokProviderTimestamp(record.timestamp) : undefined
+        const normalized = withEventTime(next, at)
+        if (causal && segmentIdentity && isRecord(record)) {
+          const evidence = {
+            record,
+            cursor: causal.cursorFor(segmentIdentity, line.endOffset),
+            events: normalized,
+            sourceEventKind: grokSourceEventKind(record),
+            providerAt: at ?? null,
           }
-          observedWork = updateObservedWork(observedWork, event)
-          if (emit) events.push(event)
+          if (emit) causal.enqueue(evidence)
+          else causal.fold(evidence)
+        } else {
+          for (const event of normalized) {
+            // Background/tool-only records are activity inside an already-open
+            // turn, never causal evidence that opens a new epoch. Likewise, a
+            // duplicate terminal after the epoch closed is inert. [spec:SP-cdb2]
+            if (
+              !observedWork &&
+              (event.kind === 'activity' ||
+                event.kind === 'needs_user' ||
+                event.kind === 'turn_completed' ||
+                event.kind === 'turn_failed' ||
+                event.kind === 'compaction' ||
+                event.kind === 'task_delta')
+            ) {
+              continue
+            }
+            observedWork = updateObservedWork(observedWork, event)
+            if (emit) events.push(event)
+          }
         }
       } catch {
         // Invalid complete records are inert. Torn records remain buffered until
@@ -453,8 +480,8 @@ function tailGrokUpdates(
       const bytes = chunk.subarray(0, bytesRead)
       const lastNewline = bytes.lastIndexOf(0x0a)
       if (lastNewline >= 0) lastCompleteRecordOffset = position + lastNewline + 1
+      await translateLines(decoder.push(bytes, position), emit)
       position += bytesRead
-      await translateLines(decoder.push(bytes), emit)
     }
   }
 
@@ -462,15 +489,25 @@ function tailGrokUpdates(
     handle: Awaited<ReturnType<typeof open>>,
     size: number,
     identity: string,
+    device: string,
+    inode: string,
+    forceSuccessor: boolean,
   ): Promise<void> => {
     // Capture the last complete-record EOF on this exact descriptor, fold all
     // history once without live callbacks, then begin strictly after it.
     // Historical files may be large, so both scanning and parsing are chunked.
     const boundary = await lastCompleteGrokRecordOffset(handle, size)
+    segmentIdentity = {
+      segmentId: `grok:${paths.sessionId}:${device}:${inode}:${paths.updatesPath}`,
+      pathHint: paths.updatesPath,
+      device,
+      inode,
+    }
+    const start = causal?.beginSegment(segmentIdentity, boundary, forceSuccessor) ?? 0
     decoder.reset()
     observedWork = false
-    await readRange(handle, 0, boundary, false)
-    const finalRecord = decoder.takeValidFinalRecord()
+    await readRange(handle, start, boundary, false)
+    const finalRecord = decoder.takeValidFinalRecord(boundary)
     if (finalRecord) await translateLines([finalRecord], false)
     decoder.reset()
     readOffset = boundary
@@ -478,6 +515,9 @@ function tailGrokUpdates(
     fileIdentity = identity
     prefixAnchor = await readGrokPrefix(handle, boundary)
     first = false
+    if (causal && segmentIdentity) {
+      causal.finishBootstrap(causal.cursorFor(segmentIdentity, boundary))
+    }
     opts.onBootstrap?.(lastCompleteRecordOffset)
   }
 
@@ -489,21 +529,24 @@ function tailGrokUpdates(
       try {
         const info = await handle.stat()
         const identity = `${info.dev}:${info.ino}`
+        const device = String(info.dev)
+        const inode = String(info.ino)
         const prefixChanged =
           !first &&
           identity === fileIdentity &&
           prefixAnchor.length > 0 &&
           !(await grokPrefixMatches(handle, prefixAnchor, info.size))
         if (first || identity !== fileIdentity || info.size < readOffset || prefixChanged) {
+          if (causal?.hasPendingDelivery) return
           // Rotation/replacement/truncation is a new bootstrap segment. Never
           // replay the replacement prefix through the live callback.
-          await bootstrap(handle, info.size, identity)
+          await bootstrap(handle, info.size, identity, device, inode, !first)
         }
         if (info.size <= readOffset) return
         const end = info.size
         await readRange(handle, readOffset, end, true)
         readOffset = end
-        const finalRecord = decoder.takeValidFinalRecord()
+        const finalRecord = decoder.takeValidFinalRecord(readOffset)
         if (finalRecord) {
           lastCompleteRecordOffset = readOffset
           await translateLines([finalRecord], true)
@@ -530,6 +573,9 @@ function tailGrokUpdates(
     stop() {
       stopped = true
       stopPolling()
+    },
+    onObservationAck(ack) {
+      causal?.acknowledge(ack)
     },
   }
 }
@@ -560,14 +606,19 @@ async function grokPrefixMatches(
   return bytesRead === expected.length && actual.equals(expected)
 }
 
+interface DecodedGrokLine {
+  text: string
+  endOffset: number
+}
+
 /** A bounded JSONL splitter: an oversized malformed record is discarded through
  * its newline instead of growing observer memory without limit. */
 class BoundedLineDecoder {
   private pending = Buffer.alloc(0)
   private dropping = false
 
-  push(chunk: Buffer): string[] {
-    const lines: string[] = []
+  push(chunk: Buffer, chunkOffset: number): DecodedGrokLine[] {
+    const lines: DecodedGrokLine[] = []
     let start = 0
     for (let index = 0; index < chunk.length; index += 1) {
       if (chunk[index] !== 0x0a) continue
@@ -582,10 +633,9 @@ class BoundedLineDecoder {
         this.pending = Buffer.alloc(0)
         continue
       }
-      const line =
-        this.pending.length === 0 ? part : Buffer.concat([this.pending, part])
+      const line = this.pending.length === 0 ? part : Buffer.concat([this.pending, part])
       this.pending = Buffer.alloc(0)
-      lines.push(line.toString('utf8'))
+      lines.push({ text: line.toString('utf8'), endOffset: chunkOffset + index + 1 })
     }
 
     const suffix = chunk.subarray(start)
@@ -599,11 +649,11 @@ class BoundedLineDecoder {
     return lines
   }
 
-  takeValidFinalRecord(): string | null {
+  takeValidFinalRecord(endOffset: number): DecodedGrokLine | null {
     if (this.dropping || !validGrokJsonRecord(this.pending)) return null
     const record = this.pending.toString('utf8')
     this.pending = Buffer.alloc(0)
-    return record
+    return { text: record, endOffset }
   }
 
   reset(): void {
@@ -650,6 +700,13 @@ function validGrokJsonRecord(bytes: Buffer): boolean {
   } catch {
     return false
   }
+}
+
+function grokSourceEventKind(record: Record<string, unknown>): string {
+  const hook = grokHookEventName(record)
+  if (hook) return `hook:${normalizeName(hook) ?? hook}`
+  const update = recordField(recordField(record, 'params'), 'update')
+  return `update:${normalizeName(stringField(update, 'sessionUpdate')) ?? 'unknown'}`
 }
 
 function isAvailableCommandsUpdate(payload: unknown): boolean {
