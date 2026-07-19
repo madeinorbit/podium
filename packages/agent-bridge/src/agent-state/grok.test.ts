@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -6,6 +6,7 @@ import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
   grokStateProvider,
+  normalizeGrokProviderTimestamp,
   observeGrokState,
   translateGrokUpdatePayload,
 } from './grok'
@@ -140,6 +141,25 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     expect(events[0]?.at).toBe('2026-06-12T14:00:00.000Z')
   })
 
+  it('normalizes ISO and numeric provider timestamps without restamping them', async () => {
+    expect(normalizeGrokProviderTimestamp('2026-06-12T16:00:00+02:00')).toBe(
+      '2026-06-12T14:00:00.000Z',
+    )
+    expect(normalizeGrokProviderTimestamp(1_717_680_000)).toBe('2024-06-06T13:20:00.000Z')
+    expect(normalizeGrokProviderTimestamp(1_717_680_000_000)).toBe('2024-06-06T13:20:00.000Z')
+    expect(normalizeGrokProviderTimestamp(Number.NaN)).toBeUndefined()
+    expect(normalizeGrokProviderTimestamp('not-a-date')).toBeUndefined()
+
+    for (const timestamp of [1_717_680_000, 1_717_680_000_000]) {
+      const events = await translateGrokUpdatePayload({
+        timestamp,
+        method: 'session/update',
+        params: { update: { sessionUpdate: 'agent_message_chunk' } },
+      })
+      expect(events[0]?.at).toBe('2024-06-06T13:20:00.000Z')
+    }
+  })
+
   it('classifies Grok chat history idle verdicts', () => {
     expect(
       classifyGrokIdleTranscript([
@@ -242,21 +262,111 @@ describe('grok turn completion ([spec:SP-8b0e])', () => {
 })
 
 describe('observeGrokState', () => {
+  it('frozen history and observer restart emit zero live edges', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-frozen-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-frozen' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-frozen', cwd } }))
+    await writeFile(
+      paths.updatesPath,
+      `{"timestamp":1700000000,"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","prompt_id":"prompt-old"}}}\n{"timestamp":1700000001000,"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","turn_id":"turn-old"}}}\n{"timestamp":1700000002,"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n`,
+    )
+
+    for (let generation = 0; generation < 2; generation += 1) {
+      const events: AgentStateEvent[] = []
+      let bootstrapped = false
+      const observer = observeGrokState({
+        homeDir: home,
+        cwd,
+        resumeValue: 'g-frozen',
+        pollMs: 10,
+        onBootstrap: () => {
+          bootstrapped = true
+        },
+        onEvents: (next) => events.push(...next),
+      })
+      try {
+        await waitFor(() => bootstrapped)
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        expect(events).toEqual([])
+      } finally {
+        observer.stop()
+      }
+    }
+  })
+
+  it('truncation re-bootstrap is silent and the next real turn has one working and terminal edge', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-truncate-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-truncate' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-truncate', cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    const events: AgentStateEvent[] = []
+    let bootstraps = 0
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-truncate',
+      pollMs: 10,
+      onBootstrap: () => {
+        bootstraps += 1
+      },
+      onEvents: (next) => events.push(...next),
+    })
+    try {
+      await waitFor(() => bootstraps === 1)
+      await appendFile(
+        paths.updatesPath,
+        `{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk"}}}\n`,
+      )
+      await waitFor(() => events.length === 1)
+
+      await writeFile(
+        paths.updatesPath,
+        `{"timestamp":1600000000,"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n`,
+      )
+      await waitFor(() => bootstraps === 2)
+      expect(events).toEqual([{ kind: 'prompt_submitted' }])
+
+      await appendFile(
+        paths.updatesPath,
+        `{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"tool_result_update"}}}\n`,
+      )
+      await waitFor(() => events.length === 3)
+      expect(events.map((event) => event.kind)).toEqual([
+        'prompt_submitted',
+        'prompt_submitted',
+        'turn_completed',
+      ])
+    } finally {
+      observer.stop()
+    }
+  })
+
   it('infers turn completion when Grok returns to available commands without a stop hook', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-observe-'))
     const cwd = '/repo/grok'
     const events: unknown[] = []
+    let bootstrapped = false
     const observer = observeGrokState({
       homeDir: home,
       cwd,
       pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
       onEvents: (next) => events.push(...next),
     })
     try {
       const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-hookless' })
       await mkdir(paths.sessionDir, { recursive: true })
       await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-hookless', cwd } }))
-      await writeFile(
+      await writeFile(paths.updatesPath, '')
+      await waitFor(() => bootstrapped)
+      await appendFile(
         paths.updatesPath,
         `${[
           JSON.stringify({
@@ -292,17 +402,23 @@ describe('observeGrokState', () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-turn-'))
     const cwd = '/repo/grok'
     const events: AgentStateEvent[] = []
+    let bootstrapped = false
     const observer = observeGrokState({
       homeDir: home,
       cwd,
       pollMs: 10,
+      onBootstrap: () => {
+        bootstrapped = true
+      },
       onEvents: (next) => events.push(...next),
     })
     try {
       const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-turn' })
       await mkdir(paths.sessionDir, { recursive: true })
       await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-turn', cwd } }))
-      await writeFile(
+      await writeFile(paths.updatesPath, '')
+      await waitFor(() => bootstrapped)
+      await appendFile(
         paths.updatesPath,
         `${[
           {
@@ -372,18 +488,24 @@ describe('observeGrokState', () => {
     const cwd = '/repo/grok'
     const seenSessions: string[] = []
     const events: unknown[] = []
+    let bootstrapped = false
     const observer = observeGrokState({
       homeDir: home,
       cwd,
       pollMs: 10,
       onSession: (sessionId) => seenSessions.push(sessionId),
+      onBootstrap: () => {
+        bootstrapped = true
+      },
       onEvents: (next) => events.push(...next),
     })
     try {
       const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-new' })
       await mkdir(paths.sessionDir, { recursive: true })
       await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-new', cwd } }))
-      await writeFile(
+      await writeFile(paths.updatesPath, '')
+      await waitFor(() => bootstrapped)
+      await appendFile(
         paths.updatesPath,
         `${[
           JSON.stringify({
