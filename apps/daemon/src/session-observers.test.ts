@@ -8,8 +8,15 @@ import {
   agentStateProviderFor,
   captureClaudeTranscript,
   claudeTranscriptSegmentId,
+  type HarnessObserveInput,
+  type HarnessObserverHost,
+  harnessAdapterFor,
 } from '@podium/agent-bridge'
-import type { DaemonMessage, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type {
+  AgentObservation,
+  DaemonMessage,
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 import type { StatTick } from '@podium/transcript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -108,6 +115,320 @@ describe('session observer stat polling', () => {
 
     observers.clearSession('podium-session')
     expect(statTick.watchers.size).toBe(0)
+  })
+})
+
+describe('generic causal observer host [spec:SP-cdb2]', () => {
+  it('delivers the exact lease, routes exact acks, and fences an accepted native rebind', () => {
+    const sent: DaemonMessage[] = []
+    const observationAck = vi.fn()
+    const rebindAck = vi.fn()
+    let input: HarnessObserveInput | undefined
+    let host: HarnessObserverHost | undefined
+    const codex = harnessAdapterFor('codex')
+    if (!codex) throw new Error('Codex adapter missing')
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: (kind) =>
+        kind === 'codex'
+          ? {
+              ...codex,
+              observer: (nextInput, nextHost) => {
+                input = nextInput
+                host = nextHost
+                return {
+                  stop: vi.fn(),
+                  onObservationAck: observationAck,
+                  onProviderRebindAck: rebindAck,
+                }
+              },
+            }
+          : harnessAdapterFor(kind),
+    })
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId: 'podium-1',
+        durableLabel: 'podium-podium-1',
+        agentKind: 'codex',
+        cwd: '/repo',
+        geometry: G,
+        resume: { kind: 'codex-thread', value: 'thread-1' },
+        observationGeneration: 7,
+        observationBindingVersion: 2,
+        observationProviderSessionId: 'thread-1',
+        observationCheckpoint: {
+          schemaVersion: 1,
+          podiumSessionId: 'podium-1',
+          provider: 'codex',
+          providerSessionId: 'thread-other',
+          bindingVersion: 2,
+          lifecycleObservationGeneration: 6,
+          providerCursor: null,
+          bootstrapCursor: null,
+          lastAcceptedLiveCursor: null,
+          turnEpoch: 0,
+          providerTurnId: null,
+          providerPromptId: null,
+          turnState: {
+            phase: 'idle',
+            since: '2026-07-19T08:00:00.000Z',
+            nativeSubagentCount: 0,
+          },
+          terminalFence: null,
+          providerAt: null,
+          acceptedAt: '2026-07-19T08:00:00.000Z',
+          lastLiveReceiptAt: null,
+          lastTransitionId: null,
+        },
+      },
+      { onFrame: () => () => {} } as never,
+      undefined,
+      { seedOnFrame: false },
+    )
+    expect(input?.observationLease).toEqual({
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      bindingVersion: 2,
+      observerGeneration: 7,
+      acceptedCheckpoint: null,
+    })
+
+    const observation = (overrides: Partial<AgentObservation> = {}): AgentObservation => ({
+      podiumSessionId: 'podium-1',
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      bindingVersion: 2,
+      providerTurnId: null,
+      providerPromptId: null,
+      observerGeneration: 7,
+      providerCursor: { segmentId: 'rollout-1', components: { file: 1 } },
+      providerAt: null,
+      receivedAt: '2026-07-19T08:00:00.000Z',
+      sourceEventKind: 'rollout_fold',
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      inputOrigin: 'provider',
+      turnEpoch: 0,
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      transitionId: 'snapshot-1',
+      state: {
+        phase: 'idle',
+        since: '2026-07-19T08:00:00.000Z',
+        nativeSubagentCount: 0,
+      },
+      ...overrides,
+    })
+    host?.onObservation(observation())
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      bindingVersion: 1,
+      transitionId: 'snapshot-1',
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+    })
+    expect(observationAck).not.toHaveBeenCalled()
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      transitionId: 'snapshot-1',
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+    })
+    expect(observationAck).not.toHaveBeenCalled()
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: 'snapshot-1',
+      result: 'rejected',
+      rejectionReason: 'cursor_not_after_checkpoint',
+    })
+    expect(observationAck).toHaveBeenCalledTimes(1)
+
+    host?.onExactProviderRebind({
+      nextProviderSessionId: 'thread-2',
+      resumeKind: 'codex-thread',
+      rebindId: 'rebind-1',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebind',
+      providerSessionId: 'thread-1',
+      nextProviderSessionId: 'thread-2',
+      observerGeneration: 7,
+      bindingVersion: 2,
+    })
+    host?.onObservation(
+      observation({
+        providerSessionId: 'thread-2',
+        observerGeneration: 8,
+        bindingVersion: 3,
+        transitionId: 'new-provider-bootstrap',
+      }),
+    )
+    host?.onExactProviderRebind({
+      nextProviderSessionId: 'thread-3',
+      resumeKind: 'codex-thread',
+      rebindId: 'rebind-2',
+    })
+    expect(sent.filter((message) => message.type === 'agentObservationRebind')).toHaveLength(1)
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-1',
+      provider: 'codex',
+      rebindId: 'rebind-1',
+      priorObserverGeneration: 7,
+      priorBindingVersion: 2,
+      nextProviderSessionId: 'thread-2',
+      providerSessionId: 'thread-2',
+      result: 'accepted',
+      observerGeneration: 9,
+      bindingVersion: 3,
+      checkpoint: null,
+    })
+    expect(rebindAck).not.toHaveBeenCalled()
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-1',
+      provider: 'codex',
+      rebindId: 'rebind-1',
+      priorObserverGeneration: 7,
+      priorBindingVersion: 2,
+      nextProviderSessionId: 'thread-2',
+      providerSessionId: 'thread-2',
+      result: 'accepted',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      checkpoint: null,
+    })
+    expect(rebindAck).toHaveBeenCalledTimes(1)
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebind',
+      providerSessionId: 'thread-2',
+      nextProviderSessionId: 'thread-3',
+      observerGeneration: 8,
+      bindingVersion: 3,
+    })
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-1',
+      provider: 'codex',
+      rebindId: 'rebind-2',
+      priorObserverGeneration: 8,
+      priorBindingVersion: 3,
+      nextProviderSessionId: 'thread-3',
+      providerSessionId: 'thread-3',
+      result: 'accepted',
+      observerGeneration: 9,
+      bindingVersion: 4,
+      checkpoint: null,
+    })
+    expect(rebindAck).toHaveBeenCalledTimes(2)
+    host?.onObservation(observation({ transitionId: 'old-provider-late' }))
+    expect(
+      sent
+        .filter((message) => message.type === 'agentObservation')
+        .map((message) => message.observation.transitionId),
+    ).toEqual(['snapshot-1', 'new-provider-bootstrap'])
+    host?.onExactProviderRebind({
+      nextProviderSessionId: 'thread-4',
+      resumeKind: 'codex-thread',
+      rebindId: 'rebind-rejected',
+    })
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-1',
+      provider: 'codex',
+      rebindId: 'rebind-rejected',
+      priorObserverGeneration: 9,
+      priorBindingVersion: 4,
+      nextProviderSessionId: 'thread-4',
+      providerSessionId: 'thread-current',
+      result: 'rejected',
+      rejectionReason: 'stale_observer_generation',
+      observerGeneration: 10,
+      bindingVersion: 5,
+      checkpoint: null,
+    })
+    expect(rebindAck).toHaveBeenCalledTimes(3)
+    host?.onObservation(
+      observation({
+        providerSessionId: 'thread-current',
+        observerGeneration: 10,
+        bindingVersion: 5,
+        transitionId: 'authoritative-after-rejection',
+      }),
+    )
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservation',
+      observation: { transitionId: 'authoritative-after-rejection' },
+    })
+    host?.onExactProviderRebind({
+      nextProviderSessionId: 'thread-current',
+      resumeKind: 'codex-thread',
+      rebindId: 'rebind-same',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebind',
+      providerSessionId: 'thread-current',
+      nextProviderSessionId: 'thread-current',
+      observerGeneration: 10,
+      bindingVersion: 5,
+    })
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId: 'podium-1',
+        durableLabel: 'podium-podium-1',
+        agentKind: 'codex',
+        cwd: '/repo',
+        geometry: G,
+        resume: { kind: 'codex-thread', value: 'thread-5' },
+        observationGeneration: 12,
+        observationBindingVersion: 7,
+        observationProviderSessionId: 'thread-5',
+      },
+      { onFrame: () => () => {} } as never,
+      undefined,
+      { seedOnFrame: false },
+    )
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-1',
+      provider: 'codex',
+      rebindId: 'rebind-same',
+      priorObserverGeneration: 10,
+      priorBindingVersion: 5,
+      nextProviderSessionId: 'thread-current',
+      providerSessionId: 'thread-current',
+      result: 'accepted',
+      observerGeneration: 10,
+      bindingVersion: 5,
+      checkpoint: null,
+    })
+    expect(rebindAck).toHaveBeenCalledTimes(3)
+    host?.onObservation(
+      observation({
+        providerSessionId: 'thread-5',
+        observerGeneration: 12,
+        bindingVersion: 7,
+        transitionId: 'authoritative-reattach-bootstrap',
+      }),
+    )
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservation',
+      observation: { transitionId: 'authoritative-reattach-bootstrap' },
+    })
   })
 })
 
@@ -280,6 +601,131 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)
     observers.clearSession('podium-1')
   })
+  it('learns a fresh Claude binding and rolls exactly once through an acknowledged rebind', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-roll-'))
+    const firstTranscript = join(dir, 'claude-1.jsonl')
+    const nextTranscript = join(dir, 'claude-2.jsonl')
+    await writeFile(firstTranscript, '')
+    await writeFile(nextTranscript, '')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    observers.initSessionObservers(
+      {
+        type: 'spawn',
+        sessionId: 'podium-roll',
+        agentKind: 'claude-code',
+        cwd: dir,
+        geometry: G,
+        durableLabel: 'podium-podium-roll',
+        observationGeneration: 7,
+        observationBindingVersion: 2,
+        observationProviderSessionId: null,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('claude-code'),
+      { seedOnFrame: false },
+    )
+    const firstPrompt = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: firstTranscript,
+      cwd: dir,
+      prompt_id: 'prompt-1',
+    }
+    observers.onHookPayload('podium-roll', firstPrompt)
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+    })
+    const firstSnapshot = sent.find((message) => message.type === 'agentObservation')!
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-roll',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: firstSnapshot.observation.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: firstSnapshot.observation.providerCursor,
+    })
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+    })
+
+    const nextPrompt = {
+      ...firstPrompt,
+      session_id: 'claude-2',
+      transcript_path: nextTranscript,
+      prompt_id: 'prompt-2',
+    }
+    observers.onHookPayload('podium-roll', nextPrompt)
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === 'agentObservationRebind')).toBe(true)
+    })
+    const rebind = sent.findLast(
+      (message): message is Extract<DaemonMessage, { type: 'agentObservationRebind' }> =>
+        message.type === 'agentObservationRebind',
+    )!
+    expect(rebind).toMatchObject({
+      providerSessionId: 'claude-1',
+      nextProviderSessionId: 'claude-2',
+      observerGeneration: 7,
+      bindingVersion: 2,
+    })
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-roll',
+      provider: 'claude-code',
+      rebindId: rebind.rebindId,
+      priorObserverGeneration: 7,
+      priorBindingVersion: 2,
+      nextProviderSessionId: 'claude-2',
+      providerSessionId: 'claude-2',
+      result: 'accepted',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      checkpoint: null,
+    })
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
+    })
+    const nextSnapshot = sent.filter((message) => message.type === 'agentObservation').at(-1)!
+    expect(nextSnapshot.observation).toMatchObject({
+      providerSessionId: 'claude-2',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+    })
+    expect(sent.some((message) => message.type === 'agentState')).toBe(false)
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-roll',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      transitionId: nextSnapshot.observation.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: nextSnapshot.observation.providerCursor,
+    })
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(4)
+    })
+    expect(
+      sent.filter((message) => message.type === 'agentObservation').at(-1)?.observation,
+    ).toMatchObject({
+      providerSessionId: 'claude-2',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      transitionKind: 'turn_opened',
+      priorPhase: 'idle',
+      nextPhase: 'working',
+    })
+    observers.clearSession('podium-roll')
+  })
+
   it('does not let a stale generation ack release an identical current bootstrap transition', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-generation-'))
     const transcript = join(dir, 'claude-1.jsonl')

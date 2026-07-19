@@ -35,7 +35,11 @@ import {
 } from './host'
 import { InventoryReportMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
-import { AgentObservationMessage, AgentStateMessage } from './runtime-state'
+import {
+  AgentObservationMessage,
+  AgentObservationRebindMessage,
+  AgentStateMessage,
+} from './runtime-state'
 import {
   AgentColorMessage,
   AgentExitMessage,
@@ -148,6 +152,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   TitleMessage,
   AgentStateMessage,
   AgentObservationMessage,
+  AgentObservationRebindMessage,
   AgentColorMessage,
   ScanResultMessage,
   ConversationsChangedMessage,

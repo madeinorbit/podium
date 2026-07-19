@@ -35,6 +35,7 @@ describe('causal session observation gate', () => {
     )
     expect(spawn?.observationGeneration).toBe(1)
     expect(spawn?.observationBindingVersion).toBe(1)
+    expect(spawn?.observationProviderSessionId).toBeNull()
 
     const effects: AgentObservation[] = []
     reg.bus.on('session.stateChanged', ({ observation }) => {
@@ -176,6 +177,272 @@ describe('causal session observation gate', () => {
     expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toHaveLength(2)
 
     restarted.dispose()
+    store.close()
+  })
+
+  it('atomically rebinds an exact native session without phase or notification effects', () => {
+    const store = new SessionStore(':memory:')
+    const sent: ControlMessage[] = []
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+    const reg = new SessionRegistry(store, { ntfy, telegram })
+    reg.modules.sessions.attachDaemon('local', (msg) => sent.push(msg))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/proj',
+    })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+      confidence: 'exact',
+    })
+    const effects: AgentObservation[] = []
+    reg.bus.on('session.stateChanged', ({ observation }) => {
+      if (observation) effects.push(observation)
+    })
+    const bootstrap: AgentObservation = {
+      podiumSessionId: sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      bindingVersion: 1,
+      providerTurnId: null,
+      providerPromptId: null,
+      observerGeneration: 1,
+      providerCursor: { segmentId: 'rollout-1', components: { file: 10 } },
+      providerAt: at(10),
+      receivedAt: at(11),
+      sourceEventKind: 'rollout_fold',
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      inputOrigin: 'provider',
+      turnEpoch: 0,
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      transitionId: 'thread-1-bootstrap',
+      state: runtime('idle', 10),
+    }
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservation',
+      observation: bootstrap,
+    })
+    expect(store.observationCheckpoints.get(sessionId)?.checkpoint).not.toBeNull()
+
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservationRebind',
+      sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      nextProviderSessionId: 'thread-2',
+      resumeKind: 'codex-thread',
+      rebindId: 'codex-new-1',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebindAck',
+      result: 'accepted',
+      providerSessionId: 'thread-2',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: null,
+    })
+    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+      providerSessionId: 'thread-2',
+      observationGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: null,
+    })
+    expect(
+      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.resume,
+    ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
+    expect(effects).toEqual([])
+    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    expect(ntfy).not.toHaveBeenCalled()
+    expect(telegram).not.toHaveBeenCalled()
+
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservation',
+      observation: {
+        ...bootstrap,
+        provenance: 'live',
+        transitionKind: 'turn_opened',
+        nextPhase: 'working',
+        turnEpoch: 1,
+        transitionId: 'old-provider-turn',
+        state: runtime('working', 20),
+      },
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationAck',
+      result: 'rejected',
+      rejectionReason: 'stale_observer_generation',
+      bindingVersion: 1,
+    })
+    expect(effects).toEqual([])
+
+    const thread2Bootstrap: AgentObservation = {
+      ...bootstrap,
+      providerSessionId: 'thread-2',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      providerCursor: { segmentId: 'rollout-2', components: { file: 5 } },
+      transitionId: 'thread-2-bootstrap',
+    }
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservation',
+      observation: thread2Bootstrap,
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationAck',
+      result: 'snapshot_applied',
+      bindingVersion: 2,
+    })
+    expect(effects).toEqual([])
+    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservationRebind',
+      sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      nextProviderSessionId: 'thread-2',
+      resumeKind: 'codex-thread',
+      rebindId: 'codex-new-duplicate',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebindAck',
+      result: 'accepted',
+      providerSessionId: 'thread-2',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: { providerSessionId: 'thread-2', lastTransitionId: 'thread-2-bootstrap' },
+    })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservationRebind',
+      sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      nextProviderSessionId: 'thread-3',
+      resumeKind: 'codex-thread',
+      rebindId: 'codex-new-competing',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebindAck',
+      result: 'rejected',
+      providerSessionId: 'thread-2',
+      rejectionReason: 'provider_binding_mismatch',
+    })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservationRebind',
+      sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread-2',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      nextProviderSessionId: 'thread-2',
+      resumeKind: 'codex-thread',
+      rebindId: 'codex-new-same',
+    })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebindAck',
+      result: 'accepted',
+      providerSessionId: 'thread-2',
+      observerGeneration: 2,
+      bindingVersion: 2,
+    })
+    expect(effects).toEqual([])
+    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+
+    reg.dispose()
+    const restartedSent: ControlMessage[] = []
+    const restarted = new SessionRegistry(store)
+    restarted.modules.sessions.attachDaemon('local', (msg) => restartedSent.push(msg))
+    expect(
+      restartedSent.find(
+        (msg): msg is Extract<ControlMessage, { type: 'reattach' }> =>
+          msg.type === 'reattach' && msg.sessionId === sessionId,
+      ),
+    ).toMatchObject({
+      observationGeneration: 3,
+      observationBindingVersion: 2,
+      observationProviderSessionId: 'thread-2',
+      observationCheckpoint: {
+        providerSessionId: 'thread-2',
+        bindingVersion: 2,
+        providerCursor: { segmentId: 'rollout-2', components: { file: 5 } },
+      },
+    })
+    restarted.dispose()
+    store.close()
+  })
+
+  it('rolls back resume and lease when conversation linking throws', () => {
+    const store = new SessionStore(':memory:')
+    const reg = new SessionRegistry(store)
+    reg.modules.sessions.attachDaemon('local', vi.fn())
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: 'thread-1' },
+      confidence: 'exact',
+    })
+    const bootstrap: AgentObservation = {
+      podiumSessionId: sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread-1',
+      bindingVersion: 1,
+      providerTurnId: null,
+      providerPromptId: null,
+      observerGeneration: 1,
+      providerCursor: { segmentId: 'rollout-1', components: { file: 1 } },
+      providerAt: at(1),
+      receivedAt: at(2),
+      sourceEventKind: 'rollout_fold',
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      inputOrigin: 'provider',
+      turnEpoch: 0,
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      transitionId: 'bootstrap-1',
+      state: runtime('idle', 1),
+    }
+    reg.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentObservation',
+      observation: bootstrap,
+    })
+    vi.spyOn(store.conversations, 'linkConversationSegment').mockImplementation(() => {
+      throw new Error('link failed')
+    })
+    expect(() =>
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentObservationRebind',
+        sessionId,
+        provider: 'codex',
+        providerSessionId: 'thread-1',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        nextProviderSessionId: 'thread-2',
+        resumeKind: 'codex-thread',
+        rebindId: 'rollback-rebind',
+      }),
+    ).toThrow('link failed')
+    expect(
+      reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.resume,
+    ).toEqual({ kind: 'codex-thread', value: 'thread-1' })
+    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+      providerSessionId: 'thread-1',
+      bindingVersion: 1,
+      observationGeneration: 1,
+      checkpoint: { lastTransitionId: 'bootstrap-1' },
+    })
+    reg.dispose()
     store.close()
   })
 })

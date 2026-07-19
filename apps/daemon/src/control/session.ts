@@ -384,6 +384,7 @@ export const sessionHandlers: Pick<
   | 'redraw'
   | 'draftTarget'
   | 'agentObservationAck'
+  | 'agentObservationRebindAck'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
   | 'sessionOpenUrlCallback'
@@ -444,6 +445,9 @@ export const sessionHandlers: Pick<
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)
+  },
+  agentObservationRebindAck: (ctx, msg) => {
+    ctx.observers.onProviderRebindAck(msg)
   },
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.codexIdentityReceipts

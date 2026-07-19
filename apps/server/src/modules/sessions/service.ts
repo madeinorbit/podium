@@ -1004,6 +1004,7 @@ export class SessionsService {
           ? {
               observationGeneration: observationLease.observationGeneration,
               observationBindingVersion: observationLease.bindingVersion,
+              observationProviderSessionId: observationLease.providerSessionId,
               ...(observationLease.checkpoint
                 ? { observationCheckpoint: observationLease.checkpoint }
                 : {}),
@@ -3025,6 +3026,7 @@ export class SessionsService {
         ? {
             observationGeneration: observationLease.observationGeneration,
             observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
             ...(observationLease.checkpoint
               ? { observationCheckpoint: observationLease.checkpoint }
               : {}),
@@ -3354,6 +3356,7 @@ export class SessionsService {
         ? {
             observationGeneration: observationLease.observationGeneration,
             observationBindingVersion: observationLease.bindingVersion,
+            observationProviderSessionId: observationLease.providerSessionId,
             ...(observationLease.checkpoint
               ? { observationCheckpoint: observationLease.checkpoint }
               : {}),
@@ -3944,6 +3947,115 @@ export class SessionsService {
         this.broadcastSessions()
         break
       }
+      case 'agentObservationRebind': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session || session.machineId !== machineId) break
+        const lease =
+          this.observationLeases.get(msg.sessionId) ??
+          this.store.observationCheckpoints.get(msg.sessionId)
+        const expectedProvider = observationProviderFor(session.agentKind)
+        const sessionBindingCompatible =
+          session.resume === undefined ||
+          (session.resume.kind === msg.resumeKind &&
+            (session.resume.value === msg.providerSessionId ||
+              session.resume.value === msg.nextProviderSessionId))
+        if (
+          !lease ||
+          expectedProvider !== msg.provider ||
+          lease.provider !== msg.provider ||
+          !sessionBindingCompatible
+        ) {
+          if (!lease) break
+          this.toMachine(session.machineId, {
+            type: 'agentObservationRebindAck',
+            sessionId: session.sessionId,
+            provider: lease.provider,
+            rebindId: msg.rebindId,
+            priorObserverGeneration: msg.observerGeneration,
+            priorBindingVersion: msg.bindingVersion,
+            nextProviderSessionId: msg.nextProviderSessionId,
+            providerSessionId: lease.providerSessionId,
+            result: 'rejected',
+            rejectionReason: 'provider_binding_mismatch',
+            observerGeneration: lease.observationGeneration,
+            bindingVersion: lease.bindingVersion,
+            checkpoint: lease.checkpoint,
+          })
+          break
+        }
+
+        let outcome: ReturnType<typeof this.store.observationCheckpoints.rebindExact> | undefined
+        try {
+          this.persist(session, () => {
+            outcome = this.store.observationCheckpoints.rebindExact({
+              sessionId: session.sessionId,
+              provider: msg.provider,
+              providerSessionId: msg.providerSessionId,
+              bindingVersion: msg.bindingVersion,
+              observationGeneration: msg.observerGeneration,
+              nextProviderSessionId: msg.nextProviderSessionId,
+            })
+            if (outcome.kind === 'rejected') {
+              throw new Error(`observation rebind rejected for ${session.sessionId}`)
+            }
+            session.resume = { kind: msg.resumeKind, value: msg.nextProviderSessionId }
+            if (outcome.disposition !== 'advanced') return
+            session.conversationPodiumId = msg.providerSessionId
+              ? this.store.conversations.linkConversationSegment({
+                  machineId: session.machineId,
+                  newNativeId: msg.nextProviderSessionId,
+                  priorNativeId: msg.providerSessionId,
+                  providerId: session.agentKind,
+                })
+              : this.store.conversations.ensureConversationIdentity({
+                  machineId: session.machineId,
+                  nativeId: msg.nextProviderSessionId,
+                  providerId: session.agentKind,
+                })
+          })
+        } catch (err) {
+          if (outcome?.kind !== 'rejected') throw err
+        }
+        if (!outcome) throw new Error(`missing observation rebind result for ${session.sessionId}`)
+        if (outcome.kind === 'rejected') {
+          this.toMachine(session.machineId, {
+            type: 'agentObservationRebindAck',
+            sessionId: session.sessionId,
+            provider: outcome.lease.provider,
+            rebindId: msg.rebindId,
+            priorObserverGeneration: msg.observerGeneration,
+            priorBindingVersion: msg.bindingVersion,
+            nextProviderSessionId: msg.nextProviderSessionId,
+            providerSessionId: outcome.lease.providerSessionId,
+            result: 'rejected',
+            rejectionReason: outcome.rejectionReason,
+            observerGeneration: outcome.lease.observationGeneration,
+            bindingVersion: outcome.lease.bindingVersion,
+            checkpoint: outcome.lease.checkpoint,
+          })
+          break
+        }
+        const rebound = outcome.lease
+        this.observationLeases.set(session.sessionId, rebound)
+        this.toMachine(session.machineId, {
+          type: 'agentObservationRebindAck',
+          sessionId: session.sessionId,
+          provider: rebound.provider,
+          rebindId: msg.rebindId,
+          priorObserverGeneration: msg.observerGeneration,
+          priorBindingVersion: msg.bindingVersion,
+          nextProviderSessionId: msg.nextProviderSessionId,
+          providerSessionId: rebound.providerSessionId,
+          result: 'accepted',
+          observerGeneration: rebound.observationGeneration,
+          bindingVersion: rebound.bindingVersion,
+          checkpoint: rebound.checkpoint,
+        })
+        if (outcome.disposition === 'advanced') {
+          this.broadcastSessions()
+        }
+        break
+      }
       case 'agentObservation': {
         const observation = msg.observation
         const session = this.sessions.get(observation.podiumSessionId)
@@ -3971,6 +4083,7 @@ export class SessionsService {
             type: 'agentObservationAck',
             sessionId: session.sessionId,
             observerGeneration: observation.observerGeneration,
+            bindingVersion: observation.bindingVersion,
             transitionId: observation.transitionId,
             result: 'rejected',
             rejectionReason: outcome.rejectionReason,
@@ -3998,6 +4111,7 @@ export class SessionsService {
           type: 'agentObservationAck',
           sessionId: session.sessionId,
           observerGeneration: observation.observerGeneration,
+          bindingVersion: observation.bindingVersion,
           transitionId: observation.transitionId,
           result: outcome.kind,
           acceptedCursor: outcome.checkpoint.providerCursor,

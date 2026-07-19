@@ -34,7 +34,7 @@ import {
 } from './host'
 import { InventoryRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
-import { AgentObservationAckMessage } from './runtime-state'
+import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
 import {
   DraftTargetMessage,
   InputMessage,
@@ -78,6 +78,7 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ReattachMessage,
   KillMessage,
   AgentObservationAckMessage,
+  AgentObservationRebindAckMessage,
   DraftTargetMessage,
   SessionResumeRefAckMessage,
   TranscriptMirrorReadMessage,

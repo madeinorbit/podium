@@ -9,8 +9,10 @@ import {
   claudeTranscriptSegmentId,
   type HarnessAdapter,
   type HarnessObservation,
+  type HarnessObservationLease,
   type HarnessObserveInput,
   type HarnessObserverHost,
+  type HarnessProviderRebind,
   harnessAdapterFor,
   initialAgentState,
   parseClaudeTranscriptSegmentId,
@@ -18,12 +20,13 @@ import {
 } from '@podium/agent-bridge'
 import type {
   AgentKind,
+  AgentObservation,
   ControlMessage,
   DaemonMessage,
   ObservationInputOrigin,
   TranscriptItem,
 } from '@podium/protocol'
-import { SessionObservationCheckpointV1 } from '@podium/protocol'
+import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import {
   createSharedStatTick,
   recordToItemsForKind,
@@ -56,6 +59,8 @@ export interface SessionObserversDeps {
   onTranscriptDirty(path: string): void
   /** The hook payload's live cwd — feeds the session cwd tracker. */
   cwdTracker: Pick<SessionCwdTracker, 'onHookCwd'>
+  /** Test/embedding override for the otherwise canonical harness registry. */
+  harnessAdapterFor?: typeof harnessAdapterFor
   /** Persist and replay an exact process-derived Codex P→T binding until acked. */
   onExactCodexBinding?: (sessionId: string, nativeId: string) => Promise<void>
   /** Paces each tail's FIRST backfill read (the expensive part of a reattach
@@ -94,6 +99,7 @@ export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
  */
 export function createSessionObservers(deps: SessionObserversDeps) {
   const { send } = deps
+  const adapterForKind = deps.harnessAdapterFor ?? harnessAdapterFor
   // One timer fans out every transcript/native-state stat poll in this daemon;
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
@@ -115,24 +121,55 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     string,
     { adapter: HarnessAdapter; observation: HarnessObservation }
   >()
-  type ClaudeLease = {
-    checkpoint?: SessionObservationCheckpointV1
-    observerGeneration: number
-    bindingVersion: number
+  type CausalLease = HarnessObservationLease & {
     cwd: string
   }
   type ClaudeCausalTracker = {
     observerGeneration: number
+    providerSessionId: string
     observer: ClaudeCausalObserver
     bootstrapTransitionId: string
     awaitingBootstrapAck: boolean
     bufferedHooks: unknown[]
     processing: Promise<void>
   }
-  const claudeLeases = new Map<string, ClaudeLease>()
+  const causalLeases = new Map<string, CausalLease>()
   const claudeCausal = new Map<string, ClaudeCausalTracker>()
+  const pendingRebinds = new Map<
+    string,
+    {
+      request: HarnessProviderRebind
+      observerGeneration: number
+      bindingVersion: number
+      bufferedObservations: AgentObservation[]
+      queuedRebinds: HarnessProviderRebind[]
+    }
+  >()
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
   const claudeStarting = new Map<string, unknown[]>()
+
+  const emitObservation = (
+    sessionId: string,
+    observation: Extract<DaemonMessage, { type: 'agentObservation' }>['observation'],
+  ): void => {
+    const pending = pendingRebinds.get(sessionId)
+    if (pending) {
+      pending.bufferedObservations.push(observation)
+      return
+    }
+    const lease = causalLeases.get(sessionId)
+    if (
+      !lease ||
+      observation.podiumSessionId !== sessionId ||
+      observation.provider !== lease.provider ||
+      observation.observerGeneration !== lease.observerGeneration ||
+      observation.bindingVersion !== lease.bindingVersion ||
+      (lease.providerSessionId !== null &&
+        observation.providerSessionId !== lease.providerSessionId)
+    )
+      return
+    send({ type: 'agentObservation', observation })
+  }
 
   const applyClaudeHook = async (causal: ClaudeCausalTracker, payload: unknown): Promise<void> => {
     const p = payload as Record<string, unknown>
@@ -160,11 +197,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           }
         : undefined,
     )
-    if (observation) send({ type: 'agentObservation', observation })
+    if (observation) emitObservation(observation.podiumSessionId, observation)
   }
 
   const startClaudeCausal = async (sessionId: string, payload: unknown): Promise<void> => {
-    const lease = claudeLeases.get(sessionId)
+    const lease = causalLeases.get(sessionId)
     const tracker = trackers.get(sessionId)
     const p = payload as Record<string, unknown> | null
     const providerSessionId = typeof p?.session_id === 'string' ? p.session_id : ''
@@ -175,10 +212,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
 
     const checkpoint =
-      lease.checkpoint &&
-      (lease.checkpoint.providerSessionId === null ||
-        lease.checkpoint.providerSessionId === providerSessionId)
-        ? lease.checkpoint
+      lease.acceptedCheckpoint &&
+      (lease.acceptedCheckpoint.providerSessionId === null ||
+        lease.acceptedCheckpoint.providerSessionId === providerSessionId)
+        ? lease.acceptedCheckpoint
         : undefined
     const acceptedCursor = checkpoint?.providerCursor
     const acceptedOffset = acceptedCursor?.components.transcript
@@ -288,6 +325,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (!snapshot) return
     const causal: ClaudeCausalTracker = {
       observerGeneration: snapshot.observerGeneration,
+      providerSessionId,
       observer,
       bootstrapTransitionId: snapshot.transitionId,
       awaitingBootstrapAck: true,
@@ -297,22 +335,150 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     claudeCausal.set(sessionId, causal)
     claudeStarting.delete(sessionId)
     tracker.state = bootstrapState
-    send({ type: 'agentObservation', observation: snapshot })
+    emitObservation(sessionId, snapshot)
   }
 
   const onObservationAck = (
     msg: Extract<ControlMessage, { type: 'agentObservationAck' }>,
   ): void => {
+    const lease = causalLeases.get(msg.sessionId)
+    if (!lease || msg.observerGeneration !== lease.observerGeneration) return
+    const bound = observations.get(msg.sessionId)
+    // Claude accepted one-release acks before bindingVersion existed. New
+    // generic adapters require the exact binding fence.
+    if (msg.bindingVersion === undefined && bound?.adapter.kind !== 'claude-code') return
+    if (msg.bindingVersion !== undefined && msg.bindingVersion !== lease.bindingVersion) return
+    bound?.observation.onObservationAck?.(msg)
     const causal = claudeCausal.get(msg.sessionId)
-    if (!causal) return
-    if (msg.observerGeneration !== causal.observerGeneration) return
+    const recoveredBootstrap =
+      msg.result === 'rejected' &&
+      msg.rejectionReason === 'cursor_not_after_checkpoint' &&
+      msg.acceptedCursor !== undefined
+    if (!causal || (msg.result === 'rejected' && !recoveredBootstrap)) return
     causal.observer.acknowledgeCursor(msg.acceptedCursor)
     if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) return
+    if (msg.result !== 'rejected' && lease.providerSessionId === null) {
+      causalLeases.set(msg.sessionId, { ...lease, providerSessionId: causal.providerSessionId })
+    }
     causal.awaitingBootstrapAck = false
     const buffered = causal.bufferedHooks.splice(0)
     for (const payload of buffered) {
       causal.processing = causal.processing.then(() => applyClaudeHook(causal, payload))
     }
+  }
+
+  const sendProviderRebind = (sessionId: string, rebind: HarnessProviderRebind): void => {
+    const lease = causalLeases.get(sessionId)
+    if (!lease) return
+    const pending = pendingRebinds.get(sessionId)
+    if (pending) {
+      if (
+        pending.request.rebindId === rebind.rebindId &&
+        pending.request.nextProviderSessionId === rebind.nextProviderSessionId
+      ) {
+        send({
+          type: 'agentObservationRebind',
+          sessionId,
+          provider: lease.provider,
+          providerSessionId: lease.providerSessionId,
+          observerGeneration: pending.observerGeneration,
+          bindingVersion: pending.bindingVersion,
+          nextProviderSessionId: rebind.nextProviderSessionId,
+          resumeKind: rebind.resumeKind,
+          rebindId: rebind.rebindId,
+        })
+      } else if (!pending.queuedRebinds.some((queued) => queued.rebindId === rebind.rebindId)) {
+        pending.queuedRebinds.push(rebind)
+      }
+      return
+    }
+    pendingRebinds.set(sessionId, {
+      request: rebind,
+      observerGeneration: lease.observerGeneration,
+      bindingVersion: lease.bindingVersion,
+      bufferedObservations: [],
+      queuedRebinds: [],
+    })
+    send({
+      type: 'agentObservationRebind',
+      sessionId,
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      observerGeneration: lease.observerGeneration,
+      bindingVersion: lease.bindingVersion,
+      nextProviderSessionId: rebind.nextProviderSessionId,
+      resumeKind: rebind.resumeKind,
+      rebindId: rebind.rebindId,
+    })
+  }
+
+  const onProviderRebindAck = (
+    msg: Extract<ControlMessage, { type: 'agentObservationRebindAck' }>,
+  ): void => {
+    const lease = causalLeases.get(msg.sessionId)
+    const pending = pendingRebinds.get(msg.sessionId)
+    if (!lease || !pending) return
+    if (
+      msg.provider !== lease.provider ||
+      msg.rebindId !== pending.request.rebindId ||
+      msg.priorObserverGeneration !== lease.observerGeneration ||
+      msg.priorBindingVersion !== lease.bindingVersion ||
+      msg.nextProviderSessionId !== pending.request.nextProviderSessionId
+    )
+      return
+    const acceptedAdvanced =
+      msg.providerSessionId === msg.nextProviderSessionId &&
+      msg.observerGeneration === pending.observerGeneration + 1 &&
+      msg.bindingVersion === pending.bindingVersion + 1
+    const acceptedUnchanged =
+      msg.providerSessionId === msg.nextProviderSessionId &&
+      lease.providerSessionId === msg.nextProviderSessionId &&
+      msg.observerGeneration === pending.observerGeneration &&
+      msg.bindingVersion === pending.bindingVersion
+    if (msg.result === 'accepted' && !acceptedAdvanced && !acceptedUnchanged) return
+    if (
+      msg.result === 'rejected' &&
+      (msg.observerGeneration < pending.observerGeneration ||
+        msg.bindingVersion < pending.bindingVersion)
+    )
+      return
+    pendingRebinds.delete(msg.sessionId)
+    const acceptedCheckpoint =
+      msg.checkpoint &&
+      msg.checkpoint.podiumSessionId === msg.sessionId &&
+      msg.checkpoint.provider === msg.provider &&
+      msg.checkpoint.providerSessionId === msg.providerSessionId &&
+      msg.checkpoint.bindingVersion === msg.bindingVersion &&
+      msg.checkpoint.lifecycleObservationGeneration <= msg.observerGeneration
+        ? msg.checkpoint
+        : null
+    causalLeases.set(msg.sessionId, {
+      provider: msg.provider,
+      providerSessionId: msg.providerSessionId,
+      observerGeneration: msg.observerGeneration,
+      bindingVersion: msg.bindingVersion,
+      acceptedCheckpoint,
+      cwd: lease.cwd,
+    })
+    observations.get(msg.sessionId)?.observation.onProviderRebindAck?.(msg)
+    for (const observation of pending.bufferedObservations) {
+      emitObservation(msg.sessionId, observation)
+    }
+    const pendingClaude = claudeStarting.get(msg.sessionId)
+    const pendingClaudeSessionId = (pendingClaude?.[0] as Record<string, unknown> | undefined)
+      ?.session_id
+    if (
+      observations.get(msg.sessionId)?.adapter.kind === 'claude-code' &&
+      typeof pendingClaudeSessionId === 'string'
+    ) {
+      claudeCausal.delete(msg.sessionId)
+      if (pendingClaudeSessionId === msg.providerSessionId) {
+        void startClaudeCausal(msg.sessionId, pendingClaude![0])
+      } else {
+        sendProviderRebind(msg.sessionId, pending.request)
+      }
+    }
+    for (const queued of pending.queuedRebinds) sendProviderRebind(msg.sessionId, queued)
   }
 
   const recordInputOrigin = (
@@ -450,6 +616,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     },
     onTitle: (title) => send({ type: 'title', sessionId, title }),
     onStateEvents: (events) => applyAgentStateEvents(sessionId, events),
+    onObservation: (observation) => emitObservation(sessionId, observation),
+    onExactProviderRebind: (rebind) => sendProviderRebind(sessionId, rebind),
     onTranscriptItems: (items, reset) => {
       if (items.length === 0 && !reset) return
       // Items arrive already cursor-stamped by the observer (opencode:
@@ -537,27 +705,46 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         state: initialAgentState(new Date().toISOString()),
       })
     }
+    const adapter = adapterForKind(msg.agentKind)
+    const observationProvider = ObservationProvider.safeParse(adapter?.kind)
     if (
-      msg.agentKind === 'claude-code' &&
+      observationProvider.success &&
       msg.observationGeneration !== undefined &&
       msg.observationBindingVersion !== undefined
     ) {
+      pendingRebinds.delete(msg.sessionId)
+      claudeStarting.delete(msg.sessionId)
+      claudeCausal.delete(msg.sessionId)
       const checkpoint = SessionObservationCheckpointV1.safeParse(msg.observationCheckpoint)
-      claudeLeases.set(msg.sessionId, {
+      const providerSessionId =
+        msg.observationProviderSessionId !== undefined
+          ? msg.observationProviderSessionId
+          : checkpoint.success
+            ? checkpoint.data.providerSessionId
+            : (msg.resume?.value ?? null)
+      const resumeMatchesLease = msg.resume === undefined || msg.resume.value === providerSessionId
+      const acceptedCheckpoint =
+        checkpoint.success &&
+        resumeMatchesLease &&
+        checkpoint.data.podiumSessionId === msg.sessionId &&
+        checkpoint.data.provider === observationProvider.data &&
+        checkpoint.data.providerSessionId === providerSessionId &&
+        checkpoint.data.bindingVersion === msg.observationBindingVersion &&
+        checkpoint.data.lifecycleObservationGeneration <= msg.observationGeneration
+          ? checkpoint.data
+          : null
+      causalLeases.set(msg.sessionId, {
+        provider: observationProvider.data,
+        providerSessionId,
         observerGeneration: msg.observationGeneration,
         bindingVersion: msg.observationBindingVersion,
         cwd: msg.cwd,
-        ...(checkpoint.success &&
-        checkpoint.data.podiumSessionId === msg.sessionId &&
-        checkpoint.data.provider === 'claude-code' &&
-        checkpoint.data.bindingVersion === msg.observationBindingVersion
-          ? { checkpoint: checkpoint.data }
-          : {}),
+        acceptedCheckpoint,
       })
     }
-    const adapter = harnessAdapterFor(msg.agentKind)
     if (adapter) {
       const pathHint = pathHintOf(msg)
+      const observationLease = causalLeases.get(msg.sessionId)
       startObservation(msg.sessionId, adapter, {
         cwd: msg.cwd,
         statTick,
@@ -573,9 +760,20 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         // Reattach carries the server's recorded segment path — evidence beats
         // cwd derivation after a worktree move (conversation registry §3.3).
         ...(pathHint ? { pathHint } : {}),
+        ...(observationLease
+          ? {
+              observationLease: {
+                provider: observationLease.provider,
+                providerSessionId: observationLease.providerSessionId,
+                bindingVersion: observationLease.bindingVersion,
+                observerGeneration: observationLease.observerGeneration,
+                acceptedCheckpoint: observationLease.acceptedCheckpoint,
+              },
+            }
+          : {}),
       })
     }
-    if (provider?.bootEvents && !claudeLeases.has(msg.sessionId)) {
+    if (provider?.bootEvents && !causalLeases.has(msg.sessionId)) {
       // const capture so the narrowing survives into the onFrame closure.
       const bootProvider = provider
       const seed = (): void => {
@@ -609,7 +807,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cwd: string,
     resumeValue: string,
   ): void => {
-    const adapter = harnessAdapterFor(agentKind)
+    const adapter = adapterForKind(agentKind)
     if (!adapter) throw new Error(`agent kind ${agentKind} has no headless transcript binding`)
     startObservation(sessionId, adapter, {
       cwd,
@@ -665,7 +863,28 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (typeof hookCwd === 'string' && hookCwd) {
       void deps.cwdTracker.onHookCwd(sessionId, hookCwd)
     }
-    if (bound.adapter.kind === 'claude-code' && claudeLeases.has(sessionId)) {
+    if (bound.adapter.kind === 'claude-code' && causalLeases.has(sessionId)) {
+      const lease = causalLeases.get(sessionId)!
+      if (
+        typeof harnessSessionId === 'string' &&
+        lease.providerSessionId !== null &&
+        harnessSessionId !== lease.providerSessionId
+      ) {
+        const starting = claudeStarting.get(sessionId)
+        if (starting) starting.push(payload)
+        else claudeStarting.set(sessionId, [payload])
+        sendProviderRebind(sessionId, {
+          nextProviderSessionId: harnessSessionId,
+          resumeKind: bound.adapter.resumeKind,
+          rebindId: [
+            'rebind',
+            lease.bindingVersion,
+            lease.observerGeneration,
+            harnessSessionId,
+          ].join(':'),
+        })
+        return
+      }
       const causal = claudeCausal.get(sessionId)
       if (!causal) {
         const starting = claudeStarting.get(sessionId)
@@ -696,7 +915,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cancelPendingIdleEmit(sessionId)
     trackers.delete(sessionId)
     stopObservation(sessionId)
-    claudeLeases.delete(sessionId)
+    causalLeases.delete(sessionId)
+    pendingRebinds.delete(sessionId)
     claudeCausal.delete(sessionId)
     claudeStarting.delete(sessionId)
     pendingClaudeOrigins.delete(sessionId)
@@ -721,6 +941,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     onHookPayload,
     trackedState,
     onObservationAck,
+    onProviderRebindAck,
     recordInputOrigin,
     clearSession,
     stopAllTails,

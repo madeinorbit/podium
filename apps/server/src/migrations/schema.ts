@@ -79,6 +79,18 @@ export const sessionObservationCheckpoints = sqliteTable("session_observation_ch
 	updatedAt: text("updated_at").notNull(),
 });
 
+export const sessionObservationRebinds = sqliteTable("session_observation_rebinds", {
+	sessionId: text("session_id").primaryKey().references(() => sessionObservationCheckpoints.sessionId, { onDelete: "cascade" }),
+	provider: text().notNull(),
+	fromProviderSessionId: text("from_provider_session_id"),
+	fromBindingVersion: integer("from_binding_version").notNull(),
+	fromObservationGeneration: integer("from_observation_generation").notNull(),
+	toProviderSessionId: text("to_provider_session_id").notNull(),
+	resultingBindingVersion: integer("resulting_binding_version").notNull(),
+	resultingObservationGeneration: integer("resulting_observation_generation").notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
 export const meta = sqliteTable("meta", {
 	key: text().primaryKey(),
 	value: text().notNull(),

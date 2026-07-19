@@ -108,6 +108,10 @@ describe('acceptAgentObservation', () => {
     expect(
       acceptAgentObservation(null, lease, observation({ providerSessionId: 'other' }), at),
     ).toEqual({ kind: 'rejected', rejectionReason: 'provider_binding_mismatch' })
+    expect(acceptAgentObservation(null, lease, observation({ bindingVersion: 2 }), at)).toEqual({
+      kind: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+    })
     expect(
       acceptAgentObservation(
         null,
@@ -116,6 +120,43 @@ describe('acceptAgentObservation', () => {
         at,
       ),
     ).toEqual({ kind: 'rejected', rejectionReason: 'replay_has_no_live_effects' })
+  })
+
+  it('requires explicit predecessor succession for file identity replacement', () => {
+    const current = {
+      segmentId: 'segment-1',
+      pathHint: '/tmp/rollout.jsonl',
+      device: '1',
+      inode: '10',
+      components: { file: 100 },
+    }
+    expect(
+      compareProviderCursor(current, { ...current, inode: '11', components: { file: 120 } }),
+    ).toBe('incomparable')
+    expect(
+      compareProviderCursor(current, {
+        segmentId: 'segment-2',
+        predecessorSegmentId: 'segment-1',
+        pathHint: '/tmp/rollout.jsonl',
+        device: '1',
+        inode: '11',
+        components: { file: 5 },
+      }),
+    ).toBe('after')
+    expect(
+      compareProviderCursor(current, {
+        segmentId: 'segment-1',
+        pathHint: '/tmp/rollout.jsonl',
+        device: '1',
+        components: { file: 120 },
+      }),
+    ).toBe('incomparable')
+    expect(
+      compareProviderCursor(
+        { segmentId: 'segment-1', components: { file: 100 } },
+        { ...current, components: { file: 120 } },
+      ),
+    ).toBe('incomparable')
   })
 
   it('rejects inconsistent phase envelopes and snapshots mislabeled as live', () => {
