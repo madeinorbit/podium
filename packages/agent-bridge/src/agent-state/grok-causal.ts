@@ -34,8 +34,6 @@ export type GrokSegmentIdentity = {
   inode: string
 }
 
-const RECOVERABLE_REJECTIONS = new Set(['cursor_not_after_checkpoint', 'duplicate_transition'])
-
 /**
  * Provider-local causal fold for Grok. Disk records may be read ahead, but only
  * one durable observation is released at a time; its successor waits for the
@@ -145,16 +143,38 @@ export class GrokCausalObserver {
     ) {
       return
     }
+    const acceptedCursor = ack.acceptedCursor ?? null
     const released =
-      ack.result !== 'rejected' ||
-      (ack.rejectionReason !== undefined && RECOVERABLE_REJECTIONS.has(ack.rejectionReason))
+      ack.result !== 'rejected'
+        ? true
+        : ack.rejectionReason === 'duplicate_transition'
+          ? acceptedCursor !== null && sameCursor(acceptedCursor, current.providerCursor)
+          : ack.rejectionReason === 'cursor_not_after_checkpoint' ||
+              ack.rejectionReason === 'terminal_epoch_closed'
+            ? acceptedCursor !== null
+            : false
     if (!released) {
       this.paused = true
       return
     }
-    this.acceptedCursor = ack.acceptedCursor ?? current.providerCursor
+    this.acceptedCursor = acceptedCursor ?? current.providerCursor
+    this.restoreAcceptedCheckpoint(this.acceptedCursor)
     this.inFlight = null
     void this.drain()
+  }
+
+  private restoreAcceptedCheckpoint(cursor: ProviderCursor): void {
+    const checkpoint = this.lease.acceptedCheckpoint
+    if (!checkpoint?.providerCursor || !sameCursor(checkpoint.providerCursor, cursor)) return
+    this.state = checkpoint.turnState
+    this.turnEpoch = checkpoint.turnEpoch
+    this.providerTurnId = checkpoint.providerTurnId
+    this.providerPromptId = checkpoint.providerPromptId
+    this.epochOpen =
+      checkpoint.terminalFence === null &&
+      (this.state.phase === 'working' ||
+        this.state.phase === 'compacting' ||
+        this.state.phase === 'needs_user')
   }
 
   private async drain(): Promise<void> {

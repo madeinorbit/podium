@@ -217,6 +217,8 @@ export function observeGrokState(opts: {
   pollMs?: number
   statTick?: StatTick
   onSession?: (sessionId: string) => void
+  /** Rejecting a candidate prevents every resume, transcript, and bootstrap side effect. */
+  onSessionCandidate?: (sessionId: string) => boolean
   /** Fires after history is folded through the captured complete-record EOF. */
   onBootstrap?: (lastCompleteRecordOffset: number) => void
   onEvents?: (events: AgentStateEvent[]) => void
@@ -236,7 +238,7 @@ export function observeGrokState(opts: {
 
   const attach = (paths: GrokSessionPaths): void => {
     if (attached?.sessionId === paths.sessionId) return
-    if (opts.causal?.providerSessionId && opts.causal.providerSessionId !== paths.sessionId) return
+    if (opts.onSessionCandidate && !opts.onSessionCandidate(paths.sessionId)) return
     updateTail?.stop()
     attached = paths
     boundId = paths.sessionId
