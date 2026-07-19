@@ -175,6 +175,10 @@ export const AgentObservation = z.object({
 })
 export type AgentObservation = z.infer<typeof AgentObservation>
 
+/** Newest-first durable history used to reject delayed observation retries.
+ * [spec:SP-cdb2] */
+export const ACCEPTED_TRANSITION_ID_WINDOW_SIZE = 32
+
 export const SessionObservationCheckpointV1 = z.object({
   schemaVersion: z.literal(1),
   podiumSessionId: z.string().min(1),
@@ -194,6 +198,10 @@ export const SessionObservationCheckpointV1 = z.object({
   acceptedAt: z.string().datetime(),
   lastLiveReceiptAt: z.string().datetime().nullable(),
   lastTransitionId: z.string().min(1).nullable(),
+  acceptedTransitionIds: z
+    .array(z.string().min(1))
+    .max(ACCEPTED_TRANSITION_ID_WINDOW_SIZE)
+    .optional(),
 })
 export type SessionObservationCheckpointV1 = z.infer<typeof SessionObservationCheckpointV1>
 

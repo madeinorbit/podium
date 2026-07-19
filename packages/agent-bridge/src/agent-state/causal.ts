@@ -6,6 +6,7 @@ import type {
   SessionObservationCheckpointV1,
   TerminalFence,
 } from '@podium/protocol'
+import { ACCEPTED_TRANSITION_ID_WINDOW_SIZE } from '@podium/protocol'
 
 export interface ObservationLease {
   provider: ObservationProvider
@@ -77,6 +78,9 @@ function checkpointFrom(
 ): SessionObservationCheckpointV1 {
   const live = observation.provenance === 'live'
   const inferredFence = terminalFenceFor(observation)
+  const previousTransitionIds =
+    previous?.acceptedTransitionIds ??
+    (previous?.lastTransitionId ? [previous.lastTransitionId] : [])
   return {
     schemaVersion: 1,
     podiumSessionId: observation.podiumSessionId,
@@ -102,6 +106,10 @@ function checkpointFrom(
     acceptedAt,
     lastLiveReceiptAt: live ? observation.receivedAt : (previous?.lastLiveReceiptAt ?? null),
     lastTransitionId: observation.transitionId,
+    acceptedTransitionIds: [
+      observation.transitionId,
+      ...previousTransitionIds.filter((id) => id !== observation.transitionId),
+    ].slice(0, ACCEPTED_TRANSITION_ID_WINDOW_SIZE),
   }
 }
 
@@ -135,7 +143,10 @@ export function acceptAgentObservation(
   if (observation.providerAt !== null && !Number.isFinite(Date.parse(observation.providerAt))) {
     return rejected('invalid_provider_timestamp')
   }
-  if (checkpoint?.lastTransitionId === observation.transitionId) {
+  if (
+    checkpoint?.lastTransitionId === observation.transitionId ||
+    checkpoint?.acceptedTransitionIds?.includes(observation.transitionId)
+  ) {
     return rejected('duplicate_transition')
   }
 
