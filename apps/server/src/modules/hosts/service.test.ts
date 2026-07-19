@@ -70,6 +70,7 @@ function harness(input: {
       return { ok: true }
     },
     hasValidTerminalProof: (sessionId) => input.proven?.has(sessionId) ?? true,
+    terminalProofMissing: (sessionId) => !(input.proven?.has(sessionId) ?? true),
     daemonRequest: vi.fn() as HostsDeps['daemonRequest'],
   }
   return { service: new HostsService(deps, new EventBus()), parked }
@@ -164,6 +165,24 @@ describe('idle-session cap', () => {
 
     expect(parked).toEqual(['proven'])
     expect(sessions[0]?.status).toBe('live')
+  })
+
+  it('logs a mixed-version terminal rejected solely for missing proof once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const sessions = [session('legacy')]
+    const { service } = harness({
+      sessions,
+      maxIdleSessions: null,
+      proven: new Set(),
+    })
+
+    service.onHostMetrics('local', sample(90))
+    service.onHostMetrics('local', sample(90))
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('legacy: missing durable terminal proof'),
+    )
   })
 
   it('runs count pressure even when the memory sample cannot produce a percentage', () => {

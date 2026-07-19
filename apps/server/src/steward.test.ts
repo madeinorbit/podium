@@ -867,6 +867,35 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
+  it('delivers terminal-fenced exits to session.exited-only subscribers', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'watcher', cwd: '/w' }),
+      fakeSession({ sessionId: 'worker', cwd: '/x' }),
+    ]
+    const { store, steward, sendTextWhenReady } = harness({ sessions })
+    store.events.addSubscription(
+      seedSub({
+        id: 'sub_exit',
+        subscriberKind: 'session',
+        subscriberId: 'watcher',
+        event: 'session.exited',
+        sourceKind: 'session',
+        sourceRef: 'worker',
+      }),
+    )
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'worker',
+      payload: { code: 0, terminalFenceReported: true },
+    })
+
+    await steward.tick()
+
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('watcher')
+  })
+
   it('a session.finished subscription nudges the subscriber session', async () => {
     const sessions = [
       fakeSession({ sessionId: 'watcher', cwd: '/w' }),
@@ -1070,14 +1099,12 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     const e = { id: 1, ts: 't', kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
     expect(TRIGGER_RULES['session.exited']!(e)).toBe('sessionparentnudge:exited:s9')
     const nonterminal = { ...e, payload: { terminalFenceReported: false } }
-    expect(TRIGGER_RULES['session.exited']!(nonterminal)).toBe(
-      'sessionparentnudge:exited:s9',
-    )
+    expect(TRIGGER_RULES['session.exited']!(nonterminal)).toBe('sessionparentnudge:exited:s9')
     expect(subscriptionEventKinds(nonterminal)).toEqual(['session.exited'])
 
     const terminal = { ...e, payload: { terminalFenceReported: true } }
     expect(TRIGGER_RULES['session.exited']!(terminal)).toBeUndefined()
-    expect(subscriptionEventKinds(terminal)).toEqual([])
+    expect(subscriptionEventKinds(terminal)).toEqual(['session.exited'])
   })
 
   it('invokes the messaging seam once per settled session with the outcome', async () => {

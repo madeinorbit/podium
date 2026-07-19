@@ -451,6 +451,7 @@ export class SessionsService {
   }
 
   dispose(): void {
+    this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
     for (const timer of this.openUrlExpiryTimers.values()) clearTimeout(timer)
     this.openUrlExpiryTimers.clear()
@@ -891,7 +892,21 @@ export class SessionsService {
       if (!session) continue
       this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
       const checkpoint = this.observationLeases.get(r.id)?.checkpoint
-      if (checkpoint) session.applyObservationCheckpoint(checkpoint)
+      if (checkpoint) {
+        session.applyObservationCheckpoint(checkpoint)
+        // Only the current state of a durably accepted LIVE cursor may restore
+        // retry behavior. Bootstrap/replay snapshots can remain visibly errored,
+        // but must never create effects merely because the server restarted.
+        if (
+          checkpoint.lastAcceptedLiveCursor !== null &&
+          JSON.stringify(checkpoint.providerCursor) ===
+            JSON.stringify(checkpoint.lastAcceptedLiveCursor) &&
+          checkpoint.turnState.phase === 'errored' &&
+          checkpoint.turnState.error?.retryable === true
+        ) {
+          this.autoContinue.onSessionRestored(session.sessionId, checkpoint.turnState)
+        }
+      }
       if (r.status !== session.status) this.persist(session)
     }
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
@@ -2698,6 +2713,14 @@ export class SessionsService {
     )
   }
 
+  terminalProofMissing(sessionId: string): boolean {
+    const lease = this.store.observationCheckpoints.get(sessionId)
+    return (
+      lease?.checkpoint?.terminalFence == null ||
+      this.store.observationCheckpoints.getTerminalCandidate(sessionId) == null
+    )
+  }
+
   hibernateSession({
     sessionId,
     requireTerminalProof = false,
@@ -2737,6 +2760,7 @@ export class SessionsService {
         return { ok: false, reason: 'terminal state has not passed live revalidation' }
       }
     }
+    const runningStatus = session.status
     session.status = 'hibernated'
     const consumedAt = new Date(this.now()).toISOString()
     try {
@@ -2762,6 +2786,10 @@ export class SessionsService {
           : undefined,
       )
     } catch (error) {
+      // `persist` restores its captured durable state on any transaction error;
+      // keep this lifecycle primitive independently correct even when a caller or
+      // test supplies a store without a prior capture.
+      session.status = runningStatus
       if (error instanceof Error && error.message === 'terminal proof changed before hibernation') {
         return { ok: false, reason: error.message }
       }
@@ -3416,7 +3444,7 @@ export class SessionsService {
     // is never the hibernate path (hibernateSession only flips status).
     // Capture spawnedBy before the row is gone so the steward can still resolve
     // a session-spawner parent wake (POD-904 / exit-without-report).
-    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy)
+    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
   }
 
   /**
@@ -3425,9 +3453,28 @@ export class SessionsService {
    * Hibernate does not land here. Best-effort log write — a store throw must
    * not undo the exit side-effects already applied.
    */
-  private emitSessionExited(sessionId: string, code: number, spawnedBy?: string | null): void {
-    const terminalFenceReported =
-      this.store.observationCheckpoints.get(sessionId)?.checkpoint?.terminalFence != null
+  private emitSessionExited(
+    sessionId: string,
+    code: number,
+    spawnedBy?: string | null,
+    sourceSession: Session | undefined = this.sessions.get(sessionId),
+  ): void {
+    const session = sourceSession
+    const lease = this.store.observationCheckpoints.get(sessionId)
+    const fence = lease?.checkpoint?.terminalFence
+    const candidate = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
+    // A fence suppresses the fixed steward exit fallback only while it still
+    // describes the latest causal input. Historical/mixed-version fences without
+    // their matching durable candidate, or a prompt sent after the fence, must let
+    // the crash surface as a real exit.
+    const terminalFenceReported = Boolean(
+      session &&
+        fence &&
+        !fence.closing &&
+        candidate &&
+        candidate.facts.terminalTransitionId === fence.transitionId &&
+        candidate.facts.inputCount === session.inputCount,
+    )
     this.bus.emit('session.exited', { sessionId, code })
     try {
       this.store.events.appendEvent({
@@ -4024,6 +4071,7 @@ export class SessionsService {
           // — surfaced in meta so a client retires its own sampler/flush.
           s.draftSyncEngine = msg.draftSyncEngine ?? false
           this.persist(s)
+          this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
