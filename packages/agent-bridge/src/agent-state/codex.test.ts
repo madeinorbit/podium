@@ -1,8 +1,9 @@
 import { appendFile, mkdir, mkdtemp, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { AgentObservation } from '@podium/protocol'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acceptAgentObservation, type ObservationLease } from './causal.js'
 import {
   CodexCausalCursorObserver,
@@ -881,6 +882,8 @@ describe('foldCodexRolloutBootstrap', () => {
     expect(truncated.providerSessionId).toBe('thread-truncated')
     expect(truncated.state.phase).toBe('working')
     expect(truncated.providerCursor.components.file).toBe(Buffer.byteLength(truncatedContents))
+    expect(truncated.providerCursor.segmentId).not.toBe(checkpoint.providerCursor?.segmentId)
+    expect(truncated.providerCursor.predecessorSegmentId).toBe(checkpoint.providerCursor?.segmentId)
     await rename(path, `${path}.old`)
     const rotatedContents =
       line({ type: 'session_meta', payload: { id: 'thread-rotated', cwd: '/repo/x' } }) +
@@ -891,6 +894,7 @@ describe('foldCodexRolloutBootstrap', () => {
     expect(rotated.providerSessionId).toBe('thread-rotated')
     expect(rotated.state.phase).toBe('idle')
     expect(rotated.providerCursor.segmentId).not.toBe(checkpoint.providerCursor?.segmentId)
+    expect(rotated.providerCursor.predecessorSegmentId).toBe(checkpoint.providerCursor?.segmentId)
   })
 
   it('discards an oversized content record without losing later state boundaries', async () => {
@@ -1164,6 +1168,118 @@ describe('foldCodexRolloutBootstrap', () => {
         offset + 100,
       ),
     ).toBeNull()
+  })
+
+  it('polls strictly after bootstrap ack and emits one real working/terminal pair', async () => {
+    const frozen =
+      line({ type: 'session_meta', payload: { id: 'thread-poll', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T10:00:00.000Z', { turn_id: 'turn-frozen' }) +
+      event('task_complete', '2026-07-19T10:00:01.000Z')
+    const path = await rollout(frozen)
+    const livePath = join(resolve(path, '..'), 'rollout-2026-07-19T10-00-00-thread-poll.jsonl')
+    await rename(path, livePath)
+    const observations: AgentObservation[] = []
+    const legacyEvents: unknown[] = []
+    const rebinds: string[] = []
+    const observation = observeCodexState({
+      cwd: '/repo/x',
+      homeDir: resolve(livePath, '../../../../../..'),
+      resumeValue: 'thread-poll',
+      pollMs: 10,
+      causal: {
+        podiumSessionId: 'podium-poll',
+        providerSessionId: 'thread-poll',
+        observerGeneration: 5,
+        bindingVersion: 3,
+        acceptedCheckpoint: null,
+        onObservation: (value) => observations.push(value),
+        onRebindRequired: (providerSessionId) => rebinds.push(providerSessionId),
+      },
+      onEvents: (events) => legacyEvents.push(...events),
+    })
+    try {
+      await vi.waitFor(() => expect(observations).toHaveLength(1))
+      expect(observations[0]?.transitionKind).toBe('snapshot')
+      const bootstrap = observations[0]!
+      observation.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-poll',
+        observerGeneration: 5,
+        bindingVersion: 3,
+        transitionId: bootstrap.transitionId,
+        result: 'snapshot_applied',
+        acceptedCursor: bootstrap.providerCursor,
+      })
+      await appendFile(
+        livePath,
+        event('task_started', '2026-07-19T10:01:00.000Z', { turn_id: 'turn-live' }),
+      )
+      await vi.waitFor(() => expect(observations).toHaveLength(2))
+      const working = observations[1]!
+      expect(working).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
+      observation.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-poll',
+        observerGeneration: 5,
+        bindingVersion: 3,
+        transitionId: working.transitionId,
+        result: 'live_transition_accepted',
+        acceptedCursor: working.providerCursor,
+      })
+      await appendFile(
+        livePath,
+        event('task_complete', '2026-07-19T10:02:00.000Z', {
+          last_agent_message: 'One live turn.',
+        }),
+      )
+      await vi.waitFor(() => expect(observations).toHaveLength(3))
+      const terminal = observations[2]!
+      expect(terminal).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
+      expect(observations.map((value) => value.transitionKind)).toEqual([
+        'snapshot',
+        'turn_opened',
+        'turn_terminal',
+      ])
+      expect(observations.slice(1).map((value) => value.nextPhase)).toEqual(['working', 'idle'])
+      expect(legacyEvents).toEqual([])
+      expect(rebinds).toEqual([])
+    } finally {
+      observation.stop()
+    }
+  })
+
+  it('requests exact rebind and emits no state effect for a changed native thread', async () => {
+    const sourcePath = await rollout(
+      line({ type: 'session_meta', payload: { id: 'thread-after-new', cwd: '/repo/x' } }),
+    )
+    const livePath = join(resolve(sourcePath, '..'), 'rollout-thread-after-new.jsonl')
+    await rename(sourcePath, livePath)
+    const observations: AgentObservation[] = []
+    const rebinds: string[] = []
+    const legacyEvents: unknown[] = []
+    const observation = observeCodexState({
+      cwd: '/repo/x',
+      homeDir: resolve(livePath, '../../../../../..'),
+      resumeValue: 'thread-after-new',
+      pollMs: 10,
+      causal: {
+        podiumSessionId: 'podium-new',
+        providerSessionId: 'thread-before-new',
+        observerGeneration: 8,
+        bindingVersion: 4,
+        acceptedCheckpoint: null,
+        onObservation: (value) => observations.push(value),
+        onRebindRequired: (providerSessionId) => rebinds.push(providerSessionId),
+      },
+      onEvents: (events) => legacyEvents.push(...events),
+    })
+    try {
+      await vi.waitFor(() => expect(rebinds).toEqual(['thread-after-new']))
+      expect(observations).toEqual([])
+      expect(legacyEvents).toEqual([])
+    } finally {
+      observation.stop()
+    }
   })
 })
 

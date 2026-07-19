@@ -11,6 +11,7 @@ import { createCodexConversationProvider } from '../../discovery/providers/codex
 import {
   accountIdentity,
   type HarnessAdapter,
+  type HarnessObservationLease,
   isSet,
   type TranscriptSourceInput,
 } from '../adapter.js'
@@ -254,17 +255,39 @@ export const codexAdapter: HarnessAdapter = {
     // sibling's rollout. Spawn passes its own start; reattach the persisted one.
     const floor = input.startedAtMs ?? input.createdAtMs
     let boundThread: string | undefined
+    let observationLease = input.observationLease
+    const requestExactRebind = (providerSessionId: string, lease: HarnessObservationLease): void =>
+      host.onExactProviderRebind({
+        nextProviderSessionId: providerSessionId,
+        resumeKind: 'codex-thread',
+        rebindId: `codex:${lease.bindingVersion}:${lease.observerGeneration}:${providerSessionId}`,
+      })
     const start = (
       resumeValue: string | undefined,
       startedAtMs: number | undefined,
-    ): { stop(): void } =>
-      observeCodexState({
+    ): ReturnType<typeof observeCodexState> => {
+      const lease = observationLease
+      return observeCodexState({
         cwd: input.cwd,
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(input.podiumSessionId ? { podiumSessionId: input.podiumSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
+        ...(lease && input.podiumSessionId
+          ? {
+              causal: {
+                podiumSessionId: input.podiumSessionId,
+                providerSessionId: lease.providerSessionId,
+                observerGeneration: lease.observerGeneration,
+                bindingVersion: lease.bindingVersion,
+                acceptedCheckpoint: lease.acceptedCheckpoint,
+                onObservation: (observation) => host.onObservation(observation),
+                onRebindRequired: (providerSessionId) =>
+                  requestExactRebind(providerSessionId, lease),
+              },
+            }
+          : {}),
         onSession: (rolloutId, rolloutPath, confidence) => {
           boundThread = rolloutId
           host.onResumeValue(rolloutId, confidence)
@@ -277,6 +300,7 @@ export const codexAdapter: HarnessAdapter = {
         onTitle: (title) => host.onTitle(title),
         onEvents: (events) => host.onStateEvents(events),
       })
+    }
     // A resume/reattach passes the session's known codex-thread id so the
     // observer pins its OWN rollout instead of re-discovering by cwd+mtime
     // (which collapses sibling sessions in the same repo onto the newest
@@ -284,12 +308,36 @@ export const codexAdapter: HarnessAdapter = {
     let inner = start(input.resumeValue, floor)
     return {
       stop: () => inner.stop(),
+      onObservationAck(ack) {
+        inner.onObservationAck(ack)
+      },
+      onProviderRebindAck(ack) {
+        const priorLease = observationLease
+        observationLease = {
+          provider: 'codex',
+          providerSessionId: ack.providerSessionId,
+          observerGeneration: ack.observerGeneration,
+          bindingVersion: ack.bindingVersion,
+          acceptedCheckpoint: ack.checkpoint,
+        }
+        const leaseChanged =
+          priorLease?.providerSessionId !== observationLease.providerSessionId ||
+          priorLease.observerGeneration !== observationLease.observerGeneration ||
+          priorLease.bindingVersion !== observationLease.bindingVersion
+        if (!leaseChanged || !ack.providerSessionId) return
+        inner.stop()
+        boundThread = ack.providerSessionId
+        inner = start(ack.providerSessionId, undefined)
+      },
       bindHookThread(threadId) {
         // Deterministic binding: the hook names the thread this pane REALLY
         // runs, ending any discovery ambiguity (lazy rollout creation, cwd
         // siblings, a mid-session /new rolling to a fresh thread). Re-pin only
         // when the binding disagrees — every later POST is a cheap comparison.
         if (boundThread === threadId) return
+        if (observationLease && observationLease.providerSessionId !== threadId) {
+          requestExactRebind(threadId, observationLease)
+        }
         inner.stop()
         boundThread = threadId
         inner = start(threadId, undefined)
