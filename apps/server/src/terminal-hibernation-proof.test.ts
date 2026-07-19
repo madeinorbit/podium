@@ -30,12 +30,14 @@ function harness({
   terminalTransitionKind = 'turn_terminal',
   terminalPhase = 'idle',
   closing = false,
+  terminalRetryable = false,
 }: {
   terminalProvenance?: 'live' | 'bootstrap'
   resumable?: boolean
   terminalTransitionKind?: AgentObservation['transitionKind']
   terminalPhase?: AgentRuntimeState['phase']
   closing?: boolean
+  terminalRetryable?: boolean
 } = {}) {
   const store = new SessionStore(':memory:')
   const daemon: ControlMessage[] = []
@@ -114,7 +116,13 @@ function harness({
                 }
               : { idle: { kind: 'done' } },
           )
-        : runtime(terminalPhase, 20),
+        : runtime(
+            terminalPhase,
+            20,
+            terminalPhase === 'errored' && terminalRetryable
+              ? { error: { class: 'server_error', retryable: true } }
+              : {},
+          ),
   }
   observe(terminal)
   const confirm = (generation: number) =>
@@ -281,6 +289,123 @@ describe('durable terminal hibernation proof', () => {
     expect(store.observationCheckpoints.getTerminalCandidate(sessionId)).toEqual(proofBefore)
     expect(gone).not.toHaveBeenCalled()
     expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(beforeKills)
+  })
+
+  it('rolls back proof consumption and in-memory hibernation when the row transaction fails', () => {
+    const { registry, store, daemon, sessionId, confirm } = harness()
+    confirm(1)
+    const proofBefore = store.observationCheckpoints.getTerminalCandidate(sessionId)
+    const upsert = vi.spyOn(store.sessions, 'upsertSession').mockImplementationOnce(() => {
+      throw new Error('session row write failed')
+    })
+
+    expect(() =>
+      registry.modules.sessions.hibernateSession({ sessionId, requireTerminalProof: true }),
+    ).toThrow('session row write failed')
+    upsert.mockRestore()
+    expect(
+      registry.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
+        ?.status,
+    ).toBe('live')
+    expect(store.sessions.loadSessions().find((session) => session.id === sessionId)?.status).toBe(
+      'live',
+    )
+    expect(store.observationCheckpoints.getTerminalCandidate(sessionId)).toEqual(proofBefore)
+    expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(0)
+  })
+
+  it('re-arms one accepted-live retryable error on the first post-restart bind only', () => {
+    const h = harness({ terminalPhase: 'errored', terminalRetryable: true })
+    h.registry.dispose()
+    h.store.settings.setSettings({
+      ...h.store.settings.getSettings(),
+      autoContinue: { enabled: true, promptDismissed: true },
+    })
+
+    const controls: ControlMessage[] = []
+    const restarted = new SessionRegistry(h.store)
+    registries.push(restarted)
+    restarted.modules.sessions.attachDaemon('local', (message) => controls.push(message))
+    const continues = () =>
+      controls.filter(
+        (message) =>
+          message.type === 'input' &&
+          message.sessionId === h.sessionId &&
+          message.data === Buffer.from('continue\r').toString('base64'),
+      )
+    expect(continues()).toHaveLength(0)
+
+    const bind = {
+      type: 'bind' as const,
+      sessionId: h.sessionId,
+      cmd: 'codex',
+      cwd: '/proj',
+      agentKind: 'codex' as const,
+      geometry: { cols: 80, rows: 24 },
+    }
+    restarted.modules.sessions.onDaemonMessageFrom('local', bind)
+    restarted.modules.sessions.onDaemonMessageFrom('local', bind)
+    expect(continues()).toHaveLength(1)
+  })
+
+  it('does not re-arm a bootstrap-only retryable error after restart', () => {
+    const h = harness({
+      terminalProvenance: 'bootstrap',
+      terminalPhase: 'errored',
+      terminalRetryable: true,
+    })
+    h.registry.dispose()
+    h.store.settings.setSettings({
+      ...h.store.settings.getSettings(),
+      autoContinue: { enabled: true, promptDismissed: true },
+    })
+
+    const controls: ControlMessage[] = []
+    const restarted = new SessionRegistry(h.store)
+    registries.push(restarted)
+    restarted.modules.sessions.attachDaemon('local', (message) => controls.push(message))
+    restarted.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'bind',
+      sessionId: h.sessionId,
+      cmd: 'codex',
+      cwd: '/proj',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+    })
+
+    expect(
+      controls.filter(
+        (message) =>
+          message.type === 'input' &&
+          message.sessionId === h.sessionId &&
+          message.data === Buffer.from('continue\r').toString('base64'),
+      ),
+    ).toEqual([])
+  })
+
+  it('invalidates terminal-fence exit suppression after newer causal input', () => {
+    const fenced = harness()
+    fenced.registry.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentExit',
+      sessionId: fenced.sessionId,
+      code: 1,
+    })
+    expect(
+      fenced.store.events.listEventsSince(0, { kinds: ['session.exited'] }).at(-1)?.payload,
+    ).toMatchObject({ terminalFenceReported: true })
+
+    const stale = harness()
+    expect(
+      stale.registry.modules.sessions.sendText({ sessionId: stale.sessionId, text: 'again' }).ok,
+    ).toBe(true)
+    stale.registry.modules.sessions.onDaemonMessageFrom('local', {
+      type: 'agentExit',
+      sessionId: stale.sessionId,
+      code: 1,
+    })
+    expect(
+      stale.store.events.listEventsSince(0, { kinds: ['session.exited'] }).at(-1)?.payload,
+    ).not.toHaveProperty('terminalFenceReported')
   })
 
   it('manual stop cancels the proof and auto-reap cannot double-act', async () => {

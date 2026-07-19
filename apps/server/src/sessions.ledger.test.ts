@@ -883,32 +883,33 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it.each([
     ['legacy', null, false],
     ['causal nonterminal', { checkpoint: { terminalFence: null } }, false],
-    ['causal terminal', { checkpoint: { terminalFence: { turnEpoch: 1 } } }, true],
-  ] as const)(
-    '(exit fence) %s session emits terminal proof only for a durable terminal fence',
-    (_name, checkpointRecord, terminalFenceReported) => {
-      const registry = makeRegistry()
-      const { sessionId } = registry.modules.sessions.createSession({
-        agentKind: 'shell',
-        cwd: '/w',
-      })
-      vi.spyOn(registry.sessionStore.observationCheckpoints, 'get').mockReturnValue(
-        checkpointRecord as never,
-      )
+    [
+      'causal terminal without matching candidate',
+      { checkpoint: { terminalFence: { turnEpoch: 1 } } },
+      false,
+    ],
+  ] as const)('(exit fence) %s session emits terminal proof only for a durable terminal fence', (_name, checkpointRecord, terminalFenceReported) => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/w',
+    })
+    vi.spyOn(registry.sessionStore.observationCheckpoints, 'get').mockReturnValue(
+      checkpointRecord as never,
+    )
 
-      registry.modules.sessions.killSession({ sessionId })
+    registry.modules.sessions.killSession({ sessionId })
 
-      const exited = registry.sessionStore.events
-        .listEventsSince(0, { kinds: ['session.exited'] })
-        .at(-1)
-      expect(exited?.subject).toBe(sessionId)
-      if (terminalFenceReported) {
-        expect(exited?.payload).toMatchObject({ terminalFenceReported: true })
-      } else {
-        expect(exited?.payload).not.toHaveProperty('terminalFenceReported')
-      }
-    },
-  )
+    const exited = registry.sessionStore.events
+      .listEventsSince(0, { kinds: ['session.exited'] })
+      .at(-1)
+    expect(exited?.subject).toBe(sessionId)
+    if (terminalFenceReported) {
+      expect(exited?.payload).toMatchObject({ terminalFenceReported: true })
+    } else {
+      expect(exited?.payload).not.toHaveProperty('terminalFenceReported')
+    }
+  })
 
   it('(k) a failed change append on kill leaves the session fully live (#247)', () => {
     const registry = makeRegistry()

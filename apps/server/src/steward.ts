@@ -250,9 +250,10 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
     return []
   }
   if (e.kind === 'session.exited') {
-    return (e.payload as { terminalFenceReported?: boolean } | null)?.terminalFenceReported
-      ? []
-      : ['session.exited']
+    // The terminal fence suppresses only the seeded parent-wake fallback above.
+    // Explicit session.exited subscriptions asked for lifecycle truth and must
+    // receive every real exit, including one already reported as terminal.
+    return ['session.exited']
   }
   if (e.kind.startsWith('issue.')) {
     if (e.kind === 'issue.stage_changed') {

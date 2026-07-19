@@ -46,6 +46,20 @@ export class AutoContinueController {
     else this.stop(sessionId)
   }
 
+  /** Restore a durable retryable-error loop without sending into a session that
+   *  has not rebound its PTY yet. `onSessionLive` releases the first tick. */
+  onSessionRestored(sessionId: string, next: AgentRuntimeState): void {
+    if (!isRetryableErrored(next) || this.loops.has(sessionId)) return
+    this.loops.set(sessionId, { attempt: 0, timer: undefined })
+  }
+
+  /** First real bind after boot releases a restored loop exactly once. */
+  onSessionLive(sessionId: string): void {
+    const loop = this.loops.get(sessionId)
+    if (!loop || loop.timer !== undefined) return
+    this.tick(sessionId)
+  }
+
   /** Master switch flipped. On enable, arm any already-errored live sessions; on
    *  disable, cancel every running loop. */
   onSettingsChanged(enabled: boolean, retryableErroredLiveIds: string[]): void {
@@ -64,6 +78,10 @@ export class AutoContinueController {
   /** True while a loop is active for the session (introspection/test helper). */
   isActive(sessionId: string): boolean {
     return this.loops.has(sessionId)
+  }
+
+  dispose(): void {
+    this.stopAll()
   }
 
   private arm(sessionId: string): void {
