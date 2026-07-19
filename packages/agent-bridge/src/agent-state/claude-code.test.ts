@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -453,6 +453,31 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2 })
   })
 
+  it('opens an unflushed reminder prompt from the live hook identity', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    const payload = hook('UserPromptSubmit', {
+      promptSource: 'system',
+      prompt: '<system-reminder>You have new Podium mail.</system-reminder>',
+    })
+    const fingerprint = claudePromptHookFingerprint(payload)
+    if (!fingerprint) throw new Error('expected reminder fingerprint')
+
+    expect(await causal.observeHook(payload, 100)).toMatchObject({
+      transitionKind: 'turn_opened',
+      turnEpoch: 1,
+      inputOrigin: 'system',
+      providerPromptId: 'fingerprint:' + fingerprint,
+      providerCursor: { components: { transcript: 100, hook: 1 } },
+    })
+    expect(await causal.observeHook(payload, 100)).toBeNull()
+    expect(await causal.observeHook(hook('Stop'), 100)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+      providerCursor: { components: { transcript: 100, hook: 2 } },
+    })
+  })
+
   it('rejects mismatched prompt IDs without poisoning the valid hook identity', async () => {
     const causal = observer()
     causal.bootstrap()
@@ -623,6 +648,30 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
       inode: second.inode,
     })
     expect(second).toMatchObject({ path, device: expect.any(String), inode: expect.any(String) })
+  })
+
+  it('captures metadata and pure system reminders as causal prompt evidence', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-reminder-evidence-'))
+    const path = join(dir, 'claude.jsonl')
+    const reminder = '<system-reminder>You have new Podium mail.</system-reminder>'
+    const record = JSON.stringify({
+      type: 'user',
+      isMeta: true,
+      promptSource: 'system',
+      message: { role: 'user', content: reminder },
+    })
+    try {
+      await writeFile(path, record + '\n')
+      const capture = await captureClaudeTranscript(path)
+      const hookFingerprint = claudePromptHookFingerprint({ prompt: reminder })
+      expect(capture).toMatchObject({
+        promptCount: 1,
+        firstPrompt: { origin: 'system', payloadFingerprint: hookFingerprint },
+        latestPrompt: { origin: 'system', payloadFingerprint: hookFingerprint },
+      })
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('classifies a bounded tail while incrementally scanning only the accepted large-prefix gap', async () => {

@@ -390,6 +390,8 @@ export class ClaudeCausalObserver {
     ) {
       return null
     }
+    const promptFingerprint =
+      hook === 'UserPromptSubmit' ? claudePromptHookFingerprint(payload) : null
     const baseIdentity =
       hook === 'UserPromptSubmit' && !hookPromptId
         ? promptIdentity &&
@@ -397,7 +399,9 @@ export class ClaudeCausalObserver {
           promptIdentity.recordBoundary >= 0 &&
           promptIdentity.recordBoundary <= transcriptOffset
           ? `UserPromptSubmit:record:${promptIdentity.recordBoundary}:${promptIdentity.payloadFingerprint}`
-          : null
+          : promptFingerprint
+            ? `UserPromptSubmit:hook:${transcriptOffset}:${promptFingerprint}`
+            : null
         : this.hookIdentity(hook, p)
     if (!baseIdentity) return null
     const identity =
@@ -412,7 +416,8 @@ export class ClaudeCausalObserver {
     if (hook === 'SessionStart') return null
     if (hook === 'UserPromptSubmit') {
       this.turnEpoch += 1
-      this.providerPromptId = str(p.prompt_id) ?? null
+      this.providerPromptId =
+        str(p.prompt_id) ?? (promptFingerprint ? `fingerprint:${promptFingerprint}` : null)
       this.epochOpen = true
       this.closing = false
       this.activeChildren.clear()
@@ -590,6 +595,7 @@ export interface ClaudeTranscriptCapture {
   bootEvents: AgentStateEvent[]
   prompts: ClaudePromptEvidence[]
   promptCount: number
+  firstPrompt: ClaudePromptEvidence | null
   latestPrompt: ClaudePromptEvidence | null
 }
 
@@ -662,13 +668,15 @@ export function claudePromptHookFingerprint(payload: unknown): string | null {
   const p = payload as Record<string, unknown>
   const prompt = p.prompt ?? p.message ?? p.content
   if (prompt === undefined) return null
-  if (typeof prompt === 'string') return fingerprintPromptPayload(stripInjectedContext(prompt))
+  if (typeof prompt === 'string') {
+    const raw = prompt.trim()
+    if (!raw) return null
+    return fingerprintPromptPayload(stripInjectedContext(raw) || raw)
+  }
   if (Array.isArray(prompt)) {
-    const texts = prompt
-      .map(promptText)
-      .filter((value): value is string => value !== null)
-      .map(stripInjectedContext)
-      .filter(Boolean)
+    const rawTexts = prompt.map(promptText).filter((value): value is string => value !== null)
+    const visibleTexts = rawTexts.map(stripInjectedContext).filter(Boolean)
+    const texts = visibleTexts.length > 0 ? visibleTexts : rawTexts
     return texts.length > 0 ? fingerprintPromptPayload(texts.join('\n')) : null
   }
   return fingerprintPromptPayload(prompt)
@@ -691,20 +699,22 @@ function promptPayload(record: Record<string, unknown>): {
   payload: unknown
   origin: ObservationInputOrigin
 } | null {
-  if (record.type !== 'user' || record.isMeta === true) return null
+  if (record.type !== 'user') return null
   const message = record.message
   if (typeof message !== 'object' || message === null) return null
   const m = message as Record<string, unknown>
   if (m.role !== 'user') return null
   const content = Array.isArray(m.content) ? m.content : [m.content]
-  const texts = content
-    .map(promptText)
-    .filter((value): value is string => value !== null)
-    .map(stripInjectedContext)
-    .filter(Boolean)
-  if (texts.length === 0 || texts.every(isInterruptMarker)) return null
-  const payload: unknown = texts.join('\n')
+  const rawTexts = content.map(promptText).filter((value): value is string => value !== null)
+  if (rawTexts.length === 0 || rawTexts.every(isInterruptMarker)) return null
+  const visibleTexts = rawTexts.map(stripInjectedContext).filter(Boolean)
+  // Metadata/system-reminder turns are invisible in chat, but Claude still
+  // executes them. Preserve a causal fingerprint so a daemon-gap bootstrap can
+  // reconcile the epoch without replaying it as a live user edge.
+  const payload: unknown = (visibleTexts.length > 0 ? visibleTexts : rawTexts).join('\n')
   const provablySystem =
+    record.isMeta === true ||
+    visibleTexts.length === 0 ||
     record.promptSource === 'system' ||
     record.prompt_source === 'system' ||
     record.source === 'system'
@@ -713,6 +723,7 @@ function promptPayload(record: Record<string, unknown>): {
 
 interface ClaudePromptAccumulator {
   count: number
+  first: ClaudePromptEvidence | null
   latest: ClaudePromptEvidence | null
   collected: ClaudePromptEvidence[]
   collectAll: boolean
@@ -742,6 +753,7 @@ function collectClaudePromptEvidence(
     hasAssistantOutputAfter: false,
   }
   accumulator.count += 1
+  accumulator.first ??= evidence
   accumulator.latest = evidence
   if (accumulator.collectAll) accumulator.collected.push(evidence)
 }
@@ -899,6 +911,7 @@ export async function captureClaudeTranscript(
     const records = classificationRows.map(({ record }) => record)
     const promptAccumulator: ClaudePromptAccumulator = {
       count: 0,
+      first: null,
       latest: null,
       collected: [],
       collectAll: options.promptScanStart === undefined,
@@ -935,6 +948,7 @@ export async function captureClaudeTranscript(
       bootEvents: bootEventsForClaudeRecords(records),
       prompts: promptAccumulator.collected,
       promptCount: promptAccumulator.count,
+      firstPrompt: promptAccumulator.first,
       latestPrompt: promptAccumulator.latest,
     }
   } finally {

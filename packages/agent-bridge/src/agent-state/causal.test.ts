@@ -271,6 +271,39 @@ describe('acceptAgentObservation', () => {
     expect(acceptedCheckpoint(gapTurn).terminalFence).toBeNull()
   })
 
+  it('requires an explicitly closing terminal fence for same-epoch subagent bootstrap', () => {
+    const terminal = acceptedCheckpoint(
+      acceptAgentObservation(
+        null,
+        lease,
+        observation({
+          state: state('idle', { idle: { kind: 'done' } }),
+          turnEpoch: 1,
+          transitionId: 'terminal-1',
+        }),
+        at,
+      ),
+    )
+    const awaiting = observation({
+      providerCursor: cursor(20),
+      turnEpoch: 1,
+      priorPhase: 'idle',
+      nextPhase: 'working',
+      transitionId: 'awaiting-snapshot',
+      state: state('working', { awaitingSubagents: true, nativeSubagentCount: 1 }),
+    })
+
+    expect(acceptAgentObservation(terminal, lease, awaiting, at)).toEqual({
+      kind: 'rejected',
+      rejectionReason: 'terminal_epoch_closed',
+    })
+    const closing = {
+      ...terminal,
+      terminalFence: { ...terminal.terminalFence!, closing: true },
+    }
+    expect(acceptAgentObservation(closing, lease, awaiting, at).kind).toBe('snapshot_applied')
+  })
+
   it('opens a new epoch only from a provider-confirmed prompt', () => {
     const terminal: SessionObservationCheckpointV1 = acceptedCheckpoint(
       acceptAgentObservation(

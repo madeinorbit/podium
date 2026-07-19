@@ -173,7 +173,7 @@ export function acceptAgentObservation(
       checkpoint?.terminalFence &&
       observation.turnEpoch === checkpoint.turnEpoch &&
       terminalFenceFor(observation) === null &&
-      observation.state.awaitingSubagents !== true
+      !(checkpoint.terminalFence.closing === true && observation.state.awaitingSubagents === true)
     ) {
       return rejected('terminal_epoch_closed')
     }
