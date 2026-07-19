@@ -915,6 +915,227 @@ describe('session observer →idle debounce', () => {
   })
 })
 describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
+  it('reconciles a prompt flushed after its live hook across daemon restart', async () => {
+    const at = '2026-07-19T00:00:00.000Z'
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-late-flush-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    await writeFile(transcript, '')
+    const promptText = 'start from the unflushed hook'
+    const hook = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+      prompt: promptText,
+    }
+    const lease7 = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      observationGeneration: 7,
+    }
+    const firstSent: DaemonMessage[] = []
+    const first = createSessionObservers({
+      send: (message) => firstSent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    try {
+      first.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId: 'podium-late-flush',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          durableLabel: 'podium-podium-late-flush',
+          observationGeneration: 7,
+          observationBindingVersion: 2,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      first.onHookPayload('podium-late-flush', hook)
+      await vi.waitFor(() => {
+        expect(firstSent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      const bootstrap = firstSent.find(
+        (message) => message.type === 'agentObservation',
+      )!.observation
+      const bootResult = acceptAgentObservation(null, lease7, bootstrap, at)
+      if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
+      first.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-late-flush',
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: bootstrap.transitionId,
+        result: bootResult.kind,
+        acceptedCursor: bootResult.checkpoint.providerCursor,
+        checkpoint: bootResult.checkpoint,
+      })
+      await vi.waitFor(() => {
+        expect(firstSent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+      })
+      const opened = firstSent
+        .filter((message) => message.type === 'agentObservation')
+        .at(-1)!.observation
+      const openedResult = acceptAgentObservation(bootResult.checkpoint, lease7, opened, at)
+      if (openedResult.kind === 'rejected') throw new Error(openedResult.rejectionReason)
+      expect(opened).toMatchObject({
+        turnEpoch: 1,
+        transitionKind: 'turn_opened',
+        providerCursor: { components: { transcript: 0, hook: 1 } },
+      })
+      first.clearSession('podium-late-flush')
+
+      const record = JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: promptText },
+      })
+      await writeFile(transcript, record + '\n')
+      const restartedSent: DaemonMessage[] = []
+      const restarted = createSessionObservers({
+        send: (message) => restartedSent.push(message),
+        onTranscriptDirty: vi.fn(),
+        cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      })
+      restarted.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId: 'podium-late-flush',
+          durableLabel: 'podium-podium-late-flush',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          resume: { kind: 'claude-session', value: 'claude-1' },
+          pathHint: transcript,
+          observationGeneration: 8,
+          observationBindingVersion: 2,
+          observationCheckpoint: openedResult.checkpoint,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      restarted.onHookPayload('podium-late-flush', {
+        ...hook,
+        hook_event_name: 'SessionStart',
+      })
+      await vi.waitFor(() => {
+        expect(restartedSent.filter((message) => message.type === 'agentObservation')).toHaveLength(
+          1,
+        )
+      })
+      const restartBootstrap = restartedSent.find(
+        (message) => message.type === 'agentObservation',
+      )!.observation
+      expect(restartBootstrap).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        turnEpoch: 1,
+        providerPromptId: opened.providerPromptId,
+        nextPhase: 'working',
+        providerCursor: { components: { transcript: Buffer.byteLength(record + '\n'), hook: 1 } },
+      })
+      expect(
+        acceptAgentObservation(
+          openedResult.checkpoint,
+          { ...lease7, observationGeneration: 8 },
+          restartBootstrap,
+          at,
+        ).kind,
+      ).toBe('snapshot_applied')
+      restarted.clearSession('podium-late-flush')
+    } finally {
+      first.clearSession('podium-late-flush')
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps composer idle false through an unflushed causal turn and true only after terminal debounce', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-composer-causal-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    await writeFile(transcript, '')
+    const sent: DaemonMessage[] = []
+    const idleStates: boolean[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      onIdleState: (_sessionId, idle) => idleStates.push(idle),
+    })
+    const prompt = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+      promptSource: 'system',
+      prompt: '<system-reminder>You have new Podium mail.</system-reminder>',
+    }
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId: 'podium-composer',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          durableLabel: 'podium-podium-composer',
+          observationGeneration: 7,
+          observationBindingVersion: 2,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      observers.onHookPayload('podium-composer', prompt)
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-composer',
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: bootstrap.transitionId,
+        result: 'snapshot_applied',
+        acceptedCursor: bootstrap.providerCursor,
+      })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+      })
+      expect(idleStates).toEqual([false])
+      expect(sent.some((message) => message.type === 'agentState')).toBe(false)
+
+      const opened = sent
+        .filter((message) => message.type === 'agentObservation')
+        .at(-1)!.observation
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-composer',
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: opened.transitionId,
+        result: 'live_transition_accepted',
+        acceptedCursor: opened.providerCursor,
+      })
+      observers.onHookPayload('podium-composer', { ...prompt, hook_event_name: 'Stop' })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
+      })
+      expect(idleStates).toEqual([false])
+      await new Promise((resolve) => setTimeout(resolve, IDLE_TRANSITION_DEBOUNCE_MS + 25))
+      expect(idleStates).toEqual([false, true])
+      expect(sent.some((message) => message.type === 'agentState')).toBe(false)
+    } finally {
+      observers.clearSession('podium-composer')
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('cannot install a dead generation when reset while bootstrap capture is awaiting', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-reset-capture-'))
     const transcript = join(dir, 'claude-1.jsonl')
@@ -1895,10 +2116,19 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     expect(bootEvents).not.toHaveBeenCalled()
     const bootstrap = sent.find((message) => message.type === 'agentObservation')!.observation
     const gapPromptCount =
-      scenario === 'two_turns' ? 2 : scenario === 'prompt' || scenario === 'system_prompt' ? 1 : 0
+      scenario === 'two_turns'
+        ? 2
+        : scenario === 'prompt' || scenario === 'system_prompt' || scenario === 'metadata'
+          ? 1
+          : 0
     const opensNewEpoch = gapPromptCount > 0
     const reconciledEpoch = 5 + gapPromptCount
-    const reconciledPhase = scenario === 'two_turns' ? 'idle' : opensNewEpoch ? 'working' : 'idle'
+    const reconciledPhase =
+      scenario === 'two_turns' || scenario === 'metadata'
+        ? 'idle'
+        : opensNewEpoch
+          ? 'working'
+          : 'idle'
     expect(bootstrap).toMatchObject({
       provenance: 'bootstrap',
       transitionKind: 'snapshot',
@@ -1932,7 +2162,7 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
         turnEpoch: reconciledEpoch,
         turnState: { phase: reconciledPhase },
         terminalFence:
-          scenario === 'two_turns'
+          scenario === 'two_turns' || scenario === 'metadata'
             ? { turnEpoch: reconciledEpoch }
             : opensNewEpoch
               ? null
@@ -1974,14 +2204,6 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       expect(acceptAgentObservation(bootResult.checkpoint, lease, terminal, at).kind).toBe(
         'live_transition_accepted',
       )
-    } else if (scenario === 'metadata') {
-      observers.onHookPayload('podium-1', {
-        ...sessionStart,
-        hook_event_name: 'Stop',
-      })
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
     }
     observers.clearSession('podium-1')
   })

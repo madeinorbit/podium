@@ -347,6 +347,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     )
     if (observation) {
       causal.pendingObservation = observation
+      applyCausalAgentState(observation.podiumSessionId, observation.state)
       emitObservation(observation.podiumSessionId, observation)
       return
     }
@@ -410,6 +411,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         bootEvents: [{ kind: 'session_started' as const }],
         prompts: [],
         promptCount: 0,
+        firstPrompt: null,
         latestPrompt: null,
       }
     }
@@ -441,12 +443,30 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       checkpoint &&
         (acceptedSameSegment ? bootstrapOffset > (acceptedOffset ?? 0) : bootstrapOffset > 0),
     )
-    const gapPromptCount =
+    let gapPromptCount =
       bootstrapAdvanced && p?.hook_event_name !== 'UserPromptSubmit' ? capture.promptCount : 0
+    // A no-native-id UserPromptSubmit may reach us before Claude flushes its
+    // user record. Its accepted checkpoint carries the hook fingerprint; when
+    // that exact record appears after the cursor, consume it as late evidence
+    // for the already-open epoch instead of manufacturing a bootstrap epoch.
+    let reconciledLatePrompt = false
+    if (
+      gapPromptCount > 0 &&
+      checkpoint?.providerPromptId?.startsWith('fingerprint:') &&
+      capture.firstPrompt &&
+      checkpoint.providerPromptId === `fingerprint:${capture.firstPrompt.payloadFingerprint}`
+    ) {
+      gapPromptCount -= 1
+      reconciledLatePrompt = true
+    }
+    const onlyUnflushedAcceptedPrompt =
+      reconciledLatePrompt &&
+      gapPromptCount === 0 &&
+      capture.firstPrompt?.hasAssistantOutputAfter === false
     const latestPrompt = gapPromptCount > 0 ? capture.latestPrompt : null
     const bootstrapPromptOrigin = latestPrompt?.origin
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
-    if (!checkpoint || bootstrapAdvanced) {
+    if (!checkpoint || (bootstrapAdvanced && !onlyUnflushedAcceptedPrompt)) {
       bootstrapState = initialAgentState(new Date().toISOString())
       for (const event of capture.bootEvents) {
         bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
@@ -510,7 +530,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (causalLeases.get(sessionId) !== lease || trackers.get(sessionId) !== tracker) return
     claudeCausal.set(sessionId, causal)
     claudeStarting.delete(sessionId)
-    tracker.state = bootstrapState
+    applyCausalAgentState(sessionId, bootstrapState)
     emitObservation(sessionId, snapshot)
   }
 
@@ -924,39 +944,54 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     clearTimeout(timer)
     pendingIdleEmits.delete(sessionId)
   }
-  const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
+  const applyTrackedState = (
+    sessionId: string,
+    next: AgentRuntimeState,
+    emitLegacyWireState: boolean,
+  ): void => {
     const tracker = trackers.get(sessionId)
     if (!tracker) return
-    for (const event of events) {
-      const prev = tracker.state
-      const next = reduceAgentState(prev, event, new Date().toISOString())
-      if (next === prev) continue
-      tracker.state = next
+    const prev = tracker.state
+    if (isDeepStrictEqual(next, prev)) return
+    tracker.state = next
 
-      // Debounce only transitions INTO idle. Non-idle phases emit immediately
-      // so working/needs_user/errored stay snappy; a false-idle beat must not
-      // reach the wire (delivery fires on idle).
-      const enteringIdle = prev.phase !== 'idle' && next.phase === 'idle'
-      if (enteringIdle) {
-        cancelPendingIdleEmit(sessionId)
-        const timer = setTimeout(() => {
-          pendingIdleEmits.delete(sessionId)
-          const current = trackers.get(sessionId)?.state
-          // Still tracked and still idle → emit the authoritative current
-          // state (may differ from `next` if a later idle refined the verdict
-          // without leaving the phase; non-idle would have cancelled us).
-          if (current?.phase === 'idle') {
-            send({ type: 'agentState', sessionId, state: current })
-            deps.onIdleState?.(sessionId, true)
-          }
-        }, IDLE_TRANSITION_DEBOUNCE_MS)
-        pendingIdleEmits.set(sessionId, timer)
-        continue
-      }
-
+    // Debounce only transitions INTO idle. Non-idle phases emit immediately
+    // so working/needs_user/errored stay snappy; a false-idle beat must not
+    // reach the wire (delivery fires on idle).
+    const enteringIdle = prev.phase !== 'idle' && next.phase === 'idle'
+    if (enteringIdle) {
       cancelPendingIdleEmit(sessionId)
-      send({ type: 'agentState', sessionId, state: next })
-      deps.onIdleState?.(sessionId, next.phase === 'idle')
+      const timer = setTimeout(() => {
+        pendingIdleEmits.delete(sessionId)
+        const current = trackers.get(sessionId)?.state
+        // Still tracked and still idle: apply the authoritative current state.
+        if (current?.phase === 'idle') {
+          if (emitLegacyWireState) send({ type: 'agentState', sessionId, state: current })
+          deps.onIdleState?.(sessionId, true)
+        }
+      }, IDLE_TRANSITION_DEBOUNCE_MS)
+      pendingIdleEmits.set(sessionId, timer)
+      return
+    }
+
+    cancelPendingIdleEmit(sessionId)
+    if (emitLegacyWireState) send({ type: 'agentState', sessionId, state: next })
+    deps.onIdleState?.(sessionId, next.phase === 'idle')
+  }
+
+  const applyCausalAgentState = (sessionId: string, next: AgentRuntimeState): void => {
+    // The causal observation is the server wire authority; this local fold is
+    // solely for daemon consumers such as Draft Sync's idle injection gate.
+    applyTrackedState(sessionId, next, false)
+  }
+
+  const applyAgentStateEvents = (sessionId: string, events: AgentStateEvent[]): void => {
+    for (const event of events) {
+      const tracker = trackers.get(sessionId)
+      if (!tracker) return
+      const next = reduceAgentState(tracker.state, event, new Date().toISOString())
+      if (next === tracker.state) continue
+      applyTrackedState(sessionId, next, true)
     }
   }
 
