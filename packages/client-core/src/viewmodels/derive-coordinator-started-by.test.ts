@@ -53,7 +53,6 @@ function issue(over: Partial<IssueNavigationModel> = {}): IssueNavigationModel {
     updatedAt: '2026-06-20T00:00:00.000Z',
     archived: false,
     needsHuman: false,
-    sessionSummary: { total: 0, byPhase: {} },
     origin: 'human' as const,
     audience: 'human' as const,
     draft: false,

@@ -41,7 +41,6 @@ function issue(index: number): IssueWire {
     updatedAt: '2026-07-18T00:00:00.000Z',
     archived: false,
     sessions: [],
-    sessionSummary: { total: 0, byPhase: {} },
     origin: 'human',
     draft: false,
   } as unknown as IssueWire

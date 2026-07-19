@@ -427,8 +427,6 @@ export abstract class IssueServiceReads extends IssueServiceCore {
     }
   }
 
-  /** `sessionList` lets a caller in a loop share one listing [POD-817] —
-   *  toWire otherwise defaults to a fresh listSessions() per call. */
   get(id: string): IssueWire | null {
     const r = this.rows.get(this.resolveRef(id))
     return r ? this.toWire(r) : null

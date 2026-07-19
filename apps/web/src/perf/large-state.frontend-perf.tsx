@@ -87,7 +87,6 @@ function issueAt(index: number): IssueWire {
     archived: false,
     needsHuman: index % 19 === 0,
     sessions: [],
-    sessionSummary: { total: index < SCALE.sessions ? 1 : 0, byPhase: {} },
     origin: index % 7 === 0 ? 'agent' : 'human',
     audience: 'human',
     draft: false,
