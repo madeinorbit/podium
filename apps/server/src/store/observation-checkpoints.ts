@@ -2,6 +2,18 @@ import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/pro
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import type { ObservationLeaseRecord } from './types'
 
+export type ObservationRebindResult =
+  | {
+      kind: 'accepted'
+      disposition: 'advanced' | 'unchanged' | 'duplicate'
+      lease: ObservationLeaseRecord
+    }
+  | {
+      kind: 'rejected'
+      rejectionReason: 'stale_observer_generation' | 'provider_binding_mismatch'
+      lease: ObservationLeaseRecord
+    }
+
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
   constructor(private readonly db: SqlDatabase) {}
@@ -49,6 +61,37 @@ export class ObservationCheckpointsRepository {
       )
       .get(sessionId) as Record<string, unknown> | undefined
     return row ? this.mapRow(row) : null
+  }
+
+  private readRebindReceipt(sessionId: string): {
+    provider: ObservationLeaseRecord['provider']
+    fromProviderSessionId: string | null
+    fromBindingVersion: number
+    fromObservationGeneration: number
+    toProviderSessionId: string
+    resultingBindingVersion: number
+    resultingObservationGeneration: number
+  } | null {
+    const row = this.db
+      .prepare(
+        `SELECT provider, from_provider_session_id, from_binding_version,
+                from_observation_generation, to_provider_session_id,
+                resulting_binding_version, resulting_observation_generation
+         FROM session_observation_rebinds WHERE session_id = ?`,
+      )
+      .get(sessionId) as Record<string, unknown> | undefined
+    if (!row) return null
+    const provider = ObservationProvider.safeParse(row.provider)
+    if (!provider.success) return null
+    return {
+      provider: provider.data,
+      fromProviderSessionId: (row.from_provider_session_id as string | null) ?? null,
+      fromBindingVersion: Number(row.from_binding_version),
+      fromObservationGeneration: Number(row.from_observation_generation),
+      toProviderSessionId: row.to_provider_session_id as string,
+      resultingBindingVersion: Number(row.resulting_binding_version),
+      resultingObservationGeneration: Number(row.resulting_observation_generation),
+    }
   }
 
   loadAll(): ObservationLeaseRecord[] {
@@ -101,6 +144,128 @@ export class ObservationCheckpointsRepository {
         throw new Error(`unable to advance observation generation for ${sessionId}`)
       }
       return lease
+    })
+  }
+
+  /**
+   * Atomically replace one exact native provider binding. Both fences advance,
+   * so observations and acknowledgements from the predecessor become inert.
+   * Duplicate old→already-current-next requests return the durable current
+   * lease without advancing again, including after process restart. [spec:SP-cdb2]
+   */
+  rebindExact(input: {
+    sessionId: string
+    provider: ObservationLeaseRecord['provider']
+    providerSessionId: string | null
+    bindingVersion: number
+    observationGeneration: number
+    nextProviderSessionId: string
+  }): ObservationRebindResult {
+    return transaction(this.db, () => {
+      const current = this.read(input.sessionId)
+      if (!current) throw new Error(`missing observation lease for ${input.sessionId}`)
+      if (current.provider !== input.provider) {
+        return { kind: 'rejected', rejectionReason: 'provider_binding_mismatch', lease: current }
+      }
+      if (
+        current.providerSessionId === input.nextProviderSessionId &&
+        current.providerSessionId === input.providerSessionId &&
+        current.bindingVersion === input.bindingVersion &&
+        current.observationGeneration === input.observationGeneration
+      ) {
+        return { kind: 'accepted', disposition: 'unchanged', lease: current }
+      }
+      const receipt = this.readRebindReceipt(input.sessionId)
+      if (
+        receipt?.provider === input.provider &&
+        receipt.fromProviderSessionId === input.providerSessionId &&
+        receipt.fromBindingVersion === input.bindingVersion &&
+        receipt.fromObservationGeneration === input.observationGeneration &&
+        receipt.toProviderSessionId === input.nextProviderSessionId &&
+        current.providerSessionId === input.nextProviderSessionId &&
+        current.bindingVersion === receipt.resultingBindingVersion &&
+        current.observationGeneration >= receipt.resultingObservationGeneration
+      ) {
+        return { kind: 'accepted', disposition: 'duplicate', lease: current }
+      }
+      if (current.observationGeneration !== input.observationGeneration) {
+        return {
+          kind: 'rejected',
+          rejectionReason: 'stale_observer_generation',
+          lease: current,
+        }
+      }
+      if (
+        current.providerSessionId !== input.providerSessionId ||
+        current.bindingVersion !== input.bindingVersion
+      ) {
+        return { kind: 'rejected', rejectionReason: 'provider_binding_mismatch', lease: current }
+      }
+
+      const bindingVersion = current.bindingVersion + 1
+      const observationGeneration = current.observationGeneration + 1
+      const updatedAt = new Date().toISOString()
+      const result = this.db
+        .prepare(
+          `UPDATE session_observation_checkpoints
+           SET provider_session_id = ?,
+               binding_version = ?,
+               observation_generation = ?,
+               checkpoint_json = ?,
+               updated_at = ?
+           WHERE session_id = ?
+             AND provider = ?
+             AND binding_version = ?
+             AND observation_generation = ?
+             AND (provider_session_id = ? OR (provider_session_id IS NULL AND ? IS NULL))`,
+        )
+        .run(
+          input.nextProviderSessionId,
+          bindingVersion,
+          observationGeneration,
+          null,
+          updatedAt,
+          input.sessionId,
+          input.provider,
+          input.bindingVersion,
+          input.observationGeneration,
+          input.providerSessionId,
+          input.providerSessionId,
+        )
+      if (Number(result.changes) !== 1) {
+        throw new Error(`observation rebind lease changed for ${input.sessionId}`)
+      }
+      this.db
+        .prepare(
+          `INSERT INTO session_observation_rebinds
+             (session_id, provider, from_provider_session_id, from_binding_version,
+              from_observation_generation, to_provider_session_id,
+              resulting_binding_version, resulting_observation_generation, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET
+             provider = excluded.provider,
+             from_provider_session_id = excluded.from_provider_session_id,
+             from_binding_version = excluded.from_binding_version,
+             from_observation_generation = excluded.from_observation_generation,
+             to_provider_session_id = excluded.to_provider_session_id,
+             resulting_binding_version = excluded.resulting_binding_version,
+             resulting_observation_generation = excluded.resulting_observation_generation,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          input.sessionId,
+          input.provider,
+          input.providerSessionId,
+          input.bindingVersion,
+          input.observationGeneration,
+          input.nextProviderSessionId,
+          bindingVersion,
+          observationGeneration,
+          updatedAt,
+        )
+      const lease = this.read(input.sessionId)
+      if (!lease) throw new Error(`missing rebound observation lease for ${input.sessionId}`)
+      return { kind: 'accepted', disposition: 'advanced', lease }
     })
   }
 

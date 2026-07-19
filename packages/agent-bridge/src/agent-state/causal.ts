@@ -31,6 +31,13 @@ export function compareProviderCursor(
   if (current.segmentId !== next.segmentId) {
     return next.predecessorSegmentId === current.segmentId ? 'after' : 'incomparable'
   }
+  // A path replacement or file-identity change cannot inherit ordering merely
+  // because an adapter reused its segment label. It must mint a successor that
+  // explicitly names the delivered predecessor checkpoint. Timestamps never
+  // participate in succession. [spec:SP-cdb2]
+  for (const key of ['pathHint', 'device', 'inode'] as const) {
+    if (current[key] !== next[key]) return 'incomparable'
+  }
 
   let advanced = false
   const keys = new Set([...Object.keys(current.components), ...Object.keys(next.components)])

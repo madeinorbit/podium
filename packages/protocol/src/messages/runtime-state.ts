@@ -225,12 +225,52 @@ export const AgentObservationAckMessage = z.object({
   type: z.literal('agentObservationAck'),
   sessionId: z.string().min(1),
   observerGeneration: z.number().int().positive(),
+  /** Exact binding fence. Optional only so an older server ack remains parseable. */
+  bindingVersion: z.number().int().positive().optional(),
   transitionId: z.string().min(1),
   result: ObservationAcceptanceKind,
   rejectionReason: ObservationRejectionReason.optional(),
   acceptedCursor: ProviderCursor.nullable().optional(),
 })
 export type AgentObservationAckMessage = z.infer<typeof AgentObservationAckMessage>
+
+/**
+ * A provider-confirmed native-session replacement (for example Codex `/new`).
+ * The prior lease identity makes retries and late old-provider reports inert.
+ * Acceptance always resets the provider cursor; the provider submits a normal
+ * bootstrap only after the server returns the resulting lease.
+ * [spec:SP-cdb2]
+ */
+export const AgentObservationRebindMessage = z.object({
+  type: z.literal('agentObservationRebind'),
+  sessionId: z.string().min(1),
+  provider: ObservationProvider,
+  providerSessionId: z.string().min(1).nullable(),
+  observerGeneration: z.number().int().positive(),
+  bindingVersion: z.number().int().positive(),
+  nextProviderSessionId: z.string().min(1),
+  resumeKind: z.string().min(1),
+  rebindId: z.string().min(1),
+})
+export type AgentObservationRebindMessage = z.infer<typeof AgentObservationRebindMessage>
+
+export const AgentObservationRebindAckMessage = z.object({
+  type: z.literal('agentObservationRebindAck'),
+  sessionId: z.string().min(1),
+  provider: ObservationProvider,
+  rebindId: z.string().min(1),
+  priorObserverGeneration: z.number().int().positive(),
+  priorBindingVersion: z.number().int().positive(),
+  nextProviderSessionId: z.string().min(1),
+  /** Current durable identity after applying (accepted) or rejecting the request. */
+  providerSessionId: z.string().min(1).nullable(),
+  result: z.enum(['accepted', 'rejected']),
+  rejectionReason: ObservationRejectionReason.optional(),
+  observerGeneration: z.number().int().positive(),
+  bindingVersion: z.number().int().positive(),
+  checkpoint: SessionObservationCheckpointV1.nullable(),
+})
+export type AgentObservationRebindAckMessage = z.infer<typeof AgentObservationRebindAckMessage>
 
 export const SessionOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('spawn') }),
