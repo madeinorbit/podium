@@ -135,6 +135,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
             telegramBotToken: 'fixture-token',
             telegramChatId: 'fixture-chat',
           },
+          experimental: { notifications: true },
           autoContinue: { enabled: true, promptDismissed: true },
         }),
       )
