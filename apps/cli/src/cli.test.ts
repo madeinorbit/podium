@@ -7,6 +7,7 @@ import {
   portInUseMessage,
   resolveModePlan,
   resolvePlan,
+  resolveCliFeatures,
   unknownLaunchToken,
 } from './cli'
 
@@ -518,6 +519,47 @@ describe('resolvePlan — help (#18)', () => {
     const text = helpText()
     for (const word of ['all-in-one', 'server', 'daemon', 'setup', '--takeover', 'status', 'stop'])
       expect(text).toContain(word)
+  })
+
+  it('hides experimental commands until their flags are enabled', () => {
+    const hidden = helpText()
+    expect(hidden).not.toContain('spec <command>')
+    expect(hidden).not.toContain('workflow <command>')
+
+    const visible = helpText(new Set(['specs', 'workflows']))
+    expect(visible).toContain('spec <command>')
+    expect(visible).toContain('workflow <command>')
+  })
+
+  it('uses server-resolved feature state for CLI discovery', async () => {
+    const enabled = await resolveCliFeatures(
+      {},
+      {},
+      {
+        features: {
+          state: {
+            query: async () => ({
+              flags: [
+                { id: 'specs', enabled: true },
+                { id: 'workflows', enabled: false },
+                { id: 'unknown', enabled: true },
+              ],
+            }),
+          },
+        },
+      },
+    )
+    expect([...enabled]).toEqual(['specs'])
+  })
+
+  it('falls back to config overrides when feature-state transport fails', async () => {
+    const enabled = await resolveCliFeatures(
+      { features: { specs: true, workflows: false } },
+      { PODIUM_APP_VERSION: '1.0.0' },
+      { features: { state: { query: async () => Promise.reject(new Error('offline')) } } },
+    )
+    expect(enabled.has('specs')).toBe(true)
+    expect(enabled.has('workflows')).toBe(false)
   })
 })
 

@@ -3,7 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { RightRail } from './RightRail'
 
-afterEach(cleanup)
+const featureEnabled = vi.hoisted(() => ({ value: true }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => featureEnabled.value,
+}))
+
+afterEach(() => {
+  cleanup()
+  featureEnabled.value = true
+})
 
 describe('RightRail', () => {
   it('reopens the last panel and switches one panel at a time — with no superagent control (#65)', () => {
@@ -14,9 +22,21 @@ describe('RightRail', () => {
     expect(onPanelChange).toHaveBeenLastCalledWith('git')
 
     fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+
     expect(onPanelChange).toHaveBeenLastCalledWith('files')
 
     expect(screen.queryByRole('button', { name: /superagent/i })).toBeNull()
+  })
+
+  it('hides experimental panels and sanitizes a persisted last panel', () => {
+    featureEnabled.value = false
+    const onPanelChange = vi.fn()
+    render(<RightRail rightPanel={null} lastPanel="git" onPanelChange={onPanelChange} />)
+
+    expect(screen.queryByRole('button', { name: 'Git' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Messages' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open last panel' }))
+    expect(onPanelChange).toHaveBeenCalledWith('files')
   })
 
   it('toggles the active panel closed', () => {

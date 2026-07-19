@@ -350,6 +350,10 @@ describe('SessionRegistry', () => {
 
   it('pins one exact workflow revision without exposing it in the human prompt, and starts a run', () => {
     const reg = new SessionRegistry()
+    reg.modules.settings.setSettings({
+      ...reg.modules.settings.getSettings(),
+      experimental: { workflows: true, specs: true },
+    })
     const daemon: ControlMessage[] = []
     reg.modules.sessions.attachDaemon('local', (message) => daemon.push(message))
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
@@ -591,7 +595,6 @@ describe('SessionRegistry', () => {
         resume: { kind: 'codex-thread', value: 't9' },
         instructions: expect.arrayContaining([
           expect.objectContaining({ source: 'podium:issues' }),
-          expect.objectContaining({ source: 'podium:specs' }),
         ]),
       }),
     )
@@ -1698,6 +1701,7 @@ describe('agent state', () => {
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
+      experimental: { ...settings.experimental, notifications: true },
       notifications: {
         ...settings.notifications,
         web: true,
@@ -1778,6 +1782,7 @@ describe('agent state', () => {
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
+      experimental: { ...settings.experimental, notifications: true },
       notifications: {
         ...settings.notifications,
         ntfyTopic: 'podium-topic',
@@ -1806,6 +1811,29 @@ describe('agent state', () => {
     }
   })
 
+  it('suppresses configured notification delivery while the feature is disabled', () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
+      ...settings,
+      notifications: {
+        ...settings.notifications,
+        ntfyTopic: 'podium-topic',
+        telegramBotToken: '123456:secret',
+        telegramChatId: '-100123',
+      },
+    })
+    const ntfy = vi.fn()
+    const telegram = vi.fn()
+    try {
+      const reg = new SessionRegistry(store, { ntfy, telegram })
+      reg.modules.notify.notifyExternal({ title: 'hidden', body: 'hidden' })
+      expect(ntfy).not.toHaveBeenCalled()
+      expect(telegram).not.toHaveBeenCalled()
+    } finally {
+      store.close()
+    }
+  })
   it('connects Telegram from a start-code update', async () => {
     const store = new SessionStore(':memory:')
     const settings = store.settings.getSettings()
@@ -1895,6 +1923,7 @@ describe('agent state', () => {
       const settings = reg.modules.settings.getSettings()
       reg.modules.settings.setSettings({
         ...settings,
+        experimental: { ...settings.experimental, notifications: true },
         notifications: {
           ...settings.notifications,
           telegramBotToken: '123456:secret',
@@ -2589,7 +2618,6 @@ describe('hibernation', () => {
         resume: { kind: 'claude-session', value: 'abc-123' },
         instructions: expect.arrayContaining([
           expect.objectContaining({ source: 'podium:issues' }),
-          expect.objectContaining({ source: 'podium:specs' }),
         ]),
       }),
     )

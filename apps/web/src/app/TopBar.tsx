@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { type MainView, useStoreSelector } from './store'
 
@@ -20,6 +21,9 @@ export function TopBar(): JSX.Element {
     (s) => ({ view: s.view, setView: s.setView, issues: s.issues }),
     shallowEqual,
   )
+  const workflowsEnabled = useFeature('workflows')
+  const specsEnabled = useFeature('specs')
+  const automationsEnabled = useFeature('automations')
 
   // Proposals are a curation inbox, distinct from agents asking questions. [spec:SP-6144]
   const proposedCount = issues.filter(
@@ -44,9 +48,13 @@ export function TopBar(): JSX.Element {
           onSelect={setView}
           badge={proposedCount}
         />
-        <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
-        <NavItem label="Specs" target="specs" view={view} onSelect={setView} />
-        <NavItem label="Automations" target="automations" view={view} onSelect={setView} />
+        {workflowsEnabled && (
+          <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
+        )}
+        {specsEnabled && <NavItem label="Specs" target="specs" view={view} onSelect={setView} />}
+        {automationsEnabled && (
+          <NavItem label="Automations" target="automations" view={view} onSelect={setView} />
+        )}
       </nav>
       <div className="ml-auto min-w-0 overflow-hidden">
         <HeaderHostIndicators />

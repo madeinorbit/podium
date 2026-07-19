@@ -33,6 +33,7 @@ import {
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { STAGE_LABELS } from './issue-card'
 import {
   deferDateFromNow,
@@ -85,6 +86,7 @@ export function IssueContextMenu({
     }),
     shallowEqual,
   )
+  const handoffEnabled = useFeature('session-handoff')
   const ref = useRef<HTMLDivElement | null>(null)
   const [pos, setPos] = useState<ContextMenuAnchor>(anchor)
   const [sub, setSub] = useState<{ kind: SubKind; top: number } | null>(null)
@@ -364,10 +366,7 @@ export function IssueContextMenu({
     handoff: [
       ...(handoffCandidates.length === 0
         ? [
-            <div
-              key="none"
-              className="px-2 py-1.5 text-[11px] text-muted-foreground"
-            >
+            <div key="none" className="px-2 py-1.5 text-[11px] text-muted-foreground">
               No other machine has this repo
             </div>,
           ]
@@ -467,9 +466,10 @@ export function IssueContextMenu({
       {elig.canAssignAgent &&
         subTrigger('agent', <Bot size={14} aria-hidden="true" />, 'Assign agent')}
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
-      {/* [spec:SP-3f7a] Issue-row handoff — always shown for a single issue, with
-          the reason when it can't move (POD-850), mirroring the session-row menu. */}
-      {handoff &&
+      {/* [spec:SP-3f7a] When enabled, issue-row handoff shows for a single issue,
+          including the reason when it can't move (POD-850). */}
+      {handoffEnabled &&
+        handoff &&
         (() => {
           const reason =
             'blocker' in handoff

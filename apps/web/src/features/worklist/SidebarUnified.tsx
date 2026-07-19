@@ -48,7 +48,6 @@ import {
   partitionStaleSessions,
   pickPaneSession,
   type RepoNavView,
-  type SidebarSections,
   resolveDefaultAgent,
   resolveTargetMachine,
   rowMotionPhase,
@@ -56,6 +55,7 @@ import {
   rowStatusLine,
   rowUnreadEmphasized,
   rowWaitingCount,
+  type SidebarSections,
   sessionsForIssueNav,
   sessionsForWorktree,
   sessionsNeedChildRows,
@@ -68,6 +68,7 @@ import {
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, usePhaseMorph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
@@ -424,6 +425,7 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
     shallowEqual,
   )
   const [repoScanOpen, setRepoScanOpen] = useState(false)
+  const commandPaletteEnabled = useFeature('command-palette')
   const btn = (active = false) =>
     cn(
       'flex size-7 items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]',
@@ -460,15 +462,17 @@ export function AppToolsRow({ className }: { className?: string }): JSX.Element 
       >
         <SettingsIcon size={15} aria-hidden="true" />
       </button>
-      <button
-        type="button"
-        className={btn()}
-        title="Search (⌘K)"
-        aria-label="Search"
-        onClick={() => setPaletteOpen(true)}
-      >
-        <Search size={15} aria-hidden="true" />
-      </button>
+      {commandPaletteEnabled && (
+        <button
+          type="button"
+          className={btn()}
+          title="Search (⌘K)"
+          aria-label="Search"
+          onClick={() => setPaletteOpen(true)}
+        >
+          <Search size={15} aria-hidden="true" />
+        </button>
+      )}
       {repoScanOpen && (
         <RepoScanFlow
           onClose={() => setRepoScanOpen(false)}

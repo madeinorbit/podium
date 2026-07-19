@@ -124,7 +124,23 @@ writeFileSync(join(stateDir, 'repos.json'), JSON.stringify([REPO_ROOT, SCRATCH_R
 // Pre-pick the deployment mode so the setup gate (SetupGate → /setup/config →
 // needsSetup) doesn't block the workspace: the harness IS an all-in-one server.
 // Without this every browser spec lands on the first-run SetupView.
-writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+// Browser specs exercise these pre-release surfaces directly, so the isolated
+// harness locks them on without changing their production default-off behavior.
+const E2E_FEATURES = {
+  'command-palette': true,
+  'git-panel': true,
+  'messages-panel': true,
+  'tab-splitting': true,
+  'session-handoff': true,
+  workflows: true,
+  specs: true,
+  automations: true,
+  notifications: true,
+}
+writeFileSync(
+  join(stateDir, 'config.json'),
+  JSON.stringify({ mode: 'all-in-one', features: E2E_FEATURES }),
+)
 
 // shell -> real shell (wide output for reflow tests); everything else -> keyecho jig.
 // PODIUM_E2E_REAL_AGENTS=1 launches the REAL claude/codex CLI instead (opt-in,

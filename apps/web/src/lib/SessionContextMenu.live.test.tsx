@@ -3,6 +3,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionContextMenu } from './SessionContextMenu'
 
+const featureEnabled = vi.hoisted(() => ({ value: true }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => featureEnabled.value,
+}))
+
 // The store slices the menu reads. Mutated per test before render — the mock
 // closes over `state`, so each test sets the world it wants.
 const state: {
@@ -92,19 +97,26 @@ function open(session: SessionMeta = meta()): void {
   )
 }
 
-/** The Handoff row, whatever its state — it is always present (POD-821). */
+/** The Handoff row, whatever its state, when the feature is enabled (POD-821). */
 const handoffItem = (): HTMLElement =>
   screen.getByRole('menuitem', { name: /Handoff/ }) as HTMLElement
 
 afterEach(() => {
   cleanup()
   handoffMutate.mockClear()
+  featureEnabled.value = true
   state.repos = []
   state.machines = []
   state.issues = []
 })
 
 describe('SessionContextMenu handoff (POD-821)', () => {
+  it('hides handoff while the feature is disabled', () => {
+    featureEnabled.value = false
+    open()
+    expect(screen.queryByRole('menuitem', { name: /Handoff/ })).toBeNull()
+  })
+
   it('offers the machine that can take the session, and hands off on click', () => {
     state.repos = [
       repoWire(MAC, '/Users/mw/Source/other/podium', [

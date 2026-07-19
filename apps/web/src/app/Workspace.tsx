@@ -34,6 +34,7 @@ import {
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph } from '@/lib/motion'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
@@ -95,6 +96,8 @@ export function Workspace(): JSX.Element {
     }),
     shallowEqual,
   )
+  const tabSplittingEnabled = useFeature('tab-splitting')
+  const visibleSplit = tabSplittingEnabled && split
   // Closing a session tab routes through the active-session guard (#115) so a
   // working agent prompts for confirmation; file tabs close immediately.
   const { guardedKill } = useSessionGuard()
@@ -167,9 +170,7 @@ export function Workspace(): JSX.Element {
     byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
   for (const f of fileList) byId.set(f.id, { id: f.id, kind: 'file', file: f })
   const baseIds = [
-    ...orderTabs(sessionList, undefined, pins, issue?.coordinatorSessionId).map(
-      (s) => s.sessionId,
-    ),
+    ...orderTabs(sessionList, undefined, pins, issue?.coordinatorSessionId).map((s) => s.sessionId),
     ...fileList.map((f) => f.id),
   ]
   const manual = orderKey ? tabOrders[orderKey] : undefined
@@ -200,7 +201,7 @@ export function Workspace(): JSX.Element {
     sessions.filter((s) => !s.archived && !dockShellIds.has(s.sessionId)).map((s) => s.sessionId),
   )
   const warmUniverse = [...knownSessionIds].sort()
-  const activeIds = [paneA, split ? paneB : null].filter((x): x is string => x != null)
+  const activeIds = [paneA, visibleSplit ? paneB : null].filter((x): x is string => x != null)
   const warm = useWarmSet(warmUniverse, activeIds)
 
   // Keep pane A pointed at a valid tab.
@@ -377,15 +378,17 @@ export function Workspace(): JSX.Element {
               </button>
             }
           />
-          <button
-            type="button"
-            className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
-            title="Split"
-            aria-label="Split"
-            onClick={toggleSplit}
-          >
-            <Columns2 size={13} aria-hidden="true" />
-          </button>
+          {tabSplittingEnabled && (
+            <button
+              type="button"
+              className="flex cursor-pointer items-center self-stretch rounded px-[7px] text-text-dim hover:text-foreground"
+              title="Split"
+              aria-label="Split"
+              onClick={toggleSplit}
+            >
+              <Columns2 size={13} aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
       {/* The panel deck [POD-782] [spec:SP-0b2e]: the current workspace's tabs
@@ -403,9 +406,9 @@ export function Workspace(): JSX.Element {
             knownSessionIds,
             paneA,
             paneB,
-            split,
+            split: visibleSplit,
           })}
-          split={split}
+          split={visibleSplit}
           onCloseFile={closeFileTab}
         />
         {!paneA && (
@@ -413,7 +416,7 @@ export function Workspace(): JSX.Element {
             <Empty />
           </div>
         )}
-        {split && !paneB && (
+        {visibleSplit && !paneB && (
           <div className="flex min-w-0 flex-1 border-l border-border" style={{ order: 1 }}>
             <PanePicker
               tabs={allTabs}

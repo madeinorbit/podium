@@ -10,6 +10,7 @@ import type {
 } from '@podium/protocol'
 import { formatIssueRef, sessionTitleRule } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { getFeatureStates, isFeatureEnabled } from './features'
 import { checkIssueAccess } from './issue-authz'
 import { LOCAL_PLACEHOLDER, stateDir } from './local-machine'
 import type { ModelProbe } from './model-catalog'
@@ -234,6 +235,14 @@ export class SessionRegistry {
     options: SessionRegistryOptions = {},
   ) {
     this.now = options.now ?? Date.now
+    // Resolve feature state once, then keep it atomic with settings changes. This also
+    // avoids reading persistence during instruction preparation after async recovery.
+    let currentSettings = this.store.settings.getSettings()
+    this.bus.on('settings.changed', ({ next }) => {
+      currentSettings = next
+    })
+    const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
+      isFeatureEnabled(id, currentSettings)
     // Live entity maps are owned by modules/sessions; the pre-sessions modules
     // reach them through these lazy closures (sessionsSvc is assigned below, and
     // none of the closures can run before the constructor finishes wiring).
@@ -296,6 +305,7 @@ export class SessionRegistry {
         },
         sessionStates: () =>
           [...liveSessions().values()].map((s) => ({ info: noticeInfo(s), state: s.agentState })),
+        notificationsEnabled: () => featureEnabled('notifications'),
         ...(options.telegramNotice ? { telegramNotice: options.telegramNotice } : {}),
       },
       notificationPushers,
@@ -554,11 +564,12 @@ export class SessionRegistry {
     })
     sessionInstructions.register({
       source: 'podium:specs',
-      prepare: () => ({ content: SPEC_SYSTEM_POINTER }),
+      prepare: () => (featureEnabled('specs') ? { content: SPEC_SYSTEM_POINTER } : null),
     })
     sessionInstructions.register({
       source: 'podium:workflow',
       prepare: ({ sessionId, cwd, issueId, workflowRevisionId, existingOnly }) => {
+        if (!featureEnabled('workflows')) return null
         const prepared = existingOnly
           ? workflows.prepareExistingSession({ sessionId, ...(issueId ? { issueId } : {}) })
           : workflows.prepareStart({
@@ -594,6 +605,9 @@ export class SessionRegistry {
       // against the TARGET session's issue exactly like an issue write
       // (RELAY_ALLOWED lists all four routers).
       dispatch: (capability, overrideScope, router, proc, input) => {
+        if (router === 'features' && proc === 'state') {
+          return Promise.resolve(getFeatureStates(currentSettings))
+        }
         if (router === 'specs') {
           return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined
         }
@@ -816,8 +830,7 @@ export class SessionRegistry {
                   // asserts the agent got human OK [spec:SP-9904].
                   const isOperator = capability.scope.kind === 'all'
                   const isParent =
-                    actorSessionId !== undefined &&
-                    target.spawnedBy === `session:${actorSessionId}`
+                    actorSessionId !== undefined && target.spawnedBy === `session:${actorSessionId}`
                   if (!isOperator && !isParent && !overrideScope) {
                     throw new Error(
                       'target session has no issue and is outside your tree; re-run with --outside-scope to confirm human permission',
@@ -938,10 +951,9 @@ export class SessionRegistry {
         const actorSessionId = capability.actorSessionId
         if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
           return Promise.resolve(result).then((issuePrime) => {
-            const workflowPrime = workflows.prime(
-              {},
-              { actor: { kind: 'session', id: actorSessionId }, capability },
-            )
+            const workflowPrime = featureEnabled('workflows')
+              ? workflows.prime({}, { actor: { kind: 'session', id: actorSessionId }, capability })
+              : ''
             // Name-your-own-session (#490): asked for only while the session HAS no
             // name — a named session (by the user or by an earlier turn of this agent)
             // never sees the instruction, so the prime doesn't nag an agent into
@@ -1174,11 +1186,7 @@ export class SessionRegistry {
       // wake sticky when the parent observes the child settled, so a later
       // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
       retireNotificationFact: (factKey, target) => {
-        this.store.notificationFacts.retire(
-          factKey,
-          target,
-          new Date(this.now()).toISOString(),
-        )
+        this.store.notificationFacts.retire(factKey, target, new Date(this.now()).toISOString())
       },
     })
     readToolkit = new SessionReadToolkit({
@@ -1226,7 +1234,7 @@ export class SessionRegistry {
           text,
           ...(mutationId ? { mutationId } : {}),
         })
-        if (!result.ok) throw new Error(result.reason ?? "failed to durably queue steward nudge")
+        if (!result.ok) throw new Error(result.reason ?? 'failed to durably queue steward nudge')
       },
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.

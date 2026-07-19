@@ -21,6 +21,7 @@ import {
 } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { sessionMenuEligibility } from '@/lib/SessionContextMenu'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import {
   defaultHighlight,
@@ -157,6 +158,8 @@ function PaletteDialog({
     shallowEqual,
   )
   const { guardedKill, guardedArchive } = useSessionGuard()
+  const workflowsEnabled = useFeature('workflows')
+  const automationsEnabled = useFeature('automations')
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -301,6 +304,8 @@ function PaletteDialog({
       ['settings', 'Go to Settings', ['preferences', 'config']],
     ] as const
     for (const [view, label, keywords] of views) {
+      if (view === 'workflows' && !workflowsEnabled) continue
+      if (view === 'automations' && !automationsEnabled) continue
       out.push({
         id: `global:view-${view}`,
         group: 'global',
@@ -384,7 +389,19 @@ function PaletteDialog({
       })
     }
     return out
-  }, [sessions, repos, issues, serverIssueHits, pins, paneA, spawnTargets, defaultAgent, superOpen])
+  }, [
+    sessions,
+    repos,
+    issues,
+    serverIssueHits,
+    pins,
+    paneA,
+    spawnTargets,
+    defaultAgent,
+    superOpen,
+    workflowsEnabled,
+    automationsEnabled,
+  ])
 
   const groups = useMemo(() => filterCommands(query, commands), [query, commands])
   const flat = useMemo(() => flattenGroups(groups), [groups])

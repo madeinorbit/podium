@@ -37,6 +37,60 @@ export const FEATURES = [
       'Bidirectional draft sync between the chat box and the agent’s native composer: text typed in either place mirrors to the other. Experimental — off by default.',
     visibility: 'edge',
   },
+  {
+    id: 'command-palette',
+    name: 'Cmd+K search',
+    description: 'Search and navigate Podium from the Cmd+K command palette.',
+    visibility: 'edge',
+  },
+  {
+    id: 'git-panel',
+    name: 'Git panel',
+    description: 'Show the Git tab in the right sidebar.',
+    visibility: 'edge',
+  },
+  {
+    id: 'messages-panel',
+    name: 'Messages panel',
+    description: 'Show the Messages tab in the right sidebar.',
+    visibility: 'edge',
+  },
+  {
+    id: 'tab-splitting',
+    name: 'Tab splitting',
+    description: 'Show two workspace tabs side by side.',
+    visibility: 'edge',
+  },
+  {
+    id: 'session-handoff',
+    name: 'Session handoff',
+    description: 'Move a live session to another Podium server.',
+    visibility: 'edge',
+  },
+  {
+    id: 'workflows',
+    name: 'Workflows',
+    description: 'Show workflows and give agents workflow-aware instructions and CLI guidance.',
+    visibility: 'edge',
+  },
+  {
+    id: 'specs',
+    name: 'Specs',
+    description: 'Show living specs and give agents spec-aware instructions and CLI guidance.',
+    visibility: 'edge',
+  },
+  {
+    id: 'automations',
+    name: 'Automations',
+    description: 'Show scheduled automations and notification triggers.',
+    visibility: 'edge',
+  },
+  {
+    id: 'notifications',
+    name: 'Notifications',
+    description: 'Enable web and external notifications and their settings.',
+    visibility: 'edge',
+  },
 ] as const satisfies readonly FeatureDefinition[]
 
 export type FeatureId = (typeof FEATURES)[number]['id']

@@ -19,6 +19,7 @@ import {
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { FLOW_SLATE, issueColorHex, issueSquareFg } from '@/lib/issueColors'
 import { AgentStatusGlyph } from '@/lib/motion'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import { NewPanelMenu } from './NewPanelMenu'
@@ -168,6 +169,7 @@ export function MobileApp(): JSX.Element {
     }),
     shallowEqual,
   )
+  const workflowsEnabled = useFeature('workflows')
   const { guardedKill } = useSessionGuard()
   const repoViews = useMemo(() => reposToViews(repos), [repos])
   const allWorktreePaths = useMemo(
@@ -337,18 +339,20 @@ export function MobileApp(): JSX.Element {
         >
           <KanbanSquare size={15} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center border-r border-border px-3 text-muted-foreground',
-            view === 'workflows' && 'text-primary',
-          )}
-          title="Workflows"
-          aria-pressed={view === 'workflows'}
-          onClick={() => setView('workflows')}
-        >
-          <ListChecks size={15} aria-hidden="true" />
-        </button>
+        {workflowsEnabled && (
+          <button
+            type="button"
+            className={cn(
+              'inline-flex items-center border-r border-border px-3 text-muted-foreground',
+              view === 'workflows' && 'text-primary',
+            )}
+            title="Workflows"
+            aria-pressed={view === 'workflows'}
+            onClick={() => setView('workflows')}
+          >
+            <ListChecks size={15} aria-hidden="true" />
+          </button>
+        )}
         {/* The one main dropdown (#227, §2.1): NOT an issue picker — the panel
             selector for the current work (issues are chosen on Tasks). Tapping it
             from any view is the way back into the current issue's panels. */}

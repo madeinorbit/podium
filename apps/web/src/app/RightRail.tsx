@@ -4,6 +4,7 @@ import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { RIGHT_PANELS } from './RightDock'
 import type { RightPanelTab } from './shell-state'
@@ -40,6 +41,16 @@ export function RightRail({
 }): JSX.Element {
   const phase = issue ? aggregateMotionPhase(issue.sessions) : 'queued'
   const waitingCount = issue ? issue.sessions.filter((s) => motionPhase(s) === 'waiting').length : 0
+  const gitPanelEnabled = useFeature('git-panel')
+  const messagesPanelEnabled = useFeature('messages-panel')
+  const panelAllowed = (panel: RightPanelTab): boolean =>
+    panel !== 'git' && panel !== 'mail'
+      ? true
+      : panel === 'git'
+        ? gitPanelEnabled
+        : messagesPanelEnabled
+  const effectiveLastPanel = panelAllowed(lastPanel) ? lastPanel : 'files'
+
   return (
     <nav
       aria-label="Panels"
@@ -49,8 +60,8 @@ export function RightRail({
       <button
         type="button"
         aria-label="Open last panel"
-        title={`Open ${lastPanel} panel`}
-        onClick={() => onPanelChange(lastPanel)}
+        title={`Open ${effectiveLastPanel} panel`}
+        onClick={() => onPanelChange(effectiveLastPanel)}
         className="right-rail-cell h-4 text-[var(--text-dim)]"
       >
         <ChevronLeft size={12} aria-hidden="true" />
@@ -85,19 +96,24 @@ export function RightRail({
           #—
         </button>
       )}
-      {RIGHT_PANELS.filter((panel) => panel.id !== 'issue').map((panel) => (
-        <button
-          key={panel.id}
-          type="button"
-          aria-label={panel.label}
-          aria-pressed={rightPanel === panel.id}
-          title={panel.label}
-          onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
-          className={cn('right-rail-cell', rightPanel === panel.id && 'bg-secondary text-primary')}
-        >
-          <panel.icon size={15} strokeWidth={1.8} aria-hidden="true" />
-        </button>
-      ))}
+      {RIGHT_PANELS.filter((panel) => panel.id !== 'issue' && panelAllowed(panel.id)).map(
+        (panel) => (
+          <button
+            key={panel.id}
+            type="button"
+            aria-label={panel.label}
+            aria-pressed={rightPanel === panel.id}
+            title={panel.label}
+            onClick={() => onPanelChange(rightPanel === panel.id ? null : panel.id)}
+            className={cn(
+              'right-rail-cell',
+              rightPanel === panel.id && 'bg-secondary text-primary',
+            )}
+          >
+            <panel.icon size={15} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        ),
+      )}
     </nav>
   )
 }

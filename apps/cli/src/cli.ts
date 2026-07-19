@@ -11,13 +11,20 @@
  * combinatorial matrix is unit-testable without spawning anything.
  */
 
-import { type ApprovalOp, isAgentKind } from '@podium/protocol'
+import {
+  type ApprovalOp,
+  FEATURES,
+  type FeatureId,
+  isAgentKind,
+  resolveFeatureState,
+} from '@podium/protocol'
 import {
   loadConfig,
   needsSetup,
   type PodiumConfig,
   type PodiumMode,
   resolveAgentRelay,
+  resolveFeatureOverrides,
   resolveInstanceId,
   resolvePort,
   resolveRunRecordMode,
@@ -596,7 +603,7 @@ export function versionText(): string {
 }
 
 /** Top-level `podium --help`. Sub-CLIs (issue/session/spec/worktree) render their own. */
-export function helpText(): string {
+export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): string {
   return [
     'podium — self-hosted multi-agent workspace (server + daemon + web UI)',
     '',
@@ -639,7 +646,9 @@ export function helpText(): string {
     '',
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
-    '  spec <command>        Read/maintain the living project spec (<repo>/pspec/)',
+    ...(enabledFeatures.has('specs')
+      ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
+      : []),
     '  session <command>     Send turns to agent sessions; status/read for a peek',
     '  automation schedule --at <ISO> --message <text> [--session <id> | --fresh ...]',
     '                        Request a one-off session wake (agent sessions only)',
@@ -648,7 +657,9 @@ export function helpText(): string {
     '  worktree [path]       Declare the worktree this agent session works in',
     "  workspace <command>   Fetch another agent's working state; clean up peeks",
     '',
-    '  workflow <command>    Follow and manage versioned agent workflows',
+    ...(enabledFeatures.has('workflows')
+      ? ['  workflow <command>    Follow and manage versioned agent workflows']
+      : []),
     'Agent sessions: lifecycle changes and automation schedules need operator approval —',
     'the command BLOCKS until they approve (runs it) or deny (exits non-zero).',
     '',
@@ -659,6 +670,58 @@ export function helpText(): string {
     'Environment: PODIUM_INSTANCE selects the isolated instance; PODIUM_PORT overrides',
     'its server port (default instance: 18787).',
   ].join('\n')
+}
+
+interface CliFeaturesClient {
+  features?: {
+    state: {
+      query(): Promise<{ flags: Array<{ id: string; enabled: boolean }> }>
+    }
+  }
+}
+
+/** Resolve top-level CLI discovery through the same server state as the UI.
+ * Transport failure falls back to config-only resolution and stays fail-closed. */
+export async function resolveCliFeatures(
+  config: PodiumConfig,
+  env: EnvSnapshot = process.env,
+  providedClient?: CliFeaturesClient,
+): Promise<ReadonlySet<FeatureId>> {
+  let client = providedClient
+  if (!client) {
+    const { makeIssueClient, makeRelayIssueClient } = await import('@podium/issue-client')
+    const relay = resolveAgentRelay(env)
+    client = (
+      relay
+        ? makeRelayIssueClient(relay)
+        : makeIssueClient(`http://localhost:${resolvePort(config, env)}`)
+    ) as unknown as CliFeaturesClient
+  }
+  try {
+    const features = client.features
+    if (!features) throw new Error('feature state is unavailable')
+    const state = await features.state.query()
+    const known = new Set<FeatureId>(FEATURES.map((feature) => feature.id))
+    return new Set(
+      state.flags
+        .filter((flag) => flag.enabled && known.has(flag.id as FeatureId))
+        .map((flag) => flag.id as FeatureId),
+    )
+  } catch {
+    const overrides = resolveFeatureOverrides(config)
+    const channel = resolveUpdateChannel(config, env)
+    const version = env.PODIUM_APP_VERSION ?? process.env.PODIUM_APP_VERSION ?? 'dev'
+    return new Set(
+      FEATURES.filter(
+        (feature) =>
+          resolveFeatureState(feature, {
+            configValue: overrides[feature.id],
+            channel,
+            devMode: version === 'dev',
+          }).enabled,
+      ).map((feature) => feature.id),
+    )
+  }
 }
 
 export interface DaemonStartOptions {
@@ -892,7 +955,7 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
 
   switch (plan.kind) {
     case 'help': {
-      console.log(helpText())
+      console.log(helpText(await resolveCliFeatures(config, process.env)))
       return
     }
     case 'version': {

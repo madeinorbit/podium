@@ -1,5 +1,5 @@
-import type { PodiumSettings } from '@podium/runtime'
 import type { AgentRuntimeState, LiveServerMessage, ServerMessage } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
 import {
   type AttentionNotice,
   attentionNotice,
@@ -7,8 +7,8 @@ import {
   pushTelegram,
   type TelegramConfig,
 } from '../../notify'
-import type { TelegramNoticePort } from '../messaging/types'
 import type { EventBus } from '../bus'
+import type { TelegramNoticePort } from '../messaging/types'
 
 export interface NotificationPushers {
   ntfy(topic: string, notice: AttentionNotice): void
@@ -51,6 +51,8 @@ export interface SessionNoticeInfo {
 
 export interface NotifyDeps {
   getSettings(): PodiumSettings
+  /** Experimental delivery boundary [spec:SP-f4b9]. Omitted by isolated tests. */
+  notificationsEnabled?(): boolean
   /** store.appendEvent — the durable podium_events log. */
   appendEvent(e: {
     ts: string
@@ -95,11 +97,7 @@ export class NotifyService {
     return info.name || info.title || info.cwd.split('/').pop() || 'agent'
   }
 
-  private sendTelegram(
-    config: TelegramConfig,
-    notice: AttentionNotice,
-    sessionId?: string,
-  ): void {
+  private sendTelegram(config: TelegramConfig, notice: AttentionNotice, sessionId?: string): void {
     const text = `${notice.title}\n\n${notice.body}`
     const port = this.deps.telegramNotice?.()
     if (port) {
@@ -114,6 +112,7 @@ export class NotifyService {
     next: NotificationSettings,
   ): void {
     const previousNtfy = previous.ntfyTopic.trim()
+    if (this.deps.notificationsEnabled?.() === false) return
     const nextNtfy = next.ntfyTopic.trim()
     const sendNtfy = nextNtfy !== '' && previousNtfy !== nextNtfy
     const sendTelegram =
@@ -148,6 +147,7 @@ export class NotifyService {
    */
   notifyExternal(notice: AttentionNotice): void {
     const settings = this.deps.getSettings().notifications
+    if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
     if (isTelegramEnabled(settings)) this.sendTelegram(telegramConfig(settings), notice)
   }
@@ -183,6 +183,7 @@ export class NotifyService {
       } catch {}
     }
     const settings = this.deps.getSettings().notifications
+    if (this.deps.notificationsEnabled?.() === false) return
     const name = this.attentionNoticeName(info)
     const notice = attentionNotice(name, prev, next)
     if (!notice) return

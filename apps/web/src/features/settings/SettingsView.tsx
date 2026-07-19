@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
-import { invalidateFeatures } from '@/lib/use-feature'
+import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
 import { AccountsSection } from './sections/accounts'
@@ -143,6 +143,10 @@ export function SettingsView(): JSX.Element {
     }),
     shallowEqual,
   )
+  const notificationsEnabled = useFeature('notifications')
+  const settingsTabs = SETTINGS_TABS.filter(
+    (tab) => tab.key !== 'notifications' || notificationsEnabled,
+  )
   const [settings, setSettings] = useState<PodiumSettings | null>(null)
   const [accounts, setAccounts] = useState<AccountView[]>([])
   const [saving, setSaving] = useState(false)
@@ -155,7 +159,7 @@ export function SettingsView(): JSX.Element {
   // clicks push history entries (setSettingsTab), and back/forward moves
   // between visited tabs. A plain /settings shows the default tab.
   const tab: SettingsTab =
-    settingsTab && SETTINGS_TABS.some((s) => s.key === settingsTab)
+    settingsTab && settingsTabs.some((s) => s.key === settingsTab)
       ? (settingsTab as SettingsTab)
       : 'sessions'
 
@@ -313,7 +317,7 @@ export function SettingsView(): JSX.Element {
             className="flex flex-row gap-1 overflow-x-auto border-border border-b p-2 md:w-[200px] md:flex-none md:flex-col md:gap-0.5 md:overflow-y-auto md:border-r md:border-b-0 md:p-3 md:px-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             aria-label="Settings sections"
           >
-            {SETTINGS_TABS.map((t) => (
+            {settingsTabs.map((t) => (
               <button
                 key={t.key}
                 type="button"

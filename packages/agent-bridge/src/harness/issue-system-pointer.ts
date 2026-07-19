@@ -10,7 +10,7 @@ import { TITLE_RULE_TERSE } from '@podium/protocol'
 
 export const ISSUE_SYSTEM_POINTER =
   "This project uses Podium's issue tracker. You have a `podium issue` CLI. " +
-  'Run `podium issue prime` for your current issue, workflow, and ready work. ' +
+  'Run `podium issue prime` for your current issue and ready work. ' +
   'Discovered work that can ship separately becomes a top-level issue plus a `discovered-from` dependency; it lands in Proposed automatically, so do not claim or stage it. ' +
   'Decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. ' +
   'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] ' +

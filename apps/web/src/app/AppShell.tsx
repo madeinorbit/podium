@@ -20,6 +20,7 @@ import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { useFeature } from '@/lib/use-feature'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
 import { AutoContinueDialog } from './AutoContinueDialog'
@@ -168,6 +169,16 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   const [lastRightPanel, setLastRightPanel] = useState<RightPanelTab>(() =>
     readLastRightPanel(uiState.get(RIGHT_PANEL_LAST_KEY)),
   )
+  const commandPaletteEnabled = useFeature('command-palette')
+  const gitPanelEnabled = useFeature('git-panel')
+  const messagesPanelEnabled = useFeature('messages-panel')
+  const panelAllowed = (panel: RightPanelTab | null): boolean =>
+    panel !== 'git' && panel !== 'mail'
+      ? true
+      : panel === 'git'
+        ? gitPanelEnabled
+        : messagesPanelEnabled
+  const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
 
   const setSidebarCollapsed = (collapsed: boolean): void => {
     setSidebarCollapsedState(collapsed)
@@ -179,6 +190,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     setSuperOpen(mode === 'open')
   }
   const setRightPanel = (panel: RightPanelTab | null): void => {
+    if (!panelAllowed(panel)) return
     setRightPanelState(panel)
     uiState.set(RIGHT_PANEL_KEY, panel ?? '')
     if (panel) {
@@ -215,6 +227,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (
+        commandPaletteEnabled &&
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
         !event.shiftKey &&
@@ -226,7 +239,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteOpen, setPaletteOpen])
+  }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
 
   if (!reposLoaded) return <LoadingScreen />
   if (repos.length === 0 && !dismissed) {
@@ -326,7 +339,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
               />
             )}
             <MainViewOutlet workspace={<Workspace />} />
-            {rightPanel && (
+            {visibleRightPanel && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"
                 min={280}
@@ -337,13 +350,13 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
                 className="max-w-[45vw]"
               >
                 <aside className="right-dock-shell">
-                  <RightDock tab={rightPanel} onClose={() => setRightPanel(null)} />
+                  <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
                 </aside>
               </ResizableColumn>
             )}
             <RightRail
               issue={selectedIssue}
-              rightPanel={rightPanel}
+              rightPanel={visibleRightPanel}
               lastPanel={lastRightPanel}
               onPanelChange={setRightPanel}
               onColorChange={changeIssueColor}
@@ -353,7 +366,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       )}
       <AutoContinueDialog />
       <ApprovalDialog />
-      <CommandPalette />
+      {commandPaletteEnabled && <CommandPalette />}
       {/* Ref linkify (#474): keep the known-prefix set fresh and host the single
           floating miniview. Both render nothing until there's something to show. */}
       <RefPrefixSync />

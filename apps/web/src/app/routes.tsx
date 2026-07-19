@@ -5,6 +5,7 @@ import { IssuesView } from '@/features/issues/IssuesView'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { UsageView } from '@/features/usage/UsageView'
 import { WorkflowsView } from '@/features/workflows/WorkflowsView'
+import { useFeature } from '@/lib/use-feature'
 import { useStoreSelector } from './store'
 
 // Lazy: BlockNote (the spec WYSIWYG editor) is a heavy chunk only Specs needs —
@@ -29,18 +30,23 @@ export function MainViewOutlet({
   issues?: ReactNode
 }): JSX.Element {
   const view = useStoreSelector((s) => s.view)
+  const workflowsEnabled = useFeature('workflows')
+  const specsEnabled = useFeature('specs')
+  const automationsEnabled = useFeature('automations')
+  const issuesView = <>{issues ?? <IssuesView />}</>
   switch (view) {
     case 'settings':
       return <SettingsView />
     case 'usage':
       return <UsageView />
     case 'issues':
-      return <>{issues ?? <IssuesView />}</>
+      return issuesView
     case 'workflows':
-      return <WorkflowsView />
+      return workflowsEnabled ? <WorkflowsView /> : issuesView
     case 'automations':
-      return <AutomationsView />
+      return automationsEnabled ? <AutomationsView /> : issuesView
     case 'specs':
+      if (!specsEnabled) return issuesView
       return (
         <Suspense fallback={<div className="flex flex-1 items-center justify-center" />}>
           <SpecsView />

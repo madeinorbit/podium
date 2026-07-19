@@ -24,6 +24,7 @@ import {
   type UnifiedWorkRow,
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
+import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useDefaultSpawn, useSidebarDerivation, useUnifiedWork } from './SidebarUnified'
 
@@ -73,6 +74,7 @@ export function SidebarRail(): JSX.Element {
   } = useUnifiedWork(derivation)
   const { defaultAgent, defaultRepo, defaultTarget, spawn } = useDefaultSpawn(derivation.sections)
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
+  const commandPaletteEnabled = useFeature('command-palette')
   const AgentIcon = NEW_AGENTS.find((a) => a.kind === defaultAgent)?.Icon
 
   const renderRow = (row: UnifiedWorkRow): JSX.Element => {
@@ -174,15 +176,17 @@ export function SidebarRail(): JSX.Element {
         ))}
       </div>
       {/* Footer: the rail keeps only search from the four footer tools. */}
-      <button
-        type="button"
-        className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]"
-        title="Search (⌘K)"
-        aria-label="Search"
-        onClick={() => setPaletteOpen(true)}
-      >
-        <Search size={14} aria-hidden="true" />
-      </button>
+      {commandPaletteEnabled && (
+        <button
+          type="button"
+          className="flex size-7 flex-none cursor-pointer items-center justify-center rounded-md text-[#9a9aa8] transition-colors hover:bg-[#20202a] hover:text-[#f3f3f8]"
+          title="Search (⌘K)"
+          aria-label="Search"
+          onClick={() => setPaletteOpen(true)}
+        >
+          <Search size={14} aria-hidden="true" />
+        </button>
+      )}
     </>
   )
 }

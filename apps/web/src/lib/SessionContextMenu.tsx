@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
+import { useFeature } from '@/lib/use-feature'
 import {
   isSnoozed,
   panelLabel,
@@ -163,6 +164,7 @@ export function SessionContextMenu({
     shallowEqual,
   )
   const { guardedKill, guardedArchive } = useSessionGuard()
+  const handoffEnabled = useFeature('session-handoff')
   const now = useNow(60_000)
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
@@ -332,36 +334,37 @@ export function SessionContextMenu({
           <Play size={14} aria-hidden="true" /> Resume
         </button>
       )}
-      {/* Always offered (POD-821). A blocker disables it and says why inline; with
-          no blocker the submenu names every other repo machine, eligible or not. */}
-      {blocker ? (
-        <button
-          type="button"
-          role="menuitem"
-          disabled
-          className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
-        >
-          <span className="flex items-center gap-2">
+      {/* When enabled, a blocker disables handoff and says why inline; otherwise
+          the submenu names every other repo machine (POD-821). */}
+      {handoffEnabled &&
+        (blocker ? (
+          <button
+            type="button"
+            role="menuitem"
+            disabled
+            className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left text-[13px] opacity-60"
+          >
+            <span className="flex items-center gap-2">
+              <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
+            </span>
+            <span className="pl-6 text-[11px] text-muted-foreground">
+              {handoffBlockerText(blocker, session.agentKind)}
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={handoffTop !== null}
+            className={itemCls}
+            onMouseEnter={(event) => setHandoffTop(event.currentTarget.offsetTop)}
+            onClick={(event) => setHandoffTop(event.currentTarget.offsetTop)}
+          >
             <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
-          </span>
-          <span className="pl-6 text-[11px] text-muted-foreground">
-            {handoffBlockerText(blocker, session.agentKind)}
-          </span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          role="menuitem"
-          aria-haspopup="menu"
-          aria-expanded={handoffTop !== null}
-          className={itemCls}
-          onMouseEnter={(event) => setHandoffTop(event.currentTarget.offsetTop)}
-          onClick={(event) => setHandoffTop(event.currentTarget.offsetTop)}
-        >
-          <ArrowRightLeft size={14} aria-hidden="true" /> Handoff
-          <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
-        </button>
-      )}
+            <ChevronRight size={13} aria-hidden="true" className="ml-auto text-muted-foreground" />
+          </button>
+        ))}
       <button
         type="button"
         role="menuitem"
@@ -393,7 +396,7 @@ export function SessionContextMenu({
           <X size={14} aria-hidden="true" /> Close
         </button>
       )}
-      {handoffTop !== null && (
+      {handoffEnabled && handoffTop !== null && (
         <div
           role="menu"
           aria-label="Handoff targets"

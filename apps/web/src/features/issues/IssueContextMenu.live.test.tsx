@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueContextMenu } from './IssueContextMenu'
 
+const featureEnabled = vi.hoisted(() => ({ value: true }))
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => featureEnabled.value,
+}))
+
 // The store slices the menu reads. Mutated per test before render.
 const state: { repos: unknown[]; machines: unknown[]; sessions: unknown[] } = {
   repos: [],
@@ -74,12 +79,20 @@ const handoffItem = (): HTMLElement => screen.getByRole('menuitem', { name: /Han
 afterEach(() => {
   cleanup()
   handoffMutate.mockClear()
+  featureEnabled.value = true
   state.repos = []
   state.machines = []
   state.sessions = []
 })
 
 describe('IssueContextMenu handoff (POD-850)', () => {
+  it('hides handoff while the feature is disabled', () => {
+    featureEnabled.value = false
+    state.sessions = [session({ sessionId: 'agent' })]
+    open(makeIssue({ sessions: [{ sessionId: 'agent' } as SessionMeta] }))
+    expect(screen.queryByRole('menuitem', { name: /Handoff/ })).toBeNull()
+  })
+
   it('offers a target and hands off the issue’s agent session on click', () => {
     state.repos = [
       repoWire(MAC, '/Users/mw/Source/other/podium', [
@@ -103,7 +116,10 @@ describe('IssueContextMenu handoff (POD-850)', () => {
   it('POD-779 shape: still shows Handoff with the reason when the agent drifted off its worktree', () => {
     // Agent on the mac but cwd is a linux main-checkout path (not a worktree), and
     // the issue has no worktree the mac knows → blocked, but the item must appear.
-    state.repos = [repoWire(MAC, '/home/mgw/src/other/podium', []), repoWire(LUD, '/home/mgw/src/other/podium', [])]
+    state.repos = [
+      repoWire(MAC, '/home/mgw/src/other/podium', []),
+      repoWire(LUD, '/home/mgw/src/other/podium', []),
+    ]
     state.machines = [machine(MAC), machine(LUD)]
     state.sessions = [session({ sessionId: 'agent', cwd: '/home/mgw/src/other/podium' })]
     open(makeIssue({ worktreePath: null, sessions: [{ sessionId: 'agent' } as SessionMeta] }))
@@ -113,7 +129,11 @@ describe('IssueContextMenu handoff (POD-850)', () => {
   })
 
   it('shell-only issue shows Handoff disabled with “No agent session”', () => {
-    state.repos = [repoWire(MAC, '/Users/mw/Source/other/podium', ['/Users/mw/Source/other/podium/.worktrees/issue-779'])]
+    state.repos = [
+      repoWire(MAC, '/Users/mw/Source/other/podium', [
+        '/Users/mw/Source/other/podium/.worktrees/issue-779',
+      ]),
+    ]
     state.machines = [machine(MAC)]
     state.sessions = [session({ sessionId: 'sh', agentKind: 'shell' })]
     open(makeIssue({ sessions: [{ sessionId: 'sh' } as SessionMeta] }))

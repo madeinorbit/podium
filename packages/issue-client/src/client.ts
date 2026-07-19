@@ -59,6 +59,7 @@ export interface IssueTrpc {
   repos: { inferFromPath: IssueProc }
   specs: Record<SpecProcName, IssueProc>
   lock: Record<LockProcName, IssueProc>
+  features?: { state: IssueProc }
   workflows: Record<WorkflowProcName, IssueProc>
 }
 
