@@ -296,6 +296,94 @@ describe('observeGrokState', () => {
     }
   })
 
+  it('rereads a torn suffix after restart and emits it only when completed live', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-torn-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-torn' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-torn', cwd } }))
+    await writeFile(
+      paths.updatesPath,
+      '{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_',
+    )
+
+    const firstEvents: AgentStateEvent[] = []
+    let firstBoundary: number | undefined
+    const first = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-torn',
+      pollMs: 10,
+      onBootstrap: (boundary) => {
+        firstBoundary = boundary
+      },
+      onEvents: (events) => firstEvents.push(...events),
+    })
+    try {
+      await waitFor(() => firstBoundary !== undefined)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(firstBoundary).toBe(0)
+      expect(firstEvents).toEqual([])
+    } finally {
+      first.stop()
+    }
+
+    const restartedEvents: AgentStateEvent[] = []
+    let restartedBoundary: number | undefined
+    const restarted = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-torn',
+      pollMs: 10,
+      onBootstrap: (boundary) => {
+        restartedBoundary = boundary
+      },
+      onEvents: (events) => restartedEvents.push(...events),
+    })
+    try {
+      await waitFor(() => restartedBoundary !== undefined)
+      expect(restartedBoundary).toBe(0)
+      await appendFile(paths.updatesPath, 'chunk"}}}\n')
+      await waitFor(() => restartedEvents.length === 1)
+      expect(restartedEvents).toEqual([{ kind: 'prompt_submitted' }])
+    } finally {
+      restarted.stop()
+    }
+  })
+
+  it('accepts a valid final non-newline JSON record into the frozen bootstrap boundary', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-final-json-'))
+    const cwd = '/repo/grok'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: 'g-final-json' })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: 'g-final-json', cwd } }))
+    const record = JSON.stringify({
+      method: 'session/update',
+      params: { update: { sessionUpdate: 'user_message_chunk' } },
+    })
+    await writeFile(paths.updatesPath, record)
+
+    const events: AgentStateEvent[] = []
+    let boundary: number | undefined
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: 'g-final-json',
+      pollMs: 10,
+      onBootstrap: (value) => {
+        boundary = value
+      },
+      onEvents: (next) => events.push(...next),
+    })
+    try {
+      await waitFor(() => boundary !== undefined)
+      expect(boundary).toBe(Buffer.byteLength(record))
+      expect(events).toEqual([])
+    } finally {
+      observer.stop()
+    }
+  })
+
   it('truncation re-bootstrap is silent and the next real turn has one working and terminal edge', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-truncate-'))
     const cwd = '/repo/grok'
@@ -333,7 +421,7 @@ describe('observeGrokState', () => {
 
       await appendFile(
         paths.updatesPath,
-        `{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"tool_result_update"}}}\n`,
+        `{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed","stop_reason":"end_turn"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"tool_result_update"}}}\n{"method":"session/update","params":{"update":{"sessionUpdate":"hook_execution","event_name":"task_created"}}}\n`,
       )
       await waitFor(() => events.length === 3)
       expect(events.map((event) => event.kind)).toEqual([
