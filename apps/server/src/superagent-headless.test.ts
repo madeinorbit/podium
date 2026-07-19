@@ -330,9 +330,11 @@ describe('sendTurn (headless harness turns)', () => {
     await h.sa.sendTurn({ threadId: 'global', text: 'hi' })
     h.resolveTurn(h.turnReqs[0]!, { ok: false, error: 'claude: command not found' })
     await h.settle()
-    // Honest, persisted failure — no silent fallback to the buffered path.
+    // Honest, persisted failure — no silent fallback to the buffered path. The
+    // raw harness stderr is interpreted into a user-facing message (POD-1021):
+    // "command not found" → a "CLI couldn't be launched" notice.
     const notice = h.sa.history('global').find((m) => m.content.startsWith(TURN_FAILED_MARKER))
-    expect(notice?.content).toContain('claude: command not found')
+    expect(notice?.content).toMatch(/Claude CLI couldn't be launched/)
     expect(
       h
         .activity()
@@ -340,7 +342,7 @@ describe('sendTurn (headless harness turns)', () => {
         .at(-1),
     ).toEqual({
       kind: 'turn-end',
-      error: 'claude: command not found',
+      error: "The Claude CLI couldn't be launched — it isn't installed or isn't on PATH.",
     })
     // No harness session was learned; the next send is a fresh first turn again.
     expect(

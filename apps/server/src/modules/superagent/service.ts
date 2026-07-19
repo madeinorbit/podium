@@ -45,6 +45,7 @@ import {
   type GlobalRepoDigest,
   type UserFocusInput,
 } from './global'
+import { classifyHarnessError } from './harness-error'
 import {
   type Args,
   buildSuperagentTools,
@@ -545,16 +546,21 @@ export class SuperagentService {
             kind: 'turn-end',
           })
         } else {
-          const error = result.error ?? 'unknown error'
+          const rawError = result.error ?? 'unknown error'
+          // Interpret the raw harness stderr into a user-facing message
+          // (POD-1021): an rmcp transport crash reads as a Podium tool-endpoint
+          // issue (not a login failure), a 429 as a usage limit, an expired
+          // token as "re-authenticate" — each with distinct guidance.
+          const classified = classifyHarnessError(rawError, agent.data)
           // Persisted failure notice: visible on the thread's legacy history,
           // never a silent fallback to the buffered path.
           this.store.superagent.appendSuperagentMessage(pending.threadId, {
             role: 'assistant',
-            content: `${TURN_FAILED_MARKER} (${agent.data}): ${error}`,
+            content: `${TURN_FAILED_MARKER} (${agent.data}): ${classified.message}`,
           })
           this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
             kind: 'turn-end',
-            error,
+            error: classified.message,
           })
         }
       }
