@@ -7,10 +7,9 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { acceptAgentObservation } from './causal'
-import { GrokCausalObserver } from './grok-causal'
-import { grokAdapter } from '../harness/adapters/grok'
 import type { HarnessObserverHost } from '../harness/adapter'
+import { grokAdapter } from '../harness/adapters/grok'
+import { acceptAgentObservation } from './causal'
 import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
@@ -19,6 +18,7 @@ import {
   observeGrokState,
   translateGrokUpdatePayload,
 } from './grok'
+import { GrokCausalObserver } from './grok-causal'
 import { initialAgentState, reduceAgentState } from './reducer'
 import type { AgentStateEvent } from './types'
 
@@ -448,6 +448,7 @@ describe('observeGrokState', () => {
     const cwd = '/repo/grok'
     const events: unknown[] = []
     let bootstrapped = false
+    const livePolls: unknown[] = []
     const observer = observeGrokState({
       homeDir: home,
       cwd,
@@ -455,6 +456,7 @@ describe('observeGrokState', () => {
       onBootstrap: () => {
         bootstrapped = true
       },
+      onLivePollComplete: (cursor) => livePolls.push(cursor),
       onEvents: (next) => events.push(...next),
     })
     try {
@@ -636,6 +638,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
 
     let checkpoint: SessionObservationCheckpointV1 | null = null
     const observations: AgentObservation[] = []
+    const livePolls: unknown[] = []
     let bootstrapped = false
     const observer = observeGrokState({
       homeDir: home,
@@ -645,6 +648,7 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       onBootstrap: () => {
         bootstrapped = true
       },
+      onLivePollComplete: (cursor) => livePolls.push(cursor),
       causal: {
         podiumSessionId: 'podium-grok',
         providerSessionId: sessionId,
@@ -753,7 +757,32 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
         providerAt: '2024-06-06T13:20:01.000Z',
       })
       observer.onObservationAck?.(accept(terminal))
+      await waitFor(() => livePolls.length > 0)
       expect(observations.filter((value) => value.provenance === 'live')).toHaveLength(2)
+      const afterTerminal = livePolls.length
+      await appendFile(
+        paths.updatesPath,
+        `${JSON.stringify({
+          timestamp: 1_717_680_001_500,
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'agent_message_chunk', turn_id: 'turn-native' } },
+        })}\n`,
+      )
+      await waitFor(() => livePolls.length > afterTerminal)
+      const afterLateOutput = livePolls.length
+      await appendFile(
+        paths.updatesPath,
+        `${JSON.stringify({
+          timestamp: 1_717_680_002,
+          method: 'session/update',
+          params: { update: { sessionUpdate: 'user_message_chunk', prompt_id: 'prompt-next' } },
+        })}\n`,
+      )
+      await waitFor(() => observations.length === 4)
+      const afterPromptObserved = livePolls.length
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(afterPromptObserved).toBeGreaterThanOrEqual(afterLateOutput)
+      expect(livePolls).toHaveLength(afterPromptObserved)
     } finally {
       observer.stop()
     }
@@ -782,7 +811,9 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     try {
       await waitFor(() => restartedBootstrap)
       await new Promise((resolve) => setTimeout(resolve, 30))
-      expect(restarted).toEqual([])
+      expect(restarted).toHaveLength(1)
+      expect(restarted[0]).toMatchObject({ provenance: 'bootstrap', transitionKind: 'snapshot' })
+      expect(restarted.filter((observation) => observation.provenance === 'live')).toEqual([])
     } finally {
       restart.stop()
     }

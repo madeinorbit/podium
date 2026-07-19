@@ -38,6 +38,7 @@ import { AgentRelayRequestMessage } from './issues'
 import {
   AgentObservationMessage,
   AgentObservationRebindMessage,
+  AgentObserverLiveConfirmationMessage,
   AgentStateMessage,
 } from './runtime-state'
 import {
@@ -152,6 +153,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   TitleMessage,
   AgentStateMessage,
   AgentObservationMessage,
+  AgentObserverLiveConfirmationMessage,
   AgentObservationRebindMessage,
   AgentColorMessage,
   ScanResultMessage,

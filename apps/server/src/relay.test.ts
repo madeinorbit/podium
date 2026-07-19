@@ -2674,7 +2674,7 @@ describe('hibernation', () => {
     expect((await reg.modules.sessions.resurrectSession({ sessionId })).ok).toBe(false)
   })
 
-  it('auto-hibernates the oldest idle resumable session above the memory threshold', () => {
+  it('does not auto-hibernate a legacy unfenced idle session', () => {
     const store = new SessionStore(':memory:')
     const reg = new SessionRegistry(store)
     const daemon: ControlMessage[] = []
@@ -2715,7 +2715,7 @@ describe('hibernation', () => {
         swapFreeBytes: 0,
       },
     })
-    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
   })
 
   it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', async () => {

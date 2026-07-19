@@ -1,6 +1,14 @@
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import type { ObservationLeaseRecord } from './types'
+import type {
+  ObservationLeaseRecord,
+  TerminalCandidateFacts,
+  TerminalCandidateRecord,
+} from './types'
+
+function sameFacts(a: TerminalCandidateFacts, b: TerminalCandidateFacts): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
 
 export type ObservationRebindResult =
   | {
@@ -263,6 +271,7 @@ export class ObservationCheckpointsRepository {
           observationGeneration,
           updatedAt,
         )
+      this.cancelTerminalCandidate(input.sessionId)
       const lease = this.read(input.sessionId)
       if (!lease) throw new Error(`missing rebound observation lease for ${input.sessionId}`)
       return { kind: 'accepted', disposition: 'advanced', lease }
@@ -296,6 +305,136 @@ export class ObservationCheckpointsRepository {
     if (Number(result.changes) !== 1) {
       throw new Error(`observation checkpoint lease changed for ${checkpoint.podiumSessionId}`)
     }
+  }
+
+  getTerminalCandidate(sessionId: string): TerminalCandidateRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT proof_json, confirmed_at, consumed_at, updated_at
+         FROM session_terminal_candidates WHERE session_id = ?`,
+      )
+      .get(sessionId) as Record<string, unknown> | undefined
+    if (!row) return null
+    try {
+      const proof = JSON.parse(String(row.proof_json)) as Omit<
+        TerminalCandidateRecord,
+        'confirmedAt' | 'consumedAt' | 'updatedAt'
+      >
+      if (proof.facts?.schemaVersion !== 1 || proof.facts.sessionId !== sessionId) return null
+      return {
+        ...proof,
+        confirmedAt: (row.confirmed_at as string | null) ?? null,
+        consumedAt: (row.consumed_at as string | null) ?? null,
+        updatedAt: row.updated_at as string,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** Pass one for a genuinely live terminal edge. Bootstrap/replay never call this. */
+  recordTerminalCandidate(facts: TerminalCandidateFacts, at: string): void {
+    const proof = {
+      facts,
+      firstLivePollSequence: 0,
+      lastLivePollSequence: 0,
+    }
+    this.db
+      .prepare(
+        `INSERT INTO session_terminal_candidates
+           (session_id, proof_json, confirmed_at, consumed_at, updated_at)
+         VALUES (?, ?, NULL, NULL, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           proof_json = excluded.proof_json,
+           confirmed_at = NULL,
+           consumed_at = NULL,
+           updated_at = excluded.updated_at`,
+      )
+      .run(facts.sessionId, JSON.stringify(proof), at)
+  }
+
+  /**
+   * One unchanged live observer receipt records pass one for a legacy/bootstrap
+   * terminal; a strictly later unchanged receipt records pass two. A changed
+   * causal snapshot resets rather than inheriting an older proof.
+   */
+  confirmTerminalCandidate(
+    facts: TerminalCandidateFacts,
+    livePollSequence: number,
+    at: string,
+  ): 'recorded' | 'confirmed' | 'unchanged' {
+    return transaction(this.db, () => {
+      const current = this.getTerminalCandidate(facts.sessionId)
+      if (current?.consumedAt) return 'unchanged'
+      if (!current || !sameFacts(current.facts, facts)) {
+        const proof = {
+          facts,
+          firstLivePollSequence: livePollSequence,
+          lastLivePollSequence: livePollSequence,
+        }
+        this.db
+          .prepare(
+            `INSERT INTO session_terminal_candidates
+               (session_id, proof_json, confirmed_at, consumed_at, updated_at)
+             VALUES (?, ?, NULL, NULL, ?)
+             ON CONFLICT(session_id) DO UPDATE SET
+               proof_json = excluded.proof_json,
+               confirmed_at = NULL,
+               consumed_at = NULL,
+               updated_at = excluded.updated_at`,
+          )
+          .run(facts.sessionId, JSON.stringify(proof), at)
+        return 'recorded'
+      }
+      if (current.confirmedAt) return 'unchanged'
+      if (livePollSequence <= current.lastLivePollSequence) return 'unchanged'
+      const confirmed =
+        current.firstLivePollSequence === 0 || livePollSequence > current.firstLivePollSequence
+      const proof = {
+        facts,
+        firstLivePollSequence: current.firstLivePollSequence,
+        lastLivePollSequence: livePollSequence,
+      }
+      this.db
+        .prepare(
+          `UPDATE session_terminal_candidates
+           SET proof_json = ?, confirmed_at = COALESCE(confirmed_at, ?), updated_at = ?
+           WHERE session_id = ? AND consumed_at IS NULL`,
+        )
+        .run(JSON.stringify(proof), confirmed ? at : null, at, facts.sessionId)
+      return confirmed ? 'confirmed' : 'recorded'
+    })
+  }
+
+  /** Final apply-time compare-and-consume; callers run this in the session-row transaction. */
+  consumeTerminalCandidate(facts: TerminalCandidateFacts, at: string): boolean {
+    const current = this.getTerminalCandidate(facts.sessionId)
+    if (!current?.confirmedAt || current.consumedAt || !sameFacts(current.facts, facts))
+      return false
+    const lease = this.read(facts.sessionId)
+    const checkpoint = lease?.checkpoint
+    if (
+      !lease ||
+      lease.provider !== facts.provider ||
+      lease.providerSessionId !== facts.providerSessionId ||
+      lease.bindingVersion !== facts.bindingVersion ||
+      lease.observationGeneration !== facts.observerGeneration ||
+      checkpoint?.lastTransitionId !== facts.lastTransitionId ||
+      checkpoint.terminalFence?.transitionId !== facts.terminalTransitionId ||
+      JSON.stringify(checkpoint.providerCursor) !== JSON.stringify(facts.providerCursor)
+    )
+      return false
+    const result = this.db
+      .prepare(
+        `UPDATE session_terminal_candidates SET consumed_at = ?, updated_at = ?
+         WHERE session_id = ? AND confirmed_at IS NOT NULL AND consumed_at IS NULL`,
+      )
+      .run(at, at, facts.sessionId)
+    return Number(result.changes) === 1
+  }
+
+  cancelTerminalCandidate(sessionId: string): void {
+    this.db.prepare('DELETE FROM session_terminal_candidates WHERE session_id = ?').run(sessionId)
   }
 
   purge(sessionId: string): void {

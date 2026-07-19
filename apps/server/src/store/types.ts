@@ -44,6 +44,57 @@ export interface ObservationLeaseRecord {
   updatedAt: string
 }
 
+export interface TerminalCandidateFacts {
+  schemaVersion: 1
+  sessionId: string
+  terminalTransitionId: string
+  terminalTurnEpoch: number
+  provider: ObservationProvider
+  providerSessionId: string | null
+  bindingVersion: number
+  observerGeneration: number
+  providerCursor: import('@podium/protocol').ProviderCursor
+  lastLiveReceiptAt: string | null
+  lastTransitionId: string | null
+  lastActiveAt: string
+  lastInputAtMs: number
+  lastOutputAtMs: number
+  lastResumedAtMs: number
+  inputCount: number
+  outputCount: number
+  activityCount: number
+  queuedInputCount: number
+  pendingMessages: Array<{
+    id: string
+    status: string
+    deliveredAt: string | null
+    injectedAt: string | null
+    ackedBy: string | null
+  }>
+  autoContinueActive: boolean
+  activeWork: {
+    nativeSubagentCount: number
+    nativeSubagentIds: string[]
+    awaitingSubagents: boolean
+    childSessions: Array<{ sessionId: string; status: string; activityCount: number }>
+    queueDrainActive: boolean
+    draftPending: boolean
+    draftVersion: string | null
+    offerPending: boolean
+  }
+  resumable: boolean
+  machineId: string
+}
+
+export interface TerminalCandidateRecord {
+  facts: TerminalCandidateFacts
+  firstLivePollSequence: number
+  lastLivePollSequence: number
+  confirmedAt: string | null
+  consumedAt: string | null
+  updatedAt: string
+}
+
 /** One persisted session row. camelCase mirror of the snake_case `sessions` table. */
 export interface SessionRow {
   id: string
@@ -76,6 +127,9 @@ export interface SessionRow {
   lastActiveAt: string
   /** Completed working/compacting time in milliseconds; absent for legacy rows. */
   workingMsTotal?: number | null
+  inputCount?: number
+  outputCount?: number
+  activityCount?: number
   /** Last PTY output frame (ISO); null = none recorded. Hibernation signal only — not recency. */
   lastOutputAt: string | null
   /** Last controller input — any keys/mouse/paste (ISO); null = none. Hibernation signal only. */

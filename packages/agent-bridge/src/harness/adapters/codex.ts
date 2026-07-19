@@ -310,6 +310,7 @@ export const codexAdapter: HarnessAdapter = {
                 bindingVersion: lease.bindingVersion,
                 acceptedCheckpoint: lease.acceptedCheckpoint,
                 onObservation: (observation) => host.onObservation(observation),
+                onLivePollComplete: (cursor) => host.onLiveObservationCycle?.(cursor),
                 onRebindRequired: (providerSessionId) =>
                   requestExactRebind(providerSessionId, lease),
               },

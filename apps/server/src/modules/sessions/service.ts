@@ -47,7 +47,12 @@ import {
 } from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { assertModelSelectionValid } from '../../model-validation'
-import type { ObservationLeaseRecord, SessionRow, SessionStore } from '../../store'
+import type {
+  ObservationLeaseRecord,
+  SessionRow,
+  SessionStore,
+  TerminalCandidateFacts,
+} from '../../store'
 import {
   isCommandWrapperText,
   isGenericClaudeTitle,
@@ -786,6 +791,9 @@ export class SessionsService {
       durableLabel: r.durableLabel,
       lastActiveAt: r.lastActiveAt,
       ...(r.workingMsTotal != null ? { workingMsTotal: r.workingMsTotal } : {}),
+      inputCount: r.inputCount ?? 0,
+      outputCount: r.outputCount ?? 0,
+      activityCount: r.activityCount ?? 0,
       lastOutputAt: r.lastOutputAt,
       lastInputAt: r.lastInputAt,
       lastResumedAt: r.lastResumedAt,
@@ -1544,6 +1552,7 @@ export class SessionsService {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
+    session.recordInputActivity(this.now())
     this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
@@ -1610,8 +1619,10 @@ export class SessionsService {
     this.toMachine(session.machineId, {
       type: 'input',
       sessionId,
+      inputOrigin,
       data: Buffer.from('\x1b').toString('base64'),
     })
+    session.recordInputActivity(this.now())
     // The ESC has cancelled any on-screen menu; type the text after a short beat
     // so it lands in a separate PTY read. afterEsc bypasses the needs_user guard
     // (this is the one legitimate write into a menu-waiting session) and jumps
@@ -1670,13 +1681,15 @@ export class SessionsService {
     // A user turn consumes any pending agent action offer [spec:SP-c7f1] — a
     // button click sends its prompt through this same path, so it self-clears.
     if (session.offer !== undefined) this.clearOffer(sessionId)
-    const send = (data: string) =>
+    const send = (data: string) => (
+      session.recordInputActivity(this.now()),
       this.toMachine(session.machineId, {
         type: 'input',
         sessionId,
         inputOrigin,
         data: Buffer.from(data).toString('base64'),
       })
+    )
     // Bracketed paste so the harness takes the message as one input block (newlines
     // in a multi-line message don't submit early), then a submitting CR.
     send(`\x1b[200~${text}\x1b[201~`)
@@ -1718,12 +1731,15 @@ export class SessionsService {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    const send = (data: string) =>
+    const send = (data: string) => (
+      session.recordInputActivity(this.now()),
       this.toMachine(session.machineId, {
         type: 'input',
         sessionId,
+        inputOrigin: 'human',
         data: Buffer.from(data).toString('base64'),
       })
+    )
     for (const choice of choices) {
       const digits = choice.optionIndices.filter((n) => Number.isInteger(n) && n >= 1 && n <= 9)
       if (digits.length === 0) continue
@@ -2026,7 +2042,9 @@ export class SessionsService {
       session.queuedMessageCount += 1
       // queuedMessageCount is wire-visible meta derived from the queue table —
       // commit the new count so delta clients see the badge [#256].
-      this.persist(session)
+      this.persist(session, () =>
+        this.store.observationCheckpoints.cancelTerminalCandidate(sessionId),
+      )
       // A queued message is fresh user intent on the session — clear any snooze,
       // mirroring sendText, so it returns to the normal attention flow.
       if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
@@ -2418,7 +2436,9 @@ export class SessionsService {
         ? 'forced'
         : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
       session.readAt = null
-      this.persist(session)
+      this.persist(session, () =>
+        this.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
+      )
       this.broadcastSessions()
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
       return { ok: false, reason: `cannot stop session in status '${session.status}'` }
@@ -2571,12 +2591,126 @@ export class SessionsService {
    * when the session can't come back later (no resume ref) — we refuse rather
    * than silently turn "hibernate" into "kill".
    */
-  hibernateSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+  private terminalCandidateFacts(
+    session: Session,
+    lease: ObservationLeaseRecord,
+    checkpoint = lease.checkpoint,
+  ): TerminalCandidateFacts | null {
+    const fence = checkpoint?.terminalFence
+    if (!checkpoint || !fence || fence.closing) return null
+    if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
+    const addressedMessages = this.store.messages
+      .pendingForSessionProof(session.sessionId, new Date(this.now()).toISOString())
+      .map((message) => ({
+        id: message.id,
+        status: message.status,
+        deliveredAt: message.deliveredAt,
+        injectedAt: message.injectedAt ?? null,
+        ackedBy: message.ackedBy,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id))
+    const activeChildren = [...this.sessions.values()]
+      .filter(
+        (child) =>
+          child.spawnedBy === `session:${session.sessionId}` &&
+          (child.status === 'starting' ||
+            child.status === 'live' ||
+            child.status === 'reconnecting'),
+      )
+      .map((child) => ({
+        sessionId: child.sessionId,
+        status: child.status,
+        activityCount: child.activityCount,
+      }))
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+    const activeWork = {
+      nativeSubagentCount: checkpoint.turnState.nativeSubagentCount,
+      nativeSubagentIds: (checkpoint.turnState.nativeSubagents ?? [])
+        .map((child) => child.id)
+        .sort(),
+      awaitingSubagents: checkpoint.turnState.awaitingSubagents === true,
+      childSessions: activeChildren,
+      queueDrainActive: this.activeDrains.has(session.sessionId),
+      draftPending: session.draftUpdatedAt !== undefined,
+      draftVersion: session.draftUpdatedAt ?? null,
+      offerPending: session.offer !== undefined,
+    }
+    return {
+      schemaVersion: 1,
+      sessionId: session.sessionId,
+      terminalTransitionId: fence.transitionId,
+      terminalTurnEpoch: fence.turnEpoch,
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      bindingVersion: lease.bindingVersion,
+      observerGeneration: lease.observationGeneration,
+      providerCursor: checkpoint.providerCursor ?? fence.providerCursor,
+      lastLiveReceiptAt: checkpoint.lastLiveReceiptAt,
+      lastTransitionId: checkpoint.lastTransitionId,
+      lastActiveAt: session.lastActiveAt,
+      lastInputAtMs: session.lastInputAtMs,
+      lastOutputAtMs: session.lastOutputAtMs,
+      lastResumedAtMs: session.lastResumedAtMs,
+      inputCount: session.inputCount,
+      outputCount: session.outputCount,
+      activityCount: session.activityCount,
+      queuedInputCount: session.queuedMessageCount,
+      pendingMessages: addressedMessages,
+      autoContinueActive: this.autoContinue.isActive(session.sessionId),
+      activeWork,
+      resumable: session.resume !== undefined,
+      machineId: session.machineId,
+    }
+  }
+
+  private terminalFactsConsumable(facts: TerminalCandidateFacts): boolean {
+    if (
+      !facts.resumable ||
+      facts.queuedInputCount !== 0 ||
+      facts.pendingMessages.length !== 0 ||
+      facts.autoContinueActive
+    )
+      return false
+    const active = facts.activeWork
+    return (
+      active.nativeSubagentCount === 0 &&
+      !active.awaitingSubagents &&
+      active.childSessions.length === 0 &&
+      !active.queueDrainActive &&
+      !active.draftPending &&
+      !active.offerPending
+    )
+  }
+
+  hasValidTerminalProof(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    const lease = this.store.observationCheckpoints.get(sessionId)
+    if (!session || !lease || (session.status !== 'live' && session.status !== 'reconnecting'))
+      return false
+    const facts = this.terminalCandidateFacts(session, lease)
+    const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
+    return Boolean(
+      facts &&
+        proof?.confirmedAt &&
+        !proof.consumedAt &&
+        JSON.stringify(proof.facts) === JSON.stringify(facts) &&
+        this.terminalFactsConsumable(facts),
+    )
+  }
+
+  hibernateSession({
+    sessionId,
+    requireTerminalProof = false,
+  }: {
+    sessionId: string
+    requireTerminalProof?: boolean
+  }): { ok: boolean; reason?: string } {
     const rejected = this.upstreamRejection(sessionId)
     if (rejected) return rejected
     const session = this.sessions.get(sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    if (session.status !== 'live') return { ok: false, reason: 'not running' }
+    if (session.status !== 'live' && session.status !== 'reconnecting')
+      return { ok: false, reason: 'not running' }
     if (!session.resume) {
       return { ok: false, reason: 'no resume ref yet — the agent has not reported one' }
     }
@@ -2588,9 +2722,52 @@ export class SessionsService {
     if (phase === 'working' || phase === 'compacting') {
       return { ok: false, reason: 'agent is working — let it reach idle first' }
     }
+    const lease = requireTerminalProof ? this.store.observationCheckpoints.get(sessionId) : null
+    const facts = lease ? this.terminalCandidateFacts(session, lease) : null
+    if (requireTerminalProof) {
+      if (!facts || !this.terminalFactsConsumable(facts)) {
+        return { ok: false, reason: 'terminal state is not safely reapable' }
+      }
+      const proof = this.store.observationCheckpoints.getTerminalCandidate(sessionId)
+      if (
+        !proof?.confirmedAt ||
+        proof.consumedAt ||
+        JSON.stringify(proof.facts) !== JSON.stringify(facts)
+      ) {
+        return { ok: false, reason: 'terminal state has not passed live revalidation' }
+      }
+    }
     session.status = 'hibernated'
+    const consumedAt = new Date(this.now()).toISOString()
+    try {
+      this.persist(
+        session,
+        facts
+          ? () => {
+              const currentLease = this.store.observationCheckpoints.get(sessionId)
+              const currentFacts = currentLease
+                ? this.terminalCandidateFacts(session, currentLease)
+                : null
+              if (
+                !currentFacts ||
+                JSON.stringify(currentFacts) !== JSON.stringify(facts) ||
+                !this.store.observationCheckpoints.consumeTerminalCandidate(
+                  currentFacts,
+                  consumedAt,
+                )
+              ) {
+                throw new Error('terminal proof changed before hibernation')
+              }
+            }
+          : undefined,
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'terminal proof changed before hibernation') {
+        return { ok: false, reason: error.message }
+      }
+      throw error
+    }
     this.autoContinue.onSessionGone(sessionId)
-    this.persist(session)
     this.toMachine(session.machineId, {
       type: 'kill',
       sessionId,
@@ -3950,6 +4127,7 @@ export class SessionsService {
       case 'agentObservationRebind': {
         const session = this.sessions.get(msg.sessionId)
         if (!session || session.machineId !== machineId) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         const lease =
           this.observationLeases.get(msg.sessionId) ??
           this.store.observationCheckpoints.get(msg.sessionId)
@@ -4060,6 +4238,7 @@ export class SessionsService {
         const observation = msg.observation
         const session = this.sessions.get(observation.podiumSessionId)
         if (!session || session.machineId !== machineId) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         const lease =
           this.observationLeases.get(observation.podiumSessionId) ??
           this.store.observationCheckpoints.get(observation.podiumSessionId)
@@ -4096,13 +4275,34 @@ export class SessionsService {
 
         const prev = session.agentState
         session.applyObservationCheckpoint(outcome.checkpoint)
-        this.persist(session, () => this.store.observationCheckpoints.save(outcome.checkpoint))
-        this.observationLeases.set(session.sessionId, {
+        const acceptedLive =
+          outcome.kind === 'live_transition_accepted' || outcome.kind === 'live_refresh_accepted'
+        if (acceptedLive) session.recordObservationActivity()
+        const acceptedLease: ObservationLeaseRecord = {
           ...(lease as ObservationLeaseRecord),
           providerSessionId: outcome.checkpoint.providerSessionId,
           checkpoint: outcome.checkpoint,
           updatedAt: outcome.checkpoint.acceptedAt,
+        }
+        const candidateFacts = this.terminalCandidateFacts(
+          session,
+          acceptedLease,
+          outcome.checkpoint,
+        )
+        this.persist(session, () => {
+          this.store.observationCheckpoints.save(outcome.checkpoint)
+          if (acceptedLive) {
+            if (candidateFacts) {
+              this.store.observationCheckpoints.recordTerminalCandidate(
+                candidateFacts,
+                outcome.checkpoint.acceptedAt,
+              )
+            } else {
+              this.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+            }
+          }
         })
+        this.observationLeases.set(session.sessionId, acceptedLease)
         const next = session.agentState ?? outcome.checkpoint.turnState
 
         // The durable commit above is the release point for daemon-side
@@ -4146,9 +4346,36 @@ export class SessionsService {
         }
         break
       }
+      case 'agentObserverLiveConfirmation': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session || session.machineId !== machineId) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
+        const lease = this.store.observationCheckpoints.get(msg.sessionId)
+        const checkpoint = lease?.checkpoint
+        if (
+          !lease ||
+          !checkpoint?.terminalFence ||
+          checkpoint.terminalFence.closing ||
+          msg.provider !== lease.provider ||
+          msg.providerSessionId !== lease.providerSessionId ||
+          msg.bindingVersion !== lease.bindingVersion ||
+          msg.observerGeneration !== lease.observationGeneration ||
+          JSON.stringify(msg.providerCursor) !== JSON.stringify(checkpoint.providerCursor)
+        )
+          break
+        const facts = this.terminalCandidateFacts(session, lease, checkpoint)
+        if (!facts) break
+        this.store.observationCheckpoints.confirmTerminalCandidate(
+          facts,
+          msg.livePollSequence,
+          msg.confirmedAt,
+        )
+        break
+      }
       case 'agentState': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break
+        if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         // Mixed deployment: legacy remains visible until the first v1
         // checkpoint. It can never downgrade or overwrite causal truth.
         if (this.observationLeases.get(msg.sessionId)?.checkpoint) {

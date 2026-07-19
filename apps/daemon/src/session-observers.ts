@@ -128,12 +128,17 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   type ClaudeCausalTracker = {
     observerGeneration: number
     providerSessionId: string
+    transcriptPath: string
     observer: ClaudeCausalObserver
     bootstrapTransitionId: string
     bootstrapCursor: AgentObservation['providerCursor']
     awaitingBootstrapAck: boolean
     bufferedHooks: unknown[]
     processing: Promise<void>
+    acceptedCursor: AgentObservation['providerCursor'] | null
+    pendingTransitionId: string | null
+    confirming: boolean
+    stopConfirmationPoll?: () => void
   }
   const causalLeases = new Map<string, CausalLease>()
   const claudeCausal = new Map<string, ClaudeCausalTracker>()
@@ -150,6 +155,50 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
   const claudeStarting = new Map<string, unknown[]>()
   const pendingBindingHooks = new Map<string, Map<string, unknown>>()
+  const liveConfirmationStates = new Map<
+    string,
+    { signature: string; sequence: number; emitted: number; lastEmittedAt: number }
+  >()
+
+  const emitLiveConfirmation = (
+    sessionId: string,
+    providerCursor: AgentObservation['providerCursor'],
+  ): void => {
+    const lease = causalLeases.get(sessionId)
+    if (!lease) return
+    const signature = JSON.stringify({
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      bindingVersion: lease.bindingVersion,
+      observerGeneration: lease.observerGeneration,
+      providerCursor,
+    })
+    const prior = liveConfirmationStates.get(sessionId)
+    const state =
+      prior?.signature === signature
+        ? prior
+        : { signature, sequence: 0, emitted: 0, lastEmittedAt: 0 }
+    const now = Date.now()
+    if (state.emitted >= 2 && now - state.lastEmittedAt < 60_000) return
+    const livePollSequence = state.sequence + 1
+    liveConfirmationStates.set(sessionId, {
+      ...state,
+      sequence: livePollSequence,
+      emitted: state.emitted + 1,
+      lastEmittedAt: now,
+    })
+    send({
+      type: 'agentObserverLiveConfirmation',
+      sessionId,
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      bindingVersion: lease.bindingVersion,
+      observerGeneration: lease.observerGeneration,
+      providerCursor,
+      livePollSequence,
+      confirmedAt: new Date().toISOString(),
+    })
+  }
 
   const emitObservation = (
     sessionId: string,
@@ -200,7 +249,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           }
         : undefined,
     )
-    if (observation) emitObservation(observation.podiumSessionId, observation)
+    if (observation) {
+      causal.pendingTransitionId = observation.transitionId
+      emitObservation(observation.podiumSessionId, observation)
+    }
   }
 
   const startClaudeCausal = async (sessionId: string, payload: unknown): Promise<void> => {
@@ -240,6 +292,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     } catch {
       capture = {
         boundary: 0,
+        capturedSize: 0,
         path: transcriptPath,
         device: 'missing',
         inode: 'missing',
@@ -329,12 +382,16 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const causal: ClaudeCausalTracker = {
       observerGeneration: snapshot.observerGeneration,
       providerSessionId,
+      transcriptPath,
       observer,
       bootstrapTransitionId: snapshot.transitionId,
       bootstrapCursor: snapshot.providerCursor,
       awaitingBootstrapAck: true,
       bufferedHooks: claudeStarting.get(sessionId) ?? [payload],
       processing: Promise.resolve(),
+      acceptedCursor: null,
+      pendingTransitionId: null,
+      confirming: false,
     }
     claudeCausal.set(sessionId, causal)
     claudeStarting.delete(sessionId)
@@ -357,6 +414,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (!causal) return
     if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) {
       causal.observer.acknowledgeCursor(msg.acceptedCursor)
+      if (msg.transitionId !== causal.pendingTransitionId) return
+      causal.pendingTransitionId = null
+      if (msg.acceptedCursor !== undefined && msg.acceptedCursor !== null) {
+        causal.acceptedCursor = msg.acceptedCursor
+      }
       return
     }
     const reconciledBootstrap =
@@ -371,13 +433,55 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       isDeepStrictEqual(msg.acceptedCursor, causal.bootstrapCursor)
     if (msg.result === 'rejected' && !reconciledBootstrap && !duplicateBootstrap) return
     causal.observer.acknowledgeCursor(msg.acceptedCursor)
+    if (msg.acceptedCursor !== undefined && msg.acceptedCursor !== null) {
+      causal.acceptedCursor = msg.acceptedCursor
+    }
     if ((msg.result !== 'rejected' || duplicateBootstrap) && lease.providerSessionId === null) {
       causalLeases.set(msg.sessionId, { ...lease, providerSessionId: causal.providerSessionId })
     }
+    causal.pendingTransitionId = null
     causal.awaitingBootstrapAck = false
     const buffered = causal.bufferedHooks.splice(0)
     for (const payload of buffered) {
       causal.processing = causal.processing.then(() => applyClaudeHook(causal, payload))
+    }
+    if (!causal.stopConfirmationPoll) {
+      causal.stopConfirmationPoll = statTick.subscribe(() => {
+        if (causal.awaitingBootstrapAck || causal.confirming || !causal.acceptedCursor) return
+        causal.confirming = true
+        void causal.processing
+          .then(async () => {
+            if (
+              causal.bufferedHooks.length > 0 ||
+              causal.pendingTransitionId !== null ||
+              !causal.acceptedCursor
+            )
+              return
+            const cursor = causal.acceptedCursor
+            const identity = parseClaudeTranscriptSegmentId(cursor.segmentId)
+            if (!identity) return
+            const capture = await captureClaudeTranscript(causal.transcriptPath, {
+              promptScanStart: cursor.components.transcript ?? 0,
+              promptScanIdentity: identity,
+            })
+            if (
+              identity.path === capture.path &&
+              identity.device === capture.device &&
+              identity.inode === capture.inode &&
+              capture.capturedSize === capture.boundary &&
+              capture.boundary >= (cursor.components.transcript ?? 0) &&
+              !capture.prompts.some(
+                (prompt) => prompt.recordBoundary > (cursor.components.transcript ?? 0),
+              )
+            ) {
+              emitLiveConfirmation(msg.sessionId, cursor)
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            causal.confirming = false
+          })
+      })
     }
   }
 
@@ -474,6 +578,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       acceptedCheckpoint,
       cwd: lease.cwd,
     })
+    liveConfirmationStates.delete(msg.sessionId)
     observations.get(msg.sessionId)?.observation.onProviderRebindAck?.(msg)
     for (const observation of pending.bufferedObservations) {
       emitObservation(msg.sessionId, observation)
@@ -499,6 +604,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       observations.get(msg.sessionId)?.adapter.kind === 'claude-code' &&
       typeof pendingClaudeSessionId === 'string'
     ) {
+      claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
       claudeCausal.delete(msg.sessionId)
       if (pendingClaudeSessionId === msg.providerSessionId) {
         void startClaudeCausal(msg.sessionId, pendingClaude![0])
@@ -645,6 +751,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     onTitle: (title) => send({ type: 'title', sessionId, title }),
     onStateEvents: (events) => applyAgentStateEvents(sessionId, events),
     onObservation: (observation) => emitObservation(sessionId, observation),
+    onLiveObservationCycle: (cursor) => emitLiveConfirmation(sessionId, cursor),
     onExactProviderRebind: (rebind) => sendProviderRebind(sessionId, rebind),
     onTranscriptItems: (items, reset) => {
       if (items.length === 0 && !reset) return
@@ -743,6 +850,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       pendingRebinds.delete(msg.sessionId)
       pendingBindingHooks.delete(msg.sessionId)
       claudeStarting.delete(msg.sessionId)
+      claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
       claudeCausal.delete(msg.sessionId)
       const checkpoint = SessionObservationCheckpointV1.safeParse(msg.observationCheckpoint)
       const providerSessionId =
@@ -952,9 +1060,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     causalLeases.delete(sessionId)
     pendingRebinds.delete(sessionId)
     pendingBindingHooks.delete(sessionId)
+    claudeCausal.get(sessionId)?.stopConfirmationPoll?.()
     claudeCausal.delete(sessionId)
     claudeStarting.delete(sessionId)
     pendingClaudeOrigins.delete(sessionId)
+    liveConfirmationStates.delete(sessionId)
     stopTranscriptTail(sessionId)
   }
 

@@ -51,7 +51,12 @@ export interface HostsDeps {
   machineName(id: string): string
   /** Live sessions, projected — the auto-hibernate candidate pool. */
   sessions(): Iterable<HostSessionView>
-  hibernateSession(input: { sessionId: string }): { ok: boolean; reason?: string }
+  hibernateSession(input: { sessionId: string; requireTerminalProof?: boolean }): {
+    ok: boolean
+    reason?: string
+  }
+  /** Server-authoritative, atomically revalidated two-pass terminal proof. */
+  hasValidTerminalProof(sessionId: string): boolean
   /** The registry's shared daemon request/response plumbing (timeout + resolver
    *  registration + control-message routing). `machineId` undefined = default machine. */
   daemonRequest<T>(
@@ -146,7 +151,10 @@ export class HostsService {
       while (true) {
         const target = this.eligibleCandidates(machineId, cfg.idleMinutes, now, failed)[0]
         if (!target) break
-        const result = this.deps.hibernateSession({ sessionId: target.sessionId })
+        const result = this.deps.hibernateSession({
+          sessionId: target.sessionId,
+          requireTerminalProof: true,
+        })
         if (!result.ok) {
           failed.add(target.sessionId)
           continue
@@ -201,7 +209,10 @@ export class HostsService {
 
       const target = candidates[0]
       if (!target) return undefined
-      const result = this.deps.hibernateSession({ sessionId: target.sessionId })
+      const result = this.deps.hibernateSession({
+        sessionId: target.sessionId,
+        requireTerminalProof: true,
+      })
       if (!result.ok) {
         failed.add(target.sessionId)
         continue
@@ -234,6 +245,7 @@ export class HostsService {
         const phase = session.agentState?.phase
         return (
           !excluded.has(session.sessionId) &&
+          this.deps.hasValidTerminalProof(session.sessionId) &&
           session.resume !== undefined &&
           (phase === 'idle' || phase === 'ended') &&
           this.effectiveIdleSinceMs(session) <= idleCutoff &&

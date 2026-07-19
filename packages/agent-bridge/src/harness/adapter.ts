@@ -7,6 +7,7 @@ import type {
   AgentObservationRebindAckMessage,
   HarnessAgent,
   ObservationProvider,
+  ProviderCursor,
   ResumeRef,
   SessionObservationCheckpointV1,
   TranscriptItem,
@@ -239,6 +240,8 @@ export interface HarnessObserverHost {
   /** Provider-normalized causal evidence. The host validates the exact session,
    * provider, generation and binding before putting it on the wire. */
   onObservation(observation: AgentObservation): void
+  /** The provider poll itself completed and found the accepted complete cursor unchanged. */
+  onLiveObservationCycle?(providerCursor: ProviderCursor): void
   /** Request an atomic exact-provider native-session replacement. Merely
    * rebinding never changes phase or emits downstream state effects. */
   onExactProviderRebind(rebind: HarnessProviderRebind): void

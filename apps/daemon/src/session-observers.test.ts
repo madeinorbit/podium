@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -119,6 +119,96 @@ describe('session observer stat polling', () => {
 })
 
 describe('generic causal observer host [spec:SP-cdb2]', () => {
+  it('waits for a completed provider poll and emits at most one monotonic proof per completion', async () => {
+    const statTick = new ManualStatTick()
+    const sent: DaemonMessage[] = []
+    const completions: Array<() => void> = []
+    let bootstrapped = false
+    let reading = false
+    const cursor = { segmentId: 'rollout-1', components: { file: 20 } }
+    const codex = harnessAdapterFor('codex')
+    if (!codex) throw new Error('Codex adapter missing')
+    const observers = createSessionObservers({
+      statTick,
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: (kind) =>
+        kind === 'codex'
+          ? {
+              ...codex,
+              observer: (_input, host) => {
+                const stop = statTick.subscribe(() => {
+                  if (reading) return
+                  reading = true
+                  void new Promise<void>((resolve) => completions.push(resolve)).then(() => {
+                    reading = false
+                    if (bootstrapped) host.onLiveObservationCycle?.(cursor)
+                  })
+                })
+                return {
+                  stop,
+                  onObservationAck: () => {
+                    bootstrapped = true
+                  },
+                }
+              },
+            }
+          : harnessAdapterFor(kind),
+    })
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId: 'delayed-poll',
+        durableLabel: 'podium-delayed-poll',
+        agentKind: 'codex',
+        cwd: '/repo',
+        geometry: G,
+        resume: { kind: 'codex-thread', value: 'thread-1' },
+        observationGeneration: 7,
+        observationBindingVersion: 2,
+        observationProviderSessionId: 'thread-1',
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('codex'),
+      { seedOnFrame: false },
+    )
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'delayed-poll',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: 'bootstrap',
+      result: 'snapshot_applied',
+      acceptedCursor: cursor,
+    })
+    for (const watcher of statTick.watchers) watcher()
+    for (const watcher of statTick.watchers) watcher()
+    expect(completions).toHaveLength(1)
+    expect(sent.filter((message) => message.type === 'agentObserverLiveConfirmation')).toHaveLength(
+      0,
+    )
+    completions.shift()?.()
+    await Promise.resolve()
+    expect(
+      sent.filter((message) => message.type === 'agentObserverLiveConfirmation'),
+    ).toMatchObject([{ livePollSequence: 1 }])
+    for (const watcher of statTick.watchers) watcher()
+    expect(sent.filter((message) => message.type === 'agentObserverLiveConfirmation')).toHaveLength(
+      1,
+    )
+    completions.shift()?.()
+    await Promise.resolve()
+    expect(
+      sent.filter((message) => message.type === 'agentObserverLiveConfirmation'),
+    ).toMatchObject([{ livePollSequence: 1 }, { livePollSequence: 2 }])
+    for (const watcher of statTick.watchers) watcher()
+    completions.shift()?.()
+    await Promise.resolve()
+    expect(sent.filter((message) => message.type === 'agentObserverLiveConfirmation')).toHaveLength(
+      2,
+    )
+  })
   it('delivers the exact lease, routes exact acks, and fences an accepted native rebind', () => {
     const sent: DaemonMessage[] = []
     const observationAck = vi.fn()
@@ -661,7 +751,9 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     const transcript = join(dir, 'claude-1.jsonl')
     await writeFile(transcript, '')
     const sent: DaemonMessage[] = []
+    const statTick = new ManualStatTick()
     const observers = createSessionObservers({
+      statTick,
       send: (message) => sent.push(message),
       onTranscriptDirty: vi.fn(),
       cwdTracker: { onHookCwd: vi.fn(async () => {}) },
@@ -722,6 +814,15 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       priorPhase: 'idle',
       nextPhase: 'working',
     })
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: working.observation.transitionId,
+      result: 'live_transition_accepted',
+      acceptedCursor: working.observation.providerCursor,
+    })
 
     const stop = { ...prompt, hook_event_name: 'Stop' }
     observers.onHookPayload('podium-1', stop)
@@ -733,6 +834,59 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       priorPhase: 'working',
       nextPhase: 'idle',
     })
+    const terminal = sent.filter((m) => m.type === 'agentObservation').at(-1)!
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: terminal.observation.transitionId,
+      result: 'live_transition_accepted',
+      acceptedCursor: terminal.observation.providerCursor,
+    })
+    // A delayed predecessor ack cannot roll the accepted confirmation cursor backward.
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: working.observation.transitionId,
+      result: 'live_transition_accepted',
+      acceptedCursor: working.observation.providerCursor,
+    })
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() =>
+      expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(1),
+    )
+    expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation').at(-1)).toMatchObject({
+      providerCursor: terminal.observation.providerCursor,
+    })
+
+    // Complete late output is benign and can reconfirm the accepted terminal cursor.
+    await appendFile(
+      transcript,
+      `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'late' } })}\n`,
+    )
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() =>
+      expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(2),
+    )
+
+    // A torn suffix and then a completed prompt-bearing suffix both emit zero proof.
+    const confirmations = sent.filter((m) => m.type === 'agentObserverLiveConfirmation').length
+    await appendFile(transcript, '{"type":"user"')
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(
+      confirmations,
+    )
+    await appendFile(transcript, ',"message":{"role":"user","content":"next"}}\n')
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(sent.filter((m) => m.type === 'agentObserverLiveConfirmation')).toHaveLength(
+      confirmations,
+    )
+
     observers.onHookPayload('podium-1', stop)
     await Promise.resolve()
     expect(sent.filter((m) => m.type === 'agentObservation')).toHaveLength(3)

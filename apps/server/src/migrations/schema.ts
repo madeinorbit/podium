@@ -62,6 +62,9 @@ export const sessions = sqliteTable("sessions", {
 	terminalCols: integer("terminal_cols").notNull().default(80),
 	terminalRows: integer("terminal_rows").notNull().default(24),
 	workingMsTotal: integer("working_ms_total"),
+	inputCount: integer("input_count").notNull().default(0),
+	outputCount: integer("output_count").notNull().default(0),
+	activityCount: integer("activity_count").notNull().default(0),
 },
 (table) => [index("idx_sessions_deleted_by_issue").on(table.deletedByIssueId),
 index("idx_sessions_deleted_at").on(table.deletedAt),
@@ -88,6 +91,14 @@ export const sessionObservationRebinds = sqliteTable("session_observation_rebind
 	toProviderSessionId: text("to_provider_session_id").notNull(),
 	resultingBindingVersion: integer("resulting_binding_version").notNull(),
 	resultingObservationGeneration: integer("resulting_observation_generation").notNull(),
+	updatedAt: text("updated_at").notNull(),
+});
+
+export const sessionTerminalCandidates = sqliteTable("session_terminal_candidates", {
+	sessionId: text("session_id").primaryKey().references(() => sessionObservationCheckpoints.sessionId, { onDelete: "cascade" }),
+	proofJson: text("proof_json", { mode: "json" }).notNull(),
+	confirmedAt: text("confirmed_at"),
+	consumedAt: text("consumed_at"),
 	updatedAt: text("updated_at").notNull(),
 });
 

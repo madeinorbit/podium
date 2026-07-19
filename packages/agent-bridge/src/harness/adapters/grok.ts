@@ -176,6 +176,7 @@ export const grokAdapter: HarnessAdapter = {
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
+        onLivePollComplete: (cursor) => host.onLiveObservationCycle?.(cursor),
         onSessionCandidate: (grokSessionId) => {
           if (!lease) return true
           if (lease.provider !== 'grok' || !input.podiumSessionId) return false

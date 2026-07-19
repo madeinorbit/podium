@@ -112,6 +112,9 @@ export interface SessionInit {
   lastActiveAt?: string
   /** Persisted completed working/compacting time; absent for legacy sessions. */
   workingMsTotal?: number
+  inputCount?: number
+  outputCount?: number
+  activityCount?: number
   lastOutputAt?: string | null
   lastInputAt?: string | null
   lastResumedAt?: string | null
@@ -219,6 +222,9 @@ export interface SessionDurableState {
   outputAtMs: number
   inputAtMs: number
   resumedAtMs: number
+  inputCount: number
+  outputCount: number
+  activityCount: number
   activityDirty: boolean
   shellBusy: boolean
   shellCommandRunning: boolean
@@ -331,6 +337,9 @@ export class Session {
   private outputAtMs = 0
   private inputAtMs = 0
   private resumedAtMs = 0
+  private inputCount_ = 0
+  private outputCount_ = 0
+  private activityCount_ = 0
   // Set when any of the three counters above advances; the registry's periodic
   // flush persists dirty sessions and clears this. Keeps the hot path off the DB.
   private activityDirty_ = false
@@ -398,6 +407,9 @@ export class Session {
     this.outputAtMs = seedMs(init.lastOutputAt)
     this.inputAtMs = seedMs(init.lastInputAt)
     this.resumedAtMs = seedMs(init.lastResumedAt)
+    this.inputCount_ = init.inputCount ?? 0
+    this.outputCount_ = init.outputCount ?? 0
+    this.activityCount_ = init.activityCount ?? 0
     if (init.status) this.status = init.status
     if (init.exitCode !== undefined) this.exitCode = init.exitCode
     if (init.name) this.name = init.name
@@ -426,6 +438,15 @@ export class Session {
   get lastResumedAtMs(): number {
     return this.resumedAtMs
   }
+  get inputCount(): number {
+    return this.inputCount_
+  }
+  get outputCount(): number {
+    return this.outputCount_
+  }
+  get activityCount(): number {
+    return this.activityCount_
+  }
   get activityDirty(): boolean {
     return this.activityDirty_
   }
@@ -443,6 +464,7 @@ export class Session {
     this.stoppedAt = undefined
     this.stopReason = undefined
     this.resumedAtMs = Date.now()
+    this.activityCount_ += 1
     this.activityDirty_ = true
   }
 
@@ -608,10 +630,23 @@ export class Session {
         this.shellCommandRunning = true
         this.markShellBusy()
       }
-      this.inputAtMs = Date.now()
-      this.activityDirty_ = true
+      this.recordInputActivity()
       this.toDaemon({ type: 'input', sessionId: this.sessionId, data, inputOrigin: 'human' })
     }
+  }
+
+  /** Every server-authorized PTY input path calls this before enqueueing bytes. */
+  recordInputActivity(at = Date.now()): void {
+    this.inputAtMs = at
+    this.inputCount_ += 1
+    this.activityCount_ += 1
+    this.activityDirty_ = true
+  }
+
+  /** Count one accepted live provider observation; bootstrap/replay never call this. */
+  recordObservationActivity(): void {
+    this.activityCount_ += 1
+    this.activityDirty_ = true
   }
 
   handleResize(clientId: string, cols: number, rows: number): void {
@@ -718,6 +753,7 @@ export class Session {
     this.bufferFrame(seq, data)
     this.broadcast({ type: 'outputFrame', sessionId: this.sessionId, seq, epoch: this.epoch, data })
     this.outputAtMs = Date.now()
+    this.outputCount_ += 1
     this.activityDirty_ = true
     // Shells have no harness instrumentation, so output is our only progress
     // signal — but only *after* a command was submitted. Output that arrives
@@ -950,6 +986,9 @@ export class Session {
       outputAtMs: this.outputAtMs,
       inputAtMs: this.inputAtMs,
       resumedAtMs: this.resumedAtMs,
+      inputCount: this.inputCount_,
+      outputCount: this.outputCount_,
+      activityCount: this.activityCount_,
       activityDirty: this.activityDirty_,
       shellBusy: this.shellBusy,
       shellCommandRunning: this.shellCommandRunning,
@@ -995,6 +1034,9 @@ export class Session {
     this.outputAtMs = state.outputAtMs
     this.inputAtMs = state.inputAtMs
     this.resumedAtMs = state.resumedAtMs
+    this.inputCount_ = state.inputCount
+    this.outputCount_ = state.outputCount
+    this.activityCount_ = state.activityCount
     this.activityDirty_ = state.activityDirty
     this.shellBusy = state.shellBusy
     this.shellCommandRunning = state.shellCommandRunning
@@ -1024,6 +1066,9 @@ export class Session {
       lastActiveAt: this.lastActiveAt,
       geometry: { ...this.geometry },
       ...(this.workingMsTotal !== undefined ? { workingMsTotal: this.workingMsTotal } : {}),
+      inputCount: this.inputCount_,
+      outputCount: this.outputCount_,
+      activityCount: this.activityCount_,
       lastOutputAt: Session.msToIso(this.outputAtMs),
       lastInputAt: Session.msToIso(this.inputAtMs),
       lastResumedAt: Session.msToIso(this.resumedAtMs),
