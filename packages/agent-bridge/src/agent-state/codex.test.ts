@@ -1,16 +1,20 @@
-import { mkdir, mkdtemp, symlink, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { acceptAgentObservation, type ObservationLease } from './causal.js'
 import {
+  CodexCausalCursorObserver,
   classifyCodexVerdict,
   codexApprovalsReviewerFromTranscript,
+  codexBootstrapObservation,
   codexPodiumSessionMarker,
   codexStateProvider,
   findCodexRolloutPath,
-  findProcessBoundCodexRollout,
   findLiveCodexRollout,
+  findProcessBoundCodexRollout,
+  foldCodexRolloutBootstrap,
   observeCodexState,
   translateCodexEvent,
 } from './codex.js'
@@ -680,6 +684,292 @@ describe('findProcessBoundCodexRollout', () => {
       path: rolloutB,
       confidence: 'exact',
     })
+  })
+})
+
+describe('foldCodexRolloutBootstrap', () => {
+  const tempRoots: string[] = []
+  afterEach(async () => {
+    await Promise.all(
+      tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+    )
+  })
+
+  const line = (record: unknown): string => `${JSON.stringify(record)}\n`
+  const event = (type: string, timestamp: string, extra: Record<string, unknown> = {}): string =>
+    line({ type: 'event_msg', timestamp, payload: { type, ...extra } })
+
+  async function rollout(contents: string): Promise<string> {
+    const home = await mkdtemp(join(tmpdir(), 'podium-codex-fold-'))
+    const dir = join(home, '.codex', 'sessions', '2026', '07', '19')
+    tempRoots.push(home)
+    await mkdir(dir, { recursive: true })
+    const path = join(dir, 'rollout-bootstrap.jsonl')
+    await writeFile(path, contents)
+    return path
+  }
+
+  it('folds frozen history larger than 128KiB into one exact terminal snapshot', async () => {
+    const threadId = 'thread-bootstrap'
+    const turnId = 'turn-bootstrap'
+    const contents =
+      line({
+        type: 'session_meta',
+        timestamp: '2026-07-19T08:00:00.000Z',
+        payload: { id: threadId, cwd: '/repo/x', source: 'cli' },
+      }) +
+      event('task_started', '2026-07-19T08:00:01.000Z', { turn_id: turnId }) +
+      line({
+        type: 'turn_context',
+        timestamp: '2026-07-19T08:00:01.100Z',
+        payload: { turn_id: turnId, cwd: '/repo/x' },
+      }) +
+      event('user_message', '2026-07-19T08:00:01.200Z', {
+        prompt_id: 'prompt-bootstrap',
+        message: 'keep the cursor exact',
+      }) +
+      line({
+        type: 'response_item',
+        timestamp: '2026-07-19T08:00:02.000Z',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'x'.repeat(256 * 1024) }],
+        },
+      }) +
+      event('task_complete', '2026-07-19T08:00:03.000Z', {
+        last_agent_message: 'Done once.',
+      })
+    const path = await rollout(contents)
+
+    const folded = await foldCodexRolloutBootstrap(path)
+
+    expect(Buffer.byteLength(contents)).toBeGreaterThan(128 * 1024)
+    expect(folded.providerSessionId).toBe(threadId)
+    expect(folded.providerTurnId).toBe(turnId)
+    expect(folded.providerPromptId).toBe('prompt-bootstrap')
+    expect(folded.turnEpoch).toBe(1)
+    expect(folded.state).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'done', summary: 'Done once.' },
+    })
+    expect(folded.providerCursor).toMatchObject({
+      pathHint: path,
+      components: { file: Buffer.byteLength(contents) },
+    })
+    expect(folded.providerCursor.device).toMatch(/^\d+$/)
+    expect(folded.providerCursor.inode).toMatch(/^\d+$/)
+    expect(folded.providerCursor.segmentId).toBe(
+      `codex-rollout:${folded.providerCursor.device}:${folded.providerCursor.inode}`,
+    )
+  })
+
+  it('captures only complete records and leaves a torn prompt outside the cursor', async () => {
+    const complete =
+      line({
+        type: 'session_meta',
+        payload: { id: 'thread-torn', cwd: '/repo/x', source: 'cli' },
+      }) +
+      event('task_complete', '2026-07-19T08:10:00.000Z', {
+        last_agent_message: 'Frozen.',
+      })
+    const torn = JSON.stringify({
+      type: 'event_msg',
+      timestamp: '2026-07-19T08:11:00.000Z',
+      payload: { type: 'task_started', turn_id: 'not-complete-yet' },
+    }).slice(0, -7)
+    const path = await rollout(complete + torn)
+
+    const folded = await foldCodexRolloutBootstrap(path)
+
+    expect(folded.providerCursor.components.file).toBe(Buffer.byteLength(complete))
+    expect(folded.state.phase).toBe('idle')
+    expect(folded.turnEpoch).toBe(0)
+  })
+
+  it('discards an oversized content record without losing later state boundaries', async () => {
+    const contents =
+      line({ type: 'session_meta', payload: { id: 'thread-large', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:20:00.000Z', { turn_id: 'turn-large' }) +
+      line({
+        type: 'response_item',
+        payload: { type: 'blob', data: 'x'.repeat(5 * 1024 * 1024) },
+      }) +
+      event('task_complete', '2026-07-19T08:20:01.000Z', {
+        last_agent_message: 'Still bounded.',
+      })
+    const folded = await foldCodexRolloutBootstrap(await rollout(contents))
+
+    expect(folded.state).toMatchObject({
+      phase: 'idle',
+      idle: { kind: 'done', summary: 'Still bounded.' },
+    })
+    expect(folded.providerCursor.components.file).toBe(Buffer.byteLength(contents))
+  })
+
+  it('does not let late output reopen a terminal epoch', async () => {
+    const contents =
+      line({ type: 'session_meta', payload: { id: 'thread-late', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:30:00.000Z', { turn_id: 'turn-late' }) +
+      event('task_complete', '2026-07-19T08:30:01.000Z', { last_agent_message: 'Done.' }) +
+      event('token_count', '2026-07-19T08:30:02.000Z') +
+      event('agent_message', '2026-07-19T08:30:03.000Z')
+
+    const folded = await foldCodexRolloutBootstrap(await rollout(contents))
+
+    expect(folded.turnEpoch).toBe(1)
+    expect(folded.state).toMatchObject({ phase: 'idle', idle: { kind: 'done' } })
+    expect(folded.providerAt).toBe('2026-07-19T08:30:01.000Z')
+  })
+
+  it('emits zero live edges for frozen restart and exactly one working/terminal pair', async () => {
+    const contents =
+      line({
+        type: 'session_meta',
+        payload: { id: 'thread-causal', cwd: '/repo/x', source: 'cli' },
+      }) +
+      event('task_started', '2026-07-19T08:40:00.000Z', { turn_id: 'turn-frozen' }) +
+      event('task_complete', '2026-07-19T08:40:01.000Z', {
+        last_agent_message: 'Frozen done.',
+      })
+    const folded = await foldCodexRolloutBootstrap(await rollout(contents))
+    const now = () => '2026-07-19T09:00:00.000Z'
+    const config = {
+      podiumSessionId: 'podium-causal',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      now,
+    }
+    const lease: ObservationLease = {
+      provider: 'codex',
+      providerSessionId: 'thread-causal',
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+
+    const boot = codexBootstrapObservation(config, folded)
+    const first = acceptAgentObservation(null, lease, boot, now())
+    expect(first.kind).toBe('snapshot_applied')
+    if (first.kind === 'rejected') throw new Error(first.rejectionReason)
+    let checkpoint = first.checkpoint
+
+    // Recreating the observer over unchanged history produces the same bootstrap
+    // fact and no live edge; the durable dedupe window rejects it deterministically.
+    const restart = acceptAgentObservation(
+      checkpoint,
+      lease,
+      codexBootstrapObservation(config, folded),
+      now(),
+    )
+    expect(restart).toEqual({ kind: 'rejected', rejectionReason: 'duplicate_transition' })
+
+    const observer = new CodexCausalCursorObserver(config, folded)
+    const outcomes: string[] = []
+    const phases: string[] = []
+    let offset = folded.providerCursor.components.file ?? 0
+    const accept = async (record: unknown, advance: number) => {
+      offset += advance
+      const observation = await observer.observeRecord(record, offset)
+      if (!observation) return null
+      const outcome = acceptAgentObservation(checkpoint, lease, observation, now())
+      outcomes.push(outcome.kind)
+      if (outcome.kind !== 'rejected') {
+        checkpoint = outcome.checkpoint
+        if (outcome.kind === 'live_transition_accepted') phases.push(observation.nextPhase)
+      }
+      observer.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: config.podiumSessionId,
+        observerGeneration: config.observerGeneration,
+        transitionId: observation.transitionId,
+        result: outcome.kind,
+        ...(outcome.kind === 'rejected'
+          ? { rejectionReason: outcome.rejectionReason }
+          : { acceptedCursor: outcome.checkpoint.providerCursor }),
+      })
+      return observation
+    }
+
+    const opened = await accept(
+      {
+        type: 'event_msg',
+        timestamp: '2026-07-19T09:01:00.000Z',
+        payload: { type: 'task_started', turn_id: 'turn-live' },
+      },
+      100,
+    )
+    expect(opened).toMatchObject({ transitionKind: 'turn_opened', nextPhase: 'working' })
+
+    // The paired user_message is the same logical prompt: cursor refresh only.
+    const duplicatePrompt = await accept(
+      {
+        type: 'event_msg',
+        timestamp: '2026-07-19T09:01:00.100Z',
+        payload: { type: 'user_message', prompt_id: 'prompt-live', message: 'one turn' },
+      },
+      100,
+    )
+    expect(duplicatePrompt).toMatchObject({ transitionKind: 'activity', nextPhase: 'working' })
+
+    const terminal = await accept(
+      {
+        type: 'event_msg',
+        timestamp: '2026-07-19T09:02:00.000Z',
+        payload: { type: 'task_complete', last_agent_message: 'Live done.' },
+      },
+      100,
+    )
+    expect(terminal).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
+
+    // Output after the terminal is consumed as diagnostic data and cannot reopen it.
+    expect(
+      await observer.observeRecord(
+        {
+          type: 'event_msg',
+          timestamp: '2026-07-19T09:02:01.000Z',
+          payload: { type: 'token_count' },
+        },
+        offset + 100,
+      ),
+    ).toBeNull()
+
+    expect(phases).toEqual(['working', 'idle'])
+    expect(outcomes).toEqual([
+      'live_transition_accepted',
+      'live_refresh_accepted',
+      'live_transition_accepted',
+    ])
+  })
+
+  it('validates exact session identity before cursor handling and blocks reads behind ack', async () => {
+    const folded = await foldCodexRolloutBootstrap(
+      await rollout(
+        line({ type: 'session_meta', payload: { id: 'thread-bound', cwd: '/repo/x' } }),
+      ),
+    )
+    const observer = new CodexCausalCursorObserver(
+      { podiumSessionId: 'podium-bound', observerGeneration: 3, bindingVersion: 2 },
+      folded,
+    )
+    const offset = (folded.providerCursor.components.file ?? 0) + 100
+    expect(
+      await observer.observeRecord(
+        { type: 'session_meta', payload: { id: 'foreign-thread' } },
+        offset,
+      ),
+    ).toBeNull()
+    const prompt = await observer.observeRecord(
+      { type: 'event_msg', payload: { type: 'task_started', turn_id: 'bound-turn' } },
+      offset,
+    )
+    expect(prompt).not.toBeNull()
+    expect(observer.waitingForAck).toBe(true)
+    expect(
+      await observer.observeRecord(
+        { type: 'event_msg', payload: { type: 'task_complete' } },
+        offset + 100,
+      ),
+    ).toBeNull()
   })
 })
 

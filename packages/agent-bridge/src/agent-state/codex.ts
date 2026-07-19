@@ -1,8 +1,15 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import type {
+  AgentObservation,
+  AgentObservationAckMessage,
+  AgentRuntimeState,
+  ProviderCursor,
+} from '@podium/protocol'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import {
   cleanCodexTitle,
@@ -10,12 +17,12 @@ import {
   isInteractiveCodexSource,
 } from '../discovery/providers/codex.js'
 import {
-  sharedCodexStateMetadataReaders,
   readCodexStateMetadata,
+  sharedCodexStateMetadataReaders,
 } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
-import { withEventTime } from './reducer.js'
+import { initialAgentState, reduceAgentState, withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
 const POLL_MS = 700
@@ -30,6 +37,8 @@ const PROCESS_SCAN_BATCH = 64
 // state observer only needs the recent tail (the latest event wins). Matches the
 // transcript tailer's seek-to-tail so a redeploy/reattach doesn't slurp the file.
 const TAIL_BYTES = 128 * 1024
+const ROLLOUT_FOLD_CHUNK_BYTES = 64 * 1024
+const MAX_ROLLOUT_STATE_RECORD_BYTES = 4 * 1024 * 1024
 // PermissionRequest hooks do not say whether the request is routed to the user
 // or Codex's automatic reviewer. The effective reviewer lives in the rollout.
 // Bound the one-off prefix + tail reads so a long-running session never gets
@@ -407,6 +416,384 @@ function classifyResumedRollout(jsonl: string): AgentStateEvent | undefined {
     }
   }
   return undefined
+}
+
+export interface CodexRolloutBootstrap {
+  providerSessionId: string | null
+  providerTurnId: string | null
+  providerPromptId: string | null
+  providerCursor: ProviderCursor
+  providerAt: string | null
+  turnEpoch: number
+  turnOpen: boolean
+  state: AgentRuntimeState
+  firstPromptTitle?: string
+}
+
+/** Find the descriptor-local boundary immediately after the last complete JSONL
+ * record. A torn suffix stays outside the bootstrap and becomes eligible only
+ * after a later append completes it. Reads are fixed-size regardless of file
+ * length. [spec:SP-cdb2] */
+async function completeRecordEnd(
+  handle: Awaited<ReturnType<typeof open>>,
+  capturedSize: number,
+): Promise<number> {
+  let end = capturedSize
+  while (end > 0) {
+    const start = Math.max(0, end - ROLLOUT_FOLD_CHUNK_BYTES)
+    const chunk = Buffer.alloc(end - start)
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, start)
+    const newline = chunk.lastIndexOf(0x0a, bytesRead - 1)
+    if (newline >= 0) return start + newline + 1
+    end = start
+  }
+  return 0
+}
+
+/**
+ * Fold one exact Codex rollout through a captured complete-record EOF into a
+ * single state snapshot. Historical records never reach a live callback. The
+ * scan is memory bounded: fixed-size file reads plus a capped per-record buffer;
+ * oversized content records are discarded through their newline (Codex's state
+ * boundary records are small structured envelopes).
+ */
+export async function foldCodexRolloutBootstrap(path: string): Promise<CodexRolloutBootstrap> {
+  const handle = await open(path, 'r')
+  try {
+    const info = await handle.stat()
+    const completeEnd = await completeRecordEnd(handle, info.size)
+    const device = String(info.dev)
+    const inode = String(info.ino)
+    const providerCursor: ProviderCursor = {
+      segmentId: `codex-rollout:${device}:${inode}`,
+      pathHint: path,
+      device,
+      inode,
+      components: { file: completeEnd },
+    }
+
+    let state = initialAgentState(new Date(0).toISOString())
+    state = reduceAgentState(state, { kind: 'session_started', at: state.since }, state.since)
+    let providerSessionId: string | null = null
+    let providerTurnId: string | null = null
+    let providerPromptId: string | null = null
+    let providerAt: string | null = null
+    let firstPromptTitle: string | undefined
+    let turnEpoch = 0
+    let turnOpen = false
+    let recordBytes = 0
+    let recordParts: Buffer[] = []
+    let oversizedRecord = false
+
+    const foldRecord = async (line: Buffer): Promise<void> => {
+      const trimmed = line.toString('utf8').trim()
+      if (!trimmed) return
+      let record: unknown
+      try {
+        record = JSON.parse(trimmed)
+      } catch {
+        return
+      }
+      if (!isRecord(record)) return
+      const payload = isRecord(record.payload) ? record.payload : undefined
+      const recordType = strField(record, 'type')
+      const payloadType = payload ? strField(payload, 'type') : undefined
+      const at = strField(record, 'timestamp')
+
+      if (recordType === 'session_meta' && payload) {
+        providerSessionId = strField(payload, 'id') ?? providerSessionId
+      }
+      if (recordType === 'turn_context' && payload) {
+        providerTurnId = strField(payload, 'turn_id') ?? providerTurnId
+      }
+      if (recordType === 'event_msg' && payload) {
+        if (payloadType === 'task_started') {
+          providerTurnId = strField(payload, 'turn_id') ?? providerTurnId
+        }
+        if (payloadType === 'task_started' || payloadType === 'user_message') {
+          if (!turnOpen) {
+            turnEpoch += 1
+            turnOpen = true
+          }
+          providerPromptId =
+            strField(payload, 'prompt_id') ?? strField(payload, 'id') ?? providerPromptId
+        } else if (payloadType === 'task_complete' || payloadType === 'turn_aborted') {
+          turnOpen = false
+        }
+      }
+
+      firstPromptTitle ??= codexPromptTitle(record)
+      const translated = await translateCodexEvent(record)
+      for (const event of translated) {
+        // Output belonging to a settled epoch is diagnostic history. Only a
+        // provider prompt/task-start above can open the next epoch.
+        if (
+          !turnOpen &&
+          (event.kind === 'activity' || event.kind === 'needs_user' || event.kind === 'compaction')
+        ) {
+          continue
+        }
+        state = reduceAgentState(state, event, event.at ?? state.since)
+        if (event.at) providerAt = event.at
+      }
+      if (at && translated.length === 0 && recordType === 'turn_context') providerAt ??= at
+    }
+
+    for (let offset = 0; offset < completeEnd; ) {
+      const length = Math.min(ROLLOUT_FOLD_CHUNK_BYTES, completeEnd - offset)
+      const chunk = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(chunk, 0, length, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+      let partStart = 0
+      for (let index = 0; index < bytesRead; index += 1) {
+        if (chunk[index] !== 0x0a) continue
+        const part = chunk.subarray(partStart, index)
+        if (!oversizedRecord && recordBytes + part.length <= MAX_ROLLOUT_STATE_RECORD_BYTES) {
+          recordParts.push(part)
+          recordBytes += part.length
+          await foldRecord(Buffer.concat(recordParts, recordBytes))
+        }
+        recordParts = []
+        recordBytes = 0
+        oversizedRecord = false
+        partStart = index + 1
+      }
+      const suffix = chunk.subarray(partStart, bytesRead)
+      if (!oversizedRecord) {
+        if (recordBytes + suffix.length <= MAX_ROLLOUT_STATE_RECORD_BYTES) {
+          recordParts.push(suffix)
+          recordBytes += suffix.length
+        } else {
+          recordParts = []
+          recordBytes = 0
+          oversizedRecord = true
+        }
+      }
+    }
+
+    return {
+      providerSessionId,
+      providerTurnId,
+      turnOpen,
+      providerPromptId,
+      providerCursor,
+      providerAt,
+      turnEpoch,
+      state,
+      ...(firstPromptTitle ? { firstPromptTitle } : {}),
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+export interface CodexCausalObserverConfig {
+  podiumSessionId: string
+  observerGeneration: number
+  bindingVersion: number
+  now?: () => string
+}
+
+interface PendingCodexObservation {
+  observation: AgentObservation
+  next: CodexRolloutBootstrap
+}
+
+function codexTransitionId(parts: readonly (string | number | null)[]): string {
+  return `codex:${createHash('sha256').update(JSON.stringify(parts)).digest('hex')}`
+}
+
+function validProviderAt(record: Record<string, unknown>): string | null {
+  const value = strField(record, 'timestamp')
+  return value && Number.isFinite(Date.parse(value)) ? value : null
+}
+
+function cursorAt(base: ProviderCursor, offset: number): ProviderCursor {
+  return { ...base, components: { ...base.components, file: offset } }
+}
+
+function sourceKind(record: Record<string, unknown>): string | undefined {
+  const payload = isRecord(record.payload) ? record.payload : undefined
+  return payload ? strField(payload, 'type') : strField(record, 'type')
+}
+
+/** The sole historical envelope. Its provenance makes the folded records
+ * ineligible for live effects at the durable gate. [spec:SP-cdb2] */
+export function codexBootstrapObservation(
+  config: CodexCausalObserverConfig,
+  bootstrap: CodexRolloutBootstrap,
+): AgentObservation {
+  const receivedAt = config.now?.() ?? new Date().toISOString()
+  return {
+    podiumSessionId: config.podiumSessionId,
+    provider: 'codex',
+    providerSessionId: bootstrap.providerSessionId,
+    bindingVersion: config.bindingVersion,
+    providerTurnId: bootstrap.providerTurnId,
+    providerPromptId: bootstrap.providerPromptId,
+    observerGeneration: config.observerGeneration,
+    providerCursor: bootstrap.providerCursor,
+    providerAt: bootstrap.providerAt,
+    receivedAt,
+    sourceEventKind: 'rollout_bootstrap_fold',
+    transitionKind: 'snapshot',
+    provenance: 'bootstrap',
+    inputOrigin: 'provider',
+    turnEpoch: bootstrap.turnEpoch,
+    priorPhase: bootstrap.state.phase,
+    nextPhase: bootstrap.state.phase,
+    transitionId: codexTransitionId([
+      bootstrap.providerSessionId,
+      config.bindingVersion,
+      bootstrap.turnEpoch,
+      bootstrap.providerCursor.segmentId,
+      bootstrap.providerCursor.components.file ?? 0,
+      'bootstrap',
+      bootstrap.state.phase,
+    ]),
+    state: bootstrap.state,
+  }
+}
+
+/** Ack-gated Codex live reducer. The caller offers one complete record after
+ * the accepted cursor and reads no further records until its observation is
+ * acknowledged. Real prompt evidence alone opens epochs; late output is inert. */
+export class CodexCausalCursorObserver {
+  private accepted: CodexRolloutBootstrap
+  private pending: PendingCodexObservation | null = null
+
+  constructor(
+    private readonly config: CodexCausalObserverConfig,
+    bootstrap: CodexRolloutBootstrap,
+  ) {
+    this.accepted = bootstrap
+  }
+
+  get acceptedSnapshot(): CodexRolloutBootstrap {
+    return this.accepted
+  }
+
+  get waitingForAck(): boolean {
+    return this.pending !== null
+  }
+
+  async observeRecord(record: unknown, endOffset: number): Promise<AgentObservation | null> {
+    if (this.pending) return null
+    const acceptedOffset = this.accepted.providerCursor.components.file ?? 0
+    if (!Number.isInteger(endOffset) || endOffset <= acceptedOffset || !isRecord(record))
+      return null
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    const recordType = strField(record, 'type')
+    const kind = sourceKind(record)
+    if (!kind) return null
+
+    const next: CodexRolloutBootstrap = {
+      ...this.accepted,
+      providerCursor: cursorAt(this.accepted.providerCursor, endOffset),
+    }
+    if (recordType === 'session_meta' && payload) {
+      const sessionId = strField(payload, 'id')
+      if (sessionId && sessionId !== this.accepted.providerSessionId) return null
+    }
+    if (recordType === 'turn_context' && payload) {
+      next.providerTurnId = strField(payload, 'turn_id') ?? next.providerTurnId
+    }
+    if (recordType === 'event_msg' && payload) {
+      if (kind === 'task_started') {
+        next.providerTurnId = strField(payload, 'turn_id') ?? next.providerTurnId
+      }
+      if (kind === 'task_started' || kind === 'user_message') {
+        next.providerPromptId =
+          strField(payload, 'prompt_id') ?? strField(payload, 'id') ?? next.providerPromptId
+      }
+    }
+
+    const events = await translateCodexEvent(record)
+    const promptSignal =
+      recordType === 'event_msg' && (kind === 'task_started' || kind === 'user_message')
+    let transitionKind: AgentObservation['transitionKind'] | undefined
+    let event: AgentStateEvent | undefined
+    if (promptSignal) {
+      if (!this.accepted.turnOpen) {
+        next.turnEpoch += 1
+        next.turnOpen = true
+        transitionKind = 'turn_opened'
+        event = events.find((candidate) => candidate.kind === 'prompt_submitted')
+      } else {
+        transitionKind = 'activity'
+        const at = validProviderAt(record)
+        event = { kind: 'activity', ...(at ? { at } : {}) }
+      }
+    } else {
+      event = events[0]
+      if (!event) return null
+      if (event.kind === 'turn_completed' || event.kind === 'turn_failed') {
+        if (!this.accepted.turnOpen) return null
+        next.turnOpen = false
+        transitionKind = 'turn_terminal'
+      } else if (!this.accepted.turnOpen) {
+        return null
+      } else if (event.kind === 'needs_user') transitionKind = 'needs_user'
+      else if (event.kind === 'compaction') transitionKind = 'compaction'
+      else if (event.kind === 'session_ended') {
+        next.turnOpen = false
+        transitionKind = 'session_terminal'
+      } else transitionKind = 'activity'
+    }
+    if (!event || !transitionKind) return null
+
+    const priorState = this.accepted.state
+    const now = this.config.now?.() ?? new Date().toISOString()
+    next.state = reduceAgentState(priorState, event, event.at ?? now)
+    next.providerAt = validProviderAt(record) ?? next.providerAt
+    const observation: AgentObservation = {
+      podiumSessionId: this.config.podiumSessionId,
+      provider: 'codex',
+      providerSessionId: next.providerSessionId,
+      bindingVersion: this.config.bindingVersion,
+      providerTurnId: next.providerTurnId,
+      providerPromptId: next.providerPromptId,
+      observerGeneration: this.config.observerGeneration,
+      providerCursor: next.providerCursor,
+      providerAt: validProviderAt(record),
+      receivedAt: now,
+      sourceEventKind: kind,
+      transitionKind,
+      provenance: 'live',
+      inputOrigin: 'provider',
+      turnEpoch: next.turnEpoch,
+      priorPhase: priorState.phase,
+      nextPhase: next.state.phase,
+      transitionId: codexTransitionId([
+        next.providerSessionId,
+        this.config.bindingVersion,
+        next.turnEpoch,
+        next.providerCursor.segmentId,
+        endOffset,
+        kind,
+        next.state.phase,
+      ]),
+      state: next.state,
+    }
+    this.pending = { observation, next }
+    return observation
+  }
+
+  acknowledge(ack: AgentObservationAckMessage): boolean {
+    const pending = this.pending
+    if (!pending) return false
+    if (
+      ack.sessionId !== this.config.podiumSessionId ||
+      ack.observerGeneration !== this.config.observerGeneration ||
+      ack.transitionId !== pending.observation.transitionId
+    ) {
+      return false
+    }
+    if (ack.result !== 'rejected') this.accepted = pending.next
+    this.pending = null
+    return true
+  }
 }
 
 export const codexStateProvider: AgentStateProvider = {
