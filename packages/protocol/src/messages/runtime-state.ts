@@ -220,6 +220,22 @@ export const AgentObservationMessage = z.object({
 })
 export type AgentObservationMessage = z.infer<typeof AgentObservationMessage>
 
+/** Provider-neutral proof of a later unchanged live observer poll. [spec:SP-cdb2] */
+export const AgentObserverLiveConfirmationMessage = z.object({
+  type: z.literal('agentObserverLiveConfirmation'),
+  sessionId: z.string().min(1),
+  provider: ObservationProvider,
+  providerSessionId: z.string().min(1).nullable(),
+  bindingVersion: z.number().int().positive(),
+  observerGeneration: z.number().int().positive(),
+  providerCursor: ProviderCursor,
+  livePollSequence: z.number().int().positive(),
+  confirmedAt: z.string().datetime(),
+})
+export type AgentObserverLiveConfirmationMessage = z.infer<
+  typeof AgentObserverLiveConfirmationMessage
+>
+
 // server -> daemon. The durable commit precedes an accepted ack.
 export const AgentObservationAckMessage = z.object({
   type: z.literal('agentObservationAck'),

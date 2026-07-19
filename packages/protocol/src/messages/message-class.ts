@@ -212,6 +212,7 @@ export const DAEMON_MESSAGE_CLASS = {
   title: 'live',
   agentState: 'live',
   agentObservation: 'live',
+  agentObserverLiveConfirmation: 'live',
   agentObservationRebind: 'command',
   agentColor: 'live',
   agentModel: 'live',

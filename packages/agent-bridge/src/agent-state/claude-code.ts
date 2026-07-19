@@ -582,6 +582,7 @@ export interface ClaudePromptEvidence {
 
 export interface ClaudeTranscriptCapture {
   boundary: number
+  capturedSize: number
   path: string
   device: string
   inode: string
@@ -926,6 +927,7 @@ export async function captureClaudeTranscript(
     }
     return {
       boundary,
+      capturedSize,
       path,
       device,
       inode,

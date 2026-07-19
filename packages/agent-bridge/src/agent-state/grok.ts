@@ -2,11 +2,11 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentObservationAckMessage } from '@podium/protocol'
+import type { AgentObservationAckMessage, ProviderCursor } from '@podium/protocol'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { fileMtimeIso } from './boot-time.js'
-import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
+import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -223,6 +223,7 @@ export function observeGrokState(opts: {
   onBootstrap?: (lastCompleteRecordOffset: number) => void
   onEvents?: (events: AgentStateEvent[]) => void
   causal?: GrokCausalOptions
+  onLivePollComplete?: (providerCursor: ProviderCursor) => void
 }): GrokStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
   // watermarkMs is the spawn time: only sessions created at or after this point
@@ -247,6 +248,7 @@ export function observeGrokState(opts: {
       pollMs,
       statTick: opts.statTick,
       onBootstrap: opts.onBootstrap,
+      onLivePollComplete: opts.onLivePollComplete,
       ...(opts.causal ? { causal: { ...opts.causal, providerSessionId: paths.sessionId } } : {}),
     })
   }
@@ -399,6 +401,7 @@ function tailGrokUpdates(
     statTick?: StatTick
     onBootstrap?: (lastCompleteRecordOffset: number) => void
     causal?: GrokObservationLease
+    onLivePollComplete?: (providerCursor: ProviderCursor) => void
   } = {},
 ): GrokStateObserver {
   const causal = opts.causal ? new GrokCausalObserver(opts.causal) : undefined
@@ -544,7 +547,21 @@ function tailGrokUpdates(
           // replay the replacement prefix through the live callback.
           await bootstrap(handle, info.size, identity, device, inode, !first)
         }
-        if (info.size <= readOffset) return
+        if (info.size <= readOffset) {
+          const accepted = causal?.acceptedProviderCursor
+          if (
+            accepted &&
+            !causal?.hasPendingDelivery &&
+            info.size === readOffset &&
+            lastCompleteRecordOffset === readOffset &&
+            accepted.pathHint === paths.updatesPath &&
+            accepted.device === device &&
+            accepted.inode === inode
+          ) {
+            opts.onLivePollComplete?.(accepted)
+          }
+          return
+        }
         const end = info.size
         await readRange(handle, readOffset, end, true)
         readOffset = end
@@ -554,6 +571,17 @@ function tailGrokUpdates(
           await translateLines([finalRecord], true)
         }
         prefixAnchor = await readGrokPrefix(handle, readOffset)
+        const accepted = causal?.acceptedProviderCursor
+        if (
+          accepted &&
+          !causal?.hasPendingDelivery &&
+          accepted.pathHint === paths.updatesPath &&
+          accepted.device === device &&
+          accepted.inode === inode &&
+          lastCompleteRecordOffset === readOffset
+        ) {
+          opts.onLivePollComplete?.(accepted)
+        }
       } finally {
         await handle.close()
       }

@@ -1,8 +1,17 @@
-import { appendFile, mkdir, mkdtemp, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  rename,
+  rm,
+  symlink,
+  utimes,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { openDatabase } from '@podium/runtime/sqlite'
 import type { AgentObservation } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acceptAgentObservation, type ObservationLease } from './causal.js'
 import {
@@ -573,11 +582,20 @@ describe('findLiveCodexRollout', () => {
       rollout,
       `${JSON.stringify({
         type: 'session_meta',
-        payload: { id: 'skew', cwd: '/repo/x', source: 'cli', timestamp: '2026-06-16T01:30:00.000Z' },
+        payload: {
+          id: 'skew',
+          cwd: '/repo/x',
+          source: 'cli',
+          timestamp: '2026-06-16T01:30:00.000Z',
+        },
       })}\n`,
     )
 
-    const found = await findLiveCodexRollout(sessions, '/repo/x', Date.parse('2026-06-16T01:00:00.000Z'))
+    const found = await findLiveCodexRollout(
+      sessions,
+      '/repo/x',
+      Date.parse('2026-06-16T01:00:00.000Z'),
+    )
     expect(found?.id).toBe('skew')
   })
 
@@ -589,11 +607,20 @@ describe('findLiveCodexRollout', () => {
       join(dir, 'rollout-offlayout.jsonl'),
       `${JSON.stringify({
         type: 'session_meta',
-        payload: { id: 'offlayout', cwd: '/repo/x', source: 'cli', timestamp: '2026-06-16T02:00:00.000Z' },
+        payload: {
+          id: 'offlayout',
+          cwd: '/repo/x',
+          source: 'cli',
+          timestamp: '2026-06-16T02:00:00.000Z',
+        },
       })}\n`,
     )
 
-    const found = await findLiveCodexRollout(sessions, '/repo/x', Date.parse('2026-06-16T01:00:00.000Z'))
+    const found = await findLiveCodexRollout(
+      sessions,
+      '/repo/x',
+      Date.parse('2026-06-16T01:00:00.000Z'),
+    )
     expect(found?.id).toBe('offlayout')
   })
 
@@ -609,7 +636,12 @@ describe('findLiveCodexRollout', () => {
       join(dir, 'rollout-ancient-dir.jsonl'),
       `${JSON.stringify({
         type: 'session_meta',
-        payload: { id: 'ancient', cwd: '/repo/x', source: 'cli', timestamp: '2026-06-16T02:00:00.000Z' },
+        payload: {
+          id: 'ancient',
+          cwd: '/repo/x',
+          source: 'cli',
+          timestamp: '2026-06-16T02:00:00.000Z',
+        },
       })}\n`,
     )
 
@@ -691,9 +723,7 @@ describe('findProcessBoundCodexRollout', () => {
 describe('foldCodexRolloutBootstrap', () => {
   const tempRoots: string[] = []
   afterEach(async () => {
-    await Promise.all(
-      tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
-    )
+    await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
   })
 
   const line = (record: unknown): string => `${JSON.stringify(record)}\n`
@@ -1179,6 +1209,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const livePath = join(resolve(path, '..'), 'rollout-2026-07-19T10-00-00-thread-poll.jsonl')
     await rename(path, livePath)
     const observations: AgentObservation[] = []
+    const livePolls: unknown[] = []
     const legacyEvents: unknown[] = []
     const rebinds: string[] = []
     const observation = observeCodexState({
@@ -1193,6 +1224,7 @@ describe('foldCodexRolloutBootstrap', () => {
         bindingVersion: 3,
         acceptedCheckpoint: null,
         onObservation: (value) => observations.push(value),
+        onLivePollComplete: (cursor) => livePolls.push(cursor),
         onRebindRequired: (providerSessionId) => rebinds.push(providerSessionId),
       },
       onEvents: (events) => legacyEvents.push(...events),
@@ -1235,12 +1267,41 @@ describe('foldCodexRolloutBootstrap', () => {
       await vi.waitFor(() => expect(observations).toHaveLength(3))
       const terminal = observations[2]!
       expect(terminal).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
+      livePolls.length = 0
+      observation.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-poll',
+        observerGeneration: 5,
+        bindingVersion: 3,
+        transitionId: terminal.transitionId,
+        result: 'live_transition_accepted',
+        acceptedCursor: terminal.providerCursor,
+      })
+      await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(0))
+      const afterTerminal = livePolls.length
+      await appendFile(livePath, event('agent_message', '2026-07-19T10:02:01.000Z'))
+      await vi.waitFor(() => expect(livePolls.length).toBeGreaterThan(afterTerminal))
+      const afterLateOutput = livePolls.length
+      await appendFile(
+        livePath,
+        event('task_started', '2026-07-19T10:03:00.000Z', { turn_id: 'turn-next' }),
+      )
+      await vi.waitFor(() => expect(observations).toHaveLength(4))
+      const afterPromptObserved = livePolls.length
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(afterPromptObserved).toBeGreaterThanOrEqual(afterLateOutput)
+      expect(livePolls).toHaveLength(afterPromptObserved)
       expect(observations.map((value) => value.transitionKind)).toEqual([
         'snapshot',
         'turn_opened',
         'turn_terminal',
+        'turn_opened',
       ])
-      expect(observations.slice(1).map((value) => value.nextPhase)).toEqual(['working', 'idle'])
+      expect(observations.slice(1).map((value) => value.nextPhase)).toEqual([
+        'working',
+        'idle',
+        'working',
+      ])
       expect(legacyEvents).toEqual([])
       expect(rebinds).toEqual([])
     } finally {

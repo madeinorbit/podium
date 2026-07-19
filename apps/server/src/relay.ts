@@ -318,6 +318,7 @@ export class SessionRegistry {
         machineName: (id) => machines.machineName(id),
         sessions: () => liveSessions().values(),
         hibernateSession: (input) => sessionsSvc.hibernateSession(input),
+        hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         daemonRequest: (pending, prefix, timeoutMs, onTimeout, buildMsg, machineId) =>
           rpc.request(pending, prefix, timeoutMs, onTimeout, buildMsg, machineId),
       },

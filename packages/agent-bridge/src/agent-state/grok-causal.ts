@@ -72,6 +72,10 @@ export class GrokCausalObserver {
     return this.inFlight !== null || this.queued.length > 0 || this.draining
   }
 
+  get acceptedProviderCursor(): ProviderCursor | null {
+    return this.acceptedCursor
+  }
+
   /**
    * Select the only history range that needs folding. An exact accepted cursor
    * restores its durable snapshot and reads merely the cursor gap; a replaced

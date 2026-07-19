@@ -1001,6 +1001,7 @@ export interface CodexCausalStateOptions {
   bindingVersion: number
   acceptedCheckpoint: SessionObservationCheckpointV1 | null
   onObservation(observation: AgentObservation): void
+  onLivePollComplete?(providerCursor: ProviderCursor): void
   onRebindRequired(providerSessionId: string): void
 }
 
@@ -1197,10 +1198,10 @@ export function observeCodexState(opts: {
   const drainCausalObserver = async (
     handle: Awaited<ReturnType<typeof open>>,
     info: { size: number; dev: number | bigint; ino: number | bigint },
-  ): Promise<void> => {
+  ): Promise<ProviderCursor | null> => {
     const causal = opts.causal
     const observer = causalObserver
-    if (!causal || !observer || awaitingCausalBootstrapAck || observer.waitingForAck) return
+    if (!causal || !observer || awaitingCausalBootstrapAck || observer.waitingForAck) return null
     const cursor = observer.acceptedSnapshot.providerCursor
     const device = String(info.dev)
     const inode = String(info.ino)
@@ -1209,13 +1210,13 @@ export function observeCodexState(opts: {
       causalBootstrapObservation = null
       causalPredecessorCursor = observer.acceptedSnapshot.providerCursor
       awaitingCausalBootstrapAck = false
-      return
+      return null
     }
     const completeEnd = await completeRecordEnd(handle, info.size)
     while (!observer.waitingForAck && observer.readOffset < completeEnd) {
       const startOffset = observer.readOffset
       const complete = await readCodexCompleteRecord(handle, startOffset, completeEnd)
-      if (!complete) return
+      if (!complete) return null
       const observation = await observer.observeRecord(complete.value, complete.endOffset)
       if (!firstPromptTitled && lastEmittedTitle === undefined) {
         const promptTitle = codexPromptTitle(complete.value)
@@ -1226,10 +1227,12 @@ export function observeCodexState(opts: {
       }
       if (observation) {
         causal.onObservation(observation)
-        return
+        return null
       }
-      if (observer.readOffset <= startOffset) return
+      if (observer.readOffset <= startOffset) return null
     }
+    const accepted = observer.acceptedSnapshot.providerCursor
+    return !observer.waitingForAck && observer.readOffset === completeEnd ? accepted : null
   }
   const tick = async (): Promise<void> => {
     if (stopped || reading) return
@@ -1294,13 +1297,14 @@ export function observeCodexState(opts: {
       // mutable while asynchronous work runs.
       const activeRolloutPath = rolloutPath
       if (!activeRolloutPath) return
-      const causal = await ensureCausalObserver()
-      if (causal && !causalObserver) return
+      const causalReady = await ensureCausalObserver()
+      if (causalReady && !causalObserver) return
       const handle = await open(activeRolloutPath, 'r')
       try {
         const info = await handle.stat()
-        if (causal) {
-          await drainCausalObserver(handle, info)
+        if (causalReady) {
+          const unchanged = await drainCausalObserver(handle, info)
+          if (unchanged) opts.causal?.onLivePollComplete?.(unchanged)
           return
         }
         const { size } = info
