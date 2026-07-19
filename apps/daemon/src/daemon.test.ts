@@ -207,6 +207,7 @@ describe('daemon multi-bridge', () => {
       // direct node-pty path keeps these fixtures/assertions deterministic (no tmux dependency)
       tmux: false,
       discovery: { background: false, cachePath: ':memory:' },
+      workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       // inject the deterministic fixture instead of real claude/codex
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -215,7 +216,14 @@ describe('daemon multi-bridge', () => {
 
   afterEach(async () => {
     await daemon.close()
-    await new Promise<void>((r) => wss.close(() => r()))
+    // A reconnect test leaves the superseded server-side socket in ws's client
+    // set until its close handshake drains. Terminate any residue after the daemon
+    // is stopped so WebSocketServer.close cannot wait out the hook timeout.
+    for (const client of wss.clients) client.terminate()
+    await Promise.race([
+      new Promise<void>((resolve) => wss.close(() => resolve())),
+      new Promise<void>((resolve) => setTimeout(resolve, 100)),
+    ])
   })
 
   const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
@@ -398,6 +406,175 @@ describe('daemon multi-bridge', () => {
     // The fix: the already-held branch re-pushes the surviving idle phase.
     await waitFor(() => idleStates().length > before)
     expect(idleStates().length).toBeGreaterThan(before)
+  }, 15000)
+
+  it('adopts a fresh causal lease after websocket recovery with a surviving daemon', async () => {
+    const sessionId = 'causal-ws-survivor'
+    const providerSessionId = 'claude-ws-survivor'
+    const cwd = trackTmp('podium-causal-ws-')
+    const transcriptPath = join(cwd, 'claude-ws-survivor.jsonl')
+    writeFileSync(transcriptPath, '')
+    const observations = () =>
+      received.filter(
+        (message): message is Extract<DaemonMessage, { type: 'agentObservation' }> =>
+          message.type === 'agentObservation' && message.observation.podiumSessionId === sessionId,
+      )
+    const postHook = (hook_event_name: string, extra: Record<string, unknown> = {}) =>
+      fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/${sessionId}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          hook_event_name,
+          session_id: providerSessionId,
+          transcript_path: transcriptPath,
+          cwd,
+          ...extra,
+        }),
+      })
+
+    send({
+      type: 'spawn',
+      sessionId,
+      agentKind: 'claude-code',
+      cwd,
+      resume: { kind: 'claude-session', value: providerSessionId },
+      geometry: G,
+      observationGeneration: 7,
+      observationBindingVersion: 2,
+      observationProviderSessionId: providerSessionId,
+    })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+    await postHook('SessionStart')
+    await waitFor(() => observations().length === 1)
+    const predecessor = observations()[0]!.observation
+    expect(predecessor).toMatchObject({
+      observerGeneration: 7,
+      bindingVersion: 2,
+      providerSessionId,
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+    })
+    send({
+      type: 'agentObservationAck',
+      sessionId,
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: predecessor.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: predecessor.providerCursor,
+    })
+
+    const acceptedAt = new Date().toISOString()
+    const checkpoint = {
+      schemaVersion: 1 as const,
+      podiumSessionId: sessionId,
+      provider: 'claude-code' as const,
+      providerSessionId,
+      bindingVersion: 2,
+      lifecycleObservationGeneration: 7,
+      providerCursor: predecessor.providerCursor,
+      bootstrapCursor: predecessor.providerCursor,
+      lastAcceptedLiveCursor: null,
+      turnEpoch: predecessor.turnEpoch,
+      providerTurnId: predecessor.providerTurnId,
+      providerPromptId: predecessor.providerPromptId,
+      turnState: predecessor.state,
+      terminalFence: null,
+      providerAt: predecessor.providerAt,
+      acceptedAt,
+      lastLiveReceiptAt: null,
+      lastTransitionId: predecessor.transitionId,
+      acceptedTransitionIds: [predecessor.transitionId],
+    }
+
+    // Model server-only restart / websocket recovery: the PTY bridge and daemon
+    // observer survive while the remote socket is replaced.
+    const reconnected = new Promise<void>((resolve) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        handshakeAndCollect(ws, received)
+        resolve()
+      })
+    })
+    serverSocket.close()
+    await reconnected
+    // The server sends control only after helloOk has reached the daemon. The test
+    // connection callback runs one event-loop edge earlier than that auth boundary.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const reconnectStart = received.length
+    send({
+      type: 'reattach',
+      sessionId,
+      durableLabel: `podium-${sessionId}`,
+      agentKind: 'claude-code',
+      cwd,
+      resume: { kind: 'claude-session', value: providerSessionId },
+      pathHint: transcriptPath,
+      geometry: G,
+      observationGeneration: 8,
+      observationBindingVersion: 2,
+      observationProviderSessionId: providerSessionId,
+      observationCheckpoint: checkpoint,
+    })
+    await waitFor(() => observations().some((m) => m.observation.observerGeneration === 8))
+    const successor = observations().find(
+      (m) => m.observation.observerGeneration === 8,
+    )!.observation
+    expect(successor).toMatchObject({
+      bindingVersion: 2,
+      providerSessionId,
+      provenance: 'bootstrap',
+      transitionKind: 'snapshot',
+    })
+    expect(
+      received
+        .slice(reconnectStart)
+        .some((message) => message.type === 'agentState' && message.sessionId === sessionId),
+    ).toBe(false)
+
+    // A real prompt races the new bootstrap ack. The predecessor generation's
+    // identical transition ack must not release it.
+    await postHook('UserPromptSubmit', { prompt: 'one real prompt', prompt_id: 'prompt-1' })
+    send({
+      type: 'agentObservationAck',
+      sessionId,
+      observerGeneration: 7,
+      bindingVersion: 2,
+      transitionId: successor.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: successor.providerCursor,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(observations().filter((m) => m.observation.observerGeneration === 8)).toHaveLength(1)
+
+    send({
+      type: 'agentObservationAck',
+      sessionId,
+      observerGeneration: 8,
+      bindingVersion: 2,
+      transitionId: successor.transitionId,
+      result: 'snapshot_applied',
+      acceptedCursor: successor.providerCursor,
+    })
+    await waitFor(
+      () =>
+        observations().filter(
+          (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
+        ).length === 1,
+    )
+    await postHook('Stop')
+    await waitFor(
+      () =>
+        observations().filter(
+          (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
+        ).length === 2,
+    )
+    expect(
+      observations()
+        .filter(
+          (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
+        )
+        .map((m) => m.observation.transitionKind),
+    ).toEqual(['turn_opened', 'turn_terminal'])
   }, 15000)
 
   it('scanRequest forwards the worker delta as a wire-valid scanResult', async () => {

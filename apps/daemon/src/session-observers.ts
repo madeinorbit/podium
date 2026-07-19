@@ -255,14 +255,18 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   }
 
-  const startClaudeCausal = async (sessionId: string, payload: unknown): Promise<void> => {
+  const startClaudeCausal = async (
+    sessionId: string,
+    payload: unknown,
+    bufferInitialPayload = true,
+  ): Promise<void> => {
     const lease = causalLeases.get(sessionId)
     const tracker = trackers.get(sessionId)
     const p = payload as Record<string, unknown> | null
     const providerSessionId = typeof p?.session_id === 'string' ? p.session_id : ''
     const transcriptPath = typeof p?.transcript_path === 'string' ? p.transcript_path : ''
     if (!lease || !tracker || !providerSessionId || !transcriptPath) {
-      claudeStarting.delete(sessionId)
+      if (!lease || causalLeases.get(sessionId) === lease) claudeStarting.delete(sessionId)
       return
     }
 
@@ -303,6 +307,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         latestPrompt: null,
       }
     }
+    // Reattach can replace the authoritative lease while the transcript capture
+    // above is in flight. Never let the predecessor generation install a tracker
+    // after that fence moved; the replacement bootstrap owns the session now.
+    if (causalLeases.get(sessionId) !== lease) return
     const bootstrapOffset = capture.boundary
     const baseSegmentId = claudeTranscriptSegmentId(providerSessionId, capture)
     const acceptedSameFile = Boolean(
@@ -387,7 +395,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bootstrapTransitionId: snapshot.transitionId,
       bootstrapCursor: snapshot.providerCursor,
       awaitingBootstrapAck: true,
-      bufferedHooks: claudeStarting.get(sessionId) ?? [payload],
+      bufferedHooks: claudeStarting.get(sessionId) ?? (bufferInitialPayload ? [payload] : []),
       processing: Promise.resolve(),
       acceptedCursor: null,
       pendingTransitionId: null,
@@ -834,6 +842,18 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     provider: AgentStateProvider | undefined,
     init: SessionObserverInit,
   ): void => {
+    // A surviving daemon can still hold Claude's exact live binding when a
+    // restarted server issues a freshly fenced reattach lease. Retain only the
+    // identity needed to reconstruct a bootstrap under that new generation;
+    // the old observer, pending effects, and acknowledgement state are retired
+    // below before anything from the replacement may reach the wire.
+    const survivingClaude = claudeCausal.get(msg.sessionId)
+    const survivingClaudeBinding = survivingClaude
+      ? {
+          providerSessionId: survivingClaude.providerSessionId,
+          transcriptPath: survivingClaude.transcriptPath,
+        }
+      : undefined
     if (provider) {
       trackers.set(msg.sessionId, {
         provider,
@@ -909,6 +929,30 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             }
           : {}),
       })
+      // Claude has no polling observer: without a fresh hook, merely restarting
+      // its transcript tail cannot produce the lease bootstrap the server needs.
+      // Re-adopt a surviving identity only when it exactly matches the
+      // authoritative binding. This synthetic SessionStart is snapshot input,
+      // never a buffered live effect; real hooks racing reattach queue behind the
+      // bootstrap acknowledgement through claudeStarting.
+      if (
+        observationLease?.provider === 'claude-code' &&
+        observationLease.providerSessionId !== null &&
+        survivingClaudeBinding !== undefined &&
+        survivingClaudeBinding.providerSessionId === observationLease.providerSessionId
+      ) {
+        claudeStarting.set(msg.sessionId, [])
+        void startClaudeCausal(
+          msg.sessionId,
+          {
+            hook_event_name: 'SessionStart',
+            session_id: survivingClaudeBinding.providerSessionId,
+            transcript_path: survivingClaudeBinding.transcriptPath,
+            cwd: msg.cwd,
+          },
+          false,
+        )
+      }
     }
     if (provider?.bootEvents && !causalLeases.has(msg.sessionId)) {
       // const capture so the narrowing survives into the onFrame closure.

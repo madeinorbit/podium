@@ -255,6 +255,19 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
 async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise<void> {
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
+    // Capture legacy state before observer replacement. A freshly fenced
+    // reattach lease is authoritative even when this daemon still holds the PTY:
+    // rebuild the observer registry so every subsequent observation uses the new
+    // generation/binding/cursor fence. Causal adapters re-bootstrap a snapshot;
+    // they must not also publish this legacy agentState as a live effect.
+    const state = ctx.observers.trackedState(msg.sessionId)
+    const hasAuthoritativeObservationLease =
+      msg.observationGeneration !== undefined && msg.observationBindingVersion !== undefined
+    if (hasAuthoritativeObservationLease) {
+      ctx.observers.initSessionObservers(msg, existing, agentStateProviderFor(msg.agentKind), {
+        seedOnFrame: false,
+      })
+    }
     const cmd =
       ctx.backend === 'tmux'
         ? `tmux -L ${msg.durableLabel} attach`
@@ -281,8 +294,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // WORKING. We still hold the live tracker, so resend its current phase. Skip
     // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
     // branch below, not here.
-    const state = ctx.observers.trackedState(msg.sessionId)
-    if (state && state.phase !== 'unknown') {
+    if (!hasAuthoritativeObservationLease && state && state.phase !== 'unknown') {
       ctx.send({ type: 'agentState', sessionId: msg.sessionId, state })
     }
     // Re-seed the transcript even though we already hold the bridge: a freshly
