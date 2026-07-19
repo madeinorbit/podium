@@ -153,6 +153,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   >()
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
   const claudeStarting = new Map<string, unknown[]>()
+  const pendingBindingHooks = new Map<string, Map<string, unknown>>()
 
   const emitObservation = (
     sessionId: string,
@@ -481,6 +482,20 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     for (const observation of pending.bufferedObservations) {
       emitObservation(msg.sessionId, observation)
     }
+    const bindingHooks = pendingBindingHooks.get(msg.sessionId)
+    const pendingBindingHook =
+      msg.providerSessionId === null
+        ? undefined
+        : (bindingHooks?.get(msg.providerSessionId) as Record<string, unknown> | undefined)
+    if (pendingBindingHook) {
+      const transcriptPath = pendingBindingHook.transcript_path
+      const adapter = observations.get(msg.sessionId)?.adapter
+      if (adapter && typeof transcriptPath === 'string' && transcriptPath) {
+        ensureTranscriptTail(msg.sessionId, transcriptPath, recordToItemsForKind(adapter.kind))
+      }
+      bindingHooks?.delete(msg.providerSessionId!)
+      if (bindingHooks?.size === 0) pendingBindingHooks.delete(msg.sessionId)
+    }
     const pendingClaude = claudeStarting.get(msg.sessionId)
     const pendingClaudeSessionId = (pendingClaude?.[0] as Record<string, unknown> | undefined)
       ?.session_id
@@ -733,6 +748,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       msg.observationBindingVersion !== undefined
     ) {
       pendingRebinds.delete(msg.sessionId)
+      pendingBindingHooks.delete(msg.sessionId)
       claudeStarting.delete(msg.sessionId)
       claudeCausal.delete(msg.sessionId)
       const checkpoint = SessionObservationCheckpointV1.safeParse(msg.observationCheckpoint)
@@ -851,20 +867,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // when the tracker is; guard anyway rather than assume.
     const bound = observations.get(sessionId)
     if (!bound) return
-    // Every hook payload carries transcript_path — the authoritative pointer
-    // to the live JSONL (resumes roll into a fresh file; this follows).
-    // Claude/Codex spell these snake_case; Grok Build native hooks use camelCase.
-    // Read both so Grok's hooks drive resume-ref/transcript binding like the
-    // others, rather than falling back to its polling observer. [spec:SP-79c5]
     const fields = payload as Record<string, unknown> | null
-    const transcriptPath = hookString(payload, 'transcript_path', 'transcriptPath')
-    if (transcriptPath) {
-      ensureTranscriptTail(sessionId, transcriptPath, recordToItemsForKind(bound.adapter.kind))
-    }
-    // The hook payload's session_id is the harness's own conversation id — the
-    // authoritative resume ref (don't reverse-engineer it from the filename,
-    // which couples us to the harness's on-disk layout). Lets the server
-    // hibernate a fresh spawn and resume it later.
     const harnessSessionId = hookString(payload, 'session_id', 'sessionId')
     const causalLease = causalLeases.get(sessionId)
     const changedCausalBinding = Boolean(
@@ -873,18 +876,46 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         causalLease.providerSessionId !== null &&
         harnessSessionId !== causalLease.providerSessionId,
     )
-    if (harnessSessionId) {
-      if (!changedCausalBinding)
-        send({
-          type: 'sessionResumeRef',
-          sessionId,
-          resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
-          confidence: 'exact',
-          ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
+    if (changedCausalBinding) {
+      const hookEventName = hookString(payload, 'hook_event_name', 'hookEventName')
+      const confirmsNewBinding =
+        hookEventName === 'SessionStart' || hookEventName === 'UserPromptSubmit'
+      if (!confirmsNewBinding) return
+      const bindingHooks = pendingBindingHooks.get(sessionId) ?? new Map<string, unknown>()
+      bindingHooks.set(harnessSessionId!, payload)
+      pendingBindingHooks.set(sessionId, bindingHooks)
+      bound.observation.bindHookThread?.(harnessSessionId!)
+      if (bound.adapter.kind === 'claude-code') {
+        const starting = claudeStarting.get(sessionId)
+        if (starting) starting.push(payload)
+        else claudeStarting.set(sessionId, [payload])
+        sendProviderRebind(sessionId, {
+          nextProviderSessionId: harnessSessionId!,
+          resumeKind: bound.adapter.resumeKind,
+          rebindId: [
+            'rebind',
+            causalLease!.bindingVersion,
+            causalLease!.observerGeneration,
+            harnessSessionId,
+          ].join(':'),
         })
-      // Adapter-owned re-pin policy (codex): the hook names the thread this
-      // pane REALLY runs; the observation re-pins only when its binding
-      // disagrees. No-op for hook-less-repin harnesses (claude).
+      }
+      return
+    }
+
+    // Same-binding hooks may update the authoritative transcript and resume ref.
+    const transcriptPath = hookString(payload, 'transcript_path', 'transcriptPath')
+    if (transcriptPath) {
+      ensureTranscriptTail(sessionId, transcriptPath, recordToItemsForKind(bound.adapter.kind))
+    }
+    if (harnessSessionId) {
+      send({
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
+        confidence: 'exact',
+        ...(bound.adapter.kind === 'codex' ? { ackRequested: true } : {}),
+      })
       bound.observation.bindHookThread?.(harnessSessionId)
     }
     // The agent's live working directory — follows EnterWorktree and `cd`. The
@@ -898,27 +929,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Commit/touched-file attribution [POD-98] happens before causal routing.
     gitCapture.onHookPayload(sessionId, fields)
     if (bound.adapter.kind === 'claude-code' && causalLeases.has(sessionId)) {
-      const lease = causalLeases.get(sessionId)!
-      if (
-        typeof harnessSessionId === 'string' &&
-        lease.providerSessionId !== null &&
-        harnessSessionId !== lease.providerSessionId
-      ) {
-        const starting = claudeStarting.get(sessionId)
-        if (starting) starting.push(payload)
-        else claudeStarting.set(sessionId, [payload])
-        sendProviderRebind(sessionId, {
-          nextProviderSessionId: harnessSessionId,
-          resumeKind: bound.adapter.resumeKind,
-          rebindId: [
-            'rebind',
-            lease.bindingVersion,
-            lease.observerGeneration,
-            harnessSessionId,
-          ].join(':'),
-        })
-        return
-      }
       const causal = claudeCausal.get(sessionId)
       if (!causal) {
         const starting = claudeStarting.get(sessionId)
@@ -952,6 +962,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     stopObservation(sessionId)
     causalLeases.delete(sessionId)
     pendingRebinds.delete(sessionId)
+    pendingBindingHooks.delete(sessionId)
     claudeCausal.delete(sessionId)
     claudeStarting.delete(sessionId)
     pendingClaudeOrigins.delete(sessionId)
