@@ -201,6 +201,40 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     } catch {}
   }
 
+  /** Closing a parent retires its descendant progress record and stopped
+   *  sessions [spec:SP-6144]. The cascade archives ONLY children that are
+   *  themselves closed, already read, and have no live member session — open
+   *  work, unread results, and running agents are skipped (and surfaced via a
+   *  single issue.cascade_skipped event on the parent) instead of vanishing
+   *  from the live views out from under the operator. */
+  private archiveClosedSubtree(parentId: string, sessionList?: SessionMeta[]): void {
+    sessionList ??= this.deps.listSessions()
+    const skipped: Array<{ seq: number; why: string }> = []
+    for (const child of this.rows.values()) {
+      if (child.parentId !== parentId || child.archived || child.deletedAt) continue
+      if (!this.isClosed(child)) continue // open work is never swept by a parent close
+      if (child.readAt == null) {
+        skipped.push({ seq: child.seq, why: 'unread' })
+        continue
+      }
+      const live = sessionList.some(
+        (s) => s.issueId === child.id && !s.archived && s.status !== 'exited',
+      )
+      if (live) {
+        skipped.push({ seq: child.seq, why: 'live session' })
+        continue
+      }
+      this.archiveClosedSubtree(child.id, sessionList)
+      this.update(child.id, { archived: true })
+    }
+    if (skipped.length) {
+      const parent = this.rows.get(parentId)
+      if (parent) {
+        this.emitEvent('issue.cascade_skipped', parentId, { seq: parent.seq, skipped })
+      }
+    }
+  }
+
   create(input: CreateIssueInput): IssueWire {
     // Allocate the #N off the stable repo_id so all checkouts of one origin share a
     // single sequence (#140) — resolve the path to its repo_id first, then allocate.
@@ -218,7 +252,8 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       seq,
       title: input.title,
       description: input.description ?? '',
-      stage: 'backlog',
+      brief: input.brief ?? null,
+      stage: input.stage ?? 'backlog',
       worktreePath: null,
       branch: null,
       parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
@@ -248,6 +283,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       dueAt: null,
       deferUntil: null,
       closedReason: null,
+      closedAt: null,
       supersededBy: null,
       duplicateOf: null,
       pinned: false,
@@ -265,6 +301,10 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
       origin: input.origin ?? 'human',
       audience: input.audience ?? 'human',
       draft: input.draft ?? false,
+      // Bare session id (same format as humanQuestionAskedBy / coordinatorSessionId).
+      // Null for operator creates; registry stamps agent creates from actorSessionId.
+      coordinatorSessionId: null,
+      startedBySession: input.startedBySession ?? null,
     }
     if (input.priority != null) row.priority = input.priority
     if (input.type) row.type = input.type
@@ -322,6 +362,11 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     } else {
       Object.assign(row, patch)
     }
+    // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
+    // flips, so post-close touches (notes, deps, steward writes) never restart
+    // the sidebar's completion-decay window the way updatedAt would.
+    if (!wasClosed && this.isClosed(row)) row.closedAt = this.now()
+    else if (wasClosed && !this.isClosed(row)) row.closedAt = null
     const wire = this.persist(row)
     // Cross-issue derived effects (#22): a closed-predicate flip changes the
     // dependents' blocked/ready and the parent's childDoneCount; a reparent
@@ -362,6 +407,7 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
       this.emitReadyAfterClose(row, opts?.actorSessionId)
+      this.archiveClosedSubtree(row.id)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
@@ -711,8 +757,31 @@ export abstract class IssueServiceCrud extends IssueServiceReads {
     return out
   }
 
+  /** True when the issue or ANY ancestor sits in the proposed lane — the whole
+   *  proposal subtree is inert until an operator promotes the root. Fails
+   *  closed: an unresolvable ref counts as proposed. [spec:SP-6144] */
+  inProposedSubtree(id: string): boolean {
+    let row: IssueRow | undefined
+    try {
+      row = this.rows.get(this.resolveRef(id))
+    } catch {
+      row = undefined
+    }
+    if (!row) return true
+    if (row.stage === 'proposed') return true
+    return this.ancestorIds(row.id).some((a) => this.rows.get(a)?.stage === 'proposed')
+  }
+
   claim(id: string, assignee: string): IssueWire {
     return this.update(id, { assignee, stage: 'in_progress' })
+  }
+
+  /** Claim / set / clear the issue's designated coordinator session
+   *  (docs/agent-comms-target.html §05 q1). Bare session id; null clears.
+   *  Dangling-tolerant: we do not validate the session still exists — if it is
+   *  later deleted, actionable mail falls back to selectMailNudgeSession. */
+  setCoordinator(id: string, sessionId: string | null): IssueWire {
+    return this.update(id, { coordinatorSessionId: sessionId })
   }
 
   close(id: string, reason = 'done', opts?: { actorSessionId?: string }): IssueWire {

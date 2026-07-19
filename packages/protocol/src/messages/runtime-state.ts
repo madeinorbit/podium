@@ -38,6 +38,15 @@ export const AgentError = z.object({
 })
 export type AgentError = z.infer<typeof AgentError>
 
+/** One live native harness subagent (Claude Task/Agent tool, etc.).
+ *  Identity rides the hook channel (`agent_id` / `agent_type` on SubagentStart
+ *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
+export const NativeSubagent = z.object({
+  id: z.string(),
+  type: z.string().optional(),
+})
+export type NativeSubagent = z.infer<typeof NativeSubagent>
+
 export const AgentRuntimeState = z.object({
   phase: AgentPhase,
   since: z.string(), // ISO 8601 of the last phase change
@@ -46,7 +55,15 @@ export const AgentRuntimeState = z.object({
    *  cumulative motion timer existed. While actively working, clients add the
    *  live `now - since` stretch; in a stopped phase this is the final total. */
   workingMsTotal: z.number().int().nonnegative().optional(),
-  openTaskCount: z.number().int().nonnegative(),
+  nativeSubagentCount: z.number().int().nonnegative(),
+  /** Active native subagents with harness identity (agent_id + optional type).
+   *  Additive/optional for back-compat; when present, length matches
+   *  nativeSubagentCount for identity-tracked spawns. M6 consumes for naming. */
+  nativeSubagents: z.array(NativeSubagent).optional(),
+  /** True when turn_completed already fired but idle was deferred because
+   *  native subagents were still running. Cleared on genuine work / settle /
+   *  terminal phases. Optional for back-compat with older daemons/rows. */
+  awaitingSubagents: z.boolean().optional(),
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'
@@ -79,6 +96,10 @@ export const SessionMeta = z.object({
   title: z.string(),
   /** Curated name. Wins over `title` (the live terminal title) wherever shown. */
   name: z.string().optional(),
+  /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
+  model: z.string().optional(),
+  effort: z.string().optional(),
+  accountId: z.string().optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;
    *  'agent' = the session named itself (it may re-title itself). Absent = unnamed. */
   nameSource: z.enum(['user', 'agent']).optional(),
@@ -97,6 +118,9 @@ export const SessionMeta = z.object({
   /** Email-style read state (issue #124). Global (single-operator) — the ISO time
    *  the operator last opened this session, or null if never opened. */
   readAt: z.string().nullable().catch(null).default(null),
+  /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
+  stoppedAt: z.string().optional(),
+  stopReason: z.enum(['self', 'parent', 'forced', 'exited']).optional(),
   /** Server-DERIVED: there is activity the operator hasn't seen —
    *  `lastActiveAt > readAt`, or `readAt` is null (never opened). Defaulted so a
    *  pre-field cached payload still validates (unread → false). */
@@ -138,6 +162,10 @@ export const SessionMeta = z.object({
    *  by when its prompt was last edited (a draft edit is recent user intent on
    *  that session). Absent = no draft (or an empty one). */
   draftUpdatedAt: z.string().optional(),
+  /** Draft Sync v2 (POD-859): true when the session's daemon runs the composer
+   *  scrape/inject engine. A client uses it to retire its own native sampler +
+   *  chat→native flush (the daemon owns that now). Absent/false = legacy path. */
+  draftSyncEngine: z.boolean().optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the
@@ -204,6 +232,13 @@ export type SessionMeta = z.infer<typeof SessionMeta>
 export const SessionsChangedMessage = z.object({
   type: z.literal('sessionsChanged'),
   sessions: z.array(SessionMeta),
+})
+
+// Connection-scoped authorization revocation. These ids were already visible
+// to this client; removing them reveals no entity the client did not know.
+export const SessionViewDeltaMessage = z.object({
+  type: z.literal('sessionViewDelta'),
+  removedSessionIds: z.array(z.string()),
 })
 
 // One session's runtime phase changed. A dedicated message — not a full

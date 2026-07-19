@@ -5,6 +5,7 @@ import {
   type GitDiscoveryDiagnostic,
   type GitRepositorySummary,
   scanGitRepositories,
+  scanGitRepositoriesAtPath,
 } from '@podium/agent-bridge'
 import type {
   ControlMessage,
@@ -105,6 +106,45 @@ function expandHome(path: string, homePath: string): string {
   return path
 }
 
+/** Does this directory contain a `.git` (dir for a normal repo, file for a
+ *  worktree/submodule)? The browser's git-repo badge (POD-855) [spec:SP-5eb6].
+ *  One stat — deliberately cheaper than a full git probe, since it only drives an
+ *  icon; the authoritative repo metadata comes from a scan. */
+async function hasGitDir(dir: string): Promise<boolean> {
+  try {
+    await stat(join(dir, '.git'))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** At most this many `.git` stats in flight while badging a listing (POD-867).
+ *  libuv's fs threadpool is 4, so a handful of workers already saturates it; the
+ *  point of the cap is to not hold tens of thousands of pending promises at once
+ *  when browsing a directory-heavy path (/nix/store, a giant node_modules). */
+const GIT_STAT_CONCURRENCY = 32
+
+/** Map `items` through `fn` with at most `limit` calls in flight, results in input
+ *  order. A fixed pool of workers pulls from a shared cursor — no batch barriers,
+ *  and never more than `limit` pending promises regardless of input size. */
+export async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 /**
  * One directory's sub-directories on THIS machine's disk (POD-814) [spec:SP-3701].
  * Ported from the server's browseDirectories(): the picker used to browse the hub
@@ -134,9 +174,9 @@ export async function listDirectories(
     )
   }
 
-  let entries: DirectoryEntryWire[]
+  let dirs: { name: string; path: string }[]
   try {
-    entries = (await readdir(current, { withFileTypes: true }))
+    dirs = (await readdir(current, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
       .filter((entry) => options.includeHidden || !entry.name.startsWith('.'))
       .map((entry) => ({ name: entry.name, path: join(current, entry.name) }))
@@ -147,12 +187,32 @@ export async function listDirectories(
     )
   }
 
+  // `isRepo` uses the SAME cheap `.git` check for every folder — an entry's badge
+  // and the current folder's "Add repo" gate must never disagree (a badged subfolder
+  // you step into has to still read as a repo). Only the origin — used purely to
+  // NAME the add target — comes from a real depth-0 scan, best-effort.
+  const [entries, currentIsRepo, selfRepo] = await Promise.all([
+    // Bounded fan-out (POD-867): a directory with tens of thousands of subfolders
+    // must not spawn that many concurrent stats — cap the in-flight count.
+    mapLimit(
+      dirs,
+      GIT_STAT_CONCURRENCY,
+      async (d): Promise<DirectoryEntryWire> => ({ ...d, isRepo: await hasGitDir(d.path) }),
+    ),
+    hasGitDir(current),
+    scanGitRepositoriesAtPath(current, { maxDepth: 0, homeDir: browseHomeDir(options.homeDir) })
+      .then((r) => r.repositories.find((repo) => repo.path === current) ?? null)
+      .catch(() => null),
+  ])
+
   const parent = dirname(current)
   return {
     path: current,
     homePath,
     parentPath: parent === current ? null : parent,
     entries,
+    ...(currentIsRepo ? { isRepo: true } : {}),
+    ...(selfRepo?.originUrl ? { originUrl: selfRepo.originUrl } : {}),
   }
 }
 

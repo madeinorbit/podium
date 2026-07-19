@@ -20,7 +20,7 @@ function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): Se
     status: 'hibernated',
     busy: false,
     archived: false,
-    agentState: { phase: 'idle', since: '', openTaskCount: 0, idle: { kind: 'done' } },
+    agentState: { phase: 'idle', since: '', nativeSubagentCount: 0, idle: { kind: 'done' } },
     ...over,
   } as unknown as SessionMeta
 }
@@ -28,7 +28,7 @@ function sess(id: string, hoursAgo: number, over: Partial<SessionMeta> = {}): Se
 const working = (id: string, hoursAgo: number): SessionMeta =>
   sess(id, hoursAgo, {
     status: 'live',
-    agentState: { phase: 'working', since: '', openTaskCount: 0 },
+    agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
   } as Partial<SessionMeta>)
 
 describe('worktreeForCwd', () => {
@@ -61,7 +61,9 @@ describe('sessionsForWorktree (containment grouping)', () => {
   it('a session inside a nested worktree does NOT show in the parent repo group', () => {
     const list = [at('a', '/repo/.worktrees/feat/sub'), at('b', '/repo')]
     expect(sessionsForWorktree(list, '/repo', roots).map((s) => s.sessionId)).toEqual(['b'])
-    expect(sessionsForWorktree(list, '/repo/.worktrees/feat', roots).map((s) => s.sessionId)).toEqual(['a'])
+    expect(
+      sessionsForWorktree(list, '/repo/.worktrees/feat', roots).map((s) => s.sessionId),
+    ).toEqual(['a'])
   })
 
   it('falls back to exact-match when no root list is given (legacy callers)', () => {
@@ -129,6 +131,13 @@ describe('sidebarSections (containment grouping)', () => {
     expect(worktrees.find((w) => w.path === '/repo')?.issues).toEqual([])
     // The shell is filtered out of every sidebar session list.
     expect(feat?.sessions.map((s) => s.sessionId)).toEqual(['agent'])
+    // The same one-pass index feeds both issues sharing the worktree.
+    expect(
+      sections.sessionOwnership?.sessionsByIssue.get('live-1')?.map((s) => s.sessionId),
+    ).toEqual(['agent'])
+    expect(
+      sections.sessionOwnership?.sessionsByIssue.get('live-2')?.map((s) => s.sessionId),
+    ).toEqual(['agent'])
   })
 })
 

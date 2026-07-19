@@ -11,6 +11,19 @@ that shares your files, has no name on the board, and does not know you exist.
 
 Every spawn prompt should carry four things.
 
+
+## Issue curation boundary
+
+Discovered or adjacent work that can ship independently is a **top-level** issue linked
+with `discovered-from`; agent top-level creates land in **Proposed** automatically, so do
+not stage or claim them. Decomposition of the current deliverable is always a sub-issue
+under it. If adjacent work blocks shipping the parent, make it a blocking sub-issue rather
+than a proposal.
+
+Write `description` for the human: 1–3 concise, jargon-free sentences that stand alone.
+Put reproduction steps, file paths, constraints, and agent instructions in `brief`.
+[spec:SP-6144]
+
 ## 1. Placement — where it works
 
 ```
@@ -36,13 +49,14 @@ implementer, give it its own **issue**. This is one command, not two:
 
 ```
 podium issue create --title "…" --parent-id <your issue> \
-  --description "<the full brief — this becomes the agent's first prompt>" --start
+  --description "<1–3 plain sentences for the human>" \
+  --brief "<the full technical brief — included in the agent's first prompt>" --start
 ```
 
 `--start` does three things at once: it creates the branch and worktree, **and spawns
-exactly one agent on it**, using the issue's `--description` as that agent's first prompt
-(`issue start` always spawns — there is no start-without-agent option). So the brief goes
-in `--description`.
+exactly one agent on it** (`issue start` always spawns — there is no
+start-without-agent option). The human summary from `--description` leads the first prompt;
+`--brief` follows verbatim with technical context and instructions. [spec:SP-6144]
 
 > **Do not follow `--start` with `podium agent spawn --issue <sub>`.** That spawns a
 > *second* agent into the same worktree, and the two will silently clobber each other.
@@ -76,7 +90,7 @@ hand, and the delegate may still re-title itself as its work becomes clear.
 
 The isolated path has **no equivalent flag** — `podium issue create --start` names the
 issue, not the session it spawns. There, tell the delegate to title itself as its first
-action, in the `--description` that becomes its prompt:
+action, in the `--brief` that becomes its prompt:
 
 > First action: run `podium session title "Spec author"`.
 
@@ -127,12 +141,13 @@ A fresh session knows its issue. It does not know it has colleagues. Tell it:
 
 ## A worked brief
 
-An isolated implementer. One command — the `--description` *is* the agent's first prompt:
+An isolated implementer. One command — `--description` is the human summary and `--brief` is the technical first-prompt content:
 
 ```
 podium issue create --title "Child session name at spawn" --parent-id 694 \
-  --audience human --agent grok --model grok-4.5 --start \
-  --description "
+  --agent grok --model grok-4.5 --start \
+  --description "Names child sessions at spawn so delegated work is legible to the human." \
+  --brief "
 You are implementing POD-699 (Child session name at spawn). Read \`podium spec show SP-eb60\`
 (title doctrine) first.
 

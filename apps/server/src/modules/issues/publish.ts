@@ -58,6 +58,7 @@ export interface IssuePublisherDeps {
  *  the durable change log before clients see anything (oplog-read-path §2.5). */
 export class IssuePublisher implements IssuePublishSpecs {
   constructor(private readonly deps: IssuePublisherDeps) {}
+  private currentLocalIssues?: IssueWire[]
 
   /**
    * Build the issue-list payload, degrading to an empty list if the DERIVED build
@@ -68,7 +69,9 @@ export class IssuePublisher implements IssuePublishSpecs {
    */
   safeIssuesList(): IssueWire[] {
     try {
-      return this.deps.allWire() ?? []
+      const issues = this.deps.allWire() ?? []
+      this.currentLocalIssues = issues
+      return issues
     } catch (err) {
       console.warn('[podium] issues payload build failed — broadcasting empty issues list', err)
       return []
@@ -97,12 +100,18 @@ export class IssuePublisher implements IssuePublishSpecs {
     }
   }
 
+  /** Last successfully built local wire projection for connection bootstrap. */
+  currentIssuesList(): IssueWire[] {
+    return this.currentLocalIssues ?? this.safeIssuesList()
+  }
+
   /** Spec for a full issue list (every issuesChanged path). Takes the LOCAL
    *  list; the hub-mirrored issues are unioned in HERE, so every caller
    *  (IssueService mutations, session rebroadcast, staleness flips) serves
    *  local ∪ upstream without knowing about the mirror (node-hub-issues §2.1). */
   issuesChanged(localIssues: IssueWire[]): PublishSpec {
     const issues = this.deps.withUpstreamIssues(localIssues)
+    this.currentLocalIssues = localIssues
     return {
       rows: issues.map((i) => ({ id: i.id, value: i })),
       snapshot: { type: 'issuesChanged', issues },
@@ -114,6 +123,15 @@ export class IssuePublisher implements IssuePublishSpecs {
    *  ordered onAppended pipe, legacy clients get the issueUpdated message
    *  they already merge by id. */
   issueUpdated(issue: IssueWire): PublishSpec {
+    if (this.currentLocalIssues) {
+      const index = this.currentLocalIssues.findIndex((candidate) => candidate.id === issue.id)
+      this.currentLocalIssues =
+        index === -1
+          ? [...this.currentLocalIssues, issue]
+          : this.currentLocalIssues.map((candidate) =>
+              candidate.id === issue.id ? issue : candidate,
+            )
+    }
     return {
       rows: [{ id: issue.id, value: issue }],
       snapshot: { type: 'issueUpdated', issue },

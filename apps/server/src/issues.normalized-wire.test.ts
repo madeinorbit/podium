@@ -63,6 +63,7 @@ function issueRow(i: number): IssueRow {
     dueAt: null,
     deferUntil: null,
     closedReason: null,
+    closedAt: null,
     supersededBy: null,
     duplicateOf: null,
     pinned: false,

@@ -44,6 +44,7 @@
     "test": "bun run test:unit && bun run test:web && bun run test:bun:unit",
     "test:unit": "bun --bun vitest run --passWithNoTests --config vitest.unit.config.ts --project node",
     "test:web": "bun run --cwd apps/web test:unit",
+    "test:perf:frontend": "bun run --cwd apps/web test:perf:large-state",
     "test:integration": "bun --bun vitest run --passWithNoTests --config vitest.integration.config.ts",
     "test:smoke:agents": "PODIUM_REAL_CLI=1 bun --bun vitest run --passWithNoTests --config vitest.agent-smoke.config.ts",
     "test:e2e": "NODE_OPTIONS=--conditions=@podium/source bun --bun vitest run --config vitest.integration.config.ts tests/e2e",

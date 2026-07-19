@@ -36,7 +36,7 @@ describe('sessionMenuEligibility', () => {
         meta({
           status: 'live',
           resumable: true,
-          agentState: { phase: 'working', since: 'x', openTaskCount: 0 },
+          agentState: { phase: 'working', since: 'x', nativeSubagentCount: 0 },
         }),
       ).canHibernate,
     ).toBe(false)

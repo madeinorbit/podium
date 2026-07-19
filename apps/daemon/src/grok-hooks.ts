@@ -10,8 +10,11 @@ import { PODIUM_GROK_HOOK_URL_ENV } from '@podium/agent-bridge'
  * sessions inherit their own callback URL; every other Grok process exits 0
  * before touching the network. The command streams the daemon response back to
  * Grok so PreToolUse decisions remain usable; passive event responses are ignored.
+ * Keep the command free of dollar-prefixed names: Grok pre-expands every such
+ * token as a required environment variable before it invokes the shell.
  */
-export const PODIUM_GROK_HOOK_COMMAND = `bash -c 'u="$${PODIUM_GROK_HOOK_URL_ENV}"; [ -n "$u" ] || exit 0; curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" 2>/dev/null || true'`
+export const PODIUM_GROK_HOOK_COMMAND =
+  'bash -c \'printenv PODIUM_GROK_HOOK_URL >/dev/null 2>&1 || exit 0; curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "`printenv PODIUM_GROK_HOOK_URL`" 2>/dev/null || true\''
 
 const PODIUM_GROK_HOOK_TIMEOUT_SEC = 5
 const GROK_HOOK_EVENTS = [

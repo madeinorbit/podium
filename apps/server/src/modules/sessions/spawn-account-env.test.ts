@@ -68,9 +68,9 @@ function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = '
 }
 
 /** The frame for a wake (call site 2: SessionsService.resurrectSession). */
-function resurrectFrame(store: SessionStore) {
+async function resurrectFrame(store: SessionStore) {
   const { reg, daemon } = makeRegistry(store)
-  const { sessionId } = reg.modules.sessions.resumeSession({
+  const { sessionId } = await reg.modules.sessions.resumeSession({
     agentKind: 'codex',
     cwd: '/proj',
     resume: { kind: 'codex-thread', value: 't1' },
@@ -86,7 +86,7 @@ function resurrectFrame(store: SessionStore) {
   })
   expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
   const before = spawns(daemon).length
-  expect(reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await reg.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
   const frame = spawns(daemon).at(-1)
   // A wake really did re-spawn — otherwise we'd be asserting on the create frame.
   expect(spawns(daemon).length).toBe(before + 1)
@@ -99,8 +99,8 @@ it('createSession injects the managed credential into the spawn frame (#216)', (
   expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-managed' })
 })
 
-it('resurrectSession injects the managed credential into the spawn frame (#216)', () => {
-  const frame = resurrectFrame(storeWith('managed:anthropic', MANAGED_ANTHROPIC))
+it('resurrectSession injects the managed credential into the spawn frame (#216)', async () => {
+  const frame = await resurrectFrame(storeWith('managed:anthropic', MANAGED_ANTHROPIC))
   expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-managed' })
 })
 
@@ -109,8 +109,8 @@ it('createSession on a NATIVE account leaves env absent — not an empty object'
   expect(Object.hasOwn(frame, 'env')).toBe(false)
 })
 
-it('resurrectSession on a NATIVE account leaves env absent — not an empty object', () => {
-  const frame = resurrectFrame(storeWith('native:claude-code'))
+it('resurrectSession on a NATIVE account leaves env absent — not an empty object', async () => {
+  const frame = await resurrectFrame(storeWith('native:claude-code'))
   expect(Object.hasOwn(frame, 'env')).toBe(false)
 })
 

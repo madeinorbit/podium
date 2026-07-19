@@ -110,7 +110,7 @@ export function buildSuperagentTools(
             // Reverse of issue_show's session list (issue #72): session cwd →
             // bound issue, via the same worktree-containment rule as authz scope.
             const issueId = issues.issueForCwd(s.cwd)
-            const issue = issueId ? issues.get(issueId) : null
+            const issue = issueId ? issues.getMeta(issueId) : null
             return {
               sessionId: s.sessionId,
               name: s.name ?? s.title,
@@ -191,7 +191,7 @@ export function buildSuperagentTools(
         const issueRef = str(args.issueId)
         if (!isAgentKind(agentKind)) return 'invalid agentKind'
         if (issueRef) {
-          const issue = issues.get(issueRef)
+          const issue = issues.getMeta(issueRef)
           if (!issue) return `unknown issue: ${issueRef}`
           if (issue.worktreePath) {
             cwd = issue.worktreePath // spawn alongside the issue's work
@@ -718,7 +718,7 @@ export function buildSuperagentTools(
         if (results.length === 0) return '(no results)'
         const lines = results.map((r) => {
           // Issues read by display seq (what users and issue_* tools speak).
-          const seq = r.kind === 'issue' ? issues.get(r.id)?.seq : undefined
+          const seq = r.kind === 'issue' ? issues.getMeta(r.id)?.seq : undefined
           const ref = seq !== undefined ? `#${seq}` : r.id
           return `[${r.kind}] ${r.title}${r.snippet ? ` — ${r.snippet}` : ''} (${ref})`
         })

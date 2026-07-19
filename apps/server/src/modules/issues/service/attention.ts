@@ -21,6 +21,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     sessionId: string
     targetId?: string
     newSubissue?: { title: string; origin: 'human' | 'agent' }
+    confirmRehome?: boolean
   }): IssueWire {
     const { getSessionIssueId, setSessionIssueId } = this.deps
     if (!getSessionIssueId || !setSessionIssueId) {
@@ -29,6 +30,17 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     const prevId = getSessionIssueId(opts.sessionId)
     let target: IssueRow | undefined
     if (opts.newSubissue) {
+      const prev = prevId ? this.rows.get(prevId) : undefined
+      // A native subagent inherits its parent's relay, so an unconfirmed attach
+      // could silently re-home the parent session [spec:SP-bab8].
+      if (prev && !prev.draft && !opts.confirmRehome) {
+        throw new Error(
+          `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue), ` +
+            'so this could re-home that session unexpectedly. A native subagent must not ' +
+            'self-attach; its parent must attach it. For a deliberate top-level move, re-run ' +
+            'with `--confirm-rehome`.',
+        )
+      }
       const title = opts.newSubissue.title.trim()
       if (!title) throw new Error('subissue title is empty')
       const parentId = prevId ?? (opts.targetId ? this.resolveRef(opts.targetId) : null)
@@ -61,7 +73,8 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
         throw new Error(
           `attach blocked: this session already belongs to ${this.niceRef(prev)} (a real issue). ` +
             'Reassigning a session to a different issue is disabled; for new work use ' +
-            '`podium issue attach --subissue "<title>"` or file the issue for another agent.',
+            '`podium issue attach --subissue "<title>" --confirm-rehome` or file the issue ' +
+            'for another agent.',
         )
       }
     }
@@ -197,11 +210,11 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
   /**
    * Read-gated auto-archive sweep (issue #127). Archive every issue that is
    * DONE (or otherwise closed), has been READ, and whose read happened at least
-   * `AUTO_ARCHIVE_READ_WINDOW_MS` (24h) ago. This declutters the sidebar (S1 hides
+   * `AUTO_ARCHIVE_READ_WINDOW_MS` (7 days) ago. This declutters the sidebar (S1 hides
    * archived) while keeping the result reachable via the board's Archived filter.
    *
    * Read-gating is the point: a done-but-unread issue is left alone — the operator
-   * hasn't seen the result yet, and *reading* it is what starts the 24h clock
+   * hasn't seen the result yet, and *reading* it is what starts the seven-day clock
    * (see `computeUnread`: any activity after `readAt` re-flips it to unread).
    *
    * Cheap + idempotent: already-archived rows are skipped, the four cheap gates
@@ -218,7 +231,7 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     let sessionList: SessionMeta[] | undefined // fetched lazily — only if a row clears the cheap gates
     for (const row of this.rows.values()) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
-      if (!this.isClosed(row)) continue // not done / not closed
+      if (!this.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
       if (row.readAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(row.readAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
@@ -230,6 +243,39 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
       out.push(this.autoArchive(row))
     }
     return out
+  }
+
+  /**
+   * Single-issue auto-archive for the fenced janitor command [POD-925].
+   * Revalidates every durable + live precondition at apply time; the janitor
+   * observation is only a proposal.
+   */
+  tryAutoArchiveObserved(
+    observed: {
+      issueId: string
+      stage: string
+      closedReason: string | null
+      readAt: string
+      archived: false
+      deletedAt: null
+    },
+    nowMs: number = Date.parse(this.now()),
+  ): 'applied' | 'precondition' | 'not-due' {
+    const row = this.rows.get(observed.issueId)
+    if (!row) return 'precondition'
+    if (row.archived || row.deletedAt) return 'precondition'
+    if (row.stage !== observed.stage || (row.closedReason ?? null) !== observed.closedReason) {
+      return 'precondition'
+    }
+    if (row.readAt !== observed.readAt) return 'precondition'
+    if (!this.isClosed(row) || row.parentId) return 'precondition'
+    const readMs = Date.parse(row.readAt ?? '')
+    if (!Number.isFinite(readMs)) return 'precondition'
+    if (readMs > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
+    const sessions = sessionsForIssue(row.worktreePath, this.deps.listSessions(), row.id)
+    if (this.computeUnread(row, sessions)) return 'precondition'
+    this.autoArchive(row)
+    return 'applied'
   }
 
   /** Archive `row` as the passive auto-archive sweep (issue #127). Reuses the same

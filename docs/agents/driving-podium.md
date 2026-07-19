@@ -49,8 +49,8 @@ to mirror non-anomalous events to the console; anomalies warn automatically. Und
 
 ## Navigating the UI (current shadcn/Base-UI DOM)
 
-The app lands on the **Command center** home. To get into a workspace and a session:
-1. **Enter a workspace**: click a worktree button in the sidebar — `getByRole('button', { name: /<branch>\s+<base>/ })` (e.g. `worktree-foo main`). The adjacent `Pin <branch>` button carries a `title=` attr; exclude it. Or click an existing session card: `Open <session title>`.
+The app lands on **Tasks**. To get into a workspace and a session:
+1. **Enter a workspace**: click an issue or worktree button in the sidebar — `getByRole('button', { name: /<branch>\s+<base>/ })` (e.g. `worktree-foo main`). The adjacent `Pin <branch>` button carries a `title=` attr; exclude it. Or click an existing session card: `Open <session title>`.
 2. **Create a session**: `getByRole('button', { name: 'New panel' })` (the "+") → `getByRole('menuitem', { name: 'New Claude' })` (or `New Shell` / `New Codex`).
 3. **Wait for readiness**: `page.waitForFunction(() => !!window.__podium)`, then poll `screenText()` for the agent's prompt (Claude: `/Claude Code|esc to interrupt|shortcuts/`).
 

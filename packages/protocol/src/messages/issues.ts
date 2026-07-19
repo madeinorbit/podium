@@ -6,9 +6,24 @@ import { z } from 'zod'
 // ---------------------------------------------------------------------------
 
 // Ordered lifecycle stages an issue moves through. [spec:SP-0078]
-export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done'])
+// Agent-proposed work is deliberately inert until an operator accepts it. [spec:SP-6144]
+export const IssueStage = z.enum([
+  'proposed',
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'done',
+])
 export type IssueStage = z.infer<typeof IssueStage>
-export const ISSUE_STAGES: IssueStage[] = ['backlog', 'planning', 'in_progress', 'review', 'done']
+export const ISSUE_STAGES: IssueStage[] = [
+  'proposed',
+  'backlog',
+  'planning',
+  'in_progress',
+  'review',
+  'done',
+]
 
 export const IssueType = z.enum([
   'task',
@@ -109,6 +124,8 @@ export const IssueWire = z.object({
   seq: z.number().int(),
   title: z.string(),
   description: z.string(),
+  /** Technical handoff for agents; description remains the human summary. [spec:SP-6144] */
+  brief: z.string().optional(),
   stage: IssueStage,
   worktreePath: z.string().nullable(),
   branch: z.string().nullable(),
@@ -139,6 +156,9 @@ export const IssueWire = z.object({
   dueAt: z.string().optional(),
   deferUntil: z.string().optional(),
   closedReason: z.string().optional(),
+  /** When the closed-predicate last flipped true — the stable completion-decay
+   *  anchor (updatedAt churns on any touch). [spec:SP-6144] */
+  closedAt: z.string().optional(),
   supersededBy: z.string().optional(),
   duplicateOf: z.string().optional(),
   pinned: z.boolean(),
@@ -229,6 +249,14 @@ export const IssueWire = z.object({
    *  patch; the hub's next delta/snapshot overwrites with truth and clears this
    *  (docs/spec/node-hub-issues.md §2.2). Only ever set alongside viaHub. */
   pendingSync: z.boolean().optional(),
+  /** Designated coordinator session (bare session id) for actionable issue-addressed
+   *  mail routing. Claimable/changeable; dangling-tolerant if the session is later
+   *  deleted. Absent/undefined = unset (today's idle-else-most-recent heuristic). */
+  coordinatorSessionId: z.string().optional(),
+  /** Bare session id of the agent session that created this issue (started-by
+   *  provenance). Null/absent for operator/human creates. Additive so pre-field
+   *  payloads still parse. */
+  startedBySession: z.string().optional(),
 })
 export type IssueWire = z.infer<typeof IssueWire>
 
@@ -340,3 +368,14 @@ export const AgentRelayResultMessage = z.object({
   result: z.unknown().optional(),
   error: z.string().optional(),
 })
+
+/** How long the loopback agent-relay hub holds a request open for procs that
+ *  legitimately BLOCK server-side, before giving up with `agent relay timed out`
+ *  [POD-854]. The urgency-gated blocking send waits up to the server's
+ *  INTERRUPT_DELIVERY_CEILING_MS (90s) for a transcript-observed confirmation; if
+ *  the transport gives up first, the agent's `podium mail send` THROWS before the
+ *  gate can return its honest `delivered`/`accepted`, the sender resends, and we
+ *  get the duplicate delivery the milestone exists to kill. This must exceed that
+ *  ceiling with margin (the normal-RPC hub timeout stays 30s). Shared here so the
+ *  daemon transport and the server's budget invariant agree on one number. */
+export const AGENT_RELAY_BLOCKING_TIMEOUT_MS = 120_000

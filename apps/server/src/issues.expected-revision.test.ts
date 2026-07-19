@@ -334,7 +334,7 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
   it('covers every mutating command in the registry', () => {
     // A canary on the enumeration itself: if this count moves, a command was
     // added or removed and the rows below must be re-read, not re-baselined.
-    expect(mutations).toHaveLength(39)
+    expect(mutations).toHaveLength(42)
   })
 
   it.each(mutations)('%s declares a concurrency rule', (_name, def) => {

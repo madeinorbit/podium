@@ -33,6 +33,8 @@ function fakeIssues(created: Record<string, unknown>[] = []) {
       throw new Error(`unknown ref ${ref}`)
     },
     get: (id: string) => byId.get(id),
+    getMeta: (id: string) => byId.get(id),
+    has: (id: string) => byId.has(id),
     ancestorIds: () => [],
     create: (input: Record<string, unknown>) => {
       created.push(input)
@@ -55,10 +57,16 @@ function harness(opts?: {
   spawnSession?: MessageGateDeps['spawnSession']
   resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
   awaitPollMs?: number
+  /** Poll-sleep seam (blocking-send / await tests drive confirmation here). */
+  sleep?: (ms: number) => Promise<void>
   /** Fake clock shared by service + gate (awaitAgent freshness tests). */
   now?: () => string
   /** Reuse a prior harness's store — simulates a server restart. */
   store?: SessionStore
+  /** Optional override; default wires store.notificationFacts.retire (POD-917). */
+  retireNotificationFact?: MessageGateDeps['retireNotificationFact']
+  /** When true, omit retireNotificationFact entirely (optional-safe path). */
+  omitRetireNotificationFact?: boolean
 }) {
   const store = opts?.store ?? new SessionStore(':memory:')
   const sessions = opts?.sessions ?? []
@@ -66,8 +74,10 @@ function harness(opts?: {
   const created: Record<string, unknown>[] = []
   const issues = fakeIssues(created)
   const sent: { fn: string; sessionId: string; text: string }[] = []
+  const retired: { factKey: string; target: string }[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
+    notificationFacts: store.notificationFacts,
     events: store.events,
     issues: () => fakeIssues(),
     sessions: () => ({
@@ -87,6 +97,10 @@ function harness(opts?: {
     }),
     now: opts?.now ?? (() => new Date().toISOString()),
   })
+  const defaultRetire: MessageGateDeps['retireNotificationFact'] = (factKey, target) => {
+    retired.push({ factKey, target })
+    store.notificationFacts.retire(factKey, target, opts?.now?.() ?? new Date().toISOString())
+  }
   const gate = new MessageGate({
     messages: () => svc,
     issues: () => issues,
@@ -104,11 +118,16 @@ function harness(opts?: {
     // follow-up issues.get() resolves it (mirrors the real IssueService).
     createIssue: (i) => (issues as unknown as { create(x: unknown): { id: string } }).create(i),
     appendEvent: (e) => store.events.appendEvent(e),
-    sleep: () => Promise.resolve(), // never actually blocks the test
+    sleep: opts?.sleep ?? (() => Promise.resolve()), // never actually blocks the test
     awaitPollMs: opts?.awaitPollMs ?? 1,
     ...(opts?.now ? { now: opts.now } : {}),
+    ...(opts?.omitRetireNotificationFact
+      ? {}
+      : {
+          retireNotificationFact: opts?.retireNotificationFact ?? defaultRetire,
+        }),
   })
-  return { gate, svc, store, spawns, created, sessions, sent }
+  return { gate, svc, store, spawns, created, sessions, sent, retired }
 }
 
 describe('agent spawn (gate)', () => {
@@ -190,6 +209,43 @@ describe('agent spawn (gate)', () => {
       machineId: 'machine-review',
       accountId: 'native:codex',
       executionProfileId: 'prof_review',
+    })
+  })
+
+  it('returns and audits the placement actually produced by the spawn seam', async () => {
+    const { gate, store } = harness({
+      spawnSession: () => ({
+        sessionId: 'child-actual',
+        agentId: 'child-actual',
+        harness: 'codex',
+        model: 'fallback-model',
+        effort: 'medium',
+        machine: 'fallback-box',
+        machineId: 'machine-fallback',
+        accountId: 'native:codex',
+      }),
+    })
+    const result = await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'use actual placement',
+      harness: 'claude-code',
+      model: 'requested-model',
+      effort: 'low',
+    })
+    expect(result).toMatchObject({
+      agentId: 'child-actual',
+      harness: 'codex',
+      model: 'fallback-model',
+      effort: 'medium',
+      machine: 'fallback-box',
+    })
+    const events = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    expect(events[0]?.payload).toMatchObject({
+      harness: 'codex',
+      model: 'fallback-model',
+      effort: 'medium',
+      machineId: 'machine-fallback',
+      accountId: 'native:codex',
     })
   })
 
@@ -310,7 +366,7 @@ describe('agent await (bounded, never hangs)', () => {
       createdAt: 't',
       issueId: ISSUE.id,
       spawnedBy: 'session:sParent',
-      agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+      agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
       ...over,
     }) as SessionMeta
 
@@ -325,16 +381,121 @@ describe('agent await (bounded, never hangs)', () => {
     expect(r.snapshot).toMatchObject({ sessionId: 'child1', status: 'live', phase: 'working' })
   })
 
-  it('returns a settle immediately when the child is parked/idle', async () => {
-    const { gate } = harness({ sessions: [child({ status: 'exited' })] })
+  // Actionable result split (docs/agent-comms-target.html §09-D/§09-E): parent
+  // must never get a false "working" when the child is blocked/done/gone.
+  it('phase needs_user → blocked (overnight-stall: child waiting on a question)', async () => {
+    const { gate } = harness({
+      sessions: [
+        child({
+          agentState: {
+            phase: 'needs_user',
+            since: 't',
+            nativeSubagentCount: 0,
+            need: { kind: 'question', summary: 'pick a model' },
+          },
+        }),
+      ],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; snapshot: { phase?: string; need?: unknown } }
+    expect(r).toMatchObject({
+      done: true,
+      result: 'blocked',
+      snapshot: {
+        phase: 'needs_user',
+        need: { kind: 'question', summary: 'pick a model' },
+      },
+    })
+  })
+
+  it('phase errored → blocked (needs escalation)', async () => {
+    const { gate } = harness({
+      sessions: [
+        child({
+          agentState: {
+            phase: 'errored',
+            since: 't',
+            nativeSubagentCount: 0,
+            error: { class: 'rate_limit', retryable: true },
+          },
+        }),
+      ],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; snapshot: { phase?: string; error?: unknown } }
+    expect(r).toMatchObject({
+      done: true,
+      result: 'blocked',
+      snapshot: {
+        phase: 'errored',
+        error: { class: 'rate_limit', retryable: true },
+      },
+    })
+  })
+
+  it('phase idle → done', async () => {
+    const { gate } = harness({
+      sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
+    })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: 'child1',
       timeoutSeconds: 300,
     })) as { done: boolean; result: string }
-    expect(r).toMatchObject({ done: true, result: 'settled' })
+    expect(r).toMatchObject({ done: true, result: 'done' })
   })
 
-  it('surfaces the child ack (rich result wins over settle)', async () => {
+  it('phase ended → done', async () => {
+    const { gate } = harness({
+      sessions: [child({ agentState: { phase: 'ended', since: 't', nativeSubagentCount: 0 } })],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+  })
+
+  it('status hibernated → done (parked cleanly)', async () => {
+    const { gate } = harness({ sessions: [child({ status: 'hibernated' })] })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+  })
+
+  it('status exited with NO ack since waitStart → gone (exit-without-report)', async () => {
+    const { gate } = harness({ sessions: [child({ status: 'exited' })] })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; snapshot: { status?: string } }
+    expect(r).toMatchObject({ done: true, result: 'gone', snapshot: { status: 'exited' } })
+  })
+
+  it('session missing mid-await → gone', async () => {
+    // Authz sees the child (parent provenance); the row vanishes before the
+    // next poll — the documented "session missing → gone" path inside the loop.
+    const sessions = [child({})]
+    const { gate } = harness({
+      sessions,
+      awaitPollMs: 1,
+      sleep: async () => {
+        sessions.length = 0
+      },
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 5,
+    })) as { done: boolean; result: string; snapshot: null }
+    expect(r).toMatchObject({ done: true, result: 'gone', snapshot: null })
+  })
+
+  it('surfaces the child ack (rich result wins over settle / exit)', async () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
     const sessions = [child({})] // live + working: the await actually waits
@@ -362,6 +523,31 @@ describe('agent await (bounded, never hangs)', () => {
     expect(r.ack?.body).toBe('done: merged 3 commits')
   })
 
+  it('status exited WITH a fresh ack → acked (reported-then-exited, not gone)', async () => {
+    let t = 1_000
+    const now = () => new Date(t).toISOString()
+    const sessions = [child({ status: 'exited' })]
+    const { gate, svc } = harness({ sessions, now })
+    const sent = svc.send(
+      { kind: 'agent', sessionId: 'sParent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 'child1' }, body: 'report in' },
+    )
+    sessions.push(child({ sessionId: 'sParent', status: 'live', spawnedBy: undefined }))
+    // Ack after waitStart but child already exited — ack wins over gone.
+    t = 2_000
+    svc.sendReply(
+      { kind: 'agent', sessionId: 'child1', issueId: ISSUE.id },
+      { inReplyTo: sent.message.id, body: 'shipped; exiting' },
+    )
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string; ack?: { body: string } }
+    expect(r.done).toBe(true)
+    expect(r.result).toBe('acked')
+    expect(r.ack?.body).toBe('shipped; exiting')
+  })
+
   it('a stale ack from a previous round never satisfies a NEW await', async () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
@@ -378,12 +564,13 @@ describe('agent await (bounded, never hangs)', () => {
       { inReplyTo: sent.message.id, body: 'round 1 done' },
     )
     // Round 2: a NEW await must not be satisfied by the round-1 ack.
+    // Child is exited with no fresh report → gone (not a false working/settled).
     t = 600_000
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: 'child1',
       timeoutSeconds: 0,
     })) as { done: boolean; result: string }
-    expect(r).toMatchObject({ done: true, result: 'settled' })
+    expect(r).toMatchObject({ done: true, result: 'gone' })
   })
 
   it('the parent relationship alone authorizes await; strangers hit the scope gate', async () => {
@@ -403,6 +590,168 @@ describe('agent await (bounded, never hangs)', () => {
     })) as { result: string }
     expect(r.result).toBe('working')
   })
+
+  // POD-917/POD-923: parent await observing settled consumes the session-parent
+  // wake sticky so a later genuine re-completion can re-fire once.
+  it('parent await on settled child retires sessionparentnudge:phase-reported (consume-on-ack)', async () => {
+    const now = () => '2026-01-01T00:00:00.000Z'
+    const { gate, store, retired } = harness({
+      sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
+      now,
+    })
+    // Pre-claim as the steward would after the first parent wake.
+    expect(
+      store.notificationFacts.claim({
+        factKey: 'sessionparentnudge:phase-reported:child1',
+        target: 'sParent',
+        source: 'steward.session-parent-nudge:done',
+        issueId: null,
+        createdAt: now(),
+        expiresAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ).toBe(true)
+
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+    expect(retired).toEqual([
+      { factKey: 'sessionparentnudge:phase-reported:child1', target: 'sParent' },
+    ])
+    // Fact is re-claimable after consume (genuine later re-completion path).
+    expect(
+      store.notificationFacts.claim({
+        factKey: 'sessionparentnudge:phase-reported:child1',
+        target: 'sParent',
+        source: 'steward.session-parent-nudge:done',
+        issueId: null,
+        createdAt: now(),
+        expiresAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ).toBe(true)
+  })
+
+  it('parent await on working child does NOT retire the sticky', async () => {
+    const h = harness({ sessions: [child({})] })
+    const r = (await h.gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 0,
+    })) as { result: string }
+    expect(r.result).toBe('working')
+    expect(h.retired).toEqual([])
+  })
+
+  it('parent await gone/exited also consumes the sticky', async () => {
+    const h = harness({ sessions: [child({ status: 'exited' })] })
+    await h.gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })
+    expect(h.retired).toEqual([
+      { factKey: 'sessionparentnudge:phase-reported:child1', target: 'sParent' },
+    ])
+  })
+
+  it('missing retireNotificationFact dep is optional-safe (await still returns)', async () => {
+    const { gate } = harness({
+      sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
+      omitRetireNotificationFact: true,
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
+      sessionId: 'child1',
+      timeoutSeconds: 300,
+    })) as { done: boolean; result: string }
+    expect(r).toMatchObject({ done: true, result: 'done' })
+  })
+})
+
+describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', () => {
+  // A target on the PARENT's own issue subtree, so `messages.send` authz passes.
+  const target = (over: Partial<SessionMeta>): SessionMeta =>
+    ({
+      sessionId: 's1',
+      cwd: '/wt/b',
+      agentKind: 'claude-code',
+      status: 'live',
+      createdAt: 't',
+      issueId: SENDER_ISSUE.id,
+      agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
+      ...over,
+    }) as SessionMeta
+
+  it('a next-turn mail send BLOCKS until the boundary confirms, then reports delivered', async () => {
+    const sessions = [target({})] // live idle
+    // The confirmation fires during the first poll sleep (turn boundary). The hook
+    // is late-bound because `svc` is created inside the harness.
+    let confirm: () => void = () => {}
+    const { gate, svc } = harness({
+      sessions,
+      awaitPollMs: 5,
+      now: () => new Date(0).toISOString(), // constant clock: deadline never reached
+      sleep: async () => confirm(),
+    })
+    confirm = () => svc.onSessionIdle(target({}))
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'x',
+      urgency: 'next-turn',
+    })) as { disposition: string }
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('a next-turn send to a BUSY target returns accepted at the budget (never spins)', async () => {
+    let t = 1_000
+    const { gate } = harness({
+      sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
+      now: () => new Date(t).toISOString(),
+      awaitPollMs: 1_000_000, // one sleep jumps past the 25s budget
+      sleep: async (ms) => void (t += ms),
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'x',
+      urgency: 'next-turn',
+    })) as { disposition: string }
+    expect(r.disposition).toBe('accepted')
+    expect(t).toBeGreaterThanOrEqual(26_000)
+  })
+
+  it('clears the stale queued flag when blocking upgrades a busy send to delivered', async () => {
+    const sessions = [
+      target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } }),
+    ]
+    // First idle drains the held row into the PTY; the second confirms it at the
+    // boundary. The sync send returned queued:true (busy-held) — the delivered
+    // result must NOT still carry it.
+    let confirm: () => void = () => {}
+    const { gate, svc } = harness({
+      sessions,
+      awaitPollMs: 5,
+      now: () => new Date(0).toISOString(),
+      sleep: async () => confirm(),
+    })
+    confirm = () => svc.onSessionIdle(target({}))
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'x',
+      urgency: 'next-turn',
+    })) as { disposition: string; queued?: boolean }
+    expect(r.disposition).toBe('delivered')
+    expect(r.queued).not.toBe(true)
+  })
+
+  it('an fyi send returns at queued without blocking', async () => {
+    const { gate } = harness({
+      sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
+    })
+    const r = (await gate.dispatch(PARENT, undefined, 'send', {
+      to: 's1',
+      body: 'note',
+      urgency: 'fyi',
+    })) as { disposition: string }
+    expect(r.disposition).toBe('queued')
+  })
 })
 
 describe('session ask — the seance (#237 tier 4)', () => {
@@ -416,7 +765,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
       createdAt: 't',
       issueId: ISSUE.id,
       spawnedBy: 'session:sParent',
-      agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+      agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
       ...over,
     }) as SessionMeta
 
@@ -595,5 +944,28 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
     await expect(gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
       /neither sent nor received/,
     )
+  })
+})
+
+describe('mail dismiss — recipient-only clear', () => {
+  it('marks recipient mail read and removes it from the unread queue', async () => {
+    const { gate, svc, store } = harness()
+    const sent = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sParent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'dismiss me' },
+    )
+    const recipient: Capability = {
+      role: 'worker',
+      scope: { kind: 'subtree', rootId: ISSUE.id },
+      actorSessionId: 'sRecipient',
+    }
+    const wire = (await gate.dispatch(recipient, undefined, 'dismiss', {
+      id: sent.message.id,
+    })) as Record<string, unknown>
+    expect(wire).toMatchObject({ id: sent.message.id, status: 'read' })
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
+    await expect(
+      gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
+    ).rejects.toThrow(/only the recipient/)
   })
 })

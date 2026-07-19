@@ -33,6 +33,11 @@ export type SessionDeletionSource = 'issue' | 'standalone'
 export interface SessionRow {
   id: string
   agentKind: string
+  /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
+  model?: string | null
+  effort?: string | null
+  /** Account selection, not credential material. */
+  accountId?: string | null
   cwd: string
   title: string
   /** Curated display name; null = derive from title. Written by a human OR by the
@@ -88,6 +93,9 @@ export interface SessionRow {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null
+  /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
+  stoppedAt?: string | null
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides
@@ -128,6 +136,8 @@ export interface IssueRow {
   seq: number
   title: string
   description: string
+  /** Agent-facing technical handoff, separate from the human summary. [spec:SP-6144] */
+  brief?: string | null
   stage: string
   worktreePath: string | null
   branch: string | null
@@ -175,6 +185,8 @@ export interface IssueRow {
   dueAt: string | null
   deferUntil: string | null
   closedReason: string | null
+  /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
+  closedAt: string | null
   supersededBy: string | null
   duplicateOf: string | null
   pinned: boolean
@@ -211,6 +223,14 @@ export interface IssueRow {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  issue; null/absent = never opened. Optional so pre-existing row literals stay valid. */
   readAt?: string | null
+  /** Designated coordinator session (bare session id) — actionable issue-addressed
+   *  mail prefers this when live. Claimable/changeable; dangling-tolerant (no FK).
+   *  Optional so pre-existing row literals stay valid; null/absent = unset. */
+  coordinatorSessionId?: string | null
+  /** Bare session id of the agent that created this issue (started-by provenance).
+   *  Null for operator/human creates. Dangling-tolerant. Optional so pre-existing
+   *  row literals stay valid. */
+  startedBySession?: string | null
 }
 
 export interface IssueCommentRow {
@@ -306,6 +326,17 @@ export interface MessageRow {
   clampedFrom: string | null
   /** When the stop-hook's ONE unacked-message reminder was issued (never repeats). */
   remindedAt: string | null
+  /** Notification-arbiter identity [spec:SP-ba61]. Reading or dismissing a
+   *  message with both fields retires its live fact; ordinary messages are null. */
+  factKey?: string | null
+  factTarget?: string | null
+  /** A response is OPT-IN [POD-835 §04b]: true only for a `--expect-response` send
+   *  or a `question`. Receipt is mechanically proven by the ledger (POD-834), so an
+   *  ordinary message owes no reply and generates no ack traffic; this flag is the
+   *  SOLE trigger for the stop-hook reminder and the steward settle-nag. `ack` and
+   *  `notification` never set it — an ack is never itself ackable. Optional in TS
+   *  (the column is NOT NULL DEFAULT 0; a missing field reads as false). */
+  expectsResponse?: boolean
 }
 
 /** A durable event subscription (event-subscriptions design, Phase B). The steward

@@ -3,18 +3,22 @@
 // state × axis table, clamp matrix, containment brakes (wake cooldown, spawn
 // budget, hop limit), pointer coalescing, and the queued→delivered ledger.
 
-import type { SessionMeta } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type SessionMeta } from '@podium/protocol'
+import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import type { IssueRow, MessageRow } from '../../store'
 import { SessionStore } from '../../store'
+import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import { MessageGate } from './gate'
 import {
   ECHO_CONFIRM_WINDOW_MS,
   HOP_LIMIT,
   INLINE_BODY_MAX,
+  INTERRUPT_DELIVERY_CEILING_MS,
+  MAX_ECHO_REQUEUES,
   MessageDeliveryService,
+  NEXT_TURN_DELIVERY_BUDGET_MS,
   SPAWN_BUDGET_PER_DAY,
   sanitizeBody,
   senderFromCapability,
@@ -28,7 +32,13 @@ const ISSUE = {
 }
 const SENDER_ISSUE = { id: 'iss_b', seq: 212, worktreePath: '/wt/b' }
 
-function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[], archivedIds?: Set<string>) {
+function fakeIssues(
+  getSessionLists?: (SessionMeta[] | undefined)[],
+  archivedIds?: Set<string>,
+  /** Per-issue coordinator session id (bare id) for prefer-coordinator routing tests. */
+  coordinatorByIssue?: Map<string, string>,
+  resolveIssueForCwd?: (cwd: string) => string | null,
+) {
   const byId = new Map([
     [ISSUE.id, ISSUE],
     [SENDER_ISSUE.id, SENDER_ISSUE],
@@ -44,9 +54,34 @@ function fakeIssues(getSessionLists?: (SessionMeta[] | undefined)[], archivedIds
       const base = byId.get(id)
       // Surface a per-test archived flag [POD-834] without mutating the shared
       // fixtures (which would leak across tests).
-      return base ? { ...base, archived: archivedIds?.has(id) ?? false } : undefined
+      if (!base) return undefined
+      const coord = coordinatorByIssue?.get(id)
+      return {
+        ...base,
+        archived: archivedIds?.has(id) ?? false,
+        ...(coord ? { coordinatorSessionId: coord } : {}),
+      }
     },
+    getMeta: (id: string) => {
+      const base = byId.get(id)
+      if (!base) return undefined
+      const coord = coordinatorByIssue?.get(id)
+      return {
+        ...base,
+        archived: archivedIds?.has(id) ?? false,
+        ...(coord ? { coordinatorSessionId: coord } : {}),
+      }
+    },
+    has: (id: string) => byId.has(id),
     ancestorIds: () => [],
+    issueForCwd:
+      resolveIssueForCwd ??
+      ((cwd: string) =>
+        [...byId.values()].find(
+          (issue) =>
+            issue.worktreePath &&
+            (cwd === issue.worktreePath || cwd.startsWith(`${issue.worktreePath}/`)),
+        )?.id ?? null),
   } as unknown as IssueService
 }
 
@@ -57,7 +92,7 @@ function session(over: Partial<SessionMeta>): SessionMeta {
     agentKind: 'claude-code',
     status: 'live',
     createdAt: 't',
-    agentState: { phase: 'idle', since: 't', openTaskCount: 0 },
+    agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 },
     ...over,
   } as SessionMeta
 }
@@ -116,13 +151,22 @@ interface HarnessOpts {
     queued?: boolean
     reason?: string
   }
+  sendText?: (i: { sessionId: string; text: string }) => {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  }
   spawnOnWake?: import('./service').SpawnOnWake
   now?: () => string
   /** Issue ids the fake issues dep reports as archived (dead-letter path). */
   archivedIds?: Set<string>
+  /** Bare coordinator session id per issue id (prefer-coordinator routing). */
+  coordinatorByIssue?: Map<string, string>
   /** Reuse a prior harness's store — simulates a server restart (fresh
    *  service, same durable rows/ledger). */
   store?: SessionStore
+  /** Override inferred issue membership for cwd/rehome transition tests. */
+  issueForCwd?: (cwd: string) => string | null
 }
 
 function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -146,8 +190,10 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
     messages: store.messages,
+    notificationFacts: store.notificationFacts,
     events: store.events,
-    issues: () => fakeIssues(issueGetLists, opts?.archivedIds),
+    issues: () =>
+      fakeIssues(issueGetLists, opts?.archivedIds, opts?.coordinatorByIssue, opts?.issueForCwd),
     sessions: () => ({
       listSessions: () => {
         listCalls.n += 1
@@ -155,7 +201,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
       },
       sendText: (i) => {
         sent.push(i)
-        return { ok: true }
+        return opts?.sendText?.(i) ?? { ok: true }
       },
       queueText: (i) => {
         queued.push(i)
@@ -176,12 +222,16 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   return { store, svc, sent, queued, interrupted, attention, listCalls, issueGetLists }
 }
 
-const IDLE = { phase: 'idle', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
-const WORKING = { phase: 'working', since: 't', openTaskCount: 0 } as SessionMeta['agentState']
+const IDLE = { phase: 'idle', since: 't', nativeSubagentCount: 0 } as SessionMeta['agentState']
+const WORKING = {
+  phase: 'working',
+  since: 't',
+  nativeSubagentCount: 0,
+} as SessionMeta['agentState']
 const NEEDS_USER = {
   phase: 'needs_user',
   since: 't',
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
 } as SessionMeta['agentState']
 
 /** Simulate the transcript echo that confirms a pushed message [POD-834]: the
@@ -222,11 +272,14 @@ describe('MessagesRepository (store CRUD)', () => {
       hop: 0,
       clampedFrom: null,
       remindedAt: null,
+      factKey: null,
+      factTarget: null,
+      expectsResponse: false,
     }
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)
     expect(store.messages.listMessagesFor({ kind: 'issue', id: 'iss_a' })).toEqual([m])
-    expect(store.messages.pendingFor({ kind: 'issue', id: 'iss_a' })).toHaveLength(1)
+    expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
     expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
 
     expect(store.messages.markDelivered('msg_1', 's1', 't1')).toBe(true)
@@ -348,7 +401,8 @@ describe('MessageDeliveryService.send', () => {
     expect(sent).toHaveLength(1)
     expect(sent[0]!.sessionId).toBe('s1')
     expect(queued).toHaveLength(0)
-    expect(r.disposition).toBe('delivered')
+    // Honest [spec:SP-cb9f]: pushed to the harness queue, not yet echoed → 'queued'.
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s1')
     echo(svc, 's1', r.message.id)
@@ -359,12 +413,12 @@ describe('MessageDeliveryService.send', () => {
     const busy = [
       session({
         sessionId: 'sOld',
-        agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+        agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         lastActiveAt: 't1',
       }),
       session({
         sessionId: 'sNew',
-        agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+        agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
         lastActiveAt: 't9',
       }),
     ]
@@ -385,7 +439,92 @@ describe('MessageDeliveryService.send', () => {
     const h3 = harness([])
     const r3 = h3.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
     expect(r3.message.status).toBe('queued')
-    expect(h3.store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(1)
+    expect(h3.store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(1)
+  })
+
+  it('actionable issue-addressed mail prefers the live coordinator session', () => {
+    // Two live agents; most-recent would be sNew, but coordinator is sCoord.
+    const members = [
+      session({
+        sessionId: 'sOld',
+        agentState: WORKING,
+        lastActiveAt: 't1',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sNew',
+        agentState: WORKING,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const { svc, sent } = harness(members, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'do this', urgency: 'next-turn' },
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.sessionId).toBe('sCoord')
+    expect(r.message.deliveredTo).toBe('sCoord')
+
+    // fyi is unchanged — still the mail-nudge heuristic (most recently active when multi).
+    // Two idle live agents: multi-live picks most-recent (sOther), never the coordinator.
+    const idlePair = [
+      session({
+        sessionId: 'sCoord',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sOther',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const hFyi = harness(idlePair, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const fyi = hFyi.svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'fyi note', urgency: 'fyi' },
+    )
+    expect(hFyi.sent[0]!.sessionId).toBe('sOther')
+    expect(fyi.message.deliveredTo).toBe('sOther')
+
+    // Coordinator set but not live → fall back to selectMailNudgeSession.
+    const noCoordLive = [
+      session({
+        sessionId: 'sNew',
+        agentState: IDLE,
+        lastActiveAt: 't9',
+        issueId: ISSUE.id,
+      }),
+      session({
+        sessionId: 'sCoord',
+        status: 'exited',
+        agentState: IDLE,
+        lastActiveAt: 't0',
+        issueId: ISSUE.id,
+      }),
+    ]
+    const hFall = harness(noCoordLive, {
+      coordinatorByIssue: new Map([[ISSUE.id, 'sCoord']]),
+    })
+    const fall = hFall.svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'fallback', urgency: 'interrupt' },
+    )
+    expect(fall.message.deliveredTo).toBe('sNew')
   })
 
   it('records queued→injected→delivered on the ledger and emits an event per transition', () => {
@@ -435,7 +574,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     // Ledger-only: consumed (never queued), so no stop-hook / sweep re-surfaces it.
     expect(r.message.status).toBe('delivered')
     expect(r.message.deliveredTo).toBeNull()
-    expect(store.messages.pendingFor({ kind: 'issue', id: ISSUE.id })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     // …and the legacy mirror is marked read so mailPending stops nagging too.
     expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
     // Observable as a distinct ledger transition, not a real delivery.
@@ -457,8 +596,9 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     )
     expect(sent).toHaveLength(1)
     expect(sent[0]!.sessionId).toBe('s2')
-    // Pushed to s2, awaiting its echo (not the sender's own echo) [POD-834].
-    expect(r.disposition).toBe('delivered')
+    // Pushed to s2, awaiting its echo (not the sender's own echo) [POD-834]; the
+    // honest send disposition is therefore 'queued' until that echo [spec:SP-cb9f].
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.deliveredTo).toBe('s2')
     echo(svc, 's2', r.message.id)
@@ -498,7 +638,7 @@ describe('self-delivery suppression [spec:SP-a4ba] (§09-H)', () => {
     expect(queued).toHaveLength(0)
     expect(r.message.status).toBe('delivered')
     expect(r.message.deliveredTo).toBeNull()
-    expect(store.messages.pendingFor({ kind: 'session', id: 's1' })).toHaveLength(0)
+    expect(store.messages.countPending({ kind: 'session', id: 's1' })).toBe(0)
   })
 })
 
@@ -513,8 +653,10 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
       expect(sent).toHaveLength(1)
       expect(queued).toHaveLength(0)
       expect(interrupted).toHaveLength(0)
-      // Dispatched now (disposition delivered) but honestly still queued until echo.
-      expect(r.disposition).toBe('delivered')
+      // Honest disposition [spec:SP-cb9f, POD-854]: an echo-mode live push is in the
+      // harness queue, not yet transcript-observed — so the SEND returns 'queued',
+      // upgraded to 'delivered' only when the echo/turn-boundary confirms it.
+      expect(r.disposition).toBe('queued')
       expect(r.message.status).toBe('queued')
       expect(r.message.injectedAt).not.toBeNull()
       echo(svc, 's1', r.message.id)
@@ -584,7 +726,9 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect(interrupted).toHaveLength(1)
     expect(queued).toHaveLength(0)
-    expect(r.disposition).toBe('delivered')
+    // Injected via ESC now, but honestly 'queued' until the echo/boundary confirms
+    // it [spec:SP-cb9f]; the blocking gate is what waits for the upgrade to delivered.
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
     expect(r.message.clampedFrom).toBeNull()
   })
@@ -624,7 +768,8 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(interrupted).toHaveLength(1)
     expect(sent).toHaveLength(0)
     expect(queued).toHaveLength(0)
-    expect(r.disposition).toBe('delivered')
+    // Honest [spec:SP-cb9f]: ESC-injected into the harness, not yet echoed → 'queued'.
+    expect(r.disposition).toBe('queued')
     expect(r.message.status).toBe('queued')
   })
 
@@ -687,6 +832,278 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(queued[0]!.sessionId).toBe('sNew')
     // Resurrected via the durable queue; queued until it wakes and drains.
     expect(r.message.status).toBe('queued')
+  })
+})
+
+describe('awaitDelivered (bounded poll on the delivered signal) [spec:SP-cb9f] [POD-854]', () => {
+  it('resolves with the row the moment it leaves queued (echo confirms delivered)', async () => {
+    const { svc } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+    )
+    expect(r.message.status).toBe('queued')
+    // The transcript echo lands during the first poll sleep — the next poll sees it.
+    let polls = 0
+    const row = await svc.awaitDelivered(r.message.id, {
+      timeoutMs: 10_000,
+      pollMs: 5,
+      now: () => 0, // deadline (10_000) is never reached: confirmation wins
+      sleep: async () => {
+        polls += 1
+        if (polls === 1) echo(svc, 's1', r.message.id)
+      },
+    })
+    expect(row?.status).toBe('delivered')
+    expect(polls).toBe(1)
+  })
+
+  it('returns the still-queued row at the deadline instead of hanging', async () => {
+    // Busy target → held for the turn boundary, never confirmed within the budget.
+    const { svc } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+    )
+    expect(r.message.status).toBe('queued')
+    let t = 0
+    const row = await svc.awaitDelivered(r.message.id, {
+      timeoutMs: 100,
+      pollMs: 25,
+      now: () => t,
+      sleep: async (ms) => {
+        t += ms // advance the fake clock so the deadline is actually reached
+      },
+    })
+    expect(row?.status).toBe('queued')
+    expect(t).toBeGreaterThanOrEqual(100)
+  })
+
+  it('treats a pull-path read as a terminal confirmation (leaves queued)', async () => {
+    // An issue-addressed fyi is a pointer nudge: confirmed by an inbox READ, which
+    // also leaves 'queued' — awaitDelivered must resolve on any non-queued status.
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: `#${ISSUE.seq}` }, body: 'note', urgency: 'fyi' },
+    )
+    expect(r.message.status).toBe('queued')
+    let polls = 0
+    const row = await svc.awaitDelivered(r.message.id, {
+      timeoutMs: 10_000,
+      pollMs: 5,
+      now: () => 0,
+      sleep: async () => {
+        polls += 1
+        if (polls === 1) svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+      },
+    })
+    expect(row?.status).toBe('read')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('read')
+  })
+
+  it('returns null for an unknown message id (still bounded)', async () => {
+    const { svc } = harness([])
+    let t = 0
+    const row = await svc.awaitDelivered('msg_nope', {
+      timeoutMs: 10,
+      pollMs: 5,
+      now: () => t,
+      sleep: async (ms) => {
+        t += ms
+      },
+    })
+    expect(row).toBeNull()
+  })
+})
+
+describe('sendAndConfirm (urgency-gated blocking send) [spec:SP-cb9f] [POD-854]', () => {
+  it('next-turn blocks until the turn boundary confirms, then reports delivered', async () => {
+    const { svc } = harness([session({ sessionId: 's1' })]) // live idle
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+      {
+        now: () => 0, // deadline (25s) never reached: the confirmation wins
+        pollMs: 5,
+        // The turn boundary lands during the first poll sleep and confirms the push.
+        sleep: async () => svc.onSessionIdle(session({ sessionId: 's1' })),
+      },
+    )
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('interrupt blocks until delivered (transcript-observed), then reports delivered', async () => {
+    const { svc } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'stop', urgency: 'interrupt' },
+      {
+        now: () => 0,
+        pollMs: 5,
+        // ESC cancels the turn → the session goes idle → the boundary confirms.
+        sleep: async () => {
+          polls += 1
+          if (polls === 1) svc.onSessionIdle(session({ sessionId: 's1' }))
+        },
+      },
+    )
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('next-turn to a busy target returns accepted at the budget (never spins)', async () => {
+    const { svc, store } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    let t = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn' },
+      { now: () => t, pollMs: 1_000_000, sleep: async (ms) => void (t += ms) },
+    )
+    // Held for the turn boundary, never confirmed within the 25s budget → accepted,
+    // and the row is honestly still queued (queryable via `podium mail status`).
+    expect(r.disposition).toBe('accepted')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(t).toBeGreaterThanOrEqual(25_000)
+  })
+
+  it('interrupt to a composer-draft-held session returns accepted (POD-865 hold, no spin)', async () => {
+    // The human has a live composer draft: injection is held at EVERY urgency,
+    // including interrupt — so a legitimately-queued row outlives the ceiling and
+    // the sender gets the honest accepted, never an infinite block [POD-865].
+    const { svc } = harness([
+      session({ sessionId: 's1', draftUpdatedAt: '2026-07-12T23:59:55.000Z' }),
+    ])
+    let t = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'stop', urgency: 'interrupt' },
+      { now: () => t, pollMs: 1_000_000, sleep: async (ms) => void (t += ms) },
+    )
+    expect(r.disposition).toBe('accepted')
+    expect(t).toBeGreaterThanOrEqual(90_000) // waited the interrupt ceiling, not forever
+  })
+
+  it('fyi returns at queued and never polls', async () => {
+    const { svc } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 's1' }, body: 'note', urgency: 'fyi' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('queued')
+    expect(polls).toBe(0)
+  })
+
+  it('a confirmed-on-injection push (unwrapped operator) returns delivered without polling', async () => {
+    const { svc } = harness([session({ sessionId: 's1' })]) // idle
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body: 'go', urgency: 'next-turn' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('delivered') // injection IS delivery — nothing to await
+    expect(polls).toBe(0)
+  })
+
+  it('passes a held disposition through without blocking (no live session)', async () => {
+    const { svc } = harness([]) // issue live, no session
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'x', urgency: 'next-turn' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('held')
+    expect(polls).toBe(0)
+  })
+
+  it('a transport-failed push returns accepted immediately without blocking the budget', async () => {
+    // The session looks live but the push fails (daemon dropped offline mid-send):
+    // no bytes on screen → nothing can confirm within the budget, and the row is
+    // durably queued for the sweep, so accepted is the honest immediate answer.
+    const { svc } = harness([session({ sessionId: 's1', status: 'hibernated' })], {
+      queueText: () => ({ ok: false, reason: 'daemon offline mid-send' }),
+    })
+    // Advancing clock so that WITHOUT the ok:false short-circuit this would block to
+    // the budget (polls > 0) rather than hang — the guard makes it return at once.
+    let t = 0
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'x', urgency: 'next-turn', lifecycle: 'wake' },
+      {
+        now: () => t,
+        pollMs: 1_000_000,
+        sleep: async (ms) => {
+          polls += 1
+          t += ms
+        },
+      },
+    )
+    expect(r.ok).toBe(false)
+    expect(r.disposition).toBe('accepted')
+    expect(polls).toBe(0) // never entered the poll loop — the push already failed
+  })
+
+  it('reports terminal-undelivered honestly: a row that expires mid-block is dead_letter, not accepted', async () => {
+    const { svc, store } = harness([session({ sessionId: 's1', agentState: WORKING })])
+    const r = await svc.sendAndConfirm(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'x',
+        urgency: 'next-turn',
+        expiresAt: '2026-07-12T00:00:00.000Z', // already past deps.now
+      },
+      {
+        now: () => 0,
+        pollMs: 5,
+        // The row's TTL lapses during the block — a terminal, undelivered state that
+        // must NOT be reported as the pending 'accepted'.
+        sleep: async () => {
+          const message = store.messages.listQueuedPage({ limit: 1 })[0]
+          if (message) {
+            store.messages.expireObserved({
+              id: message.id,
+              createdAt: message.createdAt,
+              lifecycle: message.lifecycle,
+              expiresAt: message.expiresAt,
+            })
+          }
+        },
+      },
+    )
+    expect(r.disposition).toBe('dead_letter')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('expired')
+  })
+
+  it('does not block an operator-addressed escalation (resolved by a human read, not a turn)', async () => {
+    const { svc } = harness([])
+    let polls = 0
+    const r = await svc.sendAndConfirm(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'operator' }, body: 'help', urgency: 'next-turn' },
+      { now: () => 0, sleep: async () => void (polls += 1) },
+    )
+    expect(r.disposition).toBe('queued')
+    expect(polls).toBe(0)
+  })
+
+  it('the blocking budgets stay under the agent-relay transport timeout (drift guard)', () => {
+    // If a budget ever exceeds the loopback relay hold-time, an agent's `mail send`
+    // throws 'agent relay timed out' before the gate returns its honest disposition
+    // and the sender resends — the duplicate this milestone kills [POD-854]. Bump
+    // AGENT_RELAY_BLOCKING_TIMEOUT_MS in @podium/protocol before raising a ceiling.
+    expect(INTERRUPT_DELIVERY_CEILING_MS).toBeLessThan(AGENT_RELAY_BLOCKING_TIMEOUT_MS)
+    expect(NEXT_TURN_DELIVERY_BUDGET_MS).toBeLessThan(AGENT_RELAY_BLOCKING_TIMEOUT_MS)
+    // Real margin, not a hairline (the reviewer's 5s-under-30s concern) — the block
+    // plus transcript-tail latency must comfortably clear the transport deadline.
+    expect(AGENT_RELAY_BLOCKING_TIMEOUT_MS - INTERRUPT_DELIVERY_CEILING_MS).toBeGreaterThanOrEqual(
+      20_000,
+    )
   })
 })
 
@@ -930,8 +1347,8 @@ describe('pointer renderings + coalescing [spec:SP-34d7]', () => {
   })
 })
 
-describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
-  it('expires queued rows past expires_at and ledgers the transition', () => {
+describe('server-owned delivery retry backstop [spec:SP-c29e]', () => {
+  it('does not expire queued rows because calendar ownership belongs to the janitor', () => {
     let clock = '2026-07-13T00:00:00.000Z'
     const { svc, store } = harness([], { now: () => clock })
     const r = svc.send(
@@ -941,9 +1358,9 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     expect(r.message.status).toBe('queued')
     clock = '2026-07-13T02:00:00.000Z'
     svc.sweep()
-    expect(store.messages.getMessage(r.message.id)!.status).toBe('expired')
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     const events = store.events.listEventsSince(0, { kinds: ['message.expired'] })
-    expect(events.some((e) => e.subject === r.message.id)).toBe(true)
+    expect(events.some((e) => e.subject === r.message.id)).toBe(false)
   })
 
   it('retries still-queued rows against the target session state', () => {
@@ -981,11 +1398,9 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
 
   // POD-797: deleted the session-list threading test with IssueWire's removed membership assembly.
 
-  // POD-817: wait-lifecycle rows with no explicit expiry queued FOREVER (the
-  // forensics "black hole") and made every future sweep slower. They now expire
-  // after QUEUED_WAIT_TTL_MS; the row stays readable in inbox/ledger (expiry
-  // only stops redelivery attempts, listMessagesFor does not filter status).
-  it('expires a wait row with no explicit expiry after the implicit TTL', () => {
+  // Expiry candidates stay durable for the WAL-reading janitor. The retry backstop
+  // must never mutate them; MaintenanceService revalidates and commits instead.
+  it('leaves implicitly expired wait rows queued for the janitor', () => {
     let clock = '2026-07-13T00:00:00.000Z'
     const { svc, store } = harness([], { now: () => clock })
     const old = svc.send(
@@ -1000,11 +1415,11 @@ describe('sweep (expiry + retry) [spec:SP-34d7]', () => {
     )
     clock = '2026-07-21T00:00:00.000Z' // old is now 8d, young 3d
     svc.sweep()
-    expect(store.messages.getMessage(old.message.id)!.status).toBe('expired')
+    expect(store.messages.getMessage(old.message.id)!.status).toBe('queued')
     expect(store.messages.getMessage(young.message.id)!.status).toBe('queued')
     const events = store.events.listEventsSince(0, { kinds: ['message.expired'] })
-    expect(events.some((e) => e.subject === old.message.id)).toBe(true)
-    // Expired ≠ hidden: the row is still listed for its principal.
+    expect(events.some((e) => e.subject === old.message.id)).toBe(false)
+    // The candidate remains readable for its principal while janitor work is delayed.
     const listed = store.messages.listMessagesFor({ kind: 'issue', id: ISSUE.id })
     expect(listed.some((m) => m.id === old.message.id)).toBe(true)
   })
@@ -1162,13 +1577,89 @@ describe('acks', () => {
   })
 })
 
+describe('opt-in response [POD-835 §04b]', () => {
+  it('derives expects_response: opt-in flag / question yes, plain / ack / notification no', () => {
+    const { svc } = harness([
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+    ])
+    const from = { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' } as const
+    const plain = svc.send(from, {
+      to: { kind: 'session', id: 's1' },
+      body: 'a',
+      urgency: 'next-turn',
+    })
+    expect(plain.message.expectsResponse).toBe(false)
+    const asked = svc.send(from, {
+      to: { kind: 'session', id: 's1' },
+      body: 'b',
+      urgency: 'next-turn',
+      expectsResponse: true,
+    })
+    expect(asked.message.expectsResponse).toBe(true)
+    const q = svc.send(from, { to: { kind: 'session', id: 's1' }, body: 'c?', kind: 'question' })
+    expect(q.message.expectsResponse).toBe(true)
+    // An ack is never itself ackable — even if a caller smuggles the flag in.
+    const ack = svc.send(from, {
+      to: { kind: 'session', id: 's1' },
+      body: 'ok',
+      kind: 'ack',
+      inReplyTo: asked.message.id,
+      expectsResponse: true,
+    })
+    expect(ack.message.expectsResponse).toBe(false)
+    const note = svc.send(
+      { kind: 'system', name: 'steward' },
+      { to: { kind: 'session', id: 's1' }, body: 'n', kind: 'notification', expectsResponse: true },
+    )
+    expect(note.message.expectsResponse).toBe(false)
+  })
+
+  it('a reply is PULL-delivered (fyi) and never pushed as a fresh turn to a running requester', () => {
+    // The requester sX is mid-turn (running) when the reply comes back.
+    const sessions = [
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b', agentState: WORKING }),
+    ]
+    const { svc, sent, queued, interrupted } = harness(sessions)
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'please check X',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    const reply = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'checked, all good' },
+    )
+    // fyi by default — surfaces at the requester's next stop, not a burned turn.
+    expect(reply.message.urgency).toBe('fyi')
+    expect(reply.disposition).toBe('queued')
+    // NOTHING was typed into the running requester: not queueText (next-turn), not
+    // interruptText, and not an inline sendText push.
+    const toSx = (rows: { sessionId: string }[]) => rows.filter((r) => r.sessionId === 'sX')
+    expect(toSx(queued)).toHaveLength(0)
+    expect(toSx(interrupted)).toHaveLength(0)
+    expect(toSx(sent)).toHaveLength(0)
+  })
+})
+
 describe('stop-hook single reminder (pendingReminders)', () => {
-  it('returns each delivered-unacked non-fyi message exactly once, ever', () => {
+  it('returns each delivered-unfulfilled REQUESTED response exactly once, ever', () => {
     const sessions = [session({ sessionId: 's1' })]
     const { svc } = harness(sessions)
     const m = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'needs reply', urgency: 'next-turn' },
+      // Only an explicit --expect-response owes a reply [POD-835].
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'needs reply',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     // The stop-hook only reminds about messages the agent DEMONSTRABLY has
     // (echo-confirmed delivered) — never a push we couldn't confirm [POD-834].
@@ -1179,20 +1670,43 @@ describe('stop-hook single reminder (pendingReminders)', () => {
     expect(svc.pendingReminders('s1')).toHaveLength(0) // persisted — never repeats
   })
 
-  it('skips fyi messages and acked ones', () => {
+  it('never reminds about a message that did not request a response [POD-835]', () => {
     const sessions = [session({ sessionId: 's1' })]
     const { svc } = harness(sessions)
+    // An ordinary next-turn message owes no reply — receipt is mechanical.
+    const m = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'heads up, no reply needed',
+        urgency: 'next-turn',
+      },
+    )
+    echo(svc, 's1', m.message.id)
+    expect(svc.pendingReminders('s1')).toHaveLength(0)
+  })
+
+  it('skips a requested response once a reply (any kind) has fulfilled it', () => {
+    const sessions = [session({ sessionId: 's1' })]
+    const { svc } = harness(sessions)
+    // A courtesy note that owes nothing.
     svc.send(
       { kind: 'superagent' },
       { to: { kind: 'session', id: 's1' }, body: 'fyi', urgency: 'fyi' },
     )
+    // A request that IS fulfilled by a substantive (non-ack) semantic reply.
     const asked = svc.send(
       { kind: 'superagent' },
-      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn' },
+      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn', expectsResponse: true },
     )
     svc.send(
       { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
-      { to: { kind: 'operator' }, body: 'done', kind: 'ack', inReplyTo: asked.message.id },
+      {
+        to: { kind: 'operator' },
+        body: 'done, here is what I found',
+        kind: 'message',
+        inReplyTo: asked.message.id,
+      },
     )
     expect(svc.pendingReminders('s1')).toHaveLength(0)
   })
@@ -1211,21 +1725,37 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     return [...new Map(all.map((m) => [m.id, m])).values()]
   }
 
-  it('sends ONE system notification PER MESSAGE, stitched with issue state', () => {
+  it('sends ONE system notification PER requested response, stitched with issue state', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
-    // Two messages from the same sender + one from the superagent, all delivered to s1.
+    // Two requests from the same sender + one from the superagent, all delivered to
+    // s1. Only --expect-response messages are notifiable [POD-835].
     const m1 = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'm1', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm1',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     const m2 = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'm2', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm2',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     const m3 = svc.send(
       { kind: 'superagent' },
-      { to: { kind: 'session', id: 's1' }, body: 'm3', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm3',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     // Echo-confirm all three so the settle fallback sees them as delivered.
     echo(svc, 's1', m1.message.id, m2.message.id, m3.message.id)
@@ -1244,7 +1774,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
       new Set(['session:sX', 'operator:null']),
     )
     const agentNotice = notices.find((m) => m.toId === 'sX')!
-    expect(agentNotice.body).toContain('finished without acking')
+    expect(agentNotice.body).toContain('finished without responding')
     expect(agentNotice.body).toContain('issue #228 stage=review')
     expect(agentNotice.body).toContain('abc123 fix: thing')
     // system clamps: next-turn / wait
@@ -1252,12 +1782,17 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     expect(agentNotice.lifecycle).toBe('wait')
   })
 
-  it('#468: fires at most ONCE per message — a second settle synthesizes nothing new', () => {
+  it('#468: fires at most ONCE per requested response — a second settle synthesizes nothing new', () => {
     const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
     const { svc, store } = harness(sessions)
     const m1 = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'm1', urgency: 'next-turn' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'm1',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
     )
     echo(svc, 's1', m1.message.id)
     svc.systemAckFallback('s1', { outcome: 'finished' })
@@ -1266,6 +1801,23 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     svc.systemAckFallback('s1', { outcome: 'finished' })
     svc.systemAckFallback('s1', { outcome: 'errored' })
     expect(systemNotices(store)).toHaveLength(1)
+    // The once-guard is the notification-exists check — NOT a false acked_by stamp.
+    // The steward's own settle notice (kind:'notification') must never satisfy the
+    // request it is reporting as unanswered [POD-835 review], so acked_by stays null.
+    expect(store.messages.getMessage(m1.message.id)!.ackedBy).toBeNull()
+  })
+
+  it('[POD-835] an ordinary message (no --expect-response) NEVER produces a settle notice', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    // Even a next-turn message owes no reply — receipt is mechanical, no ack traffic.
+    const m1 = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'FYI I landed the fix', urgency: 'next-turn' },
+    )
+    echo(svc, 's1', m1.message.id)
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(0)
   })
 
   it('#468: an fyi courtesy note NEVER produces a settle notice', () => {
@@ -1296,7 +1848,7 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const { svc, store } = harness(sessions)
     const orig = svc.send(
       { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
-      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn' },
+      { to: { kind: 'session', id: 's1' }, body: 'q', urgency: 'next-turn', expectsResponse: true },
     )
     svc.sendReply(
       { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
@@ -1308,6 +1860,191 @@ describe('steward deterministic fallback (systemAckFallback)', () => {
     const before = store.messages.listQueued(100).length
     svc.systemAckFallback('s1', { outcome: 'finished' })
     expect(store.messages.listQueued(100).length).toBe(before) // nothing synthesized
+  })
+
+  it('[POD-835] a SEMANTIC reply (a substantive non-ack message in the thread) clears the nag', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'can you rebase before merging?',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    echo(svc, 's1', orig.message.id)
+    // A thorough reply in the thread — kind 'message', NOT a bare ack. The old model
+    // counted this as "no ack" (the 36 false notices); now it satisfies the request.
+    svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      {
+        inReplyTo: orig.message.id,
+        body: 'Rebased onto main at abc123 and merged.',
+        kind: 'message',
+      },
+    )
+    expect(store.messages.getMessage(orig.message.id)!.ackedBy).not.toBeNull()
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(systemNotices(store)).toHaveLength(0)
+  })
+
+  it('[POD-835] --expect-response with NO reply produces exactly ONE settle notice across settles', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const req = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'please confirm the API shape',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    echo(svc, 's1', req.message.id)
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    svc.systemAckFallback('s1', { outcome: 'errored' })
+    const notices = systemNotices(store)
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.inReplyTo).toBe(req.message.id)
+    // The request stays UNFULFILLED — the steward's notice must not stamp acked_by
+    // on the very message it reports as unanswered, or `mail status` would read
+    // response=received and awaitAck would resolve off the nag [POD-835 review].
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
+    expect(notices[0]!.expectsResponse).toBe(false) // a notification is never itself ackable
+  })
+
+  it('[POD-835] the settle notice (kind:notification) never fulfils the request, but the recipient reply does', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const req = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'confirm?',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    echo(svc, 's1', req.message.id)
+    // First settle: a notice fires and does NOT stamp acked_by.
+    svc.systemAckFallback('s1', { outcome: 'finished' })
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
+    // Now the RECIPIENT (s1) actually replies — that DOES fulfil it (stamps acked_by),
+    // proving the guard admits the real answer while rejecting the steward's nag.
+    const reply = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: req.message.id, body: 'confirmed', kind: 'message' },
+    )
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBe(reply.message.id)
+  })
+
+  it('[POD-835] a reply from a NON-recipient third party does not fulfil the request', () => {
+    // sZ is a bystander session, not the recipient of the request to s1.
+    const sessions = [
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+      session({ sessionId: 'sZ', cwd: '/wt/b' }),
+    ]
+    const { svc, store } = harness(sessions)
+    const req = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'confirm?',
+        urgency: 'next-turn',
+        expectsResponse: true,
+      },
+    )
+    // A third-party session tries to reply in the thread — it is not who was asked.
+    svc.send(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 'sZ' },
+      {
+        to: { kind: 'session', id: 'sX' },
+        body: 'I got this',
+        kind: 'message',
+        inReplyTo: req.message.id,
+      },
+    )
+    expect(store.messages.getMessage(req.message.id)!.ackedBy).toBeNull()
+  })
+
+  it('reading a settle notification retires its fact so a new settle can re-fire', () => {
+    const sessions = [session({ sessionId: 's1' }), session({ sessionId: 'sX', cwd: '/wt/b' })]
+    const { svc, store } = harness(sessions)
+    const arbiter = new NotificationArbiter(
+      store.notificationFacts,
+      () => '2026-07-13T00:00:00.000Z',
+    )
+    const notificationFact = { factKey: 'settle:s1', target: 's1' }
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+
+    const request = (body: string) => {
+      const sent = svc.send(
+        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+        {
+          to: { kind: 'session', id: 's1' },
+          body,
+          urgency: 'next-turn',
+          expectsResponse: true,
+        },
+      )
+      echo(svc, 's1', sent.message.id)
+    }
+
+    request('first')
+    svc.systemAckFallback('s1', { outcome: 'finished', notificationFact })
+    const first = systemNotices(store)[0]!
+    expect(first).toMatchObject({ factKey: 'settle:s1', factTarget: 's1' })
+    svc.readInbox([{ kind: 'session', id: 'sX' }], { consume: 'sX' })
+    expect(store.messages.getMessage(first.id)!.status).toBe('read')
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+
+    request('second')
+    svc.systemAckFallback('s1', { outcome: 'finished', notificationFact })
+    expect(systemNotices(store)).toHaveLength(2)
+  })
+
+  it('dismiss clears unread mail and retires an arbiter-backed fact', () => {
+    const { svc, store } = harness([])
+    const arbiter = new NotificationArbiter(
+      store.notificationFacts,
+      () => '2026-07-13T00:00:00.000Z',
+    )
+    const notificationFact = { factKey: 'settle:s1', target: 's1' }
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+    const notice = svc.send(
+      { kind: 'system', name: 'steward' },
+      {
+        to: { kind: 'issue', id: ISSUE.id },
+        body: 'settled',
+        kind: 'notification',
+        notificationFact,
+      },
+    )
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(1)
+    expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(1)
+
+    expect(svc.dismiss(notice.message.id, 's1').status).toBe('read')
+    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
+    expect(store.issues.countUnreadIssueMessages(ISSUE.id)).toBe(0)
+    expect(arbiter.claim(notificationFact.factKey, notificationFact.target)).toBe(true)
+  })
+
+  it('messages without a fact reference dismiss and read without error', () => {
+    const { svc } = harness([])
+    const dismissed = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'plain dismiss' },
+    )
+    expect(() => svc.dismiss(dismissed.message.id, 's1')).not.toThrow()
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'plain read' },
+    )
+    expect(() => svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })).not.toThrow()
   })
 })
 
@@ -1809,5 +2546,970 @@ describe('delivered = the agent saw it, via transcript echo [POD-834 §04d]', ()
     // And now its echo confirms it delivered.
     echo(svc, 's1', r.message.id)
     expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('caps lost-echo requeues and degrades to delivered instead of looping [POD-853 stopgap]', () => {
+    // A busy recipient consumes every injection mid-turn: no echo ever comes.
+    // Without the cap the sweep re-injects the same message forever (live
+    // regression 2026-07-17: 9 rows looping). After MAX_ECHO_REQUEUES lost
+    // echoes the row degrades to delivered-at-last-push and stops re-pushing.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const { svc, sent, store } = harness([session({ sessionId: 's1' })], { now })
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'mid-turn casualty', urgency: 'next-turn' },
+    )
+    expect(sent).toHaveLength(1)
+    // Each expired window re-pushes once, up to the cap.
+    for (let i = 0; i < MAX_ECHO_REQUEUES; i++) {
+      clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+      svc.sweep()
+    }
+    expect(sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // The next expiry does NOT push a further copy — it caps out as delivered.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.sweep()
+    expect(sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
+    const row = store.messages.getMessage(r.message.id)!
+    expect(row.status).toBe('delivered')
+    expect(row.deliveredTo).toBe('s1')
+    const kinds = store.events
+      .listEventsSince(0)
+      .filter((e) => e.subject === r.message.id)
+      .map((e) => e.kind)
+    expect(kinds).toContain('message.echo_capped')
+    // …and later sweeps leave it alone entirely.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.sweep()
+    expect(sent).toHaveLength(1 + MAX_ECHO_REQUEUES)
+  })
+})
+
+describe('turn-boundary confirmation backstop [POD-853]', () => {
+  it('confirms a pushed message at the next turn boundary when its echo never comes', () => {
+    // The reported bug: a mid-turn/busy injection never reappears as a clean
+    // role=user turn (Claude Code tags it isMeta / promptSource:system, or folds
+    // it into a tool_result record), so ECHO_ID_RE never confirms it and the
+    // sweep re-injects past the window = duplicate. The turn boundary confirms it.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live = [session({ sessionId: 's1', issueId: ISSUE.id, agentState: WORKING })]
+    const { svc, sent, store } = harness(live, { now })
+    // A busy session: a next-turn message is held (queued, not injected yet).
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'mid-turn note', urgency: 'next-turn' },
+    )
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).toBeNull()
+    // The turn ends → the drain injects it into the PTY (still queued, awaiting proof).
+    const idle = session({ sessionId: 's1', issueId: ISSUE.id, agentState: IDLE })
+    svc.onSessionIdle(idle)
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // Past the echo window the OLD behavior re-injects at the next idle (duplicate);
+    // the turn boundary instead CONFIRMS delivery with no text matching.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    svc.onSessionIdle(idle)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+    expect(store.messages.getMessage(r.message.id)!.deliveredTo).toBe('s1')
+    expect(sent).toHaveLength(1) // never re-injected → no duplicate delivery
+    svc.sweep()
+    expect(sent).toHaveLength(1) // and the sweep never resurrects a delivered row
+    // The ledger records HOW it was confirmed, so a boundary-confirm is
+    // distinguishable from an echo when debugging delivery [POD-853].
+    const delivered = store.events
+      .listEventsSince(0, { kinds: ['message.delivered'] })
+      .find((e) => e.subject === r.message.id)
+    expect((delivered?.payload as { confirmedVia?: string }).confirmedVia).toBe('boundary')
+  })
+
+  it('does not confirm a pointer (pull-path) row at a turn boundary — only an inbox read does', () => {
+    const live: SessionMeta[] = []
+    const { svc, sent, store } = harness(live)
+    const r1 = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'one' },
+    )
+    const r2 = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'two' },
+    )
+    const s = session({ sessionId: 's1', issueId: ISSUE.id })
+    live.push(s)
+    svc.onSessionIdle(s) // coalesced pointer nudge — bodies/ids are NOT in the transcript
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r1.message.id)!.status).toBe('queued')
+    // A second turn boundary must NOT flip pointer rows delivered — they are the
+    // PULL path, confirmed by an inbox read, never by a turn ending.
+    svc.onSessionIdle(s)
+    expect(store.messages.getMessage(r1.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r2.message.id)!.status).toBe('queued')
+    svc.readInbox([{ kind: 'issue', id: ISSUE.id }], { consume: 's1' })
+    expect(store.messages.getMessage(r1.message.id)!.status).toBe('read')
+    expect(store.messages.getMessage(r2.message.id)!.status).toBe('read')
+  })
+
+  it('an ERRORED turn does not confirm its injected rows — they re-queue via the sweep', () => {
+    // API 529 mid-turn is frequent: an errored turn (errored→idle fires here too)
+    // did not complete, so it must NOT confirm what it may not have consumed
+    // [coordinator caution]. The row stays queued; the sweep re-queues it.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live = [session({ sessionId: 's1', issueId: ISSUE.id, agentState: WORKING })]
+    const { svc, sent, store } = harness(live, { now })
+    const r = svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'work item', urgency: 'next-turn' },
+    )
+    // The turn ends → injected (queued, awaiting proof).
+    const idle = session({ sessionId: 's1', issueId: ISSUE.id, agentState: IDLE })
+    svc.onSessionIdle(idle)
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+    // The turn that would consume it ERRORS (errored→idle): do NOT confirm it.
+    live[0] = idle // the session is now reachable/idle again (post-error retry)
+    svc.onSessionIdle(idle, { priorPhase: 'errored' })
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // Past the window the sweep re-queues it (a lost push), never a false delivered.
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    // A later CLEAN idle confirms it (the retry turn consumed it).
+    svc.onSessionIdle(idle)
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('confirms only rows pushed to THIS session, never another session on the same issue', () => {
+    const s1 = session({ sessionId: 's1', issueId: ISSUE.id })
+    const s2 = session({ sessionId: 's2', issueId: ISSUE.id, cwd: '/wt/a' })
+    const { svc, store } = harness([s1, s2])
+    // An issue-addressed row already pushed to s2 (injected, awaiting its echo).
+    store.messages.addMessage({
+      id: 'msg_s2',
+      threadId: 'msg_s2',
+      inReplyTo: null,
+      fromKind: 'agent',
+      fromSession: 'sX',
+      fromIssue: SENDER_ISSUE.id,
+      toKind: 'issue',
+      toId: ISSUE.id,
+      kind: 'message',
+      urgency: 'next-turn',
+      lifecycle: 'wait',
+      body: 'for s2',
+      expiresAt: null,
+      createdAt: '2026-07-13T00:00:00.000Z',
+      status: 'queued',
+      deliveredAt: null,
+      deliveredTo: null,
+      readAt: null,
+      injectedAt: null,
+      deadLetteredAt: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+    })
+    store.messages.markInjected('msg_s2', 's2', '2026-07-13T00:00:00.000Z')
+    // s1 reaches a turn boundary — must NOT confirm a row pushed to s2.
+    svc.onSessionIdle(s1)
+    expect(store.messages.getMessage('msg_s2')!.status).toBe('queued')
+    // s2's own boundary confirms it.
+    svc.onSessionIdle(s2)
+    expect(store.messages.getMessage('msg_s2')!.status).toBe('delivered')
+    expect(store.messages.getMessage('msg_s2')!.deliveredTo).toBe('s2')
+  })
+
+  it('onTranscriptDelta confirms EVERY id across a multi-id, multi-item delta', () => {
+    // Regression lock for the issue parenthetical: the global matchAll already
+    // loops all ids in every delta item — keep it that way (two ids concatenated
+    // in one item, a third in a second item, all confirmed).
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const mk = (body: string) =>
+      svc.send(
+        { kind: 'superagent' },
+        { to: { kind: 'session', id: 's1' }, body, urgency: 'next-turn' },
+      ).message.id
+    const a = mk('a')
+    const b = mk('b')
+    const c = mk('c')
+    svc.onTranscriptDelta('s1', [
+      { role: 'user', text: `[podium message ${a} · from x · to y] and [podium message ${b}]` },
+      { role: 'user', text: `[podium message ${c} · from x · to y]` },
+    ])
+    expect(store.messages.getMessage(a)!.status).toBe('delivered')
+    expect(store.messages.getMessage(b)!.status).toBe('delivered')
+    expect(store.messages.getMessage(c)!.status).toBe('delivered')
+  })
+})
+
+describe('best-effort acks/notifications [POD-853]', () => {
+  it('an echo-mode ack is delivered on first injection, not left queued for its own echo', () => {
+    const { svc, store } = harness([
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b' }),
+    ])
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
+    )
+    // s1 acks it → the ack is addressed back to the live, idle session sX.
+    const ack = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'done' },
+    )
+    // An ack is never itself acked and ack-confirms-original does not apply to it,
+    // so chasing its echo is pure loop risk — injection IS its delivery.
+    expect(store.messages.getMessage(ack.message.id)!.status).toBe('delivered')
+    expect(store.messages.getMessage(ack.message.id)!.deliveredTo).toBe('sX')
+    // The original is still confirmed delivered by the ack (send-write side effect).
+    expect(store.messages.getMessage(orig.message.id)!.status).toBe('delivered')
+  })
+
+  it('a best-effort ack to a busy recipient delivers at the turn boundary and never re-injects', () => {
+    // The live ack loop: an ack injected mid-turn never echoes, so the sweep
+    // re-injects it forever. Best-effort delivery breaks the loop at the source.
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const now = () => new Date(clock).toISOString()
+    const live = [
+      session({ sessionId: 's1' }),
+      session({ sessionId: 'sX', cwd: '/wt/b', agentState: WORKING }),
+    ]
+    const { svc, sent, store } = harness(live, { now })
+    const orig = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sX' },
+      { to: { kind: 'session', id: 's1' }, body: 'do X', urgency: 'next-turn' },
+    )
+    const ack = svc.sendReply(
+      { kind: 'agent', issueId: ISSUE.id, sessionId: 's1' },
+      { inReplyTo: orig.message.id, body: 'done' },
+    )
+    // Busy recipient: the ack is queued, not injected yet.
+    expect(store.messages.getMessage(ack.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(ack.message.id)!.injectedAt).toBeNull()
+    // sX's turn ends → the ack injects and is delivered-once.
+    sent.length = 0
+    svc.onSessionIdle(session({ sessionId: 'sX', cwd: '/wt/b', agentState: IDLE }))
+    expect(sent).toHaveLength(1)
+    expect(store.messages.getMessage(ack.message.id)!.status).toBe('delivered')
+    // Past the echo window the sweep must NEVER re-inject it (the unbounded loop).
+    clock += ECHO_CONFIRM_WINDOW_MS + 1_000
+    sent.length = 0
+    svc.sweep()
+    expect(sent).toHaveLength(0)
+  })
+
+  it('a regular message is NOT best-effort — it still waits for its echo/turn boundary', () => {
+    const { svc, store } = harness([session({ sessionId: 's1' })])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 's1' }, body: 'a real request', urgency: 'next-turn' },
+    )
+    // Injected, but not yet confirmed — a plain message is not delivered on push.
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+  })
+})
+
+describe('composer-draft delivery guard [POD-865]', () => {
+  const drafting = (over: Partial<SessionMeta> = {}) =>
+    session({ draftUpdatedAt: '2026-07-12T23:59:55.000Z', ...over })
+
+  it('a non-empty draft holds EVERY urgency — including interrupt', () => {
+    for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
+      const { svc, sent, queued, interrupted, store } = harness([drafting()])
+      const r = svc.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: 's1' }, body: 'note', urgency },
+      )
+      expect(sent).toHaveLength(0)
+      expect(queued).toHaveLength(0)
+      expect(interrupted).toHaveLength(0)
+      expect(r.disposition).toBe('queued')
+      expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
+    }
+  })
+
+  it('holds a busy session at interrupt urgency too (draft beats the mid-turn path)', () => {
+    const { svc, interrupted, sent } = harness([drafting({ agentState: WORKING })])
+    const r = svc.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: 's1' }, body: 'urgent', urgency: 'interrupt' },
+    )
+    expect(interrupted).toHaveLength(0)
+    expect(sent).toHaveLength(0)
+    expect(r.disposition).toBe('queued')
+  })
+
+  it('a freshly-updated draft (seconds old) holds', () => {
+    // draftUpdatedAt presence ⇔ non-empty text; a just-typed draft is simply the
+    // freshest instance of presence.
+    const { svc, sent } = harness([drafting({ draftUpdatedAt: '2026-07-12T23:59:59.000Z' })])
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'hi' })
+    expect(sent).toHaveLength(0)
+    expect(r.disposition).toBe('queued')
+  })
+
+  it('a cleared draft delivers at the next boundary (idle drain / sweep)', () => {
+    const sessions = [drafting()]
+    const { svc, sent, store } = harness(sessions)
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'held' })
+    expect(sent).toHaveLength(0)
+    // Draft submitted/emptied: the session meta loses draftUpdatedAt.
+    sessions[0] = session({ sessionId: 's1' })
+    svc.onSessionIdle(sessions[0]!)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toBe('held')
+    // Unwrapped operator body confirms on injection.
+    expect(store.messages.getMessage(r.message.id)!.status).toBe('delivered')
+  })
+
+  it('the sweep also delivers once the draft clears', () => {
+    const sessions = [drafting()]
+    const { svc, sent } = harness(sessions)
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'held' })
+    svc.sweep()
+    expect(sent).toHaveLength(0) // still drafting
+    sessions[0] = session({ sessionId: 's1' })
+    svc.sweep()
+    expect(sent).toHaveLength(1)
+  })
+
+  it('the idle-boundary drain skips a session whose human is mid-composition', () => {
+    // Message queued while busy; the turn ends but a draft is now present —
+    // the drain must not type into the composer.
+    const sessions = [session({ sessionId: 's1', agentState: WORKING })]
+    const { svc, sent } = harness(sessions)
+    svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'later' })
+    expect(sent).toHaveLength(0)
+    svc.onSessionIdle(drafting({ agentState: IDLE }))
+    expect(sent).toHaveLength(0) // held: human is typing
+    svc.onSessionIdle(session({ sessionId: 's1' }))
+    expect(sent).toHaveLength(1)
+  })
+
+  it('an idle session with NO draft delivers normally (no false hold)', () => {
+    const { svc, sent } = harness([session({ sessionId: 's1' })])
+    const r = svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'go' })
+    expect(sent).toHaveLength(1)
+    expect(r.disposition).toBe('delivered')
+  })
+
+  it('issue-addressed mail honours the recipient session draft too', () => {
+    const { svc, sent } = harness([drafting()])
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'issue', id: `#${ISSUE.seq}` }, body: 'mail' },
+    )
+    expect(sent).toHaveLength(0)
+    expect(r.disposition).toBe('queued')
+  })
+})
+
+describe('event-driven delivery eligibility [POD-842] [spec:SP-c29e]', () => {
+  it('delivers when a starting session binds live without an idle edge', () => {
+    const sessions = [
+      session({ sessionId: 's1', status: 'starting', agentState: WORKING, issueId: ISSUE.id }),
+    ]
+    const { svc, sent } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'ready on bind' },
+    )
+    expect(sent).toHaveLength(0)
+
+    sessions[0] = session({ sessionId: 's1', status: 'live', issueId: ISSUE.id })
+    svc.onSessionEligibilityChanged('s1')
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toContain('ready on bind')
+  })
+
+  it('retries a queued wake when its session acquires a resume ref without an idle edge', () => {
+    let resumable = false
+    const sessions = [
+      session({ sessionId: 's1', status: 'starting', agentState: WORKING, issueId: ISSUE.id }),
+    ]
+    const { svc, queued } = harness(sessions, {
+      queueText: () =>
+        resumable ? { ok: true, queued: true } : { ok: false, reason: 'no resume ref' },
+    })
+    svc.send(
+      { kind: 'superagent' },
+      {
+        to: { kind: 'session', id: 's1' },
+        body: 'resume-bound',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+      },
+    )
+    expect(queued).toHaveLength(1)
+
+    resumable = true
+    sessions[0] = session({
+      sessionId: 's1',
+      status: 'starting',
+      agentState: WORKING,
+      issueId: ISSUE.id,
+      resume: { kind: 'claude', value: 'native-1' },
+    })
+    svc.onSessionEligibilityChanged('s1')
+    svc.flushDeliveryTriggers()
+
+    expect(queued).toHaveLength(2)
+  })
+
+  it('delivers held issue mail when session membership changes without an idle edge', () => {
+    const sessions: SessionMeta[] = []
+    const { svc, sent } = harness(sessions)
+    const result = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'membership changed' },
+    )
+    expect(result.disposition).toBe('held')
+
+    sessions.push(session({ sessionId: 's1', issueId: ISSUE.id }))
+    svc.onSessionEligibilityChanged('s1')
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.text).toContain('membership changed')
+  })
+
+  it('reconciles queued rows once at startup without waiting for an idle edge', () => {
+    const first = harness([])
+    first.svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'survived restart' },
+    )
+
+    const recovered = harness([session({ sessionId: 's1', issueId: ISSUE.id })], {
+      store: first.store,
+    })
+    recovered.svc.reconcileQueued()
+
+    expect(recovered.sent).toHaveLength(1)
+    expect(recovered.sent[0]!.text).toContain('survived restart')
+  })
+
+  it('recovers a queued wake with a one-shot trigger when its durable cooldown expires', () => {
+    vi.useFakeTimers()
+    try {
+      let clock = Date.parse('2026-07-13T00:00:00.000Z')
+      let transportReady = false
+      const sessions = [
+        session({
+          sessionId: 's1',
+          status: 'hibernated',
+          agentState: undefined,
+          issueId: ISSUE.id,
+          resume: { kind: 'claude', value: 'native-1' },
+        }),
+      ]
+      const first = harness(sessions, {
+        now: () => new Date(clock).toISOString(),
+        queueText: () =>
+          transportReady ? { ok: true, queued: true } : { ok: false, reason: 'offline' },
+      })
+      first.svc.send(
+        { kind: 'superagent' },
+        {
+          to: { kind: 'session', id: 's1' },
+          body: 'after cooldown',
+          urgency: 'next-turn',
+          lifecycle: 'wake',
+        },
+      )
+      expect(first.queued).toHaveLength(1)
+      first.svc.dispose()
+
+      // Fresh service, same durable rows: startup reconcile must restore the
+      // remaining cooldown as a one-shot timer rather than waiting for a sweep.
+      transportReady = true
+      const recovered = harness(sessions, {
+        store: first.store,
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: true, queued: true }),
+      })
+      recovered.svc.reconcileQueued()
+      expect(recovered.queued).toHaveLength(0)
+
+      clock += WAKE_COOLDOWN_MS + 1
+      vi.advanceTimersByTime(WAKE_COOLDOWN_MS + 1)
+      recovered.svc.flushDeliveryTriggers()
+
+      expect(recovered.queued).toHaveLength(1)
+      recovered.svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('coalesces duplicate eligibility triggers into one delivery attempt', () => {
+    const sessions: SessionMeta[] = []
+    const { svc, sent } = harness(sessions)
+    svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+      { to: { kind: 'issue', id: ISSUE.id }, body: 'exactly once' },
+    )
+    sessions.push(session({ sessionId: 's1', issueId: ISSUE.id }))
+
+    svc.onSessionEligibilityChanged('s1')
+    svc.onSessionEligibilityChanged('s1')
+    svc.onIssueEligibilityChanged(ISSUE.id)
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+  })
+})
+
+function queuedDeliveryRow(
+  id: string,
+  to: { kind: MessageRow['toKind']; id: string | null },
+  createdAt: string,
+  overrides: Partial<MessageRow> = {},
+): MessageRow {
+  return {
+    id,
+    threadId: id,
+    inReplyTo: null,
+    fromKind: 'superagent',
+    fromSession: null,
+    fromIssue: null,
+    toKind: to.kind,
+    toId: to.id,
+    kind: 'message',
+    urgency: 'next-turn',
+    lifecycle: 'wait',
+    body: id,
+    expiresAt: null,
+    createdAt,
+    status: 'queued',
+    deliveredAt: null,
+    deliveredTo: null,
+    readAt: null,
+    injectedAt: null,
+    deadLetteredAt: null,
+    ackedBy: null,
+    hop: 0,
+    clampedFrom: null,
+    remindedAt: null,
+    expectsResponse: false,
+    ...overrides,
+  }
+}
+
+describe('event-driven delivery review boundaries [POD-842] [spec:SP-c29e]', () => {
+  it('continues the bounded backstop past 100 permanently ineligible rows', () => {
+    vi.useFakeTimers()
+    try {
+      const { store, svc, sent } = harness([session({ sessionId: 'deliverable' })])
+      for (let i = 0; i < 100; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_operator_${String(i).padStart(3, '0')}`,
+            { kind: 'operator', id: null },
+            `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+          ),
+        )
+      }
+      store.messages.addMessage(
+        queuedDeliveryRow(
+          'msg_newer_deliverable',
+          { kind: 'session', id: 'deliverable' },
+          '2026-07-13T00:00:01.000Z',
+        ),
+      )
+
+      svc.sweep()
+      expect(sent).toHaveLength(0)
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.text).toContain('msg_newer_deliverable')
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('continues a target scan past 200 awaiting-confirmation rows', () => {
+    vi.useFakeTimers()
+    try {
+      const { store, svc, sent } = harness([session({ sessionId: 's1' })])
+      for (let i = 0; i < 201; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_awaiting_${String(i).padStart(3, '0')}`,
+            { kind: 'session', id: 's1' },
+            `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+            {
+              urgency: 'fyi',
+              injectedAt: '2026-07-13T00:00:00.000Z',
+              deliveredTo: 's1',
+            },
+          ),
+        )
+        store.messages.markInjected(
+          `msg_awaiting_${String(i).padStart(3, '0')}`,
+          's1',
+          '2026-07-13T00:00:00.000Z',
+        )
+      }
+      store.messages.addMessage(
+        queuedDeliveryRow(
+          'msg_after_awaiting',
+          { kind: 'session', id: 's1' },
+          '2026-07-13T00:00:01.000Z',
+        ),
+      )
+
+      svc.onSessionEligibilityChanged('s1')
+      svc.flushDeliveryTriggers()
+      expect(sent).toHaveLength(0)
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.text).toContain('msg_after_awaiting')
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drains every page of a 201-row target at one idle boundary', () => {
+    const idle = session({ sessionId: 's1' })
+    const { store, svc, sent } = harness([idle])
+    for (let i = 0; i < 201; i += 1) {
+      store.messages.addMessage(
+        queuedDeliveryRow(
+          `msg_idle_page_${String(i).padStart(3, '0')}`,
+          { kind: 'session', id: 's1' },
+          `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+        ),
+      )
+    }
+
+    svc.onSessionIdle(idle)
+
+    expect(sent).toHaveLength(201)
+    expect(
+      store.messages
+        .listMessagesFor({ kind: 'session', id: 's1' }, { status: 'queued', limit: 500 })
+        .every((message) => message.injectedAt !== null),
+    ).toBe(true)
+
+    svc.onSessionIdle(idle)
+    expect(store.messages.countPending({ kind: 'session', id: 's1' })).toBe(0)
+    svc.dispose()
+  })
+
+  it('fences a reentrant fresh trigger outside the finite idle snapshot', () => {
+    vi.useFakeTimers()
+    try {
+      const idle = session({ sessionId: 's1', cwd: '/detached', issueId: undefined })
+      let store!: SessionStore
+      let svc!: MessageDeliveryService
+      let retriggered = false
+      const h = harness([idle], {
+        sendText: () => {
+          if (!retriggered) {
+            retriggered = true
+            store.messages.addMessage(
+              queuedDeliveryRow(
+                'msg_reentrant_fresh',
+                { kind: 'session', id: 's1' },
+                '2026-07-13T00:00:01.000Z',
+              ),
+            )
+            svc.onSessionEligibilityChanged('s1', idle)
+          }
+          return { ok: true }
+        },
+      })
+      store = h.store
+      svc = h.svc
+      for (let i = 0; i < 200; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_snapshot_${String(i).padStart(3, '0')}`,
+            { kind: 'session', id: 's1' },
+            `2026-07-13T00:00:00.${String(i).padStart(3, '0')}Z`,
+          ),
+        )
+      }
+      const pageQuery = vi.spyOn(store.messages, 'pendingForPage')
+
+      svc.onSessionIdle(idle)
+
+      expect(h.sent).toHaveLength(200)
+      expect(pageQuery).toHaveBeenCalledTimes(3)
+
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(h.sent).toHaveLength(201)
+      expect(h.sent.at(-1)?.text).toContain('msg_reentrant_fresh')
+      expect(pageQuery).toHaveBeenCalledTimes(5)
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('enumerates more than 2000 distinct restart targets in bounded turns', () => {
+    vi.useFakeTimers()
+    try {
+      const { store, svc } = harness([])
+      for (let i = 0; i < 2001; i += 1) {
+        store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_restart_${String(i).padStart(4, '0')}`,
+            { kind: 'issue', id: `iss_missing_${String(i).padStart(4, '0')}` },
+            '2026-07-13T00:00:00.000Z',
+          ),
+        )
+      }
+
+      svc.reconcileQueued()
+      vi.runAllTimers()
+      svc.flushDeliveryTriggers()
+
+      expect(store.messages.getMessage('msg_restart_2000')?.status).toBe('dead_letter')
+      svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('persists an old failed wake attempt across restart despite 500 unrelated wakes', () => {
+    vi.useFakeTimers()
+    try {
+      let clock = Date.parse('2026-07-13T00:00:00.000Z')
+      const sessions = [
+        session({
+          sessionId: 's1',
+          status: 'hibernated',
+          agentState: undefined,
+          issueId: ISSUE.id,
+          resume: { kind: 'claude', value: 'native-1' },
+        }),
+      ]
+      const first = harness(sessions, {
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: false, reason: 'offline' }),
+      })
+      for (let i = 0; i < 501; i += 1) {
+        first.store.messages.addMessage(
+          queuedDeliveryRow(
+            `msg_unrelated_wake_${String(i).padStart(3, '0')}`,
+            { kind: 'session', id: `unrelated_${i}` },
+            `2026-07-12T23:59:59.${String(i).padStart(3, '0')}Z`,
+            {
+              lifecycle: 'wake',
+              status: 'delivered',
+              deliveredAt: '2026-07-13T00:00:00.000Z',
+            },
+          ),
+        )
+      }
+      first.store.messages.addMessage(
+        queuedDeliveryRow(
+          'msg_old_failed_wake',
+          { kind: 'session', id: 's1' },
+          '2026-01-01T00:00:00.000Z',
+          { lifecycle: 'wake' },
+        ),
+      )
+
+      first.svc.onSessionEligibilityChanged('s1')
+      first.svc.flushDeliveryTriggers()
+      expect(first.queued).toHaveLength(1)
+      expect(first.store.messages.getWakeCooldown('superagent|iss_a')).toBe(
+        '2026-07-13T00:00:00.000Z',
+      )
+      first.svc.dispose()
+
+      const recovered = harness(sessions, {
+        store: first.store,
+        now: () => new Date(clock).toISOString(),
+        queueText: () => ({ ok: true, queued: true }),
+      })
+      recovered.svc.reconcileQueued()
+      expect(recovered.queued).toHaveLength(0)
+
+      clock += WAKE_COOLDOWN_MS
+      vi.advanceTimersByTime(WAKE_COOLDOWN_MS)
+      recovered.svc.flushDeliveryTriggers()
+      expect(recovered.queued).toHaveLength(1)
+      recovered.svc.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  for (const transition of [
+    {
+      name: 'detach',
+      initial: { issueId: ISSUE.id, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions[0] = session({
+          sessionId: 'moving',
+          cwd: '/detached',
+          draftUpdatedAt: undefined,
+        })
+        return sessions[0]
+      },
+    },
+    {
+      name: 'A to B reassignment',
+      initial: { issueId: ISSUE.id, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions[0] = session({
+          sessionId: 'moving',
+          issueId: SENDER_ISSUE.id,
+          cwd: SENDER_ISSUE.worktreePath,
+          draftUpdatedAt: undefined,
+        })
+        return sessions[0]
+      },
+    },
+    {
+      name: 'inferred cwd move',
+      initial: { issueId: undefined, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions[0] = session({
+          sessionId: 'moving',
+          cwd: SENDER_ISSUE.worktreePath,
+          draftUpdatedAt: undefined,
+        })
+        return sessions[0]
+      },
+    },
+    {
+      name: 'remove',
+      initial: { issueId: ISSUE.id, cwd: ISSUE.worktreePath },
+      apply(sessions: SessionMeta[]) {
+        sessions.splice(0, 1)
+        return undefined
+      },
+    },
+  ] as const) {
+    it(`retries the old issue principal on session ${transition.name} without an idle edge`, () => {
+      const sessions: SessionMeta[] = [
+        session({
+          sessionId: 'moving',
+          ...transition.initial,
+          draftUpdatedAt: '2026-07-13T00:00:00.000Z',
+          lastActiveAt: 'z',
+        }),
+        session({ sessionId: 'remaining', issueId: ISSUE.id, lastActiveAt: 'a' }),
+      ]
+      const { svc, sent } = harness(sessions)
+      svc.onSessionEligibilityChanged('moving', sessions[0])
+      svc.flushDeliveryTriggers()
+      svc.send(
+        { kind: 'agent', issueId: SENDER_ISSUE.id, sessionId: 'sender' },
+        { to: { kind: 'issue', id: ISSUE.id }, body: `old target after ${transition.name}` },
+      )
+      expect(sent).toHaveLength(0)
+
+      const changed = transition.apply(sessions)
+      svc.onSessionEligibilityChanged('moving', changed)
+      svc.flushDeliveryTriggers()
+
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.sessionId).toBe('remaining')
+    })
+  }
+
+  it('retries affected session principals after an issue rehome', () => {
+    let issueForCwd = (cwd: string) => (cwd === ISSUE.worktreePath ? ISSUE.id : null)
+    const sessions = [
+      session({
+        sessionId: 's1',
+        issueId: undefined,
+        cwd: ISSUE.worktreePath,
+        draftUpdatedAt: '2026-07-13T00:00:00.000Z',
+      }),
+    ]
+    const { svc, sent } = harness(sessions, {
+      issueForCwd: (cwd) => issueForCwd(cwd),
+    })
+    svc.onSessionEligibilityChanged('s1', sessions[0])
+    svc.flushDeliveryTriggers()
+    svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: 's1' }, body: 'session after rehome' },
+    )
+    expect(sent).toHaveLength(0)
+
+    issueForCwd = () => null
+    sessions[0] = session({ sessionId: 's1', issueId: undefined, cwd: ISSUE.worktreePath })
+    svc.onIssueEligibilityChanged(ISSUE.id)
+    svc.flushDeliveryTriggers()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.text).toContain('session after rehome')
+  })
+})
+
+describe('delivery trigger isolation and observability [POD-842]', () => {
+  it('does not issue per-principal counts on an empty-queue startup', () => {
+    const sessions = Array.from({ length: 588 }, (_, i) =>
+      session({
+        sessionId: `startup_${i}`,
+        issueId: ISSUE.id,
+        cwd: ISSUE.worktreePath,
+      }),
+    )
+    const { store, svc } = harness(sessions)
+    const countPending = vi.spyOn(store.messages, 'countPending')
+
+    svc.reconcileQueued()
+
+    expect(countPending).toHaveBeenCalledTimes(0)
+    svc.dispose()
+  })
+
+  it('continues startup recovery after one target transport throws', () => {
+    const sessions = [session({ sessionId: 'bad' }), session({ sessionId: 'good' })]
+    const { store, svc } = harness(sessions, {
+      sendText: ({ sessionId }) => {
+        if (sessionId === 'bad') throw new Error('transport exploded')
+        return { ok: true }
+      },
+    })
+    store.messages.addMessage(
+      queuedDeliveryRow(
+        'msg_bad_startup',
+        { kind: 'session', id: 'bad' },
+        '2026-07-13T00:00:00.000Z',
+      ),
+    )
+    store.messages.addMessage(
+      queuedDeliveryRow(
+        'msg_good_startup',
+        { kind: 'session', id: 'good' },
+        '2026-07-13T00:00:01.000Z',
+      ),
+    )
+
+    expect(() => svc.reconcileQueued()).not.toThrow()
+    expect(store.messages.getMessage('msg_good_startup')?.injectedAt).not.toBeNull()
+    expect(svc.deliveryStats()).toMatchObject({
+      pendingTargetCount: 0,
+      triggerFailures: 1,
+    })
+    expect(svc.deliveryStats().coalescedTriggerCount).toBeGreaterThan(0)
+    svc.dispose()
   })
 })

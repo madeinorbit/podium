@@ -91,13 +91,13 @@ describe('resolvePlan — launch matrix', () => {
   it('systemd-recorded box, bare invocation → start both units (all-in-one)', () => {
     expect(plan({ mode: 'all-in-one', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service', 'podium-daemon.service'],
+      units: ['podium-server.service', 'podium-janitor.service', 'podium-daemon.service'],
     })
   })
-  it('systemd-recorded server box → server unit only; daemon box → daemon unit only', () => {
+  it('systemd-recorded server box → server + janitor; daemon box → daemon only', () => {
     expect(plan({ mode: 'server', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-server.service'],
+      units: ['podium-server.service', 'podium-janitor.service'],
     })
     expect(plan({ mode: 'daemon', serverUrl: 'wss://relay', persistence: 'systemd' })).toEqual({
       kind: 'systemd-managed',
@@ -109,7 +109,18 @@ describe('resolvePlan — launch matrix', () => {
       plan({ mode: 'all-in-one', persistence: 'systemd' }, [], { PODIUM_INSTANCE: 'blue' }),
     ).toEqual({
       kind: 'systemd-managed',
-      units: ['podium-blue-server.service', 'podium-blue-daemon.service'],
+      units: [
+        'podium-blue-server.service',
+        'podium-blue-janitor.service',
+        'podium-blue-daemon.service',
+      ],
+    })
+  })
+  it('explicit janitor mode targets only the requested local server', () => {
+    expect(plan({}, ['janitor', '--server', 'http://localhost:23000'])).toEqual({
+      kind: 'janitor',
+      serverUrl: 'http://localhost:23000',
+      takeover: false,
     })
   })
   it('detached-recorded box, bare invocation → ensure the detached split is up', () => {

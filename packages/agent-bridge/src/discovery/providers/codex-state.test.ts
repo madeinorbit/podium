@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, test, vi } from 'vitest'
-import { createCodexStateMetadataReader, readCodexStateMetadata } from './codex-state.js'
+import {
+  createCodexStateMetadataReader,
+  createSharedCodexStateMetadataReaders,
+  readCodexStateMetadata,
+} from './codex-state.js'
 
 // Rewrite the (single) threads row's title in place so a fresh read returns
 // updated data. Mirrors a `/rename` done inside Codex.
@@ -174,6 +178,61 @@ describe('createCodexStateMetadataReader', () => {
     const again = await reader(root)
     expect(read).toHaveBeenCalledTimes(2)
     expect(again).toBe(after)
+  })
+
+  test('coalesces concurrent reads for one advanced state DB version', async () => {
+    const root = await createCodexRoot()
+    const dbPath = join(root, 'state_5.sqlite')
+    createStateDb(dbPath)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const read = vi.fn(async (value: string) => {
+      await held
+      return readCodexStateMetadata(value)
+    })
+    const reader = createCodexStateMetadataReader(read)
+
+    const first = reader(root)
+    const second = reader(root)
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+    release()
+
+    const [a, b] = await Promise.all([first, second])
+    expect(a).toBe(b)
+    expect(a.byThreadId.get('thread-1')?.title).toBe('Native Codex Title')
+  })
+
+  test('shares one read per mtime version across 26 observers and releases the last cache', async () => {
+    const root = await createCodexRoot()
+    const dbPath = join(root, 'state_5.sqlite')
+    createStateDb(dbPath)
+    const read = vi.fn(readCodexStateMetadata)
+    const shared = createSharedCodexStateMetadataReaders(read)
+    const observers = Array.from({ length: 26 }, () => shared.acquire(root))
+
+    const initial = await Promise.all(observers.map((observer) => observer.read()))
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(new Set(initial).size).toBe(1)
+
+    setNativeTitle(dbPath, 'One Shared Rename')
+    const bumped = (await stat(dbPath)).mtimeMs + 5000
+    await utimes(dbPath, new Date(bumped), new Date(bumped))
+    const updated = await Promise.all(observers.map((observer) => observer.read()))
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(new Set(updated).size).toBe(1)
+    expect(updated[0]?.byThreadId.get('thread-1')?.title).toBe('One Shared Rename')
+
+    for (const observer of observers.slice(0, -1)) observer.release()
+    expect(shared.activeRoots()).toBe(1)
+    observers.at(-1)?.release()
+    expect(shared.activeRoots()).toBe(0)
+
+    const replacement = shared.acquire(root)
+    await replacement.read()
+    expect(read).toHaveBeenCalledTimes(3)
+    replacement.release()
   })
 
   test('falls back to a fresh read (never memoized stale data) when no state DB exists', async () => {

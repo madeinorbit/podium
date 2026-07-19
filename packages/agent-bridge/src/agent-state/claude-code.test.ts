@@ -61,6 +61,8 @@ describe('claude-code instrumentation', () => {
       'StopFailure',
       'TaskCreated',
       'TaskCompleted',
+      'SubagentStart',
+      'SubagentStop',
       'PreCompact',
       'PostCompact',
       'SessionEnd',
@@ -118,6 +120,101 @@ describe('translateClaudeHookPayload', () => {
     expect(await t({ hook_event_name: 'TaskCompleted' })).toEqual([
       { kind: 'task_delta', delta: -1 },
     ])
+  })
+
+  it('SubagentStart/Stop carry agent_id + agent_type into task_delta', async () => {
+    // Captured shape (Claude 2.1.212): SubagentStart/Stop include agent_id +
+    // agent_type; parent session_id is shared (no separate subagent session).
+    expect(
+      await t({
+        hook_event_name: 'SubagentStart',
+        agent_id: 'ad7e66922f0d8ff7a',
+        agent_type: 'Explore',
+      }),
+    ).toEqual([
+      {
+        kind: 'task_delta',
+        delta: 1,
+        agentId: 'ad7e66922f0d8ff7a',
+        agentType: 'Explore',
+      },
+    ])
+    expect(
+      await t({
+        hook_event_name: 'SubagentStop',
+        agent_id: 'ad7e66922f0d8ff7a',
+        agent_type: 'Explore',
+        agent_transcript_path: '/tmp/subagents/agent-ad7e66922f0d8ff7a.jsonl',
+      }),
+    ).toEqual([
+      {
+        kind: 'task_delta',
+        delta: -1,
+        agentId: 'ad7e66922f0d8ff7a',
+        agentType: 'Explore',
+      },
+    ])
+  })
+
+  it('SubagentStart without agent_id still emits anonymous task_delta', async () => {
+    expect(await t({ hook_event_name: 'SubagentStart' })).toEqual([
+      { kind: 'task_delta', delta: 1 },
+    ])
+  })
+
+  it('real SubagentStart/Stop payloads rewire count + identity (Phase-1 capture)', async () => {
+    // Exact fields from live Claude 2.1.212 capture (Explore Task spawn).
+    // TaskCreated/TaskCompleted never arrived — these hooks own the count.
+    const capturedStart = {
+      session_id: '5c3c0a43-fb06-4131-acb5-728e8ab8f524',
+      transcript_path: '/tmp/5c3c0a43-fb06-4131-acb5-728e8ab8f524.jsonl',
+      cwd: '/tmp',
+      prompt_id: 'a35a709c-b91a-45a6-aa11-4c85f294d6c0',
+      agent_id: 'ad7e66922f0d8ff7a',
+      agent_type: 'Explore',
+      hook_event_name: 'SubagentStart',
+    }
+    const capturedStop = {
+      session_id: '5c3c0a43-fb06-4131-acb5-728e8ab8f524',
+      transcript_path: '/tmp/5c3c0a43-fb06-4131-acb5-728e8ab8f524.jsonl',
+      cwd: '/tmp',
+      prompt_id: 'a35a709c-b91a-45a6-aa11-4c85f294d6c0',
+      permission_mode: 'bypassPermissions',
+      agent_id: 'ad7e66922f0d8ff7a',
+      agent_type: 'Explore',
+      hook_event_name: 'SubagentStop',
+      agent_transcript_path:
+        '/tmp/5c3c0a43-fb06-4131-acb5-728e8ab8f524/subagents/agent-ad7e66922f0d8ff7a.jsonl',
+      last_assistant_message: 'PONG',
+    }
+
+    let state = reduceAgentState(
+      initialAgentState('2026-07-18T00:00:00.000Z'),
+      { kind: 'prompt_submitted' },
+      '2026-07-18T00:00:00.000Z',
+    )
+    for (const event of await translateClaudeHookPayload(capturedStart)) {
+      state = reduceAgentState(state, event, '2026-07-18T00:00:01.000Z')
+    }
+    // Count rewire: was always 0 before (TaskCreated dead); now moves with real hooks.
+    expect(state.nativeSubagentCount).toBe(1)
+    expect(state.nativeSubagents).toEqual([{ id: 'ad7e66922f0d8ff7a', type: 'Explore' }])
+    expect(state.nativeSubagentCount).toBe(state.nativeSubagents?.length ?? 0)
+
+    // M4 debounce gate: turn_completed while subagent live stays working.
+    state = reduceAgentState(state, { kind: 'turn_completed' }, '2026-07-18T00:00:02.000Z')
+    expect(state).toMatchObject({
+      phase: 'working',
+      awaitingSubagents: true,
+      nativeSubagentCount: 1,
+    })
+
+    for (const event of await translateClaudeHookPayload(capturedStop)) {
+      state = reduceAgentState(state, event, '2026-07-18T00:00:03.000Z')
+    }
+    expect(state.nativeSubagentCount).toBe(0)
+    expect(state.nativeSubagents).toBeUndefined()
+    expect(state).toMatchObject({ phase: 'idle', idle: { kind: 'done' } })
   })
 
   it('AskUserQuestion PreToolUse → needs_user question with the question text', async () => {

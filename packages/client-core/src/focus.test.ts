@@ -11,14 +11,14 @@ import {
 const needsUser = (since: string): AgentRuntimeState => ({
   phase: 'needs_user',
   since,
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
   need: { kind: 'question', summary: 'Need a decision' },
 })
 
 const working = (since: string): AgentRuntimeState => ({
   phase: 'working',
   since,
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
 })
 
 function meta(over: Partial<SessionMeta> & { sessionId: string }): SessionMeta {

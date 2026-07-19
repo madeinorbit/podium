@@ -101,7 +101,7 @@ async function dumpEnvOfSpawnedProcess(
       remove: () => {},
     },
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
-    sessionCwdTracker: { clear: () => {} },
+    sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,

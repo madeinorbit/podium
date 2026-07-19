@@ -3,7 +3,15 @@ import { ISSUE_STAGES, IssueStage, IssueWire, RepoOp, ServerMessage } from './me
 
 describe('issue protocol types', () => {
   it('has the five ordered stages', () => {
-    expect(ISSUE_STAGES).toEqual(['backlog', 'planning', 'in_progress', 'review', 'done'])
+    expect(ISSUE_STAGES).toEqual([
+      'proposed',
+      'backlog',
+      'planning',
+      'in_progress',
+      'review',
+      'done',
+    ])
+    expect(IssueStage.parse('proposed')).toBe('proposed')
     expect(IssueStage.parse('review')).toBe('review')
     expect(IssueStage.safeParse('verifying').success).toBe(false)
   })
@@ -44,6 +52,51 @@ describe('issue protocol types', () => {
     expect(wire.worktreePath).toBeNull()
     expect(wire).not.toHaveProperty('sessions')
     expect(wire).not.toHaveProperty('sessionSummary')
+  })
+
+  it('accepts additive coordinatorSessionId + startedBySession (bare session ids)', () => {
+    const base = {
+      id: 'iss_1',
+      repoPath: '/r',
+      seq: 1,
+      title: 'X',
+      description: '',
+      stage: 'backlog' as const,
+      worktreePath: null,
+      branch: null,
+      parentBranch: 'main',
+      defaultAgent: 'claude-code',
+      defaultModel: 'auto',
+      defaultEffort: 'auto',
+      blockedBy: [],
+      priority: 2,
+      type: 'task' as const,
+      pinned: false,
+      needsHuman: false,
+      labels: [],
+      deps: [],
+      dependents: [],
+      comments: [],
+      ready: true,
+      blocked: false,
+      deferred: false,
+      childCount: 0,
+      childDoneCount: 0,
+      createdAt: 't',
+      updatedAt: 't',
+      archived: false,
+      sessions: [],
+      sessionSummary: { total: 0, byPhase: {} },
+    }
+    expect(IssueWire.parse(base).coordinatorSessionId).toBeUndefined()
+    expect(IssueWire.parse(base).startedBySession).toBeUndefined()
+    const withProv = IssueWire.parse({
+      ...base,
+      coordinatorSessionId: 'sess_coord',
+      startedBySession: 'sess_creator',
+    })
+    expect(withProv.coordinatorSessionId).toBe('sess_coord')
+    expect(withProv.startedBySession).toBe('sess_creator')
   })
 
   it('accepts the additive node⇄hub fields (viaHub/upstreamStale/pendingSync)', () => {
@@ -237,6 +290,10 @@ describe('issue protocol types', () => {
     expect(RepoOp.parse('worktreeRemove')).toBe('worktreeRemove')
     expect(RepoOp.parse('branchDelete')).toBe('branchDelete')
     expect(RepoOp.parse('isMergedInto')).toBe('isMergedInto')
+  })
+
+  it('accepts worktreeAddExisting for stop→resume [spec:SP-9904]', () => {
+    expect(RepoOp.parse('worktreeAddExisting')).toBe('worktreeAddExisting')
   })
 
   it('round-trips issue broadcast messages', () => {

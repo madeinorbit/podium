@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
@@ -83,6 +84,9 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
     case 'tool_result_update':
       return withEventTime([{ kind: 'activity' }], at)
     case 'turn_completed': {
+      if (normalizeName(stringField(update, 'stop_reason')) === 'error') {
+        return withEventTime([grokTurnFailedEvent(update)], at)
+      }
       // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
       // AFTER the Stop hook and the final agent_message_chunk, so it is the record
       // that must settle the phase — without it that trailing chunk (→ activity →
@@ -91,6 +95,14 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
       // [spec:SP-8b0e]
       const verdict = await classifyStopPayload(payload)
       return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
+    }
+    case 'retry_state': {
+      const retryState = normalizeName(stringField(update, 'type'))
+      if (retryState === 'retrying') return withEventTime([{ kind: 'activity' }], at)
+      if (retryState === 'failed' || retryState === 'exhausted') {
+        return withEventTime([grokTurnFailedEvent(update)], at)
+      }
+      return []
     }
     case 'task_backgrounded':
     case 'task_completed':
@@ -176,6 +188,7 @@ export function observeGrokState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  statTick?: StatTick
   onSession?: (sessionId: string) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): GrokStateObserver {
@@ -197,7 +210,7 @@ export function observeGrokState(opts: {
     attached = paths
     boundId = paths.sessionId
     opts.onSession?.(paths.sessionId)
-    updateTail = tailGrokUpdates(paths, opts.onEvents, { pollMs })
+    updateTail = tailGrokUpdates(paths, opts.onEvents, { pollMs, statTick: opts.statTick })
   }
 
   const discover = async (): Promise<void> => {
@@ -211,12 +224,14 @@ export function observeGrokState(opts: {
     if (paths && !stopped) attach(paths)
   }
 
-  let discoverTimer: ReturnType<typeof setInterval> | undefined
+  let stopDiscovery: (() => void) | undefined
   if (opts.resumeValue) {
     attach(grokSessionPaths({ cwd: opts.cwd, sessionId: opts.resumeValue, homeDir: opts.homeDir }))
   } else {
-    discoverTimer = setInterval(() => void discover(), pollMs)
-    discoverTimer.unref?.()
+    stopDiscovery = scheduleStatPoll(() => void discover(), {
+      statTick: opts.statTick,
+      pollMs,
+    })
     void discover()
   }
 
@@ -226,7 +241,7 @@ export function observeGrokState(opts: {
     },
     stop() {
       stopped = true
-      if (discoverTimer) clearInterval(discoverTimer)
+      stopDiscovery?.()
       updateTail?.stop()
     },
   }
@@ -307,9 +322,7 @@ async function grokLifecycleEvents(
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
-      const errorClass =
-        stringField(fields, 'error_type') ?? stringField(fields, 'errorType') ?? 'unknown'
-      return [{ kind: 'turn_failed', errorClass, retryable: RETRYABLE.has(errorClass) }]
+      return [grokTurnFailedEvent(fields)]
     }
     case 'pre_compact':
       return [{ kind: 'compaction', phase: 'start' }]
@@ -340,7 +353,7 @@ function grokQuestionSummary(fields: Record<string, unknown>): string | undefine
 function tailGrokUpdates(
   paths: GrokSessionPaths,
   onEvents: (events: AgentStateEvent[]) => void,
-  opts: { pollMs?: number } = {},
+  opts: { pollMs?: number; statTick?: StatTick } = {},
 ): GrokStateObserver {
   let offset = 0
   const decoder = new LineDecoder()
@@ -412,15 +425,17 @@ function tailGrokUpdates(
     }
   }
 
-  const timer = setInterval(() => void readNew(), opts.pollMs ?? POLL_MS)
-  timer.unref?.()
+  const stopPolling = scheduleStatPoll(() => void readNew(), {
+    statTick: opts.statTick,
+    pollMs: opts.pollMs ?? POLL_MS,
+  })
   void readNew()
 
   return {
     path: paths.updatesPath,
     stop() {
       stopped = true
-      clearInterval(timer)
+      stopPolling()
     },
   }
 }
@@ -543,6 +558,49 @@ function stringField(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined
   const field = value[key]
   return typeof field === 'string' && field.length > 0 ? field : undefined
+}
+
+/** Grok reports provider failures in retry_state and in the authoritative
+ * turn_completed record. Keep the provider-specific vocabulary here and emit
+ * only the normalized failure event to shared layers. [spec:SP-8b0e] */
+function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
+  const message =
+    stringField(fields, 'agent_result') ??
+    stringField(fields, 'message') ??
+    stringField(fields, 'reason') ??
+    ''
+  const errorType =
+    stringField(fields, 'error_type') ?? stringField(fields, 'errorType') ?? 'unknown'
+  const detail = `${errorType} ${message}`.toLowerCase()
+
+  if (/\b(?:usage (?:balance )?(?:exhausted|limit)|quota (?:exhausted|limit))\b/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }
+  }
+  if (fields.is_rate_limited === true || /\b(?:status )?429\b|too many requests/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }
+  }
+  if (/\b(?:overloaded|temporarily at capacity)\b/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'overloaded', retryable: true }
+  }
+  if (/\b(?:status )?5\d\d\b|server error/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'server_error', retryable: true }
+  }
+  if (/\b(?:status )?(?:401|403)\b|unauthori[sz]ed|authentication/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'authentication', retryable: false }
+  }
+  if (/\b(?:status )?402\b|payment required|billing|insufficient credits/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'billing_error', retryable: false }
+  }
+  if (/\b(?:network|transport|connection|timeout)\b/.test(detail)) {
+    return { kind: 'turn_failed', errorClass: 'network_error', retryable: true }
+  }
+
+  const errorClass = normalizeName(errorType) ?? 'unknown'
+  return {
+    kind: 'turn_failed',
+    errorClass,
+    retryable: errorClass === 'api' || RETRYABLE.has(errorClass),
+  }
 }
 
 const QUESTIONISH =

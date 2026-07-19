@@ -2,11 +2,64 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { PodiumSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
+import { SessionsRepository } from './store/sessions'
+
+describe('versioned drafts — column guard (POD-859)', () => {
+  // A DB where the versioned-draft migration has not applied → session_drafts lacks
+  // rev/origin/history. The versioned store path must degrade, never crash — boot
+  // (loadFromStore → loadDraftDocs) runs unconditionally, so this would otherwise
+  // crash-loop with the flag OFF. drizzle applies by name so this is defense-in-depth.
+  function legacyDraftsDb() {
+    const db = openDatabase(':memory:')
+    db.exec(
+      `CREATE TABLE session_drafts (
+         session_id TEXT PRIMARY KEY, text TEXT NOT NULL, updated_at TEXT NOT NULL
+       )`,
+    )
+    return db
+  }
+
+  it('loadDraftDocs returns the legacy shape (rev 0) instead of "no such column: rev"', () => {
+    const db = legacyDraftsDb()
+    db.prepare('INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?,?,?)').run(
+      'sess',
+      'legacy draft',
+      '2026-01-01T00:00:00.000Z',
+    )
+    const repo = new SessionsRepository(db)
+    expect(() => repo.loadDraftDocs()).not.toThrow()
+    expect(repo.loadDraftDocs().sess).toEqual({
+      text: 'legacy draft',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      rev: 0,
+      origin: null,
+      history: [],
+    })
+    db.close()
+  })
+
+  it('setDraftDoc degrades to a text-only write when the versioning columns are absent', () => {
+    const db = legacyDraftsDb()
+    const repo = new SessionsRepository(db)
+    expect(() =>
+      repo.setDraftDoc('sess', {
+        text: 'v2 text',
+        updatedAt: '2026-02-02T00:00:00.000Z',
+        rev: 5,
+        origin: 'clientA',
+        history: ['old'],
+      }),
+    ).not.toThrow()
+    expect(repo.loadDraftDocs().sess).toMatchObject({ text: 'v2 text', rev: 0, history: [] })
+    db.close()
+  })
+})
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -19,7 +72,6 @@ function trackTmp(prefix: string): string {
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
-
 
 async function tmpDbPath(): Promise<string> {
   const dir = trackTmp('podium-store-')
@@ -125,6 +177,9 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     refDraft: null,
     // And email-style read state (issue #124): always present, null = never opened.
     readAt: null,
+    // Durable completion metadata drives acknowledgment-gated decay [spec:SP-6144].
+    stoppedAt: null,
+    stopReason: null,
     // #285 workflow pass-through metadata (#237 [spec:SP-34d7 cross-harness]):
     // always projected, null = none stamped at spawn.
     workflowRunId: null,
@@ -334,6 +389,17 @@ describe('SessionStore sessions', () => {
   // Email-style read state (issue #124): read_at persists like the other additive columns.
   // (A separate schema-PRAGMA "column exists" test was dropped as redundant — this
   // round-trip already fails if the column is missing. POD-619 [spec:SP-0be7].)
+  it('round-trips stoppedAt and stopReason [spec:SP-6144]', () => {
+    const store = new SessionStore(':memory:')
+    const stopped = row({
+      stoppedAt: '2026-07-18T12:00:00.000Z',
+      stopReason: 'forced',
+    })
+    store.sessions.upsertSession(stopped)
+    expect(store.sessions.loadSessions()).toEqual([stopped])
+    store.close()
+  })
+
   it('round-trips read_at; a row that never had it reads null', () => {
     const store = new SessionStore(':memory:')
     store.sessions.upsertSession(
@@ -523,9 +589,7 @@ describe('SessionStore offers', () => {
     const store = new SessionStore(':memory:')
     store.sessions.setOffer('good', OFFER)
     // Simulate a corrupt persisted row.
-    ;(
-      store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }
-    ).db
+    ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
       .run('{not json', 'good')
     expect(store.sessions.listOffers()).toEqual({})
@@ -593,7 +657,39 @@ describe('settings', () => {
     expect(s.roles.coding.accountId).toBe('') // '' = the role's default (claude-code)
     expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
     expect(s.hibernation.memoryPct).toBe(80)
+    expect(s.hibernation.maxIdleSessions).toBe(30)
     store.close()
+  })
+
+  it('accepts zero as the idle-session target and rejects negative targets', () => {
+    const store = new SessionStore(':memory:')
+    const settings = store.settings.getSettings()
+    store.settings.setSettings({
+      ...settings,
+      hibernation: { ...settings.hibernation, maxIdleSessions: 0 },
+    })
+    expect(store.settings.getSettings().hibernation.maxIdleSessions).toBe(0)
+    expect(() => {
+      PodiumSettings.parse({
+        ...settings,
+        hibernation: { ...settings.hibernation, maxIdleSessions: -1 },
+      })
+    }).toThrow()
+    store.close()
+  })
+
+  it('round-trips an explicit unlimited idle-session target', async () => {
+    const file = await tmpDbPath()
+    const a = new SessionStore(file)
+    const settings = a.settings.getSettings()
+    a.settings.setSettings({
+      ...settings,
+      hibernation: { ...settings.hibernation, maxIdleSessions: null },
+    })
+    a.close()
+    const b = new SessionStore(file)
+    expect(b.settings.getSettings().hibernation.maxIdleSessions).toBeNull()
+    b.close()
   })
 
   it('round-trips a saved blob and fills missing keys forward', async () => {

@@ -546,6 +546,16 @@ export const appRouter = t.router({
     hibernate: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.hibernateSession(input)),
+    // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
+    // Operator path (web/tRPC) — no self-stop deferral; force discards dirty tree.
+    stop: t.procedure
+      .input(
+        z.object({
+          sessionId: z.string(),
+          force: z.boolean().optional(),
+        }),
+      )
+      .mutation(({ ctx, input }) => mods(ctx).sessions.stopSession(input)),
     resurrect: t.procedure
       .input(z.object({ sessionId: z.string() }))
       .mutation(({ ctx, input }) => mods(ctx).sessions.resurrectSession(input)),
@@ -654,7 +664,9 @@ export const appRouter = t.router({
     // falls back to snapshot. The client heals every WS (re)connect through this.
     changesSince: t.procedure
       .input(z.object({ cursor: z.number().int().nonnegative().nullable() }))
-      .query(({ ctx, input }) => mods(ctx).sessions.syncChangesSince(input.cursor)),
+      .query(({ ctx, input }) =>
+        mods(ctx).sessions.syncChangesSince(input.cursor, ctx.publicationAuthority),
+      ),
   }),
   pins: t.router({
     list: t.procedure.query(({ ctx }) => ctx.registry.sessionStore.sessions.listPins()),
@@ -1123,11 +1135,22 @@ export const appRouter = t.router({
     // repo paths + shallow walks around known repos; `deep` adds the bounded $HOME
     // sweep. Origin matches are auto-registered; the rest come back as candidates.
     scanMachine: t.procedure
-      .input(z.object({ machineId: z.string(), deep: z.boolean().optional() }))
+      .input(
+        z.object({
+          machineId: z.string(),
+          deep: z.boolean().optional(),
+          // The folder the user is browsing — scanned as an extra root ("scan
+          // here", POD-855) [spec:SP-5eb6] alongside the always-on known-repo tiers.
+          atPath: z.string().optional(),
+        }),
+      )
       .mutation(({ ctx, input }) => {
         if (!ctx.discovery)
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
-        return ctx.discovery.scan(input.machineId, { deep: input.deep ?? true })
+        return ctx.discovery.scan(input.machineId, {
+          deep: input.deep ?? true,
+          ...(input.atPath === undefined ? {} : { atPath: input.atPath }),
+        })
       }),
     // Most recent finished discovery for a machine (e.g. the automatic connect scan),
     // so the picker can show results without re-scanning.
@@ -1321,6 +1344,12 @@ export const appRouter = t.router({
       .mutation(
         ({ ctx, input }) =>
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'inbox', input)!,
+      ),
+    dismiss: t.procedure
+      .input(z.unknown())
+      .mutation(
+        ({ ctx, input }) =>
+          mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'dismiss', input)!,
       ),
     show: t.procedure
       .input(z.unknown())

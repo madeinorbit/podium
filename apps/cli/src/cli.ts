@@ -134,6 +134,7 @@ export type LaunchPlan =
   | { kind: 'telemetry'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
+  | { kind: 'janitor'; serverUrl: string; takeover: boolean }
   | { kind: 'repair-config' }
   | { kind: 'join-setup'; token: string; persistence: 'systemd' | 'detached'; port: number }
   | { kind: 'issue'; args: string[] }
@@ -412,6 +413,23 @@ export function resolvePlan(
           message: 'usage: podium set-server <ws(s)://url | http(s)://url | join-code>',
         }
   }
+  // Internal sibling component [spec:SP-c29e]. It is deliberately not a
+  // PodiumMode: operators configure a host/server, and persistence composes the
+  // janitor automatically beside that server.
+  if (argv[0] === 'janitor') {
+    const componentArgs = argv.slice(1).filter((arg) => arg !== '--takeover')
+    const takeover = argv.includes('--takeover')
+    if (componentArgs.length === 0) {
+      return { kind: 'janitor', serverUrl: `http://localhost:${port}`, takeover }
+    }
+    if (componentArgs.length === 2 && componentArgs[0] === '--server' && componentArgs[1]) {
+      return { kind: 'janitor', serverUrl: componentArgs[1], takeover }
+    }
+    return {
+      kind: 'usage-error',
+      message: 'usage: podium janitor [--server <http(s)://url>] [--takeover]',
+    }
+  }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
   if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
   // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join
@@ -523,8 +541,15 @@ export function resolvePlan(
         modePlan.mode === 'daemon'
           ? [instanceServiceName('daemon', instanceId)]
           : modePlan.mode === 'server'
-            ? [instanceServiceName('server', instanceId)]
-            : [instanceServiceName('server', instanceId), instanceServiceName('daemon', instanceId)]
+            ? [
+                instanceServiceName('server', instanceId),
+                instanceServiceName('janitor', instanceId),
+              ]
+            : [
+                instanceServiceName('server', instanceId),
+                instanceServiceName('janitor', instanceId),
+                instanceServiceName('daemon', instanceId),
+              ]
       return { kind: 'systemd-managed', units }
     }
     return { kind: 'detached-managed', port }
@@ -621,7 +646,7 @@ export function helpText(): string {
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
     '  worktree [path]       Declare the worktree this agent session works in',
-    '  workspace <command>   Fetch another agent\'s working state; clean up peeks',
+    "  workspace <command>   Fetch another agent's working state; clean up peeks",
     '',
     '  workflow <command>    Follow and manage versioned agent workflows',
     'Agent sessions: lifecycle changes and automation schedules need operator approval —',
@@ -721,6 +746,7 @@ export interface HostModules {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
+  startJanitor(opts: { serverUrl: string; token: string }): Promise<{ close(): void }>
 }
 
 type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
@@ -949,6 +975,53 @@ export async function main(loadHost: () => Promise<HostModules>): Promise<void> 
         console.error((e as Error).message)
         process.exit(2)
       }
+      return
+    }
+    case 'janitor': {
+      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
+      const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
+      if (!plan.takeover) {
+        const holder = liveRecord('janitor')
+        if (holder) {
+          console.error(alreadyRunningMessage('janitor', holder))
+          process.exit(1)
+        }
+      }
+      try {
+        await registerProcess('janitor', {
+          mode: resolveRunRecordMode(process.env),
+        })
+      } catch (error) {
+        console.error((error as Error).message)
+        process.exit(1)
+      }
+      const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
+      const host = await loadHost()
+      let handle: Awaited<ReturnType<HostModules['startJanitor']>>
+      try {
+        handle = await host.startJanitor({
+          serverUrl: plan.serverUrl,
+          token: readOrCreateDaemonSecret(),
+        })
+      } catch (error) {
+        if ((error as Error).name === 'MaintenanceCompatibilityError') {
+          const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
+          console.error(`podium janitor: ${(error as Error).message}`)
+          process.exit(DAEMON_BLOCKED_EXIT_CODE)
+        }
+        throw error
+      }
+      console.log(`podium janitor up → ${plan.serverUrl}`)
+      const { startWatchdog } = await import('@podium/runtime/sd-notify')
+      const stopWatchdog = startWatchdog()
+      const shutdown = (): void => {
+        stopWatchdog?.()
+        handle.close()
+        process.exit(0)
+      }
+      process.on('SIGINT', shutdown)
+      process.on('SIGTERM', shutdown)
+      await new Promise(() => {})
       return
     }
     case 'repair-config': {

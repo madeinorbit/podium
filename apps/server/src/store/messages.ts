@@ -13,6 +13,18 @@ export interface MessagePrincipalRef {
   id?: string | null
 }
 
+/** Stable keyset cursor for bounded queued-message scans. */
+export interface MessagePageCursor {
+  createdAt: string
+  id: string
+}
+
+export interface PendingMessageSender {
+  fromKind: MessageRow['fromKind']
+  fromIssue: string | null
+  fromSession: string | null
+}
+
 function mapMessage(r: Record<string, unknown>): MessageRow {
   return {
     id: r.id as string,
@@ -42,6 +54,9 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     hop: (r.hop as number | null) ?? 0,
     clampedFrom: (r.clamped_from as string | null) ?? null,
     remindedAt: (r.reminded_at as string | null) ?? null,
+    factKey: (r.fact_key as string | null) ?? null,
+    factTarget: (r.fact_target as string | null) ?? null,
+    expectsResponse: Boolean(r.expects_response),
   }
 }
 
@@ -54,8 +69,9 @@ export class MessagesRepository {
         `INSERT INTO messages
            (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
             to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
-            created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
+            expects_response, fact_key, fact_target)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -79,6 +95,9 @@ export class MessagesRepository {
         m.ackedBy,
         m.hop,
         m.clampedFrom,
+        m.expectsResponse ? 1 : 0,
+        m.factKey ?? null,
+        m.factTarget ?? null,
       )
   }
 
@@ -139,9 +158,79 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
-  /** Undelivered (queued) messages awaiting a principal, oldest first. */
-  pendingFor(to: MessagePrincipalRef): MessageRow[] {
-    return this.listMessagesFor(to, { status: 'queued' })
+  /** One bounded keyset page of queued rows for a principal. */
+  pendingForPage(
+    to: MessagePrincipalRef,
+    opts: { after?: MessagePageCursor; through?: MessagePageCursor; limit?: number } = {},
+  ): MessageRow[] {
+    const where = ['to_kind = ?', "status = 'queued'"]
+    const params: unknown[] = [to.kind]
+    if (to.kind !== 'operator') {
+      where.push('to_id = ?')
+      params.push(to.id ?? null)
+    }
+    if (opts.after) {
+      where.push('(created_at > ? OR (created_at = ? AND id > ?))')
+      params.push(opts.after.createdAt, opts.after.createdAt, opts.after.id)
+    }
+    if (opts.through) {
+      where.push('(created_at < ? OR (created_at = ? AND id <= ?))')
+      params.push(opts.through.createdAt, opts.through.createdAt, opts.through.id)
+    }
+    params.push(Math.min(500, Math.max(1, opts.limit ?? 200)))
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE ${where.join(' AND ')}
+         ORDER BY created_at ASC, id ASC LIMIT ?`,
+      )
+      .all(...(params as never[])) as Record<string, unknown>[]
+    return rows.map(mapMessage)
+  }
+
+  /** Last queued row in stable delivery order; captures a finite scan snapshot. */
+  pendingHighWater(to: MessagePrincipalRef): MessagePageCursor | null {
+    const params: unknown[] = [to.kind]
+    const idPredicate = to.kind === 'operator' ? '' : ' AND to_id = ?'
+    if (to.kind !== 'operator') params.push(to.id ?? null)
+    const row = this.db
+      .prepare(
+        `SELECT created_at, id FROM messages
+         WHERE to_kind = ?${idPredicate} AND status = 'queued'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .get(...(params as never[])) as { created_at: string; id: string } | undefined
+    return row ? { createdAt: row.created_at, id: row.id } : null
+  }
+
+  /** Complete queued-sender projection for nag/inbox aggregates. */
+  listPendingSenders(to: MessagePrincipalRef): PendingMessageSender[] {
+    const params: unknown[] = [to.kind]
+    const idPredicate = to.kind === 'operator' ? '' : ' AND to_id = ?'
+    if (to.kind !== 'operator') params.push(to.id ?? null)
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT from_kind, from_issue, from_session
+         FROM messages
+         WHERE to_kind = ?${idPredicate} AND status = 'queued'
+         ORDER BY from_kind ASC, from_issue ASC, from_session ASC`,
+      )
+      .all(...(params as never[])) as {
+      from_kind: MessageRow['fromKind']
+      from_issue: string | null
+      from_session: string | null
+    }[]
+    return rows.map((row) => ({
+      fromKind: row.from_kind,
+      fromIssue: row.from_issue,
+      fromSession: row.from_session,
+    }))
+  }
+
+  countQueued(): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE status = 'queued'")
+      .get() as { n: number }
+    return row.n
   }
 
   countPending(to: MessagePrincipalRef): number {
@@ -153,6 +242,25 @@ export class MessagesRepository {
       )
       .get(...(params as never[])) as { n: number }
     return r.n
+  }
+
+  /** True if a message FROM `fromIssue` reached `to` at/after `sinceIso` — the
+   *  steward's "already-communicated" arbiter check [POD-913, design §07b/§10]:
+   *  before firing an automated fact to a target, has the producer already told
+   *  it directly? Existence-only (any status), since even a still-queued row
+   *  proves the producer already acted — the steward's notice would just be a
+   *  duplicate waiting to happen. */
+  alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): boolean {
+    const where = ['from_issue = ?', 'to_kind = ?', 'created_at >= ?']
+    const params: unknown[] = [fromIssue, to.kind, sinceIso]
+    if (to.kind !== 'operator') {
+      where.push('to_id = ?')
+      params.push(to.id ?? null)
+    }
+    const r = this.db
+      .prepare(`SELECT 1 AS hit FROM messages WHERE ${where.join(' AND ')} LIMIT 1`)
+      .get(...(params as never[])) as { hit: number } | undefined
+    return r !== undefined
   }
 
   /** Record a PUSH toward a live PTY without claiming the agent saw it [POD-834]:
@@ -223,45 +331,61 @@ export class MessagesRepository {
 
   /** Every queued (undelivered) row, oldest first — the slow sweep's retry set. */
   listQueued(limit = 500): MessageRow[] {
+    return this.listQueuedPage({ limit })
+  }
+
+  /** One bounded keyset page of the global queued delivery set. */
+  listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): MessageRow[] {
+    const where = ["status = 'queued'"]
+    const params: unknown[] = []
+    if (opts.after) {
+      where.push('(created_at > ? OR (created_at = ? AND id > ?))')
+      params.push(opts.after.createdAt, opts.after.createdAt, opts.after.id)
+    }
+    params.push(Math.min(2000, Math.max(1, opts.limit ?? 500)))
     const rows = this.db
       .prepare(
-        `SELECT * FROM messages WHERE status = 'queued'
+        `SELECT * FROM messages WHERE ${where.join(' AND ')}
          ORDER BY created_at ASC, id ASC LIMIT ?`,
       )
-      .all(Math.min(2000, Math.max(1, limit))) as Record<string, unknown>[]
+      .all(...(params as never[])) as Record<string, unknown>[]
     return rows.map(mapMessage)
   }
 
-  /** Wake-lifecycle rows attempted since `sinceIso` (delivered_at, falling
-   *  back to created_at for still-queued attempts) — restart-proof backing for
-   *  the wake-cooldown brake (#237) [spec:SP-34d7 brakes]. */
-  listRecentWakes(sinceIso: string): MessageRow[] {
-    const rows = this.db
+  /** Persist a keyed wake attempt before its external side effect. */
+  recordWakeCooldown(key: string, attemptedAt: string): void {
+    this.db
       .prepare(
-        `SELECT * FROM messages
-         WHERE lifecycle = 'wake' AND COALESCE(delivered_at, created_at) >= ?
-         ORDER BY created_at ASC, id ASC LIMIT 500`,
+        `INSERT INTO message_wake_cooldowns (key, attempted_at) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET attempted_at = excluded.attempted_at`,
       )
-      .all(sinceIso) as Record<string, unknown>[]
-    return rows.map(mapMessage)
+      .run(key, attemptedAt)
   }
 
-  /** Expire queued rows whose expires_at has passed; returns the expired rows.
-   *  `waitImplicitCutoff` [POD-817] additionally expires wait-lifecycle rows
-   *  with NO explicit expires_at created at or before the cutoff — the policy
-   *  (TTL) lives with the caller; an explicit expires_at always wins. */
-  expireQueued(now: string, opts?: { waitImplicitCutoff?: string }): MessageRow[] {
-    const cutoff = opts?.waitImplicitCutoff ?? null
-    const where = `status = 'queued' AND (
-           (expires_at IS NOT NULL AND expires_at <= ?1)
-           OR (?2 IS NOT NULL AND expires_at IS NULL AND lifecycle = 'wait' AND created_at <= ?2)
-         )`
-    const rows = this.db
-      .prepare(`SELECT * FROM messages WHERE ${where}`)
-      .all(now, cutoff) as Record<string, unknown>[]
-    if (rows.length === 0) return []
-    this.db.prepare(`UPDATE messages SET status = 'expired' WHERE ${where}`).run(now, cutoff)
-    return rows.map(mapMessage).map((m) => ({ ...m, status: 'expired' as const }))
+  getWakeCooldown(key: string): string | null {
+    const row = this.db
+      .prepare('SELECT attempted_at FROM message_wake_cooldowns WHERE key = ?')
+      .get(key) as { attempted_at: string } | undefined
+    return row?.attempted_at ?? null
+  }
+
+  /** Apply one janitor-observed expiry only if every observed durable fact is
+   * still current. Server time eligibility is checked by MaintenanceService
+   * immediately before this conditional write in the same transaction. */
+  expireObserved(input: {
+    id: string
+    createdAt: string
+    lifecycle: MessageRow['lifecycle']
+    expiresAt: string | null
+  }): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE messages SET status = 'expired'
+         WHERE id = ? AND status = 'queued' AND created_at = ?
+           AND lifecycle = ? AND expires_at IS ?`,
+      )
+      .run(input.id, input.createdAt, input.lifecycle, input.expiresAt)
+    return result.changes === 1
   }
 
   /** Stamp the ack message id onto the original (first ack wins). */
@@ -272,17 +396,20 @@ export class MessagesRepository {
     return r.changes === 1
   }
 
-  /** Delivered-to-`sessionId`, unacked, unexpired rows that still expect an ack
-   *  (kinds message/question — acks and notifications never expect one). The
-   *  stop-hook reminder and the steward's deterministic fallback both read this
-   *  set (#237) [spec:SP-34d7 acks]. */
+  /** Delivered-to-`sessionId`, unfulfilled, unexpired rows that REQUESTED a
+   *  response [POD-835 §04b] — `expects_response = 1` is the sole gate (a
+   *  `--expect-response` send or a `question`); an ordinary message owes no reply,
+   *  so receipt alone never lands here. `acked_by IS NULL` is the unfulfilled test:
+   *  it is stamped by any in-thread reply (semantic-reply-as-ack), not just a
+   *  `kind:'ack'`. The stop-hook reminder and the steward's deterministic fallback
+   *  both read this set (#237) [spec:SP-34d7 acks]. */
   listDeliveredUnacked(sessionId: string, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         // The agent has it either way — pushed (delivered) or pulled (read).
         `SELECT * FROM messages
          WHERE status IN ('delivered','read') AND delivered_to = ? AND acked_by IS NULL
-           AND kind IN ('message','question')
+           AND expects_response = 1
            AND (expires_at IS NULL OR expires_at > ?)
          ORDER BY created_at ASC, id ASC`,
       )
@@ -290,21 +417,22 @@ export class MessagesRepository {
     return rows.map(mapMessage)
   }
 
-  /** The steward settle-fallback set (#468) [spec:SP-34d7 acks]: delivered,
-   *  unacked, unexpired rows for `sessionId` that (a) actually asked for something
-   *  — a `question`, or a non-`fyi` message; a `fyi` is a courtesy note and never
-   *  demands an ack — and (b) have not already produced a settle notice. The
-   *  once-guard is structural: a settle notice is a `notification` row whose
-   *  `in_reply_to` is the original, so "already notified" == such a row exists.
-   *  No column needed; the notice itself is the marker. This is why the notice
-   *  fires at most ONCE per message instead of on every settle. */
+  /** The steward settle-fallback set (#468, [spec:SP-bf44] [POD-835 §04b]): delivered,
+   *  unfulfilled, unexpired rows for `sessionId` that (a) REQUESTED a response — `expects_response
+   *  = 1`, the opt-in flag; an ordinary message (even next-turn) owes no reply and
+   *  never nags, killing the 49% ack traffic — and (b) have not already produced a
+   *  settle notice. `acked_by` is the fulfilment marker, stamped by ANY in-thread
+   *  reply (semantic-reply-as-ack), so a thorough reply clears the nag; the false
+   *  "finished without acking" notices are gone. The once-guard is structural: a
+   *  settle notice is a `notification` row whose `in_reply_to` is the original, so
+   *  "already notified" == such a row exists. No column needed; the notice itself is
+   *  the marker. This is why the notice fires at most ONCE per requested response. */
   listSettleNotifiable(sessionId: string, now: string): MessageRow[] {
     const rows = this.db
       .prepare(
         `SELECT * FROM messages m
          WHERE m.status IN ('delivered','read') AND m.delivered_to = ? AND m.acked_by IS NULL
-           AND m.kind IN ('message','question')
-           AND NOT (m.kind = 'message' AND m.urgency = 'fyi')
+           AND m.expects_response = 1
            AND (m.expires_at IS NULL OR m.expires_at > ?)
            AND NOT EXISTS (
              SELECT 1 FROM messages n

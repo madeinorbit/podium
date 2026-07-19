@@ -34,7 +34,7 @@ function sess(
     unread: false,
     agentState:
       phase === 'working'
-        ? { phase: 'working', since: '2026-07-06T12:00:00.000Z', openTaskCount: 0 }
+        ? { phase: 'working', since: '2026-07-06T12:00:00.000Z', nativeSubagentCount: 0 }
         : { phase: 'idle', idle: { kind: 'done' } },
     ...over,
   }

@@ -13,14 +13,18 @@ export type AgentStateEvent = (
   | { kind: 'activity' }
   | { kind: 'needs_user'; need: 'question' | 'permission'; summary?: string }
   /** Turn ended cleanly. Verdict (when the provider can classify) excludes
-   *  'open_todos' — that upgrade is reducer-owned (it tracks the task counter). */
+   *  'open_todos' — that kind exists on the wire for other signals; the reducer
+   *  does not invent it (nativeSubagentCount is live subagents, not todos). */
   | {
       kind: 'turn_completed'
       verdict?: { kind: 'done' | 'question' | 'approval' | 'interrupted'; summary?: string }
     }
   | { kind: 'turn_failed'; errorClass: string; retryable: boolean }
   | { kind: 'compaction'; phase: 'start' | 'end' }
-  | { kind: 'task_delta'; delta: 1 | -1 }
+  /** Live native-subagent count change. Optional agentId/agentType carry the
+   *  harness identity (Claude SubagentStart/Stop `agent_id`/`agent_type`) so
+   *  the reducer can name active subagents, not only count them. */
+  | { kind: 'task_delta'; delta: 1 | -1; agentId?: string; agentType?: string }
   | { kind: 'session_ended' }
 ) & {
   /** Event-time (ISO 8601) of the source record/hook, when the provider can supply

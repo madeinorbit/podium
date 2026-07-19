@@ -29,7 +29,7 @@ function agentState(over: Partial<AgentRuntimeState>): AgentRuntimeState {
   return {
     phase: 'unknown',
     since: new Date(NOW - 60_000).toISOString(),
-    openTaskCount: 0,
+    nativeSubagentCount: 0,
     ...over,
   } as AgentRuntimeState
 }

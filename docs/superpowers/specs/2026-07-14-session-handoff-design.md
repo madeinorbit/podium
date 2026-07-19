@@ -82,7 +82,8 @@ repo.bundle            git bundle (absent if session had no repo changes AND bra
 | `headSha` | branch tip in the bundle |
 | `snapshotSha` | snapshot commit (null if worktree clean) |
 | `snapshotFlattened` | `true` (staged/unstaged distinction lost) |
-| `worktreeName` | source worktree dir basename, reused on target |
+| `worktreeName` | source worktree dir basename; compatibility fallback for older packages |
+| `worktreeRelativePath` | safe path below the primary checkout (for example `.claude/worktrees/x`), preserved across machines; omitted for external worktrees |
 | `bundleBase` | SHAs the bundle is thin against |
 | `title`, `issueId`, `sourceMachineId`, `exportedAt` | bookkeeping |
 
@@ -104,9 +105,10 @@ pattern in `packages/protocol/src/messages/` + `apps/server/src/modules/machines
   64MB daemon guard.
 - `handoffImportRequest` (server→daemon): package pushed chunk-wise
   (`handoffImportChunk`) to the target's `~/.podium/handoff/` then
-  `{ requestId, repoPath, worktreeName }` → daemon: `bundle verify` → `fetch` refs →
-  `worktree add <repoPath>/.worktrees/<worktreeName> <branch>` → `restore --source=
-  <snapshotRef> --worktree -- .` → place transcript (claude: `~/.claude/projects/
+  `{ requestId, repoPath, worktreeName, occupiedWorktreePaths }` → daemon: `bundle verify` →
+  `fetch` refs → resolve the manifest's safe repository-relative location → reclaim the
+  matching inactive handoff residue in place, or `worktree add` there when absent →
+  `restore --source=<snapshotRef> --worktree -- .` → place transcript (claude: `~/.claude/projects/
   <claudeProjectSlug(newCwd)>/<value>.jsonl`; codex: `~/.codex/sessions/<orig date
   path>/<transcriptFilename>`) → reply `handoffImportResult { ok, newCwd | error }`.
 - Base negotiation: server asks target via new repo-op `revParseVerify` (batch of
@@ -142,6 +144,13 @@ worktree, staged tar) are cleaned best-effort by the import handler on error.
 `refs/podium/handoff/<sessionId>` on both sides is deleted after success too;
 staged tars GC'd after 24h (mirror uploads-gc pattern).
 Failures surface to the UI as a toast via the mutation error; session stays usable.
+
+A successful export records a machine-local residue fingerprint (session/repo/branch/path/tree).
+A return import may reset an existing checkout only when that fingerprint still matches and no
+other resumable session occupies it. Pre-fingerprint compatibility is limited to a clean checkout
+of the same branch (the POD-1012 round-trip shape). Changed, shared, active, or unrelated checkouts
+fail closed and the session rolls back to its current machine. The retained checkout is a return
+cache; optional cleanup is separate from handoff correctness.
 
 ## 4. Web UI
 

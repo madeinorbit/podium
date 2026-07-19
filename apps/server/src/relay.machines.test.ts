@@ -193,8 +193,13 @@ describe('multi-daemon routing', () => {
   })
 })
 
-function handoffRegistry(
-  opts: { failExport?: boolean; landInSubdir?: boolean; oldDaemon?: boolean; withIssue?: boolean } = {},
+async function handoffRegistry(
+  opts: {
+    failExport?: boolean
+    landInSubdir?: boolean
+    oldDaemon?: boolean
+    withIssue?: boolean
+  } = {},
 ) {
   const store = new SessionStore(':memory:')
   store.machines.upsertMachine({ id: 'm1', name: 'source', hostname: 'source', tokenHash: 'x' })
@@ -228,6 +233,7 @@ function handoffRegistry(
         snapshotSha: null,
         snapshotFlattened: true as const,
         worktreeName: 'x',
+        worktreeRelativePath: '.worktrees/x',
         bundleBase: [sha],
         sourceMachineId: 'm1',
         exportedAt: new Date().toISOString(),
@@ -285,7 +291,9 @@ function handoffRegistry(
         // `newCwd` is where the AGENT lands — the worktree root, or a subdir when the
         // session carried a cwdSubpath. `worktreeRoot` is the worktree itself; the
         // issue's home is always the root (POD-824). An older daemon omits it.
-        newCwd: opts.landInSubdir ? '/target/repo/.worktrees/x/apps/web' : '/target/repo/.worktrees/x',
+        newCwd: opts.landInSubdir
+          ? '/target/repo/.worktrees/x/apps/web'
+          : '/target/repo/.worktrees/x',
         ...(opts.oldDaemon ? {} : { worktreeRoot: '/target/repo/.worktrees/x' }),
       })
   })
@@ -300,7 +308,7 @@ function handoffRegistry(
       machineId: 'm1',
     })
   }
-  const { sessionId } = reg.modules.sessions.resumeSession({
+  const { sessionId } = await reg.modules.sessions.resumeSession({
     agentKind: 'claude-code',
     cwd: '/source/repo/.worktrees/x',
     resume: { kind: 'claude-session', value: 'native-id' },
@@ -316,7 +324,7 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, source, target, sessionId } = handoffRegistry()
+      const { reg, source, target, sessionId } = await handoffRegistry()
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
       expect(reg.modules.sessions.listSessions()).toMatchObject([
         { sessionId, machineId: 'm2', cwd: '/target/repo/.worktrees/x', status: 'starting' },
@@ -331,6 +339,48 @@ describe('session handoff orchestration', () => {
     }
   })
 
+  it('resolves the source repo from the issue worktree when rollback restored a stale cwd', async () => {
+    const { reg, source, sessionId, issueId } = await handoffRegistry({ withIssue: true })
+    // The old daemon restamped only the session after rollback; kind=none does not
+    // adopt the stale location onto the issue, so its real worktree survives.
+    reg.modules.sessions.onDaemonMessageFrom('m1', {
+      type: 'sessionCwd',
+      sessionId,
+      cwd: '/old-machine/repo',
+      kind: 'none',
+    })
+    expect(reg.modules.issues.getMeta(issueId!)).toMatchObject({
+      worktreePath: '/source/repo/.worktrees/x',
+      machineId: 'm1',
+    })
+    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+    expect(source).toContainEqual(
+      expect.objectContaining({
+        type: 'handoffExportRequest',
+        cwd: '/old-machine/repo',
+        fallbackCwd: '/source/repo/.worktrees/x',
+      }),
+    )
+  })
+
+  it('protects worktrees owned by another target session during import', async () => {
+    const { reg, target, sessionId } = await handoffRegistry()
+    await reg.modules.sessions.resumeSession({
+      agentKind: 'claude-code',
+      cwd: '/target/repo/.claude/worktrees/shared',
+      resume: { kind: 'claude-session', value: 'other-native-id' },
+      conversationId: 'other-native-id',
+      machineId: 'm2',
+    })
+    await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
+    expect(target).toContainEqual(
+      expect.objectContaining({
+        type: 'handoffImportRequest',
+        occupiedWorktreePaths: ['/target/repo/.claude/worktrees/shared'],
+      }),
+    )
+  })
+
   it('invalidates the repo lists on both machines so the moved session stays handoff-eligible', async () => {
     // POD-821: the import runs `git worktree add` on the target, so the moved
     // session's new cwd is a worktree NO client has scanned. Clients re-fetch repos
@@ -340,7 +390,7 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId } = handoffRegistry()
+      const { reg, sessionId } = await handoffRegistry()
       const client: ServerMessage[] = []
       reg.modules.sessions.attachClient((message) => client.push(message))
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
@@ -362,7 +412,10 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId, issueId } = handoffRegistry({ withIssue: true, landInSubdir: true })
+      const { reg, sessionId, issueId } = await handoffRegistry({
+        withIssue: true,
+        landInSubdir: true,
+      })
       const before = reg.modules.issues.get(issueId!)
       expect(before).toMatchObject({ repoPath: '/source/repo', machineId: 'm1' })
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
@@ -387,7 +440,10 @@ describe('session handoff orchestration', () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
     try {
-      const { reg, sessionId, issueId } = handoffRegistry({ withIssue: true, oldDaemon: true })
+      const { reg, sessionId, issueId } = await handoffRegistry({
+        withIssue: true,
+        oldDaemon: true,
+      })
       await reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' })
       expect(reg.modules.issues.get(issueId!)).toMatchObject({
         worktreePath: '/source/repo/.worktrees/x',
@@ -401,7 +457,7 @@ describe('session handoff orchestration', () => {
   })
 
   it('resumes the unchanged source row when export fails', async () => {
-    const { reg, source, sessionId } = handoffRegistry({ failExport: true })
+    const { reg, source, sessionId } = await handoffRegistry({ failExport: true })
     await expect(
       reg.modules.sessions.handoffSession({ sessionId, machineId: 'm2' }),
     ).rejects.toThrow('export exploded')

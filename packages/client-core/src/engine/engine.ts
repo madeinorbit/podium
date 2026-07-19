@@ -290,7 +290,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.awaitingTruth = restoredAwaiting
     // URL router (issue #15 Phase 4): the main surface is the URL. A plain '/'
-    // start restores the persisted view; unknown URLs fall back to home.
+    // start restores the persisted view; unknown URLs fall back to Tasks.
     this.router = createRouter({ fallbackView: readStoredView(this.ui), win: init.routerWindow })
     const route = this.router.current()
     this.prevRoute = route
@@ -1441,7 +1441,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
       },
       resurrectSession: async (sessionId: string) => {
-        await api.sessions.resurrect.mutate({ sessionId }).catch(() => {})
+        try {
+          const result = await api.sessions.resurrect.mutate({ sessionId })
+          if (!result.ok) {
+            this.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
+          }
+        } catch (err) {
+          this.notices.error(
+            `Couldn't resume the session — ${err instanceof Error ? err.message : 'unknown error'}`,
+          )
+        }
       },
       resumeAndSend: async (sessionId: string, text: string) => {
         // Outboxed: the wake+deliver is durably queued server-side once it lands,

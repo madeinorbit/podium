@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AgentInstruction,
   AgentKind,
   type AgentRuntimeState,
@@ -16,6 +17,7 @@ import {
   type ClientMessage,
   type ControlMessage,
   type DaemonMessage,
+  type DraftEditMessage,
   formatSessionRef,
   type Geometry,
   type IssueDepProjection,
@@ -37,8 +39,13 @@ import {
 import { resolveRole } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
+import { isFeatureEnabled } from '../../features'
 import type { Capability } from '../../issue-authz'
-import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
+import {
+  liveSessionsUsingWorktree,
+  selectMailNudgeSession,
+  sessionsForIssue,
+} from '../../issue-util'
 import { LOCAL_MACHINE_ID, LOCAL_PLACEHOLDER } from '../../local-machine'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionRow, SessionStore } from '../../store'
@@ -59,9 +66,24 @@ import type { MachinesService } from '../machines/service'
 import { perf } from '../perf/registry'
 import type { HeadlessService } from '../superagent/headless'
 import { resolveAccountEnv } from './account-env'
+import { applyDraftEdit, DEFAULT_LEASE_MS, type DraftDoc, emptyDraftDoc } from './draft-doc'
 import { transferHandoffPackage, verifiedBundleBases } from './handoff-transfer'
 import type { PreparedSessionInstructions } from './instructions'
-import { type ClientConn, type Send, Session } from './session'
+import { createViewKey, type PublicationView, type ViewKey } from './publish-worker-actor'
+import {
+  PublicationSupersededError,
+  PublishWorkerClient,
+  type PublishWorkerMetrics,
+} from './publish-worker-client'
+import {
+  type ClientConn,
+  type ClientPublicationAuthority,
+  type PublicationAuthority,
+  type Send,
+  Session,
+  type SessionDurableState,
+  type SessionVolatileField,
+} from './session'
 
 export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 // Delay between a chat message's bracketed paste and its submitting CR, so the CR
@@ -119,7 +141,14 @@ export interface SessionLedger {
     result: T
     changes: MetadataChange[]
   }
+  capture(specs: EntityChangeSpec[]): MetadataChange[]
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
+}
+
+export interface SessionProjectionEvent {
+  generation: number
+  changes: MetadataChange[]
+  ledgerCursor: number
 }
 
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
@@ -127,7 +156,7 @@ export interface SessionDeletePlan {
   sessionIds: string[]
   write(): void
   changes(): EntityChangeSpec[]
-  apply(): void
+  apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 /** Prepared half of restoring issue-owned session tombstones. */
@@ -136,7 +165,7 @@ export interface SessionRestorePlan {
   restoredSessions: SessionMeta[]
   write(): void
   changes(): EntityChangeSpec[]
-  apply(): void
+  apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 interface SessionsServiceDeps {
@@ -149,6 +178,8 @@ interface SessionsServiceDeps {
   /** The write-seam change log ([spec:SP-3fe2] #256): persist() commits the row
    *  write + declared session change atomically; loadFromStore reconciles. */
   ledger: SessionLedger
+  /** Test/fault-injection seam; production owns the default daemon client. */
+  publicationWorker?: PublishWorkerClient
   machines: MachinesService
   rpc: DaemonRpcService
   hosts: HostsService
@@ -157,9 +188,6 @@ interface SessionsServiceDeps {
   conversations(): ConversationsService
   /** Lazy: the issue tracker is constructed after this one. */
   issues(): IssueService
-  /** Full issue-list fan-out through the publisher (ledger reconcile + legacy
-   *  snapshot). Mutually recursive with the broadcast pipeline by design — the
-   *  publisher's own deps point back at fanOutSnapshot/sendMetadataDelta here. */
   /** Local ∪ upstream issue wire list (attachClient bootstrap + snapshot sync). */
   issuesWire(): IssueWire[]
   /** Normalized local truths for cold snapshot bootstrap; empty while the flag is off. */
@@ -197,6 +225,17 @@ interface SessionsServiceDeps {
  * is the composition root that wires this to the other modules and keeps thin
  * public delegates.
  */
+export interface SessionSpawnResult {
+  sessionId: string
+  agentId: string
+  harness: AgentKind
+  model: string | null
+  effort: string | null
+  machine: string
+  machineId: string
+  accountId: string | null
+}
+
 export class SessionsService {
   /** Live maps — public: the composition root's cross-module closures (and the
    *  relay tests, via `(reg as any).sessions/.clients`) reach them directly. */
@@ -214,6 +253,11 @@ export class SessionsService {
   private readonly autoContinue: AutoContinueController
   /** The write funnel — owns the durable metadata oplog (docs/spec/oplog-read-path.md). */
   private readonly funnel: WriteFunnel
+  private globalPublicationIdsCache?: {
+    generation: number
+    ids: readonly string[]
+  }
+  private readonly publicationWorker: PublishWorkerClient
 
   /**
    * In-progress composer/prompt text per session. The live value lives here (read
@@ -228,13 +272,45 @@ export class SessionsService {
   // coalesces a burst of keystrokes into a single SQLite write.
   private readonly draftWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private static readonly DRAFT_WRITE_DEBOUNCE_MS = 750
-  // Last session-list payload broadcast to clients. broadcastSessions() fires on many
-  // events (activity bumps, attach/detach, resume refs) that often don't change any
-  // visible field; skipping a byte-identical re-broadcast avoids re-serializing the
-  // whole list and fanning it out to every client for nothing (audit P1-8). Existing
-  // clients already hold this state; a NEW client gets the current list via
-  // attachClient, so the dedup can never leave a client stale.
-  private lastSessionsBroadcast = ''
+  // Draft Sync v2 (POD-859): the versioned authoritative draft docs, keyed by
+  // session. Populated + emitted only when the `draftSync` flag is on — a parallel
+  // path to the legacy `draftBySession` above, which stays byte-for-byte when off.
+  private draftDocs = new Map<string, DraftDoc>()
+  private readonly draftDocWriteTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Pending "inject this chat draft into native" timers (phase 4). A chat edit
+  // schedules injection one lease window later (inject on pause); a fresh chat edit
+  // resets it; a native edit cancels it.
+  private readonly draftInjectTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Cached draftSync flag (reviewer fix 7): read on the per-keystroke setSessionDraft
+  // path, so avoid an uncached getSettings() each time. Seeded at boot, refreshed on
+  // settings.changed.
+  private draftSyncEnabledCached = false
+  // Per-session window during which the server is typing an outgoing message into the
+  // PTY (reviewer fix 5). While set, an inbound nativeDraft is ignored so the
+  // message-in-flight isn't republished as a draft.
+  private readonly draftSendSuppressUntil = new Map<string, number>()
+  private static readonly DRAFT_SEND_SUPPRESS_MS = 1_000
+  // Server-only dirty generation [spec:SP-c29e]. It schedules projection work and
+  // invalidates the legacy snapshot cache; ledger seq remains the sole durable and
+  // client-visible ordering/catch-up primitive. Every successful persisted or
+  // explicitly captured wire mutation bumps once. The value is never serialized.
+  private sessionsGeneration_ = 0
+  private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
+  private volatileSessionMutationVersion = 0
+  private readonly pendingVolatileSessions = new Map<
+    string,
+    { version: number; preserve: Set<SessionVolatileField> }
+  >()
+  private readonly capturedSessionStates = new Map<string, SessionDurableState>()
+  private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
+  private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
+  // The generation whose legacy sessionsChanged snapshot completed successfully.
+  // Generation equality replaces byte-string equality so A→B→A inside one
+  // coalescing window still invalidates work even though the final bytes match.
+  private lastSessionsBroadcastGeneration = -1
+  // Generation currently being run. It is stamped before fan-out to preserve the
+  // old re-entrant same-state guard and restored if any broadcast body step throws.
+  private runningSessionsBroadcastGeneration = -1
   private nextClientNum = 0
   // Last per-session output-relay priority pushed to the daemon. pushPriorities
   // diffs against this so only CHANGED sessions are re-sent (a viewState/attach
@@ -257,6 +333,7 @@ export class SessionsService {
     this.headless = deps.headless
     this.activityFlushTimer.unref?.()
     this.funnel = deps.funnel
+    this.publicationWorker = deps.publicationWorker ?? new PublishWorkerClient()
     this.autoContinue = new AutoContinueController({
       isEnabled: () => this.store.settings.getSettings().autoContinue.enabled,
       sendContinue: (sessionId) => {
@@ -274,6 +351,9 @@ export class SessionsService {
     // map, so it lives here as a bus subscriber (this service is constructed AFTER
     // NotifyService, so the notification replay keeps firing first).
     this.bus.on('settings.changed', ({ previous, next }) => {
+      // Keep the cached draftSync flag current (POD-859). Resolved through the
+      // canonical experiments system (channel/config/user) [spec:SP-f4b9].
+      this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', next)
       const wasEnabled = previous.autoContinue.enabled
       const nowEnabled = next.autoContinue.enabled
       if (nowEnabled === wasEnabled) return
@@ -325,6 +405,140 @@ export class SessionsService {
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
     this.flushBroadcasts()
+    this.publicationWorker.stop()
+  }
+
+  /** Current server-local session projection generation. Never sent to clients. */
+  sessionsGeneration(): number {
+    return this.sessionsGeneration_
+  }
+
+  /** Ordered post-capture patches for projection workers [spec:SP-c29e]. */
+  onSessionProjection(listener: (event: SessionProjectionEvent) => void): () => void {
+    this.sessionProjectionListeners.add(listener)
+    return () => this.sessionProjectionListeners.delete(listener)
+  }
+
+  private publishSessionProjection(
+    changes: MetadataChange[],
+    ledgerCursor: number | undefined = changes.at(-1)?.seq,
+  ): void {
+    const sessionChanges = changes.filter((change) => change.entity === 'session')
+    if (sessionChanges.length === 0 || ledgerCursor === undefined) return
+    const event: SessionProjectionEvent = {
+      generation: ++this.sessionsGeneration_,
+      changes: sessionChanges,
+      ledgerCursor,
+    }
+    this.publicationWorker.applyProjection(event)
+    for (const listener of this.sessionProjectionListeners) {
+      try {
+        listener(event)
+      } catch (err) {
+        console.error('[sessions] projection listener threw', err)
+      }
+    }
+  }
+
+  /** Explicit non-row capture seam [spec:SP-c29e]. */
+  private captureSessionSpecs(specs: EntityChangeSpec[]): MetadataChange[] {
+    if (specs.length === 0) return []
+    const changes = this.deps.ledger.capture(specs)
+    this.publishSessionProjection(changes)
+    return changes
+  }
+
+  private markVolatileSessionDirty(
+    sessionId: string,
+    preserve: SessionVolatileField[] = ['geometry', 'handoffTarget'],
+  ): void {
+    const previous = this.pendingVolatileSessions.get(sessionId)
+    this.pendingVolatileSessions.set(sessionId, {
+      version: ++this.volatileSessionMutationVersion,
+      preserve: new Set([...(previous?.preserve ?? []), ...preserve]),
+    })
+    this.scheduleVolatileSessionCapture()
+  }
+
+  private scheduleVolatileSessionCapture(delayMs = 0): void {
+    if (this.volatileSessionCaptureTimer) return
+    this.volatileSessionCaptureTimer = setTimeout(() => {
+      this.volatileSessionCaptureTimer = null
+      try {
+        this.flushBroadcasts()
+      } catch (err) {
+        console.warn('[podium] volatile session capture failed', err)
+      }
+    }, delayMs)
+    this.volatileSessionCaptureTimer.unref?.()
+  }
+
+  private clearVolatileSessionCaptureTimer(): void {
+    if (!this.volatileSessionCaptureTimer) return
+    clearTimeout(this.volatileSessionCaptureTimer)
+    this.volatileSessionCaptureTimer = null
+  }
+
+  private flushVolatileSessionCaptures(): MetadataChange[] {
+    this.clearVolatileSessionCaptureTimer()
+    if (this.pendingVolatileSessions.size === 0) return []
+    const pending = [...this.pendingVolatileSessions]
+    const specs: EntityChangeSpec[] = []
+    for (const [sessionId] of pending) {
+      const session = this.sessions.get(sessionId)
+      if (!session) continue
+      specs.push({
+        entity: 'session',
+        id: sessionId,
+        op: 'upsert',
+        value: this.sessionWire(session),
+      })
+    }
+    try {
+      const changes = this.captureSessionSpecs(specs)
+      // A volatile A→B→A batch legitimately dedups to no durable patch, but it
+      // still invalidates the legacy snapshot pipeline once. Do not fabricate a
+      // projection event: patch consumers need only the captured final truth.
+      if (!changes.some((change) => change.entity === 'session')) {
+        this.sessionsGeneration_++
+        this.publicationWorker.replaceProjection({
+          generation: this.sessionsGeneration_,
+          ledgerCursor: this.funnel.cursor(),
+          sessions: this.listSessions(),
+        })
+      }
+      for (const [sessionId, pendingState] of pending) {
+        const session = this.sessions.get(sessionId)
+        if (session) this.capturedSessionStates.set(sessionId, session.captureDurableState())
+        if (this.pendingVolatileSessions.get(sessionId)?.version === pendingState.version) {
+          this.pendingVolatileSessions.delete(sessionId)
+        }
+      }
+      return changes
+    } catch (err) {
+      this.scheduleVolatileSessionCapture(SessionsService.VOLATILE_CAPTURE_RETRY_MS)
+      throw err
+    }
+  }
+
+  /** Central volatile Session-view mutation seam. The latest value is captured
+   * once per session by the coalesced broadcast flush, keeping interaction paths
+   * free of synchronous SQLite writes [spec:SP-c29e]. */
+  private mutateSessionView(sessionId: string, mutate: (session: Session) => void): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    mutate(session)
+    this.markVolatileSessionDirty(sessionId)
+    return true
+  }
+
+  /** Machine-owned derived fields changed (machineId and/or machineName). */
+  sessionsChangedForMachine(machineId: string): void {
+    for (const session of this.sessions.values()) {
+      if (session.machineId === machineId)
+        this.markVolatileSessionDirty(session.sessionId, ['machineId'])
+    }
+    this.broadcastSessions()
   }
 
   /**
@@ -345,18 +559,40 @@ export class SessionsService {
    * on semantic activity (agentState transitions, shell busy flips) and is the
    * authoritative recency delta clients order the sidebar by.
    */
-  persist(session: Session): void {
-    this.deps.ledger.commit({
-      write: () => this.store.sessions.upsertSession(session.toRow()),
-      changes: () => [
-        {
-          entity: 'session',
-          id: session.sessionId,
-          op: 'upsert',
-          value: this.sessionWire(session),
+  persist(session: Session, additionalWrite: () => void = () => {}): void {
+    const pending = this.pendingVolatileSessions.get(session.sessionId)
+    let changes: MetadataChange[]
+    try {
+      const committed = this.deps.ledger.commit({
+        write: () => {
+          additionalWrite()
+          this.store.sessions.upsertSession(session.toRow())
         },
-      ],
-    })
+        changes: () => [
+          {
+            entity: 'session',
+            id: session.sessionId,
+            op: 'upsert',
+            value: this.sessionWire(session),
+          },
+        ],
+      })
+      changes = committed.changes
+    } catch (err) {
+      const captured = this.capturedSessionStates.get(session.sessionId)
+      if (captured) session.restoreDurableState(captured, pending?.preserve)
+      else this.sessions.delete(session.sessionId)
+      throw err
+    }
+    if (
+      pending !== undefined &&
+      this.pendingVolatileSessions.get(session.sessionId)?.version === pending.version
+    ) {
+      this.pendingVolatileSessions.delete(session.sessionId)
+      if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
+    }
+    this.capturedSessionStates.set(session.sessionId, session.captureDurableState())
+    this.publishSessionProjection(changes)
   }
 
   /** The exact wire shape broadcasts carry for this session — toMeta() plus the
@@ -398,16 +634,19 @@ export class SessionsService {
    *   - the first setSessionIssueId on a still-unnamed session,
    *   - the one-shot boot backfill for pre-#474 historical rows.
    */
-  private allocateSessionRef(session: Session): void {
+  private prepareSessionRefAllocation(session: Session): (() => void) | undefined {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
       const issue = this.store.issues.getIssue(birthIssueId)
       if (issue) {
-        session.refLetter = this.store.issues.allocateSessionLetter(birthIssueId)
-        session.refIssueId = birthIssueId
-        this.persist(session)
-        return
+        // The returned write runs inside persist's Ledger transaction. That
+        // makes the high-water advance, session row, and change append one
+        // commit boundary; a failed append cannot burn a visible ref.
+        return () => {
+          session.refLetter = this.store.issues.allocateSessionLetter(birthIssueId)
+          session.refIssueId = birthIssueId
+        }
       }
     }
     // Truly issueless → per-repo DRAFT counter (`POD-DRAFT-3`). Skip when the
@@ -415,8 +654,9 @@ export class SessionsService {
     // the high-water counter makes skipping safe (no ordinal is ever reused).
     const repoId = this.store.repos.resolveRepoIdForPath(session.cwd)
     if (this.store.repos.prefixForRepoId(repoId) === null) return
-    session.refDraft = this.store.repos.nextDraftSeq(repoId)
-    this.persist(session)
+    return () => {
+      session.refDraft = this.store.repos.nextDraftSeq(repoId)
+    }
   }
 
   /** The permanent birth nice name (`POD-13-A` / `POD-DRAFT-3`), or undefined
@@ -503,6 +743,9 @@ export class SessionsService {
       // Survives a restart — otherwise a reboot would forget that the USER named this
       // session and the next agent title would sail straight through (#490).
       ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
+      ...(r.model ? { model: r.model } : {}),
+      ...(r.effort ? { effort: r.effort } : {}),
+      ...(r.accountId ? { accountId: r.accountId } : {}),
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
       ...(r.headless ? { headless: true } : {}),
       ...(r.issueId ? { issueId: r.issueId } : {}),
@@ -514,6 +757,8 @@ export class SessionsService {
       ...(r.executionProfileId ? { executionProfileId: r.executionProfileId } : {}),
       archived: r.archived,
       readAt: r.readAt ?? null,
+      stoppedAt: r.stoppedAt ?? null,
+      stopReason: r.stopReason ?? null,
       ...(Session.parseWorkState(r.workState)
         ? { workState: Session.parseWorkState(r.workState) }
         : {}),
@@ -547,15 +792,31 @@ export class SessionsService {
         session.resume.value,
       )
     }
+    this.capturedSessionStates.set(session.sessionId, session.captureDurableState())
   }
 
   loadFromStore(): void {
+    // Seed the cached draftSync flag (POD-859) before any keystroke arrives.
+    // Resolved through the canonical experiments system [spec:SP-f4b9].
+    this.draftSyncEnabledCached = isFeatureEnabled('draft-sync', this.store.settings.getSettings())
     const drafts = this.store.sessions.loadDrafts()
     // Drafts historically replay independently of session-row existence. Keep
     // that contract for crash/orphan recovery; active rows additionally receive
     // their draft timestamp and runtime metadata below.
     for (const [sessionId, text] of Object.entries(drafts)) {
       this.draftBySession.set(sessionId, text)
+    }
+    // Versioned draft docs (POD-859) — seeded alongside the legacy map so the
+    // flag-on path resumes with the persisted rev/origin/history after a restart.
+    for (const [sessionId, d] of Object.entries(this.store.sessions.loadDraftDocs())) {
+      this.draftDocs.set(sessionId, {
+        sessionId,
+        text: d.text,
+        rev: d.rev,
+        origin: d.origin ?? 'seed',
+        editedAt: d.updatedAt,
+        history: d.history,
+      })
     }
     const draftTimes = this.store.sessions.loadDraftTimes()
     const snoozes = this.store.sessions.listSnoozes()
@@ -570,7 +831,10 @@ export class SessionsService {
     // deliberate point instead of burst-allocating inside the first listSessions.
     // loadSessions returns created_at order, so allocation is deterministic; the
     // loop is a no-op once every session carries a ref.
-    for (const session of this.sessions.values()) this.allocateSessionRef(session)
+    for (const session of this.sessions.values()) {
+      const additionalWrite = this.prepareSessionRefAllocation(session)
+      if (additionalWrite) this.persist(session, additionalWrite)
+    }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon
     // reattaches and the sessions bind.
@@ -593,13 +857,20 @@ export class SessionsService {
     // Boot ordering (#247): this runs BEFORE server.ts calls ensureLocalMachine,
     // so placeholder rows reconcile here with machineId '__local__'. That stale
     // baseline is unobservable and self-healing: adoption
-    // (ensureLocalMachine → adoptPlaceholderRows) triggers broadcastSessions,
-    // and runSessionsBroadcast reconciles the adopted union before its
-    // byte-skip — all before the server starts accepting connections.
-    this.deps.ledger.reconcile(
+    // (ensureLocalMachine → adoptPlaceholderRows) explicitly captures affected
+    // sessions before its broadcast — all before the server accepts connections.
+    const recovered = this.deps.ledger.reconcile(
       'session',
       this.listSessions().map((s) => ({ id: s.sessionId, value: s })),
     )
+    this.publishSessionProjection(recovered)
+    // A fully deduped boot reconcile emits no patch. Reset explicitly so a new
+    // worker (or one recovering from a crash) still begins from restored truth.
+    this.publicationWorker.replaceProjection({
+      generation: this.sessionsGeneration_,
+      ledgerCursor: this.funnel.cursor(),
+      sessions: this.listSessions(),
+    })
   }
 
   attachDaemon(machineId: string, send: Send<ControlMessage>): void {
@@ -676,6 +947,7 @@ export class SessionsService {
         ...(Number.isFinite(Date.parse(s.createdAt))
           ? { createdAtMs: Date.parse(s.createdAt) }
           : {}),
+        ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
       })
     }
     // Headless sessions have no PTY to reattach; instead re-establish their
@@ -718,15 +990,18 @@ export class SessionsService {
     // 'live' but unattached: the server never re-asks and they orphan until a server
     // restart. (In the old single-process world the daemon never restarted alone, so
     // this gap couldn't surface.)
-    let changed = false
+    const changed: Session[] = []
     for (const s of this.sessions.values()) {
       if (s.machineId !== machineId) continue
       // Headless sessions stay 'live' across daemon restarts — no PTY bridge to
       // lose; their tails re-establish via headlessBind on the next attach.
       if (s.headless) continue
-      if (s.markReconnecting()) changed = true
+      if (s.markReconnecting()) changed.push(s)
     }
-    if (changed) this.broadcastSessions()
+    if (changed.length > 0) {
+      for (const session of changed) this.markVolatileSessionDirty(session.sessionId, ['status'])
+      this.broadcastSessions()
+    }
     this.machines.broadcastMachines()
   }
 
@@ -764,7 +1039,8 @@ export class SessionsService {
     // Local ∪ upstream (docs/spec/node-hub-sync.md §2.3). Upstream entries carry
     // viaHub (set at ingest) and, while the hub link is down, upstreamStale —
     // applied at read time so a staleness flip needs no rewrite of the mirror.
-    // A local id always wins a collision (defensive; ingest already excludes them).
+    // A local id always wins a collision; the retained upstream entry is revealed
+    // if that local session is later removed.
     const localIds = new Set(local.map((s) => s.sessionId))
     const upstream = [...this.upstreamSessions.values()]
       .filter((s) => !localIds.has(s.sessionId))
@@ -788,30 +1064,57 @@ export class SessionsService {
 
   /** True when `sessionId` is a hub-mirrored (read-only) session. */
   isUpstreamSession(sessionId: string): boolean {
-    return this.upstreamSessions.has(sessionId)
+    return !this.sessions.has(sessionId) && this.upstreamSessions.has(sessionId)
   }
 
   /** `{ ok: false, reason }` for a hub-mirrored session, else null — the shared
    *  guard every ok/reason command path checks first. */
   private upstreamRejection(sessionId: string): { ok: false; reason: string } | null {
-    if (!this.upstreamSessions.has(sessionId)) return null
+    if (this.sessions.has(sessionId) || !this.upstreamSessions.has(sessionId)) return null
     return { ok: false, reason: UPSTREAM_COMMAND_REJECTION }
   }
 
   /**
    * Replace the mirrored session list with the hub's truth. Own-machine entries are
    * excluded (echo filter — this node's daemon registered with the hub would reflect
-   * its own sessions back), as is anything colliding with a local session id.
+   * its own sessions back). Entries colliding with a local session id are retained
+   * behind the local value so the latest upstream truth can be revealed later.
    * Entries are stamped `viaHub` at ingest so provenance travels with the value —
    * the P7b push path and the UI both key off it. Flows through the normal
    * broadcast/oplog pipeline so node clients see hub sessions live.
    */
+  private upstreamWire(session: SessionMeta): SessionMeta {
+    return this.upstreamStale ? { ...session, upstreamStale: true } : session
+  }
+
   setUpstreamSessions(list: SessionMeta[]): void {
+    const previous = new Map(this.upstreamSessions)
     this.upstreamSessions.clear()
-    for (const s of list) {
-      if (s.machineId !== undefined && this.upstreamOwnMachineIds.has(s.machineId)) continue
-      if (this.sessions.has(s.sessionId)) continue
-      this.upstreamSessions.set(s.sessionId, { ...s, viaHub: true })
+    for (const session of list) {
+      if (session.machineId !== undefined && this.upstreamOwnMachineIds.has(session.machineId)) {
+        continue
+      }
+      this.upstreamSessions.set(session.sessionId, { ...session, viaHub: true })
+    }
+    const specs: EntityChangeSpec[] = [...this.upstreamSessions.values()]
+      .filter((session) => !this.sessions.has(session.sessionId))
+      .map((session) => ({
+        entity: 'session',
+        id: session.sessionId,
+        op: 'upsert',
+        value: this.upstreamWire(session),
+      }))
+    for (const id of previous.keys()) {
+      if (!this.upstreamSessions.has(id) && !this.sessions.has(id)) {
+        specs.push({ entity: 'session', id, op: 'remove' })
+      }
+    }
+    try {
+      this.captureSessionSpecs(specs)
+    } catch (err) {
+      this.upstreamSessions.clear()
+      for (const [id, session] of previous) this.upstreamSessions.set(id, session)
+      throw err
     }
     this.broadcastSessions()
   }
@@ -825,7 +1128,23 @@ export class SessionsService {
    */
   setUpstreamStale(stale: boolean): boolean {
     if (this.upstreamStale === stale) return false
+    const previous = this.upstreamStale
     this.upstreamStale = stale
+    try {
+      this.captureSessionSpecs(
+        [...this.upstreamSessions.values()]
+          .filter((session) => !this.sessions.has(session.sessionId))
+          .map((session) => ({
+            entity: 'session',
+            id: session.sessionId,
+            op: 'upsert',
+            value: this.upstreamWire(session),
+          })),
+      )
+    } catch (err) {
+      this.upstreamStale = previous
+      throw err
+    }
     if (this.upstreamSessions.size > 0) this.broadcastSessions()
     // The conversation/issue mirrors follow via the bus (they read the flag
     // through isUpstreamStale() at publish time and rebroadcast on the flip).
@@ -839,25 +1158,25 @@ export class SessionsService {
   }
 
   setSnooze({ sessionId, until }: { sessionId: string; until: string | null }): void {
-    this.store.sessions.setSnooze(sessionId, until)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.snoozedUntil = until
-      // snoozedUntil lives in its own table, not the session row, so the plain
-      // store write above bypasses the write seam — persist so the flip reaches
-      // the change log (delta clients order the sidebar by it) [#256].
-      this.persist(session)
+    if (!session) {
+      this.store.sessions.setSnooze(sessionId, until)
+      this.broadcastSessions()
+      return
     }
+    session.snoozedUntil = until
+    this.persist(session, () => this.store.sessions.setSnooze(sessionId, until))
     this.broadcastSessions()
   }
 
   clearSnooze(sessionId: string): void {
-    this.store.sessions.clearSnooze(sessionId)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.clearSnooze()
-      this.persist(session) // see setSnooze — off-row field, commit the flip
+    if (!session || !session.clearSnooze()) {
+      this.store.sessions.clearSnooze(sessionId)
+      this.broadcastSessions()
+      return
     }
+    this.persist(session, () => this.store.sessions.clearSnooze(sessionId))
     this.broadcastSessions()
   }
 
@@ -874,12 +1193,14 @@ export class SessionsService {
     actions: { label: string; prompt: string }[]
   }): void {
     const offer = { message, actions, createdAt: new Date().toISOString() }
-    this.store.sessions.setOffer(sessionId, offer)
     const session = this.sessions.get(sessionId)
-    if (session) {
-      session.offer = offer
-      this.persist(session) // off-row field — commit the flip to the change log
+    if (!session) {
+      this.store.sessions.setOffer(sessionId, offer)
+      this.broadcastSessions()
+      return
     }
+    session.offer = offer
+    this.persist(session, () => this.store.sessions.setOffer(sessionId, offer))
     this.broadcastSessions()
   }
 
@@ -887,15 +1208,12 @@ export class SessionsService {
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
   clearOffer(sessionId: string): void {
     const session = this.sessions.get(sessionId)
-    // Persisted rows can outlive the in-memory session; always hit the store.
-    this.store.sessions.clearOffer(sessionId)
-    if (session) {
-      if (!session.clearOffer()) {
-        this.broadcastSessions()
-        return
-      }
-      this.persist(session) // off-row field — commit the flip
+    if (!session || !session.clearOffer()) {
+      this.store.sessions.clearOffer(sessionId)
+      this.broadcastSessions()
+      return
     }
+    this.persist(session, () => this.store.sessions.clearOffer(sessionId))
     this.broadcastSessions()
   }
 
@@ -927,6 +1245,8 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    /** Resolved account selection from an execution profile; never credential material. */
+    accountId?: string
     /** Deliberately spawn with a model slug the live catalog doesn't list (bypasses
      *  the unknown-MODEL rejection only) [spec:SP-cc60]. Recorded in events when it
      *  takes effect. */
@@ -950,9 +1270,7 @@ export class SessionsService {
     sessionId?: string
     /** Explicit workflow override; absent = issue → repository → global default. */
     workflowRevisionId?: string
-  }): {
-    sessionId: string
-  } {
+  }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto' (the issue start-flow casts
     // the issue's `defaultAgent` `as AgentKind` at the boundary). 'auto' is NOT a
@@ -1006,6 +1324,7 @@ export class SessionsService {
         : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -1057,7 +1376,7 @@ export class SessionsService {
       : { role: 'worker', scope: { kind: 'none' }, actorSessionId: sessionId }
   }
 
-  resumeSession(input: {
+  async resumeSession(input: {
     agentKind: AgentKind
     cwd: string
     resume: ResumeRef
@@ -1068,7 +1387,7 @@ export class SessionsService {
      *  lands on an existing row (reuse/resurrect below), that row's original
      *  spawnedBy is kept — a resume never rewrites who created the session. */
     spawnedBy?: string
-  }): { sessionId: string } {
+  }): Promise<{ sessionId: string }> {
     // One row per conversation. A conversation is identified by its durable
     // resume ref (kind+value); resuming one that already has a row must REUSE
     // that row, never mint a parallel one. Each parallel row spawned its own
@@ -1080,7 +1399,8 @@ export class SessionsService {
     const existing = this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
-        this.resurrectSession({ sessionId: existing.sessionId })
+        const woke = await this.resurrectSession({ sessionId: existing.sessionId })
+        if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
         // timer — the user is back on it even with no new message. (resurrectSession
@@ -1247,6 +1567,14 @@ export class SessionsService {
     // A submitted message re-engages the session — drop any snooze so it returns
     // to the normal attention flow (covers chat send + resumeAndSend paths).
     if (session.snoozedUntil !== undefined) this.clearSnooze(sessionId)
+    // The outgoing message transits the composer; suppress republishing it as a
+    // native draft while it's in flight (POD-859 reviewer fix 5).
+    if (this.draftSyncEnabled()) {
+      this.draftSendSuppressUntil.set(
+        sessionId,
+        Date.now() + SessionsService.DRAFT_SEND_SUPPRESS_MS,
+      )
+    }
     // A user turn consumes any pending agent action offer [spec:SP-c7f1] — a
     // button click sends its prompt through this same path, so it self-clears.
     if (session.offer !== undefined) this.clearOffer(sessionId)
@@ -1319,6 +1647,19 @@ export class SessionsService {
   }
 
   setSessionDraft(input: { sessionId: string; text: string }, fromClientId?: string): void {
+    if (this.draftSyncEnabled()) {
+      // Versioned path (POD-859): a legacy `setSessionDraft` (or the spawn seed) is
+      // an unconditional edit — it bases off the current rev, so it is never
+      // rejected. Origin is the sending client, or 'seed' for a server-side seed.
+      const cur = this.draftDocs.get(input.sessionId) ?? emptyDraftDoc(input.sessionId)
+      this.applyVersionedEdit(
+        input.sessionId,
+        { baseRev: cur.rev, text: input.text, origin: fromClientId ?? 'seed' },
+        fromClientId,
+      )
+      return
+    }
+    const previousDraft = this.draftBySession.get(input.sessionId)
     if (input.text) this.draftBySession.set(input.sessionId, input.text)
     else this.draftBySession.delete(input.sessionId)
     // Mirror the draft's last-edit time onto the session so the sidebar can show
@@ -1331,7 +1672,15 @@ export class SessionsService {
     // The DRAFT tag flip is wire-visible meta backed by an off-row table —
     // commit it at the same presence granularity the broadcast below uses
     // (never per keystroke) so delta clients see the lift too [#256].
-    if (presenceChanged && session) this.persist(session)
+    if (presenceChanged && session) {
+      try {
+        this.persist(session)
+      } catch (err) {
+        if (previousDraft === undefined) this.draftBySession.delete(input.sessionId)
+        else this.draftBySession.set(input.sessionId, previousDraft)
+        throw err
+      }
+    }
     // Keep the existing live cross-client sync: push to every OTHER client (the
     // directional guard skips the originator so its own keystrokes don't echo back).
     this.broadcastToClients(
@@ -1375,6 +1724,161 @@ export class SessionsService {
     } catch (e) {
       console.warn(`[podium] failed to persist draft for ${sessionId}:`, e)
     }
+  }
+
+  // ---- versioned drafts (POD-859, Draft Sync v2) ----
+
+  private draftSyncEnabled(): boolean {
+    return this.draftSyncEnabledCached
+  }
+
+  /** A client's optimistic-concurrency draft edit (flag-on). Old clients that only
+   *  send `setSessionDraft` are handled by that method's flag gate. */
+  private handleDraftEdit(input: DraftEditMessage, fromClientId: string): void {
+    if (!this.draftSyncEnabled()) {
+      this.setSessionDraft({ sessionId: input.sessionId, text: input.text }, fromClientId)
+      return
+    }
+    this.applyVersionedEdit(
+      input.sessionId,
+      { baseRev: input.baseRev, text: input.text, origin: fromClientId },
+      fromClientId,
+    )
+  }
+
+  /**
+   * Apply an edit to a session's versioned draft doc (the server is the single
+   * sequencer). Accepted edits broadcast the new doc to every OTHER client and
+   * persist (debounced); a rejected stale edit replies to the sender alone with the
+   * authoritative doc so it rebases. See draft-doc.ts and design §1/§3.
+   */
+  private applyVersionedEdit(
+    sessionId: string,
+    edit: { baseRev: number; text: string; origin: string },
+    fromClientId?: string,
+  ): void {
+    const cur = this.draftDocs.get(sessionId) ?? emptyDraftDoc(sessionId)
+    const at = new Date().toISOString()
+    const result = applyDraftEdit(cur, {
+      baseRev: edit.baseRev,
+      text: edit.text,
+      origin: edit.origin,
+      at,
+    })
+    if (result.status === 'rejected') {
+      if (fromClientId) this.clients.get(fromClientId)?.send(this.draftDocWire(result.doc))
+      return
+    }
+    if (!result.changed) return
+    const doc = result.doc
+    this.draftDocs.set(sessionId, doc)
+    const session = this.sessions.get(sessionId)
+    const presenceChanged = session && (session.draftUpdatedAt !== undefined) !== !!doc.text
+    if (session) session.draftUpdatedAt = doc.text ? doc.editedAt : undefined
+    if (presenceChanged && session) {
+      // Persist the session row so the DRAFT-tag meta delta reaches delta clients;
+      // best-effort (the versioned edit is already in memory + about to broadcast).
+      try {
+        this.persist(session)
+      } catch (err) {
+        console.warn(`[podium] failed to persist DRAFT tag for ${sessionId}:`, err)
+      }
+    }
+    this.broadcastToClients(this.draftDocWire(doc), {
+      ...(fromClientId !== undefined ? { exceptClientId: fromClientId } : {}),
+    })
+    this.persistDraftDoc(sessionId, doc)
+    if (presenceChanged) this.broadcastSessions()
+    // Drive the change into the native composer. A native-origin edit already IS
+    // native, so cancel any pending injection; a chat/seed edit schedules one for a
+    // lease window later (reset by each new chat edit → inject when the user pauses).
+    if (doc.origin === 'native') this.cancelDraftInject(sessionId)
+    else this.scheduleDraftInject(sessionId)
+  }
+
+  private draftDocWire(doc: DraftDoc): LiveServerMessage {
+    return {
+      type: 'sessionDraftChanged',
+      sessionId: doc.sessionId,
+      text: doc.text,
+      rev: doc.rev,
+      origin: doc.origin,
+      editedAt: doc.editedAt,
+    }
+  }
+
+  /** Debounced persistence of a versioned doc — mirrors {@link persistDraft} but
+   *  writes the full doc (rev/origin/history). An empty draft flushes immediately. */
+  private persistDraftDoc(sessionId: string, doc: DraftDoc): void {
+    const existing = this.draftDocWriteTimers.get(sessionId)
+    if (existing) {
+      clearTimeout(existing)
+      this.draftDocWriteTimers.delete(sessionId)
+    }
+    if (!doc.text) {
+      this.writeDraftDoc(doc)
+      return
+    }
+    const timer = setTimeout(() => {
+      this.draftDocWriteTimers.delete(sessionId)
+      this.writeDraftDoc(this.draftDocs.get(sessionId) ?? doc)
+    }, SessionsService.DRAFT_WRITE_DEBOUNCE_MS)
+    timer.unref?.()
+    this.draftDocWriteTimers.set(sessionId, timer)
+  }
+
+  private writeDraftDoc(doc: DraftDoc): void {
+    try {
+      this.store.sessions.setDraftDoc(doc.sessionId, {
+        text: doc.text,
+        updatedAt: doc.editedAt,
+        rev: doc.rev,
+        origin: doc.origin,
+        history: doc.history,
+      })
+    } catch (e) {
+      console.warn(`[podium] failed to persist versioned draft for ${doc.sessionId}:`, e)
+    }
+  }
+
+  /** Schedule (or reset) native injection of the current chat draft, one lease
+   *  window from now — so we inject the settled text, not every keystroke. */
+  private scheduleDraftInject(sessionId: string): void {
+    const existing = this.draftInjectTimers.get(sessionId)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      this.draftInjectTimers.delete(sessionId)
+      const doc = this.draftDocs.get(sessionId)
+      const session = this.sessions.get(sessionId)
+      if (!doc || !session) return
+      if (doc.origin === 'native') return
+      this.toMachine(session.machineId, { type: 'draftTarget', sessionId, text: doc.text })
+    }, DEFAULT_LEASE_MS)
+    timer.unref?.()
+    this.draftInjectTimers.set(sessionId, timer)
+  }
+
+  private cancelDraftInject(sessionId: string): void {
+    const t = this.draftInjectTimers.get(sessionId)
+    if (t) {
+      clearTimeout(t)
+      this.draftInjectTimers.delete(sessionId)
+    }
+  }
+
+  /**
+   * Catchup on (re)bind (design §6): seed the native composer with the persisted
+   * chat draft ONLY when that draft is newer than the session's last activity — i.e.
+   * chat edited it while the session was down. Otherwise the live native composer's
+   * own scrape wins. The daemon injects only if native differs and is stable.
+   */
+  private maybeCatchupInject(sessionId: string, machineId: string): void {
+    if (!this.draftSyncEnabled()) return
+    const doc = this.draftDocs.get(sessionId)
+    if (!doc || !doc.text) return
+    const lastLive = this.sessions.get(sessionId)?.lastActiveAt
+    if (lastLive && doc.editedAt <= lastLive) return
+    this.toMachine(machineId, { type: 'draftTarget', sessionId, text: doc.text })
   }
 
   // ---- durable queued sends (docs/spec/outbox-write-path.md §2.2) ----
@@ -1434,7 +1938,13 @@ export class SessionsService {
       if (session.offer !== undefined) this.clearOffer(sessionId)
       this.broadcastSessions()
     }
-    if (parked) this.resurrectSession({ sessionId })
+    if (parked) {
+      // Fire-and-forget wake; drain re-arms on liveness. Async so a freed
+      // worktree can be recreated before spawn [spec:SP-9904].
+      void this.resurrectSession({ sessionId }).then((r) => {
+        if (!r.ok) console.warn(`[podium] wake-on-queue failed for ${sessionId}: ${r.reason}`)
+      })
+    }
     this.drainQueuedMessages(sessionId)
     return { ok: true, queued: true }
   }
@@ -1575,13 +2085,16 @@ export class SessionsService {
    * mutation (rename/archive/read/issue attachment/work state) goes through
    * here instead of hand-rolling persist+broadcast.
    */
-  private mutateSessionMeta(sessionId: string, write: (session: Session) => void): void {
+  private mutateSessionMeta(
+    sessionId: string,
+    write: (session: Session) => void | (() => void),
+  ): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
     this.funnel.run({
       write: () => {
-        write(session)
-        this.persist(session)
+        const additionalWrite = write(session)
+        this.persist(session, additionalWrite ?? undefined)
       },
     })
     this.broadcastSessions()
@@ -1648,6 +2161,40 @@ export class SessionsService {
     if (archived) this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
   }
 
+  /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
+  tryAutoArchiveStoppedObserved(
+    observed: {
+      sessionId: string
+      issueId: string | null
+      stoppedAt: string
+      readAt: string
+      archived: false
+    },
+    nowMs: number,
+  ): 'applied' | 'precondition' | 'not-due' {
+    const session = this.sessions.get(observed.sessionId)
+    if (!session || session.archived) return 'precondition'
+    if (
+      (session.issueId ?? null) !== observed.issueId ||
+      session.stoppedAt !== observed.stoppedAt ||
+      session.readAt !== observed.readAt
+    ) {
+      return 'precondition'
+    }
+    const stoppedMs = Date.parse(session.stoppedAt ?? '')
+    const readMs = Date.parse(session.readAt ?? '')
+    if (!Number.isFinite(stoppedMs) || !Number.isFinite(readMs) || readMs < stoppedMs) {
+      return 'precondition'
+    }
+    if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
+    if (session.issueId) {
+      const issue = this.deps.issuesWire().find((candidate) => candidate.id === session.issueId)
+      if (!issue || issue.parentId) return 'precondition'
+    }
+    this.setArchived({ sessionId: session.sessionId, archived: true })
+    return 'applied'
+  }
+
   /** Mark a session read (issue #124): stamp read_at = now, persist + broadcast. The
    *  derived `unread` in the session meta flips to false immediately (read_at is now the
    *  latest timestamp) and re-arms on the next activity. Read state is GLOBAL —
@@ -1677,7 +2224,7 @@ export class SessionsService {
       // Naming point (#474): the first attach on a still-unnamed session brands
       // it with that issue's letter. A detach (null) is NOT a naming point —
       // the session stays unnamed rather than getting a spurious DRAFT ordinal.
-      if (issueId) this.allocateSessionRef(session)
+      if (issueId) return this.prepareSessionRefAllocation(session)
     })
   }
 
@@ -1690,6 +2237,236 @@ export class SessionsService {
     this.mutateSessionMeta(sessionId, (session) => {
       session.workState = workState ?? undefined
     })
+  }
+
+  /**
+   * Cleanly end a session [spec:SP-9904]: stop its process, free the issue
+   * worktree when safe, KEEP branch + transcript + session row (reversible —
+   * resume recreates the worktree from the branch). Distinct from hibernate
+   * (keeps worktree) and kill/delete (removes the row).
+   *
+   * Unsaved-work guard: dirty/conflicted working tree refuses without `force`.
+   * Self-stop (`selfStop`) defers the process kill so the CLI/relay reply
+   * lands before the agent dies.
+   */
+  async stopSession(input: {
+    sessionId: string
+    force?: boolean
+    /** True when the CALLER is stopping itself — defer process kill. */
+    selfStop?: boolean
+    /** Parent-close/issue-stop provenance; direct forced stops derive below. */
+    stopReason?: 'self' | 'parent' | 'forced'
+  }): Promise<{
+    ok: boolean
+    reason?: string
+    worktreeFreed?: boolean
+    deferredKill?: boolean
+  }> {
+    const rejected = this.upstreamRejection(input.sessionId)
+    if (rejected) return rejected
+    const session = this.sessions.get(input.sessionId)
+    if (!session) return { ok: false, reason: 'unknown session' }
+
+    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
+    const issue = issueId ? this.issues().getMeta(issueId) : undefined
+    const worktreePath = issue?.worktreePath ?? null
+
+    // Unsaved-work guard: inspect the working copy when present. Branch commits
+    // alone are not a refusal — the branch is always kept.
+    if (worktreePath && !input.force) {
+      const st = await this.rpc.repoOp(
+        'status',
+        worktreePath,
+        undefined,
+        session.machineId === LOCAL_PLACEHOLDER ? undefined : session.machineId,
+      )
+      if (st.ok) {
+        const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
+        if (dirty.length > 0) {
+          return {
+            ok: false,
+            reason: `refusing stop: unsaved changes in the working tree (re-run with --force to free the worktree and discard them; branch is kept either way):\n${dirty.join('\n')}`,
+          }
+        }
+      } else if (!/cannot change to .*: no such file or directory/i.test(st.output)) {
+        return {
+          ok: false,
+          reason: `refusing stop: cannot inspect worktree: ${st.output}`,
+        }
+      }
+    }
+
+    const wasRunning =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+
+    // Park the row first (keep resume ref + transcript). Shells have no resume
+    // ref — stop still parks them as exited so they stay inspectable.
+    if (wasRunning) {
+      if (session.agentKind !== 'shell' && !session.resume) {
+        // No resume ref yet: still stop the process but mark exited rather than
+        // hibernated (same inspectability; resume may not recover conversation).
+        session.status = 'exited'
+        session.exitCode = session.exitCode ?? 0
+      } else {
+        session.status = 'hibernated'
+      }
+      this.autoContinue.onSessionGone(input.sessionId)
+      // A terminal transition is new unread information; acknowledgment begins only
+      // after the operator opens it again. [spec:SP-6144]
+      session.stoppedAt = new Date(this.now()).toISOString()
+      // 'forced' is reserved for --force (work may be discarded); a plain
+      // operator/parent stop is an orderly park, labeled 'parent'. [spec:SP-6144]
+      session.stopReason = input.force
+        ? 'forced'
+        : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
+      session.readAt = null
+      this.persist(session)
+      this.broadcastSessions()
+    } else if (session.status !== 'hibernated' && session.status !== 'exited') {
+      return { ok: false, reason: `cannot stop session in status '${session.status}'` }
+    }
+
+    // Free worktree only when no OTHER live session still uses the path —
+    // including sessions attached to a different issue but running in this
+    // worktree [spec:SP-9904]. Free BEFORE arming any kill so work completes
+    // while the agent is still alive; self-stop kill is armed only after the
+    // relay reply (finalizeDeferredStopKill), not via a timer.
+    let worktreeFreed = false
+    if (issueId && worktreePath) {
+      const stillUsing = liveSessionsUsingWorktree(
+        worktreePath,
+        this.listSessions(),
+        input.sessionId,
+      )
+      if (stillUsing.length === 0) {
+        const freed = await this.issues().freeWorktreeKeepBranch(issueId, {
+          force: input.force === true,
+        })
+        if (!freed.ok) {
+          if (wasRunning && !input.selfStop) this.killStoppedSession(session)
+          return {
+            ok: true,
+            reason: `session stopped but worktree not freed: ${freed.output}`,
+            worktreeFreed: false,
+            deferredKill: input.selfStop === true && wasRunning,
+          }
+        }
+        worktreeFreed = freed.worktreeFreed
+      }
+    }
+
+    // Peer/operator: kill now. Self-stop: hold the kill until the relay has
+    // delivered agentRelayResult (finalizeDeferredStopKill) [spec:SP-9904].
+    if (wasRunning && !input.selfStop) this.killStoppedSession(session)
+
+    return {
+      ok: true,
+      worktreeFreed,
+      deferredKill: input.selfStop === true && wasRunning,
+    }
+  }
+
+  /** Immediate process kill for a session already parked by stop. */
+  private killStoppedSession(session: Session): void {
+    this.toMachine(session.machineId, {
+      type: 'kill',
+      sessionId: session.sessionId,
+      durableLabel: session.durableLabel,
+    })
+  }
+
+  /**
+   * Arm the process kill for a self-stop AFTER the relay reply has been sent
+   * [spec:SP-9904]. Called from AgentRelayGate once agentRelayResult is on the
+   * wire — not a fixed timer.
+   */
+  finalizeDeferredStopKill(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    // Only kill if still parked from stop (hibernated/exited) — never a live row.
+    if (session.status !== 'hibernated' && session.status !== 'exited') return
+    this.killStoppedSession(session)
+  }
+
+  /**
+   * Stop every session on an issue, then free the issue worktree (keep branch)
+   * [spec:SP-9904].
+   */
+  async stopIssue(input: {
+    issueId: string
+    force?: boolean
+    /** Session performing the stop (for self-stop deferral when it is a member). */
+    callerSessionId?: string
+  }): Promise<{
+    ok: boolean
+    reason?: string
+    stopped: string[]
+    worktreeFreed: boolean
+    deferredKill?: boolean
+  }> {
+    const issue = this.issues().getMeta(input.issueId)
+    if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
+    // sessionsForIssue matches on the canonical issue id; input.issueId may be a
+    // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
+    const members = sessionsForIssue(issue.worktreePath ?? null, this.listSessions(), issue.id)
+    const stopped: string[] = []
+    let deferredKill = false
+    // Non-self members first (immediate kill). Self last so sibling stops + free
+    // finish before the caller's deferred kill is armed after the relay reply.
+    const ordered = [
+      ...members.filter((m) => m.sessionId !== input.callerSessionId),
+      ...members.filter((m) => m.sessionId === input.callerSessionId),
+    ]
+    for (const m of ordered) {
+      const r = await this.stopSession({
+        sessionId: m.sessionId,
+        force: input.force,
+        selfStop: input.callerSessionId === m.sessionId,
+        stopReason: input.force ? 'forced' : 'parent',
+      })
+      if (!r.ok) {
+        return {
+          ok: false,
+          reason: r.reason ?? `failed to stop session ${m.sessionId}`,
+          stopped,
+          worktreeFreed: false,
+        }
+      }
+      stopped.push(m.sessionId)
+      if (r.deferredKill) deferredKill = true
+    }
+    // Final free pass: only when no live cwd still uses the worktree (any issue).
+    let worktreeFreed = false
+    const current = this.issues().getMeta(input.issueId)
+    const wt = current?.worktreePath ?? null
+    if (wt) {
+      const stillUsing = liveSessionsUsingWorktree(wt, this.listSessions())
+      if (stillUsing.length === 0) {
+        const freed = await this.issues().freeWorktreeKeepBranch(input.issueId, {
+          force: input.force === true,
+        })
+        if (!freed.ok) {
+          return {
+            ok: true,
+            reason: `sessions stopped but worktree not freed: ${freed.output}`,
+            stopped,
+            worktreeFreed: false,
+            ...(deferredKill ? { deferredKill: true } : {}),
+          }
+        }
+        worktreeFreed = freed.worktreeFreed
+      }
+    } else {
+      worktreeFreed = Boolean(current?.branch && !current.worktreePath)
+    }
+    return {
+      ok: true,
+      stopped,
+      worktreeFreed,
+      ...(deferredKill ? { deferredKill: true } : {}),
+    }
   }
 
   /**
@@ -1741,24 +2518,38 @@ export class SessionsService {
     if (session.machineId === input.machineId) throw new Error('session is already on that machine')
 
     const repos = this.store.repos.listRepos()
+    const issue = session.issueId ? this.issues().getMeta(session.issueId) : undefined
+    // A resumed old daemon can report a transcript's pre-handoff cwd after rollback.
+    // The issue's machine-local worktree is the durable workspace anchor; consult it
+    // before the session's momentary cwd when resolving the source repository.
+    const sourceAnchors = [
+      ...(issue?.machineId === session.machineId && issue.worktreePath ? [issue.worktreePath] : []),
+      session.cwd,
+    ]
     const sourceRepo = repos
       .filter(
         (repo) =>
           repo.machineId === session.machineId &&
-          (session.cwd === repo.path || session.cwd.startsWith(`${repo.path}/`)),
+          sourceAnchors.some(
+            (anchor) => anchor === repo.path || anchor.startsWith(`${repo.path}/`),
+          ),
       )
       .sort((a, b) => b.path.length - a.path.length)[0]
-    if (!sourceRepo?.repoId) throw new Error('source repository is not registered')
+    if (!sourceRepo?.repoId)
+      throw new Error(
+        `source repository is not registered (machine=${session.machineId}, anchors=${sourceAnchors.join(',')})`,
+      )
     // [spec:SP-3f7a] `session.cwd` drifts — the daemon follows the shell, so an
     // agent that ran a command against the main checkout is stamped at the repo
     // root. Its issue's worktree is still its home, so offer that as a fallback
     // source instead of refusing. Restricted to this repo, so the package's repo
     // identity always matches the tree it carries. Which candidate wins is the
     // exporter's call (it asks git); refuse up front only when neither exists.
-    const issue = session.issueId ? this.issues().get(session.issueId) : undefined
-    const issueWorktree = issue?.worktreePath?.startsWith(`${sourceRepo.path}/`)
-      ? issue.worktreePath
-      : undefined
+    const issueWorktree =
+      issue?.machineId === session.machineId &&
+      issue.worktreePath?.startsWith(`${sourceRepo.path}/`)
+        ? issue.worktreePath
+        : undefined
     if (session.cwd === sourceRepo.path && !issueWorktree)
       throw new Error('only worktree sessions can be handed off')
     const targetRepo = repos.find(
@@ -1777,7 +2568,9 @@ export class SessionsService {
       throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
     }
 
-    session.handoffTarget = targetMachine.name
+    this.mutateSessionView(session.sessionId, (current) => {
+      current.handoffTarget = targetMachine.name
+    })
     this.broadcastSessions()
 
     const branch = issue?.branch ?? basename(session.cwd)
@@ -1795,7 +2588,9 @@ export class SessionsService {
     )
     const baseShas = verifiedBundleBases(verified)
     if (baseShas.length === 0) {
-      session.handoffTarget = undefined
+      this.mutateSessionView(session.sessionId, (current) => {
+        current.handoffTarget = undefined
+      })
       this.broadcastSessions()
       throw new Error('target repository has no verified common bundle base')
     }
@@ -1847,11 +2642,23 @@ export class SessionsService {
         sourceStagePath: exported.stagePath,
         sizeBytes: exported.sizeBytes,
       })
+      // A retained target checkout may still belong to another resumable
+      // session. The daemon resolves the actual registered worktree; these cwds
+      // are the server-authoritative guard against resetting a shared workspace.
+      const occupiedWorktreePaths = this.listSessions()
+        .filter(
+          (other) =>
+            other.sessionId !== session.sessionId &&
+            other.machineId === input.machineId &&
+            other.status !== 'exited',
+        )
+        .map((other) => other.cwd)
       const imported = await this.rpc.handoffImport(
         session.sessionId,
         targetRepo.path,
         exported.manifest.worktreeName,
         input.machineId,
+        occupiedWorktreePaths,
       )
       if (!imported.ok || !imported.newCwd)
         throw new Error(imported.error ?? 'target failed to import session')
@@ -1883,7 +2690,7 @@ export class SessionsService {
           worktreePath: imported.worktreeRoot,
         })
       }
-      const resumed = this.resumeSession({
+      const resumed = await this.resumeSession({
         agentKind: session.agentKind,
         cwd: session.cwd,
         resume: session.resume,
@@ -1901,7 +2708,7 @@ export class SessionsService {
       session.cwd = source.cwd
       session.status = 'hibernated'
       this.persist(session)
-      const rollback = this.resurrectSession({ sessionId: session.sessionId })
+      const rollback = await this.resurrectSession({ sessionId: session.sessionId })
       if (!rollback.ok)
         console.warn(
           `[podium] handoff rollback failed for ${session.sessionId}: ${rollback.reason}`,
@@ -1957,7 +2764,7 @@ export class SessionsService {
     )
     if (!fetcherRepo) throw new Error('this machine does not have the source repository')
 
-    const issue = source.issueId ? this.issues().get(source.issueId) : undefined
+    const issue = source.issueId ? this.issues().getMeta(source.issueId) : undefined
     const branch = issue?.branch ?? basename(source.cwd)
     const candidates = [
       ...new Set(
@@ -2064,8 +2871,14 @@ export class SessionsService {
     return this.queueText({ sessionId, text, mutationId })
   }
 
-  /** Wake a hibernated session: respawn under the same id with its resume ref. */
-  resurrectSession({ sessionId }: { sessionId: string }): { ok: boolean; reason?: string } {
+  /** Wake a hibernated session: respawn under the same id with its resume ref.
+   *  If stop freed the worktree, recreates it from the preserved branch first
+   *  [spec:SP-9904]. */
+  async resurrectSession({
+    sessionId,
+  }: {
+    sessionId: string
+  }): Promise<{ ok: boolean; reason?: string }> {
     const rejected = this.upstreamRejection(sessionId)
     if (rejected) return rejected
     const session = this.sessions.get(sessionId)
@@ -2082,6 +2895,15 @@ export class SessionsService {
     if (session.agentKind !== 'shell' && !session.resume) {
       return { ok: false, reason: 'no resume ref' }
     }
+
+    // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
+    // so the agent has a real cwd. Transcript inspection does not need this.
+    const ensured = await this.ensureSessionWorktree(session)
+    if (!ensured.ok) return { ok: false, reason: ensured.reason }
+    if (ensured.cwd && ensured.cwd !== session.cwd) {
+      session.cwd = ensured.cwd
+    }
+
     const preparedInstructions = this.deps.instructionsForStart({
       sessionId,
       cwd: session.cwd,
@@ -2107,11 +2929,53 @@ export class SessionsService {
         : {}),
       geometry: session.geometry,
       ...this.modelDefaults(session.agentKind),
-      ...this.accountEnv(session.agentKind),
+      ...this.accountEnv(session.agentKind, session.accountId),
+      ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     preparedInstructions.commit()
     this.broadcastSessions()
     return { ok: true }
+  }
+
+  /**
+   * Ensure the session's cwd exists on disk before spawn. After stop frees the
+   * issue worktree it clears the path of record but keeps the branch; resume
+   * recreates via worktreeAddExisting [spec:SP-9904]. When worktreePath is
+   * still set we trust it (no probe — keeps unit tests daemon-free and avoids
+   * a 35s rpc timeout on the common hibernate→resurrect path).
+   */
+  private async ensureSessionWorktree(
+    session: Session,
+  ): Promise<{ ok: boolean; reason?: string; cwd?: string }> {
+    const issueId = session.issueId ?? this.issues().issueForCwd(session.cwd)
+    if (!issueId) return { ok: true, cwd: session.cwd }
+
+    const issue = this.issues().getMeta(issueId)
+    if (!issue) return { ok: true, cwd: session.cwd }
+
+    // Still recorded → use it (hibernate / normal park leaves the path).
+    if (issue.worktreePath) return { ok: true, cwd: issue.worktreePath }
+
+    // An issue can own a session without ever owning a dedicated worktree. In
+    // that valid shape both fields are null and the session's cwd (typically
+    // the repository root) remains the source of truth. A stopped issue
+    // worktree is distinguishable because stop keeps its branch [spec:SP-9904].
+    // Ordinary hibernation did not free a worktree; only stop/exit metadata
+    // authorizes reconstructing a missing branch-backed checkout.
+    if (!session.stopReason) return { ok: true, cwd: session.cwd }
+
+    if (!issue.branch) {
+      return { ok: true, cwd: session.cwd }
+    }
+    // Freed by stop (or cleared out-of-band): recreate from the kept branch.
+    const recreated = await this.issues().ensureWorktree(issueId)
+    if (!recreated.ok || !recreated.worktreePath) {
+      return {
+        ok: false,
+        reason: recreated.output || 'failed to recreate worktree from branch',
+      }
+    }
+    return { ok: true, cwd: recreated.worktreePath }
   }
 
   /** issue-as-workspace draft cleanup: after a session dies (kill/remove/exit/
@@ -2128,6 +2992,22 @@ export class SessionsService {
     }
   }
 
+  /** Durable union transition for removing a local session. A retained upstream
+   *  collision is revealed in the same ordered append as the local remove. */
+  private sessionRemovalSpecs(sessionId: string): EntityChangeSpec[] {
+    const specs: EntityChangeSpec[] = [{ entity: 'session', id: sessionId, op: 'remove' }]
+    const revealedUpstream = this.upstreamSessions.get(sessionId)
+    if (revealedUpstream) {
+      specs.push({
+        entity: 'session',
+        id: sessionId,
+        op: 'upsert',
+        value: this.upstreamWire(revealedUpstream),
+      })
+    }
+    return specs
+  }
+
   /** Prepare deletion of every LOCAL session belonging to an issue. The caller
    *  commits `write` + `changes` together with the issue tombstone, then invokes
    *  `apply` only after that durable transaction succeeds. */
@@ -2142,10 +3022,10 @@ export class SessionsService {
         for (const sessionId of sessionIds)
           this.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
-      changes: () =>
-        sessionIds.map((id) => ({ entity: 'session' as const, id, op: 'remove' as const })),
-      apply: () => {
+      changes: () => sessionIds.flatMap((sessionId) => this.sessionRemovalSpecs(sessionId)),
+      apply: (changes, ledgerCursor) => {
         for (const sessionId of sessionIds) this.removeSessionRuntime(sessionId)
+        this.publishSessionProjection(changes, ledgerCursor)
       },
     }
   }
@@ -2169,7 +3049,7 @@ export class SessionsService {
           op: 'upsert' as const,
           value: this.sessionWire(session),
         })),
-      apply: () => {
+      apply: (changes, ledgerCursor) => {
         const drafts = this.store.sessions.loadDrafts()
         const draftTimes = this.store.sessions.loadDraftTimes()
         const snoozes = this.store.sessions.listSnoozes()
@@ -2177,6 +3057,7 @@ export class SessionsService {
         for (const { session } of restored) {
           this.installStoredSession(session, snoozes, draftTimes, drafts, offers)
         }
+        this.publishSessionProjection(changes, ledgerCursor)
       },
     }
   }
@@ -2194,6 +3075,7 @@ export class SessionsService {
     session?.detachAll()
     this.sessions.delete(sessionId)
     this.draftBySession.delete(sessionId)
+    this.draftDocs.delete(sessionId)
     this.lastPriority.delete(sessionId)
     this.titleDebouncers.get(sessionId)?.dispose()
     this.titleDebouncers.delete(sessionId)
@@ -2202,7 +3084,17 @@ export class SessionsService {
       clearTimeout(draftTimer)
       this.draftWriteTimers.delete(sessionId)
     }
+    const draftDocTimer = this.draftDocWriteTimers.get(sessionId)
+    if (draftDocTimer) {
+      clearTimeout(draftDocTimer)
+      this.draftDocWriteTimers.delete(sessionId)
+    }
+    this.cancelDraftInject(sessionId)
+    this.draftSendSuppressUntil.delete(sessionId)
     for (const c of this.clients.values()) c.attached.delete(sessionId)
+    this.pendingVolatileSessions.delete(sessionId)
+    this.capturedSessionStates.delete(sessionId)
+    if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
   }
 
   killSession(input: { sessionId: string }): void {
@@ -2223,14 +3115,15 @@ export class SessionsService {
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => {
         this.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         this.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
-      changes: () => [{ entity: 'session', id: input.sessionId, op: 'remove' }],
+      changes: () => this.sessionRemovalSpecs(input.sessionId),
     })
     this.removeSessionRuntime(input.sessionId)
+    this.publishSessionProjection(changes)
     this.broadcastSessions()
     // The killed session may have been the last living occupant of an empty
     // draft issue — reap the vessel so "x" doesn't leak orphaned Drafts.
@@ -2239,10 +3132,32 @@ export class SessionsService {
     // kill deletes the row from the map BEFORE the daemon's agentExit arrives,
     // so the agentExit-path emit would be skipped — fire it here. killSession
     // is never the hibernate path (hibernateSession only flips status).
-    this.bus.emit('session.exited', {
-      sessionId: input.sessionId,
-      code: session?.exitCode ?? -1,
-    })
+    // Capture spawnedBy before the row is gone so the steward can still resolve
+    // a session-spawner parent wake (POD-904 / exit-without-report).
+    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy)
+  }
+
+  /**
+   * Real process death: bus fan-out (locks, messaging) AND a durable
+   * `session.exited` row for the steward's session-parent wake (POD-904).
+   * Hibernate does not land here. Best-effort log write — a store throw must
+   * not undo the exit side-effects already applied.
+   */
+  private emitSessionExited(sessionId: string, code: number, spawnedBy?: string | null): void {
+    this.bus.emit('session.exited', { sessionId, code })
+    try {
+      this.store.events.appendEvent({
+        ts: new Date(this.now()).toISOString(),
+        kind: 'session.exited',
+        subject: sessionId,
+        payload: {
+          code,
+          ...(spawnedBy ? { spawnedBy } : {}),
+        },
+      })
+    } catch {
+      // Durable log is best-effort; bus subscribers already ran.
+    }
   }
 
   private spawn(input: {
@@ -2260,6 +3175,7 @@ export class SessionsService {
     /** Per-ticket model/effort override; absent = use the settings defaults. */
     model?: string
     effort?: string
+    accountId?: string
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -2267,7 +3183,7 @@ export class SessionsService {
     issueId?: string
     /** Client-supplied id (optimistic UI); absent = mint one (unchanged default). */
     sessionId?: string
-  }): { sessionId: string } {
+  }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let `sessions.set` overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn. `withMutation`
@@ -2277,11 +3193,24 @@ export class SessionsService {
     }
     const sessionId = input.sessionId ?? randomUUID()
     const machineId = input.machineId ?? LOCAL_PLACEHOLDER
+    const launch = this.modelDefaults(
+      input.agentKind,
+      input.model !== undefined || input.effort !== undefined
+        ? { model: input.model, effort: input.effort }
+        : undefined,
+    )
+    const accountId =
+      input.agentKind === 'shell'
+        ? undefined
+        : (input.accountId ?? resolveRole(this.store.settings.getSettings(), 'coding').accountId)
     const session = new Session({
       sessionId,
       agentKind: input.agentKind,
       cwd: input.cwd,
       title: input.title || basename(input.cwd) || input.cwd,
+      ...(launch.model ? { model: launch.model } : {}),
+      ...(launch.effort ? { effort: launch.effort } : {}),
+      ...(accountId ? { accountId } : {}),
       origin: input.origin,
       createdAt: new Date().toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
@@ -2306,8 +3235,8 @@ export class SessionsService {
     this.sessions.set(sessionId, session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
     // for a genuinely issueless spawn) — allocate the permanent ref now.
-    this.allocateSessionRef(session)
-    this.persist(session)
+    const additionalWrite = this.prepareSessionRefAllocation(session)
+    this.persist(session, additionalWrite)
     this.toMachine(machineId, {
       type: 'spawn',
       sessionId,
@@ -2318,16 +3247,21 @@ export class SessionsService {
       ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
-      ...this.modelDefaults(
-        input.agentKind,
-        input.model !== undefined || input.effort !== undefined
-          ? { model: input.model, effort: input.effort }
-          : undefined,
-      ),
-      ...this.accountEnv(input.agentKind),
+      ...launch,
+      ...this.accountEnv(input.agentKind, accountId),
+      ...(this.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     this.broadcastSessions()
-    return { sessionId }
+    return {
+      sessionId,
+      agentId: sessionId,
+      harness: input.agentKind,
+      model: launch.model ?? null,
+      effort: launch.effort ?? null,
+      machine: this.machines.machineName(machineId),
+      machineId,
+      accountId: accountId ?? null,
+    }
   }
 
   /**
@@ -2385,18 +3319,25 @@ export class SessionsService {
    *  browser and written into persisted scrollback. Only an agent harness — which
    *  is what the coding role's credential is FOR — gets it. (modelDefaults()
    *  special-cases shell for the same reason of shape: a shell is not an agent.) */
-  private accountEnv(agentKind: AgentKind): { env?: Record<string, string> } {
+  private accountEnv(
+    agentKind: AgentKind,
+    accountId = resolveRole(this.store.settings.getSettings(), 'coding').accountId,
+  ): { env?: Record<string, string> } {
     if (agentKind === 'shell') return {}
-    const role = resolveRole(this.store.settings.getSettings(), 'coding')
-    return resolveAccountEnv(this.store.accounts, role.accountId)
+    return resolveAccountEnv(this.store.accounts, accountId)
   }
 
   // ---- ws data plane: clients ----
-  attachClient(send: Send<ServerMessage>): string {
+  attachClient(send: Send<ServerMessage>, publication?: ClientPublicationAuthority): string {
     const id = `c${this.nextClientNum++}`
     this.clients.set(id, {
       id,
       send,
+      ...(publication ? { publication } : {}),
+      publicationBootstrapped: false,
+      publicationPending: false,
+      publicationRequestVersion: 0,
+      publicationBufferedChanges: [],
       viewports: new Map(),
       attached: new Set(),
       // No caps until hello — the bootstrap snapshots below are sent to everyone
@@ -2418,31 +3359,57 @@ export class SessionsService {
       viewModes: {},
     })
     send({ type: 'welcome', clientId: id })
-    send({ type: 'sessionsChanged', sessions: this.listSessions() })
-    send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
-    send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
-    send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
-    for (const [sessionId, text] of this.draftBySession) {
-      send({ type: 'sessionDraftChanged', sessionId, text })
+    if (publication) this.schedulePreparedSessionPublications()
+    else send({ type: 'sessionsChanged', sessions: this.listSessions() })
+    // Until an authority supplies per-kind worlds, a scoped socket is explicitly
+    // session-only. Sending the global issue/conversation feeds would re-embed
+    // hidden SessionMeta values and defeat the worker boundary.
+    if (!publication || publication.global) {
+      send({ type: 'issuesChanged', issues: this.deps.issuesWire() })
+      send({ type: 'automationsChanged', automations: this.deps.automationsWire() })
+      send({ type: 'automationRunsChanged', automationRuns: this.deps.automationRunsWire() })
+      if (this.draftSyncEnabled()) {
+        // Versioned replay (POD-859): send the full doc (rev/origin/editedAt) so the
+        // attaching client starts from the authoritative rev. Skip cleared docs.
+        for (const doc of this.draftDocs.values()) {
+          if (doc.text) send(this.draftDocWire(doc))
+        }
+      } else {
+        for (const [sessionId, text] of this.draftBySession) {
+          send({ type: 'sessionDraftChanged', sessionId, text })
+        }
+      }
+      send({
+        type: 'conversationsChanged',
+        conversations: this.conversations().allConversations(),
+        diagnostics: this.conversations().diagnostics(),
+      })
+      send({ type: 'machinesChanged', machines: this.machines.listMachines() })
+      send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
+      this.hosts.snapshotFor(send)
+      // A request captured while no browser was connected remains an explicit
+      // needs-attention affordance for the next client. [spec:SP-a43e]
+      for (const request of this.pendingOpenUrls.values()) send(request)
     }
-    send({
-      type: 'conversationsChanged',
-      conversations: this.conversations().allConversations(),
-      diagnostics: this.conversations().diagnostics(),
-    })
-    send({ type: 'machinesChanged', machines: this.machines.listMachines() })
-    send({ type: 'approvalsChanged', pending: this.deps.approvalsPending() })
-    this.hosts.snapshotFor(send)
-    // A request captured while no browser was connected remains an explicit
-    // needs-attention affordance for the next client. [spec:SP-a43e]
-    for (const request of this.pendingOpenUrls.values()) send(request)
     return id
+  }
+
+  /** Authorization/view invalidation seam: the main authority changed one client world. */
+  refreshClientPublication(id: string): void {
+    if (!this.clients.get(id)?.publication) return
+    this.schedulePreparedSessionPublications()
+  }
+
+  publicationMetrics(): PublishWorkerMetrics {
+    return this.publicationWorker.metrics()
   }
 
   detachClient(id: string): void {
     const client = this.clients.get(id)
     if (!client) return
-    for (const sessionId of client.attached) this.sessions.get(sessionId)?.detachClient(id)
+    for (const sessionId of client.attached) {
+      this.mutateSessionView(sessionId, (session) => session.detachClient(id))
+    }
     // Transcript subscriptions are independent of PTY attachment — sweep just the ones
     // THIS client made (audit P2-18), not every session on the host (the old full scan
     // was O(sessions) on every disconnect, and O(clients×sessions) in a reconnect storm).
@@ -2580,6 +3547,12 @@ export class SessionsService {
         // Feature negotiation (spec §2.3): from here on this client gets metadata
         // deltas instead of full-list snapshot rebroadcasts.
         if (msg.caps) client.caps = new Set(msg.caps)
+        // The worker bootstrap may have been prepared against the pre-hello
+        // capability ViewKey. Rebuild under the negotiated key; the stale result
+        // is rejected at the main-loop send boundary.
+        if (client.publication && !client.publicationBootstrapped) {
+          this.schedulePreparedSessionPublications()
+        }
         // Reconnect identity. A client re-presents the id it was given on its
         // previous socket. Hand that now-stale client's controller roles to this
         // one and evict it, so a dropped or half-open socket doesn't strand the
@@ -2593,7 +3566,9 @@ export class SessionsService {
         const session = this.sessions.get(msg.sessionId)
         if (!session) return
         client.attached.add(msg.sessionId)
-        session.attachClient(client, msg.sinceSeq)
+        this.mutateSessionView(msg.sessionId, (current) =>
+          current.attachClient(client, msg.sinceSeq),
+        )
         this.broadcastSessions()
         this.pushPriorities()
         perf.record('phase', 'ws.attach', performance.now() - t0)
@@ -2602,7 +3577,7 @@ export class SessionsService {
       case 'detach': {
         const t0 = performance.now()
         client.attached.delete(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.detachClient(id)
+        this.mutateSessionView(msg.sessionId, (session) => session.detachClient(id))
         this.broadcastSessions()
         this.pushPriorities()
         perf.record('phase', 'ws.detach', performance.now() - t0)
@@ -2612,10 +3587,12 @@ export class SessionsService {
         this.sessions.get(msg.sessionId)?.handleInput(id, msg.data)
         break
       case 'resize':
-        this.sessions.get(msg.sessionId)?.handleResize(id, msg.cols, msg.rows)
+        this.mutateSessionView(msg.sessionId, (session) =>
+          session.handleResize(id, msg.cols, msg.rows),
+        )
         break
       case 'requestControl':
-        this.sessions.get(msg.sessionId)?.requestControl(id)
+        this.mutateSessionView(msg.sessionId, (session) => session.requestControl(id))
         this.broadcastSessions()
         break
       case 'redrawRequest':
@@ -2645,12 +3622,16 @@ export class SessionsService {
         // it renders these sessions, re-apply its last viewport where it's controller
         // — otherwise the PTY stays stuck at the 80x24 default (quarter-size window).
         for (const sid of client.viewVisible) {
-          this.sessions.get(sid)?.reconcileGeometry(id)
+          this.mutateSessionView(sid, (session) => session.reconcileGeometry(id))
         }
         this.pushPriorities()
+        this.reprioritizePreparedSessionPublications()
         break
       case 'setSessionDraft':
         this.setSessionDraft(msg, id)
+        break
+      case 'draftEdit':
+        this.handleDraftEdit(msg, id)
         break
       case 'sessionOpenUrlCallback':
         this.submitOpenUrlCallback(client, msg)
@@ -2685,7 +3666,7 @@ export class SessionsService {
     issueId: string,
     msg: Extract<DaemonMessage, { type: 'sessionCwd' }>,
   ): void {
-    const issue = this.issues().get(issueId)
+    const issue = this.issues().getMeta(issueId)
     if (!issue || issue.archived || issue.worktreePath !== null) return
     // Only a POD-665+ daemon may adopt: `kind` is the ONLY trustworthy way to know a
     // path is a real worktree and not main, because it comes from git. An older daemon
@@ -2742,12 +3723,38 @@ export class SessionsService {
       case 'bind': {
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
         const s = this.sessions.get(msg.sessionId)
-        if (s) this.persist(s)
+        if (s) {
+          // Whether the daemon runs the composer engine for this session (POD-859)
+          // — surfaced in meta so a client retires its own sampler/flush.
+          s.draftSyncEngine = msg.draftSyncEngine ?? false
+          this.persist(s)
+        }
         this.broadcastSessions()
         // The PTY is bound: if messages queued up while this session was parked
         // (or across a server restart), start a delivery attempt — the drain loop
         // itself waits out the boot-settle before typing.
         this.drainQueuedMessages(msg.sessionId)
+        // Catchup (POD-859 §6): seed native with a chat draft edited while the
+        // session was down — on BIND (the engine is attached by the time the daemon
+        // reports draftSyncEngine), not on reattach (dispatched before attach).
+        if (msg.draftSyncEngine) this.maybeCatchupInject(msg.sessionId, machineId)
+        break
+      }
+      case 'nativeDraft': {
+        // The daemon's composer engine scraped the native composer (POD-859).
+        // Sequence it as an origin='native' versioned edit and broadcast. Skip a
+        // message the server is currently typing OUT (reviewer fix 5).
+        if (this.draftSyncEnabled()) {
+          const suppressUntil = this.draftSendSuppressUntil.get(msg.sessionId) ?? 0
+          if (Date.now() >= suppressUntil) {
+            const cur = this.draftDocs.get(msg.sessionId) ?? emptyDraftDoc(msg.sessionId)
+            this.applyVersionedEdit(
+              msg.sessionId,
+              { baseRev: cur.rev, text: msg.text, origin: 'native' },
+              undefined,
+            )
+          }
+        }
         break
       }
       case 'agentFrame':
@@ -2783,9 +3790,10 @@ export class SessionsService {
         this.maybeReapDraftIssue(s?.issueId)
         // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
         // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
-        // and the session's leases with it.
+        // and the session's leases with it. Also durable for steward parent-wake
+        // (POD-904).
         if (s?.status === 'exited') {
-          this.bus.emit('session.exited', { sessionId: msg.sessionId, code: msg.code })
+          this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
         }
         break
       }
@@ -2796,7 +3804,7 @@ export class SessionsService {
         this.broadcastSessions()
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
         // [spec:SP-85d1] like any other real death.
-        if (s) this.bus.emit('session.exited', { sessionId: s.sessionId, code: -1 })
+        if (s) this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
         break
       }
       case 'reattachFailed': {
@@ -2814,7 +3822,7 @@ export class SessionsService {
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
           // lookup: the narrowed `s.status` above would defeat the compare.)
           if (this.sessions.get(msg.sessionId)?.status === 'exited') {
-            this.bus.emit('session.exited', { sessionId: s.sessionId, code: -1 })
+            this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
           }
         }
         this.broadcastSessions()
@@ -3205,6 +4213,13 @@ export class SessionsService {
   private broadcastPending = false
 
   broadcastSessions(): void {
+    // Volatile view changes always cross an event-loop boundary before SQLite.
+    // The keyed buffer folds resize/disconnect bursts into one capture batch.
+    if (this.pendingVolatileSessions.size > 0) {
+      this.broadcastPending = true
+      this.scheduleVolatileSessionCapture()
+      return
+    }
     if (this.broadcastCooldown) {
       this.broadcastPending = true
       return
@@ -3236,7 +4251,7 @@ export class SessionsService {
       clearTimeout(this.broadcastCooldown)
       this.broadcastCooldown = null
     }
-    if (this.broadcastPending) {
+    if (this.broadcastPending || this.pendingVolatileSessions.size > 0) {
       this.broadcastPending = false
       this.runSessionsBroadcast()
     }
@@ -3244,54 +4259,49 @@ export class SessionsService {
   }
 
   private runSessionsBroadcast(): void {
-    // Phase timings [POD-701]: each leg of the broadcast pipeline recorded
-    // separately so a slow switch can be attributed (list vs reconcile vs
-    // stringify vs fan-out). performance.now() calls are ~ns; no behavior change.
     const t0 = performance.now()
-    const sessions = this.listSessions()
-    const tList = performance.now()
-    perf.record('phase', 'sessionsBroadcast.list', tList - t0)
-    // Reconcile-at-broadcast ([spec:SP-3fe2] #247, on top of the #256 write-seam
-    // commits): the ledger re-captures the EXACT union the snapshot below
-    // carries — local rows AND the hub-mirrored upstream list, built by the same
-    // wire function — so every state change that reaches a broadcast without a
-    // persist() lands in the durable log too. That restores the old
-    // broadcast-seam capture sites the write-seam migration dropped: upstream
-    // mirror sets + staleness flips (setUpstreamSessions/setUpstreamStale), the
-    // daemon-disconnect status:'reconnecting' flip, machine-rename machineName,
-    // and startup-adoption machineId. It deliberately RETIRES the previous
-    // clientCount/controllerId/epoch exclusion — it was leaky anyway (those
-    // fields ride every persist()'s full wire payload) — so attach/detach churn
-    // volume equals the old broadcast-seam oplog's (known-acceptable). The
-    // reconcile runs BEFORE the byte-skip: the skip compares against the last
-    // BROADCAST payload, not the ledger baseline, so it could otherwise
-    // suppress a union that the baseline has not captured yet (e.g. a change
-    // that reverted between broadcasts). reconcile() itself dedups no-ops, so
-    // the common case appends nothing.
-    this.deps.ledger.reconcile(
-      'session',
-      sessions.map((s) => ({ id: s.sessionId, value: s })),
-    )
-    const tReconcile = performance.now()
-    perf.record('phase', 'sessionsBroadcast.reconcile', tReconcile - tList)
-    // Skip a byte-identical re-broadcast (audit P1-8) — every existing client already
-    // holds this exact list, and a new client gets it via attachClient, so re-sending
-    // it changes nothing and just burns CPU + bandwidth across all clients.
-    const key = JSON.stringify(sessions)
-    const tStringify = performance.now()
-    // bytes ≈ key.length (string length, not UTF-8 bytes — close enough, O(1)).
-    perf.record('phase', 'sessionsBroadcast.stringify', tStringify - tReconcile, key.length)
-    if (key === this.lastSessionsBroadcast) {
+    if (this.runningSessionsBroadcastGeneration !== -1) {
+      this.broadcastPending = true
       perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
       return
     }
-    this.lastSessionsBroadcast = key
+    // Reserve the runner before capture: projection listeners are synchronous and
+    // may request another broadcast while the successful batch is being published.
+    this.runningSessionsBroadcastGeneration = -2
     try {
+      this.flushVolatileSessionCaptures()
+      const generation = this.sessionsGeneration_
+      if (generation === this.lastSessionsBroadcastGeneration) {
+        perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
+        return
+      }
+      this.runningSessionsBroadcastGeneration = generation
+      const sessions = this.listSessions()
+      const tList = performance.now()
+      perf.record('phase', 'sessionsBroadcast.list', tList - t0)
+      // Every non-boot mutation was already captured at its owning seam. This hot
+      // path only builds the legacy snapshot; full reconcile is boot/recovery-only.
+      const hasMainEncodedReceivers = [...this.clients.values()].some(
+        (client) => !client.caps.has(CAP_METADATA_DELTA) && !client.publication,
+      )
+      const mainEncodedBytes = hasMainEncodedReceivers ? JSON.stringify(sessions).length : 0
+      perf.record(
+        'phase',
+        'sessionsBroadcast.stringify',
+        performance.now() - tList,
+        mainEncodedBytes,
+      )
       // LEGACY snapshot fan-out only ([spec:SP-3fe2] #256): session deltas were
-      // captured above (write-seam commit or the reconcile) and ride the funnel's
-      // ordered onAppended pipe — recording here again would double-append.
+      // captured at their owning seams and ride the funnel's ordered onAppended
+      // pipe — recording here again would double-append.
       const tFanout0 = performance.now()
-      this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
+      if (hasMainEncodedReceivers) {
+        this.funnel.publishComputed({ type: 'sessionsChanged', sessions })
+      }
+      // Delta-capable publications schedule at the funnel's ordered flush, after
+      // every same-tick entity append fixed the source cursor. Starting one here
+      // would be superseded by that flush and discard the actor's prior view.
+      this.schedulePreparedSessionPublications({ includeDeltaCapable: false })
       // Snapshot receivers = the non-delta-cap clients (see fanOutSnapshot).
       let receivers = 0
       for (const c of this.clients.values()) {
@@ -3301,15 +4311,11 @@ export class SessionsService {
         'phase',
         'sessionsBroadcast.fanout',
         performance.now() - tFanout0,
-        key.length * receivers,
+        mainEncodedBytes * receivers,
       )
-    } catch (err) {
-      // Un-stamp the byte-skip cache on any session broadcast failure (#247): the
-      // cache is stamped up front so a reentrant same-bytes broadcast during the
-      // fan-out still early-returns. Cleared, the next broadcast retries the
-      // whole body; reconcile dedups and clients tolerate a repeated snapshot.
-      if (this.lastSessionsBroadcast === key) this.lastSessionsBroadcast = ''
-      throw err
+      this.lastSessionsBroadcastGeneration = generation
+    } finally {
+      this.runningSessionsBroadcastGeneration = -1
     }
     perf.record('phase', 'sessionsBroadcast.total', performance.now() - t0)
   }
@@ -3322,12 +4328,240 @@ export class SessionsService {
    */
   fanOutSnapshot(snapshot: ServerMessage, opts: { snapshotToCapClients?: boolean } = {}): void {
     for (const c of this.clients.values()) {
+      if (c.publication && (snapshot.type === 'sessionsChanged' || !c.publication.global)) continue
       if (c.caps.has(CAP_METADATA_DELTA)) {
         if (opts.snapshotToCapClients) c.send(snapshot)
       } else {
         c.send(snapshot)
       }
     }
+  }
+
+  private globalPublicationIds(): readonly string[] {
+    const cached = this.globalPublicationIdsCache
+    if (cached?.generation === this.sessionsGeneration_) return cached.ids
+    const ids = [...new Set([...this.sessions.keys(), ...this.upstreamSessions.keys()])].sort()
+    this.globalPublicationIdsCache = { generation: this.sessionsGeneration_, ids }
+    return ids
+  }
+
+  private publicationView(
+    client: ClientConn,
+  ): { view: PublicationView; allowedSignature: string; global: boolean } | undefined {
+    const authority = client.publication
+    if (!authority) return undefined
+    let snapshot: ReturnType<PublicationAuthority['snapshot']>
+    try {
+      snapshot = authority.snapshot()
+    } catch (error) {
+      console.error('[sessions] publication authority snapshot failed', error)
+      return undefined
+    }
+    const allowedSessionIds = authority.global
+      ? this.globalPublicationIds()
+      : snapshot.allowedSessionIds
+    return {
+      view: {
+        key: createViewKey({
+          principal: authority.principal,
+          scope: authority.scope,
+          serverRole: authority.serverRole,
+          protocolVersion: authority.protocolVersion,
+          capabilities: [...client.caps],
+        }),
+        revision: snapshot.revision,
+        // The worker filters only an already-authorized immutable id set.
+        allowedSessionIds,
+      },
+      allowedSignature: authority.global ? 'global' : snapshot.allowedSignature,
+      global: authority.global,
+    }
+  }
+
+  private publicationMatches(
+    client: ClientConn,
+    descriptor: { view: PublicationView; allowedSignature: string },
+  ): boolean {
+    const accepted = client.publicationAccepted
+    return (
+      !client.publicationReplacementRequired &&
+      accepted !== undefined &&
+      accepted.viewKey === descriptor.view.key &&
+      accepted.viewRevision === descriptor.view.revision &&
+      accepted.allowedSignature === descriptor.allowedSignature
+    )
+  }
+
+  private sendPublicationRevocations(
+    client: ClientConn,
+    descriptor: { view: PublicationView; allowedSignature: string; global: boolean },
+  ): void {
+    const accepted = client.publicationAccepted
+    if (!client.publication || descriptor.global || !accepted) return
+    if (
+      accepted.viewKey === descriptor.view.key &&
+      accepted.viewRevision === descriptor.view.revision &&
+      accepted.allowedSignature === descriptor.allowedSignature
+    ) {
+      return
+    }
+    const allowed = new Set(descriptor.view.allowedSessionIds)
+    const alreadyRemoved = client.publicationRevokedSessionIds ?? new Set<string>()
+    const removedSessionIds = accepted.allowedSessionIds.filter(
+      (sessionId) => !allowed.has(sessionId) && !alreadyRemoved.has(sessionId),
+    )
+    if (removedSessionIds.length === 0) return
+    client.publication.sendPrepared(
+      JSON.stringify({ type: 'sessionViewDelta', removedSessionIds } satisfies ServerMessage),
+    )
+    for (const sessionId of removedSessionIds) alreadyRemoved.add(sessionId)
+    client.publicationRevokedSessionIds = alreadyRemoved
+    client.publicationReplacementRequired = true
+  }
+
+  private schedulePreparedSessionPublications(
+    options: { includeDeltaCapable?: boolean } = {},
+  ): void {
+    const includeDeltaCapable = options.includeDeltaCapable ?? true
+    type Group = {
+      view: PublicationView
+      clients: ClientConn[]
+      focused: boolean
+      allowedSignature: string
+      global: boolean
+      sinceCursor: number | null
+      conflicted: boolean
+    }
+    const groups = new Map<ViewKey, Group>()
+    const sourceCursor = this.publicationWorker.sourceCursor()
+    for (const client of this.clients.values()) {
+      if (!client.publication) continue
+      const descriptor = this.publicationView(client)
+      if (!descriptor) continue
+      const deltaCapable = client.caps.has(CAP_METADATA_DELTA)
+      if (deltaCapable && !includeDeltaCapable) continue
+      const matches = this.publicationMatches(client, descriptor)
+      if (deltaCapable && !matches) this.sendPublicationRevocations(client, descriptor)
+      // Proven-global delta clients ride the raw funnel after their sequenced
+      // bootstrap. Scoped clients always return through the filtering actor.
+      if (descriptor.global && deltaCapable && matches) continue
+      const sinceCursor =
+        deltaCapable && matches ? (client.publicationAccepted?.cursor ?? null) : null
+      if (sinceCursor !== null && sinceCursor >= sourceCursor) continue
+      const group = groups.get(descriptor.view.key)
+      if (group) {
+        if (
+          group.view.revision !== descriptor.view.revision ||
+          group.allowedSignature !== descriptor.allowedSignature ||
+          group.global !== descriptor.global
+        ) {
+          group.conflicted = true
+        }
+        group.clients.push(client)
+        group.focused ||= client.focused !== null
+        group.sinceCursor =
+          group.sinceCursor === null || sinceCursor === null
+            ? null
+            : Math.min(group.sinceCursor, sinceCursor)
+      } else {
+        groups.set(descriptor.view.key, {
+          view: descriptor.view,
+          clients: [client],
+          focused: client.focused !== null,
+          allowedSignature: descriptor.allowedSignature,
+          global: descriptor.global,
+          sinceCursor,
+          conflicted: false,
+        })
+      }
+    }
+
+    const ordered = [...groups.values()].sort(
+      (left, right) => Number(right.focused) - Number(left.focused),
+    )
+    for (const group of ordered) {
+      if (group.conflicted) {
+        console.error('[sessions] conflicting authorization result for equal publication ViewKey')
+        continue
+      }
+      const recipients = group.clients.map((client) => {
+        const version = (client.publicationRequestVersion ?? 0) + 1
+        client.publicationRequestVersion = version
+        client.publicationPending = true
+        return { id: client.id, version }
+      })
+      void this.publicationWorker
+        .request({ view: group.view, sinceCursor: group.sinceCursor }, { focused: group.focused })
+        .then((publication) => {
+          perf.record(
+            'phase',
+            'sessionsBroadcast.workerBytes',
+            0,
+            publication.bytes.length * recipients.length,
+          )
+          for (const recipient of recipients) {
+            const client = this.clients.get(recipient.id)
+            if (!client?.publication || client.publicationRequestVersion !== recipient.version) {
+              continue
+            }
+            const current = this.publicationView(client)
+            if (
+              !current ||
+              current.view.key !== publication.viewKey ||
+              current.view.revision !== publication.viewRevision ||
+              current.allowedSignature !== group.allowedSignature
+            ) {
+              continue
+            }
+            client.publication.sendPrepared(publication.bytes)
+            client.publicationBootstrapped = true
+            client.publicationPending = false
+            client.publicationAccepted = {
+              viewKey: publication.viewKey,
+              viewRevision: publication.viewRevision,
+              allowedSignature: group.allowedSignature,
+              cursor: publication.ledgerCursor,
+              allowedSessionIds: current.global ? [] : [...current.view.allowedSessionIds],
+            }
+            client.publicationReplacementRequired = false
+            client.publicationRevokedSessionIds = undefined
+            if (current.global && client.caps.has(CAP_METADATA_DELTA)) {
+              const buffered = client.publicationBufferedChanges?.splice(0) ?? []
+              for (const changes of buffered) {
+                const last = changes.at(-1)
+                if (!last) continue
+                client.publication.sendPrepared(
+                  JSON.stringify({
+                    type: 'metadataDelta',
+                    seq: last.seq,
+                    changes,
+                  } satisfies ServerMessage),
+                )
+              }
+            }
+          }
+        })
+        .catch((error) => {
+          if (error instanceof PublicationSupersededError) return
+          for (const recipient of recipients) {
+            const client = this.clients.get(recipient.id)
+            if (client?.publicationRequestVersion === recipient.version) {
+              client.publicationPending = false
+            }
+          }
+          console.warn('[sessions] prepared publication failed', error)
+        })
+    }
+  }
+
+  private reprioritizePreparedSessionPublications(): void {
+    const focused = new Set<ViewKey>()
+    for (const client of this.clients.values()) {
+      if (client.focused === null) continue
+      const view = this.publicationView(client)
+      if (view) focused.add(view.view.key)
+    }
+    this.publicationWorker.prioritize(focused)
   }
 
   /** The delta half of the split fan-out: one `metadataDelta` batch (stamped
@@ -3345,16 +4579,18 @@ export class SessionsService {
   sendMetadataDelta(changes: MetadataChange[]): void {
     const last = changes[changes.length - 1]
     if (!last) return
+    const hasPublicationClient = [...this.clients.values()].some(
+      (client) => client.publication && client.caps.has(CAP_METADATA_DELTA),
+    )
+    if (hasPublicationClient) {
+      this.publicationWorker.advanceCursor(last.seq)
+      this.schedulePreparedSessionPublications()
+    }
     const delta: ServerMessage = { type: 'metadataDelta', seq: last.seq, changes }
     let identityDelta: ServerMessage | undefined
-    for (const c of this.clients.values()) {
-      if (!c.caps.has(CAP_METADATA_DELTA)) continue
-      if (!c.caps.has(CAP_SYNC_FEED_IDENTITY)) {
-        c.send(delta)
-        continue
-      }
-      // Built lazily and once per batch: minAvailableSeq is a SQL read, and the
-      // common case is that no client wants it.
+    let encoded: string | undefined
+    let identityEncoded: string | undefined
+    const withIdentity = (): ServerMessage => {
       if (!identityDelta) {
         const { feedId, epoch } = this.funnel.feedIdentity()
         identityDelta = {
@@ -3364,7 +4600,32 @@ export class SessionsService {
           minAvailableSeq: this.funnel.minAvailableSeq(),
         } as ServerMessage
       }
-      c.send(identityDelta)
+      return identityDelta
+    }
+    for (const c of this.clients.values()) {
+      if (!c.caps.has(CAP_METADATA_DELTA)) continue
+      if (!c.publication) {
+        c.send(c.caps.has(CAP_SYNC_FEED_IDENTITY) ? withIdentity() : delta)
+        continue
+      }
+      // Scoped publication clients never see the raw global batch. The worker
+      // emits their filtered range (possibly empty) through the same sequencer.
+      if (!c.publication.global) continue
+      const current = this.publicationView(c)
+      if (!current || c.publicationPending || !this.publicationMatches(c, current)) {
+        const buffered = c.publicationBufferedChanges ?? []
+        if (buffered.length >= 512) buffered.shift()
+        buffered.push(structuredClone(changes))
+        c.publicationBufferedChanges = buffered
+        continue
+      }
+      if (c.caps.has(CAP_SYNC_FEED_IDENTITY)) {
+        identityEncoded ??= JSON.stringify(withIdentity())
+        c.publication.sendPrepared(identityEncoded)
+      } else {
+        encoded ??= JSON.stringify(delta)
+        c.publication.sendPrepared(encoded)
+      }
     }
   }
 
@@ -3386,11 +4647,34 @@ export class SessionsService {
    * Reading the identity in this same synchronous pass keeps it consistent with
    * the cursor beside it.
    */
-  syncChangesSince(cursor: number | null): SyncChangesSinceResult {
+  syncChangesSince(
+    cursor: number | null,
+    authority?: PublicationAuthority,
+  ): SyncChangesSinceResult {
+    const sourceCursor = this.funnel.cursor()
     const { feedId, epoch } = this.funnel.feedIdentity()
     const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
+    if (authority && !authority.global) {
+      const allowed = new Set(authority.snapshot().allowedSessionIds)
+      // A scoped heal always replaces the complete authorized session world.
+      // Other entity kinds are fail-closed until their authority contract exists.
+      return {
+        kind: 'snapshot',
+        sessions: this.listSessions().filter((session) => allowed.has(session.sessionId)),
+        issues: [],
+        issueProjections: [],
+        issueDeps: [],
+        repos: [],
+        conversations: [],
+        automations: [],
+        automationRuns: [],
+        diagnostics: [],
+        cursor: sourceCursor,
+        ...identity,
+      }
+    }
     const changes = this.funnel.changesSince(cursor)
-    if (changes) return { kind: 'delta', changes, cursor: this.funnel.cursor(), ...identity }
+    if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
     return {
       kind: 'snapshot',
       sessions: this.listSessions(),
@@ -3402,7 +4686,7 @@ export class SessionsService {
       automations: this.deps.automationsWire(),
       automationRuns: this.deps.automationRunsWire(),
       diagnostics: this.conversations().diagnostics(),
-      cursor: this.funnel.cursor(),
+      cursor: sourceCursor,
       ...identity,
     }
   }

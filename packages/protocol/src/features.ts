@@ -27,6 +27,16 @@ export const FEATURES = [
       'Demonstrates the experimental-features system. Does nothing; remove when the first real flag lands.',
     visibility: 'hidden',
   },
+  {
+    // Draft Sync v2 (POD-859). Edge-visibility: listed in Settings → Experimental on
+    // edge-channel installs; enablement flows through resolveFeatureState like any
+    // other flag. Ships dark (default off) — off = today's client-scraped behavior.
+    id: 'draft-sync',
+    name: 'Draft sync',
+    description:
+      'Bidirectional draft sync between the chat box and the agent’s native composer: text typed in either place mirrors to the other. Experimental — off by default.',
+    visibility: 'edge',
+  },
 ] as const satisfies readonly FeatureDefinition[]
 
 export type FeatureId = (typeof FEATURES)[number]['id']

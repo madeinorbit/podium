@@ -86,6 +86,8 @@ export function IssuePage({
 }): JSX.Element {
   const model = useIssuePageModel(issue, orderedIds)
   const { busy, toast, run, prev, next, repoName, feed, mail, children } = model
+  const doneChildren = children.filter((child) => child.stage === 'done' || child.closedReason)
+  const openChildren = children.filter((child) => !doneChildren.includes(child))
   const commands = issuePageCommands({ trpc: model.trpc, issue, run })
 
   const [commentBody, setCommentBody] = useState('')
@@ -341,6 +343,17 @@ export function IssuePage({
               )}
             </section>
 
+            {issue.brief && (
+              <details className="mb-7 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground">
+                  Brief
+                </summary>
+                <div className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-foreground/80">
+                  {issue.brief}
+                </div>
+              </details>
+            )}
+
             {/* ---- Long-form spec fields (design / acceptance / notes) ----
                 Written by agents via `podium issue update`; empty ones collapse
                 into a single quiet add-row so the page stays short. */}
@@ -358,7 +371,7 @@ export function IssuePage({
               >
                 Sub-tasks
               </SectionHeading>
-              {children.map((c) => (
+              {openChildren.map((c) => (
                 <button
                   key={c.id}
                   type="button"
@@ -380,6 +393,29 @@ export function IssuePage({
                   <AssigneeAvatar assignee={c.assignee || undefined} size={16} />
                 </button>
               ))}
+              {doneChildren.length > 0 && issue.stage !== 'done' && !issue.closedReason && (
+                <details className="mt-1 rounded border border-border/50 px-2 py-1">
+                  <summary className="cursor-pointer text-[11px] text-muted-foreground">
+                    ✓ {doneChildren.length} done
+                  </summary>
+                  <div className="mt-1 flex flex-col gap-1">
+                    {doneChildren.map((child) => (
+                      <button
+                        key={child.id}
+                        type="button"
+                        className="flex items-center gap-2 rounded px-1 py-1 text-left text-[12px] opacity-65 hover:bg-muted/50"
+                        onClick={() => onNavigate(child.id)}
+                      >
+                        <StageGlyph stage={child.stage} />
+                        <span className="text-[10px] text-muted-foreground">
+                          {issueDisplayRef(child)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{child.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              )}
               {addingChild ? (
                 <Input
                   autoFocus

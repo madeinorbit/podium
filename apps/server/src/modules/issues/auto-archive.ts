@@ -1,8 +1,8 @@
 import type { IssueService } from './service'
 
 // Read-gated auto-archive sweep (issue #127): first pass shortly after boot (so a
-// restart promptly clears issues that crossed the 24h read window while down),
-// then hourly. Hourly is ample for a 24h-granularity rule and the sweep is cheap.
+// restart promptly clears issues that crossed the 7-day read window while down),
+// then hourly. Hourly is ample for a seven-day-granularity rule and the sweep is cheap.
 const AUTO_ARCHIVE_BOOT_DELAY_MS = 90_000
 const AUTO_ARCHIVE_INTERVAL_MS = 60 * 60 * 1000
 

@@ -18,8 +18,8 @@ describe('parseRoute', () => {
   const at = (path: string, search = '') => parseRoute(path, search)
 
   it('maps every known URL to its view', () => {
-    expect(at('/')?.view).toBe('home')
-    expect(at('/home')?.view).toBe('home')
+    expect(at('/'))?.toMatchObject({ view: 'issues', issueId: null })
+    expect(at('/home')).toBeNull()
     expect(at('/workspace')?.view).toBe('workspace')
     expect(at('/issues')?.view).toBe('issues')
     expect(at('/issues/iss_42')).toMatchObject({ view: 'issues', issueId: 'iss_42' })
@@ -48,7 +48,7 @@ describe('parseRoute', () => {
 describe('routePath', () => {
   it('round-trips every route', () => {
     const routes: RouteState[] = [
-      routeDefaults('home'),
+      routeDefaults('issues'),
       { ...routeDefaults('workspace'), worktree: '/w/x', pane: 's9' },
       { ...routeDefaults('issues'), issueId: 'iss_1' },
       { ...routeDefaults('settings'), settingsTab: 'notifications' },
@@ -134,12 +134,12 @@ describe('createRouter', () => {
     win.back()
     expect(router.current()).toMatchObject({ view: 'issues', issueId: null })
     win.back()
-    expect(router.current().view).toBe('home')
+    expect(router.current().view).toBe('issues')
     expect(win.url()).toBe('/')
 
     win.forward()
     expect(router.current()).toMatchObject({ view: 'issues', issueId: null })
-    expect(seen).toEqual(['issues', 'issues', 'issues', 'home', 'issues'])
+    expect(seen).toEqual(['issues', 'issues', 'issues', 'issues', 'issues'])
   })
 
   it('settings tab changes are history entries: back/forward move between tabs', () => {
@@ -160,14 +160,14 @@ describe('createRouter', () => {
     expect(router.current()).toMatchObject({ view: 'settings', settingsTab: 'appearance' })
   })
 
-  it('falls back to home on an unknown initial URL (replace, not push)', () => {
+  it('falls back to Tasks on an unknown initial URL (replace, not push)', () => {
     const win = fakeWindow('/definitely-not-a-route')
     const router = createRouter({ win })
-    expect(router.current().view).toBe('home')
-    expect(win.url()).toBe('/')
+    expect(router.current().view).toBe('issues')
+    expect(win.url()).toBe('/issues')
     // replace: back has nowhere to go (single entry)
     win.back()
-    expect(router.current().view).toBe('home')
+    expect(router.current().view).toBe('issues')
   })
 
   it('restores the persisted view when starting on plain /', () => {

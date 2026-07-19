@@ -1,4 +1,5 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
 
 /**
  * Internals of the durable metadata change log [spec:SP-3fe2] (#253): the
@@ -7,6 +8,9 @@ import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
  * — the log's single writer since P2f deleted the legacy broadcast-seam
  * oplog (#258). Internal module: not exported from the package index.
  */
+export interface ChangePrunePlan {
+  readonly thresholdSeq: number
+}
 
 /** Narrow structural view over SyncRepository — everything a change-log
  *  writer needs. Injected so the writers never depend on the outbox half of
@@ -25,18 +29,73 @@ export interface ChangeLogStore {
   changesSince(
     cursor: number,
   ): { seq: number; entity: string; entityId: string; op: string; payload: string | null }[]
-  /** Head-only retention (row budget OR age budget, whichever deletes more). */
-  pruneChanges(opts: { keepRows: number; maxAgeMs: number; now: number }): void
+  /** Snapshot the head-only retention threshold once per job. */
+  planChangePrune(opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+  }): ChangePrunePlan
+  /** Delete one bounded, indexed head batch from a fixed plan. */
+  pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): number
   /** Latest retained row per (entity, id) — the boot seed for the baseline. */
   latestChangeStates(): { entity: string; entityId: string; op: string; payload: string | null }[]
 }
 
 /** Retention: keep the newest 20k rows, and nothing older than 3 days —
- *  whichever budget deletes more (store.pruneChanges, head-only). */
+ *  whichever budget deletes more (fixed-plan, head-only batches). */
 export const CHANGE_KEEP_ROWS = 20_000
 export const CHANGE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
 /** Prune cadence, counted in APPEND BATCHES that actually wrote rows. */
 export const CHANGE_PRUNE_EVERY = 64
+/** Delete-unit bound, measured below the 12ms slice target on representative rows. */
+export const CHANGE_PRUNE_BATCH_ROWS = 100
+
+export interface ChangeLogPruneResult {
+  deleted: number
+  metrics: TimeBudgetedJobMetrics
+}
+
+/**
+ * Drain eligible change-log rows in bounded delete units under the shared
+ * monotonic/macrotask budget [spec:SP-c29e]. This function deliberately does
+ * not serialize concurrent jobs; the owner decides whether that is needed.
+ */
+export async function pruneChangeLog(
+  store: Pick<ChangeLogStore, 'planChangePrune' | 'pruneChangeBatch'>,
+  opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+    signal?: AbortSignal
+    /** Monotonic clock seam for deterministic slice tests. */
+    monotonicNow?: () => number
+    onMetrics?: (metrics: TimeBudgetedJobMetrics) => void
+  },
+): Promise<ChangeLogPruneResult> {
+  let deleted = 0
+  let plan: ChangePrunePlan | undefined
+  const metrics = await runTimeBudgetedJob(
+    () => {
+      if (!plan) {
+        plan = store.planChangePrune({
+          keepRows: opts.keepRows,
+          maxAgeMs: opts.maxAgeMs,
+          now: opts.now,
+        })
+        return plan.thresholdSeq > 0 ? 'continue' : 'done'
+      }
+      const batchDeleted = store.pruneChangeBatch(plan, CHANGE_PRUNE_BATCH_ROWS)
+      deleted += batchDeleted
+      return batchDeleted < CHANGE_PRUNE_BATCH_ROWS ? 'done' : 'continue'
+    },
+    {
+      signal: opts.signal,
+      now: opts.monotonicNow,
+      onMetrics: opts.onMetrics,
+    },
+  )
+  return { deleted, metrics }
+}
 
 /** Conversation fields that churn on every discovery scan (activity bumps) —
  *  EXCLUDED from change detection so a scan storm doesn't re-record the full

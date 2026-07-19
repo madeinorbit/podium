@@ -1,4 +1,4 @@
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   archivedSessionsForIssue,
@@ -7,6 +7,8 @@ import {
   isIssueSnoozed,
   isRowUnread,
   issueReturnedFromDefer,
+  type IssueNavigationModel,
+  issueVisibleInSidebar,
   mostUrgentSession,
   partitionUnifiedWork,
   type RepoNavView,
@@ -60,7 +62,7 @@ function navWt(path: string, over: Partial<WorktreeNavView> = {}): WorktreeNavVi
   }
 }
 
-function issue(over: Partial<IssueWire> = {}): IssueWire {
+function issue(over: Partial<IssueNavigationModel> = {}): IssueNavigationModel {
   return {
     id: 'i1',
     repoPath: '/r/a',
@@ -85,7 +87,7 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
     childCount: 0,
     childDoneCount: 0,
     ...over,
-  } as IssueWire
+  } as IssueNavigationModel
 }
 
 const emptySections = (worktrees: WorktreeNavView[]): SidebarSections => ({
@@ -228,7 +230,11 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
         issue({ id: 'dr1', draft: true, stage: 'backlog' }),
         issue({ id: 'dr2', draft: true, stage: 'backlog' }),
         // Internal, with a live session — still excluded from the human work list.
-        issue({ id: 'ag1', audience: 'agent' as IssueWire['audience'], stage: 'in_progress' }),
+        issue({
+          id: 'ag1',
+          audience: 'agent' as IssueNavigationModel['audience'],
+          stage: 'in_progress',
+        }),
       ],
       [sess('x', '/elsewhere', { issueId: 'dr2' }), sess('y', '/ag', { issueId: 'ag1' })],
       [],
@@ -355,7 +361,9 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
 })
 
 describe('isRowUnread (sidebar unread emphasis)', () => {
-  const issueRow = (over: Partial<IssueWire>): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
+  const issueRow = (
+    over: Partial<IssueNavigationModel>,
+  ): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
     kind: 'issue',
     issue: issue(over),
     sessions: [],
@@ -370,8 +378,8 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
   })
 
   it('an issue row follows the issue own server-derived unread flag', () => {
-    expect(isRowUnread(issueRow({ unread: true } as Partial<IssueWire>))).toBe(true)
-    expect(isRowUnread(issueRow({ unread: false } as Partial<IssueWire>))).toBe(false)
+    expect(isRowUnread(issueRow({ unread: true } as Partial<IssueNavigationModel>))).toBe(true)
+    expect(isRowUnread(issueRow({ unread: false } as Partial<IssueNavigationModel>))).toBe(false)
   })
 
   it('a worktree row is unread iff ANY of its sessions is unread', () => {
@@ -397,7 +405,7 @@ describe('isRowUnread (sidebar unread emphasis)', () => {
 
 describe('rowUnreadEmphasized (#138: suppress unread while actively working)', () => {
   const issueRow = (
-    over: Partial<IssueWire>,
+    over: Partial<IssueNavigationModel>,
     sessions: SessionMeta[] = [],
   ): Extract<UnifiedWorkRow, { kind: 'issue' }> => ({
     kind: 'issue',
@@ -415,13 +423,17 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
 
   it('emphasizes an unread issue row with no working session', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWire>, [idle('a', '/w')])),
+      rowUnreadEmphasized(
+        issueRow({ unread: true } as Partial<IssueNavigationModel>, [idle('a', '/w')]),
+      ),
     ).toBe(true)
   })
 
   it('suppresses an unread issue row that has a currently-working session', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: true } as Partial<IssueWire>, [working('a', '/w')])),
+      rowUnreadEmphasized(
+        issueRow({ unread: true } as Partial<IssueNavigationModel>, [working('a', '/w')]),
+      ),
     ).toBe(false)
   })
 
@@ -435,7 +447,9 @@ describe('rowUnreadEmphasized (#138: suppress unread while actively working)', (
 
   it('leaves a read row un-emphasized regardless of working state', () => {
     expect(
-      rowUnreadEmphasized(issueRow({ unread: false } as Partial<IssueWire>, [working('a', '/w')])),
+      rowUnreadEmphasized(
+        issueRow({ unread: false } as Partial<IssueNavigationModel>, [working('a', '/w')]),
+      ),
     ).toBe(false)
   })
 })
@@ -576,7 +590,7 @@ describe('archivedSessionsForIssue / archivedSessionsForWorktreePath', () => {
 
 describe('groupUnifiedWorkRows', () => {
   const rowsFor = (
-    issues: IssueWire[],
+    issues: IssueNavigationModel[],
     sessions: SessionMeta[],
     worktrees: WorktreeNavView[] = [],
   ) => unifiedWorkList(emptySections(worktrees), issues, sessions, [], NOW)
@@ -584,8 +598,16 @@ describe('groupUnifiedWorkRows', () => {
   it('merges rows from different paths that share a repoId into one group', () => {
     const rows = rowsFor(
       [
-        issue({ id: 'i1', repoPath: '/machine1/a', repoId: 'repo-a' } as Partial<IssueWire>),
-        issue({ id: 'i2', repoPath: '/machine2/a', repoId: 'repo-a' } as Partial<IssueWire>),
+        issue({
+          id: 'i1',
+          repoPath: '/machine1/a',
+          repoId: 'repo-a',
+        } as Partial<IssueNavigationModel>),
+        issue({
+          id: 'i2',
+          repoPath: '/machine2/a',
+          repoId: 'repo-a',
+        } as Partial<IssueNavigationModel>),
       ],
       [idle('s1', '/x', { issueId: 'i1' }), idle('s2', '/x', { issueId: 'i2' })],
     )
@@ -680,5 +702,165 @@ describe('repoUsageAt', () => {
     const r = wire('/src/a')
     const s1 = sess('s1', '/src/a-other')
     expect(repoUsageAt(r, [s1])).toBe(0)
+  })
+})
+
+describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no double-render', () => {
+  const DAY = 24 * HOUR
+
+  it('H1/L6: a live internal session deep under sessionless ancestors surfaces under its tracked human root', () => {
+    const root = issue({ id: 'root', title: 'Epic', audience: 'human' })
+    const mid = issue({
+      id: 'mid',
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'root',
+    })
+    const leaf = issue({
+      id: 'leaf',
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'mid',
+    })
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [root, mid, leaf],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [],
+      NOW,
+    )
+    // Exactly one top-level row: the human root. The working leaf is nested
+    // beneath it (via the leaf row), never dropped, never a bare top-level row.
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['root'])
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect((rootRow.aggregateSessions ?? []).map((s) => s.sessionId)).toContain('w')
+  })
+
+  it('H1: rescued human ancestors render under their tracked root, not as extra roots', () => {
+    const root = issue({ id: 'root', title: 'Root', audience: 'human' })
+    const mid = issue({ id: 'mid', title: 'Mid', audience: 'human', parentId: 'root' })
+    const leaf = issue({
+      id: 'leaf',
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'mid',
+    })
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [root, mid, leaf],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [],
+      NOW,
+    )
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['root'])
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect((rootRow.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['mid'])
+  })
+
+  it('B5: a finished ancestor is not resurrected as a rescue row', () => {
+    const doneParent = issue({
+      id: 'p',
+      stage: 'done',
+      audience: 'human',
+      closedAt: new Date(NOW - 30 * DAY).toISOString(),
+    })
+    const leaf = issue({
+      id: 'leaf',
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'p',
+    })
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [doneParent, leaf],
+      [{ ...working('w', '/x'), issueId: 'leaf' } as SessionMeta],
+      [],
+      NOW,
+    )
+    // No live human ancestor: the long-closed epic must not reappear.
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).not.toContain('p')
+  })
+
+  it('B5: unread keeps a finished issue visible only within 7 days of finishing (closedAt anchor)', () => {
+    const base = { stage: 'done' as IssueNavigationModel['stage'], unread: true, readAt: undefined }
+    expect(
+      issueVisibleInSidebar(
+        issue({ ...base, closedAt: new Date(NOW - 2 * DAY).toISOString() }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      issueVisibleInSidebar(
+        issue({ ...base, closedAt: new Date(NOW - 10 * DAY).toISOString() }),
+        NOW,
+      ),
+    ).toBe(false)
+    // Legacy row without closedAt falls back to updatedAt.
+    expect(
+      issueVisibleInSidebar(
+        issue({ ...base, updatedAt: new Date(NOW - 10 * DAY).toISOString() }),
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  it('M3: post-close churn (updatedAt) does not restart the 24h read grace — closedAt anchors', () => {
+    const churned = issue({
+      stage: 'done',
+      unread: false,
+      readAt: new Date(NOW - 3 * DAY).toISOString(),
+      closedAt: new Date(NOW - 3 * DAY).toISOString(),
+      updatedAt: new Date(NOW - HOUR).toISOString(), // steward touch after close
+    })
+    expect(issueVisibleInSidebar(churned, NOW)).toBe(false)
+    const fresh = issue({
+      stage: 'done',
+      unread: false,
+      readAt: new Date(NOW - 2 * HOUR).toISOString(),
+      closedAt: new Date(NOW - 3 * DAY).toISOString(),
+    })
+    expect(issueVisibleInSidebar(fresh, NOW)).toBe(true)
+  })
+
+  it('H3: a working nested child session is not lifted out of its parent row (no double-render)', () => {
+    const parent = issue({ id: 'p', title: 'Parent', audience: 'human' })
+    const child = issue({
+      id: 'c',
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'p',
+    })
+    const idleOwn = { ...idle('own', '/x'), issueId: 'p' } as SessionMeta
+    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionMeta
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [parent, child],
+      [idleOwn, workingChild],
+      [],
+      NOW,
+    )
+    // The child's working session renders once, under the kept parent row —
+    // nothing is lifted into WORKING.
+    expect(w).toEqual([])
+    expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p'])
+    const row = work[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(row.sessions.map((s) => s.sessionId)).toEqual(['own'])
+    expect((row.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['c'])
+  })
+
+  it('H3: a row with nested children never moves whole into WORKING off a descendant', () => {
+    const parent = issue({ id: 'p', title: 'Parent', audience: 'human' })
+    const child = issue({
+      id: 'c',
+      audience: 'agent' as IssueNavigationModel['audience'],
+      parentId: 'p',
+    })
+    const workingOwn = { ...working('own', '/x'), issueId: 'p' } as SessionMeta
+    const workingChild = { ...working('cw', '/y'), issueId: 'c' } as SessionMeta
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [parent, child],
+      [workingOwn, workingChild],
+      [],
+      NOW,
+    )
+    // Own working session lifts individually; the row (with its child) stays.
+    expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p'])
+    expect(w.map((e) => (e.kind === 'session' ? e.session.sessionId : e.kind))).toEqual(['own'])
   })
 })

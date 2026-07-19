@@ -3,6 +3,7 @@ import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './b
 import {
   AttachMessage,
   DetachMessage,
+  DraftEditMessage,
   HelloMessage,
   InputMessage,
   PingMessage,
@@ -30,6 +31,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   TranscriptSubscribeMessage,
   TranscriptUnsubscribeMessage,
   SetSessionDraftMessage,
+  DraftEditMessage,
   SessionOpenUrlCallbackMessage,
   SessionOpenUrlDismissMessage,
 ])

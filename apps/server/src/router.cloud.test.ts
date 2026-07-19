@@ -116,7 +116,7 @@ describe('cloud router', () => {
       'local',
       'git@github.com:madeinorbit/podium.git',
     )
-    const { sessionId } = registry.modules.sessions.resumeSession({
+    const { sessionId } = await registry.modules.sessions.resumeSession({
       agentKind: 'codex',
       cwd: '/workspace/podium',
       resume: { kind: 'codex-thread', value: 'thread-1' },

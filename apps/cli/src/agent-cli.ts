@@ -111,9 +111,21 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         ...(typeof args['execution-profile-id'] === 'string'
           ? { executionProfileId: args['execution-profile-id'] }
           : {}),
-      })) as { ok: boolean; sessionId: string; issueId: string; issueSeq: number; cwd: string }
+      })) as {
+        ok: boolean
+        sessionId: string
+        issueId: string
+        issueSeq: number
+        cwd: string
+        agentId: string
+        harness: string
+        model: string | null
+        effort: string | null
+        machine: string | null
+      }
       return done(
-        `spawned ${r.sessionId} on issue #${r.issueSeq} (${r.cwd})\n` +
+        `spawned ${r.agentId} on issue #${r.issueSeq} (${r.cwd})\n` +
+          `  harness=${r.harness} model=${r.model ?? 'default'} effort=${r.effort ?? 'default'} machine=${r.machine ?? 'unknown'}\n` +
           `  drive:  podium mail send --to ${r.sessionId} --body "…"\n` +
           `  await:  podium agent await ${r.sessionId}`,
         r,
@@ -133,7 +145,12 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
         done: boolean
         result: string
         ack?: { id: string; body: string }
-        snapshot?: { status?: string; phase?: string } | null
+        snapshot?: {
+          status?: string
+          phase?: string
+          need?: { kind?: string; summary?: string }
+          error?: { class?: string; retryable?: boolean }
+        } | null
       }
       const state = r.snapshot
         ? `${r.snapshot.status}${r.snapshot.phase ? `/${r.snapshot.phase}` : ''}`
@@ -141,8 +158,33 @@ export async function runAgentCli(argv: string[], client: AgentClient): Promise<
       if (r.result === 'acked' && r.ack) {
         return done(`acked (${r.ack.id}): ${r.ack.body}`, r)
       }
-      if (r.result === 'settled') return done(`settled (${state})`, r)
-      if (r.result === 'gone') return done('session no longer exists', r)
+      // Actionable terminal states — parent must see blocked vs done vs gone
+      // at a glance (docs/agent-comms-target.html §09-D overnight-stall fix).
+      if (r.result === 'blocked') {
+        const phase = r.snapshot?.phase
+        if (phase === 'errored') {
+          const err = r.snapshot?.error
+          const detail = err?.class
+            ? `${err.class}${err.retryable ? ' (retryable)' : ''}`
+            : 'errored'
+          return done(`blocked: child errored — ${detail}${state ? ` [${state}]` : ''}`, r)
+        }
+        const need = r.snapshot?.need
+        const detail = need?.summary
+          ? need.summary
+          : need?.kind === 'permission'
+            ? 'needs permission'
+            : 'needs a question answered'
+        return done(`blocked: ${detail}${state ? ` [${state}]` : ''}`, r)
+      }
+      if (r.result === 'done') {
+        return done(`done${state ? ` (${state})` : ''}`, r)
+      }
+      if (r.result === 'gone') {
+        if (!r.snapshot) return done('gone: session no longer exists', r)
+        return done(`gone (exited without reporting)${state ? ` [${state}]` : ''}`, r)
+      }
+      // working (or unknown) — only "still working" when truly still active
       return done(`still working (${state}) — re-run await or read status`, r)
     }
     default:

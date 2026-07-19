@@ -6,13 +6,13 @@ import { compareRecency, groupSessions } from './home'
 const needsUser = (since: string): AgentRuntimeState => ({
   phase: 'needs_user',
   since,
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
   need: { kind: 'question' },
 })
 const working = (since: string): AgentRuntimeState => ({
   phase: 'working',
   since,
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
 })
 
 const SAME = '2026-06-10T00:00:00.000Z'

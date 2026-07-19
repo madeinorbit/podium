@@ -131,6 +131,7 @@ export const opencodeAdapter: HarnessAdapter = {
   observer(input, host) {
     const obs = observeOpencodeState({
       cwd: input.cwd,
+      ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),

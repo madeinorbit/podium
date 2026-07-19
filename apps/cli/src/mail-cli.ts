@@ -5,6 +5,7 @@
  *   inbox [--issue <ref>]
  *   show <id>
  *   status <id>
+ *   dismiss <id>
  *   reply <id> --body "…" [--kind ack|message]
  *
  * Speaks to the `messages` relay router (agents, via PODIUM_AGENT_RELAY) or the
@@ -27,6 +28,7 @@ export interface MailClient {
     inbox: MailProc
     show: MailProc
     status: MailProc
+    dismiss: MailProc
     reply: MailProc
   }
 }
@@ -34,7 +36,19 @@ export interface MailClient {
 export class MailCliError extends Error {}
 
 // 'worktree' is `podium agent spawn`'s boolean flag (agent-cli reuses this parser).
-const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help', 'worktree'])
+// 'expect-response' [POD-835] arms a reply request on `mail send`.
+const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help', 'worktree', 'expect-response'])
+
+/** Parse a human duration (`10m`, `30s`, `2h`, bare seconds) to milliseconds. */
+export function parseExpiresIn(raw: string): number {
+  const m = /^(\d+)([smh]?)$/.exec(raw.trim())
+  if (!m) throw new MailCliError(`invalid --expires-in '${raw}' (use e.g. 2m, 30s, 1h, or seconds)`)
+  const n = Number(m[1])
+  const mult = m[2] === 'h' ? 3_600_000 : m[2] === 'm' ? 60_000 : m[2] === 's' ? 1_000 : 1_000
+  const ms = n * mult
+  if (ms <= 0) throw new MailCliError(`invalid --expires-in '${raw}': must be positive`)
+  return ms
+}
 
 export function parseMailArgs(argv: string[]): {
   command?: string
@@ -70,9 +84,13 @@ function helpText(): string {
   return [
     'podium mail <command> [arguments]',
     '',
-    '  send --to <#issue|session-id> --body "…" [--urgency fyi|next-turn|interrupt] [--lifecycle wait|wake]',
+    '  send --to <#issue|session-id> --body "…" [--urgency fyi|next-turn|interrupt] [--lifecycle wait|wake] [--expect-response] [--expires-in <duration>]',
     '      Send a message. Issue-addressed is the durable default; requests above',
     '      your authority are downgraded (never rejected) and marked clamped.',
+    '      Receipt is mechanical (the ledger records delivery — pull it with',
+    '      `podium mail status <id>`); pass --expect-response only when you want a',
+    '      reply back (a question does this implicitly). No reply is owed otherwise.',
+    '      --expires-in <duration> sets an absolute TTL (e.g. 2m, 30s, 1h, or seconds).',
     '  inbox [--issue <ref>]',
     '      Read your mailbox (marks messages received). --issue peeks at another box.',
     '  show <id>',
@@ -80,9 +98,12 @@ function helpText(): string {
     '  status <id>',
     '      What happened to a message you sent: queued / delivered (in the target’s',
     '      transcript) / read (inbox-pulled) / dead-lettered, with timestamps.',
+    '  dismiss <id>',
+    '      Clear a message without opening the inbox; a new transition may notify again.',
     '  reply <id> --body "…" [--kind ack|message]',
-    '      Reply to a message — routed to its sender. Default kind ack: records',
-    '      that you handled it (do this before going idle when a message asked for something).',
+    '      Reply to a message that asked for a response — routed to its sender and',
+    '      pull-delivered (surfaces at their next stop, never a fresh turn). Any',
+    '      reply within the thread clears the request; you need not send a bare ack.',
   ].join('\n')
 }
 
@@ -105,24 +126,35 @@ interface MessageWire {
   readAt?: string | null
   deadLetteredAt?: string | null
   expiresAt?: string | null
+  // A reply was requested [POD-835] — the reader owes a response.
+  expectsResponse?: boolean
 }
 
 function renderRow(m: MessageWire): string {
-  const flags = [m.status, m.kind !== 'message' ? m.kind : null, m.ackedBy ? 'acked' : null].filter(
-    Boolean,
-  )
+  const flags = [
+    m.status,
+    m.kind !== 'message' ? m.kind : null,
+    // Show an OPEN request (not once it is answered) so the reader knows to reply.
+    m.expectsResponse && !m.ackedBy ? 'wants-reply' : null,
+    m.ackedBy ? 'acked' : null,
+  ].filter(Boolean)
   return `${m.id} ${m.from} -> ${m.to} ${m.createdAt} [${flags.join(',')}]\n  ${m.body}`
 }
 
-/** The send-time disposition, worded for the sender (#834). Sync send returns at
- *  queued: `delivered` = pushed to a live target now; `queued` = enqueued to a
- *  busy-but-live session; `held` = no live session (delivers at the issue's next
- *  session); `spawning` = a session is being woken. Falls back to the legacy
+/** The send disposition, worded for the sender (#834, [POD-854] blocking send).
+ *  A blocking send (interrupt / next-turn) waits for the trustworthy outcome:
+ *  `delivered` = CONFIRMED in the target's transcript; `accepted` = the budget
+ *  expired with the row still queued (busy / composer-draft-held / lost echo) —
+ *  durably captured, not yet confirmed, query `podium mail status`. `queued` = fyi
+ *  landed for the next pause; `held` = no live session (delivers at the issue's
+ *  next session); `spawning` = a session is being woken. Falls back to the legacy
  *  queued/delivered wording when a server predates the field. */
 function dispositionLabel(disposition: string | undefined, queued: boolean | undefined): string {
   switch (disposition) {
     case 'delivered':
       return 'delivered'
+    case 'accepted':
+      return 'accepted — not yet confirmed delivered'
     case 'queued':
       return 'queued for the target’s next turn'
     case 'held':
@@ -172,6 +204,8 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
     'lifecycle',
     'issue',
     'kind',
+    'expect-response',
+    'expires-in',
     'json',
     'outside-scope',
   ])
@@ -202,11 +236,21 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       if (args.lifecycle !== undefined && !['wait', 'wake'].includes(String(args.lifecycle))) {
         throw new MailCliError('--lifecycle must be wait|wake')
       }
+      let expiresAt: string | undefined
+      if (args['expires-in'] !== undefined) {
+        const rawExpiresIn = args['expires-in']
+        if (typeof rawExpiresIn !== 'string') {
+          throw new MailCliError('send needs --expires-in <duration> (e.g. 2m)')
+        }
+        expiresAt = new Date(Date.now() + parseExpiresIn(rawExpiresIn)).toISOString()
+      }
       const r = (await client.messages.send.mutate({
         to,
         body,
         ...(args.urgency ? { urgency: args.urgency } : {}),
         ...(args.lifecycle ? { lifecycle: args.lifecycle } : {}),
+        ...(args['expect-response'] === true ? { expectResponse: true } : {}),
+        ...(expiresAt ? { expiresAt } : {}),
       })) as {
         id: string
         ok: boolean
@@ -214,13 +258,20 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         reason?: string
         clamped?: boolean
         disposition?: string
+        expectsResponse?: boolean
       }
       if (!r.ok) throw new MailCliError(r.reason ?? 'send was not accepted')
       // The honest, sender-facing outcome (#834): held / spawning are named
       // explicitly so a message with no live target is never a bare "sent".
+      // With --expect-response [POD-835] a reply is owed (else receipt is mechanical
+      // and no ack traffic is generated); the reply arrives pull-delivered.
       const note = [
         dispositionLabel(r.disposition, r.queued),
         r.clamped ? 'downgraded to your authority cap' : null,
+        r.expectsResponse ? 'response expected (pull-delivered)' : null,
+        // An accepted send is never a bare success [POD-854]: point the sender at
+        // the ledger so they can see it flip to delivered (or dead-lettered).
+        r.disposition === 'accepted' ? `run 'podium mail status ${r.id}' to track it` : null,
       ]
         .filter(Boolean)
         .join(', ')
@@ -241,6 +292,7 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
         m.inReplyTo ? `in-reply-to=${m.inReplyTo}` : null,
         `urgency=${m.urgency}`,
         `lifecycle=${m.lifecycle}`,
+        m.expectsResponse ? (m.ackedBy ? 'response=received' : 'response=requested') : null,
         m.ackedBy ? `acked-by=${m.ackedBy}` : null,
       ]
         .filter(Boolean)
@@ -252,6 +304,12 @@ export async function runMailCli(argv: string[], client: MailClient): Promise<st
       if (!id) throw new MailCliError('status needs a message id')
       const m = (await client.messages.status.query({ id })) as MessageWire
       return done(renderLifecycle(m), m)
+    }
+    case 'dismiss': {
+      const id = positionals[0]
+      if (!id) throw new MailCliError('dismiss needs a message id')
+      const m = (await client.messages.dismiss.mutate({ id })) as MessageWire
+      return done('dismissed ' + m.id, m)
     }
     case 'reply': {
       const id = positionals[0]

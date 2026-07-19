@@ -1,5 +1,16 @@
+import { repoNameFromOrigin } from '@podium/domain'
 import type { MachineWire } from '@podium/protocol'
-import { Check, ChevronUp, Eye, EyeOff, Folder, Home, RefreshCw, Search } from 'lucide-react'
+import {
+  Check,
+  ChevronUp,
+  Eye,
+  EyeOff,
+  Folder,
+  FolderGit2,
+  Home,
+  RefreshCw,
+  Search,
+} from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
@@ -13,6 +24,8 @@ import { cn } from '@/lib/utils'
 type DirectoryEntry = {
   name: string
   path: string
+  /** This subfolder is itself a git repo — badged with a distinct icon (POD-855). */
+  isRepo?: boolean
 }
 
 type DirectoryListing = {
@@ -20,15 +33,27 @@ type DirectoryListing = {
   homePath: string
   parentPath: string | null
   entries: DirectoryEntry[]
+  /** The browsed folder itself is a git repo — gates the "Add repo" button. */
+  isRepo?: boolean
+  /** The browsed repo's origin, used to name the add target. */
+  originUrl?: string
 }
 
 type RepoPickerMachine = Pick<MachineWire, 'id' | 'name' | 'hostname' | 'online'>
 
+function basename(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? path
+}
+
 /**
- * Pick a repo on a machine: browse its directories, scan it for repos, or type a
- * path. Every action targets the machine chosen in the dropdown (POD-814)
- * [spec:SP-3701] — the browse runs on THAT machine's daemon, so there is no
- * "this machine" option: the server host's own disk is not a thing users pick.
+ * Pick a repo on a machine (POD-814/POD-855) [spec:SP-5eb6]: choose a machine,
+ * browse ITS directories (through its daemon), and either add the folder you're
+ * standing in — but only when it is a git repo — or scan for repos from here.
+ *
+ * The browser is git-aware: repo subfolders are badged, and the folder you're in
+ * carries its own repo identity so "Add" is a strict "Add repo '{name}'", disabled
+ * on a non-repo. Adding a bare directory is deliberately not offered — finding
+ * repos nested below is the scan's job.
  */
 export function RepoPickerModal({
   onClose,
@@ -38,13 +63,12 @@ export function RepoPickerModal({
   machines = [],
   selectedMachineId,
   onMachineChange,
-  onScanMachine,
-  lastMachineScan,
 }: {
   onClose: () => void
-  /** Add exactly the browsed folder as a repo (for when you know the path). */
+  /** Add the browsed folder as a repo (only reachable when it IS a repo). */
   onPick: (path: string) => Promise<void>
-  /** Scan the browsed folder for repos and hand the parent the ranked candidates. */
+  /** Scan from the browsed folder (plus this machine's known repo locations) and
+   *  hand the parent the ranked, grouped candidates. */
   onScan?: (path: string) => Promise<void>
   /** Optional header content (used by the onboarding wizard for a welcome line). */
   intro?: ReactNode
@@ -53,11 +77,6 @@ export function RepoPickerModal({
   /** The machine every action targets; the parent defaults it (see RepoScanFlow). */
   selectedMachineId?: string
   onMachineChange?: (machineId: string | undefined) => void
-  /** Tiered scan of the selected machine (POD-787). The parent transitions to the
-   *  results view on success and unmounts this modal. */
-  onScanMachine?: (machineId: string) => Promise<void>
-  /** Summary of the machine's most recent scan, shown as a shortcut. */
-  lastMachineScan?: { count: number; view: () => void } | null
 }): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const isMobile = useIsMobile()
@@ -65,7 +84,6 @@ export function RepoPickerModal({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [scanning, setScanning] = useState(false)
-  const [machineScanning, setMachineScanning] = useState(false)
   const [showHidden, setShowHidden] = useState(false)
   const [manualPath, setManualPath] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -73,9 +91,7 @@ export function RepoPickerModal({
   const selectedMachine = selectedMachineId
     ? machines.find((machine) => machine.id === selectedMachineId)
     : undefined
-  /** A KNOWN, online machine is picked — every action here needs one. An id we
-   *  can't find in `machines` counts as not ready: nothing should be dispatched at
-   *  a machine whose liveness we can't confirm. */
+  /** A KNOWN, online machine is picked — every action here needs one. */
   const machineReady = selectedMachine?.online === true
   const machinePathLabel = `Repo path on ${selectedMachine?.name ?? selectedMachineId ?? 'machine'}`
   const headerPath = !selectedMachine
@@ -84,9 +100,15 @@ export function RepoPickerModal({
       ? (listing?.path ?? 'Loading...')
       : `${selectedMachine.name} is offline`
 
+  // The add target: the browsed folder, but ONLY when it is a git repo (strict —
+  // POD-855). Named by origin, falling back to the folder name.
+  const addRepoName =
+    listing?.isRepo === true
+      ? (repoNameFromOrigin(listing.originUrl) ?? basename(listing.path))
+      : null
+
   // Read through a ref so `load`'s identity tracks the MACHINE only: toggling
-  // hidden re-lists the folder you are standing in (see toggleHidden) instead of
-  // invalidating `load` and bouncing the effect below back to home.
+  // hidden re-lists the folder you are standing in instead of bouncing to home.
   const showHiddenRef = useRef(showHidden)
   showHiddenRef.current = showHidden
 
@@ -105,12 +127,12 @@ export function RepoPickerModal({
         )
       } catch (e) {
         setListing(null)
-        setError(formatAppError(e, 'Could not open directory'))
+        setError(browseError(e, selectedMachine?.name))
       } finally {
         setLoading(false)
       }
     },
-    [trpc, selectedMachineId],
+    [trpc, selectedMachineId, selectedMachine?.name],
   )
 
   // Land on the selected machine's home. Re-homes on every machine change: a path
@@ -126,28 +148,14 @@ export function RepoPickerModal({
     void load(listing?.path, next)
   }
 
-  // `busy` gates the actions that need the CURRENT LISTING (navigate, add this
-  // folder, scan here). `writing` gates the ones that don't: the machine scan and
-  // the typed path stand on their own, and an in-flight listing (a read) must never
-  // block them — that is exactly when you reach for them on a slow machine.
-  const busy = loading || saving || scanning || machineScanning
-  const writing = saving || scanning || machineScanning
-
-  async function scanSelectedMachine(): Promise<void> {
-    if (!selectedMachineId || !onScanMachine) return
-    setMachineScanning(true)
-    setError(null)
-    try {
-      // The parent transitions to the results view on success and unmounts this modal.
-      await onScanMachine(selectedMachineId)
-    } catch (e) {
-      setError(formatAppError(e, 'Could not scan machine'))
-      setMachineScanning(false)
-    }
-  }
+  // `busy` gates actions needing the CURRENT LISTING (navigate, add, scan here);
+  // `writing` gates the typed-path fallback, which stands on its own so an in-flight
+  // listing (a read) never blocks it — that's exactly when you reach for it.
+  const busy = loading || saving || scanning
+  const writing = saving || scanning
 
   async function pickCurrent(): Promise<void> {
-    if (!listing) return
+    if (!listing?.isRepo) return
     setSaving(true)
     setError(null)
     try {
@@ -168,10 +176,6 @@ export function RepoPickerModal({
     }
     if (!selectedMachine.online) {
       setError(`${selectedMachine.name} is offline`)
-      return
-    }
-    if (!path) {
-      setError('Enter an absolute repo path')
       return
     }
     if (!path.startsWith('/')) {
@@ -223,8 +227,9 @@ export function RepoPickerModal({
           {intro && (
             <div className="mb-1 mt-0.5 max-w-[54ch] text-[13px] text-foreground">{intro}</div>
           )}
-          <div className="mt-1 break-words text-[13px] font-medium text-foreground">
-            {headerPath}
+          <div className="mt-1 flex items-center gap-1.5 break-words text-[13px] font-medium text-foreground">
+            {listing?.isRepo && <FolderGit2 size={14} className="flex-none text-primary" />}
+            <span className="min-w-0 break-all">{headerPath}</span>
           </div>
         </DialogHeader>
         <div className="flex flex-wrap items-end gap-2 border-b border-border px-3.5 py-2.5">
@@ -301,11 +306,16 @@ export function RepoPickerModal({
             variant={onScan ? 'secondary' : 'default'}
             size="sm"
             className="md:ml-auto max-md:w-full"
-            disabled={!listing || busy}
+            disabled={!addRepoName || busy}
             onClick={() => void pickCurrent()}
+            title={
+              addRepoName
+                ? `Add ${addRepoName} as a repo`
+                : 'This folder is not a git repository — open a repo folder or scan for repos'
+            }
           >
             <Check size={16} />
-            Add this folder
+            {addRepoName ? `Add repo '${addRepoName}'` : 'Add repo'}
           </Button>
           {onScan && (
             <Button
@@ -315,7 +325,7 @@ export function RepoPickerModal({
               onClick={() => void scanCurrent()}
             >
               <Search size={16} />
-              {scanning ? 'Scanning...' : 'Scan for repos here'}
+              {scanning ? 'Scanning...' : 'Scan for repos'}
             </Button>
           )}
         </div>
@@ -323,39 +333,7 @@ export function RepoPickerModal({
           <div className="border-b border-border px-3.5 py-2 text-xs text-destructive">{error}</div>
         )}
         <div className="flex min-h-0 flex-1 flex-col">
-          {onScanMachine && selectedMachine?.online && (
-            <div className="flex flex-col gap-2 border-b border-border px-3.5 py-3">
-              <div className="text-[13px] font-medium text-foreground">
-                Scan {selectedMachine.name} for repositories
-              </div>
-              <p className="max-w-[52ch] text-[12px] text-muted-foreground">
-                Checks the paths of repos known from your other machines first, then sweeps the home
-                folder for git repositories. Repos that match one already in Podium are added
-                automatically; the rest are offered for selection.
-              </p>
-              <div className="flex items-center gap-3">
-                <Button
-                  size="sm"
-                  disabled={writing}
-                  onClick={() => void scanSelectedMachine()}
-                  className="max-md:w-full"
-                >
-                  <Search size={16} />
-                  {machineScanning ? 'Scanning…' : 'Scan for repos'}
-                </Button>
-                {lastMachineScan && lastMachineScan.count > 0 && !machineScanning && (
-                  <button
-                    type="button"
-                    className="text-[12px] text-muted-foreground underline-offset-2 hover:underline"
-                    onClick={lastMachineScan.view}
-                  >
-                    Last scan found {lastMachineScan.count} — view
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-          <div className="min-h-[140px] flex-1 overflow-y-auto p-1.5" aria-busy={loading}>
+          <div className="min-h-[160px] flex-1 overflow-y-auto p-1.5" aria-busy={loading}>
             {!selectedMachine && (
               <div className="p-3 text-xs text-muted-foreground/70">
                 No machines are connected. Pair a machine to add repos.
@@ -383,16 +361,25 @@ export function RepoPickerModal({
                   onClick={() => void load(entry.path)}
                   disabled={busy}
                 >
-                  <Folder size={16} />
-                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                  {entry.isRepo ? (
+                    <FolderGit2 size={16} className="flex-none text-primary" />
+                  ) : (
+                    <Folder size={16} className="flex-none text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                     {entry.name}
                   </span>
+                  {entry.isRepo && (
+                    <span className="flex-none rounded border border-primary/40 px-1.5 text-[10px] text-primary">
+                      repo
+                    </span>
+                  )}
                 </Button>
               ))}
           </div>
           <div className="flex flex-col gap-1.5 border-t border-border px-3.5 py-2.5">
             <label htmlFor="repo-machine-path" className="text-[11px] text-muted-foreground/70">
-              Or add a path directly on {selectedMachine?.name ?? 'the machine'}
+              Or add a repo path directly on {selectedMachine?.name ?? 'the machine'}
             </label>
             <div className="flex gap-2 max-sm:flex-col">
               <Input
@@ -415,7 +402,7 @@ export function RepoPickerModal({
                 onClick={() => void pickManual()}
               >
                 <Check size={16} />
-                Add repo
+                Add
               </Button>
             </div>
           </div>
@@ -423,4 +410,15 @@ export function RepoPickerModal({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** A browse failure on a machine whose daemon predates the browse feature reads as
+ *  a generic timeout; name the likely cause so it points at "update this machine"
+ *  (POD-855) rather than a dead end. */
+function browseError(e: unknown, machineName?: string): string {
+  const msg = formatAppError(e, 'Could not open directory')
+  if (/tim(ed|e) ?out/i.test(msg)) {
+    return `${machineName ?? 'This machine'} didn't respond — its Podium may be out of date. Update it, or type a repo path below.`
+  }
+  return msg
 }

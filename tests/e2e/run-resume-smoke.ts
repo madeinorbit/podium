@@ -41,7 +41,7 @@ const daemon = await startDaemon({
   hooks: { port: 0 },
   agentRelay: { port: 0 },
 })
-const { sessionId } = server.registry.resumeSession({
+const { sessionId } = await server.registry.resumeSession({
   agentKind: 'claude-code',
   cwd: conv.projectPath ?? process.cwd(),
   // biome-ignore lint/style/noNonNullAssertion: guarded by the find() predicate above

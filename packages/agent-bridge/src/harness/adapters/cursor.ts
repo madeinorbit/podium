@@ -115,6 +115,7 @@ export const cursorAdapter: HarnessAdapter = {
     if (input.resumeValue) host.tailFile(transcriptPathFor(input.resumeValue))
     const obs = observeCursorState({
       cwd: input.cwd,
+      ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),

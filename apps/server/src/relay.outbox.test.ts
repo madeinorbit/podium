@@ -61,8 +61,9 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   vi.advanceTimersByTime(1400)
 }
 
+
 describe('queueText (durable outbox sends)', () => {
-  it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', () => {
+  it('wakes a hibernated resumable session, shows the count, and delivers exactly once after bind + settle', async () => {
     vi.useFakeTimers()
     try {
       const reg = new SessionRegistry()
@@ -75,13 +76,16 @@ describe('queueText (durable outbox sends)', () => {
         ok: true,
         queued: true,
       })
-      // The wake: a spawn under the same id carrying the resume ref.
-      expect(daemon).toContainEqual(
-        expect.objectContaining({
-          type: 'spawn',
-          sessionId,
-          resume: { kind: 'claude-session', value: 'abc-123' },
-        }),
+
+      // The wake follows async worktree/instruction preparation.
+      await vi.waitFor(() =>
+        expect(daemon).toContainEqual(
+          expect.objectContaining({
+            type: 'spawn',
+            sessionId,
+            resume: { kind: 'claude-session', value: 'abc-123' },
+          }),
+        ),
       )
       // The queued count rides the session meta while the message waits...
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
@@ -101,7 +105,7 @@ describe('queueText (durable outbox sends)', () => {
     }
   })
 
-  it('a due one-off wakes a hibernated target and delivers its message exactly once', () => {
+  it('a due one-off wakes a hibernated target and delivers its message exactly once', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-16T22:00:00.000Z'))
     const reg = new SessionRegistry()
@@ -124,14 +128,16 @@ describe('queueText (durable outbox sends)', () => {
       })
 
       vi.setSystemTime(new Date('2026-07-16T22:02:01.000Z'))
-      reg.modules.automations.tick()
 
-      expect(daemon).toContainEqual(
-        expect.objectContaining({
-          type: 'spawn',
-          sessionId,
-          resume: { kind: 'claude-session', value: 'abc-123' },
-        }),
+      reg.modules.automations.tick()
+      await vi.waitFor(() =>
+        expect(daemon).toContainEqual(
+          expect.objectContaining({
+            type: 'spawn',
+            sessionId,
+            resume: { kind: 'claude-session', value: 'abc-123' },
+          }),
+        ),
       )
       expect(pastesContaining(daemon, 'continue-night-work')).toHaveLength(0)
 
@@ -181,7 +187,7 @@ describe('queueText (durable outbox sends)', () => {
     expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
-  it('survives a server restart: count re-seeds from the table and delivery happens after the wake', () => {
+  it('survives a server restart: count re-seeds from the table and delivery happens after the wake', async () => {
     vi.useFakeTimers()
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-outbox-relay-')), 'podium.db')
@@ -194,6 +200,10 @@ describe('queueText (durable outbox sends)', () => {
         ok: true,
         queued: true,
       })
+
+      await vi.waitFor(() =>
+        expect(daemonA.some((message) => message.type === 'spawn')).toBe(true),
+      )
       expect(pastesContaining(daemonA, 'survive-restart')).toHaveLength(0)
       regA.dispose()
       storeA.close()
@@ -210,7 +220,7 @@ describe('queueText (durable outbox sends)', () => {
       regB.modules.sessions.attachDaemon('local', (m) => daemonB.push(m))
       regB.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
       // Silent respawn: no output at all — the READY_MAX fallback (6s) delivers.
-      vi.advanceTimersByTime(7_000)
+      await vi.advanceTimersByTimeAsync(7_000)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
       expect(regB.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
       expect(

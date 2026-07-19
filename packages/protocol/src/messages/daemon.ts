@@ -105,6 +105,17 @@ export const SessionCwdMessage = z.object({
 })
 export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 
+// daemon -> server: the native composer draft the daemon scraped from a flagged
+// session's PTY (Draft Sync v2, POD-859). The server sequences it as an
+// origin='native' versioned edit and broadcasts, so drafts reach every view/device
+// with zero browsers attached.
+export const NativeDraftMessage = z.object({
+  type: z.literal('nativeDraft'),
+  sessionId: z.string(),
+  text: z.string(),
+})
+export type NativeDraftMessage = z.infer<typeof NativeDraftMessage>
+
 // ---- Daemon -> server ----
 export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
@@ -126,6 +137,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,
+  NativeDraftMessage,
   InventoryReportMessage,
   BindMessage,
   AgentFrameMessage,

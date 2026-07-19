@@ -44,7 +44,8 @@ export function formatActiveIssues(issues: IssueWire[]): string {
     review: 1,
     planning: 2,
     backlog: 3,
-    done: 4,
+    proposed: 4, // unapproved proposals sort below real work [spec:SP-6144]
+    done: 5,
   }
   open.sort((a, b) => {
     const sa = stageRank[a.stage] ?? 9
@@ -127,7 +128,8 @@ function listedIssues(issues: IssueWire[], mode: string | undefined): IssueWire[
         review: 1,
         planning: 2,
         backlog: 3,
-        done: 4,
+        proposed: 4, // unapproved proposals sort below real work [spec:SP-6144]
+        done: 5,
       }
       open.sort((a, b) => {
         const sa = stageRank[a.stage] ?? 9

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Server } from 'node:http'
+import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,12 @@ import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
 import { loadConfig, resolveInstanceId } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import { formatStallClassification, startLoopMetrics } from '@podium/runtime/loop-metrics'
-import { readOwnDaemonMachineId, UpstreamForwarder, UpstreamSync } from '@podium/sync'
+import {
+  prepareLedgerBoot,
+  readOwnDaemonMachineId,
+  UpstreamForwarder,
+  UpstreamSync,
+} from '@podium/sync'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { clientAuthGuard, isRequestAuthed, registerAuthRoute } from './auth-route'
@@ -23,7 +28,11 @@ import { IssueToolProvider } from './issue-mcp'
 import { LOCAL_MACHINE_ID, readOrCreateDaemonSecret, stateDir } from './local-machine'
 import { registerMcpRoute } from './mcp-route'
 import { probeAllModels } from './model-probe'
+import { registerMaintenanceRoute } from './modules/maintenance/route'
+import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
+import { perf } from './modules/perf/registry'
+import type { PublicationAuthority } from './modules/sessions/session'
 import { SuperagentService } from './modules/superagent'
 import type { PodiumPlugin } from './plugins'
 import { SessionRegistry, upstreamMirrorFor } from './relay'
@@ -114,6 +123,12 @@ export async function startServer(
     role?: Partial<ServerRoleConfig>
     /** Build-time extensions (the cloud seam — plugins.ts). OSS ships none. */
     plugins?: PodiumPlugin[]
+    /** Request-scoped publication worlds. Both transports must resolve through
+     *  the same authority source so catch-up and live publication cannot drift. */
+    resolvePublicationAuthority?: {
+      http(request: Request): PublicationAuthority
+      websocket(request: IncomingMessage): PublicationAuthority
+    }
   } = {},
 ): Promise<ServerHandle> {
   const instanceId = resolveInstanceId()
@@ -127,6 +142,23 @@ export async function startServer(
   const config = loadConfig()
   const role = resolveServerRole(opts.role, config)
   const store = new SessionStore()
+  // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
+  // bounded, yielding units before SessionRegistry constructs its Ledger and
+  // folds/reconciles the retained rows. The server does not listen meanwhile.
+  const bootPrune = await prepareLedgerBoot({
+    repo: store.sync,
+    now: Date.now,
+    onPruneMetrics: (metrics) => {
+      perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs)
+      perf.record('phase', 'changeLogPrune.boot.maxSlice', metrics.maxUninterruptedSliceMs)
+    },
+  })
+  if (bootPrune.metrics.exceededPlacementThreshold) {
+    console.warn(
+      `[ledger] boot retention took ${bootPrune.metrics.totalDurationMs.toFixed(1)}ms; ` +
+        'candidate for janitor placement',
+    )
+  }
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
@@ -227,9 +259,8 @@ export async function startServer(
     localMachineId: LOCAL_MACHINE_ID,
     log: (message) => console.log(`[podium:repo-discovery] ${message}`),
   })
-  registry.modules.bus.on('machine.connected', ({ machineId }) =>
-    repoDiscovery.onMachineConnected(machineId),
-  )
+  // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
+  // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = new SuperagentService(registry.modules, repos, store)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
@@ -255,6 +286,26 @@ export async function startServer(
   const app = new Hono()
   app.get('/health', (c) => c.text('ok'))
   registerVersionRoute(app)
+  registerMaintenanceRoute(app, {
+    authenticateToken: (token) => store.machines.getMachineByToken(LOCAL_MACHINE_ID, token),
+    service: new MaintenanceService(store, registry.modules.funnel, {
+      issues: registry.modules.issues,
+      sessions: registry.modules.sessions,
+      automations: registry.modules.automations,
+      liveSessionIds: () =>
+        new Set(
+          registry.modules.sessions
+            .listSessions()
+            .filter((s) => s.status !== 'exited' && s.status !== 'hibernated')
+            .map((s) => s.sessionId),
+        ),
+      stewardTick: () => registry.runStewardTick(),
+      connectScan: (machineId) => {
+        void repoDiscovery.scan(machineId, { deep: false })
+      },
+      localMachineId: LOCAL_MACHINE_ID,
+    }),
+  })
   // The setup UI fetches /setup/config from the desktop webview, whose origin (tauri://localhost)
   // differs from the local server — same cross-origin case as /trpc. Without CORS the fetch is
   // blocked and SetupGate's catch() silently skips onboarding. Must precede the route handler.
@@ -316,21 +367,25 @@ export async function startServer(
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
       // relayed via their daemon and carry their own capability (agent integration).
-      createContext: () => ({
-        registry,
-        repos,
-        discovery: repoDiscovery,
-        superagent,
-        cloud,
-        capability: OPERATOR,
-        modules: registry.modules,
-        // Only so telemetry.preview can show the REAL report [spec:SP-f933];
-        // consent lives in config.json and is never read through the context.
-        telemetry,
-        // Hub-only procs (machines fleet admin + pairing) 404 when the hub
-        // role is off — see the hubProc guard in router.ts.
-        role,
-      }),
+      createContext: (_request, hono) => {
+        const publicationAuthority = opts.resolvePublicationAuthority?.http(hono.req.raw)
+        return {
+          registry,
+          repos,
+          discovery: repoDiscovery,
+          superagent,
+          cloud,
+          capability: OPERATOR,
+          modules: registry.modules,
+          ...(publicationAuthority ? { publicationAuthority } : {}),
+          // Only so telemetry.preview can show the REAL report [spec:SP-f933];
+          // consent lives in config.json and is never read through the context.
+          telemetry,
+          // Hub-only procs (machines fleet admin + pairing) 404 when the hub
+          // role is off — see the hubProc guard in router.ts.
+          role,
+        }
+      },
     }),
   )
 
@@ -436,6 +491,9 @@ export async function startServer(
           // session cookie on the upgrade request.
           authorizeClient: (req) =>
             !hasPassword() || isRequestAuthed(store.auth, req.headers.cookie),
+          ...(opts.resolvePublicationAuthority
+            ? { resolvePublicationAuthority: opts.resolvePublicationAuthority.websocket }
+            : {}),
         })
         // Server-side stall reporter (POD-600): a lightweight analog of the
         // daemon's reportLongTick — starved-vs-busy classification + heap/RSS,

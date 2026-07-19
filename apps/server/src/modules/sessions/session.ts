@@ -3,6 +3,7 @@ import type {
   AgentRuntimeState,
   ControlMessage,
   Geometry,
+  MetadataChange,
   ResumeRef,
   ServerMessage,
   SessionMeta,
@@ -18,9 +19,50 @@ import { perf } from '../perf/registry'
 
 export type Send<T> = (msg: T) => void
 
+export interface PublicationAuthoritySnapshot {
+  revision: number
+  /** Stable, authority-owned identity for this exact allowed-id set. */
+  allowedSignature: string
+  /** Immutable for the lifetime of this snapshot. */
+  allowedSessionIds: readonly string[]
+}
+
+/** Main-authority result used to construct and filter a publication ViewKey. */
+export interface PublicationAuthority {
+  principal: string
+  scope: string
+  serverRole: string
+  protocolVersion: number
+  /** Only a proven global authority may receive unfiltered non-session feeds. */
+  global: boolean
+  snapshot(): PublicationAuthoritySnapshot
+}
+
+export interface ClientPublicationAuthority extends PublicationAuthority {
+  sendPrepared: Send<string>
+}
+
 export interface ClientConn {
   id: string
   send: Send<ServerMessage>
+  publication?: ClientPublicationAuthority
+  /** A current worker publication has reached this socket. */
+  publicationBootstrapped?: boolean
+  publicationPending?: boolean
+  publicationRequestVersion?: number
+  publicationAccepted?: {
+    viewKey: string
+    viewRevision: number
+    allowedSignature: string
+    cursor: number
+    allowedSessionIds: readonly string[]
+  }
+  /** A revocation frame was emitted and must be followed by a replacement. */
+  publicationReplacementRequired?: boolean
+  /** Previously-visible ids already removed while a replacement is pending. */
+  publicationRevokedSessionIds?: Set<string>
+  /** Global-only funnel frames held behind an in-flight bootstrap/replacement. */
+  publicationBufferedChanges?: MetadataChange[][]
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one
@@ -53,6 +95,10 @@ export interface SessionInit {
   agentKind: AgentKind
   cwd: string
   title: string
+  /** Resolved launch configuration, immutable for this session [spec:SP-dae6]. */
+  model?: string
+  effort?: string
+  accountId?: string
   origin: SessionOrigin
   createdAt: string
   geometry: Geometry
@@ -94,6 +140,8 @@ export interface SessionInit {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session. Absent/null = never opened (unread). */
   readAt?: string | null
+  stoppedAt?: string | null
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -132,6 +180,49 @@ function submitsCommandLine(base64: string): boolean {
 const SCREEN_RESET = /\x1b\[[23]J|\x1bc|\x1b\[\?1049[hl]/
 
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
+export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handoffTarget'
+
+export interface SessionDurableState {
+  cwd: string
+  issueId: string | undefined
+  refIssueId: string | null
+  refLetter: string | null
+  refDraft: number | null
+  machineId: string
+  resume: ResumeRef | undefined
+  lastActiveAt: string
+  title: string
+  titleLocked: boolean
+  name: string
+  nameSource: 'user' | 'agent' | undefined
+  archived: boolean
+  readAt: string | null
+  stoppedAt: string | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
+  workState: WorkState | undefined
+  cmd: string
+  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  exitCode: number | undefined
+  agentState: AgentRuntimeState | undefined
+  workingMsTotal: number | undefined
+  incomingWorkingMsTotal: number | undefined
+  agentColor: string | undefined
+  snoozedUntil: string | null | undefined
+  queuedMessageCount: number
+  handoffTarget: string | undefined
+  conversationPodiumId: string | undefined
+  draftUpdatedAt: string | undefined
+  offer: SessionOffer | undefined
+  transcriptAvailable: boolean
+  geometry: Geometry
+  outputAtMs: number
+  inputAtMs: number
+  resumedAtMs: number
+  activityDirty: boolean
+  shellBusy: boolean
+  shellCommandRunning: boolean
+}
+
 export class Session {
   readonly sessionId: string
   readonly agentKind: AgentKind
@@ -144,6 +235,10 @@ export class Session {
   readonly durableLabel: string
   /** Creation provenance (issue #60) — immutable for the life of the row. */
   readonly spawnedBy: string | undefined
+  /** Actual launch configuration captured once at spawn [spec:SP-dae6]. */
+  readonly model: string | undefined
+  readonly effort: string | undefined
+  readonly accountId: string | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
   readonly workflowRunId: string | undefined
   readonly workflowStepId: string | undefined
@@ -183,6 +278,9 @@ export class Session {
   /** Email-style read state (issue #124): ISO time the operator last opened this
    *  session; null = never opened. Persisted via toRow() (read_at column). */
   readAt: string | null = null
+  /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
+  stoppedAt: string | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -212,6 +310,10 @@ export class Session {
    *  at load and on every setSessionDraft. Surfaced so the client can show DRAFT
    *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
   draftUpdatedAt: string | undefined = undefined
+  /** Draft Sync v2 (POD-859): true when this session's daemon runs the composer
+   *  scrape/inject engine (reported on bind). Transient — not persisted; re-set on
+   *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
+  draftSyncEngine = false
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
@@ -267,6 +369,9 @@ export class Session {
     this.origin = init.origin
     this.createdAt = init.createdAt
     this.spawnedBy = init.spawnedBy
+    this.model = init.model
+    this.effort = init.effort
+    this.accountId = init.accountId
     this.workflowRunId = init.workflowRunId
     this.workflowStepId = init.workflowStepId
     this.executionProfileId = init.executionProfileId
@@ -298,6 +403,8 @@ export class Session {
     if (init.nameSource) this.nameSource = init.nameSource
     if (init.archived) this.archived = init.archived
     if (init.readAt != null) this.readAt = init.readAt
+    this.stoppedAt = init.stoppedAt ?? undefined
+    this.stopReason = init.stopReason ?? undefined
     if (init.workState) this.workState = init.workState
     this.onActivity = init.onActivity
   }
@@ -332,6 +439,8 @@ export class Session {
    * lastActiveAt, which is authoritative for recency ordering.
    */
   markResumed(): void {
+    this.stoppedAt = undefined
+    this.stopReason = undefined
     this.resumedAtMs = Date.now()
     this.activityDirty_ = true
   }
@@ -665,6 +774,13 @@ export class Session {
     if (this.status === 'hibernated') return
     this.status = 'exited'
     this.exitCode = code
+    // EVERY terminal transition stamps stop metadata and re-arms unread — a
+    // daemon-observed death decays (and badges) exactly like an explicit stop.
+    // The explicit-stop path may already have stamped a richer reason; keep it.
+    // [spec:SP-6144]
+    this.stoppedAt ??= new Date().toISOString()
+    this.stopReason ??= 'exited'
+    this.readAt = null
     // The harness-observed phase described a running agent; that agent is gone.
     // Leaving it set would make the home board / superagent / Continue button
     // keep treating a dead session as 'working' or 'errored'.
@@ -677,6 +793,10 @@ export class Session {
     this.status = 'exited'
     this.exitCode = -1
     this.agentState = undefined
+    // Terminal transition — same stop metadata as onExit [spec:SP-6144].
+    this.stoppedAt ??= new Date().toISOString()
+    this.stopReason ??= 'exited'
+    this.readAt = null
     console.warn(`[podium] spawn failed for ${this.sessionId}: ${message}`)
     this.broadcast({ type: 'agentExit', sessionId: this.sessionId, code: -1 })
   }
@@ -779,10 +899,102 @@ export class Session {
     return false
   }
 
+  /** Snapshot of all non-connection state represented by a successful session
+   * ledger capture. Used to roll live truth back when a durable append fails. */
+  captureDurableState(): SessionDurableState {
+    return {
+      cwd: this.cwd,
+      issueId: this.issueId,
+      refIssueId: this.refIssueId,
+      refLetter: this.refLetter,
+      refDraft: this.refDraft,
+      machineId: this.machineId,
+      resume: this.resume ? { ...this.resume } : undefined,
+      lastActiveAt: this.lastActiveAt,
+      title: this.title,
+      titleLocked: this.titleLocked,
+      name: this.name,
+      nameSource: this.nameSource,
+      archived: this.archived,
+      readAt: this.readAt,
+      stoppedAt: this.stoppedAt,
+      stopReason: this.stopReason,
+      workState: this.workState,
+      cmd: this.cmd,
+      status: this.status,
+      exitCode: this.exitCode,
+      agentState: this.agentState ? structuredClone(this.agentState) : undefined,
+      workingMsTotal: this.workingMsTotal,
+      incomingWorkingMsTotal: this.incomingWorkingMsTotal,
+      agentColor: this.agentColor,
+      snoozedUntil: this.snoozedUntil,
+      queuedMessageCount: this.queuedMessageCount,
+      handoffTarget: this.handoffTarget,
+      conversationPodiumId: this.conversationPodiumId,
+      draftUpdatedAt: this.draftUpdatedAt,
+      offer: this.offer ? structuredClone(this.offer) : undefined,
+      transcriptAvailable: this.transcriptAvailable,
+      geometry: { ...this.geometry },
+      outputAtMs: this.outputAtMs,
+      inputAtMs: this.inputAtMs,
+      resumedAtMs: this.resumedAtMs,
+      activityDirty: this.activityDirty_,
+      shellBusy: this.shellBusy,
+      shellCommandRunning: this.shellCommandRunning,
+    }
+  }
+
+  restoreDurableState(
+    state: SessionDurableState,
+    preserve: ReadonlySet<SessionVolatileField> = new Set(),
+  ): void {
+    this.cwd = state.cwd
+    this.issueId = state.issueId
+    this.refIssueId = state.refIssueId
+    this.refLetter = state.refLetter
+    this.refDraft = state.refDraft
+    if (!preserve.has('machineId')) this.machineId = state.machineId
+    this.resume = state.resume ? { ...state.resume } : undefined
+    this.lastActiveAt = state.lastActiveAt
+    this.title = state.title
+    this.titleLocked = state.titleLocked
+    this.name = state.name
+    this.nameSource = state.nameSource
+    this.archived = state.archived
+    this.readAt = state.readAt
+    this.stoppedAt = state.stoppedAt
+    this.stopReason = state.stopReason
+    this.workState = state.workState
+    this.cmd = state.cmd
+    if (!preserve.has('status')) this.status = state.status
+    this.exitCode = state.exitCode
+    this.agentState = state.agentState ? structuredClone(state.agentState) : undefined
+    this.workingMsTotal = state.workingMsTotal
+    this.incomingWorkingMsTotal = state.incomingWorkingMsTotal
+    this.agentColor = state.agentColor
+    this.snoozedUntil = state.snoozedUntil
+    this.queuedMessageCount = state.queuedMessageCount
+    if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
+    this.conversationPodiumId = state.conversationPodiumId
+    this.draftUpdatedAt = state.draftUpdatedAt
+    this.offer = state.offer ? structuredClone(state.offer) : undefined
+    this.transcriptAvailable = state.transcriptAvailable
+    if (!preserve.has('geometry')) this.geometry = { ...state.geometry }
+    this.outputAtMs = state.outputAtMs
+    this.inputAtMs = state.inputAtMs
+    this.resumedAtMs = state.resumedAtMs
+    this.activityDirty_ = state.activityDirty
+    this.shellBusy = state.shellBusy
+    this.shellCommandRunning = state.shellCommandRunning
+  }
+
   toRow(): SessionRow {
     return {
       id: this.sessionId,
       agentKind: this.agentKind,
+      model: this.model ?? null,
+      effort: this.effort ?? null,
+      accountId: this.accountId ?? null,
       cwd: this.cwd,
       title: this.title,
       name: this.name || null,
@@ -811,6 +1023,8 @@ export class Session {
       refLetter: this.refLetter,
       refDraft: this.refDraft,
       readAt: this.readAt,
+      stoppedAt: this.stoppedAt ?? null,
+      stopReason: this.stopReason ?? null,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
@@ -834,6 +1048,9 @@ export class Session {
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
+      ...(this.model ? { model: this.model } : {}),
+      ...(this.effort ? { effort: this.effort } : {}),
+      ...(this.accountId ? { accountId: this.accountId } : {}),
       title: this.title,
       ...(this.name ? { name: this.name } : {}),
       ...(this.name && this.nameSource ? { nameSource: this.nameSource } : {}),
@@ -853,6 +1070,8 @@ export class Session {
       // hasn't seen: never opened (readAt null), or lastActiveAt postdates readAt.
       // Both are ISO-8601, so the lexical compare is chronological.
       readAt: this.readAt,
+      ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
+      ...(this.stopReason ? { stopReason: this.stopReason } : {}),
       unread: this.readAt == null || this.lastActiveAt > this.readAt,
       // The registry overwrites machineName in listSessions() from the machines
       // table; an empty default keeps toMeta() self-contained for callers that
@@ -866,6 +1085,7 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
+      ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
       ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),

@@ -1,7 +1,7 @@
 import { dirname } from 'node:path'
 import type { GitDiscoveryDiagnosticWire, GitRepositoryWire } from '@podium/protocol'
-import { normalizeOriginUrl } from './repo-id'
 import type { ScanReposResult } from './relay'
+import { normalizeOriginUrl } from './repo-id'
 import { normalizeRepoPath } from './store'
 
 /**
@@ -143,18 +143,28 @@ export class MachineRepoDiscovery {
     return this.lastResults.get(machineId)
   }
 
-  /** Run the tiered discovery. Concurrent calls for one machine coalesce. */
-  scan(machineId: string, opts: { deep: boolean }): Promise<MachineDiscoveryResult> {
-    const inFlight = this.running.get(machineId)
+  /** Run the tiered discovery. Concurrent calls for one machine coalesce.
+   *  `atPath` adds the folder the user is browsing as a scan root (POD-855)
+   *  [spec:SP-5eb6] — "scan here" — on top of the always-on tiers (probes of
+   *  other machines' paths + the shallow walk around this machine's known repos,
+   *  which is the "known repo locations" the user asked to always include). */
+  scan(
+    machineId: string,
+    opts: { deep: boolean; atPath?: string },
+  ): Promise<MachineDiscoveryResult> {
+    // Coalesce only IDENTICAL scans: a plain connect-scan must not hand its result
+    // to a user "scan here" that named a folder (and vice versa).
+    const key = `${machineId}\0${opts.atPath ?? ''}\0${opts.deep ? 'deep' : 'shallow'}`
+    const inFlight = this.running.get(key)
     if (inFlight) return inFlight
-    const run = this.runScan(machineId, opts).finally(() => this.running.delete(machineId))
-    this.running.set(machineId, run)
+    const run = this.runScan(machineId, opts).finally(() => this.running.delete(key))
+    this.running.set(key, run)
     return run
   }
 
   private async runScan(
     machineId: string,
-    opts: { deep: boolean },
+    opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
     const startedAt = this.deps.now?.() ?? Date.now()
     const rows = this.deps.listRepos()
@@ -170,6 +180,14 @@ export class MachineRepoDiscovery {
         const path = normalizeRepoPath(repo.path)
         if (!found.has(path)) found.set(path, repo)
       }
+    }
+
+    // T0 — "scan here": the folder the user is browsing, walked as deep as a folder
+    // scan (POD-855). First, so its repos anchor the origin-grouping below.
+    if (opts.atPath) {
+      collect(
+        await this.deps.scanRepos([opts.atPath], { includeHome: false, maxDepth: 6 }, machineId),
+      )
     }
 
     // T1 — exact probes of other machines' repo paths (maxDepth 0 = stat only).

@@ -366,17 +366,50 @@ describe('ISSUE_COMMANDS registry', () => {
         seq: 10, title: 'Epic', stage: 'in_progress', priority: 1, needsHuman: false,
         blocksDeps: [], description: 'the epic', closed: false, blocked: false, ready: true,
         omittedChildren: 0,
+        // Sibling sessions on the root issue [spec:SP-99d3]
+        sessions: [
+          {
+            sessionId: 'sess-a',
+            displayRef: 'POD-10-A',
+            label: 'Implementer',
+            agentKind: 'grok',
+            model: 'grok-4.5',
+            status: 'live',
+            phase: 'working',
+            coordinator: true,
+          },
+          {
+            sessionId: 'sess-b',
+            displayRef: 'POD-10-B',
+            label: 'Reviewer',
+            agentKind: 'codex',
+            model: 'gpt-5.6-sol',
+            status: 'live',
+            phase: 'idle',
+          },
+        ],
         children: [
           {
             seq: 11, title: 'Child', stage: 'backlog', priority: 2, assignee: 'bob',
             branch: 'issue/11-c', needsHuman: true, humanQuestion: 'which db?',
             blocksDeps: [12], description: 'first child', closed: false, blocked: true, ready: false,
             omittedChildren: 3, children: [],
+            sessions: [
+              {
+                sessionId: 'sess-c',
+                displayRef: 'POD-11-A',
+                agentKind: 'claude-code',
+                model: 'sonnet',
+                status: 'exited',
+                phase: 'working',
+              },
+            ],
           },
           {
             seq: 12, title: 'Done one', stage: 'done', priority: 2, needsHuman: false,
             blocksDeps: [], description: '', closed: true, blocked: false, ready: false,
             omittedChildren: 0, children: [],
+            sessions: [],
           },
         ],
       },
@@ -400,7 +433,62 @@ describe('ISSUE_COMMANDS registry', () => {
     expect(child).toContain('NEEDS HUMAN: which db?')
     expect(lines.some((l) => l.includes('(+3 more)'))).toBe(true)
     expect(lines.find((l) => l.includes('Done one'))).toContain('DONE')
+    // Sibling sessions appear under their issue with id/kind/model/state/coordinator [spec:SP-99d3]
+    const implLine = lines.find((l) => l.includes('POD-10-A'))!
+    const revLine = lines.find((l) => l.includes('POD-10-B'))!
+    const childSess = lines.find((l) => l.includes('POD-11-A'))!
+    expect(implLine).toMatch(/session POD-10-A/)
+    expect(implLine).toContain('grok/grok-4.5')
+    expect(implLine).toContain('working')
+    expect(implLine).toContain('coordinator')
+    expect(implLine).toContain('Implementer')
+    expect(revLine).toContain('codex/gpt-5.6-sol')
+    expect(revLine).toContain('idle')
+    expect(revLine).not.toContain('coordinator')
+    expect(childSess).toContain('exited')
+    expect(childSess.match(/^\s*/)![0].length).toBeGreaterThan(implLine.match(/^\s*/)![0].length)
     expect(out.data).toBe(treeData)
+  })
+
+  it('show lists sessions with kind/model/state/coordinator [spec:SP-99d3]', async () => {
+    const issue = {
+      id: 'iss_1',
+      seq: 7,
+      title: 'Feature',
+      description: 'do it',
+      stage: 'in_progress',
+      priority: 2,
+      ready: true,
+      blocked: false,
+      coordinatorSessionId: 'sess-a',
+      sessions: [
+        {
+          sessionId: 'sess-a',
+          displayRef: 'POD-7-A',
+          name: 'Lead',
+          agentKind: 'grok',
+          model: 'grok-4.5',
+          status: 'live',
+          agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
+        },
+        {
+          sessionId: 'sess-b',
+          displayRef: 'POD-7-B',
+          name: 'Reviewer',
+          agentKind: 'codex',
+          model: 'gpt-5.6-sol',
+          status: 'live',
+          agentState: { phase: 'needs_user', since: 't', nativeSubagentCount: 0 },
+        },
+      ],
+    }
+    const { client } = mockClient({ get: issue, comments: [] })
+    const out = await cmd('show').run(client, { id: '7' })
+    expect(out.text).toContain('sessions (2):')
+    expect(out.text).toMatch(/session POD-7-A grok\/grok-4\.5 working coordinator/)
+    expect(out.text).toMatch(/session POD-7-B codex\/gpt-5\.6-sol blocked/)
+    expect(out.text).toContain('Lead')
+    expect(out.text).toContain('Reviewer')
   })
 
   it('create passes --parentId through to the mutation', async () => {

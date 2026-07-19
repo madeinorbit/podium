@@ -17,7 +17,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     notesUpdatedAt: null, suggestedStage: null, suggestedReason: null, blockedBy: [],
     dependencyNote: null, prUrl: null, createdAt: 't', updatedAt: 't', archived: false,
     priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-    notes: null, dueAt: null, deferUntil: null, closedReason: null, supersededBy: null,
+    notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null, supersededBy: null,
     duplicateOf: null, pinned: false, estimateMin: null,
     needsHuman: false, humanQuestion: null,
     ...over,

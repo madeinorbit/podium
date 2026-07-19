@@ -119,10 +119,10 @@ describe('selector-scoped store', () => {
   it('the selected slice still re-renders its subscriber on change', async () => {
     await render()
     const viewBefore = renders.view ?? 0
-    act(() => latestStore?.setView('issues'))
+    act(() => latestStore?.setView('usage'))
     await settle()
     expect(renders.view).toBeGreaterThan(viewBefore)
-    expect(latestStore?.view).toBe('issues')
+    expect(latestStore?.view).toBe('usage')
   })
 
   it('converted hot components do not re-commit when an unrelated slice changes', async () => {

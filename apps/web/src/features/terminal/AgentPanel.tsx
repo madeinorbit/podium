@@ -304,6 +304,12 @@ export function AgentPanel({
   // there would tear down and remount the whole terminal on every keystroke.
   const draftRef = useRef('')
   draftRef.current = drafts[sessionId] ?? ''
+  // Draft Sync v2 (POD-859): when the session's daemon runs the composer engine, it
+  // owns native scrape + chat→native inject — so this client retires BOTH its 150ms
+  // native sampler and its one-shot chat→native flush. Read via a ref so the runtime
+  // check needs no effect dep (no terminal remount when the capability flips on).
+  const draftEngineRef = useRef(false)
+  draftEngineRef.current = session?.draftSyncEngine === true
   // Re-arm hook for the chat→native draft flush, published by onMounted below.
   // The flush machinery (one-shot guard + bounded poll) lives inside onMounted's
   // closure and otherwise only runs once, at mount. Since the terminal stays
@@ -400,6 +406,8 @@ export function AgentPanel({
         return null
       }
       const sample = () => {
+        // Daemon engine active → it scrapes native server-side; don't double-publish.
+        if (draftEngineRef.current) return
         if (mounted.connection.state().role !== 'controller') return
         if (!termRef.current?.contains(document.activeElement)) return
         // Codex's empty composer shows a DIM placeholder suggestion — blank dim cells
@@ -438,6 +446,8 @@ export function AgentPanel({
       // next frame's scrape sees the echo, matches lastPublished, and stays quiet.
       const flushDraftToNative = (): boolean => {
         if (flushTried) return false
+        // Daemon engine active → it injects chat drafts into native server-side.
+        if (draftEngineRef.current) return false
         if (mounted.connection.state().role !== 'controller') return false
         if (!termRef.current?.contains(document.activeElement)) return false
         const want = draftRef.current
@@ -644,18 +654,35 @@ export function AgentPanel({
               )}
             </Button>
           )}
+          {effectiveMode === 'native' && !hibernated && !exited && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              data-testid="take-control"
+              className={cn(
+                'size-[26px] rounded-[6px] text-(--issue-muted-bright)',
+                isMobile && 'border issue-hairline-30 bg-background/45 text-(--issue-bright)',
+              )}
+              aria-label="Take control of the terminal"
+              title="Take control of the terminal"
+              onClick={() => mountedRef.current?.connection.requestControl()}
+            >
+              <Keyboard size={13} aria-hidden="true" />
+            </Button>
+          )}
           {/* Native resume command (#119): the literal `claude --resume <id>` etc.
               so you can pick the conversation back up in your own terminal. */}
-          {resumeCmd && (
+          {!isMobile && resumeCmd && (
             <ResumeCommandMenu
               command={resumeCmd}
               className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
             />
           )}
-          {showSnooze && session && (
+          {!isMobile && showSnooze && session && (
             <SnoozeControl session={session} iconSize={15} dimmed={false} />
           )}
-          {chatCapable && (
+          {!isMobile && chatCapable && (
             <Button
               type="button"
               variant="ghost"
@@ -667,7 +694,7 @@ export function AgentPanel({
               <Sparkles size={13} aria-hidden="true" />
             </Button>
           )}
-          {canHibernate && (
+          {!isMobile && canHibernate && (
             <Button
               type="button"
               variant="ghost"
@@ -698,18 +725,6 @@ export function AgentPanel({
               onClick={() => void guardedArchive(sessionId, true)}
             >
               <Archive size={13} aria-hidden="true" />
-            </Button>
-          )}
-          {effectiveMode === 'native' && !hibernated && !exited && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-              title="Take control of the terminal"
-              onClick={() => mountedRef.current?.connection.requestControl()}
-            >
-              <Keyboard size={13} aria-hidden="true" />
             </Button>
           )}
         </span>
@@ -1040,7 +1055,10 @@ function ExitedPane({
           disabled={waking}
           onClick={() => {
             setWaking(true)
-            void resurrectSession(sessionId)
+            void resurrectSession(sessionId).then(
+              () => setWaking(false),
+              () => setWaking(false),
+            )
           }}
         >
           {waking
@@ -1110,7 +1128,10 @@ function ExitedBanner({
           disabled={waking}
           onClick={() => {
             setWaking(true)
-            void resurrectSession(sessionId)
+            void resurrectSession(sessionId).then(
+              () => setWaking(false),
+              () => setWaking(false),
+            )
           }}
         >
           {waking
@@ -1143,7 +1164,10 @@ function HibernatedBanner({ sessionId }: { sessionId: string }): JSX.Element {
         disabled={waking}
         onClick={() => {
           setWaking(true)
-          void resurrectSession(sessionId)
+          void resurrectSession(sessionId).then(
+            () => setWaking(false),
+            () => setWaking(false),
+          )
         }}
       >
         {waking ? 'Waking…' : 'Resume'}
@@ -1168,7 +1192,10 @@ function HibernatedPane({ sessionId }: { sessionId: string }): JSX.Element {
         disabled={waking}
         onClick={() => {
           setWaking(true)
-          void resurrectSession(sessionId)
+          void resurrectSession(sessionId).then(
+            () => setWaking(false),
+            () => setWaking(false),
+          )
         }}
       >
         {waking ? 'Waking…' : 'Resume session'}

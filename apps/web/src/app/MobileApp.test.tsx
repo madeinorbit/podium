@@ -3,9 +3,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MobileApp } from './MobileApp'
 
-// #227: the mobile home view IS the sidebar work list (not the Command center),
-// and the header's one dropdown lists every panel of the SELECTED ISSUE —
-// sessions (agents and shells) plus the file tabs open on its worktree.
+// The mobile header's panel dropdown lists every panel of the selected issue:
+// sessions (agents and shells) plus file tabs open on its worktree.
 
 const setPane = vi.fn()
 const setView = vi.fn()
@@ -75,7 +74,7 @@ const issue = {
 // Mutable across tests: the view the shell is on, what's selected, which pane
 // is open, whether the superagent overlay is up, and the session set.
 const state = {
-  view: 'home' as string,
+  view: 'issues' as string,
   selectedIssueId: null as string | null,
   paneA: null as string | null,
   superOpen: false,
@@ -130,13 +129,24 @@ vi.mock('./store', () => {
   }
 })
 
-// The outlet's own switch is trivial; here we only need home-vs-workspace.
+// The outlet's own switch is trivial; these tests exercise workspace chrome.
 vi.mock('./routes', () => ({
-  MainViewOutlet: ({ home, workspace }: { home?: unknown; workspace: unknown }) => (
-    <>{state.view === 'home' ? home : workspace}</>
+  MainViewOutlet: ({ workspace, issues }: { workspace: unknown; issues?: unknown }) => (
+    <>
+      {state.view === 'workspace' ? workspace : state.view === 'issues' ? issues : <div>other</div>}
+    </>
   ),
 }))
 vi.mock('@/features/terminal/AgentPanel', () => ({ AgentPanel: () => <div>agent panel</div> }))
+vi.mock('@/features/worklist/SidebarUnified', () => ({
+  SidebarUnified: () => (
+    <div data-testid="sidebar-unified">
+      <button type="button">New task</button>
+      <button type="button">New Shell</button>
+      <button type="button">Search</button>
+    </div>
+  ),
+}))
 vi.mock('@/features/superagent/SuperagentView', () => ({ SuperagentView: () => null }))
 vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
 vi.mock('./NewPanelMenu', () => ({ NewPanelMenu: () => null, NEW_AGENTS: [] }))
@@ -147,20 +157,21 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
-  state.view = 'home'
+  state.view = 'issues'
   state.selectedIssueId = null
   state.paneA = null
   state.superOpen = false
   state.sessions = [sess('agent-one'), sess('shell-one', { agentKind: 'shell' })]
 })
 
-describe('MobileApp home view (#227)', () => {
-  it('shows the sidebar work list, not the command center', () => {
+describe('MobileApp work-list home [spec:SP-7696]', () => {
+  it('uses the sidebar work list as the main mobile surface with task, shell, and app actions', () => {
     render(<MobileApp />)
-    // #41: the WORK header gave way to always-on project group labels.
-    expect(screen.getAllByTestId('project-group-label').length).toBeGreaterThan(0)
-    expect(screen.getByText('Selected issue')).toBeTruthy()
-    expect(screen.queryByText('Command center')).toBeNull()
+    expect(screen.getByTestId('mobile-work-list')).toBeTruthy()
+    expect(screen.getByTestId('sidebar-unified')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New task' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New Shell' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Search' })).toBeTruthy()
   })
 })
 
@@ -201,9 +212,9 @@ describe('MobileApp redesigned header (#45, mobile.md §2.1)', () => {
     expect(screen.getByTestId('mobile-panel-menu')).toBeTruthy()
   })
 
-  it('closes a default-open superagent at mount — mobile lands on Home (2a/2c)', () => {
+  it('closes a default-open superagent at mount (2a/2c)', () => {
     // The desktop column's persisted default is OPEN; inherited on mobile it
-    // would bury the home list under the full-screen overlay on first load.
+    // would bury the current view under the full-screen overlay on first load.
     state.superOpen = true
     render(<MobileApp />)
     expect(setSuperOpen).toHaveBeenCalledWith(false)
@@ -224,7 +235,7 @@ describe('MobileApp panel-menu status grammar (#45, mobile.md §2.3)', () => {
     state.selectedIssueId = 'iss'
     state.paneA = 'agent-one'
     state.sessions = [
-      sess('agent-one', { agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+      sess('agent-one', { agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
       sess('agent-two', { agentState: { phase: 'needs_user', need: { kind: 'question' } } }),
     ]
     const { container } = render(<MobileApp />)

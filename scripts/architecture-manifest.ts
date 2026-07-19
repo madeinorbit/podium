@@ -217,6 +217,11 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'node-only',
     features: ['harness-adapters', 'pty-port'],
   },
+  'packages/composer': {
+    layer: 2,
+    platform: 'browser-safe',
+    features: ['composer-adapters'],
+  },
   'packages/terminal-client': { layer: 2, platform: 'browser-safe', features: ['terminal-port'] },
 
   // L3 — features / adapters / engine.
@@ -231,6 +236,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   'apps/cli': { layer: 4, platform: 'node-only', features: ['cli-surface'] },
   'apps/daemon': { layer: 4, platform: 'node-only', features: ['daemon-surface'] },
   'apps/desktop': { layer: 4, platform: 'browser-safe', features: ['desktop-shell'] },
+  'apps/janitor': { layer: 4, platform: 'node-only', features: ['janitor-surface'] },
   'apps/mobile': { layer: 4, platform: 'browser-safe', features: ['mobile-surface'] },
   'apps/server': {
     layer: 4,
@@ -260,6 +266,8 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // L2: agent-bridge parses transcripts through the shared parser rather than
   // carrying a second copy.
   'packages/agent-bridge -> packages/transcript',
+  // L2: terminal-client delegates pure prompt extraction to composer adapters.
+  'packages/terminal-client -> packages/composer',
 ])
 
 export function tagsFor(workspace: string): WorkspaceTags | null {

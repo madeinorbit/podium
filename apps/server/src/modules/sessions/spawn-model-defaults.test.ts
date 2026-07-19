@@ -54,13 +54,13 @@ function createFrame(
   return latestSpawn(daemon)
 }
 
-function resurrectFrame(agentKind: 'claude-code' | 'codex') {
+async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
   const { registry, daemon } = makeRegistry(storeWithClaudeDefaults())
   const resume =
     agentKind === 'codex'
       ? ({ kind: 'codex-thread', value: 'thread-1' } as const)
       : ({ kind: 'claude-session', value: 'session-1' } as const)
-  const { sessionId } = registry.modules.sessions.resumeSession({
+  const { sessionId } = await registry.modules.sessions.resumeSession({
     agentKind,
     cwd: '/proj',
     resume,
@@ -75,7 +75,7 @@ function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     geometry: { cols: 80, rows: 24 },
   })
   expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-  expect(registry.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await registry.modules.sessions.resurrectSession({ sessionId })).toEqual({ ok: true })
   return latestSpawn(daemon)
 }
 
@@ -109,14 +109,14 @@ it('keeps explicit overrides on another harness without filling missing defaults
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })
 
-it('omits configured defaults when resurrecting another harness', () => {
-  const frame = resurrectFrame('codex')
+it('omits configured defaults when resurrecting another harness', async () => {
+  const frame = await resurrectFrame('codex')
   expect(Object.hasOwn(frame, 'model')).toBe(false)
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })
 
-it('restores configured defaults when resurrecting the configured harness', () => {
-  const frame = resurrectFrame('claude-code')
+it('restores configured defaults when resurrecting the configured harness', async () => {
+  const frame = await resurrectFrame('claude-code')
   expect(frame.model).toBe('claude-opus-4-8')
   expect(frame.effort).toBe('xhigh')
 })

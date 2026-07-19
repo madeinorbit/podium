@@ -50,7 +50,7 @@ const sess = (cwd: string, phase = 'working'): SessionMeta =>
     lastActiveAt: 't',
     origin: { kind: 'spawn' },
     archived: false,
-    agentState: { phase, since: 't', openTaskCount: 0 },
+    agentState: { phase, since: 't', nativeSubagentCount: 0 },
   }) as unknown as SessionMeta
 
 describe('IssueService repo_id scoping (#140)', () => {
@@ -248,9 +248,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     return { ...h, id: w.id }
   }
 
-  it('archives a done issue read > 24h ago; emits issue.auto_archived (not issue.archived)', () => {
+  it('archives a top-level done issue read > 7d ago; emits issue.auto_archived (not issue.archived)', () => {
     const { svc, store, deps, id } = doneAndRead()
-    const archived = svc.sweepAutoArchive(readAtMs + DAY_MS + 3600_000) // 25h later
+    const archived = svc.sweepAutoArchive(readAtMs + 8 * DAY_MS) // eight days later
     expect(archived.map((w) => w.id)).toEqual([id])
     expect(archived[0]!.archived).toBe(true)
     expect(svc.get(id)!.archived).toBe(true)
@@ -260,9 +260,9 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
     expect(deps.broadcast).toHaveBeenCalled()
   })
 
-  it('leaves a done+read issue read < 24h ago alone', () => {
+  it('leaves a done+read issue read < 7d ago alone', () => {
     const { svc, store, id } = doneAndRead()
-    const archived = svc.sweepAutoArchive(readAtMs + 12 * 3600_000) // only 12h later
+    const archived = svc.sweepAutoArchive(readAtMs + 6 * DAY_MS) // only six days later
     expect(archived).toEqual([])
     expect(svc.get(id)!.archived).toBe(false)
     expect(store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(0)
@@ -289,21 +289,65 @@ describe('IssueService.sweepAutoArchive (read-gated auto-archive #127)', () => {
 
   it('does not re-archive: skips already-archived rows (idempotent, no duplicate event)', () => {
     const { svc, store, id } = doneAndRead()
-    expect(svc.sweepAutoArchive(readAtMs + 2 * DAY_MS).map((w) => w.id)).toEqual([id])
+    expect(svc.sweepAutoArchive(readAtMs + 8 * DAY_MS).map((w) => w.id)).toEqual([id])
     // A second sweep touches nothing and emits no further event.
-    expect(svc.sweepAutoArchive(readAtMs + 3 * DAY_MS)).toEqual([])
+    expect(svc.sweepAutoArchive(readAtMs + 9 * DAY_MS)).toEqual([])
     expect(store.events.listEventsSince(0, { kinds: ['issue.auto_archived'] }).length).toBe(1)
   })
 
-  it('treats a closed-by-reason issue (not stage done) as archivable when read > 24h ago', () => {
+  it('treats a closed-by-reason top-level issue (not stage done) as archivable when read > 7d ago', () => {
     const h = harness()
     const canonical = h.svc.create({ repoPath: '/r', title: 'canonical', startNow: false })
     const dup = h.svc.create({ repoPath: '/r', title: 'dup', startNow: false })
     h.svc.duplicate(dup.id, canonical.id) // closedReason set (stage may not be 'done')
     h.svc.markIssueRead(dup.id)
-    const archived = h.svc.sweepAutoArchive(readAtMs + 2 * DAY_MS)
+    const archived = h.svc.sweepAutoArchive(readAtMs + 8 * DAY_MS)
     expect(archived.map((w) => w.id)).toContain(dup.id)
     expect(h.svc.get(canonical.id)!.archived).toBe(false) // still open → untouched
+  })
+  it('keeps done children until their parent closes, then archives the subtree', () => {
+    const h = harness()
+    const parent = h.svc.create({ repoPath: '/r', title: 'Parent', startNow: false })
+    const child = h.svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: parent.id,
+      startNow: false,
+    })
+    h.svc.close(child.id)
+    h.svc.markIssueRead(child.id)
+    expect(h.svc.sweepAutoArchive(readAtMs + 10 * DAY_MS)).toEqual([])
+    expect(h.svc.get(child.id)?.archived).toBe(false)
+
+    h.svc.close(parent.id)
+    expect(h.svc.get(child.id)?.archived).toBe(true)
+  })
+
+  it('parent-close cascade archives ONLY closed+read children — open, unread, and live-session children survive (B4)', () => {
+    const sessions: SessionMeta[] = []
+    const h = harness(sessions)
+    const parent = h.svc.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    const mk = (title: string) =>
+      h.svc.create({ repoPath: '/r', title, parentId: parent.id, startNow: false })
+    const open = mk('still in progress')
+    h.svc.update(open.id, { stage: 'in_progress' })
+    const unread = mk('done but unread')
+    h.svc.close(unread.id)
+    const withLive = mk('done, read, agent still running')
+    h.svc.close(withLive.id)
+    h.svc.markIssueRead(withLive.id)
+    sessions.push({ ...sess('/r/wt-live'), issueId: withLive.id } as unknown as SessionMeta)
+    const done = mk('done and read')
+    h.svc.close(done.id)
+    h.svc.markIssueRead(done.id)
+
+    h.svc.close(parent.id)
+    expect(h.svc.get(open.id)?.archived).toBe(false)
+    expect(h.svc.get(unread.id)?.archived).toBe(false)
+    expect(h.svc.get(withLive.id)?.archived).toBe(false)
+    expect(h.svc.get(done.id)?.archived).toBe(true)
+    // The open child's agent keeps its session — the cascade never touched it.
+    expect(h.setSessionArchived).not.toHaveBeenCalledWith('/r/wt-live', true)
   })
 })
 
@@ -343,7 +387,7 @@ describe('IssueService archive cascade to sessions (#133)', () => {
     svc.markIssueRead(w.id) // read at harness now
     setSessionArchived.mockClear()
     const nowMs = Date.parse('2026-06-30T00:00:00.000Z')
-    const archived = svc.sweepAutoArchive(nowMs + 25 * 3600_000)
+    const archived = svc.sweepAutoArchive(nowMs + 8 * 24 * 3600_000)
     expect(archived.map((a) => a.id)).toEqual([w.id])
     expect(setSessionArchived).toHaveBeenCalledWith('/r/wt', true)
   })
@@ -1110,6 +1154,34 @@ describe('IssueService field mutations (P1)', () => {
     expect(closed.closedReason).toBe('wontfix')
   })
 
+  it('setCoordinator claims/sets/clears coordinatorSessionId on the wire (bare session id)', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    expect(a.coordinatorSessionId).toBeUndefined()
+    const set = svc.setCoordinator(a.id, 'sess_coord')
+    expect(set.coordinatorSessionId).toBe('sess_coord')
+    expect(store.issues.getIssue(a.id)?.coordinatorSessionId).toBe('sess_coord')
+    const cleared = svc.setCoordinator(a.id, null)
+    expect(cleared.coordinatorSessionId).toBeUndefined()
+    expect(store.issues.getIssue(a.id)?.coordinatorSessionId).toBeNull()
+  })
+
+  it('startedBySession is stamped on agent creates and null for operator creates', () => {
+    const { svc, store } = harness()
+    const operator = svc.create({ repoPath: '/r', title: 'Op', startNow: false })
+    expect(operator.startedBySession).toBeUndefined()
+    expect(store.issues.getIssue(operator.id)?.startedBySession).toBeNull()
+    const agent = svc.create({
+      repoPath: '/r',
+      title: 'Ag',
+      startNow: false,
+      origin: 'agent',
+      startedBySession: 'sess_creator',
+    })
+    expect(agent.startedBySession).toBe('sess_creator')
+    expect(store.issues.getIssue(agent.id)?.startedBySession).toBe('sess_creator')
+  })
+
   it('setNeedsHuman/clearNeedsHuman toggle the flag + question', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
@@ -1392,6 +1464,80 @@ describe('IssueService.tree (issue #82)', () => {
     })
     expect(svc.tree(e.id).root.description.length).toBe(300)
     expect(() => svc.tree('iss_nope')).toThrow()
+  })
+
+  // [spec:SP-99d3] managers must see sibling sessions before spawn
+  it('lists all sessions on each issue including siblings, with coordinator', () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions)
+    const epic = svc.create({ repoPath: '/r', title: 'Epic', type: 'epic', startNow: false })
+    // Membership is via explicit issueId (issue-as-workspace), not cwd.
+    const child = svc.create({
+      repoPath: '/r',
+      title: 'Child',
+      parentId: epic.id,
+      startNow: false,
+    })
+    sessions.push({
+      ...sess('/elsewhere', 'working'),
+      sessionId: 'sess-impl',
+      issueId: epic.id,
+      agentKind: 'grok',
+      model: 'grok-4.5',
+      displayRef: 'POD-1-A',
+      name: 'Implementer',
+    } as SessionMeta)
+    sessions.push({
+      ...sess('/elsewhere', 'idle'),
+      sessionId: 'sess-rev',
+      issueId: epic.id,
+      agentKind: 'codex',
+      model: 'gpt-5.6-sol',
+      displayRef: 'POD-1-B',
+      name: 'Reviewer',
+      status: 'live',
+    } as SessionMeta)
+    sessions.push({
+      ...sess('/elsewhere', 'working'),
+      sessionId: 'sess-child',
+      issueId: child.id,
+      agentKind: 'claude-code',
+      model: 'sonnet',
+      displayRef: 'POD-2-A',
+      status: 'exited',
+    } as SessionMeta)
+    // Unrelated session must not appear.
+    sessions.push({
+      ...sess('/other', 'working'),
+      sessionId: 'sess-other',
+      issueId: 'iss_other',
+    } as SessionMeta)
+    svc.setCoordinator(epic.id, 'sess-impl')
+
+    const t = svc.tree(epic.id)
+    expect(t.root.sessions).toHaveLength(2)
+    expect(t.root.sessions.map((s) => s.sessionId).sort()).toEqual(['sess-impl', 'sess-rev'])
+    const impl = t.root.sessions.find((s) => s.sessionId === 'sess-impl')!
+    expect(impl).toMatchObject({
+      displayRef: 'POD-1-A',
+      label: 'Implementer',
+      agentKind: 'grok',
+      model: 'grok-4.5',
+      status: 'live',
+      phase: 'working',
+      coordinator: true,
+    })
+    const rev = t.root.sessions.find((s) => s.sessionId === 'sess-rev')!
+    expect(rev.coordinator).toBeUndefined()
+    expect(rev.phase).toBe('idle')
+    expect(t.root.children[0]!.sessions).toEqual([
+      expect.objectContaining({
+        sessionId: 'sess-child',
+        agentKind: 'claude-code',
+        status: 'exited',
+        phase: 'working',
+      }),
+    ])
   })
 })
 
@@ -2610,6 +2756,149 @@ describe('IssueService agent mail (#103)', () => {
     const primed = svc.prime({ boundIssueId: a.id })
     expect(primed).toContain('2 unread mail')
     expect(primed).toContain('mail inbox')
+  })
+
+  // ---- CONTEXT-AWARE mailPending [POD-909 / design §10] ----
+  // The "run mail inbox" nag must count only messages not yet in the agent's
+  // context. status='delivered' = transcript echo = already seen.
+
+  function substrateRow(issueId: string, id: string, status: 'queued' | 'delivered' | 'read') {
+    return {
+      id,
+      threadId: id,
+      inReplyTo: null,
+      fromKind: 'agent' as const,
+      fromSession: 'sX',
+      fromIssue: 'iss_sender',
+      toKind: 'issue' as const,
+      toId: issueId,
+      kind: 'message' as const,
+      urgency: 'next-turn' as const,
+      lifecycle: 'wait' as const,
+      body: `body-${id}`,
+      expiresAt: null,
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status,
+      deliveredAt: status === 'delivered' || status === 'read' ? '2026-06-30T00:00:01.000Z' : null,
+      deliveredTo: status === 'delivered' || status === 'read' ? 's1' : null,
+      readAt: status === 'read' ? '2026-06-30T00:00:02.000Z' : null,
+      injectedAt: null,
+      deadLetteredAt: null,
+      ackedBy: null,
+      hop: 0,
+      clampedFrom: null,
+      remindedAt: null,
+      factKey: null,
+      factTarget: null,
+      expectsResponse: false,
+    }
+  }
+
+  it('mailPending excludes a message already delivered as a transcript turn', () => {
+    // Dual-write + deliver on substrate WITHOUT clearing the legacy mirror —
+    // the desync that resurrects "You have N message(s)… run mail inbox".
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const id = 'msg_delivered_turn'
+    store.issues.addIssueMessage({
+      id,
+      issueId: a.id,
+      fromAuthor: 'agent',
+      body: 'already in your context',
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(substrateRow(a.id, id, 'delivered'))
+    // Substrate no longer pending; legacy still unread — old Math.max would nag.
+    expect(store.messages.countPending({ kind: 'issue', id: a.id })).toBe(0)
+    expect(store.issues.countUnreadIssueMessages(a.id)).toBe(1)
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0, senders: [] })
+    // Prime uses the same predicate.
+    expect(svc.prime({ boundIssueId: a.id })).not.toContain('unread mail')
+  })
+
+  it('mailPending still counts a queued/held message never surfaced in the transcript', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const id = 'msg_queued_unseen'
+    store.issues.addIssueMessage({
+      id,
+      issueId: a.id,
+      fromAuthor: 'agent',
+      body: 'you have not seen this',
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+    expect(svc.prime({ boundIssueId: a.id })).toContain('1 unread mail')
+  })
+
+  it('mailPending counts every queued substrate row beyond the listing page cap', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    for (let i = 0; i < 201; i += 1) {
+      const id = `msg_queued_${String(i).padStart(3, '0')}`
+      store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    }
+
+    expect(svc.mailPending(a.id).unread).toBe(201)
+  })
+
+  it('mailPending includes a sender whose only queued row is number 201', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    for (let i = 0; i < 200; i += 1) {
+      store.messages.addMessage({
+        ...substrateRow(a.id, `msg_head_${String(i).padStart(3, '0')}`, 'queued'),
+        fromIssue: 'iss_head_sender',
+      })
+    }
+    store.messages.addMessage({
+      ...substrateRow(a.id, 'msg_tail_200', 'queued'),
+      fromIssue: 'iss_tail_sender',
+      createdAt: '2026-06-30T00:00:01.000Z',
+    })
+
+    expect(svc.mailPending(a.id)).toEqual({
+      unread: 201,
+      senders: ['iss_head_sender', 'iss_tail_sender'],
+    })
+  })
+
+  it('mailPending pure-legacy unread (no substrate twin) still nags', () => {
+    const { svc } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    svc.sendMail(a.id, 'operator', 'pre-substrate path')
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 1 })
+  })
+
+  it('mailPending drops the count after inbox read / dismiss-equivalent clear', () => {
+    const { svc, store } = harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const id = 'msg_then_read'
+    store.issues.addIssueMessage({
+      id,
+      issueId: a.id,
+      fromAuthor: 'agent',
+      body: 'read me',
+      createdAt: '2026-06-30T00:00:00.000Z',
+      status: 'unread',
+      claimedBy: null,
+      readAt: null,
+      claimedAt: null,
+    })
+    store.messages.addMessage(substrateRow(a.id, id, 'queued'))
+    expect(svc.mailPending(a.id).unread).toBe(1)
+    // Slice 2 clear path: inbox pull consumes both surfaces.
+    svc.mailInbox(a.id)
+    expect(svc.mailPending(a.id)).toMatchObject({ unread: 0 })
   })
 })
 

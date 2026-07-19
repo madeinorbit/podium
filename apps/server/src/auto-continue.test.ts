@@ -5,13 +5,13 @@ import { AutoContinueController, type AutoContinueDeps } from './auto-continue'
 const errored = (retryable = true): AgentRuntimeState => ({
   phase: 'errored',
   since: '2026-06-24T00:00:00Z',
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
   error: { class: 'server_error', retryable },
 })
 const working = (): AgentRuntimeState => ({
   phase: 'working',
   since: '2026-06-24T00:00:00Z',
-  openTaskCount: 0,
+  nativeSubagentCount: 0,
 })
 
 function harness(initial: { live?: boolean; state?: AgentRuntimeState; enabled?: boolean } = {}) {

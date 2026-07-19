@@ -43,6 +43,13 @@ describe('OutputScheduler', () => {
     expect(h.flushed).toEqual([{ sid: 's', frames: ['12345', '67890'] }])
   })
 
+  it('reports the current relay priority for focused-first reseed pacing', () => {
+    const h = harness()
+    expect(h.s.priorityOf('s')).toBe(1)
+    h.s.setPriority('s', 0)
+    expect(h.s.priorityOf('s')).toBe(0)
+  })
+
   it('promoting priority flushes pending right away', () => {
     const h = harness()
     h.s.setPriority('s', 3)

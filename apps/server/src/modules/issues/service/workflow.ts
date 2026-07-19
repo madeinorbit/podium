@@ -1,6 +1,7 @@
 import { DEFER_NEXT_MESSAGE } from '@podium/domain'
 import type { IssueWire, OrphanIssue } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
+import { LOCAL_PLACEHOLDER } from '../../../local-machine'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
 import { type LinearIssue, searchIssues } from '../../../linear'
@@ -77,7 +78,16 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     id: string,
     agentKind?: string,
     opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
-  ): Promise<IssueWire> {
+  ): Promise<
+    IssueWire &
+      Partial<{
+        agentId: string
+        harness: string
+        model: string | null
+        effort: string | null
+        machine: string
+      }>
+  > {
     const row = this.rowOrThrow(id)
     if (row.worktreePath) return this.toWire(row) // already started
     if (agentKind && agentKind !== row.defaultAgent) {
@@ -114,6 +124,7 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     const wasClosed = this.isClosed(row)
     if (wasClosed) {
       row.closedReason = null
+      row.closedAt = null
       row.supersededBy = null
       row.duplicateOf = null
     }
@@ -134,21 +145,37 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       branch: row.branch,
       worktreePath: row.worktreePath,
     })
-    // Hand the agent the description as its first prompt AT SPAWN. createSession
-    // delivers it via argv for claude/codex/grok (`claude "<prompt>"` — consumed at
-    // startup, no TUI-readiness race) or seeds the composer draft for other agents.
-    this.d.spawnSession({
+    // The human summary leads; the technical brief follows verbatim. [spec:SP-6144]
+    const initialPrompt = [row.description.trim(), row.brief ?? ''].filter(Boolean).join('\n\n')
+    const spawned = this.d.spawnSession({
       cwd: path,
       issueId: row.id,
       agentKind: row.defaultAgent,
       model: selection.model,
       effort: selection.effort,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      ...(row.description.trim() ? { initialPrompt: row.description } : {}),
+      ...(initialPrompt ? { initialPrompt } : {}),
       spawnedBy: opts?.spawnedBy ?? `issue:${row.id}`,
       ...(row.machineId ? { machineId: row.machineId } : {}),
     })
-    return wire
+    return {
+      ...wire,
+      agentId: spawned.agentId ?? spawned.sessionId,
+      harness: spawned.harness ?? row.defaultAgent,
+      model:
+        spawned.model === undefined
+          ? selection.model === 'auto'
+            ? null
+            : selection.model
+          : spawned.model,
+      effort:
+        spawned.effort === undefined
+          ? selection.effort === 'auto'
+            ? null
+            : selection.effort
+          : spawned.effort,
+      machine: spawned.machine ?? row.machineId ?? LOCAL_PLACEHOLDER,
+    }
   }
 
   async createAndMaybeStart(
@@ -206,6 +233,165 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
       return { ...r, issue: this.close(id, 'done') }
     }
     return { ...r, issue: this.toWire(row) }
+  }
+
+  /**
+   * Free an issue's working copy while KEEPING its branch [spec:SP-9904].
+   * Used by session/issue stop so a finished agent can release the worktree
+   * without discarding reversible work on the branch. Does NOT require the
+   * issue to be closed (unlike cleanup). Caller is responsible for the
+   * unsaved-work guard (dirty tree without --force) and for ensuring no live
+   * sessions still use this worktree.
+   */
+  async freeWorktreeKeepBranch(
+    id: string,
+    opts?: { force?: boolean },
+  ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
+    const row = this.rowOrThrow(id)
+    const refuse = (
+      output: string,
+    ): { ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean } => ({
+      ok: false,
+      output,
+      issue: this.toWire(row),
+      worktreeFreed: false,
+    })
+    if (!row.worktreePath) {
+      return {
+        ok: true,
+        output: row.branch
+          ? `no worktree on disk; branch '${row.branch}' kept`
+          : 'no worktree/branch recorded',
+        issue: this.toWire(row),
+        worktreeFreed: false,
+      }
+    }
+    if (!row.branch) {
+      return refuse('refusing free: worktree recorded but no branch — resolve manually')
+    }
+    const worktreePath = row.worktreePath
+    const branch = row.branch
+    const machineId = row.machineId ?? undefined
+    // Always route git ops to the issue's machine — a remote-owned worktree must
+    // not be inspected/removed against the hub's local path [spec:SP-9904].
+    const st = await this.d.repoOp('status', worktreePath, undefined, machineId)
+    // Already gone on disk — clear the path of record, keep the branch.
+    if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
+      row.worktreePath = null
+      this.persistRow(row)
+      this.d.onWorktreesChanged?.(row.repoPath, machineId)
+      return {
+        ok: true,
+        output: `worktree already gone at ${worktreePath}; branch '${branch}' kept`,
+        issue: this.toWire(row),
+        worktreeFreed: true,
+      }
+    }
+    if (!st.ok) {
+      return refuse(`refusing free: cannot inspect worktree: ${st.output}`)
+    }
+    const dirty = st.output.split('\n').filter((l) => l.trim() !== '' && !l.startsWith('## '))
+    if (dirty.length > 0 && !opts?.force) {
+      return refuse(
+        `refusing free: worktree has unsaved changes (re-run with --force to discard the working copy; branch is kept either way):\n${dirty.join('\n')}`,
+      )
+    }
+    const wr = await this.d.repoOp(
+      'worktreeRemove',
+      row.repoPath,
+      {
+        path: worktreePath,
+        ...(opts?.force ? { force: '1' } : {}),
+      },
+      machineId,
+    )
+    if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
+    row.worktreePath = null
+    this.persistRow(row)
+    this.d.onWorktreesChanged?.(row.repoPath, machineId)
+    const issue = this.addComment(
+      row.id,
+      'system:stop',
+      `stop: freed worktree ${worktreePath}; branch '${branch}' kept for resume/inspect`,
+    )
+    this.emitEvent('issue.worktree_freed', row.id, {
+      seq: row.seq,
+      worktreePath,
+      branch,
+      forced: opts?.force === true,
+    })
+    return {
+      ok: true,
+      output: `freed ${worktreePath}; branch '${branch}' kept`,
+      issue,
+      worktreeFreed: true,
+    }
+  }
+
+  /**
+   * Ensure the issue's worktree exists on disk for the preserved branch
+   * [spec:SP-9904]. Used on resume after stop freed the working copy.
+   * Idempotent when the worktree is already present.
+   */
+  async ensureWorktree(
+    id: string,
+  ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
+    const row = this.rowOrThrow(id)
+    const machineId = row.machineId ?? undefined
+    if (row.worktreePath) {
+      const st = await this.d.repoOp('status', row.worktreePath, undefined, machineId)
+      if (st.ok) {
+        return {
+          ok: true,
+          output: 'worktree already present',
+          worktreePath: row.worktreePath,
+          issue: this.toWire(row),
+        }
+      }
+      // Path recorded but missing — fall through to recreate at the same path
+      // when possible, else the canonical path for the branch.
+      if (!/cannot change to .*: no such file or directory/i.test(st.output)) {
+        return {
+          ok: false,
+          output: `cannot inspect worktree: ${st.output}`,
+          worktreePath: row.worktreePath,
+          issue: this.toWire(row),
+        }
+      }
+    }
+    if (!row.branch) {
+      return {
+        ok: false,
+        output: 'no branch recorded — cannot recreate worktree',
+        worktreePath: null,
+        issue: this.toWire(row),
+      }
+    }
+    const path = row.worktreePath ?? this.worktreePathFor(row.repoPath, row.branch)
+    if (row.machineId) this.d.requireMachineForRepo?.(row.machineId, row.repoPath)
+    const res = await this.d.repoOp(
+      'worktreeAddExisting',
+      row.repoPath,
+      { path, branch: row.branch },
+      machineId,
+    )
+    if (!res.ok) {
+      return {
+        ok: false,
+        output: `worktree recreate failed: ${res.output}`,
+        worktreePath: null,
+        issue: this.toWire(row),
+      }
+    }
+    row.worktreePath = path
+    this.persistRow(row)
+    this.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
+    return {
+      ok: true,
+      output: `recreated worktree ${path} from branch '${row.branch}'`,
+      worktreePath: path,
+      issue: this.toWire(row),
+    }
   }
 
   /**

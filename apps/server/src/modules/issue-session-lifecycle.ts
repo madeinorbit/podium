@@ -26,6 +26,8 @@ export class IssueSessionLifecycle {
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
   deleteIssue(id: string): DeleteIssueResult {
+    // Full wire is intentional: no-op deletes return the public IssueWire, and
+    // projected membership is the cascade boundary this lifecycle owns.
     const current = this.deps.issues.get(id)
     if (!current) throw new Error(`unknown issue ${id}`)
     if (current.deletedAt) return { issue: current, deletedSessionIds: [] }
@@ -40,15 +42,17 @@ export class IssueSessionLifecycle {
       .filter((s) => !deletedIds.has(s.sessionId))
     const issuePlan = this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
 
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => {
         sessionPlan.write()
         issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
     })
+    const ledgerCursor = changes.at(-1)?.seq
+    if (ledgerCursor === undefined) throw new Error('issue/session delete committed no changes')
 
-    sessionPlan.apply()
+    sessionPlan.apply(changes, ledgerCursor)
     issuePlan.apply()
     this.deps.sessions.broadcastSessions()
     issuePlan.publish()
@@ -59,6 +63,7 @@ export class IssueSessionLifecycle {
    *  metadata returns as exited because the deletion deliberately killed the PTY;
    *  resumable sessions can then be started through the normal resurrection path. */
   restoreIssue(id: string): RestoreIssueResult {
+    // Full wire is intentional for the symmetric public/no-op return contract.
     const current = this.deps.issues.get(id)
     if (!current) throw new Error(`unknown issue ${id}`)
     if (!current.deletedAt) return { issue: current, restoredSessionIds: [] }
@@ -71,15 +76,17 @@ export class IssueSessionLifecycle {
     ]
     const issuePlan = this.deps.issues.prepareRestore(current.id, restoredSessions)
 
-    this.deps.ledger.commit({
+    const { changes } = this.deps.ledger.commit({
       write: () => {
         sessionPlan.write()
         issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
     })
+    const ledgerCursor = changes.at(-1)?.seq
+    if (ledgerCursor === undefined) throw new Error('issue/session restore committed no changes')
 
-    sessionPlan.apply()
+    sessionPlan.apply(changes, ledgerCursor)
     issuePlan.apply()
     this.deps.sessions.broadcastSessions()
     issuePlan.publish()

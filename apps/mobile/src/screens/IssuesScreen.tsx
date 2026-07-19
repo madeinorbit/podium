@@ -14,10 +14,12 @@ const STAGE_ORDER: IssueStage[] = [
   'review',
   'planning',
   'backlog',
+  'proposed',
   'done',
 ]
 
 const STAGE_LABEL: Record<IssueStage, string> = {
+  proposed: 'Proposed',
   backlog: 'Backlog',
   planning: 'Planning',
   in_progress: 'In progress',

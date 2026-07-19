@@ -6,7 +6,7 @@ import type {
   ResumeRef,
   TranscriptItem,
 } from '@podium/protocol'
-import type { TranscriptSource } from '@podium/transcript'
+import type { StatTick, TranscriptSource } from '@podium/transcript'
 import type { AgentStateEvent, AgentStateProvider } from '../agent-state/types.js'
 import type { ConversationProvider } from '../discovery/types.js'
 
@@ -159,6 +159,8 @@ export interface HarnessHeadless {
 
 export interface HarnessObserveInput {
   cwd: string
+  /** Daemon-owned shared cadence for transcript and native-state stat polls. */
+  statTick?: StatTick
   /** Stable Podium row identity whose native session this observer must find. */
   podiumSessionId?: string
   /** The known harness conversation id (resume / reattach / headless bind);

@@ -367,7 +367,7 @@ const stateAt = (
   phase: NonNullable<SessionMeta['agentState']>['phase'],
   extra: Record<string, unknown> = {},
 ) =>
-  ({ phase, since: '2026-06-12T10:00:00.000Z', openTaskCount: 0, ...extra }) as NonNullable<
+  ({ phase, since: '2026-06-12T10:00:00.000Z', nativeSubagentCount: 0, ...extra }) as NonNullable<
     SessionMeta['agentState']
   >
 const sessionWithState = (agentState?: SessionMeta['agentState']): SessionMeta => ({
@@ -482,7 +482,7 @@ describe('partitionWorkItems', () => {
     lastActiveAt: '2026-06-01T00:00:00.000Z',
     origin: { kind: 'spawn' },
     archived: false,
-    ...(phase != null ? { agentState: { phase, since: '', openTaskCount: 0 } } : {}),
+    ...(phase != null ? { agentState: { phase, since: '', nativeSubagentCount: 0 } } : {}),
   })
 
   it('partitions sessions by state and also lists pinned ones in pinnedPanels', () => {
@@ -568,13 +568,13 @@ describe('returnedFromSnooze', () => {
 describe('chatActivity', () => {
   it('shows Working… while the agent phase is working', () => {
     expect(
-      chatActivity(base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }), false),
+      chatActivity(base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }), false),
     ).toEqual({ label: 'Working…', tone: 'working' })
   })
   it('shows Compacting… while compacting', () => {
     expect(
       chatActivity(
-        base({ agentState: { phase: 'compacting', since: '', openTaskCount: 0 } }),
+        base({ agentState: { phase: 'compacting', since: '', nativeSubagentCount: 0 } }),
         false,
       ),
     ).toEqual({ label: 'Compacting…', tone: 'working' })
@@ -586,7 +586,7 @@ describe('chatActivity', () => {
           agentState: {
             phase: 'needs_user',
             since: '',
-            openTaskCount: 0,
+            nativeSubagentCount: 0,
             need: { kind: 'question' },
           },
         }),
@@ -602,12 +602,12 @@ describe('chatActivity', () => {
   })
   it('shows Sending… optimistically right after submit, before any signal', () => {
     expect(
-      chatActivity(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }), true),
+      chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), true),
     ).toEqual({ label: 'Sending…', tone: 'working' })
   })
   it('shows nothing when idle and not just-sent', () => {
     expect(
-      chatActivity(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } }), false),
+      chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), false),
     ).toBeNull()
     expect(chatActivity(undefined, false)).toBeNull()
   })
@@ -616,7 +616,7 @@ describe('chatActivity', () => {
 describe('sessionDotTone', () => {
   it('maps live phases to semantic tones', () => {
     expect(
-      sessionDotTone(base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } })),
+      sessionDotTone(base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } })),
     ).toBe('working')
     expect(
       sessionDotTone(
@@ -624,14 +624,14 @@ describe('sessionDotTone', () => {
           agentState: {
             phase: 'needs_user',
             since: '',
-            openTaskCount: 0,
+            nativeSubagentCount: 0,
             need: { kind: 'question' },
           },
         }),
       ),
     ).toBe('attention')
     expect(
-      sessionDotTone(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } })),
+      sessionDotTone(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } })),
     ).toBe('ready')
   })
 
@@ -645,7 +645,7 @@ describe('sessionDotTone', () => {
           agentState: {
             phase: 'needs_user',
             since: '',
-            openTaskCount: 0,
+            nativeSubagentCount: 0,
             need: { kind: 'question' },
           },
         }),
@@ -655,7 +655,7 @@ describe('sessionDotTone', () => {
       sessionDotTone(
         base({
           status: 'hibernated',
-          agentState: { phase: 'working', since: '', openTaskCount: 0 },
+          agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
         }),
       ),
     ).toBe('working')
@@ -669,7 +669,7 @@ describe('sessionDotTone', () => {
 describe('sessionDotClass', () => {
   it('keeps a live working dot static with the live tone', () => {
     const working = sessionDotClass(
-      base({ agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+      base({ agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
     )
     expect(working).not.toContain('dot-working')
     expect(working).toContain('bg-live')
@@ -677,7 +677,7 @@ describe('sessionDotClass', () => {
 
   it('does not animate a hibernated dot even if its last tone was working', () => {
     const cls = sessionDotClass(
-      base({ status: 'hibernated', agentState: { phase: 'working', since: '', openTaskCount: 0 } }),
+      base({ status: 'hibernated', agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
     )
     expect(cls).toContain('parked')
     expect(cls).not.toContain('dot-working')
@@ -685,7 +685,7 @@ describe('sessionDotClass', () => {
 
   it('does not animate non-working tones', () => {
     expect(
-      sessionDotClass(base({ agentState: { phase: 'idle', since: '', openTaskCount: 0 } })),
+      sessionDotClass(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } })),
     ).not.toContain('dot-working')
   })
 })
@@ -694,12 +694,12 @@ describe('pinned panel ordering & co-location', () => {
   const work = (cwd: string, id: string): SessionMeta => ({
     ...session(cwd),
     sessionId: id,
-    agentState: { phase: 'working', since: '', openTaskCount: 0 },
+    agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
   })
   const needs = (cwd: string, id: string): SessionMeta => ({
     ...session(cwd),
     sessionId: id,
-    agentState: { phase: 'needs_user', since: '', openTaskCount: 0, need: { kind: 'question' } },
+    agentState: { phase: 'needs_user', since: '', nativeSubagentCount: 0, need: { kind: 'question' } },
   })
 
   it('orders pinned panels by agent state, not pin-insertion order (#105)', () => {
@@ -725,7 +725,7 @@ const withState = (
   agentState: {
     phase,
     since: '2026-06-19T00:00:00.000Z',
-    openTaskCount: 0,
+    nativeSubagentCount: 0,
     ...extra,
   } as NonNullable<SessionMeta['agentState']>,
 })

@@ -21,7 +21,9 @@ const RELAY_ALLOWED: Record<string, Set<string> | null> = {
   // title = the agent naming its OWN session (#490): it carries no sessionId, the
   // target is the CALLING session (bound from the capability), and the user's own
   // name always wins — so it grants no reach over any other session.
-  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title']),
+  // stop = clean end + free worktree keep branch [spec:SP-9904]; self/subtree
+  // free, outside needs --outside-scope (gated in the dispatch arm).
+  sessions: new Set(['sendText', 'resumeAndSend', 'continue', 'status', 'read', 'title', 'stop']),
   // Unified messaging (#237) [spec:SP-34d7]: podium mail, cross-harness child
   // spawn/bounded await, and the stop-hook's single-reminder query. Sender and
   // parent identity are stamped from the capability; MessageGate owns target-
@@ -72,6 +74,15 @@ export interface AgentRelayGateDeps {
   ): Promise<unknown> | undefined
   capabilityForSession(sessionId: string): Capability
   toMachine(machineId: string, msg: ControlMessage): void
+  /**
+   * After a successful agentRelayResult is on the wire. Used to arm self-stop
+   * kill only once the CLI has received the reply [spec:SP-9904] — never a
+   * fixed timer inside the stop helper.
+   */
+  afterSuccessfulReply?(
+    msg: Extract<DaemonMessage, { type: 'agentRelayRequest' }>,
+    result: unknown,
+  ): void
 }
 
 /**
@@ -135,7 +146,10 @@ export class AgentRelayGate {
         reply({ ok: false, error: `no such procedure: ${msg.router}.${msg.proc}` })
         return
       }
-      reply({ ok: true, result: await result })
+      const value = await result
+      // Reply FIRST so the agent CLI observes success before any self-stop kill.
+      reply({ ok: true, result: value })
+      this.deps.afterSuccessfulReply?.(msg, value)
     } catch (err) {
       reply({ ok: false, error: err instanceof Error ? err.message : String(err) })
     }

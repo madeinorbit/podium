@@ -66,7 +66,7 @@ export interface IssuePublishSpecs {
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
  *  this long after it was read. Reading starts the clock; unread issues wait. */
-export const AUTO_ARCHIVE_READ_WINDOW_MS = 24 * 60 * 60 * 1000
+export const AUTO_ARCHIVE_READ_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Manual unsnooze backdate (issue #133): `undefer` sets deferUntil this far in the
  *  past rather than to exactly "now". The sidebar reads snooze state off a coarse
@@ -120,6 +120,26 @@ export interface DepReportEntry {
   dependents: DepReportRef[]
 }
 
+/**
+ * Compact session row on an issue-tree node [spec:SP-99d3]. Enough for an agent
+ * to see sibling sessions before spawn — not a full SessionMeta.
+ */
+export interface IssueTreeSession {
+  sessionId: string
+  /** Human-facing session ref when known (e.g. POD-966-A). */
+  displayRef?: string
+  /** Curated name, else live terminal title. */
+  label?: string
+  agentKind: string
+  model?: string
+  /** PTY/process status: starting | live | reconnecting | hibernated | exited. */
+  status: string
+  /** Agent phase when known (working | idle | needs_user | …). */
+  phase?: string
+  /** True when this session is the issue's designated coordinator. */
+  coordinator?: boolean
+}
+
 /** One node of an epic subtree payload — see tree() (issue #82). */
 export interface IssueTreeNode {
   id: string
@@ -139,6 +159,8 @@ export interface IssueTreeNode {
   closed: boolean
   blocked: boolean
   ready: boolean
+  /** Sessions currently on this issue (siblings), compact [spec:SP-99d3]. */
+  sessions: IssueTreeSession[]
   children: IssueTreeNode[]
   /** Direct children omitted here by the depth/node cap ('(+N more)' in the CLI). */
   omittedChildren: number
@@ -169,12 +191,20 @@ export interface IssueDeps {
     agentKind?: string
     model?: string
     effort?: string
+    accountId?: string
     /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
     forceUnknownModel?: boolean
     initialPrompt?: string
     spawnedBy?: string
     machineId?: string
-  }): { sessionId: string }
+  }): {
+    sessionId: string
+    agentId?: string
+    harness?: string
+    model?: string | null
+    effort?: string | null
+    machine?: string
+  }
   repoOp(
     op: RepoOp,
     cwd: string,
@@ -236,6 +266,9 @@ export interface CreateIssueInput {
   repoPath: string
   title: string
   description?: string
+  brief?: string
+  /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
+  stage?: 'proposed' | 'backlog'
   parentBranch?: string
   defaultAgent?: string
   defaultModel?: string
@@ -261,6 +294,10 @@ export interface CreateIssueInput {
    *  `iss_${uuid}`, so an optimistic client row reconciles onto the real issue
    *  without a swap. Absent = mint one (unchanged default behavior). */
   id?: string
+  /** Bare session id of the creating agent session (started-by provenance).
+   *  Stamped by the registry from the authenticated actor; null/absent for
+   *  operator creates. Not client-forgeable via tRPC input. */
+  startedBySession?: string | null
 }
 
 /** The row fields update() accepts — every mutation entry point (router, CLI/MCP
@@ -270,6 +307,7 @@ export type IssuePatch = Partial<
     IssueRow,
     | 'title'
     | 'description'
+    | 'brief'
     | 'stage'
     | 'worktreePath'
     | 'branch'
@@ -299,5 +337,6 @@ export type IssuePatch = Partial<
     | 'humanQuestionOptions'
     | 'humanQuestionAskedBy'
     | 'humanQuestionAskedAt'
+    | 'coordinatorSessionId'
   >
 >

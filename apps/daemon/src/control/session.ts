@@ -23,6 +23,10 @@ import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sourceForRead } from './transcripts'
 
+const DRAFT_SYNC_HARNESS_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
+  codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
+}
+
 /**
  * Env vars bound into EVERY spawned agent so its `podium` CLI can reach the
  * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
@@ -87,6 +91,12 @@ export function wireBridge(
   session.onFrame((frame) => {
     countFrame(frame.data.length)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
+    // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
+    // running for this (flagged) session. Guarded so unflagged sessions skip the
+    // base64 decode entirely.
+    if (ctx.composerEngine.has(sessionId)) {
+      ctx.composerEngine.onData(sessionId, Buffer.from(frame.data, 'base64'))
+    }
   })
   // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
   // frame-rate), which would clobber the real title the codex observer derives
@@ -97,6 +107,7 @@ export function wireBridge(
   }
   session.onExit((code) => {
     ctx.bridges.delete(sessionId)
+    ctx.composerEngine.detach(sessionId)
     ctx.durableLabels.delete(sessionId)
     ctx.outputScheduler.remove(sessionId)
     ctx.sessionCwdTracker.clear(sessionId)
@@ -192,6 +203,11 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
           // Globally-installed hooks are env-gated per session by their adapter.
           // Commands exit immediately when absent, so non-Podium runs are untouched.
           ...instrumentationEnv,
+          // Draft Sync v2 (POD-859): kitty keyboard enhancement doubles
+          // Enter/Backspace (openai/codex#8324), which would corrupt the engine's
+          // synthetic keystrokes. Disable it for flagged codex sessions only, so
+          // flag-off codex behavior is byte-for-byte unchanged.
+          ...(msg.draftSync ? (DRAFT_SYNC_HARNESS_ENV[msg.agentKind] ?? {}) : {}),
         },
       }),
     }
@@ -209,6 +225,11 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
     })
+    // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
+    // session. attach() is a no-op for harnesses without a driver.
+    if (msg.draftSync) {
+      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
+    }
     ctx.send({
       type: 'bind',
       sessionId: msg.sessionId,
@@ -216,6 +237,7 @@ function spawn(ctx: DaemonContext, msg: SpawnControl): void {
       cwd: cmd.cwd,
       agentKind: msg.agentKind,
       geometry: msg.geometry,
+      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
     })
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
@@ -239,6 +261,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       ctx.backend === 'tmux'
         ? `tmux -L ${msg.durableLabel} attach`
         : `abduco -a ${msg.durableLabel}`
+    // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
+    // covers a runtime flag flip since the original spawn).
+    if (msg.draftSync) {
+      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
+    }
     ctx.send({
       type: 'bind',
       sessionId: msg.sessionId,
@@ -246,6 +273,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       cwd: msg.cwd,
       agentKind: msg.agentKind,
       geometry: msg.geometry,
+      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
     })
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
@@ -265,8 +293,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
     // read the newest window now and push it as a reset delta. Best-effort; a read
     // failure just leaves the buffer to refill from live deltas.
-    void (async () => {
+    void ctx.tailSeedGate(async () => {
       try {
+        // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
+        // Keep bind/state/redraw above immediate, but pace the allocation-heavy
+        // transcript read/parse/reset-send through the existing seed gate.
         const source = await sourceForRead(ctx, msg)
         const res = await source.readSlice({ direction: 'before', limit: 2000 })
         if (res.items.length > 0) {
@@ -281,7 +312,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       } catch (err) {
         console.warn(`[podium] reattach re-seed failed for ${msg.sessionId}:`, err)
       }
-    })()
+    }, ctx.outputScheduler.priorityOf(msg.sessionId))
     return
   }
   await ctx.reattachGate(async () => {
@@ -330,6 +361,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
+    if (msg.draftSync) {
+      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
+    }
     ctx.send({
       type: 'bind',
       sessionId: msg.sessionId,
@@ -337,6 +371,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       cwd: msg.cwd,
       agentKind: msg.agentKind,
       geometry: msg.geometry,
+      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
     })
   })
 }
@@ -349,6 +384,7 @@ export const sessionHandlers: Pick<
   | 'input'
   | 'resize'
   | 'redraw'
+  | 'draftTarget'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
   | 'sessionOpenUrlCallback'
@@ -388,9 +424,17 @@ export const sessionHandlers: Pick<
   },
   input: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.write(msg.data)
+    // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
+    // replica is hot, so the engine defers injection. No-op for unflagged sessions.
+    ctx.composerEngine.onInputByte(msg.sessionId)
   },
   resize: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.resize(msg.cols, msg.rows)
+    ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
+  },
+  draftTarget: (ctx, msg) => {
+    // A chat-originated draft to mirror into the native composer (POD-859 phase 4).
+    ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
     ctx.bridges.get(msg.sessionId)?.redraw()

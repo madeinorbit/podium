@@ -9,6 +9,13 @@ const STATUS = {
   agentKind: 'claude-code',
   status: 'live',
   phase: 'working',
+  machine: 'buildbox',
+  model: 'claude-opus-4-8',
+  effort: 'high',
+  account: 'native:claude-code',
+  error: null,
+  draft: true,
+  nativeSubagentCount: 2,
   issue: { seq: 7, stage: 'in_progress', title: 'T', todos: ['[ ] a'] },
   commits: ['abc123 feat: x'],
   files: ['## branch', ' M a.ts'],
@@ -42,17 +49,25 @@ function client(
   result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true },
   ask: unknown = ASK,
   title: { ok: boolean; name?: string; reason?: string } = { ok: true, name: 'Named thing' },
+  status: unknown = STATUS,
+  stop: {
+    ok: boolean
+    reason?: string
+    worktreeFreed?: boolean
+    deferredKill?: boolean
+  } = { ok: true, worktreeFreed: true, deferredKill: true },
 ) {
   return {
     sessions: {
       sendText: { mutate: vi.fn(async () => result) },
       resumeAndSend: { mutate: vi.fn(async () => result) },
       continue: { mutate: vi.fn(async () => result) },
-      status: { query: vi.fn(async (): Promise<unknown> => STATUS) },
+      status: { query: vi.fn(async (): Promise<unknown> => status) },
       read: { query: vi.fn(async (): Promise<unknown> => READ) },
       recap: { query: vi.fn(async (): Promise<unknown> => RECAP) },
       ask: { mutate: vi.fn(async (): Promise<unknown> => ask) },
       title: { mutate: vi.fn(async () => title) },
+      stop: { mutate: vi.fn(async () => stop) },
     },
   } satisfies SessionControlClient
 }
@@ -107,6 +122,47 @@ describe('podium session CLI', () => {
   })
 })
 
+// [spec:SP-9904] — clean end; no id = self-stop.
+describe('podium session stop [spec:SP-9904]', () => {
+  it('self-stop sends no sessionId and reports deferred kill + worktree free', async () => {
+    const c = client()
+    const out = await runSessionCli(['stop'], c, { hasRelay: true })
+    expect(c.sessions.stop.mutate).toHaveBeenCalledWith({})
+    expect(out).toContain('stopped this session')
+    expect(out).toContain('worktree freed')
+    expect(out).toContain('after this turn')
+  })
+
+  it('stop with an id targets that session and passes --force', async () => {
+    const c = client()
+    await runSessionCli(['stop', 's9', '--force'], c)
+    expect(c.sessions.stop.mutate).toHaveBeenCalledWith({ sessionId: 's9', force: true })
+  })
+
+  it('self-stop without relay is refused', async () => {
+    await expect(runSessionCli(['stop'], client(), { hasRelay: false })).rejects.toThrow(
+      /PODIUM_AGENT_RELAY is not set/,
+    )
+  })
+
+  it('surfaces a refused stop (unsaved work)', async () => {
+    const c = client(
+      { ok: true },
+      ASK,
+      { ok: true, name: 'x' },
+      STATUS,
+      { ok: false, reason: 'refusing stop: unsaved changes' },
+    )
+    await expect(runSessionCli(['stop', 's1'], c)).rejects.toThrow(/unsaved changes/)
+  })
+
+  it('documents stop in help', async () => {
+    const out = await runSessionCli(['help'], client())
+    expect(out).toContain('stop [<session-id>]')
+    expect(out).toContain('--force')
+  })
+})
+
 // #490 — `podium session title "…"`. The one session command with no session id:
 // the server binds the CALLING session from the relay capability.
 describe('podium session title (#490)', () => {
@@ -154,10 +210,27 @@ describe('podium session status/read (#237 read toolkit)', () => {
     const out = await runSessionCli(['status', 's1'], c)
     expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 's1' })
     expect(out).toContain('live/working')
+    expect(out).toContain('machine=buildbox model=claude-opus-4-8 effort=high')
+    expect(out).toContain('account=native:claude-code')
+    expect(out).toContain('nativeSubagentCount=2 draft=yes')
     expect(out).toContain('issue #7 [in_progress] T')
     expect(out).toContain('abc123 feat: x')
     expect(out).toContain('unacked messages: 2')
     expect(out).not.toContain('transcript')
+  })
+
+  it('status visibly renders error state details', async () => {
+    const c = client(undefined, undefined, undefined, {
+      ...STATUS,
+      phase: 'errored',
+      error: { class: 'rate_limit', retryable: true },
+      draft: false,
+      nativeSubagentCount: 0,
+    })
+    const out = await runSessionCli(['status', 's1'], c)
+    expect(out).toContain('live/errored')
+    expect(out).toContain('error: rate_limit (retryable)')
+    expect(out).toContain('nativeSubagentCount=0 draft=no')
   })
 
   it('status accepts an issue ref and needs exactly one positional', async () => {

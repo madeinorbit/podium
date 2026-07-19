@@ -47,6 +47,18 @@ describe('agentLaunchCommand', () => {
     })
   })
 
+  it('binds imported hook compatibility ids for Podium Grok sessions', () => {
+    expect(
+      agentLaunchCommand('grok', {
+        cwd: '/w',
+        podiumSessionId: 'podium-session-1',
+      }).env,
+    ).toEqual({
+      HARNESS_TERMINAL_ID: 'podium-session-1',
+      CLAUDE_HARNESS_ID: 'podium-session-1',
+    })
+  })
+
   it('resumes grok by session id', () => {
     expect(
       agentLaunchCommand('grok', { cwd: '/w', resume: { kind: 'grok-session', value: 'g9' } }),

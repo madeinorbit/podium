@@ -18,9 +18,15 @@ const sendInput = z.object({
   body: z.string().min(1).max(32_768),
   urgency: z.enum(['fyi', 'next-turn', 'interrupt']).optional(),
   lifecycle: z.enum(['wait', 'wake']).optional(),
+  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Off = receipt-only, no
+   *  ack traffic (receipt is proven by the ledger). A `question` implies it. */
+  expectResponse: z.boolean().optional(),
+  /** Explicit absolute expiry (ISO-8601). CLI `--expires-in` converts a duration. */
+  expiresAt: z.string().datetime().optional(),
 })
 const inboxInput = z.object({ issue: z.string().optional() }).optional()
 const showInput = z.object({ id: z.string() })
+const dismissInput = z.object({ id: z.string() })
 // The web ledger view (#237) [spec:SP-34d7 web]: per-issue / per-session
 // delivery ledger. Operator-only — it exposes other principals' traffic.
 const ledgerInput = z.object({
@@ -93,6 +99,7 @@ export interface MessageGateDeps {
     initialPrompt?: string
     model?: string
     effort?: string
+    accountId?: string
     forceUnknownModel?: boolean
     issueId?: string
     spawnedBy?: string
@@ -102,7 +109,16 @@ export interface MessageGateDeps {
     workflowRunId?: string
     workflowStepId?: string
     executionProfileId?: string
-  }): { sessionId: string }
+  }): {
+    sessionId: string
+    agentId?: string
+    harness?: string
+    model?: string | null
+    effort?: string | null
+    machine?: string
+    machineId?: string
+    accountId?: string | null
+  }
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
   resolveExecutionProfile?(input: { profileId: string; runId?: string; stepId?: string }): {
@@ -127,6 +143,13 @@ export interface MessageGateDeps {
   sleep?(ms: number): Promise<void>
   awaitPollMs?: number
   now?(): string
+  /**
+   * Consume a notification_facts claim (POD-917/POD-923): when a parent
+   * await observes its child settled, clear `sessionparentnudge:phase-reported`
+   * so a later genuine re-completion can re-wake once. Optional — absent in
+   * partial test harnesses; never required for await correctness.
+   */
+  retireNotificationFact?(factKey: string, target: string): void
 }
 
 /** The wire shape `podium mail` renders. */
@@ -156,6 +179,9 @@ export interface MessageWire {
   // "what happened to my message" answer that `podium mail status` renders.
   readAt: string | null
   deadLetteredAt: string | null
+  /** A reply was requested [POD-835 §04b]: the recipient owes a response and the
+   *  settle-nag will fire if none comes. Lets a reader see it must reply. */
+  expectsResponse: boolean
 }
 
 export class MessageGate {
@@ -176,6 +202,8 @@ export class MessageGate {
         return Promise.resolve().then(() => this.inbox(caller, inboxInput.parse(input)))
       case 'show':
         return Promise.resolve().then(() => this.show(caller, showInput.parse(input)))
+      case 'dismiss':
+        return Promise.resolve().then(() => this.dismiss(caller, dismissInput.parse(input)))
       case 'status':
         return Promise.resolve().then(() => this.status(caller, statusInput.parse(input)))
       case 'ledger':
@@ -195,10 +223,10 @@ export class MessageGate {
     }
   }
 
-  private send(
+  private async send(
     caller: { capability: Capability; overrideScope?: boolean },
     input: z.infer<typeof sendInput>,
-  ): unknown {
+  ): Promise<unknown> {
     const svc = this.deps.messages()
     const to = this.resolveRecipient(input.to)
     if (to.kind === 'session') {
@@ -213,16 +241,39 @@ export class MessageGate {
       // write access to the target issue.
       checkIssueAccess(caller, this.deps.issues(), 'messages.send', 'write', to.id)
     }
-    const r = svc.send(senderFromCapability(caller.capability), {
-      to,
-      body: input.body,
-      ...(input.urgency ? { urgency: input.urgency } : {}),
-      ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
-    })
+    // Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
+    // surface waits for the trustworthy outcome — interrupt until delivered
+    // (transcript-observed), next-turn until delivered within a budget then
+    // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
+    // that provably vanished. Only THIS surface blocks; internal sends use send().
+    // Capture the poll seams as consts so the `now` adapter narrows without a
+    // non-null assertion (tests inject a fake clock/sleep; production uses timers).
+    const { sleep, awaitPollMs } = this.deps
+    const nowIso = this.deps.now
+    const r = await svc.sendAndConfirm(
+      senderFromCapability(caller.capability),
+      {
+        to,
+        body: input.body,
+        ...(input.urgency ? { urgency: input.urgency } : {}),
+        ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
+        ...(input.expectResponse ? { expectsResponse: true } : {}),
+        ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+      },
+      {
+        ...(awaitPollMs !== undefined ? { pollMs: awaitPollMs } : {}),
+        ...(sleep ? { sleep } : {}),
+        ...(nowIso ? { now: () => Date.parse(nowIso()) } : {}),
+      },
+    )
+    // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
+    // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
+    // `delivered`, so it must not still report `queued: true` alongside it.
+    const queued = r.queued === true && r.disposition === 'delivered' ? false : r.queued
     return {
       id: r.message.id,
       ok: r.ok,
-      ...(r.queued !== undefined ? { queued: r.queued } : {}),
+      ...(queued !== undefined ? { queued } : {}),
       ...(r.reason !== undefined ? { reason: r.reason } : {}),
       // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
       // hidden behind a bare "queued" success.
@@ -230,6 +281,9 @@ export class MessageGate {
       urgency: r.message.urgency,
       lifecycle: r.message.lifecycle,
       ...(r.message.clampedFrom ? { clamped: true } : {}),
+      // Confirm a response was requested [POD-835 §04b] so the sender knows a reply
+      // (and a settle-nag if none) is expected — otherwise receipt is mechanical.
+      ...(r.message.expectsResponse ? { expectsResponse: true } : {}),
     }
   }
 
@@ -289,6 +343,19 @@ export class MessageGate {
       throw new Error('not allowed to view a message you neither sent nor received')
     }
     return this.wire(m)
+  }
+
+  private dismiss(
+    caller: { capability: Capability },
+    input: z.infer<typeof dismissInput>,
+  ): MessageWire {
+    const svc = this.deps.messages()
+    const message = svc.message(input.id)
+    if (!message) throw new Error('unknown message ' + input.id)
+    if (caller.capability.scope.kind !== 'all' && !this.isRecipient(caller.capability, message)) {
+      throw new Error('only the recipient of a message may dismiss it')
+    }
+    return this.wire(svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
   }
 
   /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web]:
@@ -369,7 +436,7 @@ export class MessageGate {
       // otherwise --repo names the repository explicitly.
       const scopeIssue =
         caller.capability.scope.kind === 'subtree'
-          ? issues.get(caller.capability.scope.rootId ?? '')
+          ? issues.getMeta(caller.capability.scope.rootId ?? '')
           : null
       const repoPath = input.repo ?? scopeIssue?.repoPath
       if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
@@ -383,7 +450,7 @@ export class MessageGate {
     } else {
       throw new Error('pass --issue <ref> or --new "title"')
     }
-    const issue = issues.get(issueId)
+    const issue = issues.getMeta(issueId)
     if (!issue) throw new Error(`unknown issue ${issueId}`)
     // Brake 2 applies to DIRECT agent spawns too [spec:SP-34d7 containment]:
     // the same per-issue daily budget as the spawn-on-wake seam, or a looping
@@ -426,7 +493,7 @@ export class MessageGate {
     const model = profile?.model ?? input.model
     const effort = profile?.effort ?? input.effort
     const machineId = profile?.machineId ?? issue.machineId
-    const { sessionId } = this.deps.spawnSession({
+    const spawned = this.deps.spawnSession({
       cwd,
       agentKind: harness,
       initialPrompt: input.prompt,
@@ -434,6 +501,7 @@ export class MessageGate {
       spawnedBy,
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
+      ...(profile ? { accountId: profile.accountId } : {}),
       ...(input.force ? { forceUnknownModel: true } : {}),
       ...(machineId ? { machineId } : {}),
       // CLI `--title` → curated name slot (not derived title) [spec:SP-4ef9][spec:SP-eb60].
@@ -442,6 +510,13 @@ export class MessageGate {
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
       ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
     })
+    const sessionId = spawned.sessionId
+    const actualHarness = spawned.harness ?? harness
+    const actualModel = spawned.model === undefined ? model : (spawned.model ?? undefined)
+    const actualEffort = spawned.effort === undefined ? effort : (spawned.effort ?? undefined)
+    const actualMachineId = spawned.machineId ?? machineId
+    const actualAccountId =
+      spawned.accountId === undefined ? profile?.accountId : (spawned.accountId ?? undefined)
     try {
       this.deps.appendEvent?.({
         ts: this.deps.now?.() ?? new Date().toISOString(),
@@ -454,26 +529,40 @@ export class MessageGate {
           // budgetIssue rides the durable event so brake 2 survives restarts
           // (spawnCountFor counts it); absent on unbudgeted operator spawns.
           ...(budgeted ? { budgetIssue: issueId } : {}),
-          harness,
-          ...(model ? { model } : {}),
-          ...(effort ? { effort } : {}),
-          ...(machineId ? { machineId } : {}),
-          ...(profile ? { accountId: profile.accountId } : {}),
+          harness: actualHarness,
+          ...(actualModel ? { model: actualModel } : {}),
+          ...(actualEffort ? { effort: actualEffort } : {}),
+          ...(actualMachineId ? { machineId: actualMachineId } : {}),
+          ...(actualAccountId ? { accountId: actualAccountId } : {}),
           ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
           ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
           ...(input.executionProfileId ? { executionProfileId: input.executionProfileId } : {}),
         },
       })
     } catch {}
-    return { ok: true, sessionId, issueId, issueSeq: issue.seq, cwd }
+    return {
+      ok: true,
+      sessionId,
+      issueId,
+      issueSeq: issue.seq,
+      cwd,
+      agentId: spawned.agentId ?? sessionId,
+      harness: actualHarness,
+      model: actualModel ?? null,
+      effort: actualEffort ?? null,
+      machine: spawned.machine ?? actualMachineId ?? null,
+    }
   }
 
   /**
-   * `podium agent await <sessionId>`: bounded wait for the child. Returns the
-   * child's ack (a `kind: ack` row from that session addressed back to the
-   * caller since the wait began) or its settle state — or, at the deadline,
-   * "still working" plus a status snapshot. NEVER hangs (every wait bounded —
-   * the codex-plugin-cc lesson).
+   * `podium agent await <sessionId>`: bounded wait for the child. Returns an
+   * actionable result the parent can branch on — never a false "still working"
+   * when the child is blocked, done, or gone (docs/agent-comms-target.html
+   * §09-D/§09-E; overnight-stall fix). NEVER hangs (every wait bounded).
+   *
+   * Precedence each poll: (1) session missing → gone; (2) fresh ack since
+   * waitStart → acked; (3) phase/status → blocked | done | gone (exited with no
+   * report); (4) deadline → working. Only acks since waitStart count.
    */
   private async awaitAgent(
     caller: { capability: Capability; overrideScope?: boolean },
@@ -500,29 +589,60 @@ export class MessageGate {
     // biome-ignore lint/nursery/noConstantCondition: loop exits via return
     for (;;) {
       const s = this.deps.listSessions().find((x) => x.sessionId === input.sessionId)
-      if (!s) return { done: true, result: 'gone', snapshot: null }
+      if (!s) {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'gone',
+          snapshot: null,
+        })
+      }
       // Rich agent ack first (it carries WHAT the child did): the child's most
-      // recent ack addressed back to this caller since the wait began.
+      // recent ack addressed back to this caller since the wait began. Wins over
+      // exit/settle classification — reported-then-exited is acked, not gone.
       const ack = svc
         .inbox(principals, { limit: 50 })
         .filter(
           (m) => m.kind === 'ack' && m.fromSession === input.sessionId && m.createdAt >= waitStart,
         )
         .at(-1)
-      if (ack) return { done: true, result: 'acked', ack: this.wire(ack), snapshot: snap(s) }
-      // … else a settle (parked, or the harness reports a settled phase).
-      const phase = s.agentState?.phase
-      if (
-        s.status === 'hibernated' ||
-        s.status === 'exited' ||
-        phase === 'idle' ||
-        phase === 'needs_user' ||
-        phase === 'errored' ||
-        phase === 'ended'
-      ) {
-        return { done: true, result: 'settled', snapshot: snap(s) }
+      if (ack) {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'acked',
+          ack: this.wire(ack),
+          snapshot: snap(s),
+        })
       }
-      if (Date.now() >= deadline) return { done: false, result: 'working', snapshot: snap(s) }
+      // Actionable phase/status — parent must never read these as "working".
+      const phase = s.agentState?.phase
+      // Exit without a fresh report: process gone, nothing for the parent to
+      // re-prompt on this session (the other overnight-stall case).
+      if (s.status === 'exited') {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'gone',
+          snapshot: snap(s),
+        }, phase, s.status)
+      }
+      // Blocked: needs parent/human (question menu) or escalation (error).
+      if (phase === 'needs_user' || phase === 'errored') {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'blocked',
+          snapshot: snap(s),
+        }, phase, s.status)
+      }
+      // Clean finish: idle/ended harness phase, or hibernated (parked cleanly).
+      if (s.status === 'hibernated' || phase === 'idle' || phase === 'ended') {
+        return this.finishAwait(isParent, caller, input.sessionId, {
+          done: true,
+          result: 'done',
+          snapshot: snap(s),
+        }, phase, s.status)
+      }
+      if (Date.now() >= deadline) {
+        return { done: false, result: 'working', snapshot: snap(s) }
+      }
       await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
     }
     function snap(s: SessionMeta) {
@@ -530,12 +650,62 @@ export class MessageGate {
         sessionId: s.sessionId,
         status: s.status,
         ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
+        // Carry need/error so a blocked parent can act without a second lookup.
+        ...(s.agentState?.need ? { need: s.agentState.need } : {}),
+        ...(s.agentState?.error ? { error: s.agentState.error } : {}),
         title: s.title,
         ...(s.issueId ? { issueId: s.issueId } : {}),
         ...(s.lastActiveAt ? { lastActiveAt: s.lastActiveAt } : {}),
         ...(s.queuedMessageCount ? { queuedMessageCount: s.queuedMessageCount } : {}),
       }
     }
+  }
+
+  /**
+   * Parent-await consume-on-ack (POD-917/POD-923): when the caller is the child's
+   * session parent and the await observed a settled/terminal state, retire the
+   * session-parent wake sticky so a later genuine re-completion can re-fire once.
+   * Never throws — missing dep or store errors must not break await.
+   */
+  private finishAwait(
+    isParent: boolean,
+    caller: { capability: Capability },
+    childSessionId: string,
+    outcome: { done: boolean; result: string; snapshot: unknown; ack?: unknown },
+    phase?: string,
+    status?: string,
+  ): { done: boolean; result: string; snapshot: unknown; ack?: unknown } {
+    if (isParent && this.shouldConsumeSessionParentSettle(outcome.result, phase, status)) {
+      const parentId = caller.capability.actorSessionId
+      if (parentId) {
+        try {
+          this.deps.retireNotificationFact?.(
+            `sessionparentnudge:phase-reported:${childSessionId}`,
+            parentId,
+          )
+        } catch {
+          // never throw from await
+        }
+      }
+    }
+    return outcome
+  }
+
+  /** Settled/terminal outcomes that mean the parent has observed the child settle. */
+  private shouldConsumeSessionParentSettle(
+    result: string,
+    phase?: string,
+    status?: string,
+  ): boolean {
+    if (result === 'settled' || result === 'done' || result === 'gone') return true
+    // Parent observed via rich ack (still a consume of the settle wake).
+    if (result === 'acked') return true
+    // result === 'blocked' with terminal error phase (parent nudge fires on errored).
+    if (phase === 'idle' || phase === 'ended' || phase === 'errored' || phase === 'exited') {
+      return true
+    }
+    if (status === 'exited' || status === 'hibernated') return true
+    return false
   }
 
   /**
@@ -670,7 +840,7 @@ export class MessageGate {
     const label = (kind: string, issueId: string | null, sessionId: string | null): string => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
-          const issue = issues.get(issueId)
+          const issue = issues.getMeta(issueId)
           if (issue) return `issue:#${issue.seq}`
           return issueId
         }
@@ -706,6 +876,7 @@ export class MessageGate {
       hop: m.hop,
       readAt: m.readAt ?? null,
       deadLetteredAt: m.deadLetteredAt ?? null,
+      expectsResponse: m.expectsResponse ?? false,
     }
   }
 }

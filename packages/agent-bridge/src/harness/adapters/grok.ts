@@ -87,6 +87,16 @@ export const grokAdapter: HarnessAdapter = {
         ...(opts.initialPrompt?.trim() ? [opts.initialPrompt] : []),
       ],
       cwd: opts.cwd,
+      // Grok imports compatible Claude hooks and validates their referenced env vars.
+      // Give those hooks the same stable per-session identity Podium uses.
+      ...(opts.podiumSessionId
+        ? {
+            env: {
+              HARNESS_TERMINAL_ID: opts.podiumSessionId,
+              CLAUDE_HARNESS_ID: opts.podiumSessionId,
+            },
+          }
+        : {}),
     }
   },
 
@@ -135,6 +145,7 @@ export const grokAdapter: HarnessAdapter = {
   observer(input, host) {
     const obs = observeGrokState({
       cwd: input.cwd,
+      ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { minAvailableSeq } from './change-log'
+import { minAvailableSeq, pruneChangeLog } from './change-log'
 import {
   ensureFeedIdentity,
   type FeedIdentity,
@@ -146,30 +146,30 @@ describe('minAvailableSeq (ADR 2 D5)', () => {
     expect(minAvailableSeq(createTestSyncRepository())).toBe(1)
   })
 
-  it('is the lowest RETAINED seq once rows exist', () => {
+  it('is the lowest RETAINED seq once rows exist', async () => {
     const repo = createTestSyncRepository()
     append(repo, 5)
     expect(minAvailableSeq(repo)).toBe(1)
-    repo.pruneChanges({ keepRows: 2, maxAgeMs: Number.MAX_SAFE_INTEGER, now: 1_000 })
+    await pruneChangeLog(repo, { keepRows: 2, maxAgeMs: Number.MAX_SAFE_INTEGER, now: 1_000 })
     expect(minAvailableSeq(repo)).toBe(4)
   })
 
-  it('is max + 1 when the log is FULLY pruned — not 0, and not a null every caller must special-case', () => {
+  it('is max + 1 when the log is FULLY pruned — not 0, and not a null every caller must special-case', async () => {
     const repo = createTestSyncRepository()
     append(repo, 3, 1_000)
     // Age every row out. maxChangeSeq survives via sqlite_sequence; the rows do not.
-    repo.pruneChanges({ keepRows: 20_000, maxAgeMs: 1, now: 10_000 })
+    await pruneChangeLog(repo, { keepRows: 20_000, maxAgeMs: 1, now: 10_000 })
     expect(repo.minChangeSeq()).toBeNull()
     expect(repo.maxChangeSeq()).toBe(3)
     expect(minAvailableSeq(repo)).toBe(4)
   })
 
-  it('AGREES with the servability rule it advertises: cursor + 1 >= minAvailableSeq iff a delta is served', () => {
+  it('AGREES with the servability rule it advertises: cursor + 1 >= minAvailableSeq iff a delta is served', async () => {
     // The number is only worth publishing if a replica acting on it reaches the
     // same verdict the authority would. Sweep every cursor against both.
     const repo = createTestSyncRepository()
     append(repo, 6)
-    repo.pruneChanges({ keepRows: 3, maxAgeMs: Number.MAX_SAFE_INTEGER, now: 1_000 })
+    await pruneChangeLog(repo, { keepRows: 3, maxAgeMs: Number.MAX_SAFE_INTEGER, now: 1_000 })
     const ledger = new Ledger({ repo, now: () => 1_000, transact: (fn) => fn() })
     const horizon = ledger.minAvailableSeq()
     expect(horizon).toBe(4) // rows 4,5,6 retained

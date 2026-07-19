@@ -2,6 +2,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import {
   type CursorSessionPaths,
   cursorProjectSlug,
@@ -134,6 +135,7 @@ export function observeCursorState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  statTick?: StatTick
   onSession?: (chatId: string) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): CursorStateObserver {
@@ -148,7 +150,7 @@ export function observeCursorState(opts: {
     updateTail?.stop()
     attached = paths
     opts.onSession?.(paths.chatId)
-    updateTail = tailCursorTranscript(paths, opts.onEvents, { pollMs })
+    updateTail = tailCursorTranscript(paths, opts.onEvents, { pollMs, statTick: opts.statTick })
   }
 
   const discover = async (): Promise<void> => {
@@ -161,7 +163,7 @@ export function observeCursorState(opts: {
     if (paths && !stopped) attach(paths)
   }
 
-  let discoverTimer: ReturnType<typeof setInterval> | undefined
+  let stopDiscovery: (() => void) | undefined
   if (opts.resumeValue) {
     attach(
       cursorSessionPaths({
@@ -171,8 +173,10 @@ export function observeCursorState(opts: {
       }),
     )
   } else {
-    discoverTimer = setInterval(() => void discover(), pollMs)
-    discoverTimer.unref?.()
+    stopDiscovery = scheduleStatPoll(() => void discover(), {
+      statTick: opts.statTick,
+      pollMs,
+    })
     void discover()
   }
 
@@ -182,7 +186,7 @@ export function observeCursorState(opts: {
     },
     stop() {
       stopped = true
-      if (discoverTimer) clearInterval(discoverTimer)
+      stopDiscovery?.()
       updateTail?.stop()
     },
   }
@@ -229,7 +233,7 @@ async function classifyCursorTurnEnd(
 function tailCursorTranscript(
   paths: CursorSessionPaths,
   onEvents: (events: AgentStateEvent[]) => void,
-  opts: { pollMs?: number } = {},
+  opts: { pollMs?: number; statTick?: StatTick } = {},
 ): CursorStateObserver {
   let offset = 0
   const decoder = new LineDecoder()
@@ -287,15 +291,17 @@ function tailCursorTranscript(
     }
   }
 
-  const timer = setInterval(() => void readNew(), opts.pollMs ?? POLL_MS)
-  timer.unref?.()
+  const stopPolling = scheduleStatPoll(() => void readNew(), {
+    statTick: opts.statTick,
+    pollMs: opts.pollMs ?? POLL_MS,
+  })
   void readNew()
 
   return {
     path: paths.transcriptPath,
     stop() {
       stopped = true
-      clearInterval(timer)
+      stopPolling()
     },
   }
 }

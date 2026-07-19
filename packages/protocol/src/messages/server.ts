@@ -11,7 +11,11 @@ import {
   WorktreesChangedMessage,
 } from './host'
 import { IssuesChangedMessage, IssueUpdatedMessage } from './issues'
-import { SessionAgentStateChangedMessage, SessionsChangedMessage } from './runtime-state'
+import {
+  SessionAgentStateChangedMessage,
+  SessionsChangedMessage,
+  SessionViewDeltaMessage,
+} from './runtime-state'
 import { MetadataDeltaMessage } from './sync'
 import {
   AgentExitMessage,
@@ -38,6 +42,13 @@ export const SessionDraftChangedMessage = z.object({
   type: z.literal('sessionDraftChanged'),
   sessionId: z.string(),
   text: z.string(),
+  // Versioned-draft metadata (Draft Sync v2, POD-859). All optional + additive so
+  // older clients ignore them and older servers that never set them still produce a
+  // valid message. `rev` is the server's monotonic sequence for this session;
+  // `origin` is who wrote (a client id, `'native'`, or `'seed'`); `editedAt` ISO-8601.
+  rev: z.number().int().nonnegative().optional(),
+  origin: z.string().optional(),
+  editedAt: z.string().optional(),
 })
 export type SessionDraftChangedMessage = z.infer<typeof SessionDraftChangedMessage>
 
@@ -50,6 +61,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   GeometryMessage,
   AgentExitMessage,
   SessionsChangedMessage,
+  SessionViewDeltaMessage,
   ConversationsChangedMessage,
   SessionTitleChangedMessage,
   SessionAgentStateChangedMessage,

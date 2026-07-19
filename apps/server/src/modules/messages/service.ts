@@ -26,7 +26,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { SessionMeta } from '@podium/protocol'
+import type { AgentPhase, SessionMeta } from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
   IssueMessageRow,
@@ -36,7 +36,9 @@ import type {
   MessageUrgency,
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
-import type { MessagesRepository } from '../../store/messages'
+import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
+import type { NotificationFactsRepository } from '../../store/notification-facts'
+import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 
 /** Chain depth past which lifecycle clamps to wait (brake 3). */
@@ -48,11 +50,6 @@ export const SPAWN_BUDGET_PER_DAY = 10
 /** Bodies past this render as a pointer, not inline (issue-addressed only —
  *  they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000
-/** Implicit expiry for wait-lifecycle queued rows with no explicit expires_at
- *  [POD-817]: without one, undeliverable issue mail queues forever and the
- *  sweep re-attempts every row every minute. Expired rows stay readable in the
- *  inbox/ledger — expiry only stops redelivery. */
-export const QUEUED_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
 /** A pushed message becomes `delivered` only when its envelope echoes back as a
  *  turn in the target's transcript [POD-834 §04d]. If no echo confirms within
  *  this window the push was lost (drain refused, session died, an ESC ate it) and
@@ -60,22 +57,56 @@ export const QUEUED_WAIT_TTL_MS = 7 * 24 * 60 * 60_000
  *  plus the ~1s transcript-tail latency so a slow-but-live drain is never
  *  mistaken for a loss. */
 export const ECHO_CONFIRM_WINDOW_MS = 90_000
+/** How many lost-echo requeues a pushed row gets before the sweep stops
+ *  re-injecting and degrades it to delivered-at-last-push [POD-853 stopgap]:
+ *  a mid-turn injection never echoes as a user turn, and an uncapped requeue
+ *  loop re-delivers the same message forever (observed live 2026-07-17). */
+export const MAX_ECHO_REQUEUES = 2
 /** Extracts every podium-message id an echoed transcript turn carries — the
  *  server-rendered envelope frames the body with `[podium message <id> …]` and
  *  `[end podium message <id>]`, so a user turn that pasted a delivered message
  *  reflects the id back verbatim (transcript-echo confirmation, [POD-834]). */
 export const ECHO_ID_RE = /\bpodium message (msg_[0-9a-f-]+)\b/gi
 
+/** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
+ *  send blocks up to this budget for the transcript-observed `delivered`; a busy /
+ *  draft-held target that outlasts it returns `accepted` (still queued — the sender
+ *  queries `podium mail status`). 25s tracks the harness queue-drain deadline: long
+ *  enough to catch an idle or quickly-finishing target, short enough that the CLI
+ *  never hangs on a long turn. */
+export const NEXT_TURN_DELIVERY_BUDGET_MS = 25_000
+/** An `interrupt` send blocks until `delivered`; this ceiling is only a hang-guard
+ *  [spec:SP-cb9f] [POD-854]. An interrupt injects immediately (ESC + inject), so it
+ *  normally confirms within seconds at the ESC-cancelled turn boundary — but a
+ *  composer-draft hold [POD-865] or a dead PTY can legitimately keep the row queued,
+ *  so at this ceiling it returns the honest `accepted` rather than block forever.
+ *  Matches ECHO_CONFIRM_WINDOW_MS (the outer bound on any single confirmation).
+ *  INVARIANT: must stay under @podium/protocol's AGENT_RELAY_BLOCKING_TIMEOUT_MS —
+ *  the loopback relay hub gives `messages.send` that long before it times out, and
+ *  a block that outlives the transport makes the agent CLI throw instead of getting
+ *  this disposition (a drift-guard test enforces the gap). */
+export const INTERRUPT_DELIVERY_CEILING_MS = 90_000
+
 /** What actually happened to a send, surfaced to the sender so a message that
  *  reached no one is never a bare success [POD-834 §04b]:
- *   - `delivered`   pushed to a live/idle target now (ledger confirms via echo);
- *   - `queued`      durably enqueued to a valid, reachable LIVE session — it
- *                   drains at the session's next turn boundary;
+ *   - `delivered`   CONFIRMED in the target's transcript (echo or turn boundary),
+ *                   or injection-is-delivery for an unwrapped operator body;
+ *   - `queued`      handed to the harness input queue (or held for a live target's
+ *                   next boundary) — NOT yet transcript-observed [spec:SP-cb9f];
+ *   - `accepted`    a blocking send's budget expired with the row still queued
+ *                   (busy / composer-draft-held / lost echo) — durably captured,
+ *                   not yet confirmed; the sender queries `podium mail status`;
  *   - `held`        issue-addressed, issue live but NO live session — held for
  *                   the issue's next session (delivered at its next boundary);
  *   - `spawning`    a wake spawned a fresh agent to receive it;
  *   - `dead_letter` the target was gone; NOT delivered. */
-export type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter'
+export type SendDisposition =
+  | 'delivered'
+  | 'queued'
+  | 'accepted'
+  | 'held'
+  | 'spawning'
+  | 'dead_letter'
 
 /** How a rendered message is confirmed as reaching the agent [POD-834]:
  *   - `echo`      enveloped body carrying the msg id → confirmed by transcript echo;
@@ -103,6 +134,12 @@ export interface MessageSendInput {
   threadId?: string
   inReplyTo?: string
   expiresAt?: string
+  /** Opt into a reply [POD-835 §04b]: `--expect-response`. Only then does the
+   *  system expect (and, on settle, nag about) a response. A `question` implies it;
+   *  an `ack`/`notification` can never set it. Omitted = false (receipt-only). */
+  expectsResponse?: boolean
+  /** Internal-only arbiter identity for message-backed notifications. */
+  notificationFact?: { factKey: string; target: string }
 }
 
 export interface MessageSendResult {
@@ -142,6 +179,7 @@ export interface SpawnOnWake {
 
 export interface MessageDeliveryDeps {
   messages: MessagesRepository
+  notificationFacts: NotificationFactsRepository
   events: EventsRepository
   issues(): IssueService
   sessions(): {
@@ -215,11 +253,21 @@ export function renderEnvelope(
       ? `[this is a question: answer it from your existing context with \`podium mail reply ${m.id}\`, ` +
         `then RETURN TO WHAT YOU WERE DOING — do not take up new work because of it]\n`
       : ''
+  // A --expect-response message [spec:SP-bf44] carries the same reply directive a
+  // question does, minus the answer-then-resume binding: the sender wants a reply
+  // (else the steward will nag them that none came), but it is not a seance. A
+  // question already gets its own, stronger rule above, so this is question-exempt.
+  const responseRule =
+    m.expectsResponse && m.kind !== 'question'
+      ? `[a response was requested: reply within this thread (\`podium mail reply ${m.id}\`) ` +
+        `when you have handled it — any substantive reply satisfies it]\n`
+      : ''
   return (
     `[podium message ${m.id} · from ${fromLabel} · to ${toLabel} · reply: podium mail reply ${m.id}]\n` +
     `${m.body}\n` +
     (note ? `${note}\n` : '') +
     questionRule +
+    responseRule +
     `[end podium message ${m.id}]`
   )
 }
@@ -251,6 +299,43 @@ export function senderFromCapability(capability: {
 /** How the target session presents at delivery time. */
 type TargetState = 'idle' | 'running' | 'parked'
 
+type DeliveryTarget = { kind: 'session' | 'issue'; id: string }
+
+/** The low-frequency sweep remains a bounded safety net while event coverage is
+ * proven. One pass never revisits an unbounded historical queue. [spec:SP-c29e] */
+export const DELIVERY_RETRY_BACKSTOP_LIMIT = 100
+/** Five minutes: event triggers are primary; this only heals a missed edge. */
+export const DELIVERY_RETRY_BACKSTOP_MS = 5 * 60_000
+
+interface DeliveryTargetWork {
+  target: DeliveryTarget
+  after?: MessagePageCursor
+  through?: MessagePageCursor
+  preferred?: SessionMeta
+  enqueuedAt: number
+}
+
+export interface MessageDeliveryStats {
+  pendingTargetCount: number
+  coalescedTriggerCount: number
+  oldestJobAgeMs: number
+  retryPageCursor: MessagePageCursor | null
+  retryPagesProcessed: number
+  triggerFailures: number
+}
+
+const DELIVERY_TARGET_PAGE_LIMIT = 200
+const DELIVERY_RECONCILE_PAGE_LIMIT = 100
+
+function cursorOf(message: MessageRow): MessagePageCursor {
+  return {
+    createdAt: message.createdAt,
+    id: message.id,
+  }
+}
+
+const deliveryTargetKey = (target: DeliveryTarget): string => `${target.kind}:${target.id}`
+
 type ClampNote = { urgency?: MessageUrgency; lifecycle?: MessageLifecycle; reason: string }
 
 const URGENCY_ORDER: MessageUrgency[] = ['fyi', 'next-turn', 'interrupt']
@@ -264,10 +349,11 @@ export class MessageDeliveryService {
    *  delivery, cleared when the session goes idle (turn ended). Messages the
    *  session sends within that turn carry hop + 1 (brake 3). */
   private readonly turnHop = new Map<string, number>()
-  /** last wake timestamp (ms) per `${senderKey}|${issueKey}` (brake 1) — a
-   *  write-through cache over the durable rows: a cold key falls back to the
-   *  delivered wake rows in `messages`, so a server restart (this repo
-   *  redeploys on every main commit) never resets the cooldown. */
+  /** Lost-echo requeues per message id [POD-853 stopgap]; in-memory is fine —
+   *  a restart resets the count and the row simply earns its cap again. */
+  private readonly requeueCounts = new Map<string, number>()
+  /** Last wake timestamp per sender+resolved-target brake key. This is a
+   * write-through cache over message_wake_cooldowns; cold reads are keyed. */
   private readonly lastWakeAt = new Map<string, number>()
   /** message-triggered spawns per issue for the current UTC day (brake 2) — a
    *  cache over the `message.spawned` event ledger (restart-proof). */
@@ -276,7 +362,336 @@ export class MessageDeliveryService {
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
 
-  constructor(private readonly deps: MessageDeliveryDeps) {}
+  private readonly notificationArbiter: NotificationArbiter
+
+  constructor(private readonly deps: MessageDeliveryDeps) {
+    this.notificationArbiter = new NotificationArbiter(deps.notificationFacts, deps.now)
+  }
+
+  /** Bounded delivery jobs coalesce by durable recipient principal. */
+  private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
+  /** A synchronous idle drain owns these finite-snapshot targets. Fresh,
+   * reentrant triggers are retained separately for the next macrotask. */
+  private readonly activeBoundaryTargets = new Map<string, number>()
+  private readonly deferredBoundaryTargets = new Map<string, DeliveryTarget>()
+  private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
+  private reconcileTimer: ReturnType<typeof setTimeout> | null = null
+  private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
+  private retryBackstopCursor: MessagePageCursor | null = null
+  private retryPassStartedAt: number | null = null
+  private retryPagesProcessed = 0
+  private coalescedTriggerCount = 0
+  private triggerFailures = 0
+  /** Last resolved issue per session. This is the before-state needed for detach,
+   * reassignment, inferred-cwd movement, and remove events. */
+  private readonly sessionIssueTargets = new Map<string, string>()
+  /** One restart-recoverable wake-cooldown timer per sender+target brake key. */
+  private readonly wakeCooldownTimers = new Map<
+    string,
+    {
+      deadline: number
+      timer: ReturnType<typeof setTimeout>
+      targets: Map<string, DeliveryTarget>
+    }
+  >()
+
+  /** Queue the session principal plus both sides of its issue-resolution change. */
+  onSessionEligibilityChanged(
+    sessionId: string,
+    changed?: SessionMeta,
+    opts?: {
+      preferThisIdleSession?: boolean
+      boundaryThrough?: ReadonlyMap<string, MessagePageCursor>
+    },
+  ): void {
+    const session =
+      changed ??
+      this.deps
+        .sessions()
+        .listSessions()
+        .find((candidate) => candidate.sessionId === sessionId)
+    const previousIssueId = this.sessionIssueTargets.get(sessionId)
+    const nextIssueId = this.issueForSession(session)
+    if (nextIssueId) this.sessionIssueTargets.set(sessionId, nextIssueId)
+    else this.sessionIssueTargets.delete(sessionId)
+
+    const preferred =
+      opts?.preferThisIdleSession && session && this.stateOf(session) === 'idle'
+        ? session
+        : undefined
+    const queue = (target: DeliveryTarget, targetPreferred?: SessionMeta) =>
+      this.queueDeliveryTarget(
+        target,
+        targetPreferred,
+        undefined,
+        opts?.boundaryThrough?.get(deliveryTargetKey(target)),
+      )
+    queue({ kind: 'session', id: sessionId }, preferred)
+    if (previousIssueId && previousIssueId !== nextIssueId) {
+      queue({ kind: 'issue', id: previousIssueId })
+    }
+    if (nextIssueId) queue({ kind: 'issue', id: nextIssueId }, preferred)
+  }
+
+  /** Issue-side target changes can alter inferred session membership and the
+   * cooldown key of session-addressed wakes. Recompute affected sessions and
+   * queue their principals plus both old/new issues. */
+  onIssueEligibilityChanged(issueId: string): void {
+    this.queueDeliveryTarget({ kind: 'issue', id: issueId })
+    for (const session of this.deps.sessions().listSessions()) {
+      const previousIssueId = this.sessionIssueTargets.get(session.sessionId)
+      const nextIssueId = this.issueForSession(session)
+      if (
+        previousIssueId === issueId ||
+        nextIssueId === issueId ||
+        previousIssueId !== nextIssueId
+      ) {
+        this.onSessionEligibilityChanged(session.sessionId, session)
+      }
+    }
+  }
+
+  /** Begin a bounded startup walk. Each page schedules the next macrotask so
+   * every durable principal is enumerated without one unbounded boot turn. */
+  reconcileQueued(): void {
+    const sessions = this.deps.sessions().listSessions()
+    if (this.deps.messages.countQueued() === 0) {
+      // Preserve the before-state needed by detach/reassign events without
+      // issuing two principal COUNTs per live session on the overwhelmingly
+      // common empty-queue boot path.
+      for (const session of sessions) {
+        const issueId = this.issueForSession(session)
+        if (issueId) this.sessionIssueTargets.set(session.sessionId, issueId)
+      }
+      return
+    }
+    for (const session of sessions) {
+      this.onSessionEligibilityChanged(session.sessionId, session)
+    }
+    this.runReconcilePage()
+  }
+
+  private runReconcilePage(after?: MessagePageCursor): void {
+    this.reconcileTimer = null
+    let page: MessageRow[]
+    try {
+      page = this.deps.messages.listQueuedPage({
+        ...(after ? { after } : {}),
+        limit: DELIVERY_RECONCILE_PAGE_LIMIT,
+      })
+    } catch (error) {
+      this.recordTriggerFailure('startup page query', error)
+      return
+    }
+    for (const message of page) {
+      const target = this.deliveryTargetOf(message)
+      if (target) this.queueDeliveryTarget(target)
+    }
+    this.flushDeliveryTriggers()
+    if (page.length < DELIVERY_RECONCILE_PAGE_LIMIT) return
+    const next = cursorOf(page.at(-1)!)
+    this.reconcileTimer = setTimeout(() => this.runReconcilePage(next), 0)
+    this.reconcileTimer.unref?.()
+  }
+
+  /** Deterministic test/shutdown seam for one bounded coalesced turn. */
+  flushDeliveryTriggers(onlyPreferredSessionId?: string): void {
+    if (this.deliveryTriggerTimer) {
+      clearTimeout(this.deliveryTriggerTimer)
+      this.deliveryTriggerTimer = null
+    }
+    if (this.pendingDeliveryTargets.size === 0) return
+    const works: DeliveryTargetWork[] = []
+    if (onlyPreferredSessionId) {
+      for (const [key, work] of this.pendingDeliveryTargets) {
+        if (work.preferred?.sessionId !== onlyPreferredSessionId) continue
+        works.push(work)
+        this.pendingDeliveryTargets.delete(key)
+      }
+      // Non-boundary/reentrant work is deliberately retained for the next
+      // macrotask; it cannot expand this synchronous finite snapshot.
+      if (this.pendingDeliveryTargets.size > 0) this.scheduleDeliveryFlush()
+    } else {
+      works.push(...this.pendingDeliveryTargets.values())
+      this.pendingDeliveryTargets.clear()
+    }
+    if (works.length === 0) return
+    const selected = new Map<string, MessageRow>()
+    const preferredGroups = new Map<
+      string,
+      { session: SessionMeta; messages: Map<string, MessageRow> }
+    >()
+
+    for (const work of works) {
+      let page: MessageRow[]
+      try {
+        page = this.deps.messages.pendingForPage(work.target, {
+          ...(work.after ? { after: work.after } : {}),
+          ...(work.through ? { through: work.through } : {}),
+          limit: DELIVERY_TARGET_PAGE_LIMIT,
+        })
+      } catch (error) {
+        this.recordTriggerFailure(`target page ${deliveryTargetKey(work.target)}`, error)
+        continue
+      }
+      const pageCursor = page.length > 0 ? cursorOf(page.at(-1)!) : undefined
+      if (
+        page.length === DELIVERY_TARGET_PAGE_LIMIT &&
+        pageCursor &&
+        (!work.through || this.compareCursor(pageCursor, work.through) < 0)
+      ) {
+        this.queueDeliveryTarget(work.target, work.preferred, pageCursor, work.through)
+      }
+      for (const message of page) {
+        selected.set(message.id, message)
+        if (!work.preferred) continue
+        let group = preferredGroups.get(work.preferred.sessionId)
+        if (!group) {
+          group = { session: work.preferred, messages: new Map() }
+          preferredGroups.set(work.preferred.sessionId, group)
+        }
+        group.messages.set(message.id, message)
+      }
+    }
+
+    if (selected.size === 0) return
+    const all = this.deps.sessions().listSessions()
+    const nowMs = this.nowMs()
+    const handled = new Set<string>()
+    for (const group of preferredGroups.values()) {
+      const session = group.session
+      if (this.stateOf(session) !== 'idle') continue
+      const messages = [...group.messages.values()]
+      for (const message of messages) handled.add(message.id)
+      if (this.draftHoldActive(session)) continue
+      const eligible = messages.filter((message) => this.prepareQueuedAttemptSafely(message, nowMs))
+      eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      try {
+        this.deliverBatch(session, eligible)
+        for (const message of eligible) this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        this.recordTriggerFailure(`preferred session ${session.sessionId}`, error)
+      }
+    }
+    for (const message of selected.values()) {
+      if (handled.has(message.id)) continue
+      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
+      try {
+        this.attemptDelivery(message, all, { viaSweep: true })
+        this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        this.recordTriggerFailure(`message ${message.id}`, error)
+      }
+    }
+  }
+
+  deliveryStats(): MessageDeliveryStats {
+    const now = this.nowMs()
+    let oldest = this.retryPassStartedAt
+    for (const work of this.pendingDeliveryTargets.values()) {
+      oldest = oldest === null ? work.enqueuedAt : Math.min(oldest, work.enqueuedAt)
+    }
+    return {
+      pendingTargetCount: this.pendingDeliveryTargets.size,
+      coalescedTriggerCount: this.coalescedTriggerCount,
+      oldestJobAgeMs: oldest === null ? 0 : Math.max(0, now - oldest),
+      retryPageCursor: this.retryBackstopCursor,
+      retryPagesProcessed: this.retryPagesProcessed,
+      triggerFailures: this.triggerFailures,
+    }
+  }
+
+  dispose(): void {
+    if (this.deliveryTriggerTimer) clearTimeout(this.deliveryTriggerTimer)
+    if (this.reconcileTimer) clearTimeout(this.reconcileTimer)
+    if (this.retryBackstopTimer) clearTimeout(this.retryBackstopTimer)
+    this.deliveryTriggerTimer = null
+    this.reconcileTimer = null
+    this.retryBackstopTimer = null
+    for (const pending of this.wakeCooldownTimers.values()) clearTimeout(pending.timer)
+    this.wakeCooldownTimers.clear()
+    this.pendingDeliveryTargets.clear()
+    this.activeBoundaryTargets.clear()
+    this.deferredBoundaryTargets.clear()
+    this.sessionIssueTargets.clear()
+  }
+
+  private queueDeliveryTarget(
+    target: DeliveryTarget,
+    preferred?: SessionMeta,
+    after?: MessagePageCursor,
+    through?: MessagePageCursor,
+  ): void {
+    const key = deliveryTargetKey(target)
+    if (!after && !through && this.activeBoundaryTargets.has(key)) {
+      if (this.deferredBoundaryTargets.has(key)) this.coalescedTriggerCount += 1
+      else this.deferredBoundaryTargets.set(key, target)
+      return
+    }
+
+    try {
+      if (this.deps.messages.countPending(target) === 0) return
+    } catch (error) {
+      this.recordTriggerFailure(`target count ${deliveryTargetKey(target)}`, error)
+      return
+    }
+
+    const existing = this.pendingDeliveryTargets.get(key)
+    if (existing) {
+      this.coalescedTriggerCount += 1
+      if (through) existing.through = through
+      if (!after) existing.after = undefined
+      else if (existing.after && this.compareCursor(after, existing.after) < 0)
+        existing.after = after
+      else if (!existing.after) existing.after = after
+      if (preferred) existing.preferred = preferred
+    } else {
+      this.pendingDeliveryTargets.set(key, {
+        target,
+        ...(after ? { after } : {}),
+        ...(through ? { through } : {}),
+        ...(preferred ? { preferred } : {}),
+        enqueuedAt: this.nowMs(),
+      })
+    }
+    this.scheduleDeliveryFlush()
+  }
+
+  private scheduleDeliveryFlush(): void {
+    if (this.deliveryTriggerTimer) return
+    this.deliveryTriggerTimer = setTimeout(() => {
+      this.deliveryTriggerTimer = null
+      try {
+        this.flushDeliveryTriggers()
+      } catch (error) {
+        this.recordTriggerFailure('coalesced delivery flush', error)
+      }
+    }, 0)
+    this.deliveryTriggerTimer.unref?.()
+  }
+
+  private compareCursor(a: MessagePageCursor, b: MessagePageCursor): number {
+    return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+  }
+
+  private prepareQueuedAttemptSafely(message: MessageRow, nowMs: number): boolean {
+    try {
+      return this.prepareQueuedAttempt(message, nowMs)
+    } catch (error) {
+      this.recordTriggerFailure(`prepare message ${message.id}`, error)
+      return false
+    }
+  }
+
+  private recordTriggerFailure(context: string, error: unknown): void {
+    this.triggerFailures += 1
+    console.warn(`[podium] message delivery trigger failed (${context})`, error)
+  }
+
+  private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
+    if (message.toKind === 'operator' || !message.toId) return null
+    return { kind: message.toKind, id: message.toId }
+  }
 
   /**
    * Persist + attempt delivery of one message. `from` is the surface's
@@ -362,6 +777,39 @@ export class MessageDeliveryService {
       if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
     }
 
+    // A response is OPT-IN [spec:SP-bf44] [POD-835 §04b]: a plain message owes no reply —
+    // receipt is proven mechanically by the ledger (POD-834), no ack traffic. Only an
+    // explicit `--expect-response` (or a `question`, which always wants an answer)
+    // arms the stop-hook reminder + steward settle-nag. An `ack`/`notification` can
+    // never expect one — an ack is never itself ackable (kills the 243 ack-of-acks).
+    const kind = input.kind ?? 'message'
+    const expectsResponse =
+      kind === 'question'
+        ? true
+        : kind === 'ack' || kind === 'notification'
+          ? false
+          : (input.expectsResponse ?? false)
+
+    // Semantic-reply-as-ack [spec:SP-bf44] [POD-835 §04b]: a reply back to the
+    // requester within the thread SATISFIES a requested response — not only a
+    // `kind:'ack'`. So a thorough substantive reply clears the nag (the 36 false
+    // "finished without acking" notices came from treating such a reply as "no ack").
+    // But ONLY a genuine reply FROM THE PARTY THAT WAS ASKED fulfils it: the
+    // steward's own settle-nag (`kind:'notification'`, in_reply_to the original,
+    // from system:steward) must NOT count — it fires precisely BECAUSE the recipient
+    // finished without responding, so letting it stamp acked_by would report the
+    // request answered and release awaitAck by the nag itself (POD-835 review). Two
+    // guards: a notification is structurally never a response, and the responder
+    // must be the original's recipient (which also excludes a third party and the
+    // requester itself, so !sameSenderAs is subsumed but kept for clarity).
+    const respondsToRequest =
+      !!original &&
+      original.expectsResponse === true &&
+      kind !== 'notification' &&
+      !this.sameSenderAs(from, original) &&
+      this.isRecipientOf(from, original)
+    const stampsAck = (kind === 'ack' || respondsToRequest) && !!input.inReplyTo
+
     const id = `msg_${randomUUID()}`
     const message: MessageRow = {
       id,
@@ -373,7 +821,7 @@ export class MessageDeliveryService {
       fromIssue: from.kind === 'agent' ? (from.issueId ?? null) : null,
       toKind: input.to.kind,
       toId,
-      kind: input.kind ?? 'message',
+      kind,
       urgency,
       lifecycle,
       body: input.body,
@@ -392,26 +840,29 @@ export class MessageDeliveryService {
           })
         : null,
       remindedAt: null,
+      factKey: input.notificationFact?.factKey ?? null,
+      factTarget: input.notificationFact?.target ?? null,
+      expectsResponse,
     }
-    // The ack row and the acked_by stamp on the original commit atomically —
+    // The reply row and the acked_by stamp on the original commit atomically —
     // the steward's suppression check can never observe one without the other.
     const write = (): void => {
       this.deps.messages.addMessage(message)
-      if (message.kind === 'ack' && message.inReplyTo) {
+      if (stampsAck && message.inReplyTo) {
         this.deps.messages.markAcked(message.inReplyTo, id)
       }
     }
     if (this.deps.transact) this.deps.transact(write)
     else write()
-    if (message.kind === 'ack' && original) {
+    if (stampsAck && original) {
       this.emitTransition({ ...original, ackedBy: id }, 'message.acked')
-      // An ack PROVES the recipient received the original — a stronger signal than
+      // A reply PROVES the recipient received the original — a stronger signal than
       // a transcript echo. Confirm it delivered so a missed echo never keeps the
       // sweep re-injecting an already-answered message [POD-834 review]. Guarded
       // on status='queued' in the store, so a already-delivered original is a
       // no-op; deliveredTo is always set once a row was injected.
       if (original.status === 'queued' && original.deliveredTo) {
-        this.markDelivered(original, original.deliveredTo)
+        this.markDelivered(original, original.deliveredTo, 'ack')
       }
     }
     this.emitTransition(message, 'message.queued')
@@ -431,7 +882,7 @@ export class MessageDeliveryService {
     // unresolved ref must surface as an undeliverable message, never as a raw
     // SQLite FOREIGN KEY error out of the mirror insert.
     let legacy: IssueMessageRow | undefined
-    if (message.toKind === 'issue' && toId && issues.get(toId)) {
+    if (message.toKind === 'issue' && toId && issues.has(toId)) {
       legacy = {
         id,
         issueId: toId,
@@ -447,6 +898,7 @@ export class MessageDeliveryService {
     }
 
     const outcome = this.attemptDelivery(message)
+    this.scheduleQueuedWakeRetry(message)
     return { message: this.deps.messages.getMessage(id) ?? message, ...outcome, legacy }
   }
 
@@ -508,14 +960,33 @@ export class MessageDeliveryService {
       // issue never picks itself. selectMailNudgeSession picks the single live
       // idle member, which would otherwise BE the sender.
       const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
-      const live = selectMailNudgeSession(members)
-      target = live
-        ? members.find((s) => s.sessionId === live.sessionId)
-        : // No live member: a wake picks the most recent parked agent to resurrect.
-          [...members]
-            .filter((s) => s.agentKind !== 'shell')
-            .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
-            .at(0)
+      // Prefer the issue's designated coordinator for ACTIONABLE (non-fyi) mail
+      // when that session is live (docs/agent-comms-target.html §05 q1). fyi /
+      // broadcast routing is unchanged — still selectMailNudgeSession. If the
+      // coordinator is unset, gone, or not live, fall back to today's heuristic.
+      // Bare session id on the wire (same format as humanQuestionAskedBy).
+      const preferCoordinator =
+        message.urgency !== 'fyi' && typeof issue.coordinatorSessionId === 'string'
+      const coordinatorLive = preferCoordinator
+        ? members.find(
+            (s) =>
+              s.sessionId === issue.coordinatorSessionId &&
+              s.agentKind !== 'shell' &&
+              s.status === 'live',
+          )
+        : undefined
+      if (coordinatorLive) {
+        target = coordinatorLive
+      } else {
+        const live = selectMailNudgeSession(members)
+        target = live
+          ? members.find((s) => s.sessionId === live.sessionId)
+          : // No live member: a wake picks the most recent parked agent to resurrect.
+            [...members]
+              .filter((s) => s.agentKind !== 'shell')
+              .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+              .at(0)
+      }
       if (!target) {
         // The sender was the only member: ledger-only, not queued — otherwise
         // it lingers and the stop-hook nags the sender about its own note. It
@@ -529,6 +1000,21 @@ export class MessageDeliveryService {
         // sender is TOLD it is held; it is not a silent drop [POD-834 §05].
         return { ok: true, queued: true, disposition: 'held' }
       }
+    }
+
+    // Composer-draft delivery guard [spec:SP-d716] [POD-865]: the human has a half-typed
+    // composer/native-prompt line on this session — injecting now merges the
+    // envelope into their input (and a trailing CR submits it). HOLD exactly
+    // like the busy-turn state, for EVERY urgency including interrupt:
+    // corrupting a human's live input is never acceptable. The row stays
+    // queued; onSessionIdle / the sweep deliver once the draft clears.
+    // `draftUpdatedAt` is the in-memory presence signal (set per keystroke,
+    // cleared the instant the draft empties or submits — fresher than the
+    // debounced session_drafts row), so presence ⇔ non-empty draft and the
+    // design's "updated within 10s" clause is subsumed: no timestamp survives
+    // a clear, and a non-empty draft holds regardless of age.
+    if (this.draftHoldActive(target)) {
+      return { ok: true, queued: true, disposition: 'queued' }
     }
 
     const state = this.stateOf(target)
@@ -602,13 +1088,28 @@ export class MessageDeliveryService {
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
     if (!r.ok) return { ...r, disposition: 'queued' }
-    if (this.deliveryMode(message) === 'unwrapped') {
-      // No envelope id → no echo will ever come; the injection IS the delivery.
-      this.markDelivered(message, sessionId)
+    const confirmed = this.confirmedOnInjection(message)
+    if (confirmed) {
+      // No echo will ever come (unwrapped operator body has no id), or chasing one
+      // is pure loop risk (a best-effort ack/notification) — the injection IS the
+      // delivery [POD-834, POD-853].
+      this.markDelivered(message, sessionId, 'injection')
     } else {
       // Enveloped (echo) or a coalesced pointer (read): record the push and wait
       // for the agent's own signal (transcript echo → delivered, inbox → read).
       this.markInjected(message, sessionId)
+    }
+    // Honest sync disposition [spec:SP-cb9f] [POD-854]. The optimistic `delivered`
+    // disposition is only ever passed for a LIVE-PTY push (via 'now' / 'interrupt',
+    // sendText/interruptText) — the bytes are on screen now — so it is honest only
+    // when the push is confirmed-on-injection (unwrapped operator body / best-effort
+    // ack). An enveloped echo is merely in the harness input queue, not yet
+    // transcript-observed, so it downgrades to `queued`; the blocking send surface
+    // upgrades it to `delivered` only when the echo / turn boundary confirms it. A
+    // durable boot-queue push ('queue') keeps its `queued`/`spawning` disposition
+    // untouched — the message rides the resume queue, delivered when the session binds.
+    if (okDisposition === 'delivered') {
+      return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
     }
     return { ...r, disposition: okDisposition }
   }
@@ -638,7 +1139,7 @@ export class MessageDeliveryService {
     // A spawn attempt IS a wake — record it against the cooldown so the sweep
     // does not re-run the spawn seam every 60s.
     if (message.fromKind !== 'operator') {
-      this.lastWakeAt.set(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`, this.nowMs())
+      this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
     }
     const r = this.deps.spawnOnWake.spawn({ issueId, message })
     if (r.ok && r.sessionId) {
@@ -656,26 +1157,107 @@ export class MessageDeliveryService {
   // ---- retriggers ----
 
   /**
-   * Drain trigger: a session's turn ended (phase → idle). Clears the hop
+   * Drain trigger: a session's turn ended (phase → idle). Confirms delivery of
+   * anything the just-ended turn consumed (turn-boundary backstop), clears the hop
    * context for the finished turn, then delivers what queued up while it was
-   * busy/parked — its session-addressed rows plus its issue's rows, FIFO, with
-   * fyi batches coalesced into one inbox pointer.
+   * busy/parked — its session-addressed rows plus its issue's rows, FIFO, with fyi
+   * batches coalesced into one inbox pointer. `priorPhase` is the phase the session
+   * left to become idle; an `errored` turn did not complete, so it must not confirm.
    */
-  onSessionIdle(session: SessionMeta): void {
+  onSessionIdle(session: SessionMeta, opts?: { priorPhase?: AgentPhase }): void {
+    const issueId = this.issueForSession(session)
+    const targets: DeliveryTarget[] = [{ kind: 'session', id: session.sessionId }]
+    if (issueId) targets.push({ kind: 'issue', id: issueId })
+    const boundaryThrough = new Map<string, MessagePageCursor>()
+    for (const target of targets) {
+      const highWater = this.deps.messages.pendingHighWater(target)
+      if (highWater) boundaryThrough.set(deliveryTargetKey(target), highWater)
+    }
+    // Turn-boundary confirmation [POD-853]: the turn that just reached idle
+    // consumed every echo-mode row already pushed into THIS session's PTY — flip
+    // them delivered even though their envelope never echoed as a clean role=user
+    // turn. A mid-turn/busy injection is recorded isMeta:true / promptSource:
+    // system (both dropped by the transcript parser) or folded into a tool_result
+    // record, so ECHO_ID_RE never sees the id and the sweep would re-inject past
+    // the echo window = duplicate. The turn boundary is the RELIABLE backstop:
+    // no text matching, and it cannot duplicate. Transcript-echo stays the ~1s
+    // fast path. This runs BEFORE deliverBatch (which stamps injected_at=now on
+    // fresh pushes), so any injected_at present here is from a PRIOR turn — never
+    // one we push in this same idle. Pointer/pull-path rows are excluded (an
+    // inbox READ confirms those, not a turn boundary), and only rows pushed to
+    // THIS session (deliveredTo match) are confirmed — never a sibling session's
+    // in-flight push. An ERRORED turn (API 529 &c) did NOT complete — it may not
+    // have consumed its injected rows — and errored→idle still fires here, so gate
+    // the confirm on a clean turn: an errored turn leaves the rows queued and the
+    // sweep re-queues them for a retry [coordinator caution POD-833].
+    if (opts?.priorPhase !== 'errored') {
+      for (const target of targets) {
+        const through = boundaryThrough.get(deliveryTargetKey(target))
+        if (!through) continue
+        let after: MessagePageCursor | undefined
+        while (true) {
+          const page = this.deps.messages.pendingForPage(target, {
+            ...(after ? { after } : {}),
+            through,
+            limit: DELIVERY_TARGET_PAGE_LIMIT,
+          })
+          for (const message of page) {
+            if (!message.injectedAt || message.deliveredTo !== session.sessionId) continue
+            if (this.deliveryMode(message) === 'pointer') continue
+            this.markDelivered(message, session.sessionId, 'boundary')
+          }
+          if (page.length < DELIVERY_TARGET_PAGE_LIMIT) break
+          after = cursorOf(page.at(-1)!)
+        }
+      }
+    }
+    // Clear the finished turn's hop context AFTER the confirm loop: markDelivered
+    // re-stamps turnHop (right for the echo path, which fires DURING the
+    // processing turn), but at a turn boundary that turn is over — anything the
+    // session sends next belongs to a fresh turn and must not inherit the hop.
+    // deliverBatch below re-stamps turnHop for genuinely new pushes, which is
+    // correct (those trigger the session's NEXT turn).
     this.turnHop.delete(session.sessionId)
-    const nowMs = this.nowMs()
-    const pending = [
-      ...this.deps.messages.pendingFor({ kind: 'session', id: session.sessionId }),
-      ...(this.issueForSession(session)
-        ? this.deps.messages.pendingFor({ kind: 'issue', id: this.issueForSession(session)! })
-        : []),
-      // Already pushed and awaiting its own confirmation (a pointer nudge waiting
-      // for the inbox read, or an echo still inside its window): don't re-deliver
-      // it — that was the POD-279 re-nudge loop [POD-834].
-    ].filter((m) => !this.awaitingConfirmation(m, nowMs))
-    if (pending.length === 0) return
-    pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
-    this.deliverBatch(session, pending)
+    // Idle is one eligibility transition among bind/resume/membership/startup:
+    // enqueue the same durable target keys and synchronously flush so existing
+    // turn-boundary ordering remains exact. The keyed gate handles confirmation,
+    // draft holds, FIFO/pointer batching, cooldown, and duplicate events.
+    for (const key of boundaryThrough.keys()) {
+      this.activeBoundaryTargets.set(key, (this.activeBoundaryTargets.get(key) ?? 0) + 1)
+    }
+    try {
+      this.onSessionEligibilityChanged(session.sessionId, session, {
+        preferThisIdleSession: true,
+        boundaryThrough,
+      })
+      do {
+        this.flushDeliveryTriggers(session.sessionId)
+        // Each preferred continuation is bounded by the captured high-water.
+        // A fresh/reentrant trigger is held for the next macrotask instead of
+        // resetting this snapshot's cursor or expanding its synchronous work.
+      } while (
+        [...this.pendingDeliveryTargets.values()].some(
+          (work) => work.preferred?.sessionId === session.sessionId,
+        )
+      )
+    } finally {
+      for (const key of boundaryThrough.keys()) {
+        const depth = this.activeBoundaryTargets.get(key) ?? 0
+        if (depth <= 1) this.activeBoundaryTargets.delete(key)
+        else this.activeBoundaryTargets.set(key, depth - 1)
+      }
+      const deferred = [...this.deferredBoundaryTargets.values()]
+      this.deferredBoundaryTargets.clear()
+      for (const target of deferred) this.queueDeliveryTarget(target)
+    }
+  }
+
+  /** Composer-draft delivery guard [spec:SP-d716] [POD-865]: true while the session's human
+   *  has a non-empty composer/native-prompt draft (`draftUpdatedAt` present ⇔
+   *  non-empty text; cleared immediately on empty/submit). While true, nothing
+   *  is injected into the session's PTY — any urgency, any transport. */
+  private draftHoldActive(target: SessionMeta): boolean {
+    return target.draftUpdatedAt !== undefined
   }
 
   /** A queued row already pushed and awaiting its own confirmation must not be
@@ -688,46 +1270,91 @@ export class MessageDeliveryService {
     return nowMs - Date.parse(m.injectedAt) < ECHO_CONFIRM_WINDOW_MS
   }
 
-  /** Slow sweep: expire what has expired, then re-attempt every queued row
-   *  (delivery is state-resolved, so this is idempotent and cheap). */
+  /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
+   *  Duplicate eligibility events cannot re-push an injected row, and a queued
+   *  wake gets a one-shot retry at the exact durable cooldown boundary. */
+  private prepareQueuedAttempt(message: MessageRow, nowMs: number): boolean {
+    if (message.toKind === 'operator') return false
+    if (message.injectedAt) {
+      if (this.awaitingConfirmation(message, nowMs)) return false
+      const requeues = this.requeueCounts.get(message.id) ?? 0
+      if (requeues >= MAX_ECHO_REQUEUES && message.deliveredTo) {
+        this.emitTransition(message, 'message.echo_capped')
+        this.markDelivered(message, message.deliveredTo, 'injection')
+        return false
+      }
+      if (this.deps.messages.clearInjected(message.id)) {
+        this.requeueCounts.set(message.id, requeues + 1)
+        this.emitTransition(message, 'message.requeued')
+      }
+    }
+    if (message.lifecycle === 'wake' && message.fromKind !== 'operator') {
+      const key = this.wakeKeyOfRow(message)
+      if (this.wakeCooldownHot(key)) {
+        this.scheduleWakeCooldown(key, message)
+        return false
+      }
+    }
+    return true
+  }
+
+  /** If an attempted wake remains durable and un-injected, arm its next allowed
+   *  attempt. Successful queue/spawn paths carry injectedAt and need no timer. */
+  private scheduleQueuedWakeRetry(message: MessageRow): void {
+    if (message.lifecycle !== 'wake' || message.fromKind === 'operator') return
+    const current = this.deps.messages.getMessage(message.id)
+    if (!current || current.status !== 'queued' || current.injectedAt) return
+    const key = this.wakeKeyOfRow(current)
+    if (this.wakeCooldownHot(key)) this.scheduleWakeCooldown(key, current)
+  }
+
+  /** Slow delivery backstop. Calendar expiry belongs exclusively to the fenced
+   *  janitor; this actor-owned retry may resolve live session state. [spec:SP-c29e] */
   sweep(): void {
     const now = this.deps.now()
-    // Implicit TTL for wait-lifecycle rows with no explicit expiry [POD-817]:
-    // issue mail with no live idle member re-queues forever otherwise, and the
-    // sweep's cost scales with the queue — the backlog made every sweep slower.
-    // Expiry only stops redelivery: the row stays readable in inbox/ledger.
-    const waitImplicitCutoff = new Date(Date.parse(now) - QUEUED_WAIT_TTL_MS).toISOString()
-    for (const expired of this.deps.messages.expireQueued(now, { waitImplicitCutoff })) {
-      this.emitTransition(expired, 'message.expired')
+    if (this.retryBackstopTimer) return
+    this.retryBackstopCursor = null
+    this.retryPassStartedAt = Date.parse(now)
+    this.runRetryBackstopPage()
+  }
+
+  private runRetryBackstopPage(after?: MessagePageCursor): void {
+    this.retryBackstopTimer = null
+    let page: MessageRow[]
+    try {
+      page = this.deps.messages.listQueuedPage({
+        ...(after ? { after } : {}),
+        limit: DELIVERY_RETRY_BACKSTOP_LIMIT,
+      })
+    } catch (error) {
+      this.recordTriggerFailure('retry page query', error)
+      this.retryBackstopCursor = null
+      this.retryPassStartedAt = null
+      return
     }
-    // One session listing per sweep pass [POD-817]: listSessions() builds a
-    // full wire meta for EVERY session, and a per-row call made the sweep
-    // O(queued × sessions) — 8s of main-loop CPU per minute on the live host.
+
     const all = this.deps.sessions().listSessions()
-    const nowMs = Date.parse(now)
-    for (const m of this.deps.messages.listQueued()) {
-      if (m.toKind === 'operator') continue
-      // Auto-requeue gate [POD-834]: a row we already pushed carries injected_at.
-      if (m.injectedAt) {
-        // Pointer nudge awaiting a read, or echo still inside its window: leave it.
-        // (A pointer is never re-nudged — that was the POD-279 storm; the TTL
-        // cleans up unread ones.)
-        if (this.awaitingConfirmation(m, nowMs)) continue
-        // The echo window passed with no confirmation — the push was lost. Clear
-        // the marker so this attempt re-pushes (kills the POD-495 ghost delivery).
-        if (this.deps.messages.clearInjected(m.id)) {
-          this.emitTransition(m, 'message.requeued')
-        }
+    const nowMs = this.nowMs()
+    for (const message of page) {
+      if (!this.prepareQueuedAttemptSafely(message, nowMs)) continue
+      try {
+        this.attemptDelivery(message, all, { viaSweep: true })
+        this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        this.recordTriggerFailure(`retry message ${message.id}`, error)
       }
-      // Cooldown-degraded wakes retry as wakes next window; skip while hot.
-      // The key MUST match recordWake's (session targets resolve to their
-      // issue) or session-addressed wakes re-attempt every sweep, burning the
-      // spawn budget within minutes.
-      if (m.lifecycle === 'wake' && m.fromKind !== 'operator') {
-        if (this.wakeCooldownHot(this.wakeKeyOfRow(m))) continue
-      }
-      this.attemptDelivery(m, all, { viaSweep: true })
     }
+    this.retryPagesProcessed += 1
+
+    if (page.length < DELIVERY_RETRY_BACKSTOP_LIMIT) {
+      this.retryBackstopCursor = null
+      this.retryPassStartedAt = null
+      return
+    }
+    const next = cursorOf(page.at(-1)!)
+    this.retryBackstopCursor = next
+    this.retryBackstopTimer = setTimeout(() => this.runRetryBackstopPage(next), 0)
+    this.retryBackstopTimer.unref?.()
   }
 
   /** Deliver a pending batch into an idle session. Inline rows go FIFO; fyi
@@ -774,10 +1401,11 @@ export class MessageDeliveryService {
   }
 
   /** Record an INLINE push whose body (and id) went into the transcript: an
-   *  unwrapped operator body can never echo, so it is confirmed now; everything
-   *  else is injected and awaits its echo [POD-834]. */
+   *  unwrapped operator body can never echo and a best-effort ack/notification is
+   *  never chased, so both are confirmed now; everything else is injected and
+   *  awaits its echo (or its turn boundary) [POD-834, POD-853]. */
   private recordPush(message: MessageRow, sessionId: string): void {
-    if (this.deliveryMode(message) === 'unwrapped') this.markDelivered(message, sessionId)
+    if (this.confirmedOnInjection(message)) this.markDelivered(message, sessionId, 'injection')
     else this.markInjected(message, sessionId)
   }
 
@@ -827,7 +1455,7 @@ export class MessageDeliveryService {
     const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
     try {
       const id = issues.resolveRef(bare)
-      return issues.get(id) ? id : null
+      return issues.has(id) ? id : null
     } catch {
       return null
     }
@@ -835,7 +1463,12 @@ export class MessageDeliveryService {
 
   /** Reply to a message: the recipient is computed server-side from the
    *  original's sender (never caller-supplied). Default kind 'ack' — writing it
-   *  stamps acked_by on the original in the same transaction (see send). */
+   *  stamps acked_by on the original in the same transaction (see send).
+   *
+   *  A response is PULL-delivered [POD-835 §04b]: the default urgency is `fyi`, so
+   *  the reply lands in the requester's mailbox and surfaces at its next natural
+   *  stop — it is NEVER pushed as a next-turn that starts a fresh turn (an ack is
+   *  never itself ackable, and every ack used to burn a recipient turn). */
   sendReply(
     from: MessageSender,
     input: {
@@ -854,7 +1487,7 @@ export class MessageDeliveryService {
       kind: input.kind ?? 'ack',
       inReplyTo: original.id,
       threadId: original.threadId,
-      urgency: input.urgency ?? 'next-turn',
+      urgency: input.urgency ?? 'fyi',
       lifecycle: input.lifecycle ?? 'wait',
     })
   }
@@ -872,16 +1505,17 @@ export class MessageDeliveryService {
   }
 
   /**
-   * The stop-hook's single-reminder set: delivered-but-unacked NON-fyi messages
-   * this session has never been reminded about. Marking happens here — each
-   * message earns exactly ONE reminder, persisted, then the steward fallback
-   * owns it. Returns render-ready rows for the daemon's block reason.
+   * The stop-hook's single-reminder set: delivered-but-unfulfilled messages that
+   * REQUESTED a response [POD-835 §04b] (expects_response — the store gates it;
+   * urgency no longer decides, since a `--expect-response fyi` note still owes a
+   * reply), never reminded about before. Marking happens here — each message earns
+   * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
+   * render-ready rows for the daemon's block reason.
    */
   pendingReminders(sessionId: string): { id: string; from: string; body: string }[] {
     const at = this.deps.now()
     const out: { id: string; from: string; body: string }[] = []
     for (const m of this.deps.messages.listDeliveredUnacked(sessionId, at)) {
-      if (m.urgency === 'fyi') continue
       if (!this.deps.messages.markReminded(m.id, at)) continue
       out.push({ id: m.id, from: this.fromLabel(m), body: m.body })
     }
@@ -889,12 +1523,15 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Deterministic ack fallback [spec:SP-34d7 acks]: the target session settled
-   * (finished/errored) with delivered-but-unacked messages. One system-kind
-   * notification per sender, stitched with issue stage + last commit, routed
-   * like a reply. Suppression is the acked_by null-check — an agent ack that
-   * landed first empties the query; an ack racing after this produces duplicate
-   * information, never lost information. System clamps (next-turn/wait) apply.
+   * Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]: the target
+   * session settled (finished/errored) leaving a REQUESTED response unfulfilled
+   * (expects_response, not stamped by any in-thread reply). One system-kind
+   * notification per such message, stitched with issue stage + last commit, routed
+   * like a reply. Suppression is the acked_by null-check — a genuine reply from the
+   * recipient that landed first empties the query; one racing after this produces
+   * duplicate information, never lost information. This notice is itself a
+   * `kind:'notification'` and can never stamp acked_by, so it never masks its own
+   * target's unanswered state. System clamps (next-turn/wait) apply.
    */
   systemAckFallback(
     sessionId: string,
@@ -906,15 +1543,17 @@ export class MessageDeliveryService {
       /** #285 pass-through: the settled session's assigned workflow step, when
        *  one was stamped at spawn — the notice flags it as unresolved. */
       workflowStepId?: string
+      /** Fact claimed by the steward for this notification emission. */
+      notificationFact?: { factKey: string; target: string }
     },
   ): void {
-    // #468: only messages that actually asked for something and have not already
-    // produced a settle notice. The store guards fyi (courtesy notes never demand
-    // an ack) and the once-per-message rule (a prior notification is the marker).
-    // One notice PER MESSAGE — not per sender-group — so every message carries its
-    // own in_reply_to marker; a group notice referencing only the latest would
-    // leave the others unmarked and re-fire them on the next settle (the loop that
-    // sent one message 7 notices in 33 minutes).
+    // #468 / [POD-835]: only messages that REQUESTED a response (expects_response)
+    // and have not already produced a settle notice. The store gates it (an ordinary
+    // message owes no reply) and the once-per-message rule (a prior notification is
+    // the marker). One notice PER MESSAGE — not per sender-group — so every message
+    // carries its own in_reply_to marker; a group notice referencing only the latest
+    // would leave the others unmarked and re-fire them on the next settle (the loop
+    // that sent one message 7 notices in 33 minutes).
     const rows = this.deps.messages.listSettleNotifiable(sessionId, this.deps.now())
     if (rows.length === 0) return
     const stitch = [
@@ -938,9 +1577,11 @@ export class MessageDeliveryService {
           urgency: 'next-turn',
           lifecycle: 'wait',
           body:
-            `Session ${sessionId} ${context.outcome} without acking your message ${m.id}.` +
+            `Session ${sessionId} ${context.outcome} without responding to your message ${m.id} ` +
+            `(you sent it --expect-response).` +
             (stitch.length ? ` ${stitch.join(' · ')}.` : '') +
             ` Use the read toolkit (podium session status/read) if you need more.`,
+          ...(context.notificationFact ? { notificationFact: context.notificationFact } : {}),
         },
       )
     }
@@ -978,6 +1619,98 @@ export class MessageDeliveryService {
     }
   }
 
+  /**
+   * Bounded wait for a pushed message to be CONFIRMED [spec:SP-cb9f] [POD-854]:
+   * poll the ledger until the row leaves `queued` — `delivered` (transcript echo
+   * or turn boundary observed it), `read` (recipient pulled its inbox), or a
+   * terminal `dead_letter`/`expired`/`cancelled` — or the deadline passes. Returns
+   * the row in whatever state it reached (still `queued` on a budget expiry — the
+   * sender is TOLD it is not yet confirmed, never left guessing), or null for an
+   * unknown id. NEVER hangs — the every-wait-bounded rule shared with `awaitAck`.
+   * This is the primitive urgency-gated blocking send builds on: `queued` means
+   * only "handed to the harness input queue", and a harness-queued message can
+   * still be Esc-cancelled or draft-held, so only a non-`queued` status is trusted.
+   * `now`/`sleep` are injectable so tests drive a deterministic clock (no timers).
+   */
+  async awaitDelivered(
+    messageId: string,
+    opts: {
+      timeoutMs: number
+      pollMs?: number
+      sleep?(ms: number): Promise<void>
+      now?(): number
+    },
+  ): Promise<MessageRow | null> {
+    const pollMs = opts.pollMs ?? 250
+    const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+    const now = opts.now ?? (() => Date.now())
+    const deadline = now() + opts.timeoutMs
+    for (;;) {
+      const m = this.deps.messages.getMessage(messageId)
+      if (m && m.status !== 'queued') return m
+      if (now() >= deadline) return m ?? null
+      await sleep(Math.min(pollMs, Math.max(1, deadline - now())))
+    }
+  }
+
+  /**
+   * Urgency-gated blocking send [spec:SP-cb9f] [POD-854]: the agent/CLI send
+   * surface (the gate) calls this instead of `send()` so the sender waits for the
+   * trustworthy outcome instead of a bare `queued` that provably vanished. Internal
+   * sends (steward auto-ack, self-suppress, dead-letter notice) keep calling `send`
+   * and never block. Runs the synchronous `send()`, then blocks by the EFFECTIVE
+   * (post-clamp) urgency of the resulting row. `opts` threads the caller's injectable
+   * clock/sleep straight to `awaitDelivered` (production: real timers).
+   */
+  async sendAndConfirm(
+    from: MessageSender,
+    input: MessageSendInput,
+    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
+  ): Promise<MessageSendResult> {
+    const r = this.send(from, input)
+    return { ...r, disposition: await this.blockForDelivery(r, opts) }
+  }
+
+  /** Block by urgency until the send's outcome is trustworthy [spec:SP-cb9f]. Only a
+   *  `queued` push to a live target has an imminent turn to observe — `delivered`
+   *  (already confirmed-on-injection), `held` (no live session), `spawning` (a boot)
+   *  and `dead_letter` (gone) have nothing to wait on and pass straight through.
+   *  `fyi` confirms at queued (never blocks); an operator-addressed row is confirmed
+   *  by a HUMAN inbox read, not a turn boundary, so blocking would always time out —
+   *  it returns immediately too. `interrupt` blocks up to the hang-guard ceiling,
+   *  `next-turn` up to the shorter budget; either, on expiry with the row still
+   *  queued (busy / composer-draft-held / lost echo), returns `accepted` — durably
+   *  captured, not yet confirmed — never a bare `queued` and never an infinite block. */
+  private async blockForDelivery(
+    r: MessageSendResult,
+    opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
+  ): Promise<SendDisposition> {
+    if (r.disposition !== 'queued') return r.disposition
+    // A push that FAILED at the transport (ok:false — the daemon dropped offline
+    // mid-send) put no bytes on screen, so no echo / turn boundary can confirm it
+    // within the budget; the row is durably queued and the sweep retries it. Return
+    // the honest `accepted` now instead of blocking the whole budget for a
+    // confirmation that provably cannot arrive.
+    if (!r.ok) return 'accepted'
+    const { urgency, toKind } = r.message
+    if (urgency === 'fyi' || toKind === 'operator') return r.disposition
+    const timeoutMs =
+      urgency === 'interrupt' ? INTERRUPT_DELIVERY_CEILING_MS : NEXT_TURN_DELIVERY_BUDGET_MS
+    const row = await this.awaitDelivered(r.message.id, {
+      timeoutMs,
+      ...(opts?.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
+      ...(opts?.sleep ? { sleep: opts.sleep } : {}),
+      ...(opts?.now ? { now: opts.now } : {}),
+    })
+    if (row?.status === 'delivered' || row?.status === 'read') return 'delivered'
+    // `accepted` is the honest "durably queued, not yet confirmed — query mail
+    // status" ONLY while the row is still queued at the budget expiry. Any other
+    // outcome is terminal-undelivered — dead-lettered, expired past its TTL, or
+    // cancelled — and reporting the pending `accepted` for it would lie [POD-854].
+    if (row?.status === 'queued') return 'accepted'
+    return 'dead_letter'
+  }
+
   /** Inbox listing for a set of recipient principals, oldest first. */
   inbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
@@ -1008,6 +1741,7 @@ export class MessageDeliveryService {
     return rows.map((m) => {
       if ((m.status !== 'queued' && m.status !== 'delivered') || m.toKind === 'operator') return m
       if (!this.deps.messages.markRead(m.id, opts.consume ?? null, at)) return m
+      this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
           this.deps.mirrorMarkIssueMailRead?.(m.toId, [m.id])
@@ -1022,6 +1756,33 @@ export class MessageDeliveryService {
       this.emitTransition(read, 'message.read')
       return read
     })
+  }
+
+  /** Explicitly clear one recipient-owned message without opening the inbox.
+   * Reuses `read`, the existing cleared terminal state [spec:SP-ba61]. */
+  dismiss(messageId: string, consume: string | null): MessageRow {
+    const message = this.deps.messages.getMessage(messageId)
+    if (!message) throw new Error('unknown message ' + messageId)
+    const at = this.deps.now()
+    if (message.status === 'queued' || message.status === 'delivered') {
+      this.deps.messages.markRead(message.id, consume, at)
+      if (message.toKind === 'issue' && message.toId) {
+        try {
+          this.deps.mirrorMarkIssueMailRead?.(message.toId, [message.id])
+        } catch {}
+      }
+    }
+    const dismissed = this.deps.messages.getMessage(messageId) ?? message
+    if (dismissed.status === 'read' && message.status !== 'read') {
+      this.emitTransition(dismissed, 'message.read')
+    }
+    this.retireNotificationFact(message, at)
+    return dismissed
+  }
+
+  private retireNotificationFact(message: MessageRow, at: string): void {
+    if (!message.factKey || !message.factTarget) return
+    this.notificationArbiter.retire(message.factKey, message.factTarget, at)
   }
 
   // ---- clamp matrix / relationships ----
@@ -1094,6 +1855,38 @@ export class MessageDeliveryService {
     return m.fromKind
   }
 
+  /** Whether `from` is the same principal that sent `original` — guards
+   *  semantic-reply-as-ack [POD-835] so a requester can never satisfy its OWN
+   *  requested response (only the other party's reply fulfils it). */
+  private sameSenderAs(from: MessageSender, original: MessageRow): boolean {
+    return this.senderKey(from) === this.senderKeyOfRow(original)
+  }
+
+  /** Whether `from` is the party the `original` was addressed to — the ONLY
+   *  principal whose reply fulfils a requested response [spec:SP-bf44]. A
+   *  session-addressed original is answered by that session (or whichever session
+   *  it was actually pushed to, `delivered_to` — covers a resumed/spawned target);
+   *  an issue-addressed one by any member of that issue (or the delivered session);
+   *  an operator-addressed one by the operator. Excludes system/steward and any
+   *  third party, so the settle-nag can never stamp its own target's request. */
+  private isRecipientOf(from: MessageSender, original: MessageRow): boolean {
+    if (original.toKind === 'operator') return from.kind === 'operator'
+    if (from.kind !== 'agent') return false
+    if (original.toKind === 'session') {
+      return (
+        from.sessionId !== undefined &&
+        (from.sessionId === original.toId || from.sessionId === original.deliveredTo)
+      )
+    }
+    // issue-addressed: a member of the issue, or the session it was delivered to.
+    return (
+      (from.issueId !== undefined && from.issueId === original.toId) ||
+      (from.sessionId !== undefined &&
+        original.deliveredTo !== null &&
+        from.sessionId === original.deliveredTo)
+    )
+  }
+
   private nowMs(): number {
     return Date.parse(this.deps.now())
   }
@@ -1151,28 +1944,59 @@ export class MessageDeliveryService {
   private wakeCooldownHot(key: string): boolean {
     const cutoff = this.nowMs() - WAKE_COOLDOWN_MS
     const last = this.lastWakeAt.get(key)
-    if (last !== undefined) return last >= cutoff
-    // Cold key (fresh process): derive from the durable rows so a restart
-    // never resets the brake, then cache the answer.
-    let derived = 0
-    try {
-      for (const m of this.deps.messages.listRecentWakes(new Date(cutoff).toISOString())) {
-        if (this.wakeKeyOfRow(m) !== key) continue
-        const at = Date.parse(m.deliveredAt ?? m.createdAt)
-        if (Number.isFinite(at)) derived = Math.max(derived, at)
-      }
-    } catch {}
+    if (last !== undefined) return last > cutoff
+    const attemptedAt = this.deps.messages.getWakeCooldown(key)
+    const parsed = attemptedAt ? Date.parse(attemptedAt) : 0
+    const derived = Number.isFinite(parsed) ? parsed : 0
     this.lastWakeAt.set(key, derived)
-    return derived >= cutoff
+    return derived > cutoff
+  }
+
+  /** Arm one timer for every queued target sharing a sender+issue cooldown key.
+   *  The deadline comes from lastWakeAt, whose cold-path value is reconstructed
+   *  from durable message rows, so reconcileQueued() restores this after restart. */
+  private scheduleWakeCooldown(key: string, message: MessageRow): void {
+    const target = this.deliveryTargetOf(message)
+    if (!target) return
+    const last = this.lastWakeAt.get(key)
+    if (last === undefined) return
+    const deadline = last + WAKE_COOLDOWN_MS
+    const existing = this.wakeCooldownTimers.get(key)
+    if (existing && existing.deadline === deadline) {
+      existing.targets.set(deliveryTargetKey(target), target)
+      return
+    }
+    if (existing) clearTimeout(existing.timer)
+    const targets = existing?.targets ?? new Map<string, DeliveryTarget>()
+    targets.set(deliveryTargetKey(target), target)
+    const timer = setTimeout(
+      () => {
+        const pending = this.wakeCooldownTimers.get(key)
+        if (!pending || pending.deadline !== deadline) return
+        this.wakeCooldownTimers.delete(key)
+        for (const retryTarget of pending.targets.values()) {
+          this.queueDeliveryTarget(retryTarget)
+        }
+      },
+      Math.max(1, deadline - this.nowMs()),
+    )
+    timer.unref?.()
+    this.wakeCooldownTimers.set(key, { deadline, timer, targets })
   }
 
   private recordWake(message: MessageRow, target: SessionMeta | undefined): void {
     if (message.fromKind === 'operator') return
     const issueKey = message.toKind === 'issue' ? message.toId : this.issueForSession(target)
-    this.lastWakeAt.set(
-      `${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`,
-      this.nowMs(),
-    )
+    this.recordWakeKey(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
+  }
+
+  /** Durable write happens before queueText/spawn, so a crash or transport
+   * failure cannot erase the cooldown attempt. */
+  private recordWakeKey(key: string): void {
+    const attemptedAt = this.deps.now()
+    this.deps.messages.recordWakeCooldown(key, attemptedAt)
+    const parsed = Date.parse(attemptedAt)
+    this.lastWakeAt.set(key, Number.isFinite(parsed) ? parsed : this.nowMs())
   }
 
   // ---- rendering ----
@@ -1223,7 +2047,7 @@ export class MessageDeliveryService {
   private fromLabel(message: MessageRow): string {
     if (message.fromKind === 'agent') {
       if (message.fromIssue) {
-        const issue = this.deps.issues().get(message.fromIssue)
+        const issue = this.deps.issues().getMeta(message.fromIssue)
         return issue ? `issue:#${issue.seq}` : message.fromIssue
       }
       if (message.fromSession) return `session:${message.fromSession}`
@@ -1236,7 +2060,7 @@ export class MessageDeliveryService {
 
   private toLabel(message: MessageRow): string {
     if (message.toKind === 'issue') {
-      const issue = this.deps.issues().get(message.toId ?? '')
+      const issue = this.deps.issues().getMeta(message.toId ?? '')
       return issue ? `your issue #${issue.seq}` : `your issue ${message.toId}`
     }
     if (message.toKind === 'session') return 'your session'
@@ -1259,6 +2083,25 @@ export class MessageDeliveryService {
     return 'echo'
   }
 
+  /** A message whose push into the PTY is itself the confirmation — no transcript
+   *  echo is awaited and the sweep never re-injects it [POD-853]. Two cases: an
+   *  unwrapped operator body (no id to echo), and a best-effort ack/notification.
+   *  Pointer/pull-path rows are NOT confirmed on injection (an inbox read confirms
+   *  those), so best-effort applies only to inline echo-mode rows. */
+  private confirmedOnInjection(message: MessageRow): boolean {
+    const mode = this.deliveryMode(message)
+    return mode === 'unwrapped' || (mode === 'echo' && this.isBestEffort(message))
+  }
+
+  /** Fire-and-forget kinds [POD-853, spec:SP-34d7 acks & notifications]: an ack is
+   *  never itself acked and its ack-confirms-original side effect fires at send
+   *  time regardless; a steward/subscription notification never expects an ack.
+   *  Chasing their transcript echo only risks the mid-turn re-inject loop, so they
+   *  are delivered once (injection = confirmation) and never auto-requeued. */
+  private isBestEffort(message: MessageRow): boolean {
+    return message.kind === 'ack' || message.kind === 'notification'
+  }
+
   /** Record a push toward a live PTY without claiming the agent saw it: stamps
    *  injected_at + delivered_to, keeps status `queued` [POD-834]. The transcript
    *  echo (`markDelivered`) or an inbox read (`markRead`) makes the honest claim
@@ -1276,10 +2119,19 @@ export class MessageDeliveryService {
     }
   }
 
-  /** queued → delivered: the PUSH is confirmed [POD-834]. Called on a transcript
-   *  echo, or immediately for an unwrapped operator body that can never echo. */
-  private markDelivered(message: MessageRow, sessionId: string): void {
+  /** queued → delivered: the PUSH is confirmed [POD-834]. `via` records HOW it was
+   *  confirmed so the ledger can tell an echo-confirmed row from one confirmed at a
+   *  turn boundary / on injection / by an ack — invaluable when debugging delivery
+   *  [POD-853]: 'echo' (transcript), 'boundary' (turn ended), 'injection' (unwrapped
+   *  or best-effort — the push IS the confirmation), 'ack' (an ack proves the
+   *  original was received). */
+  private markDelivered(
+    message: MessageRow,
+    sessionId: string,
+    via: 'echo' | 'boundary' | 'injection' | 'ack',
+  ): void {
     const at = this.deps.now()
+    this.requeueCounts.delete(message.id)
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
       // Delivery consumes the legacy issue_messages mirror row too, or
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have
@@ -1293,6 +2145,7 @@ export class MessageDeliveryService {
       this.emitTransition(
         { ...message, status: 'delivered', deliveredAt: at, deliveredTo: sessionId },
         'message.delivered',
+        { confirmedVia: via },
       )
     }
   }
@@ -1348,7 +2201,7 @@ export class MessageDeliveryService {
         // branch kills [POD-834 review]. injectedAt always co-sets deliveredTo,
         // so requiring the push target to match closes the loophole.
         if (!row.injectedAt || row.deliveredTo !== sessionId) continue
-        this.markDelivered(row, sessionId)
+        this.markDelivered(row, sessionId, 'echo')
       }
     }
   }
@@ -1407,7 +2260,7 @@ export class MessageDeliveryService {
         return from.name ?? 'system'
       case 'agent': {
         if (from.issueId) {
-          const issue = this.deps.issues().get(from.issueId)
+          const issue = this.deps.issues().getMeta(from.issueId)
           if (issue) return `issue:#${issue.seq}`
         }
         return from.sessionId ? `session:${from.sessionId}` : 'agent'

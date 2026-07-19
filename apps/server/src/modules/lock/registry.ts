@@ -82,7 +82,7 @@ export class LockCommandCtx {
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'
     if (issueId) {
-      const me = this.deps.issues().get(issueId)
+      const me = this.deps.issues().getMeta(issueId)
       label = me ? `issue:#${me.seq}` : `session:${sessionId ?? '?'}`
     } else if (sessionId) {
       label = `session:${sessionId}`

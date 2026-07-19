@@ -1,4 +1,5 @@
 import type { TranscriptItem } from '@podium/protocol'
+import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import { withEventTime } from './reducer.js'
 import type { AgentStateEvent, AgentStateProvider } from './types.js'
 
@@ -59,6 +60,7 @@ export function observeOpencodeState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  statTick?: StatTick
   onSession?: (sessionId: string) => void
   onEvents: (events: AgentStateEvent[]) => void
   onTranscriptItems?: (items: TranscriptItem[], reset: boolean) => void
@@ -238,12 +240,18 @@ export function observeOpencodeState(opts: {
     })()
   }
 
-  const discoverTimer = opts.resumeValue ? undefined : setInterval(() => void discover(), pollMs)
-  discoverTimer?.unref?.()
+  const stopDiscovery = opts.resumeValue
+    ? undefined
+    : scheduleStatPoll(() => void discover(), {
+        statTick: opts.statTick,
+        pollMs,
+      })
   if (!opts.resumeValue) void discover()
 
-  const pollTimer = setInterval(() => void pollOnce(), pollMs)
-  pollTimer.unref?.()
+  const stopPolling = scheduleStatPoll(() => void pollOnce(), {
+    statTick: opts.statTick,
+    pollMs,
+  })
 
   return {
     get sessionId() {
@@ -251,8 +259,8 @@ export function observeOpencodeState(opts: {
     },
     stop() {
       stopped = true
-      if (discoverTimer) clearInterval(discoverTimer)
-      clearInterval(pollTimer)
+      stopDiscovery?.()
+      stopPolling()
       dropDb()
     },
   }

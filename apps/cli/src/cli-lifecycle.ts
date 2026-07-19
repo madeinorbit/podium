@@ -71,16 +71,16 @@ export function renderStatus(view: StatusView): string {
       (config.persistence ? `, persistence: ${config.persistence}` : ''),
   )
   // Which roles are relevant to this deployment mode. A host (`all-in-one`) box runs the split —
-  // two processes, `server` + `daemon` — so that's what we report (the `all-in-one` role is only
-  // the desktop in-process sidecar, which doesn't use this CLI). If an `all-in-one` record is
+  // server + janitor + daemon — so that's what we report (the `all-in-one` role is only the
+  // desktop in-process sidecar, which doesn't use this CLI). If an `all-in-one` record is
   // nonetheless live, surface it too.
   const roles: RunRole[] =
     config.mode === 'all-in-one'
       ? byRole.has('all-in-one')
         ? ['all-in-one']
-        : ['server', 'daemon']
+        : ['server', 'janitor', 'daemon']
       : config.mode === 'server'
-        ? ['server']
+        ? ['server', 'janitor']
         : config.mode === 'daemon'
           ? ['daemon']
           : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
@@ -106,8 +106,12 @@ function systemctlUser(args: string[]): void {
   execFileSync('systemctl', ['--user', ...args], { stdio: 'inherit' })
 }
 
-export function selectedUnits(instanceId: string = resolveInstanceId()): [string, string] {
-  return [instanceServiceName('daemon', instanceId), instanceServiceName('server', instanceId)]
+export function selectedUnits(instanceId: string = resolveInstanceId()): [string, string, string] {
+  return [
+    instanceServiceName('daemon', instanceId),
+    instanceServiceName('janitor', instanceId),
+    instanceServiceName('server', instanceId),
+  ]
 }
 
 function hasSystemctl(): boolean {
@@ -189,15 +193,15 @@ export async function stopBackend(): Promise<void> {
 export function logsCommand(argv: string[]): void {
   const config = loadConfig()
   if (config.persistence === 'systemd') {
-    const [daemonUnit, serverUnit] = selectedUnits()
+    const [daemonUnit, janitorUnit, serverUnit] = selectedUnits()
     console.log(
       'Under systemd — view logs with:\n' +
-        `  journalctl --user -u ${serverUnit} -u ${daemonUnit} -f`,
+        `  journalctl --user -u ${serverUnit} -u ${janitorUnit} -u ${daemonUnit} -f`,
     )
     return
   }
   const follow = argv.includes('-f') || argv.includes('--follow')
-  const files = ['server', 'daemon', 'all-in-one']
+  const files = ['server', 'janitor', 'daemon', 'all-in-one']
     .map((r) => join(logDir(), `${r}.log`))
     .filter((f) => existsSync(f))
   if (files.length === 0) {

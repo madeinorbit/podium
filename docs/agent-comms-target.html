@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cross-agent communication — target architecture</title>
+<style>
+  :root {
+    --bg: #f4f6f5; --panel: #ffffff; --panel2: #eaeeec;
+    --ink: #202b33; --muted: #5d6b76; --line: #d3dad6;
+    --accent: #137a72; --accent-ink: #0b5750;
+    --ok: #2e7d4f;   --ok-bg: #e3f1e8;
+    --warn: #96690f; --warn-bg: #f7ecd4;
+    --bad: #a83a2c;  --bad-bg: #f8e3df;
+    --build: #34549c;--build-bg: #e2e8f7;
+    --miss: #5d6b76; --miss-bg: #eceff1;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: "Avenir Next", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#12171d; --panel:#191f26; --panel2:#10151a; --ink:#d9e2ea; --muted:#8794a1; --line:#2a333c;
+      --accent:#59c2bb; --accent-ink:#8fd8d2; --ok:#68b87c; --ok-bg:#17281d; --warn:#d3a04b; --warn-bg:#2b2314;
+      --bad:#df6e60; --bad-bg:#2e1a17; --build:#7d9ce0; --build-bg:#171f31; --miss:#8794a1; --miss-bg:#1c232a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg:#12171d; --panel:#191f26; --panel2:#10151a; --ink:#d9e2ea; --muted:#8794a1; --line:#2a333c;
+    --accent:#59c2bb; --accent-ink:#8fd8d2; --ok:#68b87c; --ok-bg:#17281d; --warn:#d3a04b; --warn-bg:#2b2314;
+    --bad:#df6e60; --bad-bg:#2e1a17; --build:#7d9ce0; --build-bg:#171f31; --miss:#8794a1; --miss-bg:#1c232a;
+  }
+  :root[data-theme="light"] {
+    --bg:#f4f6f5; --panel:#ffffff; --panel2:#eaeeec; --ink:#202b33; --muted:#5d6b76; --line:#d3dad6;
+    --accent:#137a72; --accent-ink:#0b5750; --ok:#2e7d4f; --ok-bg:#e3f1e8; --warn:#96690f; --warn-bg:#f7ecd4;
+    --bad:#a83a2c; --bad-bg:#f8e3df; --build:#34549c; --build-bg:#e2e8f7; --miss:#5d6b76; --miss-bg:#eceff1;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1080px; margin: 0 auto; padding: 40px 28px 90px; }
+  header.masthead { border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 8px; }
+  .eyebrow { font: 600 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 0 0 8px; letter-spacing: -.015em; text-wrap: balance; }
+  .meta { font: 12px/1.6 var(--mono); color: var(--muted); }
+  .meta b { color: var(--ink); font-weight: 600; }
+  section { margin-top: 46px; }
+  h2 { font-size: 19px; margin: 0 0 4px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 10px; text-wrap: balance; }
+  h2 .sec { font: 600 11px/1 var(--mono); color: var(--accent); letter-spacing: .1em; }
+  .lede { color: var(--muted); max-width: 74ch; margin: 6px 0 18px; }
+  .lede b, p b, td b, li b { color: var(--ink); }
+  p { max-width: 74ch; }
+
+  .verdict { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  .verdict .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .verdict .card h3 { margin: 0 0 6px; font-size: 13.5px; }
+  .verdict .card p { margin: 0; font-size: 13px; color: var(--muted); }
+  .verdict .keep h3 { color: var(--ok); } .verdict .fix h3 { color: var(--bad); } .verdict .add h3 { color: var(--build); }
+
+  .chip { display: inline-block; font: 600 10.5px/1 var(--mono); letter-spacing: .05em; padding: 4px 8px; border-radius: 3px; white-space: nowrap; text-transform: uppercase; }
+  .chip.ok{color:var(--ok);background:var(--ok-bg);} .chip.warn{color:var(--warn);background:var(--warn-bg);}
+  .chip.bad{color:var(--bad);background:var(--bad-bg);} .chip.build{color:var(--build);background:var(--build-bg);}
+  .chip.miss{color:var(--miss);background:var(--miss-bg);border:1px dashed var(--miss);}
+  .chip.dec{color:var(--accent-ink);background:transparent;border:1px solid var(--accent);}
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th { font: 600 10.5px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--panel2); white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.c, th.c { text-align: center; }
+  code, .m { font: 12.5px var(--mono); background: var(--panel2); padding: 1.5px 5px; border-radius: 3px; white-space: nowrap; }
+  .id { font: 600 12px var(--mono); color: var(--accent-ink); white-space: nowrap; }
+  .dim { color: var(--muted); } .small { font-size: 12.5px; }
+  td .why { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  /* layer stack */
+  .stack { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+  .layer { display: grid; grid-template-columns: 44px 1fr; gap: 0; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; background: var(--panel); }
+  .layer .rail { display: flex; align-items: center; justify-content: center; font: 700 16px var(--mono); color: #fff; }
+  .layer.l1 .rail { background: #2f7e6f; } .layer.l2 .rail { background: #3f6f9c; }
+  .layer.l3 .rail { background: #8a5a2b; } .layer.l4 .rail { background: #6a4a8f; } .layer.l5 .rail { background: #5d6b76; }
+  .layer .body { padding: 12px 15px; }
+  .layer .body h3 { margin: 0 0 2px; font-size: 15px; }
+  .layer .body .tag { font: 600 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .layer .body p { margin: 6px 0 0; font-size: 13px; color: var(--muted); max-width: none; }
+  .layer .body p b { color: var(--ink); }
+  .scale-note { font: 11.5px var(--mono); color: var(--muted); text-align: center; padding: 3px 0; }
+
+  .note { border-left: 3px solid var(--warn); background: var(--warn-bg); padding: 10px 14px; border-radius: 0 5px 5px 0; font-size: 13px; max-width: 78ch; }
+  .note.decided { border-left-color: var(--accent); background: var(--panel); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 6px; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+  .two .col { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .two .col h3 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: baseline; gap: 8px; }
+  .two .col ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .two .col li { margin: 5px 0; } .two .col li b { color: var(--ink); }
+  .three { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 16px; }
+  .three .col { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .three .col h3 { margin: 0 0 8px; font-size: 13.5px; }
+  .three .col ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .three .col li { margin: 5px 0; } .three .col li b { color: var(--ink); }
+  .verd { border-left: 3px solid var(--accent); background: var(--panel); padding: 12px 16px; border-radius: 0 6px 6px 0; margin-top: 14px; font-size: 13.5px; max-width: 82ch; }
+
+  ol.build { padding-left: 0; margin: 18px 0 0; list-style: none; counter-reset: b; }
+  ol.build li { counter-increment: b; display: grid; grid-template-columns: 40px 1fr; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+  ol.build li::before { content: counter(b, decimal-leading-zero); font: 600 15px var(--mono); color: var(--accent); }
+  ol.build b { font-size: 14px; } ol.build .sub { color: var(--muted); font-size: 13px; margin-top: 2px; max-width: 82ch; }
+  @media (max-width: 780px) { .verdict, .two, .three { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="masthead">
+  <div class="eyebrow">POD-237 · POD-497 · synthesis + POD-279 field forensics</div>
+  <h1>Cross-agent communication: what we land on</h1>
+  <div class="meta">2026-07-17 · evidence: 491-message POD-279 fan-out audit, live ledger forensics, POD-463/468/471/473/495 fixes, POD-285/216/475/480/487/493/527/530/652 · author: POD-237 session</div>
+</header>
+
+<section>
+  <h2><span class="sec">00</span>The verdict</h2>
+  <p class="lede">A month of live fire and a 491-message coordinator audit produced one clear split: the <b>substrate</b> (attributed, ledgered, durable messages) is sound — every bug below was diagnosed <i>from its ledger</i>. The <b>delivery + notification layer</b> is where all the pain is, and the POD-279 fan-out quantified it: <b>49% of all traffic was ceremonial acks</b>, <b>243 acks-of-acks</b>, every notification a duplicate settle-nag, and <b>70 load-bearing messages that reached no one</b>. We keep the core, rebuild delivery around <b>pull at safe boundaries, push only by explicit interrupt</b>, and put a single <b>arbiter</b> in front of every poke.</p>
+  <div class="verdict">
+    <div class="card keep"><h3>Keep — it works</h3><p>Message substrate: server-stamped sender, envelope (<span class="m">unwrapped = operator</span>), ledger, threads/acks, clamp matrix, wake-resume, spawn/await with budget + provenance.</p></div>
+    <div class="card fix"><h3>Fix — it hurts</h3><p>Typing into live PTYs (menus, mid-turn), <span class="m">delivered ≠ consumed</span>, unclearable mail nag, ack ceremony storm, level-triggered re-firing subscriptions, three uncoordinated notifiers, child <span class="m">needs_user</span> invisible to its parent.</p></div>
+    <div class="card add"><h3>Add — it's missing</h3><p>Notification arbiter, read/clear semantics, dead-lettering, milestone events (<span class="m">integrated</span>), structured provenance, scheduled wake, stop primitive, upward-visible child blocking.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="sec">01</span>The five layers of cross-agent comms</h2>
+  <p class="lede">These are five <b>distinct relationships</b>, not one mechanism — you named them and they have genuinely different needs. Reading top→bottom is <b>tightest coupling → loosest</b>: L1 shares a context; L5 shares only a codebase. Each layer says what Podium provides today and what's missing.</p>
+  <div class="scale-note">▲ tightest — shares one session &amp; context</div>
+  <div class="stack">
+    <div class="layer l1"><div class="rail">1</div><div class="body">
+      <span class="tag">native subagents · built-in, not Podium</span>
+      <h3>In-context helpers</h3>
+      <p>The harness's own Task tool. Ephemeral, share the parent's session / cwd / worktree, invisible to Podium (no session row, no issue binding, no ledger). Right for context-local legwork inside one issue. <b>Footgun today:</b> their <code>podium</code> commands run on the parent's relay env, so a subagent's <code>issue attach</code> re-homes the <i>parent</i> — and because they're <b>in-process</b> (same env), nothing local can tell them apart. <b class="m">Blocker for M5</b> (§11); the deterministic path is a harness marker <i>or</i> parent-mediated attach.</p>
+    </div></div>
+    <div class="layer l2"><div class="rail">2</div><div class="body">
+      <span class="tag">remote subagents · Podium-managed</span>
+      <h3>Real workers, any harness / model / machine</h3>
+      <p>Full Podium sessions: durable, attachable, on their own issue+branch or sharing the parent's. The coordinator↔executor↔reviewer relationship. Podium owns spawn, provenance, budget, ledger, the read ladder. Frontend is <b>CLI today, MCP-mirror proposed</b> (§03).</p>
+    </div></div>
+    <div class="layer l3"><div class="rail">3</div><div class="body">
+      <span class="tag">blocking issues · hard dependency</span>
+      <h3>“I can't finish until yours lands”</h3>
+      <p>A concrete dep edge. Agent A didn't necessarily drive B (may have <code>issue start</code>ed it), but its own work depends on B's outcome — a discovered blocker, or two intertwined initiatives. A wants to be <b>notified &amp; woken</b> when B reaches the agreed milestone.</p>
+    </div></div>
+    <div class="layer l4"><div class="rail">4</div><div class="body">
+      <span class="tag">related work · soft coordination</span>
+      <h3>“Adjacent to yours — tell me before I merge”</h3>
+      <p>Not dependent, but working the same area toward a shared goal. Needs to know at <b>specific points only</b> — chiefly its own merge point and when B lands — to rebase and avoid merging at the wrong time. Ordering matters without being a start-block. Pull-gated at A's boundary, not push on every B event.</p>
+    </div></div>
+    <div class="layer l5"><div class="rail">5</div><div class="body">
+      <span class="tag">general awareness · ambient</span>
+      <h3>“What's been happening in the codebase?”</h3>
+      <p>No relationship at all — just wants a read-on-demand overview, typically at the <b>start of work and again before merging</b>, to catch up on what landed since it started. Never a push; always a pull.</p>
+    </div></div>
+  </div>
+  <div class="scale-note">▼ loosest — shares only the repo</div>
+
+  <h3 style="font-size:15px;margin:26px 0 4px">What Podium provides per layer</h3>
+  <div class="tablewrap"><table>
+    <tr><th>Layer</th><th>Have now</th><th>Missing / to build</th><th class="c">Stage</th></tr>
+    <tr>
+      <td><b>1 · native subagents</b></td>
+      <td>Nothing intentional — they inherit the parent's relay env, so their <code>podium</code> calls re-home the <i>parent</i></td>
+      <td><b>Make the CLI subagent-aware</b> — so a subagent uses <code>podium</code> exactly like anyone else. It <b>attaches itself</b> to a (sub)issue when it needs one (<code>podium issue attach --subissue …</code>) and gets <b>the same prime</b> as a top-level agent — no task-text parsing, the subagent decides. <b>And the parent can attach it too</b> — the parent holds a real identity and <i>observes</i> the spawn (<code>TaskCreated</code>), so parent-mediated attach needs <b>nothing</b> from the subagent; that's the robust half. <b class="m">BLOCKER (why the feature is brittle without it):</b> a native subagent is <b>in-process</b> — same OS process &amp; env as the parent — so the CLI reads the <i>parent's</i> <code>PODIUM_ISSUE_RELAY</code> and <b>no local signal</b> (env, PID) can tell a subagent's call from the parent's (the re-home footgun). Determinism has only two sources: <b>(a)</b> a harness-provided <b>per-subagent marker</b> the CLI reads → mint a distinct identity (clean, if it exists), or <b>(b)</b> <b>parent-mediated</b> attach (above). Either way the CLI must <b>fail closed</b>: a bare inherited relay must NEVER silently re-home the parent — the risky ops (<code>attach</code>) require an explicit confirm. <b>M5's first task:</b> does the harness expose a marker? Yes → self-attach works; no → parent-mediated only. Board visibility is separate &amp; free (the <code>TaskCreated</code>/<code>TaskCompleted</code> hooks already show the node).</td>
+      <td class="c"><span class="chip bad">M5 · BLOCKER</span></td>
+    </tr>
+    <tr>
+      <td><b>2 · remote subagents</b></td>
+      <td><code>agent spawn</code> / <code>await</code>, <code>issue create --start</code>, parent provenance ⇒ interrupt+wake rights, 10/day budget, ledger, read ladder (<code>status/recap/read/ask</code>)</td>
+      <td>MCP-mirror frontend (§03); structured provenance (POD-530); <code>issue start</code> bypasses the budget (POD-493); a <b>stop primitive</b> (POD-493); child <span class="m">needs_user</span> surfaced upward (§09-D)</td>
+      <td class="c"><span class="chip ok">solid core</span></td>
+    </tr>
+    <tr>
+      <td><b>3 · blocking issues</b></td>
+      <td>Dep edges (<code>dep-add --type</code>); steward <code>issue.ready</code> when blockers clear</td>
+      <td><b>Wake or queue</b> the blocked agent (its choice at block time, not just a comment); wait is a <b>freeform condition</b> re-checked at the stop-hook (§08), not a fixed milestone; the edge <i>is</i> the subscription — implicit, no manual wiring</td>
+      <td class="c"><span class="chip warn">partial</span></td>
+    </tr>
+    <tr>
+      <td><b>4 · related work</b></td>
+      <td>Explicit subscriptions on session/issue events (shaky — §06)</td>
+      <td><b>Pull-gated notification</b>: “tell me about B <i>only</i> when I reach my merge point, or when B integrates.” Needs the <code>integrated</code> milestone (§08) + merge-order awareness. Distinct from blocking: no start-dependency, notify at <i>A's</i> decision points.</td>
+      <td class="c"><span class="chip miss">missing shape</span></td>
+    </tr>
+    <tr>
+      <td><b>5 · general awareness</b></td>
+      <td><code>session recap --since</code>, <code>search_all</code>, transcript read ladder, git log</td>
+      <td>A one-call <b>“what changed since I started” digest</b> (merged issues, landed commits, moved specs) surfaced at session start &amp; pre-merge. Pure read; no delivery machinery needed.</td>
+      <td class="c"><span class="chip warn">ingredients exist</span></td>
+    </tr>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">02</span>Target architecture</h2>
+  <p class="lede">One write path, one decision point, state-gated outcomes. Every mechanism — mail, nudges, steward notices, subscriptions, scheduled wakes — becomes a <b>producer into the same substrate</b>; the arbiter is the only thing allowed to poke an agent.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Stage</th><th>What it does</th><th class="c">State</th></tr>
+    <tr><td><b>Producers</b> — agent / superagent / operator / system / schedule</td><td><code>send(from, to, kind, urgency, lifecycle, thread)</code>. Sender declared, server-stamped, relationship-clamped.</td><td class="c"><span class="chip ok">have</span></td></tr>
+    <tr><td><b>Substrate</b> — durable row + ledger</td><td>Envelope · <code>fyi|next-turn|interrupt</code> × <code>wait|wake</code> · thread / <code>in_reply_to</code> / ack · every transition an event.</td><td class="c"><span class="chip ok">have</span></td></tr>
+    <tr><td><b>Arbiter</b> — the single gate on every poke</td><td><b>Edge-triggered</b> (fires on transitions, never standing state) · <b>deduped</b> (once per fact per target, across <i>all</i> producers) · <b>self-expiring</b> · <b>context-aware</b> (never re-announces what's already in context) · <b>clearable</b> (surfacing marks read).</td><td class="c"><span class="chip miss">the keystone</span></td></tr>
+    <tr><td><b>Delivery</b> — resolve target state at delivery time</td><td>idle → inject · working → hold, <code>interrupt</code>=ESC · menu → hold, <code>interrupt</code>=ESC+wait-clear · parked → queue / wake-or-spawn · gone → dead-letter + one notice.</td><td class="c"><span class="chip warn">rebuilding</span></td></tr>
+  </table></div>
+  <p class="note decided" style="margin-top:14px"><b>The one rule:</b> pull at safe boundaries by default; push (mid-turn / menu injection) only by explicit <code>interrupt</code>, operator/parent-only, best-effort. Nothing routine ever pushes into a live terminal.</p>
+</section>
+
+<section>
+  <h2><span class="sec">03</span>Frontend: MCP or CLI (both — over one engine)</h2>
+  <p class="lede">This is a <b>frontend/ergonomics choice, not an architecture choice</b> — and both already coexist today: the <b>superagent reaches Podium over MCP</b> (<code>mcp__podium__*</code>, wired in <code>mcp-route.ts</code>), while <b>spawned workers use the CLI</b> over <code>PODIUM_ISSUE_RELAY</code>. Same relay procs underneath. Your idea — MCP tools that <i>mirror each harness's own subagent/Task tool shape</i> — is extending the MCP frontend down to workers so cross-harness spawning feels identical to a native subagent.</p>
+  <div class="two">
+    <div class="col"><h3>CLI <span class="chip ok">shipped, universal</span></h3><ul>
+      <li><b>Works everywhere</b> — any harness can shell out; no per-harness integration.</li>
+      <li><b>Operator-usable</b> and scriptable/composable.</li>
+      <li>Already the worker path; discoverable via <code>--help</code>.</li>
+      <li><b>Cost:</b> stringly returns; the agent must learn Podium's vocabulary; it isn't the affordance the model was trained on.</li>
+    </ul></div>
+    <div class="col"><h3>MCP-mirror <span class="chip build">feasible on live rails</span></h3><ul>
+      <li><b>Zero learning curve</b> — mirror the native Task tool's shape/params, so “spawn a Codex reviewer” feels like the built-in subagent. Highest ergonomic win.</li>
+      <li><b>Structured</b> params &amp; returns; rich status objects, not parsed strings.</li>
+      <li><b>Cost:</b> per-harness MCP support varies (Claude strong; Codex takes raw JSON; grok/opencode/cursor uneven). A long <code>spawn+await</code> doesn't fit one synchronous MCP call — you still need poll/await tools.</li>
+    </ul></div>
+  </div>
+  <p class="verd"><b>Decided (your q4): CLI for now.</b> Keep the relay procs as the single source of truth and stay on the <b>universal CLI floor</b> — no MCP-mirror build this round. The MCP-mirror stays a documented <i>later</i> option (the rails exist — <code>mcp-route.ts</code>, per-agent <code>--mcp-config</code> — and MCP is already live for the superagent), to revisit once the messaging foundation lands. Either way it's one engine, never two. <span class="dim">Reconcile with POD-285's “CLI/relay only” note — that was scoped to one workflow's notify path, not a global MCP retirement.</span></p>
+</section>
+
+<section>
+  <h2><span class="sec">04</span>Use cases — what you do, and with what</h2>
+  <div class="tablewrap"><table>
+    <tr><th>Use case</th><th>Mechanism &amp; params</th><th>Notified when</th><th class="c">Today</th></tr>
+    <tr><td><b>Coordinator fans out executors / reviewers</b> across harnesses &amp; models; each takes a sub-issue or the parent<span class="why">Mix native (L1) for in-context legwork with Podium agents (L2) for real workers.</span></td><td><code>issue create --parent-id P --start</code> per concurrent implementer (own branch+worktree); <code>agent spawn --issue P --title …</code> for a reviewer on the shared workspace; <code>agent await ID --timeout</code></td><td>child ack (rich) or settle notice (once)</td><td class="c"><span class="chip warn">shaky</span><span class="why">POD-279 showed await + notification break at scale — §09</span></td></tr>
+    <tr><td><b>Kick off an agent in another issue, get told at the right moment</b></td><td><code>issue start ID</code> + <code>subscription add issue.milestone --milestone implemented|accepted|integrated</code></td><td>the chosen milestone, once, sub retires</td><td class="c"><span class="chip warn">shaky</span><span class="why">subs re-fire &amp; never retire; <code>integrated</code> missing</span></td></tr>
+    <tr><td><b>Blocked issue learns its blocker is done</b> (L3)</td><td><b>Implicit</b> — dep edge is the subscription; default milestone <code>accepted</code>, override per edge</td><td>blocker milestone; wake if parked</td><td class="c"><span class="chip warn">partial</span></td></tr>
+    <tr><td><b>Related work coordinates a merge</b> (L4)</td><td><code>subscription add issue.integrated --source POD-N</code>; pull-gated: also surfaced when <i>this</i> agent nears its own merge</td><td>B integrates, or A's pre-merge check</td><td class="c"><span class="chip miss">missing</span></td></tr>
+    <tr><td><b>Catch up on the codebase</b> (L5)</td><td><code>session digest --since &lt;my-start&gt;</code> (merged issues + landed commits)</td><td>—</td><td class="c"><span class="chip warn">via recap/search</span></td></tr>
+    <tr><td><b>One-off scheduled wake</b> of own / another session</td><td><code>wake SESSION --at|--in … --prompt</code> on automations cron; delivers <i>through the substrate</i> as <code>next-turn+wake</code></td><td>n/a (it is the notification)</td><td class="c"><span class="chip build">building</span><span class="why">POD-652</span></td></tr>
+    <tr><td><b>Courtesy note</b> (no action)</td><td><code>mail --urgency fyi</code>; no ack; never nags</td><td>—</td><td class="c"><span class="chip ok">solid</span></td></tr>
+    <tr><td><b>Actionable request</b></td><td><code>--urgency next-turn</code>; ack expected; one settle fallback if unacked</td><td>ack, or one settle notice</td><td class="c"><span class="chip bad">noisy</span><span class="why">semantic reply ≠ ack still nags — §09-A</span></td></tr>
+    <tr><td><b>Urgent stop</b></td><td><code>--urgency interrupt</code> — op/superagent/parent only; ESC through, menu-safe</td><td>immediate</td><td class="c"><span class="chip bad">broken</span><span class="why">POD-495 race live; fix <code>d13873d</code> unmerged</span></td></tr>
+    <tr><td><b>Wake a parked collaborator</b></td><td><code>--lifecycle wake</code> → resume, first-turn; unresumable → budgeted spawn</td><td>—</td><td class="c"><span class="chip ok">solid</span></td></tr>
+    <tr><td><b>Ask a session a question</b> (seance)</td><td><code>session ask ID --question</code> = <code>question+wake</code>; answer returns as the ack</td><td>answer or timeout snapshot</td><td class="c"><span class="chip ok">solid</span></td></tr>
+    <tr><td><b>Escalate to the human</b></td><td><code>to: operator</code> → UI inbox; <code>needs_human</code> → breadcrumb + parent nudge</td><td>—</td><td class="c"><span class="chip warn">thin surfacing</span></td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">04b</span>Synchronous send &amp; the death of acks</h2>
+  <p class="lede">The ack storm (§09-A) and the silent black hole (§09-C) have <b>one shared fix</b>: make <code>send</code> synchronous and split “receipt” from “response”. This is the single biggest quality-of-life change and it removes ~half the traffic.</p>
+  <div class="two">
+    <div class="col"><h3>Send returns after it lands <span class="chip build">new</span></h3><ul>
+      <li><b>The CLI blocks until the message is durably queued to a valid target.</b> No more “queued but never delivered” — the sender <i>knows</i> it landed or gets an error. Kills §09-C and §09-5a.</li>
+      <li><b>interrupt:</b> return once injected (ESC + text confirmed).</li>
+      <li><b>next-turn / fyi:</b> return once <b>durably enqueued to a target that exists and can receive</b> — we don't block for the read; the boundary/harness drains it. That's enough: the sender has certainty of landing, not of reading.</li>
+      <li><b>Issue with no session / gone:</b> the send <i>tells you</i> (“held for next session” / “dead-lettered”), never silently drops.</li>
+    </ul></div>
+    <div class="col"><h3>Receipt is mechanical; response is opt-in <span class="chip build">new</span></h3><ul>
+      <li><b>Receipt acks vanish.</b> Synchronous send already proves receipt; the ledger records delivery. Senders <b>pull</b> delivery status; nothing is pushed. — kills 243 ack-of-acks.</li>
+      <li><b>A response is requested, not reflexive.</b> Only <code>mail send --expect-response</code> (or a <code>question</code>) asks for one — “I want this answered / proven”.</li>
+      <li><b>Responses are pull-delivered</b> — put in the sender's mailbox, surfaced on <i>their</i> next stop, never a <code>next-turn</code> that burns a turn. An ack now means <b>“the thing you asked is done”</b>, never “received”.</li>
+      <li>The settle-nag only fires for an <b>unfulfilled requested response</b> — not for every unacked message.</li>
+    </ul></div>
+  </div>
+  <p class="note decided" style="margin-top:14px"><b>Net effect on POD-279:</b> the 49% ack traffic, the 243 ack-of-acks, the 15× self-echo, and the false “without acking” nags all disappear — receipt is mechanical and self-delivery is suppressed. What remains is real: targeted messages, and responses that were explicitly asked for.</p>
+</section>
+
+<section>
+  <h2><span class="sec">04c</span>Deterministic session status — know, don't assume</h2>
+  <p class="lede">You asked for a status a coordinator can <b>trust</b>, not infer. Today <code>session status</code> returns harness / phase / issue / commits / files — but <b>the running model &amp; effort aren't recorded at all</b> (assumed from issue defaults, which drift — that was a real bug). The pieces below mostly exist in the protocol; they're just not captured or surfaced.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Field</th><th>Source</th><th class="c">Today</th></tr>
+    <tr><td><b>harness</b> (claude-code / codex / grok…)</td><td><code>session.agentKind</code></td><td class="c"><span class="chip ok">have</span></td></tr>
+    <tr><td><b>machine</b> — which box it's running on</td><td><code>session.machineId</code> (exists on the row; not in <code>status</code> output yet)</td><td class="c"><span class="chip warn">have, unsurfaced</span></td></tr>
+    <tr><td><b>model · effort · account</b> — what it's ACTUALLY running now</td><td>must be <b>captured at spawn onto the session row</b> (not read from issue defaults, which drift)</td><td class="c"><span class="chip miss">not recorded</span></td></tr>
+    <tr><td><b>state</b>: working / idle / <b>blocked</b> / error</td><td><code>agentState.phase</code> — <code>needs_user</code> IS blocked; <code>errored</code> carries <code>AgentError.class</code> = <b>rate_limit / server_error / billing_error</b> + <code>retryable</code></td><td class="c"><span class="chip warn">exists, unsurfaced</span></td></tr>
+    <tr><td><b>native subagents</b> — live count</td><td><code>agentState.openTaskCount</code> — <b>reliable</b>: driven by the harness's <code>TaskCreated</code>/<code>TaskCompleted</code> hooks (±1), not a guess. <b>Rename it</b> — the name reads like todos; call it <code>nativeSubagentCount</code> (todos are the separate <code>openTodoCount</code>).</td><td class="c"><span class="chip ok">reliable, mis-named</span></td></tr>
+    <tr><td><b>remote subagents</b> — children</td><td>sessions where <code>spawnedBy = 'session:&lt;id&gt;'</code>, each with its own full status</td><td class="c"><span class="chip warn">queryable</span></td></tr>
+    <tr><td><b>current draft</b> — unsent composer text</td><td><code>session_drafts</code> — must be <b>one row shared by native terminal &amp; chat view</b> so a draft shows either way</td><td class="c"><span class="chip warn">stored, sync unverified</span></td></tr>
+  </table></div>
+  <p class="note decided" style="margin-top:14px"><b>Spawn returns the resolved truth (your point).</b> Because <code>agent spawn</code> / <code>issue start</code> are synchronous-and-blocking, the CLI response should hand back <b>what actually got placed</b>, not what was requested (they differ — a model can be unavailable and fall back): <code>{ agentId (the sticky id), harness, model, effort, machine }</code>. So the spawner immediately knows its child's real identity and where it landed — no assuming, no follow-up query. This is “know, don't assume” at the moment of spawn.</p>
+  <p class="note" style="margin-top:12px"><b>Why it matters:</b> a coordinator's whole job is knowing its children's true state. “blocked on a question” vs “working” vs “errored on usage” are different actions — and the overnight stall (§09-D) happened because the parent couldn't tell “stuck” from “busy”. Deterministic status is the foundation of good remote-subagent coordination (M4).</p>
+  <p class="note" style="margin-top:12px"><b>Debounce the state — don't trust the instant (your point).</b> Phase detection isn't perfect: an agent with native subagents can read <b>idle for a beat</b> while a subagent is still running, then flip back to working. And since <b>we deliver on idle</b>, a false idle = a premature mid-turn injection — the very echo-miss that fed the requeue loop. So <b>debounce transitions, especially → idle</b>: the state must hold for a short window before it's authoritative, and <code>nativeSubagentCount &gt; 0</code> means “not truly idle”. Stable status isn't just nicer reporting — it's a <b>precondition for safe delivery</b>.</p>
+</section>
+
+<section>
+  <h2><span class="sec">04d</span>The message lifecycle — states a sender can trust</h2>
+  <p class="lede">Your point: the lifecycle should be <b>on the message</b> and <b>queryable</b>. And your correction is right — <b>our own internal queue is NOT reliable</b> (past transcripts showed messages marked queued that vanished). The trustworthy signal is <b>the transcript</b>: watch the message land as a turn (a “turn hook” / transcript-echo ingestion). So “delivered” is an <i>observed</i> fact, not a bookkeeping flag.</p>
+  <div class="tablewrap"><table>
+    <tr><th>State</th><th>Means</th><th class="c">How we know (reliably)</th></tr>
+    <tr><td><b>captured</b></td><td>the server accepted &amp; persisted the message row</td><td class="c"><span class="chip ok">we wrote it</span></td></tr>
+    <tr><td><b>queued</b></td><td>handed to the <b>harness's</b> input queue for the target (our internal queue doesn't count — it drops)</td><td class="c"><span class="chip warn">harness queue, not ours</span></td></tr>
+    <tr><td><b>delivered</b> <span class="dim">(pushed)</span></td><td><b>observed as a turn in the target's transcript</b> — the agent has it in context. <span class="dim">Caveat found in build: a <b>mid-turn injection may never echo</b> → a false-negative “not delivered”. POD-853 is fixing this — it's why block-until-delivered (below) must wait for it.</span></td><td class="c"><span class="chip build">transcript echo · POD-853</span></td></tr>
+    <tr><td><b>read</b> <span class="dim">(pulled)</span></td><td>the recipient <b>opened its inbox and consumed it</b> (fyi / mailbox path)</td><td class="c"><span class="chip ok">inbox read marks it</span></td></tr>
+    <tr><td><b>dead-lettered</b></td><td>target gone (closed / deleted) before it could land — sender told once</td><td class="c"><span class="chip miss">to build</span></td></tr>
+  </table></div>
+  <p class="note decided" style="margin-top:14px"><b>What synchronous send waits for (your refinement):</b><br>
+  • <b>interrupt</b> — confirm on <b>delivered</b> (observed in the transcript). It's urgent; the sender should know it actually landed.<br>
+  • <b>next-turn</b> — block until the next turn shows <b>delivered</b>, with a <b>time budget</b> (turns are usually short). If the budget expires: return <b>“accepted, not yet placed — query with <code>podium mail status &lt;id&gt;</code>”</b> so the sender is never left guessing.<br>
+  • <b>fyi</b> — confirm at <b>queued</b> (handed to the harness); it's a courtesy note, no need to block for the read.<br>
+  Caveat you raised: even a harness-queued message can be cancelled by a human pressing Esc — which is exactly why <b>delivered = transcript-observed</b> is the only fact a sender can fully trust. All states are <b>pull-queryable</b> — “better visibility for senders”, part of <b>M1 / POD-834</b>.</p>
+</section>
+
+<section>
+  <h2><span class="sec">05</span>Delivery matrix — the contract</h2>
+  <p class="lede">Resolved <b>at delivery time</b> by the server; senders never check state (TOCTOU-safe). This table is the whole behavioral contract.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Target state</th><th><code>fyi</code></th><th><code>next-turn</code></th><th><code>interrupt</code> <span class="dim">(op/superagent/parent)</span></th><th>if <code>wake</code></th></tr>
+    <tr><td><b>idle</b></td><td>inject now</td><td>inject now</td><td>inject now</td><td>—</td></tr>
+    <tr><td><b>working</b></td><td>hold → boundary</td><td>hold → boundary</td><td>ESC, then type</td><td>—</td></tr>
+    <tr><td><b>human typing</b> <span class="dim">(dirty / recent draft)</span></td><td colspan="3"><b>hold — every urgency, incl. interrupt</b> → deliver only once the draft clears; the input line is the human's, corrupting it is never acceptable &nbsp;<span class="chip miss">missing — observed live: a message appended to a half-typed line &amp; submitted it</span></td><td>—</td></tr>
+    <tr><td><b>menu</b> <span class="m">needs_user</span></td><td>hold</td><td>hold</td><td>ESC → <b>poll until cleared</b> → type; never blind-write</td><td>—</td></tr>
+    <tr><td><b>starting</b></td><td colspan="3">durable boot queue, types at first readiness</td><td>—</td></tr>
+    <tr><td><b>parked</b> (resumable)</td><td colspan="3">queued until it next runs</td><td>resume → first-turn</td></tr>
+    <tr><td><b>unresumable</b></td><td colspan="3">queued; needs-attention</td><td>spawn on issue (budget) → first prompt</td></tr>
+    <tr><td><b>daemon offline</b></td><td colspan="3">queued; retry on reconnect; needs-attention past threshold</td><td>same</td></tr>
+    <tr><td><b>issue closed / archived</b></td><td colspan="4"><b>dead-letter</b> + exactly one notice to the sender &nbsp;<span class="chip miss">missing</span></td></tr>
+    <tr><td><b>issue with NO live session</b></td><td colspan="4"><b>hold for the issue's next session</b> (deliver at its prime); never a silent black hole &nbsp;<span class="chip miss">missing — 70 msgs lost this way in POD-279</span></td></tr>
+    <tr><td><b>session deleted</b></td><td colspan="4">re-route to the issue if one exists, else dead-letter + notice &nbsp;<span class="chip miss">missing</span></td></tr>
+    <tr><td><b>multiple sessions on one issue</b></td><td colspan="4">actionable → the issue's <b>coordinator session</b>; fyi → all, on pull; specific → address the session &nbsp;<span class="chip miss">no coordinator concept — today “idle-else-most-recent”</span></td></tr>
+  </table></div>
+  <p class="note decided" style="margin-top:14px"><b>Coordinator session — a first-class role (your q1).</b> An issue gets a <b>designated coordinator session</b>: the one actionable messages and replies route to. It's <b>claimable</b> (an agent takes it) and <b>changeable</b> (hands off), and it's <b>shown in the UI</b> — in the sidebar under the issue and as a tab at the top — so “who's driving this issue” is never a guess. Replaces today's fragile “idle-else-most-recent” target.</p>
+  <p class="note" style="margin-top:14px"><b>“Delivered” gets redefined: bytes-queued is not delivered.</b> POD-279 proved it twice — <b>70 fyi messages stuck <code>queued</code></b>, never surfaced (issue-addressed, no live idle session), and ghost deliveries marked delivered the agent never saw. Target: <code>delivered = the message appears as a turn in the target's transcript</code>, confirmed by echo within a window; otherwise auto-requeue. The ledger must never say delivered when the agent didn't see it.</p>
+</section>
+
+<section>
+  <h2><span class="sec">05b</span>The delivery surface — stop typing into the one visible input line</h2>
+  <p class="lede"><b>Two live harms, one root cause.</b> Delivery <b>types into the single visible input surface the human shares with the agent</b>. So (1) a message <b>appended itself to a half-typed line and submitted it</b> — the human's own input, corrupted; and (2) on coordinators (high message volume) the transcript fills with <code>[podium message …]</code> blocks that <b>bury the agent's real last output</b>, forcing the human to hunt for it. Both are the PTY-paste primitive again — the same fragile surface §00 flagged, now hitting the <i>human</i>, not just the agent.</p>
+  <p class="lede" style="margin-top:-4px">The fix is keyed on the <b>composer's state</b> — empty, dirty, or dirty-and-abandoned. We already store exactly that: <code>session_drafts(session_id, text, updated_at)</code> tells us which.</p>
+  <div class="three">
+    <div class="col"><h3>1 · Composer empty → deliver behind a one-liner</h3><ul>
+      <li>Put the <b>full message into the agent's context as background instructions</b> (the model acts on it), and show only a <b>thin one-liner in the transcript</b> — “<i>↩ message from POD-833 delivered</i>” — so you see <i>why</i> the agent took a turn, without a wall of quoted text.</li>
+      <li>This <b>is</b> your “inject in the background”: agent gets the payload, human gets a breadcrumb.</li>
+    </ul></div>
+    <div class="col"><h3>2 · Composer dirty → hold, attach on next send</h3><ul>
+      <li>You're typing: <b>never inject.</b> <b>Attach the message to the session</b> and show a UI marker — “<i>1 message awaiting delivery</i>” — that <b>auto-attaches on your next send</b> (your text goes; the message rides along as context).</li>
+      <li>No timers, no corruption: the human's keystroke is what releases it.</li>
+    </ul></div>
+    <div class="col"><h3>3 · Dirty but abandoned → save, deliver, restore</h3><ul>
+      <li>Left dirty and <b>idle past a timeout</b>: <b>save your draft, deliver our message, then restore your draft.</b></li>
+      <li>Needs the draft to be a first-class synced object → <b>builds on <span class="chip build">POD-816</span> (draft sync chat/native) and only ships when 816 does.</b></li>
+    </ul></div>
+  </div>
+  <p class="note decided" style="margin-top:14px"><b>This replaces the “heavy sidebar” idea for this problem — you were right, it's too much.</b> One-liner-in-transcript + attach-on-next-send needs <b>no new surface</b>. The <b>ledger sidebar (POD-467)</b> stays a <i>separate, optional</i> thing for <b>browsing message history</b>, not for making a single delivery legible. <span class="dim">Open harness question for case 1: can the agent receive full content that the UI renders as a one-liner? If not natively, store the full turn and let the UI collapse it — same effect, no harness change.</span></p>
+</section>
+
+<section>
+  <h2><span class="sec">06</span>Mechanism inventory — what stage everything is in</h2>
+  <div class="legend"><span class="chip ok">solid</span><span class="chip warn">shaky</span><span class="chip bad">broken</span><span class="chip build">building</span><span class="chip miss">missing</span></div>
+  <div class="tablewrap"><table>
+    <tr><th>Mechanism</th><th class="c">Stage</th><th>Notes</th></tr>
+    <tr><td>Substrate: attribution, envelope, ledger, threads, acks</td><td class="c"><span class="chip ok">solid</span></td><td><code>unwrapped + byte-faithful = operator</code> held throughout.</td></tr>
+    <tr><td>Clamp matrix + brakes (wake cooldown, spawn budget, hop cap)</td><td class="c"><span class="chip ok">solid</span></td><td>But <code>issue start</code> bypasses the budget → POD-493.</td></tr>
+    <tr><td>Boundary hold (<code>fyi</code>/<code>next-turn</code>) + primitive menu guard</td><td class="c"><span class="chip ok">solid</span></td><td>POD-471/473, pinned at the typing primitive.</td></tr>
+    <tr><td>Interrupt path (ESC through to menus)</td><td class="c"><span class="chip bad">broken</span></td><td>90ms ESC→CR race still on main. Fix <code>d13873d</code> written, tested, <b>unmerged</b>. POD-495.</td></tr>
+    <tr><td>Delivered-semantics (consumed, transcript-confirmed)</td><td class="c"><span class="chip bad">broken</span></td><td>Queued≠typed≠submitted. 70 lost fyi + ghost deliveries in POD-279.</td></tr>
+    <tr><td>Ack model <span class="dim">→ redesigned, §04b</span></td><td class="c"><span class="chip bad">noisy → redesign</span></td><td><b>49% of POD-279 traffic; 243 acks-of-acks; every ack is <code>next-turn</code></b>. Fix: receipt is <b>mechanical</b> (synchronous send confirms it — no message); a <b>response</b> is opt-in and pull-delivered, never pushed. See §04b.</td></tr>
+    <tr><td>Steward settle fallback (unacked notice)</td><td class="c"><span class="chip warn">shaky</span></td><td>Once-guard + fyi-exempt landed (POD-468). Still counts a thorough <i>semantic</i> reply as “no ack” — all 36 POD-279 notices were false “without acking”.</td></tr>
+    <tr><td>Stop-hook mail nudge</td><td class="c"><span class="chip bad">broken</span></td><td>No clear path: reading the inbox doesn't mark read → unclearable, fires forever, token churn.</td></tr>
+    <tr><td>Subscriptions (session/issue events)</td><td class="c"><span class="chip warn">shaky</span></td><td>Level-triggered (re-fires each settle), never retires, no dedup — one POD-279 session nagged <b>8×</b>.</td></tr>
+    <tr><td>Steward parent↔child lifecycle comments</td><td class="c"><span class="chip ok">solid</span></td><td>The old robust thing — keep, but route its nudges through the substrate (POD-480).</td></tr>
+    <tr><td>Spawn / await via relay, parent provenance</td><td class="c"><span class="chip ok">solid</span></td><td>POD-475 landed. Provenance still free-form string → POD-530 structures it.</td></tr>
+    <tr><td>Child <span class="m">needs_user</span> visible to parent</td><td class="c"><span class="chip miss">missing</span></td><td>The overnight-stall cause: a child sat in an AskUserQuestion menu; the parent <code>await</code>ed and never learned. §09-D.</td></tr>
+    <tr><td>Read toolkit: status / recap / read / ask</td><td class="c"><span class="chip ok">solid</span></td><td>The context-cheap escalation ladder.</td></tr>
+    <tr><td>Scheduled one-off wake</td><td class="c"><span class="chip build">building</span></td><td>POD-652 on automations cron. Must deliver through substrate+arbiter, not a new side-channel.</td></tr>
+    <tr><td>Notification arbiter</td><td class="c"><span class="chip miss">missing</span></td><td>The keystone. Three uncoordinated notifiers today.</td></tr>
+    <tr><td>Dead-lettering + milestone events + stop primitive</td><td class="c"><span class="chip miss">missing</span></td><td>POD-468 residue · <code>integrated</code>/<code>deployed</code> · POD-493.</td></tr>
+    <tr><td>Operator no-relay CLI</td><td class="c"><span class="chip bad">broken</span></td><td>POD-487 — every <code>podium mail</code> fails for a human at a terminal.</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">07</span>Implicit vs explicit — who wires the edges</h2>
+  <p class="lede">Rule: <b>a structural relationship is an implicit subscription; everything else is explicit and self-retiring.</b> Both flow through the arbiter — implicit edges get no special right to spam.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Edge</th><th class="c">Wiring</th><th>Fires</th></tr>
+    <tr><td>Spawner ↔ spawned child (L2)</td><td class="c"><span class="chip dec">implicit</span></td><td>child ack / settle — once; wakes a parked parent</td></tr>
+    <tr><td>Parent issue ↔ child issue</td><td class="c"><span class="chip dec">implicit</span></td><td>stage change, close, needs-human — durable comment + one nudge</td></tr>
+    <tr><td>Blocked issue ← blocker (L3)</td><td class="c"><span class="chip dec">implicit</span></td><td><b>freeform condition</b> (§08), re-checked at A's stop-hook; <code>integrated</code> can auto-clear. A picks <b>wake or queue</b> at block time</td></tr>
+    <tr><td>Workflow coordinator ← worker step</td><td class="c"><span class="chip dec">implicit</span></td><td>step report / settle-without-report (POD-285, shipped)</td></tr>
+    <tr><td>Related work → integration point (L4)</td><td class="c"><span class="chip">explicit</span></td><td><code>integrated</code>, once — or pull-gated at A's merge</td></tr>
+    <tr><td>Watch a session (“ping me when X settles”)</td><td class="c"><span class="chip">explicit</span></td><td>settle — once per subscription, not per blip; subscriber picks <b>wake or queue</b></td></tr>
+    <tr><td>Scheduled wake</td><td class="c"><span class="chip">explicit</span></td><td>at the time; one-off consumes itself</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">07b</span>The coordination model — publish, subscribe, wake</h2>
+  <p class="lede">Three of your questions are one question: should this be pub/sub? is the arbiter the steward? how does a coordinator loop <i>without</i> a timer? The answer ties them together.</p>
+  <div class="two">
+    <div class="col"><h3>Publish state, don't mail everyone</h3><ul>
+      <li>Two modes on one substrate: <b>targeted messages</b> (agent→agent, human→agent — delivered directly) and <b>published events</b> (an agent changes state / hits a milestone — the substrate fans it to <i>subscribers</i>).</li>
+      <li>POD-279's storm was the coordinator <b>mailing its own issue for everything</b>. Publish-state replaces that: it <i>emits</i> “POD-298 integrated”, and only subscribers hear it.</li>
+      <li><b>No subscribers ⇒ no delivery</b> — a published event with nobody listening is free. That's how you avoid storms: the audience is defined by subscriptions (implicit edges + explicit watches), not by the sender broadcasting.</li>
+    </ul></div>
+    <div class="col"><h3>The arbiter IS the steward</h3><ul>
+      <li>Don't build a second component. The steward already ticks the event log and dispatches — <b>give it the arbiter's rules</b> (edge-trigger, fact-dedup, retire-on-consume, suppress-in-context).</li>
+      <li><b>Tick-based for system/implicit notifications</b> (settle, milestones, digests): the tick naturally batches &amp; dedups, and a fact that resolves within a tick never fires.</li>
+      <li><b>Live for explicit targeted messages</b>: they bypass the arbiter's batching and deliver immediately — the sender already chose to poke a specific someone.</li>
+      <li><b>Automated notice always yields to a human/agent one.</b> See the box below.</li>
+    </ul></div>
+  </div>
+  <div class="verd" style="border-left-color:var(--warn)"><b>Your sharper question — the agent deliberately messages the parent “I integrated”, THEN closes, and the close fires a second notice. How do we make it near-impossible to get wrong?</b><br>
+  <b>Primary fix: the state change IS the message — there is no separate “notify” step to double up.</b> The agent doesn't mail “I integrated” and then close; it <b>closes with its context attached</b>: <code>podium issue close --note "integrated as abc123, here's what changed"</code>. The close <i>publishes one notification</i> to the subscribers, carrying that note. Because there's no separate send, there's nothing to duplicate — the natural, easiest action is also the correct one.<br>
+  <b>Safety net (for when an agent still sends a separate message):</b> the automated notice is a <b>fallback, not a duplicate</b>. Before the steward fires fact <i>F</i> to target <i>T</i>, it checks the ledger — has <i>T</i> already been told about this issue since the change, by <i>any</i> message? If so, <i>F</i> is <b>already-communicated</b> and suppressed. The producer of the fact does the notifying; the steward only fills a gap.</div>
+  <div class="verd"><b>The coordinator loop, without a timer.</b> The parent <b>parks</b>; it doesn't poll. A child event (<code>done / blocked / errored / exited-without-report</code>) is <b>published on the spawner edge</b>, which carries <b>wake rights</b> — so a parked parent is <b>woken</b> to process it (the POD-279 fix: parked parents don't self-wake). The event is durable and <b>re-surfaces until the parent's receiving turn completes</b> (that turn-completion is the “processed” signal); the arbiter dedups so re-surfacing is never a storm. Result: an <b>event-driven</b> coordinator that sleeps between children and wakes exactly when one needs it — the spawner↔child relationship is the one we make watertight first (M4).</div>
+</section>
+
+<section>
+  <h2><span class="sec">08</span>“Done” is a ladder — landing states vs stage</h2>
+  <p class="note" style="margin-bottom:14px;border-left-color:var(--accent);background:var(--panel)"><b>Two different things both got called “milestone” — fixed here.</b> This section is the <b>code's landing states</b> (implemented → accepted → integrated → deployed — where the diff is). The <b>implementation plan</b> (M1–M6, the shippable chunks of work) is <b>§11</b>. When you asked “where are the milestones?”, you meant §11.</p>
+  <p class="lede"><b>You pushed on this — rightly. A fixed four-rung ladder doesn't work “always”, so here's one that does.</b> The mistake was treating <code>implemented → accepted → integrated → deployed</code> as a pipeline every issue climbs and every repo supports. It isn't. Split it into <b>three kinds of thing</b>, and auto-detect <b>only</b> what's genuinely observable. And keep it off <b>stage</b> (<code>backlog…done</code>), which stays the human-board lane.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Rung</th><th>Kind</th><th>How we know — <b>works always</b></th><th class="c">Your challenge, answered</th></tr>
+    <tr><td class="m">integrated</td><td><b>observed fact</b></td><td>A commit <b>naming this issue</b> is reachable from the <b>default-branch HEAD</b> — pure git. Podium watches the branch; on advance it scans new commits for the issue ref &amp; stamps <code>integrated_at + commit</code>. Handles ff / merge-commit / <b>squash</b> (the ref rides in the message).</td><td class="c"><b>“what if a session doesn't merge-lock?”</b> → doesn't matter. The lock is advisory; truth comes from git, not the ritual.</td></tr>
+    <tr><td class="m">accepted</td><td><b>optional decision</b></td><td>Stamped <b>only when a gate actually happens</b> — a reviewer approves, or the assignee/operator says “ready to land”. Skip review and there is simply <b>no</b> <code>accepted</code> — <i>absent</i>, not unknown.</td><td class="c"><b>“what if an agent skips review? done = review?”</b> → No. <code>done</code> is the board lane; <code>accepted</code> is a landing decision. They coincide under review, diverge without it. Never required.</td></tr>
+    <tr><td class="m">deployed</td><td><b>optional signal</b></td><td>Only when the repo <b>declares how to know</b>: a deploy webhook, a <code>podium deploy</code> wrapper that reports, a health endpoint returning the live commit, or a release-tag pattern. <b>No declared signal → <code>deployed</code> is N/A</b> for that repo.</td><td class="c"><b>“how do you know — for any codebase?”</b> → You don't, unless it tells you. Never inferred. Podium's own repo declares its redeploy pipeline; a foreign repo may declare nothing, and that's fine.</td></tr>
+    <tr><td class="m">implemented</td><td><b>soft claim</b></td><td>The implementer says the diff is ready — derive from stage→<code>review</code>. A claim, not a fact; don't hang hard gates on it.</td><td class="c">unchanged — it was always the soft one.</td></tr>
+  </table></div>
+  <p class="note decided" style="margin-top:14px"><b>The blocking wait is freeform, not a rung (your q2).</b> When A blocks on B, A doesn't pick “accepted vs integrated” from a menu — A writes a <b>cleartext condition</b> of what it's waiting for (“B's auth migration is on main”, “B's endpoint returns the new field in prod”). At <b>A's stop-hook</b> that condition is <b>injected back as a question</b>: “You're blocked on <i>&lt;condition&gt;</i> — satisfied? If yes, clear the block.” If A can't tell or it isn't met, A is prompted to <b>update state / why it's still stopping</b> and the usual issue fields refresh. The structured <code>integrated</code> fact can <b>auto-clear</b> a condition that literally says “B integrated” (offer that as a template); everything else is A judging at its boundary. <b>Principle:</b> auto-detect only what git makes certain; record decisions/signals when a real one exists; let waits be words, re-surfaced at the right moment — nothing fabricated, nothing forced.</p>
+</section>
+
+<section>
+  <h2><span class="sec">09</span>POD-279 in the wild — what actually broke</h2>
+  <p class="lede">Two coordinator sessions (<i>implementation fan-out</i>, <i>drift-refresh</i>) ran a large architecture rewrite. Every podium message in their web is in <code>docs/superpowers/specs/2026-07-16-pod279-message-forensics.md</code>. Each problem below is named from that evidence, with a verdict on whether the system we're designing already solves it.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Problem</th><th>Evidence (POD-279)</th><th>Solved by our design?</th></tr>
+    <tr>
+      <td><b>A · Ack ceremony storm</b><span class="why">Every message begets an ack; acks beget acks.</span></td>
+      <td><span class="num">242</span> acks = <b>49%</b> of 491 msgs; <span class="num">243</span> ack-of-acks; reply-chains <span class="num">12</span> deep; <b>every ack urgency=<code>next-turn</code></b>, so each ack burns a fresh recipient turn (tokens).</td>
+      <td><span class="chip warn">partly</span> fyi-no-ack &amp; semantic-ack are designed, but not this. <b>New:</b> acks are <code>fyi</code>-delivery (surface at a boundary, never a fresh turn); an ack is <b>never itself ackable</b>; kill “receipt” acks — an ack means <i>done</i>, and the arbiter dedups. This is the single biggest token-churn win.</td>
+    </tr>
+    <tr>
+      <td><b>B · Settle-nag duplication</b></td>
+      <td>All <span class="num">36</span> notifications are “finished without acking”; <span class="num">21</span> are exact duplicate re-fires; one session nagged <b>8×</b> about the coordinator's own brief — which the worker had <i>acted on</i>, just not structurally acked.</td>
+      <td><span class="chip build">by the arbiter</span> Edge-trigger + fact-dedup + semantic-reply-as-ack (build step 2–3) removes all three facets. POD-468's once-guard helped; the arbiter finishes it.</td>
+    </tr>
+    <tr>
+      <td><b>C · Delivery black hole</b><span class="why">The most alarming: silent loss of real coordination.</span></td>
+      <td><span class="num">70</span> messages stuck <code>queued</code>, never delivered — issue-addressed <code>fyi</code> to an issue with no live idle session (“HOLD the rebase”, “Merged to main as e77e4ac”, “APOLOGY”). <b>And session-addressed too:</b> 2 <code>mail send --to &lt;sid&gt;</code> showed <i>queued but never delivered</i> — the reviewer never got its brief and reviewed from standing rules alone (21:05Z).</td>
+      <td><span class="chip miss">NO — new gap</span> Our matrix assumed a session to nudge. <b>New:</b> issue-addressed holds for the issue's <i>next</i> session (deliver at prime); session-addressed to a busy target must confirm delivery, not silently drop; dead-letter+notify on close. All of this is “delivered = consumed”.</td>
+    </tr>
+    <tr>
+      <td><b>D · Child <code>needs_user</code> invisible upward → 7h overnight stall</b></td>
+      <td>Coordinator idle <span class="num">21:33Z</span> → <span class="num">04:31Z</span> = a <b>418-minute gap</b>. Three awaited things all went silently dark: POD-757's child sat in <span class="m">needs_user</span> on a <b>banned AskUserQuestion (used twice)</b>; POD-756's grok child <b>finished but exited before mailing its report</b>; the integrator's insurance timer <b>died on the bun/PATH systemd gotcha (exit 127)</b>. Human: <i>“the work didn't stop — the wake-ups did.”</i> First AskUserQuestion caught only because the human noticed.</td>
+      <td><span class="chip miss">NO — new gap</span> Today: a workaround ban that agents ignore. <b>New:</b> child <code>needs_user</code> AND child-exit-without-report are <b>first-class parent events</b>; <code>await</code> returns <code>working|blocked|done|gone</code>, never a false “still working”; parent can <code>answer_question</code> or escalate. A decision-wait must never be invisible or silent.</td>
+    </tr>
+    <tr>
+      <td><b>H · Self-echo loop</b><span class="why">An agent messaging its own issue gets it back.</span></td>
+      <td>The coordinator mails its own issue POD-279; sharing that inbox, each send <b>echoes back</b> as inbound → stop-hook → inbox read → “my own echo”. Logged <b>15×</b> verbatim (“my own INTEGRATE-READY echo — nothing new”), each a wasted turn.</td>
+      <td><span class="chip miss">NO — new gap, trivial fix</span> <b>New:</b> never deliver a message back to its own sender session; suppress self-delivery at the arbiter. One line, kills a whole class of empty turns.</td>
+    </tr>
+    <tr>
+      <td><b>I · Frequency reads as authority</b><span class="why">How often an instruction arrives decides which wins.</span></td>
+      <td>A <b>per-turn</b> workflow prime told every child to acquire the merge lock and ff-merge — contradicting a <b>once-stated</b> no-merge brief override. Repetition won: <b>POD-298 self-merged to main</b> (544b02cf) against its own brief. “A per-turn instruction beats a once-stated brief — frequency reads as authority.”</td>
+      <td><span class="chip miss">partly fixable — ideas (your q5)</span> Honestly: you <b>can't</b> fully fix “frequency = authority” by persuasion — an LLM weights repeated/recent context, full stop. So don't fight it with prose; <b>move the dangerous action to an enforcement point.</b> <b>(a) Machine-checked gate (the real fix):</b> flag the issue <code>no-merge</code> / <code>landing: blocked</code>, and the <code>merge-lock</code> / ff-merge path <b>hard-refuses</b> — a refused command can't be out-voted by repetition. <b>(b) Don't re-inject conflicting orders:</b> the per-turn workflow prime shouldn't carry a blanket “merge” to a child briefed “don't” — make standing primes conditional. <b>(c) If it must be prose, match the persistence:</b> deliver the override as a standing session policy (re-injected every turn), never a one-shot mail. <b>(a) is the only one that “works always”;</b> (b)/(c) just lower the odds.</td>
+    </tr>
+    <tr>
+      <td><b>J · Shared-file clobbering &amp; duplicate work</b></td>
+      <td>POD-295/296/298 wrote <code>docs/rearchitecture-v3.md</code> at once (freeze / re-freeze churn); three agents repeated an <i>unverified</i> ci.yml-conflict claim before anyone ran <code>merge-tree</code>. Advisory locks existed but weren't used.</td>
+      <td><span class="chip warn">have the tool, not the discipline</span> <code>podium lock</code> is built (advisory leases on any name). <b>New:</b> a coordinator must assign file ownership / leases per wave; consider surfacing “session X also has this file open” so concurrent edits are visible before the clobber, not after.</td>
+    </tr>
+    <tr>
+      <td><b>E · Await/notification breakdown at scale</b></td>
+      <td>Coordinator over <span class="num">33</span> sessions / <span class="num">22</span> issues; learning “who's done” degraded into polling + the duplicate settle-nags above. Bounded <code>await</code> returns “still working” even when a child is truly stuck (see D).</td>
+      <td><span class="chip warn">partly</span> Bounded await + read ladder exist. <b>New:</b> await must distinguish <code>working</code> / <code>blocked</code> / <code>done</code> / <code>gone</code>; completion should <i>push</i> (implicit spawner edge, once) so the coordinator isn't polling 33 children.</td>
+    </tr>
+    <tr>
+      <td><b>F · Urgent correction can't reach a working child</b></td>
+      <td>A coordinator's non-interrupt mail lands only at the child's stop-hook — a working child doesn't see “HOLD” until it finishes the very thing you're trying to stop.</td>
+      <td><span class="chip bad">interrupt is the answer, but broken</span> The design (interrupt = ESC-through) is right; POD-495 has it live-broken and coordinators under-use it. Merge <code>d13873d</code> + teach coordinators to interrupt for overrides.</td>
+    </tr>
+    <tr>
+      <td><b>G · Anonymous fan-out board</b></td>
+      <td>Many sessions addressed by bare UUID; provenance is a free-form string, so “who spawned whom, and why” isn't machine-readable — a mis-addressed request earlier spawned a spurious issue (POD-466).</td>
+      <td><span class="chip build">POD-530</span> Structured provenance (initiator, parent, trigger, correlation id) + named sessions at spawn make the web legible and mis-delivery detectable.</td>
+    </tr>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">10</span>The arbiter — requirements from the deluge</h2>
+  <p class="lede">Each notifier is individually defensible; the failure is that nobody owns <b>“does this agent need to be poked, with what, and has it already been told?”</b> Five properties, each killing an observed POD-279 failure.</p>
+  <div class="tablewrap"><table>
+    <tr><th>Property</th><th>Kills</th></tr>
+    <tr><td><b>Edge-triggered</b> — fire on the transition, not the standing state</td><td>the 8× settle re-fire; subscriptions firing every idle-blip</td></tr>
+    <tr><td><b>Deduped by fact</b> — once per (fact, target) across <i>all</i> producers</td><td>stop-hook + steward + subscription all announcing one settle</td></tr>
+    <tr><td><b>Self-expiring</b> — retire on consume / expiry / issue close</td><td>subs outliving purpose; unackable mail nagging forever</td></tr>
+    <tr><td><b>Context-aware</b> — suppress facts already in the target's context</td><td>“run mail inbox” for messages already delivered as turns</td></tr>
+    <tr><td><b>Clearable</b> — surfacing marks read; explicit <code>dismiss</code>/<code>resolve</code></td><td>the unclearable stop-hook loop; ever-growing unread piles</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2><span class="sec">10b</span>One agent, many issues — over time</h2>
+  <p class="lede">You restricted it to <b>one issue per agent</b> because issues vanished from the sidebar when their agent moved on — but a person may genuinely want one agent to work several issues. The fix isn't to duplicate a live agent under every issue (you're right, that's confusing); it's to <b>separate “where the agent is now” from “every issue it has touched”</b>.</p>
+  <div class="two">
+    <div class="col"><h3>The model</h3><ul>
+      <li>Keep a persistent <b>agent ↔ issue link table</b> (many-to-many over time): <code>{session, issue, first_seen, last_seen, active}</code>.</li>
+      <li><b>Exactly one link is <code>active</code></b> — the issue the agent's live terminal is bound to right now.</li>
+      <li><code>podium issue attach</code> <b>flips</b> which link is active and <b>keeps the old one</b> — so the previous issue never loses its record of that agent. That's what stops issues from vanishing.</li>
+    </ul></div>
+    <div class="col"><h3>The sidebar</h3><ul>
+      <li><b>Issues are the spine</b> (they're durable); sessions hang under them.</li>
+      <li>Each issue lists its linked agents as drawers. The <b>active</b> one is <b>open &amp; lit</b>; ones that worked it before are <b>collapsed &amp; greyed</b>, with a “→ now on POD-Y” pointer you can click to follow.</li>
+      <li>So a given agent shows <b>live under one issue</b> and <b>as a faded breadcrumb under the others</b> — present everywhere it's been, unambiguous about where it is.</li>
+    </ul></div>
+  </div>
+  <p class="note decided" style="margin-top:14px"><b>✓ You approved this model.</b> <b>Don't conflate it with coordinators.</b> A coordinator overseeing POD-834/835/836 is <b>not</b> “attached to” them — it's attached to its own issue (POD-833), and the children are <i>separate</i> issues shown <b>nested by provenance</b> (spawnedBy), which is M6. So: <b>sequential</b> reuse of one agent across issues → this link-history model; <b>concurrent</b> oversight → provenance nesting. Two different pictures, neither needs a live agent duplicated across drawers.</p>
+</section>
+
+<section>
+  <h2><span class="sec">11</span>Milestones — the implementation plan (M1–M6)</h2>
+  <p class="lede"><b>These are the milestones.</b> Scoped to your stated focus, so this doesn't sprawl. Each is independently shippable and named for the outcome. <b>M1–M3 are the shared messaging foundation</b> (everyone benefits, and M4–M6 depend on them); <b>M4–M6 are the focus goals</b>. Later work is parked, not forgotten. <span class="dim">(Not to be confused with the code “landing states” in §08.)</span></p>
+  <div class="tablewrap"><table>
+    <tr><th>Milestone</th><th>Serves</th><th>Concrete scope</th></tr>
+    <tr>
+      <td><b>M1 · Trustworthy delivery</b><span class="why">the floor everything stands on · partly landed</span></td>
+      <td>delivery stability · sender visibility</td>
+      <td>The message <b>lifecycle</b> (§04d), <code>delivered = transcript-observed</code>, sender-visible status. <b>Landed:</b> <span class="chip ok">POD-834</span> honest lifecycle + non-blocking send + async transcript-echo delivered; <span class="chip ok">POD-836</span> self-echo suppression. <b>In flight:</b> <span class="chip build">POD-853</span> mid-turn injections don't echo → false-negative delivered (makes “delivered” reliable). <b>Follow-on (after 853):</b> <i>blocking send by urgency</i> — interrupt waits for delivered, next-turn waits within a budget then “accepted, query <code>mail status</code>”, fyi at queued; <code>queued</code> means handed-to-harness, not our DB. Plus <b>merge <code>d13873d</code></b> (interrupt ESC-race, POD-495). <b>Folded in (you authorized):</b> the <b>composer-state delivery guard</b> (§05b) — never inject into a dirty draft; hold &amp; attach-on-next-send. <span class="dim">(Case-3 draft save/restore rides on POD-816.)</span></td>
+    </tr>
+    <tr>
+      <td><b>M2 · Ack overhaul</b><span class="why">–~half of all traffic</span></td>
+      <td>reduce noise · acks differently</td>
+      <td>Receipt is <b>mechanical</b> (sync send proves it; no ack message; senders pull). A <b>response is opt-in</b> — <code>send --expect-response</code> / <code>question</code> — and <b>pull-delivered</b>, never a pushed <code>next-turn</code>. Settle-nag only for an unfulfilled <i>requested</i> response. (§04b)</td>
+    </tr>
+    <tr>
+      <td><b>M3 · Arbiter in the steward</b><span class="why">the keystone</span></td>
+      <td>deduplication</td>
+      <td>Fold arbiter rules into the steward: <b>edge-trigger, fact-dedup, retire-on-consume, suppress-in-context</b>. Tick-based for system notices, live for targeted messages. <b>Clearable mail</b>: <code>inbox</code> marks read + a <code>dismiss</code> verb (kills the unclearable stop-hook loop). (§07b, §10)</td>
+    </tr>
+    <tr>
+      <td><b>M4 · Good remote subagents</b> <span class="chip dec">focus</span><span class="why">the headline goal</span></td>
+      <td>coordinator ⇄ executor; auto parent-notify</td>
+      <td><b>Deterministic status</b> (§04c): actual model/effort captured at spawn, native+remote subagent counts, blocked/error subtype, draft. <b>Event-driven loop</b> (§07b): child <code>done/blocked/errored/exited</code> auto-publishes on the spawner edge, <b>wakes a parked parent</b>, guaranteed-processed — no timer. <code>await</code> returns <code>working|blocked|done|gone</code>; child <code>needs_user</code> &amp; exit-without-report are first-class parent events (ends the 7h stall §09-D). <b>Clarify the two spawns:</b> <code>agent spawn --issue</code> = a subagent sharing a workspace; <code>issue create --start</code> = an independent top-level agent+branch. <b>Debounce state transitions</b> (§04c) — a beat of false-idle (native subagent still running) must not read as idle, since delivery fires on idle.</td>
+    </tr>
+    <tr>
+      <td><b>M5 · Subagent-aware CLI</b> <span class="chip dec">focus</span><span class="why">has a hard blocker</span></td>
+      <td>native subagents use podium like anyone</td>
+      <td>The CLI detects a subagent context from a <b>per-subagent marker</b> and mints a distinct identity, so the subagent can <code>attach</code> itself to a (sub)issue, get its own <code>prime</code>, and <code>mail</code> as itself — never re-homing the parent. <b>The parent can also attach the subagent</b> (it holds identity + sees <code>TaskCreated</code>) — needs nothing from the subagent, so it's the robust fallback. Board node is free (the hooks already fire). <b class="m">First task is a BLOCKER: find the marker.</b> Native subagents are in-process (same env), so <b>no local signal</b> distinguishes them — without a harness marker, self-attach is impossible and we're limited to parent-mediated attach; either way the CLI must <b>fail closed</b> (a bare inherited relay never silently re-homes the parent). That answer sizes M5 and decides if the feature is brittle. (L1, §01)</td>
+    </tr>
+    <tr>
+      <td><b>M6 · Sidebar organization</b> <span class="chip dec">focus</span></td>
+      <td>legible team on the board</td>
+      <td><b>Nest remote subagents under their parent</b> (via <code>spawnedBy</code>), with their sub-issues; nest native subagents (M5). <b>Group agent-started top-level issues by provenance</b> — show the “started-by” tree even when it's not a formal sub-issue. <b>Governance (your q6): no approval gate — just attention.</b> An agent may create a top-level issue; it appears on your board <b>flagged for attention</b>, not held for sign-off. Also surface the <b>coordinator session</b> per issue (§05, your q1) — sidebar + top tab. (§09-J provenance, POD-530)</td>
+    </tr>
+    <tr>
+      <td class="dim"><b>Later · milestones &amp; relationships</b></td>
+      <td class="dim">L3 blocking · L4 related work</td>
+      <td class="dim"><code>accepted/integrated/deployed</code> as timestamped issue facts with auto-detection (§08); retiring subscriptions; dep-edge wake; L4 pull-gated “tell me at my merge point”.</td>
+    </tr>
+    <tr>
+      <td class="dim"><b>Later · recaps &amp; digests</b></td>
+      <td class="dim">L5 awareness</td>
+      <td class="dim"><code>session digest</code> since the session's <b>start-commit</b> (main's HEAD captured at spawn — the default <code>&lt;my-start&gt;</code>, so no arg needed); surfaced at session start &amp; pre-merge.</td>
+    </tr>
+  </table></div>
+  <p class="note decided" style="margin-top:16px"><b><code>&lt;my-start&gt;</code>, decided:</b> capture <b>main's HEAD commit at spawn</b> onto the session row; the digest defaults to “what landed since that commit” (a commit is more precise than a timestamp for “what merged”). It lives on the <b>session</b> because “since I started” is session-scoped; an issue-scoped baseline is a separate, also-useful query.</p>
+  <h3 style="font-size:15px;margin:26px 0 4px">Decisions — answered ✓</h3>
+  <p class="lede">All six resolved and folded into the sections above.</p>
+  <div class="tablewrap"><table>
+    <tr><th>#</th><th>Question</th><th>Your call</th></tr>
+    <tr><td class="num">1</td><td>Several agents on one issue — which gets an actionable reply?</td><td>A first-class <b>coordinator session</b> per issue — claimable, changeable, shown in sidebar + top tabs; routes there. (§05)</td></tr>
+    <tr><td class="num">2</td><td>A blocked on B — what counts as B “done enough”?</td><td><b>Neither as a fixed rung.</b> A writes a <b>freeform condition</b>, re-checked at its stop-hook; the git-fact <code>integrated</code> can auto-clear it. (§08)</td></tr>
+    <tr><td class="num">3</td><td>B finishes — wake A, or queue?</td><td><b>The subscriber chooses</b> — A picks wake or queue when it blocks/subscribes. (§07)</td></tr>
+    <tr><td class="num">4</td><td>Other-harness agents — MCP-mirror or CLI?</td><td><b>CLI for now.</b> MCP-mirror parked as a later option. (§03)</td></tr>
+    <tr><td class="num">5</td><td>Self-merge — stop frequency beating a one-time override?</td><td>Not fully fixable by prose. <b>Move it to an enforcement point</b> — a machine-checked <code>no-merge</code> flag the merge path refuses. (§09-I)</td></tr>
+    <tr><td class="num">6</td><td>Agent starts a top-level issue — approval, or attention?</td><td><b>No approval — flagged for attention.</b> (§11 M6)</td></tr>
+  </table></div>
+</section>
+
+</div>
+</body>
+</html>

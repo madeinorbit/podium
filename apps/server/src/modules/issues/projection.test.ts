@@ -64,6 +64,7 @@ function row(over: Partial<IssueRow> = {}): IssueRow {
     dueAt: '2026-08-01T00:00:00.000Z',
     deferUntil: null,
     closedReason: null,
+    closedAt: null,
     supersededBy: null,
     duplicateOf: null,
     pinned: true,

@@ -84,10 +84,10 @@ test('header tint, panel dropdown, menu exclusivity, home, superagent overlay', 
   await expect(page.getByTestId('mobile-panel-menu')).toBeHidden()
 
   // ── Home: neutral header, lit Home cell, bottom utility row (§2.2) ───────
-  await page.locator('button[title="Work"]').click()
+  await page.locator('button[title="Tasks"]').click()
   const neutral = await resolveColorIn(page, '[data-testid="mobile-header"]', 'var(--card)')
   await expect.poll(() => headerBg(page), { timeout: 10_000 }).toBe(neutral)
-  await expect(page.locator('button[title="Work"]')).toHaveClass(/text-attention/)
+  await expect(page.locator('button[title="Tasks"]')).toHaveClass(/text-attention/)
   await expect(page.getByTestId('project-group-label').first()).toBeVisible()
   await expect(page.getByLabel('Add repo')).toBeVisible()
 
@@ -96,8 +96,9 @@ test('header tint, panel dropdown, menu exclusivity, home, superagent overlay', 
   const overlay = page.getByTestId('mobile-super-overlay')
   await expect(overlay).toBeVisible()
   await expect(page.locator('button[title="Superagent"]')).toHaveClass(/text-attention/)
-  await expect(overlay.getByTestId('tray-bar')).toBeVisible()
+  await expect(overlay.getByTestId('tray-bar')).toHaveCount(0)
   await expect(overlay.getByTestId('super-bar')).toBeVisible()
+  await expect(overlay.locator('[data-superagent-composer]')).toBeVisible()
   await overlay.locator('button[title="Minimize"]').click()
   await expect(overlay).toBeHidden()
   await expect(page.locator('button[title="Superagent"]')).not.toHaveClass(/text-attention/)
@@ -128,6 +129,12 @@ test('key bar: bordered keys, tinted submit, live input, viewport pinning', asyn
     undefined,
     { timeout: 15_000 },
   )
+
+  // [spec:SP-7696] Click the explicit mobile affordance, then prove input still
+  // reaches the real PTY below. An already-controlling client need not bump epoch.
+  const takeControl = page.getByTestId('take-control')
+  await expect(takeControl).toBeVisible()
+  await takeControl.click()
 
   // The two key rows are visible in native mode, restyled to bordered keys.
   const actions = page.locator('.key-actions:visible')

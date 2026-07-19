@@ -9,8 +9,8 @@ import { type MainView, useReplicaIssues, useStoreSelector } from './store'
 
 /**
  * The desktop 44px command header per the handoff v2 desktop anatomy
- * (.design/specs/shell-layout.md §2.1): logo · text nav (Home with the amber
- * waiting badge · Issues · Workflows · Specs · Automations) · machine + quota chips
+ * (.design/specs/shell-layout.md §2.1): logo · text nav (Tasks · Workflows ·
+ * Specs · Automations) · machine + quota chips
  * right-aligned. The icon-cell header with issue-context dropdown and “+”
  * belongs to the MOBILE shell (MobileApp.tsx), not here.
  * [spec:SP-3834] The same header becomes the native app's integrated title bar.
@@ -22,8 +22,9 @@ export function TopBar(): JSX.Element {
   )
   const issues = useReplicaIssues()
 
-  const waitingCount = issues.filter(
-    (issue) => !issue.archived && !issue.deletedAt && issue.needsHuman,
+  // Proposals are a curation inbox, distinct from agents asking questions. [spec:SP-6144]
+  const proposedCount = issues.filter(
+    (issue) => !issue.archived && !issue.deletedAt && issue.stage === 'proposed',
   ).length
   const desktopBridge = nativeDesktopBridge()
   const dragRegion = desktopBridge ? { 'data-tauri-drag-region': true } : undefined
@@ -37,8 +38,13 @@ export function TopBar(): JSX.Element {
         className="desktop-topbar-nav ml-[10px] inline-flex flex-none items-center gap-0.5"
         aria-label="Primary"
       >
-        <NavItem label="Home" target="home" view={view} onSelect={setView} badge={waitingCount} />
-        <NavItem label="Tasks" target="issues" view={view} onSelect={setView} />
+        <NavItem
+          label="Tasks"
+          target="issues"
+          view={view}
+          onSelect={setView}
+          badge={proposedCount}
+        />
         <NavItem label="Workflows" target="workflows" view={view} onSelect={setView} />
         <NavItem label="Specs" target="specs" view={view} onSelect={setView} />
         <NavItem label="Automations" target="automations" view={view} onSelect={setView} />

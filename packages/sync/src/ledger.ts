@@ -7,6 +7,7 @@ import {
   type ChangeLogStore,
   conversationProjection,
   minAvailableSeq,
+  pruneChangeLog,
   readChangesSince,
 } from './change-log'
 import {
@@ -27,7 +28,10 @@ import {
  * change append inside ONE injected `transact()` span, so "the entity row
  * changed" and "the change log says so" commit or roll back together.
  *
- * Mapping from the oplog's `partial` flag (issue #22):
+ * Mapping from the oplog.s `partial` flag (issue #22):
+ * - `capture()` explicitly appends non-row mutations owned by a service seam.
+ *   Like commit it never diffs a list; unlike commit it has no entity-row write
+ *   to share a transaction with.
  * - `commit()` NEVER diffs lists. The `changes()` callback declares exactly
  *   what the write touched; a declared `remove` is explicit. There is no
  *   subset/full-list ambiguity, so `partial` does not exist here.
@@ -50,23 +54,16 @@ import {
 
 /** One declared entity change: what a write did, stated by the writer.
  *  `value` is the entity's WIRE shape (present iff op === 'upsert'). */
+/** Collision-free overlay key without a literal NUL byte in source [POD-758]. */
+export function entityOverlayKey(entity: string, id: string): string {
+  return `${entity}\u0000${id}`
+}
+
 export interface EntityChangeSpec {
   entity: MetadataEntityKind
   id: string
   op: 'upsert' | 'remove'
   value?: unknown
-}
-
-/**
- * Composite overlay/map key for (entity, id). The separator is a real NUL at
- * runtime (it cannot occur in an entity name or id, so keys never collide) but
- * is written as an ESCAPE on purpose. A literal NUL BYTE in the source makes
- * `file`, grep and friends classify the whole module as binary, and plain grep
- * then reports NOTHING and exits 1 rather than erroring — the fail-open shape
- * fixed here and in scripts/architecture-manifest.ts (POD-296). [POD-758]
- */
-export function entityOverlayKey(entity: string, id: string): string {
-  return `${entity}\u0000${id}`
 }
 
 export interface LedgerDeps {
@@ -77,11 +74,35 @@ export interface LedgerDeps {
    *  nesting-safe `transaction(db, fn)` over the shared connection). Unit
    *  tests may pass a pass-through `(fn) => fn()`. */
   transact: <T>(fn: () => T) => T
-  /** Mints feed identity ids (ADR 2 D1) on an authority's first boot. Injected
-   *  ONLY so tests can be deterministic — production takes the default. The ids
-   *  must be opaque and never reused; see feed-identity.ts for why a counter is
-   *  actively broken here. */
+  /** Mints opaque feed identity ids; injected only for deterministic tests. */
   newId?: () => string
+  /** Monotonic clock seam for deterministic maintenance scheduling tests. */
+  monotonicNow?: () => number
+  /** Records each retention job's total duration and max uninterrupted slice. */
+  onPruneMetrics?: Parameters<typeof pruneChangeLog>[1]['onMetrics']
+}
+
+export interface LedgerBootOptions {
+  repo: ChangeLogStore & FeedIdentityStore
+  now: () => number
+  signal?: AbortSignal
+  monotonicNow?: () => number
+  onPruneMetrics?: Parameters<typeof pruneChangeLog>[1]['onMetrics']
+}
+
+/**
+ * Real-server readiness gate [spec:SP-c29e]: finish the sliced boot prune before
+ * any Ledger construction can fold or reconcile the retained change log.
+ */
+export function prepareLedgerBoot(options: LedgerBootOptions) {
+  return pruneChangeLog(options.repo, {
+    keepRows: CHANGE_KEEP_ROWS,
+    maxAgeMs: CHANGE_MAX_AGE_MS,
+    now: options.now(),
+    signal: options.signal,
+    monotonicNow: options.monotonicNow,
+    onMetrics: options.onPruneMetrics,
+  })
 }
 
 function isThenable(value: unknown): value is PromiseLike<unknown> {
@@ -103,36 +124,24 @@ interface StagedRow {
 
 export class Ledger {
   private readonly baseline = new ChangeBaseline()
+  private readonly identity: FeedIdentity
   private appendsSincePrune = 0
   private readonly listeners = new Set<(changes: MetadataChange[]) => void>()
-  private readonly identity: FeedIdentity
+  private readonly shutdown = new AbortController()
+  private pruneFlight: Promise<void> | undefined
+  private pruneRerunRequested = false
 
   constructor(private readonly deps: LedgerDeps) {
-    // Boot prune BEFORE folding the log: a bloated table self-heals on deploy
-    // instead of waiting PRUNE_EVERY appends, and the fold reads fewer rows.
-    deps.repo.pruneChanges({
-      keepRows: CHANGE_KEEP_ROWS,
-      maxAgeMs: CHANGE_MAX_AGE_MS,
-      now: deps.now(),
-    })
     this.baseline.seed(deps.repo)
-    // Mint-on-first-sight (ADR 2 D1). The Ledger is constructed once per
-    // authority and is the log's single writer, so it is the one place that can
-    // promise "minted once per authority database". Read into a field: the
-    // identity is immutable for the process's life — an epoch re-mint happens
-    // OFFLINE, at restore, against a database no Ledger has open.
     this.identity = ensureFeedIdentity(deps.repo, deps.newId ?? newFeedId)
   }
 
-  /** This feed's `(feedId, epoch)` — the other two thirds of a replica's cursor
-   *  triple (ADR 2 D1). Stamped on every delta frame and catch-up reply; the
-   *  replica compares BOTH by equality on every exchange and treats any mismatch
-   *  as a reset, never a heal. */
+  /** This feed's equality-only identity pair (ADR 2 D1). */
   feedIdentity(): FeedIdentity {
     return this.identity
   }
 
-  /** The lowest seq still deliverable (ADR 2 D5) — see {@link minAvailableSeq}. */
+  /** Lowest sequence still deliverable after retention (ADR 2 D5). */
   minAvailableSeq(): number {
     return minAvailableSeq(this.deps.repo)
   }
@@ -169,6 +178,19 @@ export class Ledger {
   }
 
   /**
+   * Capture an explicitly owned mutation that has no durable entity-row write
+   * to bind to (for example volatile session view state or an upstream mirror).
+   * The caller supplies the exact upserts/removes; this never diffs a full list.
+   * Ledger seq remains the only durable/client-visible ordering primitive while
+   * service-local generations merely schedule projection work. [spec:SP-c29e]
+   */
+  capture(specs: EntityChangeSpec[]): MetadataChange[] {
+    const staged = this.stage(specs)
+    const seqs = staged.length > 0 ? this.deps.repo.appendChanges(staged, this.deps.now()) : []
+    return this.finalize(staged, seqs)
+  }
+
+  /**
    * Boot-only reconciliation: `rows` is the FULL truth for one entity kind.
    * Diffs against the baseline INCLUDING removes — the only surviving
    * full-list diff path — so changes made while the server was down land in
@@ -202,7 +224,13 @@ export class Ledger {
     return this.deps.repo.maxChangeSeq()
   }
 
-  /** Fires after commit/reconcile with the appended changes (never with an
+  /** Cancel maintenance between bounded units during server shutdown. */
+  dispose(): void {
+    this.pruneRerunRequested = false
+    this.shutdown.abort()
+  }
+
+  /** Fires after commit/capture/reconcile with the appended changes (never with an
    *  empty batch). Per-listener try/catch so a listener throw can't break the
    *  committer. Returns an unsubscribe. */
   onAppended(listener: (changes: MetadataChange[]) => void): () => void {
@@ -282,18 +310,61 @@ export class Ledger {
         console.error('[ledger] onAppended listener threw', err)
       }
     }
+    // Cadence prune RETIRED [POD-925]: ongoing change-log retention is owned by
+    // the fenced janitor surface. Boot readiness prune (prepareLedgerBoot) stays.
+    // Keep the counter so tests that inspect append batching remain meaningful.
     if (++this.appendsSincePrune >= CHANGE_PRUNE_EVERY) {
       this.appendsSincePrune = 0
+    }
+    return changes
+  }
+
+  /**
+   * [spec:SP-c29e] Coalesce overlapping cadence triggers into the current
+   * retention flight plus at most one rerun.
+   */
+  private schedulePrune(): void {
+    if (this.shutdown.signal.aborted) return
+    if (this.pruneFlight) {
+      this.pruneRerunRequested = true
+      return
+    }
+    const flight = this.drainPruneRequests()
+    this.pruneFlight = flight
+    const clear = () => {
+      if (this.pruneFlight === flight) this.pruneFlight = undefined
+    }
+    void flight.then(clear, (err) => {
+      clear()
+      console.error('[ledger] retention prune failed (writes remain durable)', err)
+    })
+  }
+
+  private async drainPruneRequests(): Promise<void> {
+    let failed = false
+    let failure: unknown
+    do {
+      this.pruneRerunRequested = false
       try {
-        this.deps.repo.pruneChanges({
+        const { metrics } = await pruneChangeLog(this.deps.repo, {
           keepRows: CHANGE_KEEP_ROWS,
           maxAgeMs: CHANGE_MAX_AGE_MS,
           now: this.deps.now(),
+          signal: this.shutdown.signal,
+          monotonicNow: this.deps.monotonicNow,
+          onMetrics: this.deps.onPruneMetrics,
         })
+        if (metrics.exceededPlacementThreshold) {
+          console.warn(
+            `[ledger] retention job took ${metrics.totalDurationMs.toFixed(1)}ms; ` +
+              'candidate for janitor placement',
+          )
+        }
       } catch (err) {
-        console.error('[ledger] retention prune failed (commit already durable)', err)
+        if (!failed) failure = err
+        failed = true
       }
-    }
-    return changes
+    } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
+    if (failed) throw failure
   }
 }

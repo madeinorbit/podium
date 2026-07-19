@@ -69,19 +69,19 @@ export class IssuesRepository {
     this.db
       .prepare(
         `INSERT INTO issues
-           (id, repo_path, repo_id, seq, title, description, stage, worktree_path, branch, parent_branch,
+           (id, repo_path, repo_id, seq, title, description, brief, stage, worktree_path, branch, parent_branch,
             default_agent, default_model, default_effort, machine_id,
             linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
             suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
             priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, superseded_by, duplicate_of, pinned, color, estimate_min,
+            defer_until, closed_reason, closed_at, superseded_by, duplicate_of, pinned, color, estimate_min,
             needs_human, human_question, human_question_options,
             human_question_asked_by, human_question_asked_at, panel,
-            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at, revision)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            created_at, updated_at, archived, origin, audience, draft, read_at, deleted_at, revision, coordinator_session_id, started_by_session)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            repo_id = excluded.repo_id,
-           title = excluded.title, description = excluded.description, stage = excluded.stage,
+           title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
            worktree_path = excluded.worktree_path, branch = excluded.branch,
            parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
            default_model = excluded.default_model, default_effort = excluded.default_effort,
@@ -95,6 +95,7 @@ export class IssuesRepository {
            parent_id = excluded.parent_id, design = excluded.design,
            acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
            defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
+           closed_at = excluded.closed_at,
            superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
            pinned = excluded.pinned, color = excluded.color,
            estimate_min = excluded.estimate_min,
@@ -106,7 +107,9 @@ export class IssuesRepository {
            updated_at = excluded.updated_at, archived = excluded.archived,
            origin = excluded.origin, audience = excluded.audience,
            draft = excluded.draft, read_at = excluded.read_at,
-           deleted_at = excluded.deleted_at, revision = excluded.revision`,
+           deleted_at = excluded.deleted_at, revision = excluded.revision,
+           coordinator_session_id = excluded.coordinator_session_id,
+           started_by_session = excluded.started_by_session`,
       )
       .run(
         row.id,
@@ -115,6 +118,7 @@ export class IssuesRepository {
         row.seq,
         row.title,
         row.description,
+        row.brief ?? null,
         row.stage,
         row.worktreePath,
         row.branch,
@@ -143,6 +147,7 @@ export class IssuesRepository {
         row.dueAt,
         row.deferUntil,
         row.closedReason,
+        row.closedAt ?? null,
         row.supersededBy,
         row.duplicateOf,
         row.pinned ? 1 : 0,
@@ -163,6 +168,8 @@ export class IssuesRepository {
         row.readAt ?? null,
         row.deletedAt ?? null,
         row.revision,
+        row.coordinatorSessionId ?? null,
+        row.startedBySession ?? null,
       )
   }
 
@@ -174,6 +181,7 @@ export class IssuesRepository {
       seq: r.seq as number,
       title: r.title as string,
       description: (r.description as string) ?? '',
+      brief: (r.brief as string | null) ?? null,
       stage: r.stage as string,
       worktreePath: (r.worktree_path as string | null) ?? null,
       branch: (r.branch as string | null) ?? null,
@@ -202,6 +210,7 @@ export class IssuesRepository {
       dueAt: (r.due_at as string | null) ?? null,
       deferUntil: (r.defer_until as string | null) ?? null,
       closedReason: (r.closed_reason as string | null) ?? null,
+      closedAt: (r.closed_at as string | null) ?? null,
       supersededBy: (r.superseded_by as string | null) ?? null,
       duplicateOf: (r.duplicate_of as string | null) ?? null,
       pinned: r.pinned === 1,
@@ -235,6 +244,8 @@ export class IssuesRepository {
       // is `DEFAULT 1 NOT NULL` and the migration materialized 1 into every
       // pre-existing row, so a null here would mean a hand-mangled database.
       revision: (r.revision as number | null) ?? 1,
+      coordinatorSessionId: (r.coordinator_session_id as string | null) ?? null,
+      startedBySession: (r.started_by_session as string | null) ?? null,
     }
   }
 

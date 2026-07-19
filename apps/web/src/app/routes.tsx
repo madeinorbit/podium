@@ -5,7 +5,6 @@ import { IssuesView } from '@/features/issues/IssuesView'
 import { SettingsView } from '@/features/settings/SettingsView'
 import { UsageView } from '@/features/usage/UsageView'
 import { WorkflowsView } from '@/features/workflows/WorkflowsView'
-import { HomeView } from '@/features/worklist/HomeView'
 import { useStoreSelector } from './store'
 
 // Lazy: BlockNote (the spec WYSIWYG editor) is a heavy chunk only Specs needs —
@@ -18,27 +17,25 @@ const SpecsView = lazy(() =>
 /**
  * The ONE route table (issue #15 Phase 4): the URL router resolves the current
  * `view`, and this outlet renders it. AppShell (desktop) and MobileApp share it
- * verbatim — the only per-shell differences are what "workspace" looks like and,
- * since #227, what "home" is: desktop's home is the Command center, mobile's is
- * the sidebar work list (which desktop shows in its always-present sidebar).
+ * verbatim — the only per-shell difference is what "workspace" looks like.
  */
 export function MainViewOutlet({
   workspace,
-  home,
+  issues,
 }: {
   workspace: ReactNode
-  home?: JSX.Element
+  /** Responsive shells can replace the desktop task board with their primary
+   * work-navigation surface. [spec:SP-7696] */
+  issues?: ReactNode
 }): JSX.Element {
   const view = useStoreSelector((s) => s.view)
   switch (view) {
-    case 'home':
-      return home ?? <HomeView />
     case 'settings':
       return <SettingsView />
     case 'usage':
       return <UsageView />
     case 'issues':
-      return <IssuesView />
+      return <>{issues ?? <IssuesView />}</>
     case 'workflows':
       return <WorkflowsView />
     case 'automations':

@@ -21,9 +21,12 @@ import {
   groupSessionsByParent,
   isSessionWorking,
   isSnoozed,
+  nativeSubagentCountOf,
+  nativeSubagentLabel,
   repoBranchForCwd,
   returnedFromSnooze,
   sessionDotClass,
+  sessionIssueLinkage,
 } from '@/lib/derive'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { type ContextMenuAnchor, SessionContextMenu } from '@/lib/SessionContextMenu'
@@ -255,10 +258,30 @@ export function StaleSection({
   )
 }
 
+/** Nested indicator for live native (in-process Task) subagents under a
+ *  parent session. Count-only — named per-subagent identity is deferred. */
+function NativeSubagentIndicator({ count }: { count: number }): JSX.Element | null {
+  if (count <= 0) return null
+  const label = nativeSubagentLabel(count)
+  return (
+    <div
+      data-testid="native-subagent-indicator"
+      className="flex min-h-7 items-center gap-1.5 py-[5px] pr-2 pl-[30px] text-[11.5px] text-muted-foreground/80"
+      title={`${label} running inside this session (native Task tool)`}
+      aria-label={label}
+    >
+      <ChevronRight size={11} className="flex-none opacity-70" aria-hidden="true" />
+      <span>{label}</span>
+    </div>
+  )
+}
+
 /** Session rows grouped by spawn parentage (#237) [spec:SP-34d7 web]:
  *  cross-harness children (`spawnedBy: 'session:<parent>'`) nest indented
  *  under their spawner instead of flattening the list; consumed (exited)
- *  children auto-tuck behind a quiet "finished" disclosure. */
+ *  children auto-tuck behind a quiet "finished" disclosure. Native
+ *  subagents (no separate SessionMeta) render as a count indicator under
+ *  the parent when `nativeSubagentCount > 0`. */
 export function GroupedSessionRows({
   sessions,
   render,
@@ -269,20 +292,40 @@ export function GroupedSessionRows({
   const groups = groupSessionsByParent(sessions)
   return (
     <>
-      {groups.map((g) => (
-        <div key={g.session.sessionId} data-testid="session-group">
-          {render(g.session)}
-          {(g.children.length > 0 || g.consumed.length > 0) && (
-            <div
-              className="ml-5 border-l border-border/50 pl-0.5"
-              data-testid="session-group-children"
-            >
-              {g.children.map(render)}
-              <ConsumedChildren sessions={g.consumed} render={render} />
-            </div>
-          )}
-        </div>
-      ))}
+      {groups.map((g) => {
+        const nativeCount = nativeSubagentCountOf(g.session)
+        const hasRemote = g.children.length > 0 || g.consumed.length > 0
+        return (
+          <div key={g.session.sessionId} data-testid="session-group">
+            {render(g.session)}
+            {(hasRemote || nativeCount > 0) && (
+              <div
+                className="ml-5 border-l border-border/50 pl-0.5"
+                data-testid="session-group-children"
+              >
+                <NativeSubagentIndicator count={nativeCount} />
+                {g.children.map((child) => {
+                  const childNative = nativeSubagentCountOf(child)
+                  return (
+                    <div key={child.sessionId}>
+                      {render(child)}
+                      {childNative > 0 && (
+                        <div
+                          className="ml-5 border-l border-border/50 pl-0.5"
+                          data-testid="session-group-children"
+                        >
+                          <NativeSubagentIndicator count={childNative} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                <ConsumedChildren sessions={g.consumed} render={render} />
+              </div>
+            )}
+          </div>
+        )
+      })}
     </>
   )
 }
@@ -331,6 +374,7 @@ export function PanelRow({
   dotRight = false,
   suppressUnread = false,
   trailingMeta,
+  coordinator = false,
 }: {
   session: SessionMeta
   pinned: boolean
@@ -350,6 +394,8 @@ export function PanelRow({
   suppressUnread?: boolean
   /** Small right-side stamp before the status dot (WORKING's elapsed timer). */
   trailingMeta?: ReactNode
+  /** M6: this session is the issue's designated coordinator/driver. */
+  coordinator?: boolean
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -366,9 +412,28 @@ export function PanelRow({
   // back into the queue; mark it (compareRecency already lifts it by its deadline).
   const backFromSnooze = returnedFromSnooze(session, now)
   const hibernated = session.status === 'hibernated'
-  // Amber status word right of the name (mock's "needs review"/"paused" meta):
-  // attention states show their badge label; a parked session reads "paused".
-  const meta = hibernated ? 'paused' : badge?.tone === 'attention' ? badge.label : null
+  // Status word right of the name (mock's "needs review"/"paused" meta):
+  // attention and error states show their badge label; a parked session reads
+  // "paused". Non-retryable errors have no Continue button, so this label is
+  // their only explicit status text. [spec:SP-dae6]
+  const meta =
+    hibernated || badge?.tone === 'attention' || badge?.tone === 'error'
+      ? hibernated
+        ? 'paused'
+        : badge?.label
+      : null
+  // Completion outcome remains explicit while the row decays [spec:SP-6144].
+  const terminalOutcome = session.stoppedAt
+    ? session.stopReason === 'parent'
+      ? 'reaped'
+      : session.stopReason === 'forced'
+        ? 'interrupted'
+        : 'finished'
+    : session.agentState?.phase === 'ended' || session.status === 'exited'
+      ? 'finished'
+      : null
+  // Nested child rows (dotRight): show the session's own issue ref when present.
+  const issueLinkage = dotRight ? sessionIssueLinkage(session) : null
   return (
     // One rounded row: [agent chip][name][meta][dot]. Pin/close reveal as an
     // overlay cluster on hover so the row's layout never shifts.
@@ -431,6 +496,29 @@ export function PanelRow({
           <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
             <WorkerLabel session={session} chip />
           </span>
+          {/* M6 coordinator/driver badge — who is driving this issue. */}
+          {coordinator && (
+            <span
+              className="flex-none rounded border border-sky-500/50 bg-sky-500/10 px-1 text-[9px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400"
+              data-testid="coordinator-badge"
+              title="Coordinator session — drives this issue"
+            >
+              coord
+            </span>
+          )}
+          {/* Nested remote-subagent rows: surface the child's own issue linkage
+              (sub-issue) when SessionMeta carries displayRef or issueId. */}
+          {issueLinkage && (
+            <span
+              className="flex-none font-mono text-[10px] text-[#6c6c78] tabular-nums"
+              data-testid="session-issue-linkage"
+              title={
+                session.issueId ? `Attached to issue ${session.issueId}` : 'Session issue reference'
+              }
+            >
+              {issueLinkage}
+            </span>
+          )}
           {/* Unsent composer draft → DRAFT tag (shown wherever a session is listed,
               not just NEEDS YOUR ATTENTION). The session is also lifted by its
               draft-edit time via compareRecency. */}
@@ -453,6 +541,14 @@ export function PanelRow({
           {meta && (
             <span className="rowmeta flex-none text-[10px] text-[#d4a017] opacity-80 transition-opacity group-hover:opacity-100">
               {meta}
+            </span>
+          )}
+          {terminalOutcome && (
+            <span
+              className="flex-none rounded border border-emerald-500/35 px-1 text-[8.5px] uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              data-testid="session-outcome-chip"
+            >
+              {terminalOutcome}
             </span>
           )}
           {/* The agent's /color identity accent — a short vertical line right of

@@ -84,6 +84,7 @@ export async function buildSnapshotCommit(
 ): Promise<{
   headSha: string
   snapshotSha: string | null
+  treeSha: string
   handoffRef: string
 }> {
   const scratch = await mkdtemp(join(tmpdir(), 'podium-handoff-index-'))
@@ -95,14 +96,114 @@ export async function buildSnapshotCommit(
     await git(cwd, ['add', '-A'], env)
     const tree = await git(cwd, ['write-tree'], env)
     const headTree = await git(cwd, ['rev-parse', 'HEAD^{tree}'])
-    if (tree === headTree) return { headSha, snapshotSha: null, handoffRef }
+    if (tree === headTree) return { headSha, snapshotSha: null, treeSha: tree, handoffRef }
     const snapshotSha = await git(
       cwd,
       ['commit-tree', tree, '-p', headSha, '-m', `Podium handoff snapshot ${sessionId}`],
       env,
     )
     await git(cwd, ['update-ref', handoffRef, snapshotSha])
-    return { headSha, snapshotSha, handoffRef }
+    return { headSha, snapshotSha, treeSha: tree, handoffRef }
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+/** Preserve an in-repository worktree's location across machines. Worktrees
+ * outside the primary checkout cannot be mapped safely, so old-package placement
+ * under `.worktrees/` remains their fallback [spec:SP-3f7a]. */
+function repositoryRelativeWorktreePath(
+  repoRoot: string,
+  worktreeRoot: string,
+): string | undefined {
+  const path = relative(repoRoot, worktreeRoot)
+  if (!path || path === '..' || path.startsWith(`..${sep}`)) return undefined
+  return path.split(sep).join('/')
+}
+
+function importedWorktreeRoot(
+  repoPath: string,
+  manifest: HandoffManifestType,
+  fallbackName: string,
+): string {
+  const parts = manifest.worktreeRelativePath?.split('/')
+  return parts?.length
+    ? join(repoPath, ...parts)
+    : join(repoPath, '.worktrees', basename(fallbackName))
+}
+
+interface RegisteredWorktree {
+  path: string
+  branch?: string
+}
+
+function registeredWorktrees(porcelain: string): RegisteredWorktree[] {
+  return porcelain
+    .split('\n\n')
+    .map((block) => {
+      const lines = block.split('\n')
+      const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length)
+      const branch = lines
+        .find((line) => line.startsWith('branch refs/heads/'))
+        ?.slice('branch refs/heads/'.length)
+      return path ? { path, ...(branch ? { branch } : {}) } : null
+    })
+    .filter((entry): entry is RegisteredWorktree => entry !== null)
+}
+
+function worktreeContains(root: string, cwd: string): boolean {
+  const resolvedRoot = resolve(root)
+  const resolvedCwd = resolve(cwd)
+  return resolvedCwd === resolvedRoot || resolvedCwd.startsWith(`${resolvedRoot}${sep}`)
+}
+
+interface HandoffResidue {
+  format: 1
+  sessionId: string
+  repoId: string
+  branch: string
+  worktreeRoot: string
+  treeSha: string
+}
+
+function residuePathFor(home: string, sessionId: string): string {
+  return join(home, '.podium', 'handoff-residue', `${basename(sessionId)}.json`)
+}
+
+async function readResidue(home: string, sessionId: string): Promise<HandoffResidue | null> {
+  try {
+    const value = JSON.parse(
+      await readFile(residuePathFor(home, sessionId), 'utf8'),
+    ) as Partial<HandoffResidue>
+    if (
+      value.format !== 1 ||
+      value.sessionId !== sessionId ||
+      typeof value.repoId !== 'string' ||
+      typeof value.branch !== 'string' ||
+      typeof value.worktreeRoot !== 'string' ||
+      typeof value.treeSha !== 'string'
+    )
+      return null
+    return value as HandoffResidue
+  } catch {
+    return null
+  }
+}
+
+async function writeResidue(home: string, residue: HandoffResidue): Promise<void> {
+  const path = residuePathFor(home, residue.sessionId)
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  await writeFile(path, JSON.stringify(residue, null, 2), { mode: 0o600 })
+}
+
+/** Hash tracked + untracked worktree contents without touching the real index. */
+async function currentWorktreeTree(cwd: string): Promise<string> {
+  const scratch = await mkdtemp(join(tmpdir(), 'podium-handoff-check-'))
+  const env = { GIT_INDEX_FILE: join(scratch, 'index') }
+  try {
+    await git(cwd, ['read-tree', 'HEAD'], env)
+    await git(cwd, ['add', '-A'], env)
+    return await git(cwd, ['write-tree'], env)
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
@@ -257,6 +358,10 @@ export async function exportHandoffPackage(input: {
       resumeValue: input.resume.value,
       home,
     })
+    const sourceInfo = await gitWorktree(cwd)
+    const worktreeRelativePath = sourceInfo?.repoRoot
+      ? repositoryRelativeWorktreePath(sourceInfo.repoRoot, cwd)
+      : undefined
     const manifest = HandoffManifest.parse({
       format: 1,
       sessionId: input.sessionId,
@@ -270,6 +375,7 @@ export async function exportHandoffPackage(input: {
       snapshotSha: snapshot.snapshotSha,
       snapshotFlattened: true,
       worktreeName: basename(cwd),
+      ...(worktreeRelativePath ? { worktreeRelativePath } : {}),
       ...(source.subpath ? { cwdSubpath: source.subpath } : {}),
       bundleBase: baseShas,
       ...(input.title ? { title: input.title } : {}),
@@ -289,6 +395,14 @@ export async function exportHandoffPackage(input: {
     }
     await rm(stagePath, { force: true })
     await runFile('tar', ['-czf', stagePath, '-C', packageDir, '.'])
+    await writeResidue(home, {
+      format: 1,
+      sessionId: input.sessionId,
+      repoId: input.repoId,
+      branch: actualBranch,
+      worktreeRoot: cwd,
+      treeSha: snapshot.treeSha,
+    })
     return { manifest, stagePath, sizeBytes: (await stat(stagePath)).size }
   } finally {
     await git(cwd, ['update-ref', '-d', snapshot.handoffRef]).catch(() => '')
@@ -349,11 +463,12 @@ export async function importHandoffPackage(input: {
   sessionId: string
   repoPath: string
   worktreeName: string
+  occupiedWorktreePaths?: string[]
 }): Promise<{ manifest: HandoffManifestType; newCwd: string; worktreeRoot: string }> {
   const home = input.homeDir ?? homedir()
   const archive = stagePathFor(home, input.sessionId)
   const unpacked = await mkdtemp(join(tmpdir(), 'podium-handoff-import-'))
-  const worktreeRoot = join(input.repoPath, '.worktrees', basename(input.worktreeName))
+  let worktreeRoot = join(input.repoPath, '.worktrees', basename(input.worktreeName))
   let createdWorktree = false
   try {
     await runFile('tar', ['-xzf', archive, '-C', unpacked])
@@ -401,19 +516,46 @@ export async function importHandoffPackage(input: {
     )
     if (!tipKnown) throw new Error('package omitted required git bundle')
 
-    const worktrees = await git(input.repoPath, ['worktree', 'list', '--porcelain'])
-    const existingWorktree = worktrees
-      .split('\n\n')
-      .some((block) => block.split('\n').includes(`worktree ${worktreeRoot}`))
+    const desiredRoot = importedWorktreeRoot(input.repoPath, manifest, input.worktreeName)
+    const worktrees = registeredWorktrees(
+      await git(input.repoPath, ['worktree', 'list', '--porcelain']),
+    )
+    const exact = worktrees.find((entry) => resolve(entry.path) === resolve(desiredRoot))
+    const byBranch = worktrees.find((entry) => entry.branch === manifest.branch)
+    const existingWorktree = exact ?? byBranch
+    worktreeRoot = existingWorktree?.path ?? desiredRoot
     if (existingWorktree) {
-      // Round trip: the session returns to a machine that still has its old
-      // worktree. Move semantics — the incoming package is the authoritative
-      // state; the residue left behind at export time is superseded by it.
+      // A return handoff reclaims the checkout the source deliberately retained,
+      // even when an older hop converted `.claude/worktrees/...` to `.worktrees/...`.
+      // Identity + state guards make the destructive sync specific to this residue.
       const checkedOut = await git(worktreeRoot, ['branch', '--show-current'])
       if (checkedOut !== manifest.branch)
         throw new Error(
           `existing worktree has branch ${checkedOut || '(detached)'}, package expects ${manifest.branch}`,
         )
+      const occupied = (input.occupiedWorktreePaths ?? []).find((cwd) =>
+        worktreeContains(worktreeRoot, cwd),
+      )
+      if (occupied)
+        throw new Error(`target worktree is still used by another session: ${worktreeRoot}`)
+      const residue = await readResidue(home, input.sessionId)
+      if (residue) {
+        if (
+          residue.repoId !== manifest.repoId ||
+          residue.branch !== manifest.branch ||
+          resolve(residue.worktreeRoot) !== resolve(worktreeRoot)
+        )
+          throw new Error(
+            `target worktree is not the retained residue for this session: ${worktreeRoot}`,
+          )
+        if ((await currentWorktreeTree(worktreeRoot)) !== residue.treeSha)
+          throw new Error(`target worktree changed after handoff: ${worktreeRoot}`)
+      } else {
+        // Compatibility for residues exported before fingerprints existed (including
+        // POD-1012): only an unchanged checkout is safe to adopt automatically.
+        const dirty = await git(worktreeRoot, ['status', '--porcelain'])
+        if (dirty) throw new Error(`target worktree has unrecorded changes: ${worktreeRoot}`)
+      }
       await git(worktreeRoot, ['reset', '--hard', incomingTip])
       await git(worktreeRoot, ['clean', '-fd'])
     } else {
@@ -461,6 +603,7 @@ export async function importHandoffPackage(input: {
       '-d',
       `${HANDOFF_REF_ROOT}/${manifest.sessionId}`,
     ]).catch(() => '')
+    await rm(residuePathFor(home, input.sessionId), { force: true })
     return { manifest, newCwd, worktreeRoot }
   } catch (error) {
     // Only unwind a worktree WE created — a reused round-trip worktree predates

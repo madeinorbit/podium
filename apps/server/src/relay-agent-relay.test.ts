@@ -265,6 +265,171 @@ describe('server agent relay handler (P1b)', () => {
   })
 })
 
+// [spec:SP-9904] sessions.stop authz + after-reply self-kill
+describe('sessions.stop relay authz [spec:SP-9904]', () => {
+  const registries: SessionRegistry[] = []
+  const machineId = 'm1'
+  const repoPath = '/r'
+  let registry: SessionRegistry
+  let A: { id: string }
+  let B: { id: string }
+  let sA: string
+  let wtA: string
+
+  beforeEach(() => {
+    registry = new SessionRegistry()
+    registries.push(registry)
+    A = registry.issues.create({ repoPath, title: 'stop root', startNow: false })
+    registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-stop-a' })
+    wtA = registry.issues.get(A.id)?.worktreePath as string
+    B = registry.issues.create({ repoPath, title: 'unrelated stop', startNow: false })
+    registry.issues.update(B.id, { worktreePath: '/r/.worktrees/issue-stop-b' })
+    sA = registry.modules.sessions.createSession({
+      cwd: wtA,
+      agentKind: 'shell',
+      issueId: A.id,
+    }).sessionId
+    // stop free/unsaved paths call rpc.repoOp — stub clean so tests stay hermetic.
+    const rpc = (
+      registry.modules.sessions as unknown as {
+        rpc: {
+          repoOp: (
+            op: string,
+            cwd: string,
+            args?: Record<string, string>,
+            machineId?: string,
+          ) => Promise<{ ok: boolean; output: string }>
+        }
+      }
+    ).rpc
+    rpc.repoOp = async () => ({ ok: true, output: '## clean\n' })
+  })
+
+  afterEach(() => {
+    for (const r of registries.splice(0)) r.dispose()
+  })
+
+  it('self-stop is free and reports deferredKill for after-reply arming', async () => {
+    registry.modules.sessions.attachDaemon(machineId, () => {})
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'bind',
+      sessionId: sA,
+      cmd: 'sh',
+      cwd: wtA,
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-self',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'stop',
+      input: {},
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+    // Self-stop must not kill inside stopSession; the gate arms kill only after
+    // this agentRelayResult is sent (finalizeDeferredStopKill).
+    expect(r.result).toMatchObject({ ok: true, deferredKill: true })
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sA)?.status,
+    ).toMatch(/hibernated|exited/)
+  })
+
+  it('same-issue sibling stop is free (no outside-scope)', async () => {
+    const sibling = registry.modules.sessions.createSession({
+      cwd: wtA,
+      agentKind: 'shell',
+      issueId: A.id,
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-sib',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: sibling },
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+  })
+
+  it('unrelated issue session stop is rejected without --outside-scope', async () => {
+    const wtB = registry.issues.get(B.id)?.worktreePath as string
+    const target = registry.modules.sessions.createSession({
+      cwd: wtB,
+      agentKind: 'shell',
+      issueId: B.id,
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-out',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: target },
+    })
+    const r = await reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/outside your subtree/)
+  })
+
+  it('unrelated issue session stop succeeds with --outside-scope', async () => {
+    const wtB = registry.issues.get(B.id)?.worktreePath as string
+    const target = registry.modules.sessions.createSession({
+      cwd: wtB,
+      agentKind: 'shell',
+      issueId: B.id,
+    }).sessionId
+    const reply = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-out-ok',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: target },
+      outsideScope: true,
+    })
+    expect((await reply).ok).toBe(true)
+  })
+
+  it('issueless unrelated stop needs --outside-scope; succeeds with it', async () => {
+    const target = registry.modules.sessions.createSession({
+      cwd: '/nowhere',
+      agentKind: 'shell',
+    }).sessionId
+    const blocked = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-issueless-block',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: target },
+    })
+    const blockedR = await blocked
+    expect(blockedR.ok).toBe(false)
+    expect(blockedR.error).toMatch(/outside-scope/)
+
+    const allowed = captureReply(registry, machineId)
+    registry.modules.sessions.onDaemonMessageFrom(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-issueless-ok',
+      sessionId: sA,
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: target },
+      outsideScope: true,
+    })
+    expect((await allowed).ok).toBe(true)
+  })
+})
+
 // #490 — the agent names its OWN session. The `name` slot is shared with the human,
 // so the whole feature turns on one rule: a name the USER set is sovereign and an
 // agent can never overwrite it. The rest is convenience.
@@ -361,7 +526,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     const r = await relay(sA, 'issues', 'prime', { repoPath })
     expect(r.ok).toBe(true)
     const prime = String(r.result)
-    expect(prime).toContain(TITLE_NUDGE)
+    expect(prime).toContain('This session has no name')
     expect(prime).toContain(`under #${A.seq}`)
     // The sibling's display name is quoted so the agent can avoid duplicating it.
     expect(prime).toContain('Merge lock lease expiry')
@@ -371,7 +536,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     registry.modules.sessions.renameSession({ sessionId: sA, name: 'Already named' })
 
     const prime = String((await relay(sA, 'issues', 'prime', { repoPath })).result)
-    expect(prime).not.toContain(TITLE_NUDGE)
+    expect(prime).not.toContain('This session has no name')
     // The issue prime itself is unaffected.
     expect(prime).toContain(A.title)
   })
@@ -382,7 +547,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
       agentKind: 'shell',
     }).sessionId
     const prime = String((await relay(loose, 'issues', 'prime', { repoPath })).result)
-    expect(prime).not.toContain(TITLE_NUDGE)
+    expect(prime).not.toContain('This session has no name')
   })
 })
 

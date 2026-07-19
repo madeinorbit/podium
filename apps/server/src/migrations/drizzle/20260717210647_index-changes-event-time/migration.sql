@@ -1,0 +1,1 @@
+CREATE INDEX `changes_event_time` ON `changes` (`event_time`);

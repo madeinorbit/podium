@@ -15,6 +15,7 @@ export function assigneeInitials(name: string): string {
 
 // Fill fraction per stage for the Linear-style progress-circle glyph family.
 const STAGE_FILL: Record<IssueStage, number> = {
+  proposed: 0,
   backlog: 0,
   planning: 0,
   in_progress: 1 / 3,
@@ -23,6 +24,7 @@ const STAGE_FILL: Record<IssueStage, number> = {
 }
 
 const STAGE_CLASS: Record<IssueStage, string> = {
+  proposed: 'text-fuchsia-500',
   backlog: 'text-muted-foreground/70',
   planning: 'text-muted-foreground',
   in_progress: 'text-amber-500',
@@ -34,14 +36,34 @@ const STAGE_CLASS: Record<IssueStage, string> = {
  * Linear-style workflow-state glyph: dashed circle (backlog), open circle
  * (planning), pie-fill circles (in_progress/review), check (done).
  */
-export function StageGlyph({ stage, size = 14 }: { stage: IssueStage; size?: number }): JSX.Element {
+export function StageGlyph({
+  stage,
+  size = 14,
+}: {
+  stage: IssueStage
+  size?: number
+}): JSX.Element {
   const label = STAGE_LABELS[stage]
   const cls = cn('shrink-0', STAGE_CLASS[stage])
   if (stage === 'done') {
     return (
-      <svg width={size} height={size} viewBox="0 0 14 14" className={cls} role="img" aria-label={label}>
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 14 14"
+        className={cls}
+        role="img"
+        aria-label={label}
+      >
         <circle cx="7" cy="7" r="6" fill="currentColor" />
-        <path d="M4.5 7.2 6.3 9l3.2-3.6" stroke="var(--background)" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M4.5 7.2 6.3 9l3.2-3.6"
+          stroke="var(--background)"
+          strokeWidth="1.6"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     )
   }
@@ -52,7 +74,14 @@ export function StageGlyph({ stage, size = 14 }: { stage: IssueStage; size?: num
   const y = 7 - 3.2 * Math.cos(angle)
   const largeArc = fill > 0.5 ? 1 : 0
   return (
-    <svg width={size} height={size} viewBox="0 0 14 14" className={cls} role="img" aria-label={label}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      className={cls}
+      role="img"
+      aria-label={label}
+    >
       <circle
         cx="7"
         cy="7"
@@ -70,11 +99,24 @@ export function StageGlyph({ stage, size = 14 }: { stage: IssueStage; size?: num
 }
 
 /** Linear-style priority glyph: P0 urgent box, P1–P3 signal bars, P4 muted. */
-export function PriorityGlyph({ priority, size = 14 }: { priority: number; size?: number }): JSX.Element {
+export function PriorityGlyph({
+  priority,
+  size = 14,
+}: {
+  priority: number
+  size?: number
+}): JSX.Element {
   const label = `P${priority}`
   if (priority === 0) {
     return (
-      <svg width={size} height={size} viewBox="0 0 14 14" className="shrink-0 text-orange-500" role="img" aria-label={label}>
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 14 14"
+        className="shrink-0 text-orange-500"
+        role="img"
+        aria-label={label}
+      >
         <rect x="1" y="1" width="12" height="12" rx="3" fill="currentColor" />
         <path d="M7 3.6v4.2" stroke="var(--background)" strokeWidth="1.8" strokeLinecap="round" />
         <circle cx="7" cy="10.4" r="1" fill="var(--background)" />
@@ -96,14 +138,27 @@ export function PriorityGlyph({ priority, size = 14 }: { priority: number; size?
     />
   )
   return (
-    <svg width={size} height={size} viewBox="0 0 14 14" className="shrink-0 text-muted-foreground" role="img" aria-label={label}>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      className="shrink-0 text-muted-foreground"
+      role="img"
+      aria-label={label}
+    >
       {[0, 1, 2].map(bar)}
     </svg>
   )
 }
 
 /** Initials avatar; dotted outline when unassigned (Linear's placeholder). */
-export function AssigneeAvatar({ assignee, size = 18 }: { assignee?: string; size?: number }): JSX.Element {
+export function AssigneeAvatar({
+  assignee,
+  size = 18,
+}: {
+  assignee?: string
+  size?: number
+}): JSX.Element {
   if (!assignee) {
     return (
       <span

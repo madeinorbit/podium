@@ -103,6 +103,15 @@ describe('normalizeSettings — coding.seedCliTheme [spec:SP-a04d]', () => {
   })
 })
 
+describe('normalizeSettings — idle-session target', () => {
+  it('defaults an absent target to 30 but preserves explicit unlimited', () => {
+    expect(normalizeSettings({}).hibernation.maxIdleSessions).toBe(30)
+    expect(
+      normalizeSettings({ hibernation: { maxIdleSessions: null } }).hibernation.maxIdleSessions,
+    ).toBeNull()
+  })
+})
+
 describe('normalizeSettings — legacy → roles migration', () => {
   it('migrates the real live blob shape (superagent+workLlm on codex api, coding claude-code)', () => {
     const s = normalizeSettings({
@@ -321,6 +330,38 @@ describe('normalizeSettings — autoContinue', () => {
   it('keeps explicit autoContinue values', () => {
     const s = normalizeSettings({ autoContinue: { enabled: true, promptDismissed: true } })
     expect(s.autoContinue).toEqual({ enabled: true, promptDismissed: true })
+  })
+})
+
+describe('normalizeSettings — draftSync → experimental migration [spec:SP-f4b9] (POD-859)', () => {
+  // Draft Sync moved from the bespoke settings.draftSync.enabled key onto the
+  // canonical experiments store (settings.experimental['draft-sync']). One source
+  // of truth: the bespoke key is migrated forward then dropped.
+  it('migrates a legacy draftSync.enabled=true onto experimental["draft-sync"]', () => {
+    const s = normalizeSettings({ draftSync: { enabled: true } })
+    expect(s.experimental['draft-sync']).toBe(true)
+  })
+
+  it('drops the bespoke draftSync key (no second source of truth)', () => {
+    const s = normalizeSettings({ draftSync: { enabled: true } }) as Record<string, unknown>
+    expect(s.draftSync).toBeUndefined()
+  })
+
+  it('a legacy draftSync.enabled=false does not seed the experimental key', () => {
+    const s = normalizeSettings({ draftSync: { enabled: false } })
+    expect(s.experimental['draft-sync']).toBeUndefined()
+  })
+
+  it('a fresh blob leaves draft-sync unset (default off)', () => {
+    expect(normalizeSettings({}).experimental['draft-sync']).toBeUndefined()
+  })
+
+  it('an explicit experimental["draft-sync"] wins over the legacy key', () => {
+    const s = normalizeSettings({
+      draftSync: { enabled: true },
+      experimental: { 'draft-sync': false },
+    })
+    expect(s.experimental['draft-sync']).toBe(false)
   })
 })
 

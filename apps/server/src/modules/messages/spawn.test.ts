@@ -28,6 +28,8 @@ function fakeIssues(over?: Partial<typeof ISSUE>) {
       throw new Error(`unknown ref ${ref}`)
     },
     get: (id: string) => (id === issue.id ? issue : undefined),
+    getMeta: (id: string) => (id === issue.id ? issue : undefined),
+    has: (id: string) => id === issue.id,
     ancestorIds: () => [],
   } as unknown as IssueService
 }
@@ -128,6 +130,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     const interrupted: { sessionId: string; text: string }[] = []
     const deps: MessageDeliveryDeps = {
       messages: store.messages,
+      notificationFacts: store.notificationFacts,
       events: store.events,
       issues: () => fakeIssues(),
       sessions: () => ({
@@ -153,7 +156,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
             agentKind: 'claude-code',
             status: 'live',
             createdAt: 't',
-            agentState: { phase: 'working', since: 't', openTaskCount: 0 },
+            agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 },
             spawnedBy: i.spawnedBy,
             issueId: i.issueId,
           } as SessionMeta)

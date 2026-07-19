@@ -50,7 +50,7 @@ export function checkIssueAccess(
   }
   // Scope gate: only for constrained caps writing an existing target issue.
   if (caller.capability.scope.kind === 'all') return
-  if (!targetId || !issues.get(targetId)) return
+  if (!targetId || !issues.has(targetId)) return
   const decision = authorize(
     caller.capability,
     action,

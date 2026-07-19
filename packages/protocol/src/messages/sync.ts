@@ -222,19 +222,13 @@ export function isKnownMetadataChange(change: MetadataChangeLenient): change is 
   return MetadataEntityKind.options.includes(change.entity as MetadataEntityKind)
 }
 
-// A batch of oplog changes, sent only to clients that sent `caps: ['metadataDelta']`
-// in their hello. Changes are in seq order; `seq` mirrors the LAST change's seq so a
-// client can advance its cursor without scanning. Gap rule: if the first change's
-// seq !== cursor + 1, the client must NOT apply and instead heal via the
-// `sync.changesSince` tRPC query.
-// Feed identity (ADR 2 D1/D5) rides every frame, but only for clients that sent
-// `caps: ['syncFeedIdentity']` — a client without the cap gets today's frame
-// byte-for-byte. Optional in the SCHEMA because the schema is also the consumer
-// parser, and a consumer must accept a frame from an authority that predates
-// this. Producers are strict: the server stamps all three or none.
+// A batch of oplog changes, sent only to clients that sent `caps: ['metadataDelta']`.
+// A view-filtered producer includes `fromExclusive`: omitted rows inside that
+// explicit global source range are authorized-hidden, not transport loss.
 export const MetadataDeltaMessage = z.object({
   type: z.literal('metadataDelta'),
   seq: z.number().int().positive(),
+  fromExclusive: z.number().int().nonnegative().optional(),
   changes: z.array(MetadataChange),
   ...FeedIdShape,
 })
@@ -246,6 +240,7 @@ export type MetadataDeltaMessage = z.infer<typeof MetadataDeltaMessage>
 export const MetadataDeltaMessageLenient = z.object({
   type: z.literal('metadataDelta'),
   seq: z.number().int().positive(),
+  fromExclusive: z.number().int().nonnegative().optional(),
   changes: z.array(MetadataChangeLenient),
   ...FeedIdShape,
 })
@@ -264,6 +259,7 @@ export type MetadataDeltaMessageLenient = z.infer<typeof MetadataDeltaMessageLen
 export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('delta'),
+    fromExclusive: z.number().int().nonnegative().optional(),
     changes: z.array(MetadataChange),
     cursor: z.number().int().nonnegative(),
     ...FeedIdShape,
@@ -294,6 +290,7 @@ export type SyncChangesSinceResultLenient =
   | {
       kind: 'delta'
       changes: MetadataChangeLenient[]
+      fromExclusive?: number
       cursor: number
       feedId?: string
       epoch?: string
@@ -309,6 +306,7 @@ export type SyncChangesSinceResultLenient =
  *  silently). The snapshot arm is strict. */
 export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', [
   z.object({
+    fromExclusive: z.number().int().nonnegative().optional(),
     kind: z.literal('delta'),
     changes: z.array(MetadataChangeLenient),
     cursor: z.number().int().nonnegative(),
@@ -363,6 +361,32 @@ export function parseChangesSinceResult(
   // state the client doesn't have and stamp its cursor as if it did.
   const hasFrom = opts !== undefined && 'fromCursor' in opts
   if (hasFrom && opts.fromCursor === null) return null
+  // A scoped producer names the complete GLOBAL source range explicitly. Rows
+  // omitted inside it are hidden by authority, so gaps and an empty visible set
+  // are valid; the range itself is what authorizes cursor advancement.
+  if (result.fromExclusive !== undefined) {
+    if (
+      result.fromExclusive > result.cursor ||
+      (hasFrom && typeof opts.fromCursor === 'number' && result.fromExclusive !== opts.fromCursor)
+    ) {
+      return null
+    }
+    let previous = result.fromExclusive
+    for (const change of result.changes) {
+      if (change.seq <= previous || change.seq > result.cursor) return null
+      previous = change.seq
+      if (!isKnownMetadataChange(change) || change.op !== 'upsert' || change.value === undefined) {
+        continue
+      }
+      const embeddedId =
+        change.entity === 'session'
+          ? (change.value as { sessionId: string }).sessionId
+          : (change.value as { id: string }).id
+      if (embeddedId !== change.id) return null
+    }
+    return result
+  }
+
   // An EMPTY delta must not move the cursor (#247 round 3): its cursor must
   // equal the requested fromCursor — anything later silently skips the changes
   // between them forever (both consumers persist the advanced cursor).

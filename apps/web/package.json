@@ -54,7 +54,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsgo --noEmit",
     "typecheck:tsc": "tsc --noEmit",
-    "test:unit": "bun --bun vitest --config vitest.config.ts run"
+    "test:unit": "bun --bun vitest --config vitest.config.ts run",
+    "test:perf:large-state": "bun --bun vitest --config vitest.frontend-perf.config.ts run"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.1",

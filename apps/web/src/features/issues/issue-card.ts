@@ -2,6 +2,7 @@ import { formatLong, type IssueStage, issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
 
 export const STAGE_LABELS: Record<IssueStage, string> = {
+  proposed: 'Proposed',
   backlog: 'Backlog',
   planning: 'Planning',
   in_progress: 'In Progress',

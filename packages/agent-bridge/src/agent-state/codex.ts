@@ -3,13 +3,14 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, readlink, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import {
   cleanCodexTitle,
   codexPromptTitle,
   isInteractiveCodexSource,
 } from '../discovery/providers/codex.js'
 import {
-  createCodexStateMetadataReader,
+  sharedCodexStateMetadataReaders,
   readCodexStateMetadata,
 } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
@@ -450,6 +451,7 @@ export function observeCodexState(opts: {
   homeDir?: string
   startedAtMs?: number
   pollMs?: number
+  statTick?: StatTick
   /** Test override for Linux process correlation. */
   procRoot?: string
   onSession?: (sessionId: string, rolloutPath: string, confidence: 'exact' | 'heuristic') => void
@@ -511,7 +513,8 @@ export function observeCodexState(opts: {
   // The hot path: re-read the native (state-DB) title on every ~700ms tick. The
   // reader skips the SQLite open+`SELECT *` while the state DB's mtime is unchanged,
   // returning the prior metadata, so an idle session no longer hits sqlite per tick.
-  const readState = createCodexStateMetadataReader()
+  const stateReader = sharedCodexStateMetadataReaders.acquire(codexHome)
+  const readState = stateReader.read
 
   const bindRollout = (found: {
     path: string
@@ -556,7 +559,7 @@ export function observeCodexState(opts: {
   const pollNativeTitle = async (): Promise<void> => {
     if (!threadId) return
     try {
-      const meta = await readState(codexHome)
+      const meta = await readState()
       sendTitle(cleanCodexTitle(meta.byThreadId.get(threadId)?.title))
     } catch {
       // no/unreadable state DB — fall back to the first-prompt tail
@@ -688,13 +691,16 @@ export function observeCodexState(opts: {
     }
   }
 
-  const timer = setInterval(() => void tick(), opts.pollMs ?? POLL_MS)
-  timer.unref?.()
+  const stopPolling = scheduleStatPoll(() => void tick(), {
+    statTick: opts.statTick,
+    pollMs: opts.pollMs ?? POLL_MS,
+  })
   void tick()
   return {
     stop() {
       stopped = true
-      clearInterval(timer)
+      stopPolling()
+      stateReader.release()
     },
   }
 }

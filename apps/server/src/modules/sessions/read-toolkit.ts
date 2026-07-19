@@ -32,6 +32,13 @@ export interface SessionStatusResult {
   agentKind: string
   status: string
   phase: string
+  machine: string | null
+  model: string | null
+  effort: string | null
+  account: string | null
+  error: { class: string; retryable: boolean } | null
+  draft: boolean
+  nativeSubagentCount: number
   issue: { seq: number; stage: string; title: string; todos: string[] } | null
   /** Last ≤5 one-line commits on the session's branch (git -C <cwd> log). */
   commits: string[]
@@ -108,7 +115,7 @@ export class SessionReadToolkit {
     } catch {
       return undefined
     }
-    const issue = this.deps.issues().get(issueId)
+    const issue = this.deps.issues().getMeta(issueId)
     if (!issue) return undefined
     const members = sessionsForIssue(issue.worktreePath ?? null, all, issue.id)
     const live = selectMailNudgeSession(members)
@@ -125,6 +132,7 @@ export class SessionReadToolkit {
     this.logRead('session.status_read', target.sessionId, reader)
     const issues = this.deps.issues()
     const issueId = target.issueId ?? issues.issueForCwd(target.cwd)
+    // Full wire is intentional: status surfaces the derived panel todo projection.
     const issue = issueId ? issues.get(issueId) : null
     const [log, status] = await Promise.all([
       this.deps.repoOp('log', target.cwd, target.machineId).catch(() => ({
@@ -141,11 +149,22 @@ export class SessionReadToolkit {
     const todos = (issue?.panel?.todos ?? []).map(
       (t: { text: string; done: boolean }) => `[${t.done ? 'x' : ' '}] ${t.text}`,
     )
+    const agentPhase = target.agentState?.phase
+    const phase =
+      agentPhase === 'needs_user' ? 'blocked' : (agentPhase ?? (target.busy ? 'working' : 'idle'))
+    const error = agentPhase === 'errored' ? (target.agentState?.error ?? null) : null
     return {
       sessionId: target.sessionId,
       agentKind: target.agentKind,
       status: target.status,
-      phase: target.agentState?.phase ?? (target.busy ? 'working' : 'idle'),
+      phase,
+      machine: target.machineName || target.machineId || null,
+      model: target.model ?? null,
+      effort: target.effort ?? null,
+      account: target.accountId ?? null,
+      error,
+      draft: target.draftUpdatedAt !== undefined,
+      nativeSubagentCount: target.agentState?.nativeSubagentCount ?? 0,
       issue: issue ? { seq: issue.seq, stage: issue.stage, title: issue.title, todos } : null,
       commits: lines(log).slice(0, 5),
       // First porcelain -b line is the branch header — keep it (names the branch),

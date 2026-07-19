@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { listDirectories } from './discovery'
+import { listDirectories, mapLimit } from './discovery'
 
 // The browse target is the DAEMON's disk (POD-814) [spec:SP-3701]: these exercise
 // the real filesystem in a tmp tree rather than a mocked readdir, so the ~ / realpath
@@ -78,7 +78,96 @@ describe('listDirectories (daemon-side repo picker browse)', () => {
     await expect(listDirectories(join(home, 'notes.md'))).rejects.toThrow(/not a directory/)
     await expect(listDirectories(join(home, 'nope'))).rejects.toThrow(/Could not open directory/)
   })
+
+  // Git-aware browse (POD-855) [spec:SP-5eb6]: the browser badges repo subfolders,
+  // and the current folder carries its own repo identity to gate + name "Add repo".
+  describe('git awareness', () => {
+    it('flags which subfolders are git repos, not the plain ones', async () => {
+      await mkdir(join(home, 'src', 'a-repo', '.git'), { recursive: true })
+      await mkdir(join(home, 'src', 'plain'), { recursive: true })
+      const listing = await listDirectories(join(home, 'src'))
+      const byName = Object.fromEntries(listing.entries.map((e) => [e.name, e.isRepo]))
+      expect(byName['a-repo']).toBe(true)
+      expect(byName.plain).toBe(false)
+    })
+
+    it('detects a worktree (.git file) too, not only a .git directory', async () => {
+      await mkdir(join(home, 'src', 'wt'), { recursive: true })
+      await writeFile(join(home, 'src', 'wt', '.git'), 'gitdir: /somewhere/.git/worktrees/wt')
+      const listing = await listDirectories(join(home, 'src'))
+      expect(listing.entries.find((e) => e.name === 'wt')?.isRepo).toBe(true)
+    })
+
+    it('marks the current folder isRepo and reads its origin when it is a real repo', async () => {
+      const repo = join(home, 'proj')
+      await initRepo(repo, 'git@github.com:lumenfall/proj.git')
+      const listing = await listDirectories(repo)
+      expect(listing.isRepo).toBe(true)
+      expect(listing.originUrl).toContain('lumenfall/proj')
+    })
+
+    it('leaves isRepo unset for a plain directory', async () => {
+      const listing = await listDirectories(join(home, 'archive'))
+      expect(listing.isRepo).toBeUndefined()
+      expect(listing.originUrl).toBeUndefined()
+    })
+
+    it('marks isRepo but omits origin for a repo with no remote', async () => {
+      const repo = join(home, 'local-only')
+      await initRepo(repo)
+      const listing = await listDirectories(repo)
+      expect(listing.isRepo).toBe(true)
+      expect(listing.originUrl).toBeUndefined()
+    })
+  })
 })
+
+// The per-entry `.git` fan-out is bounded so a directory-heavy path can't spawn
+// tens of thousands of concurrent stats (POD-867).
+describe('mapLimit', () => {
+  it('never runs more than `limit` calls at once, even with far more items', async () => {
+    let inFlight = 0
+    let peak = 0
+    const items = Array.from({ length: 500 }, (_, i) => i)
+    const out = await mapLimit(items, 8, async (n) => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise((r) => setTimeout(r, 1))
+      inFlight--
+      return n * 2
+    })
+    expect(peak).toBeLessThanOrEqual(8)
+    expect(peak).toBeGreaterThan(1) // it IS concurrent, just capped
+    // Results stay in input order regardless of completion order.
+    expect(out).toEqual(items.map((n) => n * 2))
+  })
+
+  it('handles an empty list and a limit larger than the list', async () => {
+    expect(await mapLimit([], 8, async () => 1)).toEqual([])
+    let peak = 0
+    let inFlight = 0
+    const out = await mapLimit([1, 2, 3], 32, async (n) => {
+      inFlight++
+      peak = Math.max(peak, inFlight)
+      await new Promise((r) => setTimeout(r, 1))
+      inFlight--
+      return n
+    })
+    expect(out).toEqual([1, 2, 3])
+    expect(peak).toBeLessThanOrEqual(3) // never more workers than items
+  })
+})
+
+/** A real git repo so the origin read exercises the same plumbing discovery uses. */
+async function initRepo(dir: string, origin?: string): Promise<void> {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const run = promisify(execFile)
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(dir, { recursive: true })
+  await run('git', ['init', '-q'], { cwd: dir })
+  if (origin) await run('git', ['remote', 'add', 'origin', origin], { cwd: dir })
+}
 
 /** macOS tmpdir is itself a symlink (/var → /private/var), so expectations that
  *  compare against a tmp path must compare realpaths too. */

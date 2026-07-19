@@ -62,6 +62,10 @@ export class OutputScheduler {
     if (p.timer === undefined) p.timer = this.setTimer(() => this.flush(sessionId), this.coalesceMs)
   }
 
+  priorityOf(sessionId: string): Tier {
+    return this.state(sessionId).tier
+  }
+
   setPriority(sessionId: string, tier: Tier): void {
     const p = this.state(sessionId)
     if (p.tier === tier) return

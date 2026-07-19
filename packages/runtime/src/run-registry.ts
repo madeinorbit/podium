@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
 
-export const RunRole = z.enum(['server', 'daemon', 'all-in-one'])
+export const RunRole = z.enum(['server', 'janitor', 'daemon', 'all-in-one'])
 export type RunRole = z.infer<typeof RunRole>
 
 export const RunRecord = z.object({

@@ -1,6 +1,6 @@
 import type { ConnectionState, SessionConnection, SocketHub } from './connection'
 import { DomViewportSource } from './dom-viewport'
-import { extractCodexPromptDraft } from './prompt-extract'
+import { extractCodexPromptDraft } from '@podium/composer'
 import { decideResizeAction, type Grid } from './session-viewport'
 import {
   createTerminalDiagnosticRecorder,

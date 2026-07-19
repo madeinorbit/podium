@@ -25,6 +25,7 @@
  *  - machines                                            → store/machines.ts
  *  - events/steward (podium_events/steward_state/subscriptions)
  *                                                        → store/events.ts
+ *  - notification fact claims                            → store/notification-facts.ts
  *  - automations (automations/automation_runs)           → store/automations.ts
  */
 
@@ -43,9 +44,11 @@ import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
+import { MaintenanceRepository } from './store/maintenance'
 import { MachinesRepository } from './store/machines'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { MessagesRepository } from './store/messages'
+import { NotificationFactsRepository } from './store/notification-facts'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { SessionsRepository } from './store/sessions'
@@ -77,6 +80,8 @@ export class SessionStore {
   readonly accounts: AccountsRepository
   readonly machines: MachinesRepository
   readonly events: EventsRepository
+  /** Cross-producer notification deduplication [spec:SP-ba61]. */
+  readonly notificationFacts: NotificationFactsRepository
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
   readonly messages: MessagesRepository
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
@@ -85,6 +90,8 @@ export class SessionStore {
   readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
+  /** Janitor generation fencing + deterministic command outcomes [spec:SP-c29e]. */
+  readonly maintenance: MaintenanceRepository
   /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
   readonly automations: AutomationsRepository
   /** Telegram forum-topic ↔ issue thread bindings [spec:SP-5d81]. */
@@ -136,10 +143,12 @@ export class SessionStore {
     this.accounts = new AccountsRepository(this.db)
     this.machines = new MachinesRepository(this.db)
     this.events = new EventsRepository(this.db)
+    this.notificationFacts = new NotificationFactsRepository(this.db)
     this.messages = new MessagesRepository(this.db)
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)
     this.locks = new LocksRepository(this.db)
+    this.maintenance = new MaintenanceRepository(this.db)
     this.automations = new AutomationsRepository(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
 

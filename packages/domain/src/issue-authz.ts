@@ -55,7 +55,7 @@ export const OPERATOR: Capability = { role: 'admin', scope: { kind: 'all' } }
 
 /** The slice of IssueService the access check needs (target existence + subtree walk). */
 export interface IssueAccessIndex {
-  get(id: string): unknown
+  has(id: string): boolean
   ancestorIds(id: string): string[]
 }
 

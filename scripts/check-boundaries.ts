@@ -160,6 +160,10 @@ const RESTRICTED_PACKAGE_DEPS: Record<string, ReadonlySet<string>> = {
   // workspace dependency (the leaf property that actually matters) [POD-808].
   'packages/protocol': new Set(['packages/model']),
   'packages/transcript': new Set(['packages/protocol']),
+  // Pure harness composer adapters (POD-859): prompt-draft extraction + keystroke
+  // injection, shared by the web fallback and the daemon engine. Must stay pure —
+  // only protocol's AgentKind enum, never IO or harness packages.
+  'packages/composer': new Set(['packages/protocol']),
   'packages/runtime': new Set(['packages/protocol', 'packages/domain']),
   // The issue-client seam (IssueTrpc + the shared command table) sits between
   // apps/cli and apps/server — it must never import app code or IO packages.

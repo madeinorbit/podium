@@ -32,7 +32,7 @@ import { IssueId, MachineId, RepoId, SessionId } from '../ids'
 // ---------------------------------------------------------------------------
 
 /** Ordered lifecycle stages an issue moves through. [spec:SP-0078] */
-export const IssueStage = z.enum(['backlog', 'planning', 'in_progress', 'review', 'done'])
+export const IssueStage = z.enum(['proposed', 'backlog', 'planning', 'in_progress', 'review', 'done'])
 export type IssueStage = z.infer<typeof IssueStage>
 export const ISSUE_STAGES: readonly IssueStage[] = IssueStage.options
 

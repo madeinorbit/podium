@@ -3,8 +3,14 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { type StewardDeps, StewardService, TRIGGER_RULES } from './steward'
+import {
+  type StewardDeps,
+  sessionSpawnerParentId,
+  StewardService,
+  TRIGGER_RULES,
+} from './steward'
 import { SessionStore } from './store'
+import { NotificationArbiter } from './store/notification-facts'
 
 function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
   const store = new SessionStore(':memory:')
@@ -22,6 +28,9 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   // created_at, so order assertions fell to the cmt_<uuid> tie-break (flaky).
   let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
   const now = () => new Date(clockMs++).toISOString()
+  const advanceTime = (ms: number) => {
+    clockMs += ms
+  }
   const issueDeps: IssueDeps = {
     store,
     listSessions: () => sessions,
@@ -38,6 +47,8 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
   const notify = vi.fn()
   const deps: StewardDeps = {
     store: store.events,
+    facts: store.notificationFacts,
+    messages: store.messages,
     issues,
     listSessions: () => sessions,
     sendTextWhenReady,
@@ -45,7 +56,16 @@ function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor
     getSettings: () => settings,
     now,
   }
-  return { store, issues, sendTextWhenReady, notify, deps, steward: new StewardService(deps) }
+  return {
+    store,
+    issues,
+    sendTextWhenReady,
+    notify,
+    deps,
+    arbiter: new NotificationArbiter(store.notificationFacts, now),
+    advanceTime,
+    steward: new StewardService(deps),
+  }
 }
 
 const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
@@ -54,6 +74,44 @@ const fakeSession = (s: Partial<SessionMeta>): SessionMeta =>
 // #175: comment bodies left IssueWire — read the thread via IssueService.comments.
 const stewardComments = (issues: IssueService, id: string) =>
   issues.comments(id).filter((c) => c.author === 'steward')
+
+/** Seeds a message row proving `fromIssue` already told `to` directly — the
+ *  already-communicated fixture (§07b, POD-913). `createdAt` defaults to the
+ *  real wall clock, which always lands after the harness's simulated
+ *  2026-07-02 event clock, so it satisfies the "since the change" window
+ *  without threading the exact event timestamp through every test. */
+function seedTold(
+  store: SessionStore,
+  fromIssue: string,
+  to: { kind: 'session' | 'issue'; id: string },
+  opts: { createdAt?: string; id?: string } = {},
+) {
+  const id = opts.id ?? `msg_${to.kind}_${to.id}`
+  store.messages.addMessage({
+    id,
+    threadId: id,
+    inReplyTo: null,
+    fromKind: 'agent',
+    fromSession: null,
+    fromIssue,
+    toKind: to.kind,
+    toId: to.id,
+    kind: 'message',
+    urgency: 'next-turn',
+    lifecycle: 'wait',
+    body: 'already told you directly',
+    expiresAt: null,
+    createdAt: opts.createdAt ?? new Date().toISOString(),
+    status: 'queued',
+    deliveredAt: null,
+    deliveredTo: null,
+    ackedBy: null,
+    hop: 0,
+    clampedFrom: null,
+    remindedAt: null,
+    expectsResponse: false,
+  })
+}
 
 describe('TRIGGER_RULES', () => {
   it('maps closed/ready to a per-repo unblock key and needs_human to a per-issue key', () => {
@@ -206,6 +264,31 @@ describe('StewardService unblock handler', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
+  it('retries a missing nudge after the comment was durably written', async () => {
+    const sessions = [fakeSession({ sessionId: 's1', cwd: '/r/.worktrees/issue-2-b' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.addDep(b.id, a.id, 'blocks')
+    issues.close(a.id)
+    sendTextWhenReady.mockImplementationOnce(() => {
+      throw new Error('crash after comment')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await steward.tick()
+    expect(stewardComments(issues, b.id)).toHaveLength(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect(store.events.getStewardState('cursor')).toBe('0')
+
+    await steward.tick()
+    expect(stewardComments(issues, b.id)).toHaveLength(1)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    warn.mockRestore()
+  })
+
   it('dedup is colon-anchored: a prior #<seq><digit> comment does not swallow #<seq>', async () => {
     const { issues, steward } = harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false }) // seq 1
@@ -294,6 +377,22 @@ describe('StewardService unblock handler', () => {
     const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
     expect(targets).toEqual(['other'])
   })
+
+  it('already-communicated (§07b, POD-913): suppresses the nudge when the closer already messaged the dependent directly', async () => {
+    const sessions = [fakeSession({ sessionId: 'other', cwd: '/r/.worktrees/issue-2-b' })]
+    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
+    issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
+    issues.addDep(b.id, a.id, 'blocks')
+    // A's agent already told the dependent session directly, ahead of closing.
+    seedTold(store, a.id, { kind: 'session', id: 'other' })
+    issues.close(a.id)
+    await steward.tick()
+    // The audit-trail comment still lands — only the redundant nudge is cut.
+    expect(stewardComments(issues, b.id).length).toBe(1)
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
 })
 
 describe('StewardService parent-nudge handler', () => {
@@ -325,6 +424,27 @@ describe('StewardService parent-nudge handler', () => {
     // Comment-only excerpt: the agent-authored note never reaches the nudge.
     expect(text).not.toContain('widget')
     expect(text).not.toContain('\n')
+  })
+
+  it('already-communicated (§07b, POD-913): suppresses the nudge when the child already messaged the parent directly', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
+    // The child already told the parent's live session directly.
+    seedTold(store, c1.id, { kind: 'session', id: 'plive' })
+    issues.close(c1.id)
+    await steward.tick()
+    // The audit-trail comment still lands — only the redundant nudge is cut.
+    expect(stewardComments(issues, parent.id).length).toBe(1)
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
   it('two children closing in one batch → two comments, ONE nudge with latest counts', async () => {
@@ -558,22 +678,25 @@ describe('StewardService gating and resilience', () => {
     expect(stewardComments(issues, b.id)).toEqual([])
   })
 
-  it('a throwing handler is dropped, not wedged: tick resolves and the cursor advances', async () => {
+  it('a throwing durable handler holds the cursor and succeeds on replay', async () => {
     const { store, issues, steward } = harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
-    vi.spyOn(issues, 'addComment').mockImplementation(() => {
+    const addComment = vi.spyOn(issues, 'addComment').mockImplementation(() => {
       throw new Error('boom')
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await expect(steward.tick()).resolves.toBeUndefined()
-    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(store.events.getStewardState('cursor')).toBe('0')
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('[podium:steward]'),
       expect.any(Error),
     )
+    addComment.mockRestore()
+    await steward.tick()
+    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     warn.mockRestore()
   })
 })
@@ -614,6 +737,20 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('already-communicated (§07b, POD-913): suppresses a subscription nudge when the source issue already messaged the subscriber directly', async () => {
+    const sessions = [fakeSession({ sessionId: 'psess', cwd: '/r/.worktrees/p' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
+    issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
+    const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
+    store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
+    // x already told the watcher's live session directly.
+    seedTold(store, x.id, { kind: 'session', id: 'psess' })
+    issues.close(x.id)
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
   it('a session.finished subscription nudges the subscriber session', async () => {
@@ -800,18 +937,24 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 })
 
 describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
-  it('maps settled session.phase events to an ackfallback key (finished + errored only)', () => {
+  it('maps settled session.phase events to ackfallback + sessionparentnudge (finished + errored only)', () => {
     const e = { id: 1, ts: 't', kind: 'session.phase', subject: 's9', repoPath: null, payload: {} }
     expect(
       TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'done' } }),
-    ).toBe('ackfallback:s9')
-    expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'errored' } })).toBe(
+    ).toEqual(['ackfallback:s9', 'sessionparentnudge:done:s9'])
+    expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'errored' } })).toEqual([
       'ackfallback:s9',
-    )
+      'sessionparentnudge:errored:s9',
+    ])
     expect(
       TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'idle', verdict: 'needs_user' } }),
     ).toBeUndefined()
     expect(TRIGGER_RULES['session.phase']!({ ...e, payload: { phase: 'working' } })).toBeUndefined()
+  })
+
+  it('maps session.exited to a sessionparentnudge:exited key', () => {
+    const e = { id: 1, ts: 't', kind: 'session.exited', subject: 's9', repoPath: null, payload: {} }
+    expect(TRIGGER_RULES['session.exited']!(e)).toBe('sessionparentnudge:exited:s9')
   })
 
   it('invokes the messaging seam once per settled session with the outcome', async () => {
@@ -833,9 +976,85 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     })
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(2)
-    expect(ackFallback).toHaveBeenCalledWith('s9', 'finished')
-    expect(ackFallback).toHaveBeenCalledWith('s8', 'errored')
+    expect(ackFallback).toHaveBeenCalledWith('s9', 'finished', {
+      factKey: 'settle:s9',
+      target: 's9',
+    })
+    expect(ackFallback).toHaveBeenCalledWith('s8', 'errored', {
+      factKey: 'settle:s8',
+      target: 's8',
+    })
     // Replays past the advanced cursor never re-fire.
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(2)
+  })
+
+  it('coalesces and replay-suppresses repeated events for one settle transition', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    for (let i = 0; i < 2; i++) {
+      h.store.events.appendEvent({
+        ts: 't',
+        kind: 'session.phase',
+        subject: 's9',
+        payload: { phase: 'idle', verdict: 'done' },
+      })
+    }
+
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+  })
+
+  it('suppresses a second producer claiming the same settle fact and target', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+
+    expect(
+      h.arbiter.claim('settle:s9', 's9', {
+        source: 'daemon.stop-hook',
+      }),
+    ).toBe(true)
+    expect(
+      h.arbiter.claim('settle:s9', 's9', {
+        source: 'subscription:session.finished',
+      }),
+    ).toBe(false)
+
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).not.toHaveBeenCalled()
+  })
+
+  it('allows a replayed settle transition to re-fire after the fact TTL expires', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    h.advanceTime(24 * 60 * 60 * 1000 + 1)
+    h.store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(2)
   })
@@ -849,5 +1068,648 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
       payload: { phase: 'errored' },
     })
     await expect(h.steward.tick()).resolves.toBeUndefined()
+  })
+})
+
+describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
+  it('retires facts scoped to an issue when issue.closed is consumed', async () => {
+    const h = harness()
+    const issue = h.issues.create({ repoPath: '/r', title: 'Closing', startNow: false })
+
+    expect(
+      h.arbiter.claim('sub:issue.ready:iss_source', 'target-session', {
+        source: 'subscription:issue.ready',
+        issueId: issue.id,
+      }),
+    ).toBe(true)
+    expect(
+      h.arbiter.claim('sub:issue.ready:iss_source', 'target-session', {
+        source: 'steward.unblock',
+        issueId: issue.id,
+      }),
+    ).toBe(false)
+
+    h.issues.close(issue.id)
+    await h.steward.tick()
+
+    expect(
+      h.arbiter.claim('sub:issue.ready:iss_source', 'target-session', {
+        source: 'subscription:issue.ready',
+        issueId: issue.id,
+      }),
+    ).toBe(true)
+  })
+})
+
+/**
+ * POD-890 / POD-908: retire arbiter facts when the underlying condition clears
+ * so a later genuine edge re-fires without shortening the 24h TTL.
+ */
+describe('StewardService condition-clear fact retirement (POD-890)', () => {
+  it('re-settling after leave-idle re-fires ackfallback (fact retired on leave; TTL unchanged)', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+
+    // First settle → claim settle:s9 + fire once.
+    h.store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    // Still settled (no leave): same-condition re-tick must NOT re-fire, and
+    // the fact remains live well before the 24h TTL ceiling.
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+    // A concurrent producer still loses while the fact is live (TTL not shortened).
+    expect(
+      h.arbiter.claim('settle:s9', 's9', { source: 'daemon.stop-hook' }),
+    ).toBe(false)
+
+    // Leave idle (working) → condition-clear retires settle:s9 (not TTL expiry).
+    h.store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+
+    // Second genuine settle → re-fires.
+    h.store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(2)
+  })
+
+  it('review→out→review re-fires the review parentnudge', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.addComment(c1.id, 'agent', '[completion-note] widget ready for review')
+
+    // Enter review → first parentnudge.
+    issues.update(c1.id, { stage: 'review' })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('moved to review')
+
+    // Leave review (condition clear) without closing.
+    issues.update(c1.id, { stage: 'in_progress' })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Re-enter review → must re-fire (fact was retired on leave).
+    issues.update(c1.id, { stage: 'review' })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('plive')
+    expect((sendTextWhenReady.mock.calls[1] as [string, string])[1]).toContain('moved to review')
+  })
+
+  it('flapping within the same condition still dedups (no over-fire)', async () => {
+    const h = harness()
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+
+    // Two settle events in one poll (rapid re-tick / dual producer shape).
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 's9',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    // Cursor rewind: still the same settled condition — no leave-idle — no re-fire.
+    h.store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledTimes(1)
+
+    // Review path: re-process the same review transition without leaving review.
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const rev = harness({ sessions })
+    const parent = rev.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    rev.issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = rev.issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    rev.issues.update(c1.id, { stage: 'review' })
+    await rev.steward.tick()
+    expect(rev.sendTextWhenReady).toHaveBeenCalledTimes(1)
+    rev.store.events.setStewardState('cursor', '0')
+    await rev.steward.tick()
+    expect(rev.sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves POD-907 exit-after-done silence within one completion cycle', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Exit in the SAME completion cycle (no leave-idle) stays silent.
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 0, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Phantom leave-idle → re-settle WITHOUT parent ack (POD-917): sticky holds,
+    // no second wake, and exit still suppressed.
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    store.events.appendEvent({
+      ts: 't4',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 0, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('needs_human clear→set re-fires the needs_human parentnudge', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+
+    issues.setNeedsHuman(c1.id, 'which database?')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    issues.clearNeedsHuman(c1.id)
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    issues.setNeedsHuman(c1.id, 'which database again?')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('sessionSpawnerParentId', () => {
+  it('extracts a session parent id and rejects other provenance', () => {
+    expect(sessionSpawnerParentId('session:parent-1')).toBe('parent-1')
+    expect(sessionSpawnerParentId('issue:iss_1')).toBeUndefined()
+    expect(sessionSpawnerParentId('user')).toBeUndefined()
+    expect(sessionSpawnerParentId('session:')).toBeUndefined()
+    expect(sessionSpawnerParentId(null)).toBeUndefined()
+    expect(sessionSpawnerParentId(undefined)).toBeUndefined()
+  })
+})
+
+/**
+ * M4 / POD-904: session-spawner edge wakes a parked parent when its child
+ * settles (done/errored) or exits without a prior settle report. Distinct from
+ * ISSUE parentnudge (needs_human/closed/review), which stays live-only.
+ */
+describe('StewardService session-parent wake (POD-904 / §07b)', () => {
+  it('wakes a PARKED session parent when the child settles idle+done', async () => {
+    const sessions = [
+      // Parked parent — issue parentnudge would skip this; session-parent wake must not.
+      fakeSession({
+        sessionId: 'parent',
+        status: 'hibernated',
+        cwd: '/r/parent',
+        title: 'Coordinator',
+      }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/child',
+        title: 'Worker',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('parent')
+    expect(text).toContain('child')
+    expect(text).toMatch(/finished \(done\)/i)
+    // Wake path = sendTextWhenReady (wired to queueText → resurrect), not a
+    // breadcrumb-only steward.observed row.
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] })).toHaveLength(0)
+  })
+
+  it('already-communicated (§07b, POD-913) does NOT apply here: still wakes even if the child already messaged the parent', async () => {
+    // This is the deliberate carve-out (see the handleSessionParentNudge doc
+    // comment): a message in the ledger proves the parent was TOLD, not that
+    // it was WOKEN. Suppressing here could strand a parked parent forever.
+    const sessions: SessionMeta[] = []
+    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const childIssue = issues.create({ repoPath: '/r', title: 'Child issue', startNow: false })
+    sessions.push(
+      fakeSession({
+        sessionId: 'parent',
+        status: 'hibernated',
+        cwd: '/r/parent',
+        title: 'Coordinator',
+      }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/child',
+        title: 'Worker',
+        spawnedBy: 'session:parent',
+        issueId: childIssue.id,
+      }),
+    )
+    seedTold(store, childIssue.id, { kind: 'session', id: 'parent' })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+  })
+
+  it('wakes a parked session parent when the child errors', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'exited', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'errored' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('parent')
+    expect(text).toMatch(/errored/i)
+  })
+
+  it('wakes a session parent on child exit-without-report (session.exited)', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'exited',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 1, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    const [target, text] = sendTextWhenReady.mock.calls[0] as [string, string]
+    expect(target).toBe('parent')
+    expect(text).toMatch(/exited without reporting/i)
+  })
+
+  it('resolves parent from event payload spawnedBy when the child row is gone', async () => {
+    // killSession removes the child before agentExit; payload carries spawnedBy.
+    const sessions = [fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' })]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.exited',
+      subject: 'gone-child',
+      payload: { code: -1, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+  })
+
+  it('is silent when the child has no session-spawner parent', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'issue:iss_x', // issue provenance — not the session edge
+      }),
+      fakeSession({ sessionId: 'orphan', status: 'live', cwd: '/r/o' }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'orphan',
+      payload: { phase: 'errored' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).not.toHaveBeenCalled()
+  })
+
+  it('a terminal child re-emitting settle each poll (fresh event id) wakes the parent ONCE (POD-921)', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+
+    // The live storm: a terminal child yields a NEW durable session.phase event
+    // (fresh id) on every poll. A per-EVENT fact key changes each tick and would
+    // re-wake the parent forever; the sticky phase-reported fact dedups the whole
+    // completion cycle down to ONE wake. Six distinct settle events, one wake.
+    for (let i = 0; i < 6; i++) {
+      store.events.appendEvent({
+        ts: `t${i}`,
+        kind: 'session.phase',
+        subject: 'child',
+        payload: { phase: 'idle', verdict: 'done' },
+      })
+      await steward.tick()
+    }
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    // First wake still delivered (M4 parked-parent resurrection, 8773cdbf).
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+
+    // Crash-replay of the whole log (cursor rewind) still does not re-wake.
+    store.events.setStewardState('cursor', '0')
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Exit trailing a clean done is not exit-without-report — the same sticky
+    // suppresses the exit wake within the cycle (POD-907).
+    store.events.appendEvent({
+      ts: 'tx',
+      kind: 'session.exited',
+      subject: 'child',
+      payload: { code: 0, spawnedBy: 'session:parent' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('phantom leave-idle then re-settle (no parent ack) does NOT re-wake (POD-917)', async () => {
+    // Acceptance (b): zombie / grok cwd-watch idle-cycle must not re-arm the
+    // parent wake. Leave-idle retires ackfallback settle: only — not phase-reported.
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store } = harness({ sessions })
+
+    // First settle → wake once (a/d).
+    store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
+
+    // Per-poll re-emit of the SAME completion must NOT re-fire.
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Phantom work cycle (leave idle → re-idle) WITHOUT parent ack — sticky holds.
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't4',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+  })
+
+  it('parent ack (consume sticky) then genuine re-settle wakes ONCE more (POD-917)', async () => {
+    // Acceptance (c): sticky cleared only by parent acknowledgment; then a later
+    // settle re-claims and re-wakes exactly once.
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'hibernated', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const { steward, sendTextWhenReady, store, arbiter } = harness({ sessions })
+
+    store.events.appendEvent({
+      ts: 't1',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Leave-idle alone must NOT re-arm (phantom cycle still suppressed).
+    store.events.appendEvent({
+      ts: 't2',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't3',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+
+    // Parent acknowledges (MessageGate awaitAgent → retireNotificationFact).
+    // Simulated here via the arbiter (same store path the gate wires).
+    arbiter.retire('sessionparentnudge:phase-reported:child', 'parent')
+
+    // Subsequent genuine settle → wakes once more.
+    store.events.appendEvent({
+      ts: 't4',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'working' },
+    })
+    await steward.tick()
+    store.events.appendEvent({
+      ts: 't5',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+    expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('parent')
+
+    // And stays once until next ack (no storm on re-emit).
+    store.events.appendEvent({
+      ts: 't6',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
+  })
+
+  it('issue needs_human parentnudge path is unchanged (issue parent, live targets)', async () => {
+    const sessions = [fakeSession({ sessionId: 'plive', cwd: '/r/.worktrees/issue-1-epic' })]
+    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
+    issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
+    const c1 = issues.create({
+      repoPath: '/r',
+      title: 'Child 1',
+      parentId: parent.id,
+      startNow: false,
+    })
+    issues.setNeedsHuman(c1.id, 'which database?')
+    await steward.tick()
+    const posted = stewardComments(issues, parent.id)
+    expect(posted.length).toBe(1)
+    expect(posted[0]!.body).toBe(`Child #${c1.seq} needs a human: which database?`)
+    expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('needs a human')
+    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+  })
+
+  it('keeps ackfallback alongside session-parent wake on the same settle', async () => {
+    const sessions = [
+      fakeSession({ sessionId: 'parent', status: 'live', cwd: '/r/p' }),
+      fakeSession({
+        sessionId: 'child',
+        status: 'live',
+        cwd: '/r/c',
+        spawnedBy: 'session:parent',
+      }),
+    ]
+    const h = harness({ sessions })
+    const ackFallback = vi.fn()
+    h.deps.messaging = { ackFallback }
+    const steward = new StewardService(h.deps)
+    h.store.events.appendEvent({
+      ts: 't',
+      kind: 'session.phase',
+      subject: 'child',
+      payload: { phase: 'idle', verdict: 'done' },
+    })
+    await steward.tick()
+    expect(ackFallback).toHaveBeenCalledWith('child', 'finished', {
+      factKey: 'settle:child',
+      target: 'child',
+    })
+    expect(h.sendTextWhenReady).toHaveBeenCalledTimes(1)
+    expect((h.sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
   })
 })

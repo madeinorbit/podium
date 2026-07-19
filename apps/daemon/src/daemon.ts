@@ -42,6 +42,7 @@ import { createAgentRelayHub, startAgentRelayServer } from './agent-relay'
 import { createBrowserOpenManager } from './browser-open'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { CodexIdentityReceipts } from './codex-identity-receipts'
+import { ComposerSyncEngine } from './composer-sync'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory } from './control/inventory'
 import { dispatchControlMessage } from './control/registry'
@@ -52,7 +53,12 @@ import type { HeadlessTurnHandle } from './headless-drivers.js'
 import { startHookIngest } from './hook-ingest'
 import { sampleHostMemory } from './host-metrics'
 import { loadIdentity, saveToken } from './identity'
-import { countControl, reportLongTick, startLoopAttribution, timeTask } from './loop-attribution'
+import {
+  beginControlTurn,
+  reportLongTick,
+  startLoopAttribution,
+  timeTask,
+} from './loop-attribution'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { OutputScheduler } from './output-scheduler'
 import { createPrimeInjector } from './prime-injector'
@@ -255,6 +261,41 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
     })
 }
 
+function createPriorityLimiter(
+  max: number,
+): <T>(priority: number, fn: () => Promise<T>) => Promise<T> {
+  let active = 0
+  const queues: Array<Array<() => void>> = [[], [], [], []]
+  const release = (): void => {
+    active--
+    for (const queue of queues) {
+      const next = queue.shift()
+      if (next) {
+        // A completed seed resumes through a microtask. Cross a macrotask boundary
+        // before the next allocation/parse unit so timers (including the systemd
+        // watchdog pet) can run during a large reconnect burst. [spec:SP-c29e]
+        // Reserve the released slot across the yield so a newly-arriving job
+        // cannot start beside the queued continuation and exceed `max`.
+        active++
+        setTimeout(() => {
+          active--
+          next()
+        }, 0)
+        return
+      }
+    }
+  }
+  return <T>(priority: number, fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const run = (): void => {
+        active++
+        fn().then(resolve, reject).finally(release)
+      }
+      if (active < max) run()
+      else (queues[priority] ?? queues[3]!).push(run)
+    })
+}
+
 /**
  * The two gates a reattach burst runs through, split so bridge wiring is never
  * queued behind transcript work (POD-612):
@@ -272,10 +313,10 @@ export function createLimiter(max: number): <T>(fn: () => Promise<T>) => Promise
  */
 export function createReattachGates(opts?: { reattachMax?: number; tailSeedMax?: number }): {
   reattachGate: <T>(fn: () => Promise<T>) => Promise<T>
-  tailSeedGate: (fn: () => Promise<void>) => Promise<void>
+  tailSeedGate: (fn: () => Promise<void>, priority?: number) => Promise<void>
 } {
   const reattachLimit = createLimiter(opts?.reattachMax ?? REATTACH_CONCURRENCY)
-  const tailSeedLimit = createLimiter(opts?.tailSeedMax ?? TAIL_SEED_CONCURRENCY)
+  const tailSeedLimit = createPriorityLimiter(opts?.tailSeedMax ?? TAIL_SEED_CONCURRENCY)
   let reattachPending = 0
   const settledWaiters: Array<() => void> = []
   const reattachGate = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -287,8 +328,8 @@ export function createReattachGates(opts?: { reattachMax?: number; tailSeedMax?:
   }
   const whenReattachSettled = (): Promise<void> =>
     reattachPending === 0 ? Promise.resolve() : new Promise((r) => settledWaiters.push(r))
-  const tailSeedGate = (fn: () => Promise<void>): Promise<void> =>
-    whenReattachSettled().then(() => tailSeedLimit(fn))
+  const tailSeedGate = (fn: () => Promise<void>, priority = 3): Promise<void> =>
+    whenReattachSettled().then(() => tailSeedLimit(priority, fn))
   return { reattachGate, tailSeedGate }
 }
 
@@ -350,6 +391,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
   }
 
+  // Draft Sync v2 (POD-859): read-only/inject composer engine. Publishes scraped
+  // native drafts up to the server; injects chat drafts into the PTY (bytes are a
+  // UTF-8 string of control chars + text; the bridge takes base64). Declared here so
+  // the session observers can feed it agent-idle state.
+  const bridges = new Map<string, AgentSession>()
+  const composerEngine = new ComposerSyncEngine(
+    (sessionId, text) => send({ type: 'nativeDraft', sessionId, text }),
+    {
+      writePty: (sessionId, bytes) =>
+        bridges.get(sessionId)?.write(Buffer.from(bytes, 'utf8').toString('base64')),
+      onDemote: (sessionId) =>
+        console.warn(`[podium] draft-sync self-demoted to read-only for ${sessionId}`),
+    },
+  )
+
   // The /proc memory walk AND the conversation discovery scan both run on the
   // worker thread so neither stalls the interactive daemon loop; stopped in
   // disposeAll(). The worker owns discovery.db exclusively, so the every-15s
@@ -401,6 +457,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     homeDir,
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
+    // Draft Sync v2 (POD-859): the composer engine only scrapes/injects while the
+    // agent is idle — fed from the agent-state tracker's phase transitions.
+    onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
     onExactCodexBinding: async (sessionId, nativeId) => {
       if (!(await codexIdentityReceipts.record(sessionId, nativeId))) return
       // Replay sends ackRequested:true. If the socket is offline, the receipt
@@ -535,12 +594,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     launch,
     settingsDir,
     homeDir,
-    bridges: new Map<string, AgentSession>(),
+    bridges,
+    composerEngine,
     outputScheduler,
     observers,
     sessionCwdTracker,
     primeInjector,
     reattachGate: gates.reattachGate,
+    tailSeedGate: gates.tailSeedGate,
     runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookSocketPath,
     codexReceiptDir,
@@ -566,12 +627,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
 
   const handleControlMessage = (raw: RawData): void => {
     if (!authenticated) return // pre-auth frames belong to the handshake handler
-    countControl()
+    const finishControlTurn = beginControlTurn()
     // Drop absurdly large frames before materializing/parsing them (audit P0-4): a
     // multi-hundred-MB frame's synchronous toString()+JSON.parse would stall the loop
     // and back up the socket Recv-Q — the wedge shape. The cap is generous so it never
     // touches legitimate big payloads (image uploads, large pastes, file writes).
     if (controlFrameByteLength(raw) > MAX_CONTROL_FRAME_BYTES) {
+      finishControlTurn('<oversized>')
       console.warn('[podium:daemon] dropping oversized control frame')
       return
     }
@@ -581,12 +643,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       // (the big-paste wedge shape) — time it separately from the handler.
       msg = timeTask('controlParse', () => parseControlMessage(raw.toString()))
     } catch (err) {
+      finishControlTurn('<invalid>')
       // Drop the malformed control frame (don't wedge the loop) — but log it, never
       // silently, so protocol drift / poison frames are observable.
       warnDroppedControlFrame(err)
       return
     }
-    timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
+    try {
+      timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
+    } finally {
+      finishControlTurn(msg.type)
+    }
   }
 
   // Reconnecting client: the daemon may start before the server (separate
@@ -624,6 +691,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     }
     ctx.runningHeadlessTurns.clear()
     observers.disposeObservers()
+    composerEngine.disposeAll()
   }
 
   const handle: DaemonHandle = {

@@ -5,6 +5,12 @@ import { LOCAL_MACHINE_ID } from './local-machine'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
+type ProjectionEvent = {
+  generation: number
+  changes: MetadataChange[]
+  ledgerCursor: number
+}
+
 /**
  * Session writes on the write-seam Ledger ([spec:SP-3fe2] #256): persist()
  * commits the row write and the declared SessionMeta change atomically;
@@ -103,7 +109,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.onDaemonMessageFrom('m1', {
       type: 'agentState',
       sessionId,
-      state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', openTaskCount: 0 },
+      state: { phase: 'working', since: '2026-07-09T00:00:00.000Z', nativeSubagentCount: 0 },
     })
     const healed = registry.modules.sessions.syncChangesSince(cursor)
     expect(healed.kind).toBe('delta')
@@ -250,7 +256,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     for (let i = 1; i < seqs.length; i++) expect(seqs[i]).toBe((seqs[i - 1] as number) + 1)
   })
 
-  it('(h) upstream mirror sets and staleness flips reach the durable log (reconcile-at-broadcast, #247)', () => {
+  it('(h) upstream mirror sets and staleness flips are explicitly captured (#247)', () => {
     const upstreamMeta: SessionMeta = {
       sessionId: 'hub-s1',
       agentKind: 'shell',
@@ -272,7 +278,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     }
     const registry = makeRegistry()
     const cursor = cursorOf(registry)
-    // Mirror set: the hub-fed rows never persist() — only the broadcast sees them.
+    // Mirror set: hub-fed rows have no local session row, so their owning seam captures them.
     registry.modules.sessions.setUpstreamSessions([upstreamMeta])
     registry.modules.sessions.flushBroadcasts()
     const afterSet = registry.modules.sessions.syncChangesSince(cursor)
@@ -292,7 +298,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (c) => c.entity === 'session' && c.id === 'hub-s1' && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
     expect(staleChange?.value?.upstreamStale).toBe(true)
-    // Mirror cleared: the reconcile's full-list remove-diff evicts the row.
+    // Mirror cleared: the owning seam declares an explicit remove.
     registry.modules.sessions.setUpstreamSessions([])
     registry.modules.sessions.flushBroadcasts()
     const afterClear = registry.modules.sessions.syncChangesSince(afterStale.cursor)
@@ -305,13 +311,82 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ).toBe(true)
   })
 
+  it('keeps the local side of an id collision visible and reveals the upstream row on removal', () => {
+    const registry = makeRegistry()
+    const upstream: SessionMeta = {
+      sessionId: 'union-collision',
+      agentKind: 'shell',
+      title: 'hub',
+      cwd: '/hub',
+      status: 'live',
+      controllerId: null,
+      geometry: { cols: 80, rows: 24 },
+      epoch: 0,
+      clientCount: 0,
+      createdAt: '2026-07-01T00:00:00.000Z',
+      lastActiveAt: '2026-07-01T00:00:00.000Z',
+      origin: { kind: 'spawn' },
+      archived: false,
+      readAt: null,
+      unread: true,
+    }
+    registry.modules.sessions.setUpstreamSessions([upstream])
+    registry.modules.sessions.createSession({
+      sessionId: upstream.sessionId,
+      agentKind: 'shell',
+      cwd: '/local',
+    })
+    const local = registry.modules.sessions
+      .listSessions()
+      .find((session) => session.sessionId === upstream.sessionId)
+    expect(local?.cwd).toBe('/local')
+    expect(local?.viaHub).toBeUndefined()
+
+    registry.modules.sessions.setUpstreamSessions([{ ...upstream, title: 'hub latest' }])
+    const cursor = cursorOf(registry)
+    registry.modules.sessions.setUpstreamStale(true)
+    const afterStale = registry.modules.sessions.syncChangesSince(cursor)
+    expect(afterStale.kind).toBe('delta')
+    if (afterStale.kind !== 'delta') return
+    expect(
+      afterStale.changes.filter(
+        (change) => change.entity === 'session' && change.id === upstream.sessionId,
+      ),
+    ).toEqual([])
+
+    const projectionEvents: ProjectionEvent[] = []
+    const off = registry.modules.sessions.onSessionProjection((event) =>
+      projectionEvents.push(event),
+    )
+    registry.modules.sessions.killSession({ sessionId: upstream.sessionId })
+    off()
+    const revealed = registry.modules.sessions.syncChangesSince(afterStale.cursor)
+    expect(revealed.kind).toBe('delta')
+    if (revealed.kind !== 'delta') return
+    const last = revealed.changes
+      .filter((change) => change.entity === 'session' && change.id === upstream.sessionId)
+      .at(-1) as { op: string; value?: SessionMeta } | undefined
+    expect(last).toMatchObject({ op: 'upsert', value: { viaHub: true, upstreamStale: true } })
+    expect(projectionEvents).toHaveLength(1)
+    expect(projectionEvents[0]?.changes.map((change) => change.op)).toEqual(['remove', 'upsert'])
+    expect(projectionEvents[0]?.changes.at(-1)).toMatchObject({
+      seq: projectionEvents[0]?.ledgerCursor,
+      value: { viaHub: true, upstreamStale: true },
+    })
+    expect(
+      registry.modules.sessions
+        .listSessions()
+        .find((session) => session.sessionId === upstream.sessionId)?.viaHub,
+    ).toBe(true)
+  })
+
   it('(i) startup adoption and a machine rename re-capture machineId/machineName (#247)', () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
     // ensureLocalMachine → adoptPlaceholderRows rewrites machineId in memory and
-    // in the store WITHOUT a persist(); its broadcast reconciles the flip in.
+    // in the store WITHOUT a persist(); the machine seam captures the derived flip.
     registry.modules.machines.ensureLocalMachine('adopting-host')
     registry.modules.sessions.flushBroadcasts()
     const afterAdopt = registry.modules.sessions.syncChangesSince(cursor)
@@ -332,6 +407,16 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
     expect(renamed?.value?.machineName).toBe('renamed-host')
+    // Revoke: deleting the machine row changes the derived name to its id fallback.
+    registry.modules.machines.revokeMachine(LOCAL_MACHINE_ID)
+    registry.modules.sessions.flushBroadcasts()
+    const afterRevoke = registry.modules.sessions.syncChangesSince(afterRename.cursor)
+    expect(afterRevoke.kind).toBe('delta')
+    if (afterRevoke.kind !== 'delta') return
+    const revoked = afterRevoke.changes.find(
+      (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
+    ) as { value?: SessionMeta } | undefined
+    expect(revoked?.value?.machineName).toBe(LOCAL_MACHINE_ID)
   })
 
   it('(j) the daemon-disconnect reconnecting flip reaches the durable log (#247)', () => {
@@ -342,7 +427,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     registry.modules.sessions.flushBroadcasts()
     const cursor = cursorOf(registry)
     // The disconnect sweep flips live/starting → 'reconnecting' with NO persist;
-    // only the broadcast reconcile captures it.
+    // the disconnect seam captures the touched sessions as one explicit batch.
     registry.modules.sessions.detachDaemon(LOCAL_MACHINE_ID)
     registry.modules.sessions.flushBroadcasts()
     const healed = registry.modules.sessions.syncChangesSince(cursor)
@@ -352,6 +437,447 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       (c) => c.entity === 'session' && c.id === sessionId && c.op === 'upsert',
     ) as { value?: SessionMeta } | undefined
     expect(flipped?.value?.status).toBe('reconnecting')
+  })
+
+  it('retires full-world session reconcile after boot while keeping every owning seam durable', () => {
+    const reconcile = vi.spyOn(Ledger.prototype, 'reconcile')
+    const registry = makeRegistry()
+    reconcile.mockClear()
+
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const clientId = registry.modules.sessions.attachClient(() => {})
+    registry.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+    })
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'resize',
+      sessionId,
+      cols: 100,
+      rows: 40,
+    })
+    registry.modules.sessions.onClientMessage(clientId, { type: 'detach', sessionId })
+    registry.modules.sessions.setUpstreamSessions([
+      {
+        sessionId: 'hub-explicit',
+        agentKind: 'shell',
+        title: 'hub',
+        cwd: '/hub',
+        status: 'live',
+        controllerId: null,
+        geometry: { cols: 80, rows: 24 },
+        epoch: 0,
+        clientCount: 0,
+        createdAt: '2026-07-01T00:00:00.000Z',
+        lastActiveAt: '2026-07-01T00:00:00.000Z',
+        origin: { kind: 'spawn' },
+        archived: false,
+        readAt: null,
+        unread: true,
+      },
+    ])
+    registry.modules.sessions.setUpstreamStale(true)
+    registry.modules.sessions.setUpstreamSessions([])
+    registry.modules.sessions.flushBroadcasts()
+
+    expect(reconcile.mock.calls.filter(([entity]) => entity === 'session')).toEqual([])
+    const changes = registry.modules.sessions.syncChangesSince(0)
+    expect(changes.kind).toBe('delta')
+    if (changes.kind !== 'delta') return
+    const geometryChange = changes.changes.find(
+      (change) =>
+        change.entity === 'session' &&
+        change.id === sessionId &&
+        change.op === 'upsert' &&
+        (change.value as SessionMeta | undefined)?.geometry.cols === 100,
+    )
+    expect(geometryChange).toBeDefined()
+    expect(
+      changes.changes.some(
+        (change) =>
+          change.entity === 'session' && change.id === 'hub-explicit' && change.op === 'remove',
+      ),
+    ).toBe(true)
+  })
+
+  it('emits ordered self-contained projection events for persist and every live-view seam', () => {
+    const registry = makeRegistry()
+    const events: ProjectionEvent[] = []
+    const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const afterCreate = registry.modules.sessions.sessionsGeneration()
+
+    registry.modules.sessions.onDaemonMessageFrom('m1', {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'working', since: '2026-07-10T00:00:00.000Z', nativeSubagentCount: 0 },
+    })
+    const afterPersist = registry.modules.sessions.sessionsGeneration()
+
+    const clientId = registry.modules.sessions.attachClient(() => {})
+    registry.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    registry.modules.sessions.flushBroadcasts()
+    const afterAttach = registry.modules.sessions.sessionsGeneration()
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+    })
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'resize',
+      sessionId,
+      cols: 110,
+      rows: 42,
+    })
+    registry.modules.sessions.flushBroadcasts()
+    const afterResize = registry.modules.sessions.sessionsGeneration()
+    const secondClientId = registry.modules.sessions.attachClient(() => {})
+    registry.modules.sessions.onClientMessage(secondClientId, { type: 'attach', sessionId })
+    registry.modules.sessions.flushBroadcasts()
+    const afterSecondAttach = registry.modules.sessions.sessionsGeneration()
+    registry.modules.sessions.onClientMessage(secondClientId, { type: 'requestControl', sessionId })
+    registry.modules.sessions.flushBroadcasts()
+    const afterControl = registry.modules.sessions.sessionsGeneration()
+    // A no-op repeat must not fabricate work.
+    const eventCountBeforeNoop = events.length
+    registry.modules.sessions.onClientMessage(secondClientId, { type: 'requestControl', sessionId })
+    registry.modules.sessions.flushBroadcasts()
+    expect(events).toHaveLength(eventCountBeforeNoop)
+    registry.modules.sessions.onClientMessage(secondClientId, { type: 'detach', sessionId })
+    registry.modules.sessions.flushBroadcasts()
+    const afterDetach = registry.modules.sessions.sessionsGeneration()
+    off()
+
+    expect(afterCreate).toBeGreaterThan(0)
+    expect(afterPersist).toBeGreaterThan(afterCreate)
+    expect(afterAttach).toBeGreaterThan(afterPersist)
+    expect(afterResize).toBeGreaterThan(afterAttach)
+    expect(afterSecondAttach).toBeGreaterThan(afterResize)
+    expect(afterControl).toBeGreaterThan(afterSecondAttach)
+    expect(afterDetach).toBeGreaterThan(afterControl)
+    expect(events.map((event) => event.generation)).toEqual(
+      events.map((event) => event.generation).sort((a, b) => a - b),
+    )
+    expect(new Set(events.map((event) => event.generation)).size).toBe(events.length)
+    for (const event of events) {
+      expect(event.changes.length).toBeGreaterThan(0)
+      expect(event.changes.every((change) => change.entity === 'session')).toBe(true)
+      expect(event.ledgerCursor).toBe(event.changes.at(-1)?.seq)
+    }
+    expect(registry.modules.sessions.listSessions()[0]).not.toHaveProperty('generation')
+    expect(registry.modules.sessions.listSessions()[0]).not.toHaveProperty('revision')
+  })
+
+  it('resets the internal generation across restart without disturbing durable ledger order', () => {
+    const store = new SessionStore(':memory:')
+    const first = new SessionRegistry(store)
+    const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const clientId = first.modules.sessions.attachClient(() => {})
+    first.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    first.modules.sessions.onClientMessage(clientId, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+    })
+    first.modules.sessions.onClientMessage(clientId, {
+      type: 'resize',
+      sessionId,
+      cols: 101,
+      rows: 37,
+    })
+    first.modules.sessions.onClientMessage(clientId, { type: 'detach', sessionId })
+    first.modules.sessions.flushBroadcasts()
+    const generationBeforeRestart = first.modules.sessions.sessionsGeneration()
+    const cursorBeforeRestart = first.modules.sessions.syncChangesSince(null).cursor
+    first.dispose()
+
+    const second = makeRegistry(store)
+    const generationAfterRestart = second.modules.sessions.sessionsGeneration()
+    expect(generationAfterRestart).toBeGreaterThan(0)
+    expect(generationAfterRestart).toBeLessThan(generationBeforeRestart)
+    const cursorAfterRecovery = second.modules.sessions.syncChangesSince(null).cursor
+    expect(cursorAfterRecovery).toBeGreaterThan(cursorBeforeRestart)
+    const recovered = second.modules.sessions.syncChangesSince(cursorBeforeRestart)
+    expect(recovered.kind).toBe('delta')
+    if (recovered.kind !== 'delta') return
+    expect(
+      recovered.changes.some(
+        (change) =>
+          change.entity === 'session' && change.id === sessionId && change.op === 'upsert',
+      ),
+    ).toBe(true)
+    second.modules.sessions.broadcastSessions()
+    second.modules.sessions.flushBroadcasts()
+    expect(second.modules.sessions.syncChangesSince(cursorAfterRecovery)).toMatchObject({
+      kind: 'delta',
+      cursor: cursorAfterRecovery,
+      changes: [],
+    })
+    expect(second.modules.sessions.listSessions()[0]).not.toHaveProperty('generation')
+    expect(second.modules.sessions.listSessions()[0]).not.toHaveProperty('revision')
+  })
+
+  it('invalidates a coalesced legacy snapshot when state reverts to identical bytes', () => {
+    const registry = makeRegistry()
+    const legacy: ServerMessage[] = []
+    registry.modules.sessions.attachClient((message) => legacy.push(message))
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const originalSession = registry.modules.sessions
+      .listSessions()
+      .find((s) => s.sessionId === sessionId)
+    expect(originalSession).toBeDefined()
+    const original = originalSession?.name
+    const before = legacy.filter((message) => message.type === 'sessionsChanged').length
+
+    registry.modules.sessions.renameSession({ sessionId, name: 'temporary' })
+    registry.modules.sessions.renameSession({ sessionId, name: original ?? '' })
+    registry.modules.sessions.flushBroadcasts()
+
+    expect(legacy.filter((message) => message.type === 'sessionsChanged')).toHaveLength(before + 2)
+  })
+
+  it('coalesces a resize burst into one async capture and one projection event', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    const clientId = registry.modules.sessions.attachClient(() => {})
+    registry.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    registry.modules.sessions.onClientMessage(clientId, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+    })
+    registry.modules.sessions.flushBroadcasts()
+
+    const events: ProjectionEvent[] = []
+    const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges')
+    for (let i = 0; i < 200; i++) {
+      registry.modules.sessions.onClientMessage(clientId, {
+        type: 'resize',
+        sessionId,
+        cols: 100 + i,
+        rows: 40 + i,
+      })
+    }
+
+    expect(append).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+    registry.modules.sessions.flushBroadcasts()
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.changes).toHaveLength(1)
+    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.geometry).toEqual({
+      cols: 299,
+      rows: 239,
+    })
+    append.mockRestore()
+    off()
+  })
+
+  it('retains dirty live-view and machine patches across one append failure', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.machines.ensureLocalMachine('first-host')
+    registry.modules.sessions.flushBroadcasts()
+    const events: ProjectionEvent[] = []
+    const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const sync = registry.sessionStore.sync
+
+    const failAndHeal = (trigger: () => void, assertValue: (value: SessionMeta) => void) => {
+      const before = events.length
+      const append = vi.spyOn(sync, 'appendChanges').mockImplementationOnce(() => {
+        throw new Error('transient session capture failure')
+      })
+      trigger()
+      expect(append).not.toHaveBeenCalled()
+      expect(() => registry.modules.sessions.flushBroadcasts()).toThrow(
+        'transient session capture failure',
+      )
+      expect(events).toHaveLength(before)
+      append.mockRestore()
+      registry.modules.sessions.flushBroadcasts()
+      expect(events).toHaveLength(before + 1)
+      const change = events.at(-1)?.changes.find((candidate) => candidate.id === sessionId)
+      expect(change?.op).toBe('upsert')
+      assertValue((change as { value: SessionMeta }).value)
+    }
+
+    const firstClient = registry.modules.sessions.attachClient(() => {})
+    failAndHeal(
+      () => registry.modules.sessions.onClientMessage(firstClient, { type: 'attach', sessionId }),
+      (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
+    )
+    registry.modules.sessions.onClientMessage(firstClient, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
+    })
+    registry.modules.sessions.flushBroadcasts()
+    failAndHeal(
+      () =>
+        registry.modules.sessions.onClientMessage(firstClient, {
+          type: 'resize',
+          sessionId,
+          cols: 123,
+          rows: 47,
+        }),
+      (value) => expect(value.geometry).toEqual({ cols: 123, rows: 47 }),
+    )
+
+    const secondClient = registry.modules.sessions.attachClient(() => {})
+    failAndHeal(
+      () => registry.modules.sessions.onClientMessage(secondClient, { type: 'attach', sessionId }),
+      (value) => expect(value.clientCount).toBe(2),
+    )
+    failAndHeal(
+      () =>
+        registry.modules.sessions.onClientMessage(secondClient, {
+          type: 'requestControl',
+          sessionId,
+        }),
+      (value) => expect(value.controllerId).toBe(secondClient),
+    )
+    failAndHeal(
+      () => registry.modules.sessions.onClientMessage(secondClient, { type: 'detach', sessionId }),
+      (value) => expect(value).toMatchObject({ clientCount: 1, controllerId: firstClient }),
+    )
+    failAndHeal(
+      () => registry.modules.machines.renameMachine(LOCAL_MACHINE_ID, 'healed-host'),
+      (value) => expect(value.machineName).toBe('healed-host'),
+    )
+    off()
+  })
+
+  it('captures a 588-session disconnect in one retryable batch', () => {
+    const registry = makeRegistry()
+    const sessionIds = Array.from(
+      { length: 588 },
+      (_, i) =>
+        registry.modules.sessions.createSession({ agentKind: 'shell', cwd: `/w/` }).sessionId,
+    )
+    const clientId = registry.modules.sessions.attachClient(() => {})
+    for (const sessionId of sessionIds) {
+      registry.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+    }
+    registry.modules.sessions.flushBroadcasts()
+
+    const events: ProjectionEvent[] = []
+    const off = registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi
+      .spyOn(registry.sessionStore.sync, 'appendChanges')
+      .mockImplementationOnce(() => {
+        throw new Error('disconnect batch failed')
+      })
+
+    registry.modules.sessions.detachClient(clientId)
+    expect(append).not.toHaveBeenCalled()
+    expect(() => registry.modules.sessions.flushBroadcasts()).toThrow('disconnect batch failed')
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(events).toEqual([])
+
+    registry.modules.sessions.flushBroadcasts()
+    expect(append).toHaveBeenCalledTimes(2)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.changes).toHaveLength(588)
+    expect(
+      events[0]?.changes.every(
+        (change) => (change as { value?: SessionMeta }).value?.clientCount === 0,
+      ),
+    ).toBe(true)
+    append.mockRestore()
+    off()
+  })
+
+  it('rolls back live rename state when the durable append fails', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    const events: ProjectionEvent[] = []
+    registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi
+      .spyOn(registry.sessionStore.sync, 'appendChanges')
+      .mockImplementationOnce(() => {
+        throw new Error('rename append failed')
+      })
+
+    expect(() =>
+      registry.modules.sessions.renameSession({ sessionId, name: 'phantom-name' }),
+    ).toThrow('rename append failed')
+    append.mockRestore()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name,
+    ).toBeUndefined()
+    expect(
+      registry.sessionStore.sessions.loadSessions().find((row) => row.id === sessionId)?.name,
+    ).toBeNull()
+    expect(cursorOf(registry)).toBe(cursor)
+    expect(events).toEqual([])
+
+    registry.modules.sessions.broadcastSessions()
+    registry.modules.sessions.flushBroadcasts()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name,
+    ).toBeUndefined()
+    expect(registry.modules.sessions.syncChangesSince(cursor)).toMatchObject({
+      kind: 'delta',
+      cursor,
+      changes: [],
+    })
+
+    registry.modules.sessions.renameSession({ sessionId, name: 'committed-name' })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.changes).toHaveLength(1)
+    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.name).toBe('committed-name')
+  })
+
+  it('rolls back live and SQLite snooze state when the durable append fails', () => {
+    const registry = makeRegistry()
+    const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    registry.modules.sessions.flushBroadcasts()
+    const cursor = cursorOf(registry)
+    const events: ProjectionEvent[] = []
+    registry.modules.sessions.onSessionProjection((event) => events.push(event))
+    const append = vi
+      .spyOn(registry.sessionStore.sync, 'appendChanges')
+      .mockImplementationOnce(() => {
+        throw new Error('snooze append failed')
+      })
+
+    expect(() =>
+      registry.modules.sessions.setSnooze({ sessionId, until: '2026-07-20T12:00:00.000Z' }),
+    ).toThrow('snooze append failed')
+    append.mockRestore()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
+    ).toBeUndefined()
+    expect(registry.sessionStore.sessions.listSnoozes()).not.toHaveProperty(sessionId)
+    expect(cursorOf(registry)).toBe(cursor)
+    expect(events).toEqual([])
+
+    registry.modules.sessions.broadcastSessions()
+    registry.modules.sessions.flushBroadcasts()
+    expect(
+      registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
+    ).toBeUndefined()
+    expect(registry.modules.sessions.syncChangesSince(cursor)).toMatchObject({
+      kind: 'delta',
+      cursor,
+      changes: [],
+    })
+
+    registry.modules.sessions.setSnooze({
+      sessionId,
+      until: '2026-07-20T12:00:00.000Z',
+    })
+    expect(events).toHaveLength(1)
+    expect(events[0]?.changes).toHaveLength(1)
+    expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.snoozedUntil).toBe(
+      '2026-07-20T12:00:00.000Z',
+    )
   })
 
   it('(k) a failed change append on kill leaves the session fully live (#247)', () => {
@@ -371,7 +897,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     )
     expect(registry.sessionStore.sessions.loadSessions().some((r) => r.id === sessionId)).toBe(true)
     expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([])
-    // A subsequent broadcast reconcile appends NOTHING for the untouched entity.
+    // A subsequent broadcast is snapshot-only and appends NOTHING for the untouched entity.
     registry.modules.sessions.broadcastSessions()
     registry.modules.sessions.flushBroadcasts()
     const healed = registry.modules.sessions.syncChangesSince(cursor)

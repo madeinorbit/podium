@@ -128,7 +128,7 @@ describe('upstream mirror (registry surface)', () => {
     expect(snap.conversations.some((c) => c.id === 'conv-hub-1')).toBe(true)
   })
 
-  it('rejects every command path on a viaHub session with the spec reason', () => {
+  it('rejects every command path on a viaHub session with the spec reason', async () => {
     const { registry } = makeNode()
     registry.modules.sessions.setUpstreamSessions([hubSession('hub-1')])
     const reason = UPSTREAM_COMMAND_REJECTION
@@ -146,7 +146,7 @@ describe('upstream mirror (registry surface)', () => {
       reason,
     })
     expect(registry.modules.sessions.hibernateSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
-    expect(registry.modules.sessions.resurrectSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
+    expect(await registry.modules.sessions.resurrectSession({ sessionId: 'hub-1' })).toEqual({ ok: false, reason })
     expect(registry.modules.sessions.continueSession({ sessionId: 'hub-1' })).toEqual({ ok: false })
     expect(() => registry.modules.sessions.killSession({ sessionId: 'hub-1' })).toThrow(reason)
     // ...and the mirror entry is still there (rejection is side-effect free).

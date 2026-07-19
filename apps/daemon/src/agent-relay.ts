@@ -1,5 +1,13 @@
 import { createServer, type Server } from 'node:http'
-import type { DaemonMessage } from '@podium/protocol'
+import { AGENT_RELAY_BLOCKING_TIMEOUT_MS, type DaemonMessage } from '@podium/protocol'
+
+/** Procs that legitimately BLOCK server-side longer than a normal RPC, so the hub
+ *  must hold their request open past the 30s default or the CLI throws before the
+ *  server can answer [POD-854]. `messages.send` runs the urgency-gated blocking
+ *  send (waits up to the server's 90s interrupt ceiling for a transcript-observed
+ *  confirmation). Keyed `${router}.${proc}`. (`messages.ask`/`messages.awaitAgent`
+ *  share the shape for a large `--timeout`; tracked separately, POD-872.) */
+const BLOCKING_RELAY_PROCS = new Set(['messages.send'])
 
 export interface AgentRelayRequest {
   sessionId: string
@@ -25,18 +33,25 @@ export interface AgentRelayHub {
  *  server's daemonRequest pattern, but here the DAEMON initiates. Resolve-once, timeout-safe. */
 export function createAgentRelayHub(
   send: (msg: DaemonMessage) => void,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; blockingTimeoutMs?: number },
 ): AgentRelayHub {
   const timeoutMs = opts?.timeoutMs ?? 30_000
+  // A blocking proc (messages.send) is held open longer so the CLI receives the
+  // gate's honest disposition instead of a spurious timeout [POD-854]. Still
+  // bounded — a lost result resolves to an error, it never hangs.
+  const blockingTimeoutMs = opts?.blockingTimeoutMs ?? AGENT_RELAY_BLOCKING_TIMEOUT_MS
   const pending = new Map<string, (r: AgentRelayResult) => void>()
   let seq = 0
   return {
     relay(req) {
       const requestId = `ir${seq++}`
+      const budget = BLOCKING_RELAY_PROCS.has(`${req.router}.${req.proc}`)
+        ? blockingTimeoutMs
+        : timeoutMs
       return new Promise<AgentRelayResult>((resolve) => {
         const timer = setTimeout(() => {
           if (pending.delete(requestId)) resolve({ ok: false, error: 'agent relay timed out' })
-        }, timeoutMs)
+        }, budget)
         timer.unref?.()
         pending.set(requestId, (r) => {
           clearTimeout(timer)

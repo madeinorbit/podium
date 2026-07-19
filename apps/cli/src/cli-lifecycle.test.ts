@@ -36,16 +36,22 @@ describe('renderStatus', () => {
     expect(out).toContain('http://localhost:23000')
     expect(selectedUnits('blue')).toEqual([
       'podium-blue-daemon.service',
+      'podium-blue-janitor.service',
       'podium-blue-server.service',
     ])
   })
-  it('a host (all-in-one) box reports the split — server + daemon', () => {
+  it('a host (all-in-one) box reports the split — server + janitor + daemon', () => {
     const out = renderStatus({
-      live: [rec({ role: 'server', pid: 42, port: 18787 }), rec({ role: 'daemon', pid: 43 })],
+      live: [
+        rec({ role: 'server', pid: 42, port: 18787 }),
+        rec({ role: 'janitor', pid: 44 }),
+        rec({ role: 'daemon', pid: 43 }),
+      ],
       config: { mode: 'all-in-one', persistence: 'detached', port: 18787 },
       nowMs: T0 + 90_000,
     })
     expect(out).toContain('● server  up :18787  pid 42')
+    expect(out).toContain('● janitor  up  pid 44')
     expect(out).toContain('● daemon  up  pid 43')
   })
 
@@ -65,6 +71,7 @@ describe('renderStatus', () => {
       nowMs: T0,
     })
     expect(out).toContain('○ server  down')
+    expect(out).toContain('○ janitor  down')
   })
 
   it('prefers publicUrl for the URL line', () => {

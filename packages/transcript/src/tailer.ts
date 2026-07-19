@@ -3,6 +3,7 @@ import type { TranscriptItem } from '@podium/protocol'
 import { claudeRecordColor, claudeRecordToItems } from './claude'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
+import { type StatTick, scheduleStatPoll } from './stat-tick'
 
 const POLL_MS = 700
 // Initial-read cap: a long-running transcript can be hundreds of MB, but the
@@ -38,6 +39,9 @@ export interface TranscriptTailer {
 
 export interface TranscriptTailOptions {
   pollMs?: number
+  /** Shared daemon cadence. When present, pollMs is ignored; the immediate seed
+   *  read remains independently paced by seedGate. */
+  statTick?: StatTick
   /** Maps one decoded JSONL record to zero or more normalized chat items. */
   recordToItems?: (record: unknown) => TranscriptItem[]
   /** Extract an agent identity colour (`/color`) from a record, if any. Called
@@ -263,10 +267,12 @@ export function tailTranscript(
   // `seedGate`. Poll ticks skip until the gated seed has run so a queued seed's
   // big read can't be stolen onto an ungated timer tick.
   let seeded = false
-  const timer = setInterval(() => {
-    if (seeded) void readNew()
-  }, opts.pollMs ?? POLL_MS)
-  timer.unref?.()
+  const stopPolling = scheduleStatPoll(
+    () => {
+      if (seeded) void readNew()
+    },
+    { statTick: opts.statTick, pollMs: opts.pollMs ?? POLL_MS },
+  )
   const seedGate = opts.seedGate ?? ((fn: () => Promise<void>) => fn())
   void seedGate(() => readNew()).finally(() => {
     seeded = true
@@ -276,7 +282,7 @@ export function tailTranscript(
     path,
     stop() {
       stopped = true
-      clearInterval(timer)
+      stopPolling()
     },
   }
 }

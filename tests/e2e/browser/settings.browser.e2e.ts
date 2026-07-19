@@ -239,3 +239,23 @@ test('background LLM only offers executable API accounts', async ({ page }) => {
   await expect(page.getByRole('option', { name: /Claude Code/ })).toHaveCount(0)
   await expect(page.getByRole('option', { name: /^Grok/ })).toHaveCount(0)
 })
+
+test('idle-session convergence target round-trips and renders', async ({ page }) => {
+  const trpc = makeTrpc('http://localhost:8799')
+  await trpc.settings.set.mutate(normalizeSettings({ hibernation: { maxIdleSessions: null } }))
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openShell(page)
+  await page.locator('aside').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('region', { name: 'Settings' })
+  await settings.getByRole('button', { name: 'Hibernation', exact: true }).click()
+  const input = settings.getByRole('spinbutton', { name: 'Maximum idle sessions' })
+  await expect(input).toHaveValue('')
+  await expect(
+    settings.getByText(/convergence target for eligible idle live sessions/),
+  ).toBeVisible()
+  await input.fill('12')
+  await settings.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('Saved.')).toBeVisible()
+  expect((await trpc.settings.get.query()).hibernation.maxIdleSessions).toBe(12)
+  await settings.screenshot({ path: '/tmp/POD-957-idle-cap-settings.png' })
+})

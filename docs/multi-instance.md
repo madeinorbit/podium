@@ -49,6 +49,7 @@ Duplicate selectors and invalid IDs are rejected.
 | Agent relay port | `45778` | final port in the ID-derived triplet | `PODIUM_AGENT_RELAY_PORT` or config `agentRelayPort` |
 | Durable terminal label | `podium-<session>` | `podium-blue-<session>` | none |
 | Server unit | `podium-server.service` | `podium-blue-server.service` | none |
+| Janitor unit | `podium-janitor.service` | `podium-blue-janitor.service` | none |
 | Daemon unit | `podium-daemon.service` | `podium-blue-daemon.service` | none |
 | Update timer | `podium-update-user.timer` | `podium-blue-update.timer` | none |
 
@@ -73,8 +74,9 @@ podium-blue update
 ```
 
 Status and logs consult only blue's state and units. Stop addresses only
-`podium-blue-daemon.service` and `podium-blue-server.service`. The blue update service runs
-only `podium-blue update`, swaps only blue's bundle, and restarts only blue's daemon.
+`podium-blue-daemon.service`, `podium-blue-janitor.service`, and
+`podium-blue-server.service`. The blue update service runs only `podium-blue update`, swaps
+only blue's bundle, and restarts only blue's managed siblings.
 
 The same commands for `podium-green` operate green. For deterministic automation, set explicit
 server, hook, and relay ports rather than relying on derived ports.

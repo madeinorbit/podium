@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
 /**
@@ -34,7 +34,68 @@ async function openShell(page: Page): Promise<void> {
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 60_000 })
 }
 
-const STAGES = ['Backlog', 'Planning', 'In Progress', 'Review', 'Verifying', 'Done'] as const
+const STAGES = [
+  'Proposed',
+  'Backlog',
+  'Planning',
+  'In Progress',
+  'Review',
+  'Verifying',
+  'Done',
+] as const
+
+const HTTP = RELAY.replace(/^ws/, 'http')
+
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input?: unknown,
+  method: 'post' | 'get' = 'post',
+): Promise<T> {
+  const response =
+    method === 'get'
+      ? await request.get(`${HTTP}/trpc/${proc}`)
+      : await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
+  if (!response.ok()) throw new Error(`${proc} -> ${response.status()}: ${await response.text()}`)
+  const body = (await response.json()) as { result?: { data?: T } }
+  return body.result?.data as T
+}
+
+test('proposed lane approves a card into Backlog through the real UI', async ({
+  page,
+  request,
+}) => {
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const repoPath = repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+  const title = `E2E proposal ${Date.now()}`
+  const created = await rpc<{ id: string }>(request, 'issues.create', {
+    repoPath,
+    title,
+    description: 'A concise human proposal summary.',
+    startNow: false,
+  })
+  await rpc(request, 'issues.update', { id: created.id, patch: { stage: 'proposed' } })
+
+  await page.setViewportSize({ width: 1500, height: 900 })
+  await openShell(page)
+  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click()
+  const board = page.getByRole('region', { name: 'Issues' })
+  const column = (name: string) =>
+    board
+      .locator('div.w-\\[280px\\]')
+      .filter({ has: page.getByRole('heading', { name, exact: true }) })
+      .first()
+  const proposed = column('Proposed')
+  const card = proposed.locator('[data-issue-id]').filter({ hasText: title })
+  await expect(card).toContainText('A concise human proposal summary.', { timeout: 15_000 })
+  await expect(card.getByTestId('proposal-actions')).toBeVisible()
+  await card.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(card).toHaveCount(0, { timeout: 15_000 })
+  await expect(column('Backlog').getByText(title, { exact: false })).toBeVisible({
+    timeout: 15_000,
+  })
+})
 
 test('issues board: renders the stage columns, creates a Backlog issue, and moves its stage', async ({
   page,
@@ -45,7 +106,11 @@ test('issues board: renders the stage columns, creates a Backlog issue, and move
   // ---- Navigate to the Issues board via the Sidebar nav button ----
   // The sidebar redesign made this a labelled nav row (no title attr) — target the
   // exact-named button inside the aside so worktrees named "…issues…" can't collide.
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
 
   // The board is a <section aria-label="Issues"> with a header and six stage columns.
   const board = page.getByRole('region', { name: 'Issues' })
@@ -159,7 +224,11 @@ test('issues composer: set a property pill, Create more keeps the dialog open fo
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -228,7 +297,11 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -289,7 +362,9 @@ test('issues composer: selected agent persists to deferred issue start dropdown'
   await expect(
     startMenu.getByRole('menuitem', { name: 'Start with Cursor (default)' }),
   ).toBeVisible()
-  await expect(startMenu.getByRole('menuitem', { name: 'Start with Cursor', exact: true })).toHaveCount(0)
+  await expect(
+    startMenu.getByRole('menuitem', { name: 'Start with Cursor', exact: true }),
+  ).toHaveCount(0)
   await expect(startMenu.getByRole('menuitem', { name: 'Start with Codex' })).toBeVisible()
 })
 
@@ -301,7 +376,11 @@ test('issues board: flag an issue for human, badge appears live, then resolve', 
 
   // Target the app-tools icon button by its title attribute — the accessible-name
   // selector now collides with the "Issues" sidebar tab and any worktree named "…issues…".
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -375,7 +454,11 @@ test('issue page: add a comment and it appears in the activity feed', async ({ p
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -425,7 +508,11 @@ test('issue page: add a sub-issue inline and the child row appears with a 0/1 co
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -494,7 +581,11 @@ async function createBacklogIssue(page: Page, title: string): Promise<void> {
 test('issues keyboard: j / j / Enter opens the second issue in board order', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -537,10 +628,16 @@ test('issues keyboard: j / j / Enter opens the second issue in board order', asy
   ).toBeVisible({ timeout: 10_000 })
 })
 
-test('issues keyboard: x / x selects two issues, bulk stage change moves both', async ({ page }) => {
+test('issues keyboard: x / x selects two issues, bulk stage change moves both', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 
@@ -594,7 +691,11 @@ test('issues display: the Display menu opens (no crash), switches to List, and b
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
-  await page.locator('aside').first().getByRole('button', { name: 'Issues', exact: true }).click({ timeout: 15_000 })
+  await page
+    .locator('aside')
+    .first()
+    .getByRole('button', { name: 'Issues', exact: true })
+    .click({ timeout: 15_000 })
   const board = page.getByRole('region', { name: 'Issues' })
   await expect(board).toBeVisible({ timeout: 10_000 })
 

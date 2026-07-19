@@ -3,6 +3,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { sessionsForIssue } from './issue-util'
 import type { IssueService } from './modules/issues/service'
 import type { SessionStore, Subscription } from './store'
+import { NotificationArbiter } from './store/notification-facts'
 
 /** One row read back from the durable event log (`podium_events`). */
 export interface StewardEvent {
@@ -28,6 +29,12 @@ export interface StewardEvent {
  * subscription in CHILD_PARENT_SUBS. New child→parent notifications are a data
  * entry there plus a rule line here — no new handler.
  *
+ * Session-spawner edge (M4 / POD-904, docs/agent-comms-target.html §07b):
+ * `sessionparentnudge:<group>:<childSessionId>` is the SESSION→SESSION twin of
+ * issue parentnudge. Parent is resolved from the child's `spawnedBy =
+ * session:<parentId>` (not an issue parentId). Delivery carries wake rights so
+ * a parked parent resumes (POD-279) — see handleSessionParentNudge.
+ *
  * Follow-up rule slots (NOT this phase):
  * - session.* semantic events (started/finished/errored) → subscription delivery
  * - a periodic tidy tick (stale/doctor sweeps)
@@ -47,11 +54,22 @@ export const TRIGGER_RULES: Record<string, (e: StewardEvent) => string | string[
   // Deterministic ack fallback (#237) [spec:SP-34d7 acks]: a session that
   // settles (finished/errored) with delivered-but-unacked messages triggers one
   // system notification per sender, so the sender ALWAYS learns the outcome.
+  // M4 / POD-904: ALSO fan out a session-parent wake (resolved via spawnedBy in
+  // the handler — pure rules cannot look up sessions). Keep ackfallback always.
   'session.phase': (e) => {
     const p = e.payload as { phase?: string; verdict?: string } | null
-    const settled = (p?.phase === 'idle' && p.verdict === 'done') || p?.phase === 'errored'
-    return settled ? `ackfallback:${e.subject}` : undefined
+    if (p?.phase === 'idle' && p.verdict === 'done') {
+      return [`ackfallback:${e.subject}`, `sessionparentnudge:done:${e.subject}`]
+    }
+    if (p?.phase === 'errored') {
+      return [`ackfallback:${e.subject}`, `sessionparentnudge:errored:${e.subject}`]
+    }
+    return undefined
   },
+  // Child process gone (exit-without-report half of §09-D). Handler skips when
+  // the child already settled done/errored (shared settle fact) or has no
+  // session-spawner parent.
+  'session.exited': (e) => `sessionparentnudge:exited:${e.subject}`,
   'issue.needs_human': (e) => {
     // Always leave the breadcrumb; ALSO notify the parent when the child has one.
     const breadcrumb = `needshuman:${e.subject}`
@@ -121,6 +139,48 @@ export const CHILD_PARENT_SUBS: Record<string, ChildParentSub> = {
 }
 
 /**
+ * Session-spawner child→parent wake groups (M4 / POD-904). Sibling of
+ * CHILD_PARENT_SUBS for the SESSION→SESSION edge (`spawnedBy = session:<id>`).
+ * No issue comment — the parent may be parked with no live issue surface; the
+ * nudge itself is the signal and is delivered WITH wake rights via
+ * sendTextWhenReady → queueText → resurrectSession.
+ */
+interface SessionParentSub {
+  /** Single-line wake text: which child + terminal state. Backtick-free. */
+  nudge: (childSessionId: string, childLabel: string) => string
+}
+
+const SESSION_PARENT_NUDGE_TAIL = 'Your child session needs attention.'
+
+export const SESSION_PARENT_SUBS: Record<string, SessionParentSub> = {
+  done: {
+    nudge: (id, label) =>
+      firstLineCapped(
+        `Child session ${label} (${id}) finished (done). ${SESSION_PARENT_NUDGE_TAIL}`,
+      ).replace(/`/g, ''),
+  },
+  errored: {
+    nudge: (id, label) =>
+      firstLineCapped(
+        `Child session ${label} (${id}) errored. ${SESSION_PARENT_NUDGE_TAIL}`,
+      ).replace(/`/g, ''),
+  },
+  exited: {
+    nudge: (id, label) =>
+      firstLineCapped(
+        `Child session ${label} (${id}) exited without reporting. ${SESSION_PARENT_NUDGE_TAIL}`,
+      ).replace(/`/g, ''),
+  },
+}
+
+/** Parse `session:<parentSessionId>` from a child's spawnedBy; else undefined. */
+export function sessionSpawnerParentId(spawnedBy: string | null | undefined): string | undefined {
+  if (!spawnedBy || !spawnedBy.startsWith('session:')) return undefined
+  const parentId = spawnedBy.slice('session:'.length)
+  return parentId.length > 0 ? parentId : undefined
+}
+
+/**
  * The subscription-event kind(s) a raw log event qualifies as, or [] if it is not
  * subscribable (see the event-subscriptions design). Two derivations:
  *  - `session.phase` → a SEMANTIC session kind so subscriptions stay filter-free:
@@ -138,6 +198,7 @@ export function subscriptionEventKinds(e: StewardEvent): string[] {
     if (p?.phase === 'needs_user') return ['session.waiting']
     return []
   }
+  if (e.kind === 'session.exited') return ['session.exited']
   if (e.kind.startsWith('issue.')) {
     if (e.kind === 'issue.stage_changed') {
       const to = (e.payload as { to?: string } | null)?.to
@@ -162,16 +223,29 @@ export interface StewardDeps {
     | 'listEnabledSubscriptions'
     | 'markDelivered'
   >
-  issues: Pick<IssueService, 'get' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
+  facts: SessionStore['notificationFacts']
+  /** Ledger read for the "already-communicated" suppression [POD-913, design
+   *  §07b/§10]: has the producer already told a target directly, so the
+   *  steward's own nudge for the same fact would just be a duplicate? */
+  messages: Pick<SessionStore['messages'], 'alreadyCommunicated'>
+  issues: Pick<IssueService, 'get' | 'getMeta' | 'list' | 'addComment' | 'ancestorIds' | 'comments'>
   listSessions: () => SessionMeta[]
-  /** Durable-queue a nudge into a live session (relay.queueText). */
-  sendTextWhenReady: (sessionId: string, text: string) => void
+  /** Durable-queue a nudge into a session (relay.queueText). For live sessions
+   *  this is next-turn delivery; for parked/hibernated/exited sessions with a
+   *  resume ref it ALSO resurrects (wake rights). Issue-parentnudge deliberately
+   *  filters to live/starting; session-parent wake does not — a parked parent
+   *  must be woken (POD-904 / POD-279). */
+  sendTextWhenReady: (sessionId: string, text: string, mutationId?: string) => void
   /** Ack-fallback seam (#237) [spec:SP-34d7 acks]: notify the senders of the
    *  settled session's delivered-but-unacked messages, with issue stage + last
    *  commit stitched in. Wired to MessageDeliveryService.systemAckFallback in
    *  the composition root; suppression = the acked_by null-check at query time. */
   messaging?: {
-    ackFallback(sessionId: string, outcome: 'finished' | 'errored'): void
+    ackFallback(
+      sessionId: string,
+      outcome: 'finished' | 'errored',
+      notificationFact: { factKey: string; target: string },
+    ): void
   }
   /** External notification seam (#470) [spec:SP-17db]: the delivery behind a
    *  subscription's `notify` switch, wired to NotifyService.notifyExternal in the
@@ -212,12 +286,70 @@ function completionNote(closed: IssueWire | undefined, comments: IssueComment[])
  *   every tick so a settings flip takes effect without a restart.
  */
 export class StewardService {
-  private timer: ReturnType<typeof setInterval> | undefined
+  /** "Since the change" grace window for the already-communicated check
+   *  (§07b): a producer's own message can land moments before OR after the
+   *  observed transition event (send-then-close vs close-with-note-then-poke),
+   *  so the ledger lookback starts a little earlier than the event itself.
+   *  Bounded, not "ever" — an old message about a PRIOR transition on the same
+   *  (issue, target) pair must never suppress a fresh one. */
+  private static readonly COMMUNICATED_GRACE_MS = 5 * 60_000
 
-  constructor(private readonly deps: StewardDeps) {}
+  private timer: ReturnType<typeof setInterval> | undefined
+  private readonly arbiter: NotificationArbiter
+
+  constructor(private readonly deps: StewardDeps) {
+    this.arbiter = new NotificationArbiter(deps.facts, () => this.now())
+  }
 
   private now(): string {
     return this.deps.now ? this.deps.now() : new Date().toISOString()
+  }
+
+  /**
+   * Context-aware suppression (POD-913 / design §07b "already-communicated",
+   * §10 "context-aware"): before firing an automated nudge for a fact about
+   * `subjectIssueId` to `target`, has the producer already told that target
+   * directly since the triggering change? If so, the steward's notice is a
+   * duplicate, not a fallback — suppress it. The producer's message may have
+   * been addressed to the target session itself OR to the issue it's working
+   * (either puts the content in the target's context), so both are checked.
+   * `subjectIssueId` absent (e.g. a session-parent nudge for a child with no
+   * bound issue) means there is nothing to look up — never suppress on
+   * missing information.
+   */
+  private alreadyCommunicated(
+    subjectIssueId: string | undefined,
+    target: { sessionId?: string; issueId?: string },
+    changeTs: string,
+  ): boolean {
+    if (!subjectIssueId) return false
+    const changeMs = Date.parse(changeTs)
+    // Fail open: an unparseable timestamp means "since" is unknowable, so this
+    // is a no-op rather than a crash (drop-don't-wedge, matching every other
+    // handler's guarantee) — never suppress on missing information.
+    if (!Number.isFinite(changeMs)) return false
+    const sinceIso = new Date(changeMs - StewardService.COMMUNICATED_GRACE_MS).toISOString()
+    if (
+      target.sessionId &&
+      this.deps.messages.alreadyCommunicated(
+        subjectIssueId,
+        { kind: 'session', id: target.sessionId },
+        sinceIso,
+      )
+    ) {
+      return true
+    }
+    if (
+      target.issueId &&
+      this.deps.messages.alreadyCommunicated(
+        subjectIssueId,
+        { kind: 'issue', id: target.issueId },
+        sinceIso,
+      )
+    ) {
+      return true
+    }
+    return false
   }
 
   start(): void {
@@ -254,6 +386,8 @@ export class StewardService {
    *  tests drive it directly instead of waiting on real timers. */
   async tick(): Promise<void> {
     if (!this.deps.getSettings().steward?.enabled) return
+    // Cheap housekeeping even on an otherwise empty tick [spec:SP-ba61].
+    this.arbiter.retireExpired(this.now())
     const cursor = this.resolveCursor()
     const events = this.deps.store.listEventsSince(cursor)
     if (events.length === 0) return
@@ -268,11 +402,21 @@ export class StewardService {
         batches.set(key, batch)
       }
     }
+    // Deliveries must be durable BEFORE cursor advance [POD-925 / SP-c29e].
+    // Any handler or subscription delivery failure holds the cursor so the next
+    // poll re-reads the same window (handlers are idempotent / mutation-keyed).
+    let deliveryFailed = false
     for (const [key, batch] of batches) {
       try {
         if (key.startsWith('unblock:')) await this.handleUnblock(batch)
-        else if (key.startsWith('parentnudge:')) {
+        else if (key.startsWith('sessionparentnudge:')) {
+          // key = sessionparentnudge:<group>:<childSessionId>; ids never contain ':'.
+          const rest = key.slice('sessionparentnudge:'.length)
+          const sep = rest.indexOf(':')
+          this.handleSessionParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
+        } else if (key.startsWith('parentnudge:')) {
           // key = parentnudge:<group>:<parentId>; ids never contain ':'.
+          // ISSUE-parent edge (payload.parentId) — live/starting only, no wake.
           const rest = key.slice('parentnudge:'.length)
           const sep = rest.indexOf(':')
           await this.handleParentNudge(rest.slice(sep + 1), rest.slice(0, sep), batch)
@@ -281,7 +425,7 @@ export class StewardService {
           this.handleAckFallback(key.slice('ackfallback:'.length), batch)
         }
       } catch (err) {
-        // Drop, don't wedge: the trigger is lost but the queue keeps moving.
+        deliveryFailed = true
         console.warn(`[podium:steward] handler for ${key} failed:`, err)
       }
     }
@@ -289,8 +433,115 @@ export class StewardService {
     // hard-coded rules above are the seeded defaults; stored subscriptions layer on
     // top without disturbing them. Dedup is per (subscription, event) via the store,
     // so a cursor-rewind replay re-matches but never re-delivers.
-    this.dispatchSubscriptions(events)
+    try {
+      this.dispatchSubscriptions(events)
+    } catch (err) {
+      deliveryFailed = true
+      console.warn('[podium:steward] subscription dispatch failed:', err)
+    }
+    // Retire after dispatch so the close transition itself can be announced, but
+    // no recipient-scoped fact for the closed issue survives the tick.
+    const closedIssues = new Set(
+      events.filter((e) => e.kind === 'issue.closed').map((e) => e.subject),
+    )
+    for (const issueId of closedIssues) this.arbiter.retireByIssue(issueId)
+    // Condition-clear retirement (POD-890 / POD-908) [spec:SP-ba61]: when the
+    // underlying condition ends, free the (fact,target) so a later genuine edge
+    // re-fires — without shortening the 24h cross-producer TTL ceiling.
+    this.retireClearedConditions(events)
+    if (deliveryFailed) {
+      console.warn(
+        '[podium:steward] holding cursor — delivery failed; will retry the same window',
+      )
+      return
+    }
     this.deps.store.setStewardState(CURSOR_KEY, String(events[events.length - 1]!.id))
+  }
+
+  /**
+   * Retire arbiter facts whose condition no longer holds, using the last
+   * observed transition per subject in this poll (so settle-then-leave in one
+   * tick retires; leave-then-settle keeps the fresh claim).
+   *
+   * Fact map (what each clear retires):
+   * - session leaves idle/errored → `settle:<sid>` (ackfallback),
+   *   `sessionparentnudge:settle:<sid>:` (legacy per-event prefix, POD-921)
+   *   NOT `sessionparentnudge:phase-reported:<sid>` — that sticky is
+   *   once-until-parent-ack (POD-917/POD-923); leave-idle must not re-arm it.
+   * - issue leaves review → `parentnudge:review:<parentId>:<seq>`,
+   *   `sub:issue.stage_changed:review:<issueId>`,
+   *   `sub:issue.stage_changed:<issueId>`
+   * - issue needs_human cleared → `parentnudge:needs_human:<parentId>:<seq>`,
+   *   `sub:issue.needs_human:<issueId>`
+   */
+  private retireClearedConditions(events: StewardEvent[]): void {
+    const lastPhaseBySession = new Map<string, StewardEvent>()
+    for (const e of events) {
+      if (e.kind === 'session.phase') lastPhaseBySession.set(e.subject, e)
+    }
+    for (const [sessionId, e] of lastPhaseBySession) {
+      const phase = (e.payload as { phase?: string } | null)?.phase
+      // Settled conditions that claim settle/sessionparent facts are idle and
+      // errored. Any other phase means the session left that condition.
+      if (phase && phase !== 'idle' && phase !== 'errored') {
+        this.retireSessionSettledFacts(sessionId)
+      }
+    }
+
+    for (const e of events) {
+      if (e.kind === 'issue.stage_changed') {
+        const p = e.payload as {
+          from?: string
+          to?: string
+          parentId?: string
+          seq?: number
+        } | null
+        if (p?.from === 'review' && p.to !== 'review') {
+          this.retireIssueReviewFacts(e.subject, p)
+        }
+      } else if (e.kind === 'issue.needs_human_cleared') {
+        const seq = (e.payload as { seq?: number } | null)?.seq
+        this.retireNeedsHumanFacts(e.subject, seq)
+      }
+    }
+  }
+
+  /** Session left idle/errored — free ackfallback settle; NOT the parent-wake sticky. */
+  private retireSessionSettledFacts(sessionId: string): void {
+    const at = this.now()
+    // Ack-fallback / settle fact (target is usually the session itself).
+    this.arbiter.retireFactKey(`settle:${sessionId}`, at)
+    // sessionparentnudge:phase-reported:<sid> is deliberately NOT retired here
+    // (POD-917/POD-923). Leave-idle re-arm let phantom idle-cycles (zombie /
+    // grok cwd-watch, POD-920) re-wake the parent. The sticky survives across
+    // cycles and is cleared only when the parent acknowledges (MessageGate
+    // awaitAgent observes settled → retireNotificationFact).
+    // Legacy per-event settle instances (pre-POD-921 `…:<eventId>` keys). No
+    // longer written; retired here to reap any that predate the deploy.
+    this.arbiter.retireFactKeyPrefix(`sessionparentnudge:settle:${sessionId}:`, at)
+  }
+
+  /** Issue left review — free review parentnudge + stage_changed sub facts. */
+  private retireIssueReviewFacts(
+    issueId: string,
+    p: { parentId?: string; seq?: number },
+  ): void {
+    const at = this.now()
+    if (p.parentId != null && p.seq != null) {
+      this.arbiter.retireFactKey(`parentnudge:review:${p.parentId}:${p.seq}`, at)
+    }
+    this.arbiter.retireFactKey(`sub:issue.stage_changed:review:${issueId}`, at)
+    this.arbiter.retireFactKey(`sub:issue.stage_changed:${issueId}`, at)
+  }
+
+  /** needs_human cleared — free needs_human parentnudge + sub facts. */
+  private retireNeedsHumanFacts(issueId: string, seq: number | undefined): void {
+    const at = this.now()
+    const parentId = this.deps.issues.getMeta(issueId)?.parentId
+    if (parentId != null && seq != null) {
+      this.arbiter.retireFactKey(`parentnudge:needs_human:${parentId}:${seq}`, at)
+    }
+    this.arbiter.retireFactKey(`sub:issue.needs_human:${issueId}`, at)
   }
 
   /**
@@ -306,7 +557,7 @@ export class StewardService {
     for (const e of events) {
       const kinds = subscriptionEventKinds(e)
       if (kinds.length === 0) continue
-      const isSession = e.kind === 'session.phase'
+      const isSession = e.kind === 'session.phase' || e.kind === 'session.exited'
       // Session events carry a sessionId subject; resolve its bound issue so an
       // issue/relationship source can match on the work, not the raw session id.
       const srcSession = isSession ? sessions.find((s) => s.sessionId === e.subject) : undefined
@@ -347,7 +598,7 @@ export class StewardService {
     const anchor = this.subscriberIssueId(sub, sessions)
     if (!anchor) return false
     if (sub.sourceRef === 'my-children') {
-      return this.deps.issues.get(ev.srcIssueId)?.parentId === anchor
+      return this.deps.issues.getMeta(ev.srcIssueId)?.parentId === anchor
     }
     if (sub.sourceRef === 'my-subtree') {
       return this.deps.issues.ancestorIds(ev.srcIssueId).includes(anchor)
@@ -373,6 +624,15 @@ export class StewardService {
   private deliverSubscription(sub: Subscription, e: StewardEvent, sessions: SessionMeta[]): void {
     // Idempotent, replay-safe: only a NEWLY-recorded delivery proceeds.
     if (!this.deps.store.markDelivered(sub.id, e.id)) return
+    const factKey = `sub:${sub.event}:${e.subject}`
+    const issueId = this.subscriberIssueId(sub, sessions)
+    // The event's own issue, for the already-communicated check below — the
+    // raw event subject for an issue.* kind, or the source session's bound
+    // issue for a session.* kind.
+    const eventIssueId = e.kind.startsWith('issue.')
+      ? e.subject
+      : (sessions.find((s) => s.sessionId === e.subject)?.issueId ?? undefined)
+    let subscriberClaimed = false
     if (sub.deliverNudge) {
       const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
       const text = subscriptionNudge(sub, e)
@@ -382,9 +642,37 @@ export class StewardService {
           s.agentKind !== 'shell' &&
           s.sessionId !== causer,
       )
-      for (const s of targets) this.deps.sendTextWhenReady(s.sessionId, text)
+      for (const s of targets) {
+        // Already-communicated (§07b): targets here are already live/starting
+        // (no wake-rights concern — see handleSessionParentNudge's note).
+        // The external `notify` push below is scoped OUT deliberately: its
+        // audience is a human off in the world, not an agent's transcript
+        // context, so "already in context" doesn't apply to it.
+        if (this.alreadyCommunicated(eventIssueId, { sessionId: s.sessionId, issueId }, e.ts)) {
+          continue
+        }
+        if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
+        // Durable delivery before claim [POD-925].
+        this.deps.sendTextWhenReady(s.sessionId, text, factKey)
+        const claimed = this.arbiter.claim(factKey, s.sessionId, {
+          source: `subscription:${sub.id}`,
+          issueId,
+        })
+        if (!claimed) continue
+        // The claim authorizes deliverNotify below for this same subscriber.
+        if (s.sessionId === sub.subscriberId) subscriberClaimed = true
+      }
     }
-    if (sub.deliverNotify) {
+    // A session subscriber's single claim authorizes both configured delivery
+    // channels from this producer; issue notifications claim the issue target.
+    if (
+      sub.deliverNotify &&
+      (subscriberClaimed ||
+        this.arbiter.claim(factKey, sub.subscriberId, {
+          source: `subscription:${sub.id}`,
+          issueId,
+        }))
+    ) {
       this.deps.store.appendEvent({
         ts: this.now(),
         kind: 'steward.notify',
@@ -415,7 +703,7 @@ export class StewardService {
     if (sub.subscriberKind === 'session') {
       return sessions.filter((s) => s.sessionId === sub.subscriberId)
     }
-    const issue = this.deps.issues.get(sub.subscriberId)
+    const issue = this.deps.issues.getMeta(sub.subscriberId)
     if (!issue) return []
     return sessionsForIssue(issue.worktreePath, sessions, issue.id)
   }
@@ -430,7 +718,7 @@ export class StewardService {
       if (closedSeq == null) continue
       // The session that closed the blocker already knows — skip self-nudge (#116).
       const causedBy = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
-      const dependent = this.deps.issues.get(e.subject)
+      const dependent = this.deps.issues.getMeta(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
       // assumption: this read-then-write dedup is a cross-process race — fine
@@ -440,12 +728,13 @@ export class StewardService {
       const already = this.deps.issues
         .comments(dependent.id)
         .some((c) => c.author === 'steward' && c.body.includes(marker))
-      if (already) continue
       const closed = this.deps.issues
         .list(e.repoPath ?? dependent.repoPath)
         .find((w) => w.seq === closedSeq)
-      const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
-      this.deps.issues.addComment(dependent.id, 'steward', `${marker} ${note}`)
+      if (!already) {
+        const note = completionNote(closed, closed ? this.deps.issues.comments(closed.id) : [])
+        this.deps.issues.addComment(dependent.id, 'steward', marker + ' ' + note)
+      }
       // Nudge only live/starting agent sessions: queueText would RESURRECT a
       // parked session with a resume ref (the steward must never respawn agents),
       // and a shell would have the text typed into bash. The nudge itself stays
@@ -462,12 +751,108 @@ export class StewardService {
           s.sessionId !== causedBy,
       )
       for (const s of targets) {
+        // Already-communicated (§07b): the closer may have mailed the
+        // dependent directly instead of relying on this nudge.
+        if (
+          this.alreadyCommunicated(
+            closed?.id,
+            { sessionId: s.sessionId, issueId: dependent.id },
+            e.ts,
+          )
+        ) {
+          continue
+        }
+        // Durable delivery BEFORE arbiter claim [POD-925]: claim-first suppressed
+        // retry after a failed send and left no durable nudge on cursor rewind.
+        const factKey = `unblock:${dependent.id}:${closedSeq}`
+        if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
         this.deps.sendTextWhenReady(
           s.sessionId,
           `Blocker #${closedSeq} closed — you are unblocked. See the steward comment on your issue, or run: podium issue prime`,
+          factKey,
         )
+        this.arbiter.claim(factKey, s.sessionId, {
+          source: 'steward.unblock',
+          issueId: dependent.id,
+        })
       }
     }
+  }
+
+  /**
+   * Session-spawner parent wake (M4 / POD-904) [docs/agent-comms-target.html §07b]:
+   * when a child settles (done/errored) or exits without a prior settle report,
+   * wake its SESSION parent (`spawnedBy = session:<parentId>`). Distinct from
+   * handleParentNudge, which is ISSUE-parent oriented and deliberately does NOT
+   * resurrect parked sessions.
+   *
+   * Dedup (POD-921 + POD-917/POD-923): one sticky
+   * `sessionparentnudge:phase-reported:<childId>` fact until the parent ACKs,
+   * not per event and not per leave-idle cycle. The first of done/errored/exited
+   * claims it and wakes the parent; later ticks — terminal phase re-emitted with
+   * a fresh event id every poll, exit trailing a prior done/errored, OR a
+   * phantom idle-cycle (working→idle with no parent ack) — find it held and stay
+   * silent. Cleared only when the parent observes the child settled
+   * (MessageGate awaitAgent → retireNotificationFact), so a genuine later
+   * re-completion re-fires once. An earlier per-EVENT key (`…:<eventId>`)
+   * stormed because a terminal child yields a new event id each tick.
+   *
+   * Deliberately NOT already-communicated-suppressed (§07b, POD-913): this is
+   * the WAKE-RIGHTS path — its entire purpose is resurrecting a PARKED parent
+   * (sendTextWhenReady → queueText resurrects; the issue-parent nudges do not).
+   * A message already in the ledger only proves the parent was TOLD, not that
+   * it was WOKEN — a queued/wait-lifecycle message sitting unread in front of a
+   * parked session does not resume it, so suppressing here on ledger content
+   * alone could strand a parent parked forever (regressing the POD-279 fix
+   * this milestone exists to deliver). Every other nudge site targets sessions
+   * already live/starting, where that risk doesn't exist.
+   */
+  private handleSessionParentNudge(
+    childSessionId: string,
+    group: string,
+    batch: StewardEvent[],
+  ): void {
+    const sub = SESSION_PARENT_SUBS[group]
+    if (!sub) return
+    const last = batch[batch.length - 1]
+    if (!last) return
+    const sessions = this.deps.listSessions()
+    const child = sessions.find((s) => s.sessionId === childSessionId)
+    // Prefer live meta; fall back to the event payload (session.exited stamps
+    // spawnedBy so a race that drops the row still finds the parent).
+    const spawnedBy =
+      child?.spawnedBy ?? (last.payload as { spawnedBy?: string } | null)?.spawnedBy
+    const parentId = sessionSpawnerParentId(spawnedBy)
+    if (!parentId) return
+    // Never self-wake (a mis-tagged spawnedBy).
+    if (parentId === childSessionId) return
+    const parent = sessions.find((s) => s.sessionId === parentId)
+    // Parent must still exist as a session row (parked is fine — queueText wakes).
+    // Unknown / fully deleted parent: nothing to wake.
+    if (!parent) return
+    if (parent.agentKind === 'shell') return
+    const claimOpts = {
+      source: `steward.session-parent-nudge:${group}`,
+      issueId: parent.issueId ?? child?.issueId ?? undefined,
+    }
+    // Wake the parent EXACTLY ONCE until the parent acknowledges (POD-921 +
+    // POD-917/POD-923). The sticky `phase-reported` fact is the single dedup
+    // boundary: the first of done / errored / exited claims it and wakes the
+    // parent; every later tick finds it held and stays silent. Covers the
+    // terminal-phase re-emit storm (POD-921), exit-after-done (POD-907), AND
+    // phantom leave-idle→re-settle cycles with no parent ack (POD-917 zombies).
+    // Leave-idle does NOT retire this sticky; only parent await/observe does.
+    // Durable delivery BEFORE claim [POD-925]; keyed per child, targeted per
+    // parent. NB: do NOT key on the event id — a terminal session yields a new
+    // id every poll, so a per-event key never dedups.
+    const factKey = `sessionparentnudge:phase-reported:${childSessionId}`
+    const rawLabel = child?.name || child?.title || childSessionId
+    const label = firstLineCapped(rawLabel) || childSessionId
+    // WAKE: durable delivery BEFORE claim [POD-925]. mutationId=factKey makes
+    // crash-retry / multi-poll re-entry idempotent (queueText already-applied).
+    if (this.arbiter.isClaimed(factKey, parentId)) return
+    this.deps.sendTextWhenReady(parentId, sub.nudge(childSessionId, label), factKey)
+    this.arbiter.claim(factKey, parentId, claimOpts)
   }
 
   /** A child event notifies its parent issue (default 'my-children' subscription):
@@ -475,7 +860,8 @@ export class StewardService {
    *  lesson as unblock/#59) plus ONE coalesced nudge to the parent's live non-shell
    *  sessions. `group` selects the CHILD_PARENT_SUBS entry (closed / review /
    *  needs_human) that supplies the marker, comment excerpt, and nudge text. The
-   *  excerpt lives in the COMMENT only; the nudge is a fixed single line. */
+   *  excerpt lives in the COMMENT only; the nudge is a fixed single line.
+   *  ISSUE-parent only — no parked-session wake (see handleSessionParentNudge). */
   private async handleParentNudge(
     parentId: string,
     group: string,
@@ -483,10 +869,13 @@ export class StewardService {
   ): Promise<void> {
     const sub = CHILD_PARENT_SUBS[group]
     if (!sub) return
-    const parent = this.deps.issues.get(parentId)
+    const parent = this.deps.issues.getMeta(parentId)
     if (!parent) return
-    let posted = false
     let lastChildSeq: number | undefined
+    // The event timestamp behind the coalesced nudge below, for the
+    // already-communicated check (§07b) — "since the change" anchors on the
+    // triggering event.
+    let lastChangeTs: string | undefined
     // Sessions that caused an event in this batch already know — the single
     // coalesced nudge excludes all of them (#116). Collected across the whole
     // batch (before dedup) so a self-triggered event never self-nudges.
@@ -495,6 +884,7 @@ export class StewardService {
       const childSeq = (e.payload as { seq?: number } | null)?.seq
       if (childSeq == null) continue
       lastChildSeq = childSeq
+      lastChangeTs = e.ts
       const causer = (e.payload as { causedBySessionId?: string } | null)?.causedBySessionId
       if (causer) causedBy.add(causer)
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
@@ -512,15 +902,21 @@ export class StewardService {
       // The marker keeps its colon so replay dedup still matches.
       const excerpt = sub.excerpt(e, child, child ? this.deps.issues.comments(child.id) : [])
       this.deps.issues.addComment(parent.id, 'steward', excerpt ? `${marker} ${excerpt}` : marker)
-      posted = true
     }
-    // Nudge only when something new landed (crash-replayed batches stay silent),
-    // with counts re-read AFTER the comments so a multi-child batch reports the
-    // latest numbers. Same target filter as unblock: no resurrect, no shells.
-    if (!posted || lastChildSeq == null) return
+    // Nudge when this batch had a child event. Comment may already exist from a
+    // prior cycle of the same child (review→out→review / needs_human clear→set)
+    // after condition-clear retired the arbiter fact (POD-890). Crash-replay of
+    // the same transition still dedups via the live claim. Counts re-read AFTER
+    // any new comments so a multi-child batch reports the latest numbers.
+    // Same target filter as unblock: no resurrect, no shells.
+    if (lastChildSeq == null) return
+    // Full wire is intentional: the nudge reports derived child completion counts.
     const fresh = this.deps.issues.get(parentId)
     const total = fresh?.childCount ?? 0
     const remaining = Math.max(0, total - (fresh?.childDoneCount ?? 0))
+    // Resolved once for the already-communicated check below — the child whose
+    // transition drove this coalesced nudge.
+    const lastChild = this.deps.issues.list(parent.repoPath).find((w) => w.seq === lastChildSeq)
     const targets = sessionsForIssue(
       parent.worktreePath,
       this.deps.listSessions(),
@@ -532,7 +928,32 @@ export class StewardService {
         !causedBy.has(s.sessionId),
     )
     for (const s of targets) {
-      this.deps.sendTextWhenReady(s.sessionId, sub.nudge(lastChildSeq, { remaining, total }))
+      // Already-communicated (§07b): the child may have mailed the parent
+      // directly instead of relying on this nudge (targets are already
+      // live/starting, so nothing here needs wake rights — see the
+      // handleSessionParentNudge note on why that path is scoped out).
+      if (
+        lastChangeTs != null &&
+        this.alreadyCommunicated(
+          lastChild?.id,
+          { sessionId: s.sessionId, issueId: parent.id },
+          lastChangeTs,
+        )
+      ) {
+        continue
+      }
+      // Durable delivery before claim [POD-925] — same ordering as handleUnblock.
+      const factKey = `parentnudge:${group}:${parentId}:${lastChildSeq}`
+      if (this.arbiter.isClaimed(factKey, s.sessionId)) continue
+      this.deps.sendTextWhenReady(
+        s.sessionId,
+        sub.nudge(lastChildSeq, { remaining, total }),
+        factKey,
+      )
+      this.arbiter.claim(factKey, s.sessionId, {
+        source: 'steward.parent-nudge',
+        issueId: parent.id,
+      })
     }
   }
 
@@ -546,7 +967,20 @@ export class StewardService {
     if (!this.deps.messaging) return
     const last = batch[batch.length - 1]!
     const p = last.payload as { phase?: string } | null
-    this.deps.messaging.ackFallback(sessionId, p?.phase === 'errored' ? 'errored' : 'finished')
+    const issueId = this.deps.listSessions().find((s) => s.sessionId === sessionId)?.issueId
+    const factKey = `settle:${sessionId}`
+    if (
+      !this.arbiter.claim(factKey, sessionId, {
+        source: 'steward.ack-fallback',
+        issueId: issueId ?? undefined,
+      })
+    ) {
+      return
+    }
+    this.deps.messaging.ackFallback(sessionId, p?.phase === 'errored' ? 'errored' : 'finished', {
+      factKey,
+      target: sessionId,
+    })
   }
 
   /** P1: needs-human only leaves a breadcrumb in the log (briefs are P3). */

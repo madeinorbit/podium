@@ -448,7 +448,10 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Compaction past the client's cursor forces the full-resync signal (null),
     // never a silent partial delta.
-    store.sync.pruneChanges({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() })
+    store.sync.pruneChangeBatch(
+      store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() }),
+      500,
+    )
     expect(ledger.changesSince(lagCursor)).toBeNull()
     store.close()
   })

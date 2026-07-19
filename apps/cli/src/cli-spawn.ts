@@ -1,7 +1,7 @@
 // Detached spawn + ensure-up for the split headless backend. In the non-systemd persistence
-// mode, setup (and a bare `podium` on a configured box) launch `podium server` + `podium daemon`
-// as independent, detached processes: setsid, stdio → ~/.podium/logs/<role>.log, unref'd so the
-// launcher can exit. Spawn-and-forget (no auto-restart) — see the design spec:
+// mode, setup (and a bare `podium` on a configured box) launch the server, janitor, and optional
+// daemon as independent detached processes: setsid, stdio → ~/.podium/logs/<role>.log, unref'd so
+// the launcher can exit. Spawn-and-forget (no auto-restart) — see the design spec:
 // docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdirSync, openSync } from 'node:fs'
@@ -34,7 +34,10 @@ export interface SpawnOpts {
 }
 
 /** Spawn one component detached, logging to ~/.podium/logs/<role>.log. Returns its PID. */
-export function spawnDetached(sub: 'server' | 'daemon', opts: SpawnOpts = {}): number | undefined {
+export function spawnDetached(
+  sub: 'server' | 'janitor' | 'daemon',
+  opts: SpawnOpts = {},
+): number | undefined {
   mkdirSync(logDir(), { recursive: true })
   const logFile = join(logDir(), `${sub}.log`)
   const fd = openSync(logFile, 'a')
@@ -83,15 +86,15 @@ export async function waitForHealth(
 
 /** Roles that should be running for a given host mode. */
 export function rolesForMode(mode: PodiumConfig['mode']): RunRole[] {
-  if (mode === 'all-in-one') return ['server', 'daemon']
-  if (mode === 'server') return ['server']
+  if (mode === 'all-in-one') return ['server', 'janitor', 'daemon']
+  if (mode === 'server') return ['server', 'janitor']
   if (mode === 'daemon') return ['daemon']
   return []
 }
 
 /**
- * Start the detached split for a host box: server first (wait for /health), then the daemon
- * pointed at it. `mode='server'` starts only the server. Returns whether the server came up.
+ * Start the detached split for a host box: server first (wait for /health), then the janitor and
+ * optional daemon pointed at it. Returns whether the server came up.
  */
 export async function startDetachedStack(
   mode: PodiumConfig['mode'],
@@ -109,6 +112,9 @@ export async function startDetachedStack(
   if (roles.includes('server')) {
     spawnDetached('server', { port })
     serverUp = await waitForHealth(port)
+  }
+  if (roles.includes('janitor') && serverUp) {
+    spawnDetached('janitor', { port, serverUrl: `http://localhost:${port}` })
   }
   if (roles.includes('daemon') && serverUp) {
     spawnDetached('daemon', { port, local: true })
@@ -136,6 +142,9 @@ export async function ensureDetachedUp(
   if (down.includes('server')) {
     spawnDetached('server', { port })
     await waitForHealth(port)
+  }
+  if (down.includes('janitor')) {
+    spawnDetached('janitor', { port, serverUrl: `http://localhost:${port}` })
   }
   if (down.includes('daemon')) {
     spawnDetached('daemon', { port, local: true })

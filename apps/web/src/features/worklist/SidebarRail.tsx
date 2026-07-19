@@ -25,7 +25,7 @@ import {
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
-import { useDefaultSpawn, useUnifiedWork } from './SidebarUnified'
+import { useDefaultSpawn, useSidebarDerivation, useUnifiedWork } from './SidebarUnified'
 
 /** The rail sits on the collapsed aside's surface — corner badges punch out of
  *  this colour (the --card sidebar background). */
@@ -61,6 +61,7 @@ function RailNotch({ hex }: { hex: string | undefined }): JSX.Element {
 }
 
 export function SidebarRail(): JSX.Element {
+  const derivation = useSidebarDerivation()
   const {
     work,
     selectedIssueId,
@@ -69,8 +70,8 @@ export function SidebarRail(): JSX.Element {
     selectWorktree,
     setIssueColor,
     now,
-  } = useUnifiedWork()
-  const { defaultAgent, defaultRepo, defaultTarget, spawn } = useDefaultSpawn()
+  } = useUnifiedWork(derivation)
+  const { defaultAgent, defaultRepo, defaultTarget, spawn } = useDefaultSpawn(derivation.sections)
   const setPaletteOpen = useStoreSelector((s) => s.setPaletteOpen)
   const AgentIcon = NEW_AGENTS.find((a) => a.kind === defaultAgent)?.Icon
 
@@ -161,7 +162,14 @@ export function SidebarRail(): JSX.Element {
               className="h-px w-[26px] flex-none bg-[#25252f]"
               title={group.label}
             />
-            {group.rows.map(renderRow)}
+            {group.rows.flatMap((row) => {
+              // Rail is flat: parent issue square then its started-by children
+              // so provenance-nested work stays reachable without the wide tree.
+              if (row.kind !== 'issue' || !row.startedByChildren?.length) {
+                return [renderRow(row)]
+              }
+              return [renderRow(row), ...row.startedByChildren.map((c) => renderRow(c))]
+            })}
           </Fragment>
         ))}
       </div>

@@ -1,6 +1,6 @@
 import type { IssueStage } from '@podium/protocol'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
-import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
+import { type JSX, type MouseEvent as ReactMouseEvent, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -8,6 +8,11 @@ import { issueCardModel, issueIdTitle, STAGE_LABELS } from './issue-card'
 import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { type IssueRow, isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
+import {
+  ISSUE_RENDER_CHUNK,
+  nextProgressiveRenderLimit,
+  progressiveRenderLimit,
+} from './progressive-render'
 
 /**
  * Linear-style list: rows grouped by stage under sticky group headers. Rows come
@@ -36,10 +41,38 @@ export function IssueListView({
   onToggleExpand: (id: string) => void
   onContextMenu: (id: string, e: ReactMouseEvent) => void
 }): JSX.Element {
+  const [revealedByStage, setRevealedByStage] = useState<
+    Partial<Record<IssueStage, { scopeVersion: number; count: number }>>
+  >({})
+  const scopeByStage = useRef<Partial<Record<IssueStage, { key: string; version: number }>>>({})
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-testid="issues-list">
-      {groups.map(({ stage, rows }) =>
-        rows.length === 0 ? null : (
+      {groups.map(({ stage, rows }) => {
+        if (rows.length === 0) return null
+        const requiredIds = new Set(selected)
+        if (focusId) requiredIds.add(focusId)
+        // Expansion inserts depth>0 rows without changing the underlying stage
+        // scope. Filters/reordering change root ids and synchronously reset the
+        // ordinary prefix instead of reviving a stale formerly-large reveal.
+        const scopeKey = rows
+          .filter((row) => row.depth === 0)
+          .map((row) => row.issue.id)
+          .join('\0')
+        const previousScope = scopeByStage.current[stage]
+        const scope =
+          previousScope?.key === scopeKey
+            ? previousScope
+            : { key: scopeKey, version: (previousScope?.version ?? -1) + 1 }
+        scopeByStage.current[stage] = scope
+        const reveal = revealedByStage[stage]
+        const revealed = reveal?.scopeVersion === scope.version ? reveal.count : ISSUE_RENDER_CHUNK
+        const limit = progressiveRenderLimit(
+          rows.map((row) => row.issue.id),
+          revealed,
+          requiredIds,
+        )
+        const remaining = rows.length - limit
+        return (
           <section key={stage} aria-label={STAGE_LABELS[stage]}>
             <div className="group sticky top-0 z-10 flex items-center gap-1.5 border-border border-b bg-muted/60 px-4 py-1.5 backdrop-blur">
               <StageGlyph stage={stage} />
@@ -62,7 +95,7 @@ export function IssueListView({
                 <Plus size={13} aria-hidden="true" />
               </Button>
             </div>
-            {rows.map(({ issue, depth, childCount, expanded }) => {
+            {rows.slice(0, limit).map(({ issue, depth, childCount, expanded }) => {
               const m = issueCardModel(issue)
               const epic = isEpic(issue)
               return (
@@ -91,6 +124,20 @@ export function IssueListView({
                       aria-label={expanded ? `Collapse ${issue.title}` : `Expand ${issue.title}`}
                       onClick={(e) => {
                         e.stopPropagation()
+                        if (!expanded) {
+                          setRevealedByStage((current) => {
+                            const saved = current[stage]
+                            const count =
+                              saved?.scopeVersion === scope.version ? saved.count : revealed
+                            const parentIndex = rows.findIndex((row) => row.issue.id === issue.id)
+                            const insertionEnd = parentIndex + 1 + childCount
+                            if (insertionEnd <= count) return current
+                            return {
+                              ...current,
+                              [stage]: { scopeVersion: scope.version, count: insertionEnd },
+                            }
+                          })
+                        }
                         onToggleExpand(issue.id)
                       }}
                     >
@@ -155,9 +202,26 @@ export function IssueListView({
                 </button>
               )
             })}
+            {remaining > 0 && (
+              <button
+                type="button"
+                className="w-full border-border/50 border-b px-4 py-2 text-left text-[12px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                onClick={() =>
+                  setRevealedByStage((current) => ({
+                    ...current,
+                    [stage]: {
+                      scopeVersion: scope.version,
+                      count: nextProgressiveRenderLimit(limit, rows.length),
+                    },
+                  }))
+                }
+              >
+                Show {Math.min(ISSUE_RENDER_CHUNK, remaining)} more tasks ({remaining} remaining)
+              </button>
+            )}
           </section>
-        ),
-      )}
+        )
+      })}
     </div>
   )
 }

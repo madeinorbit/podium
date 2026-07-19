@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AgentKind,
   AgentQuotaResultMessage,
+  AgentRuntimeState,
   ApprovalOp,
   ClientMessage,
   type ControlMessage,
@@ -337,7 +338,7 @@ describe('ServerMessage', () => {
       state: {
         phase: 'errored',
         since: '2026-06-12T10:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         error: { class: 'rate_limit', retryable: true },
       },
     },
@@ -754,6 +755,39 @@ describe('session draft messages', () => {
   })
 })
 
+describe('versioned draft messages (POD-859)', () => {
+  it('sessionDraftChanged carries optional rev/origin/editedAt; legacy shape still parses', () => {
+    expect(
+      ServerMessage.parse({
+        type: 'sessionDraftChanged',
+        sessionId: 's',
+        text: 'hi',
+        rev: 4,
+        origin: 'clientA',
+        editedAt: '2026-07-17T12:00:00.000Z',
+      }),
+    ).toMatchObject({ rev: 4, origin: 'clientA', editedAt: '2026-07-17T12:00:00.000Z' })
+    expect(
+      ServerMessage.parse({ type: 'sessionDraftChanged', sessionId: 's', text: 'hi' }),
+    ).toMatchObject({ type: 'sessionDraftChanged', text: 'hi' })
+  })
+
+  it('parses draftEdit (client -> server) carrying baseRev', () => {
+    const m = { type: 'draftEdit', sessionId: 's', baseRev: 3, text: 'hello' } as const
+    expect(parseClientMessage(encode(m))).toEqual(m)
+  })
+
+  it('parses nativeDraft (daemon -> server)', () => {
+    const m = { type: 'nativeDraft', sessionId: 's', text: 'scraped from native' } as const
+    expect(parseDaemonMessage(encode(m))).toEqual(m)
+  })
+
+  it('parses draftTarget (server -> daemon)', () => {
+    const m = { type: 'draftTarget', sessionId: 's', text: 'inject me into native' } as const
+    expect(parseControlMessage(encode(m))).toEqual(m)
+  })
+})
+
 describe('multi-machine protocol', () => {
   it('parses a hello handshake frame', () => {
     const m = parseDaemonHandshake(
@@ -826,7 +860,7 @@ describe('agent runtime state', () => {
     phase: 'errored',
     since: '2026-06-12T10:00:00.000Z',
     workingMsTotal: 123_456,
-    openTaskCount: 2,
+    nativeSubagentCount: 2,
     error: { class: 'rate_limit', retryable: true },
   }
 
@@ -858,11 +892,29 @@ describe('agent runtime state', () => {
       agentState: {
         phase: 'idle',
         since: '2026-06-12T10:00:00.000Z',
-        openTaskCount: 0,
+        nativeSubagentCount: 0,
         idle: { kind: 'question', summary: 'Should I migrate?' },
       },
     })
     expect(meta.agentState?.phase).toBe('idle')
+  })
+
+  it('AgentRuntimeState accepts optional nativeSubagents identity list', () => {
+    const withIds = {
+      phase: 'working' as const,
+      since: '2026-06-12T10:00:00.000Z',
+      nativeSubagentCount: 1,
+      nativeSubagents: [{ id: 'ad7e66922f0d8ff7a', type: 'Explore' }],
+    }
+    expect(AgentRuntimeState.parse(withIds)).toEqual(withIds)
+    // Absent list still valid (back-compat with count-only daemons).
+    expect(
+      AgentRuntimeState.parse({
+        phase: 'working',
+        since: '2026-06-12T10:00:00.000Z',
+        nativeSubagentCount: 1,
+      }).nativeSubagents,
+    ).toBeUndefined()
   })
 
   it('SessionMeta carries an optional, nullable snoozedUntil', () => {

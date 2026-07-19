@@ -5,20 +5,19 @@
  * navigation concern).
  *
  * Deep-linkable routes:
- *   /                       home (a persisted-view restore may replace this)
+ *   /                       issues (a persisted-view restore may replace this)
  *   /workspace[?wt=&pane=]  the worktree workspace, pane state in the query
  *   /issues                 the issues board
  *   /issues/:id             the board with an issue page open
  *   /settings[/:tab]        settings, optionally on a specific tab
  *   /usage  /automations  /specs  /workflows    the respective views
  *
- * Unknown URLs fall back to home (replaceState, so back doesn't bounce).
+ * Unknown URLs fall back to issues (replaceState, so back doesn't bounce).
  * Foreign query params (`?server=`, `?e2e`) are preserved across navigation.
  */
 
 /** Main-area surface. (Formerly defined by store.tsx — the router owns it now.) */
 export type MainView =
-  | 'home'
   | 'workspace'
   | 'settings'
   | 'usage'
@@ -53,7 +52,7 @@ function decode(seg: string): string {
   }
 }
 
-/** URL → route. Returns null for an unknown path (caller falls back to home). */
+/** URL → route. Returns null for an unknown path (caller falls back to issues). */
 export function parseRoute(pathname: string, search: string): RouteState | null {
   const params = new URLSearchParams(search)
   const segs = pathname.split('/').filter(Boolean).map(decode)
@@ -63,9 +62,7 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
     worktree: params.get('wt'),
     pane: params.get('pane'),
   }
-  if (segs.length === 0 || (segs.length === 1 && segs[0] === 'home')) {
-    return { view: 'home', ...base }
-  }
+  if (segs.length === 0) return { view: 'issues', ...base }
   const [head, second, ...rest] = segs
   if (rest.length > 0) return null
   switch (head) {
@@ -92,9 +89,6 @@ export function parseRoute(pathname: string, search: string): RouteState | null 
 export function routePath(route: RouteState, currentSearch = ''): string {
   let path: string
   switch (route.view) {
-    case 'home':
-      path = '/'
-      break
     case 'workspace':
       path = '/workspace'
       break
@@ -170,13 +164,13 @@ export function createRouter(init: RouterInit = {}): Router {
   const parsed = parseRoute(win.location.pathname, win.location.search)
   let route: RouteState
   if (parsed === null) {
-    // Unknown URL → fall back to home (or the restored view) without leaving a
+    // Unknown URL → fall back to issues (or the restored view) without leaving a
     // dead history entry behind.
-    route = routeDefaults(init.fallbackView ?? 'home')
+    route = routeDefaults(init.fallbackView ?? 'issues')
     win.history.replaceState(null, '', routePath(route, win.location.search))
   } else if (
     init.fallbackView &&
-    init.fallbackView !== 'home' &&
+    init.fallbackView !== 'issues' &&
     win.location.pathname.replace(/\/+$/, '') === ''
   ) {
     // Plain `/` start: restore the persisted surface (reload lands where you
@@ -193,7 +187,7 @@ export function createRouter(init: RouterInit = {}): Router {
   const onPopState = (): void => {
     const next = parseRoute(win.location.pathname, win.location.search)
     if (next === null) {
-      route = routeDefaults('home')
+      route = routeDefaults('issues')
       win.history.replaceState(null, '', routePath(route, win.location.search))
     } else {
       route = next

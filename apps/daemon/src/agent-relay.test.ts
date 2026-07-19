@@ -42,6 +42,43 @@ describe('agent relay hub', () => {
     expect(r.error).toMatch(/timed out/)
     vi.useRealTimers()
   })
+
+  // [POD-854] The urgency-gated blocking send holds messages.send open server-side
+  // up to 90s; the loopback relay must OUTLAST that or the CLI throws before the
+  // gate returns its honest disposition and the sender resends (duplicate delivery).
+  it('gives a blocking proc (messages.send) the longer timeout, not the 30s default', async () => {
+    vi.useFakeTimers()
+    const sent: { requestId: string }[] = []
+    const hub = createAgentRelayHub((m) => sent.push(m as { requestId: string }), {
+      timeoutMs: 1000,
+      blockingTimeoutMs: 5000,
+    })
+    const p = hub.relay({ sessionId: 's1', router: 'messages', proc: 'send', input: {} })
+    // Past the NORMAL 1000ms timeout — a normal proc would already be dead here.
+    vi.advanceTimersByTime(1001)
+    // A blocking proc is still pending, so its result still lands.
+    hub.onResult({ requestId: sent[0]!.requestId, ok: true, result: { disposition: 'accepted' } })
+    expect(await p).toMatchObject({ ok: true, result: { disposition: 'accepted' } })
+    vi.useRealTimers()
+  })
+
+  it('a non-blocking proc still times out at the 30s default (discrimination)', async () => {
+    vi.useFakeTimers()
+    const hub = createAgentRelayHub(() => {}, { timeoutMs: 1000, blockingTimeoutMs: 5000 })
+    const p = hub.relay({ sessionId: 's1', router: 'issues', proc: 'ready' })
+    vi.advanceTimersByTime(1001)
+    expect((await p).error).toMatch(/timed out/)
+    vi.useRealTimers()
+  })
+
+  it('a blocking proc still times out at the longer bound (never hangs)', async () => {
+    vi.useFakeTimers()
+    const hub = createAgentRelayHub(() => {}, { timeoutMs: 1000, blockingTimeoutMs: 5000 })
+    const p = hub.relay({ sessionId: 's1', router: 'messages', proc: 'send' })
+    vi.advanceTimersByTime(5001)
+    expect((await p).error).toMatch(/timed out/)
+    vi.useRealTimers()
+  })
 })
 
 describe('agent relay server', () => {

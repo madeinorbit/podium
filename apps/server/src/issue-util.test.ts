@@ -23,7 +23,7 @@ const sess = (cwd: string, phase?: string): SessionMeta =>
     lastActiveAt: 't',
     origin: { kind: 'spawn' },
     archived: false,
-    ...(phase ? { agentState: { phase, since: 't', openTaskCount: 0 } } : {}),
+    ...(phase ? { agentState: { phase, since: 't', nativeSubagentCount: 0 } } : {}),
   }) as unknown as SessionMeta
 
 describe('slugifyBranch', () => {
@@ -53,8 +53,9 @@ describe('membership', () => {
 
 describe('stageIndex', () => {
   it('orders stages', () => {
-    expect(stageIndex('backlog')).toBe(0)
-    expect(stageIndex('done')).toBe(4)
+    expect(stageIndex('proposed')).toBe(0) // curation lane sits before backlog [spec:SP-6144]
+    expect(stageIndex('backlog')).toBe(1)
+    expect(stageIndex('done')).toBe(5)
   })
 })
 
@@ -80,7 +81,7 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
       lastActiveAt: o.lastActiveAt ?? '2026-07-06T00:00:00Z',
       origin: { kind: 'spawn' },
       archived: false,
-      ...(o.phase ? { agentState: { phase: o.phase, since: 't', openTaskCount: 0 } } : {}),
+      ...(o.phase ? { agentState: { phase: o.phase, since: 't', nativeSubagentCount: 0 } } : {}),
     }) as unknown as SessionMeta
 
   it('single idle live agent → immediate send', () => {

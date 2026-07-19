@@ -53,15 +53,23 @@ describe('SessionStore event log', () => {
   })
 })
 
-describe('SessionStore event log retention (pruneEvents)', () => {
+describe('SessionStore event log retention', () => {
   const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
+
+  const pruneEventBatch = (
+    store: SessionStore,
+    opts: { maxAgeDays: number; maxRows: number; batchSize?: number },
+  ) => {
+    const { batchSize = 500, ...planOptions } = opts
+    return store.events.pruneEventBatch(store.events.planEventPrune(planOptions), batchSize)
+  }
 
   it('deletes rows older than maxAgeDays and returns the deleted count', () => {
     const store = new SessionStore(':memory:')
     store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     store.events.appendEvent({ ts: daysAgo(20), kind: 'old', subject: 's' })
     const keep = store.events.appendEvent({ ts: daysAgo(1), kind: 'new', subject: 's' })
-    expect(store.events.pruneEvents({ maxAgeDays: 14, maxRows: 100 })).toBe(2)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(2)
     expect(store.events.listEventsSince(0).map((e) => e.id)).toEqual([keep])
   })
 
@@ -70,8 +78,24 @@ describe('SessionStore event log retention (pruneEvents)', () => {
     const ids = [1, 2, 3, 4, 5].map(() =>
       store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }),
     )
-    expect(store.events.pruneEvents({ maxAgeDays: 14, maxRows: 2 })).toBe(3)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 2 })).toBe(3)
     expect(store.events.listEventsSince(0).map((e) => e.id)).toEqual(ids.slice(3))
+  })
+
+  it('bounds each delete unit before the retention owner starts another', () => {
+    const store = new SessionStore(':memory:')
+    for (let i = 0; i < 5; i++) {
+      store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
+    }
+
+    expect(
+      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
+    ).toBe(2)
+    expect(store.events.listEventsSince(0)).toHaveLength(3)
+    expect(
+      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
+    ).toBe(2)
+    expect(store.events.listEventsSince(0)).toHaveLength(1)
   })
 
   it('a cursor pointing into a pruned range still works — returns only retained rows', () => {
@@ -80,7 +104,7 @@ describe('SessionStore event log retention (pruneEvents)', () => {
     const id2 = store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const id3 = store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
     const id4 = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
-    store.events.pruneEvents({ maxAgeDays: 14, maxRows: 100 })
+    pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
     // Cursor sits below the oldest retained row (id1) and mid-gap (id2): both
     // simply resume at the first retained row above them — no error, no skip
     // of anything that still exists.
@@ -92,11 +116,11 @@ describe('SessionStore event log retention (pruneEvents)', () => {
     const store = new SessionStore(':memory:')
     store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const top = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
-    store.events.pruneEvents({ maxAgeDays: 14, maxRows: 100 })
+    pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
     expect(store.events.maxEventId()).toBe(top)
     // AUTOINCREMENT: even after deleting EVERY row, the next id continues past
     // the old max — pruned ids are never reused, so cursors stay monotonic.
-    store.events.pruneEvents({ maxAgeDays: 14, maxRows: 0 })
+    pruneEventBatch(store, { maxAgeDays: 14, maxRows: 0 })
     expect(store.events.maxEventId()).toBe(0)
     const next = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
     expect(next).toBeGreaterThan(top)
@@ -105,7 +129,7 @@ describe('SessionStore event log retention (pruneEvents)', () => {
   it('returns 0 when nothing qualifies for pruning', () => {
     const store = new SessionStore(':memory:')
     store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
-    expect(store.events.pruneEvents({ maxAgeDays: 14, maxRows: 100 })).toBe(0)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(0)
   })
 })
 
@@ -329,7 +353,7 @@ describe('IssueService event emission', () => {
 
 describe('SessionRegistry session.phase events', () => {
   const st = (phase: string, idle?: { kind: string }) =>
-    ({ phase, since: 't', openTaskCount: 0, ...(idle ? { idle } : {}) }) as never
+    ({ phase, since: 't', nativeSubagentCount: 0, ...(idle ? { idle } : {}) }) as never
 
   it('skips the prev-undefined seed and logs only real phase transitions', () => {
     const store = new SessionStore(':memory:')

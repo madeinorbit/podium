@@ -7,6 +7,8 @@
 import { AgentKind } from '@podium/protocol'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import type {
+  OfferMap,
+  OfferRecord,
   PinKind,
   PinState,
   SessionDeletionSource,
@@ -14,7 +16,6 @@ import type {
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
-import type { OfferMap, OfferRecord } from './types'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -42,12 +43,12 @@ export class SessionsRepository {
   private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, agent_kind, cwd, title, name, name_source, origin_kind, conversation_id,
+        `SELECT id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
                 resume_value, status, exit_code, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
+                spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
                 ref_issue_id, ref_letter, ref_draft
          FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
@@ -60,6 +61,9 @@ export class SessionsRepository {
     return {
       id: r.id as string,
       agentKind: r.agent_kind as string,
+      ...(r.model != null ? { model: r.model as string } : {}),
+      ...(r.effort != null ? { effort: r.effort as string } : {}),
+      ...(r.account_id != null ? { accountId: r.account_id as string } : {}),
       cwd: r.cwd as string,
       title: r.title as string,
       name: (r.name as string | null) ?? null,
@@ -99,6 +103,14 @@ export class SessionsRepository {
       refLetter: (r.ref_letter as string | null) ?? null,
       refDraft: (r.ref_draft as number | null) ?? null,
       readAt: (r.read_at as string | null) ?? null,
+      stoppedAt: (r.stopped_at as string | null) ?? null,
+      stopReason:
+        r.stop_reason === 'self' ||
+        r.stop_reason === 'parent' ||
+        r.stop_reason === 'forced' ||
+        r.stop_reason === 'exited'
+          ? r.stop_reason
+          : null,
       workflowRunId: (r.workflow_run_id as string | null) ?? null,
       workflowStepId: (r.workflow_step_id as string | null) ?? null,
       executionProfileId: (r.execution_profile_id as string | null) ?? null,
@@ -120,16 +132,19 @@ export class SessionsRepository {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, agent_kind, cwd, title, name, name_source, origin_kind, conversation_id,
+           (id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
             resume_value, status, exit_code, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, read_at, deleted_at, deletion_source,
+            spawned_by, headless, issue_id, read_at, stopped_at, stop_reason, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
+           model = excluded.model,
+           effort = excluded.effort,
+           account_id = excluded.account_id,
            title = excluded.title,
            name = excluded.name,
            name_source = excluded.name_source,
@@ -153,6 +168,8 @@ export class SessionsRepository {
            spawned_by = excluded.spawned_by,
            issue_id = excluded.issue_id,
            read_at = excluded.read_at,
+           stopped_at = excluded.stopped_at,
+           stop_reason = excluded.stop_reason,
            deleted_at = excluded.deleted_at,
            deletion_source = excluded.deletion_source,
            deleted_by_issue_id = excluded.deleted_by_issue_id,
@@ -169,6 +186,9 @@ export class SessionsRepository {
       .run(
         row.id,
         row.agentKind,
+        row.model ?? null,
+        row.effort ?? null,
+        row.accountId ?? null,
         row.cwd,
         row.title,
         row.name,
@@ -195,6 +215,8 @@ export class SessionsRepository {
         row.headless ? 1 : 0,
         row.issueId ?? null,
         row.readAt ?? null,
+        row.stoppedAt ?? null,
+        row.stopReason ?? null,
         row.deletedAt ?? null,
         row.deletionSource ?? null,
         row.deletedByIssueId ?? null,
@@ -455,5 +477,116 @@ export class SessionsRepository {
     }
     this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
     return undefined
+  }
+
+  // ---- versioned drafts (POD-859, Draft Sync v2) ----
+  // The same `session_drafts` row, read/written with its versioning columns
+  // (`rev`, `origin`, `history`). Used only by the flag-on versioned path; the
+  // legacy `loadDrafts`/`setDraft` above stay byte-for-byte for the flag-off path.
+  // `updatedAt` doubles as the doc's `editedAt`.
+  //
+  // COLUMN-GUARDED as defense-in-depth: the drizzle migration adds these columns,
+  // and drizzle applies by NAME so a fresh unique migration always runs (unlike the
+  // old skip-by-version runner). But loadDraftDocs() runs UNCONDITIONALLY at boot
+  // (flag-independent), so if the columns are somehow absent — a DB opened before
+  // its migration applied, a schema-ahead lineage — degrade to the legacy shape
+  // instead of a `no such column: rev` crash-loop with the flag OFF.
+  private hasVersionedDraftCols: boolean | undefined
+
+  private versionedDraftColumns(): boolean {
+    if (this.hasVersionedDraftCols === undefined) {
+      const cols = new Set(
+        (this.db.prepare('PRAGMA table_info(session_drafts)').all() as { name: string }[]).map(
+          (c) => c.name,
+        ),
+      )
+      this.hasVersionedDraftCols = cols.has('rev') && cols.has('origin') && cols.has('history')
+      if (!this.hasVersionedDraftCols) {
+        // Surface the silent degradation once: the versioned-draft columns are
+        // missing, so Draft Sync v2's versioned persistence is inert on this DB.
+        console.warn(
+          '[podium] session_drafts is missing the versioned-draft columns ' +
+            '(rev/origin/history) — the session-drafts-versioned migration has not applied; ' +
+            'Draft Sync v2 falls back to legacy drafts.',
+        )
+      }
+    }
+    return this.hasVersionedDraftCols
+  }
+
+  /** All persisted draft docs, keyed by session. Legacy rows (or a DB where the
+   *  versioning migration has not applied) read back with `rev: 0`, `origin: null`,
+   *  and an empty history. */
+  loadDraftDocs(): Record<string, StoredDraftDoc> {
+    const versioned = this.versionedDraftColumns()
+    const sql = versioned
+      ? 'SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts'
+      : 'SELECT session_id, text, updated_at FROM session_drafts'
+    const rows = this.db.prepare(sql).all() as {
+      session_id: string
+      text: string
+      updated_at: string
+      rev?: number | null
+      origin?: string | null
+      history?: string | null
+    }[]
+    const out: Record<string, StoredDraftDoc> = {}
+    for (const r of rows) {
+      out[r.session_id] = {
+        text: r.text,
+        updatedAt: r.updated_at,
+        rev: r.rev ?? 0,
+        origin: r.origin ?? null,
+        history: parseHistory(r.history ?? null),
+      }
+    }
+    return out
+  }
+
+  /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
+   *  removes the row just like {@link setDraft}, so a cleared draft never lingers.
+   *  On a DB without the versioning columns, degrades to a legacy text-only write. */
+  setDraftDoc(sessionId: string, doc: StoredDraftDoc): void {
+    const id = sessionId.trim()
+    if (!id) return
+    if (!doc.text) {
+      this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+      return
+    }
+    if (!this.versionedDraftColumns()) {
+      // Columns absent: persist text only. rev/history won't survive a restart on
+      // this DB, but nothing crashes and no data is lost.
+      this.setDraft(id, doc.text)
+      return
+    }
+    this.db
+      .prepare(
+        `INSERT INTO session_drafts (session_id, text, updated_at, rev, origin, history)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           text = excluded.text, updated_at = excluded.updated_at,
+           rev = excluded.rev, origin = excluded.origin, history = excluded.history`,
+      )
+      .run(id, doc.text, doc.updatedAt, doc.rev, doc.origin, JSON.stringify(doc.history))
+  }
+}
+
+/** A persisted versioned draft, as stored in `session_drafts`. */
+export interface StoredDraftDoc {
+  text: string
+  /** ISO-8601; the doc's `editedAt`. */
+  updatedAt: string
+  rev: number
+  origin: string | null
+  history: string[]
+}
+
+function parseHistory(raw: string | null): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
   }
 }
