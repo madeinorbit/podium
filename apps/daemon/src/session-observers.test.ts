@@ -474,6 +474,99 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
       observation: { transitionId: 'authoritative-reattach-bootstrap' },
     })
   })
+
+  it('ignores late old hooks before transcript or binding mutation', () => {
+    const sent: DaemonMessage[] = []
+    const statTick = new ManualStatTick()
+    const bindHookThread = vi.fn()
+    const translate = vi.fn(async () => [])
+    const codex = harnessAdapterFor('codex')
+    if (!codex) throw new Error('Codex adapter missing')
+    const observers = createSessionObservers({
+      statTick,
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: (kind) =>
+        kind === 'codex'
+          ? {
+              ...codex,
+              observer: (_input, host) => ({
+                stop: vi.fn(),
+                bindHookThread: (nativeId) => {
+                  bindHookThread(nativeId)
+                  host.onExactProviderRebind({
+                    nextProviderSessionId: nativeId,
+                    resumeKind: 'codex-thread',
+                    rebindId: `rebind-${nativeId}`,
+                  })
+                },
+              }),
+            }
+          : harnessAdapterFor(kind),
+    })
+    observers.initSessionObservers(
+      {
+        type: 'reattach',
+        sessionId: 'podium-late',
+        durableLabel: 'podium-podium-late',
+        agentKind: 'codex',
+        cwd: '/repo',
+        geometry: G,
+        resume: { kind: 'codex-thread', value: 'thread-b' },
+        observationGeneration: 7,
+        observationBindingVersion: 2,
+        observationProviderSessionId: 'thread-b',
+      },
+      { onFrame: () => () => {} } as never,
+      { instrumentation: () => ({ args: [] }), translate },
+      { seedOnFrame: false },
+    )
+    const baselineWatchers = statTick.watchers.size
+    for (const hook_event_name of ['Stop', 'SessionEnd', 'PostToolUse']) {
+      observers.onHookPayload('podium-late', {
+        session_id: 'thread-a',
+        transcript_path: `/repo/${hook_event_name}.jsonl`,
+        cwd: '/stale',
+        hook_event_name,
+      })
+    }
+    expect(sent).toEqual([])
+    expect(bindHookThread).not.toHaveBeenCalled()
+    expect(translate).not.toHaveBeenCalled()
+    expect(statTick.watchers.size).toBe(baselineWatchers)
+    expect(observers.trackedState('podium-late')?.phase).toBe('unknown')
+
+    observers.onHookPayload('podium-late', {
+      session_id: 'thread-c',
+      transcript_path: '/repo/thread-c.jsonl',
+      cwd: '/repo',
+      hook_event_name: 'UserPromptSubmit',
+    })
+    expect(bindHookThread).toHaveBeenCalledOnce()
+    expect(sent.filter((message) => message.type === 'agentObservationRebind')).toHaveLength(1)
+    expect(sent.some((message) => message.type === 'sessionResumeRef')).toBe(false)
+    expect(sent.some((message) => message.type === 'agentObservation')).toBe(false)
+    expect(translate).not.toHaveBeenCalled()
+    expect(statTick.watchers.size).toBe(baselineWatchers)
+
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId: 'podium-late',
+      provider: 'codex',
+      rebindId: 'rebind-thread-c',
+      priorObserverGeneration: 7,
+      priorBindingVersion: 2,
+      nextProviderSessionId: 'thread-c',
+      providerSessionId: 'thread-c',
+      result: 'accepted',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      checkpoint: null,
+    })
+    expect(statTick.watchers.size).toBe(baselineWatchers + 1)
+    observers.clearSession('podium-late')
+  })
 })
 
 describe('session observer →idle debounce', () => {
@@ -797,6 +890,49 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       priorPhase: 'idle',
       nextPhase: 'working',
     })
+    const beforeLate = {
+      observations: sent.filter((message) => message.type === 'agentObservation').length,
+      rebinds: sent.filter((message) => message.type === 'agentObservationRebind').length,
+      resumeRefs: sent.filter((message) => message.type === 'sessionResumeRef').length,
+    }
+    for (const hook_event_name of ['Stop', 'SessionEnd', 'PostToolUse']) {
+      observers.onHookPayload('podium-roll', {
+        ...firstPrompt,
+        hook_event_name,
+      })
+    }
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(
+      beforeLate.observations,
+    )
+    expect(sent.filter((message) => message.type === 'agentObservationRebind')).toHaveLength(
+      beforeLate.rebinds,
+    )
+    expect(sent.filter((message) => message.type === 'sessionResumeRef')).toHaveLength(
+      beforeLate.resumeRefs,
+    )
+
+    observers.onHookPayload('podium-roll', {
+      ...nextPrompt,
+      session_id: 'claude-3',
+      transcript_path: join(dir, 'claude-3.jsonl'),
+      prompt_id: 'prompt-3',
+    })
+    expect(sent.filter((message) => message.type === 'agentObservationRebind')).toHaveLength(
+      beforeLate.rebinds + 1,
+    )
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationRebind',
+      providerSessionId: 'claude-2',
+      nextProviderSessionId: 'claude-3',
+    })
+    expect(
+      sent.some(
+        (message) => message.type === 'sessionResumeRef' && message.resume.value === 'claude-3',
+      ),
+    ).toBe(false)
+    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(
+      beforeLate.observations,
+    )
     observers.clearSession('podium-roll')
   })
 
