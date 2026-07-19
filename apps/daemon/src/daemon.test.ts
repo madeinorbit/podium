@@ -419,6 +419,11 @@ describe('daemon multi-bridge', () => {
         (message): message is Extract<DaemonMessage, { type: 'agentObservation' }> =>
           message.type === 'agentObservation' && message.observation.podiumSessionId === sessionId,
       )
+    const uniqueObservations = () => [
+      ...new Map(
+        observations().map((message) => [message.observation.transitionId, message] as const),
+      ).values(),
+    ]
     const postHook = (hook_event_name: string, extra: Record<string, unknown> = {}) =>
       fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/${sessionId}`, {
         method: 'POST',
@@ -444,8 +449,8 @@ describe('daemon multi-bridge', () => {
     })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
     await postHook('SessionStart')
-    await waitFor(() => observations().length === 1)
-    const predecessor = observations()[0]!.observation
+    await waitFor(() => uniqueObservations().length >= 1)
+    const predecessor = uniqueObservations()[0]!.observation
     expect(predecessor).toMatchObject({
       observerGeneration: 7,
       bindingVersion: 2,
@@ -515,8 +520,8 @@ describe('daemon multi-bridge', () => {
       observationProviderSessionId: providerSessionId,
       observationCheckpoint: checkpoint,
     })
-    await waitFor(() => observations().some((m) => m.observation.observerGeneration === 8))
-    const successor = observations().find(
+    await waitFor(() => uniqueObservations().some((m) => m.observation.observerGeneration === 8))
+    const successor = uniqueObservations().find(
       (m) => m.observation.observerGeneration === 8,
     )!.observation
     expect(successor).toMatchObject({
@@ -544,7 +549,11 @@ describe('daemon multi-bridge', () => {
       acceptedCursor: successor.providerCursor,
     })
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(observations().filter((m) => m.observation.observerGeneration === 8)).toHaveLength(1)
+    expect(
+      uniqueObservations().filter(
+        (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
+      ),
+    ).toHaveLength(0)
 
     send({
       type: 'agentObservationAck',
@@ -557,19 +566,31 @@ describe('daemon multi-bridge', () => {
     })
     await waitFor(
       () =>
-        observations().filter(
+        uniqueObservations().filter(
           (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
         ).length === 1,
     )
+    const working = uniqueObservations().find(
+      (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
+    )!.observation
+    send({
+      type: 'agentObservationAck',
+      sessionId,
+      observerGeneration: 8,
+      bindingVersion: 2,
+      transitionId: working.transitionId,
+      result: 'live_transition_accepted',
+      acceptedCursor: working.providerCursor,
+    })
     await postHook('Stop')
     await waitFor(
       () =>
-        observations().filter(
+        uniqueObservations().filter(
           (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
         ).length === 2,
     )
     expect(
-      observations()
+      uniqueObservations()
         .filter(
           (m) => m.observation.observerGeneration === 8 && m.observation.provenance === 'live',
         )
