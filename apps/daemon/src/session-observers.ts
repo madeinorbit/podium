@@ -1,17 +1,19 @@
-import { stat } from 'node:fs/promises'
 import {
   type AgentRuntimeState,
   type AgentSession,
   type AgentStateEvent,
   type AgentStateProvider,
   ClaudeCausalObserver,
-  claudePromptEvidenceAfter,
+  captureClaudeTranscript,
+  claudePromptHookFingerprint,
+  claudeTranscriptSegmentId,
   type HarnessAdapter,
   type HarnessObservation,
   type HarnessObserveInput,
   type HarnessObserverHost,
   harnessAdapterFor,
   initialAgentState,
+  parseClaudeTranscriptSegmentId,
   reduceAgentState,
 } from '@podium/agent-bridge'
 import type {
@@ -132,20 +134,31 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
   const claudeStarting = new Map<string, unknown[]>()
 
-  const applyClaudeHook = async (
-    sessionId: string,
-    causal: ClaudeCausalTracker,
-    payload: unknown,
-  ): Promise<void> => {
+  const applyClaudeHook = async (causal: ClaudeCausalTracker, payload: unknown): Promise<void> => {
     const p = payload as Record<string, unknown>
     const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
-    let observedOffset = 0
+    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
     try {
-      observedOffset = (await stat(path)).size
-    } catch {}
+      capture = await captureClaudeTranscript(path)
+    } catch {
+      return
+    }
+    const baseSegmentId = claudeTranscriptSegmentId(String(p.session_id), capture)
+    const promptFingerprint = claudePromptHookFingerprint(payload)
+    const promptEvidence = promptFingerprint
+      ? capture.prompts.findLast((prompt) => prompt.payloadFingerprint === promptFingerprint)
+      : undefined
     const observation = await causal.observer.observeHook(
       payload,
-      causal.observer.nextHookOffset(observedOffset),
+      causal.observer.nextHookOffset(capture.boundary),
+      undefined,
+      baseSegmentId,
+      promptEvidence
+        ? {
+            recordBoundary: promptEvidence.recordBoundary,
+            payloadFingerprint: promptEvidence.payloadFingerprint,
+          }
+        : undefined,
     )
     if (observation) send({ type: 'agentObservation', observation })
   }
@@ -167,52 +180,77 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         lease.checkpoint.providerSessionId === providerSessionId)
         ? lease.checkpoint
         : undefined
-    let bootstrapOffset = 0
-    try {
-      bootstrapOffset = (await stat(transcriptPath)).size
-    } catch {}
-    const segmentId = `claude:${providerSessionId}:${transcriptPath}`
     const acceptedCursor = checkpoint?.providerCursor
     const acceptedOffset = acceptedCursor?.components.transcript
+    const acceptedIdentity = parseClaudeTranscriptSegmentId(acceptedCursor?.segmentId)
+    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
+    try {
+      capture = await captureClaudeTranscript(
+        transcriptPath,
+        checkpoint && p?.hook_event_name !== 'UserPromptSubmit'
+          ? {
+              promptScanStart:
+                acceptedIdentity && Number.isSafeInteger(acceptedOffset)
+                  ? (acceptedOffset ?? 0)
+                  : 0,
+              ...(acceptedIdentity ? { promptScanIdentity: acceptedIdentity } : {}),
+            }
+          : {},
+      )
+    } catch {
+      capture = {
+        boundary: 0,
+        path: transcriptPath,
+        device: 'missing',
+        inode: 'missing',
+        fileIdentity: 'missing',
+        bootEvents: [{ kind: 'session_started' as const }],
+        prompts: [],
+        promptCount: 0,
+        latestPrompt: null,
+      }
+    }
+    const bootstrapOffset = capture.boundary
+    const baseSegmentId = claudeTranscriptSegmentId(providerSessionId, capture)
+    const acceptedSameFile = Boolean(
+      acceptedCursor &&
+        acceptedIdentity &&
+        acceptedIdentity.path === capture.path &&
+        acceptedIdentity.device === capture.device &&
+        acceptedIdentity.inode === capture.inode,
+    )
+    const acceptedSameSegment = Boolean(
+      acceptedSameFile &&
+        Number.isSafeInteger(acceptedOffset) &&
+        bootstrapOffset >= (acceptedOffset ?? 0),
+    )
+    const segmentId =
+      acceptedSameSegment && acceptedCursor
+        ? acceptedCursor.segmentId
+        : checkpoint
+          ? `${baseSegmentId}:after:${checkpoint.lastTransitionId ?? 'checkpoint'}`
+          : baseSegmentId
     const bootstrapAdvanced = Boolean(
       checkpoint &&
-        (acceptedCursor === null ||
-          (acceptedCursor?.segmentId === segmentId
-            ? Number.isSafeInteger(acceptedOffset) && bootstrapOffset > (acceptedOffset ?? 0)
-            : bootstrapOffset > 0)),
+        (acceptedSameSegment ? bootstrapOffset > (acceptedOffset ?? 0) : bootstrapOffset > 0),
     )
-    const promptStartOffset =
-      acceptedCursor?.segmentId === segmentId
-        ? Number.isSafeInteger(acceptedOffset)
-          ? (acceptedOffset ?? 0)
-          : null
-        : 0
-    const bootstrapPromptEvidence =
-      bootstrapAdvanced && promptStartOffset !== null && p?.hook_event_name !== 'UserPromptSubmit'
-        ? await claudePromptEvidenceAfter(transcriptPath, promptStartOffset)
-        : undefined
-    const bootstrapPromptOrigin = bootstrapPromptEvidence?.origin
+    const gapPromptCount =
+      bootstrapAdvanced && p?.hook_event_name !== 'UserPromptSubmit' ? capture.promptCount : 0
+    const latestPrompt = gapPromptCount > 0 ? capture.latestPrompt : null
+    const bootstrapPromptOrigin = latestPrompt?.origin
     let bootstrapState = checkpoint?.turnState ?? initialAgentState(new Date().toISOString())
     if (!checkpoint || bootstrapAdvanced) {
       bootstrapState = initialAgentState(new Date().toISOString())
-      try {
-        const bootEvents =
-          (await tracker.provider.bootEvents?.({
-            cwd: lease.cwd,
-            resumeValue: providerSessionId,
-            pathHint: transcriptPath,
-          })) ?? []
-        for (const event of bootEvents) {
-          bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
-        }
-        if (bootstrapPromptEvidence?.hasAssistantOutputAfter === false) {
-          bootstrapState = reduceAgentState(
-            initialAgentState(new Date().toISOString()),
-            { kind: 'prompt_submitted' },
-            new Date().toISOString(),
-          )
-        }
-      } catch {}
+      for (const event of capture.bootEvents) {
+        bootstrapState = reduceAgentState(bootstrapState, event, new Date().toISOString())
+      }
+      if (latestPrompt?.hasAssistantOutputAfter === false) {
+        bootstrapState = reduceAgentState(
+          initialAgentState(new Date().toISOString()),
+          { kind: 'prompt_submitted' },
+          new Date().toISOString(),
+        )
+      }
     }
     // UserPromptSubmit is the causal boundary. Claude may append the prompt to
     // JSONL before posting the hook, so a tail classification at hook receipt
@@ -234,9 +272,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bindingVersion: lease.bindingVersion,
       providerSessionId,
       transcriptPath,
+      transcriptSegmentId: segmentId,
       bootstrapState,
       ...(checkpoint ? { acceptedCheckpoint: checkpoint } : {}),
       bootstrapAdvanced,
+      bootstrapPromptCount: gapPromptCount,
       ...(bootstrapPromptOrigin !== undefined ? { bootstrapPromptOrigin } : {}),
       bootstrapOffset,
     })
@@ -271,9 +311,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     causal.awaitingBootstrapAck = false
     const buffered = causal.bufferedHooks.splice(0)
     for (const payload of buffered) {
-      causal.processing = causal.processing.then(() =>
-        applyClaudeHook(msg.sessionId, causal, payload),
-      )
+      causal.processing = causal.processing.then(() => applyClaudeHook(causal, payload))
     }
   }
 
@@ -639,9 +677,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       } else if (causal.awaitingBootstrapAck) {
         causal.bufferedHooks.push(payload)
       } else {
-        causal.processing = causal.processing.then(() =>
-          applyClaudeHook(sessionId, causal, payload),
-        )
+        causal.processing = causal.processing.then(() => applyClaudeHook(causal, payload))
       }
       return
     }

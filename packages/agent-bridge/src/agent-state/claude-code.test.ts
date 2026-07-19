@@ -1,13 +1,18 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { agentStateProviderFor } from '../harness/registry.js'
+import { acceptAgentObservation } from './causal'
 import {
+  ClaudeCausalObserver,
+  captureClaudeTranscript,
   classifyClaudeTranscriptState,
   classifyIdleTranscript,
-  ClaudeCausalObserver,
   claudeCodeStateProvider,
+  claudePromptHookFingerprint,
+  claudeTranscriptSegmentId,
+  parseClaudeTranscriptSegmentId,
   translateClaudeHookPayload,
 } from './claude-code'
 import { codexStateProvider } from './codex'
@@ -419,6 +424,59 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     ).toMatchObject({ inputOrigin: 'system' })
   })
 
+  it('anchors no-ID prompts to physical records plus canonical payloads', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    const firstPayload = hook('UserPromptSubmit', { prompt: 'first real prompt' })
+    const firstFingerprint = claudePromptHookFingerprint(firstPayload)
+    if (!firstFingerprint) throw new Error('expected prompt fingerprint')
+    const firstIdentity = { recordBoundary: 120, payloadFingerprint: firstFingerprint }
+    expect(
+      await causal.observeHook(firstPayload, 120, undefined, undefined, firstIdentity),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 1 })
+    expect(
+      await causal.observeHook(firstPayload, 120, undefined, undefined, firstIdentity),
+    ).toBeNull()
+    expect(await causal.observeHook(hook('Stop'), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+      turnEpoch: 1,
+    })
+
+    const secondPayload = hook('UserPromptSubmit', { prompt: 'second real prompt' })
+    const secondFingerprint = claudePromptHookFingerprint(secondPayload)
+    if (!secondFingerprint) throw new Error('expected prompt fingerprint')
+    expect(
+      await causal.observeHook(secondPayload, 170, undefined, undefined, {
+        recordBoundary: 170,
+        payloadFingerprint: secondFingerprint,
+      }),
+    ).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2 })
+  })
+
+  it('rejects mismatched prompt IDs without poisoning the valid hook identity', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'current' }), 110)
+    const tool = {
+      prompt_id: 'wrong',
+      tool_use_id: 'tool-1',
+      tool_name: 'AskUserQuestion',
+      tool_input: { questions: [{ question: 'Proceed?' }] },
+    }
+    expect(await causal.observeHook(hook('PreToolUse', tool), 120)).toBeNull()
+    expect(
+      await causal.observeHook(hook('PreToolUse', { ...tool, prompt_id: 'current' }), 120),
+    ).toMatchObject({
+      sourceEventKind: 'PreToolUse',
+      transitionKind: 'activity',
+      nextPhase: 'needs_user',
+    })
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'wrong' }), 130)).toBeNull()
+    expect(await causal.observeHook(hook('Stop', { prompt_id: 'current' }), 130)).toMatchObject({
+      transitionKind: 'turn_terminal',
+    })
+  })
+
   it('settles scheduled self-wake and attributes its next confirmed prompt to auto_continue', async () => {
     const causal = observer()
     causal.bootstrap()
@@ -461,8 +519,165 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
       transitionKind: 'turn_terminal',
     })
   })
-})
 
+  it('links a same-file truncation as a successor segment', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    const baseSegment = claudeTranscriptSegmentId('claude-1', {
+      path: '/exact/claude-1.jsonl',
+      device: '7',
+      inode: '11',
+    })
+    await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'before-truncate' }),
+      120,
+      undefined,
+      baseSegment,
+    )
+    const terminal = await causal.observeHook(
+      hook('Stop', { prompt_id: 'before-truncate' }),
+      10,
+      undefined,
+      baseSegment,
+    )
+    expect(terminal?.providerCursor).toMatchObject({
+      predecessorSegmentId: baseSegment,
+      components: { transcript: 10, hook: 2 },
+    })
+    expect(terminal?.providerCursor.segmentId.startsWith(`${baseSegment}:after:`)).toBe(true)
+  })
+
+  it('keeps same-EOF hooks strictly ordered across restart without advancing the byte boundary', async () => {
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 3,
+      observationGeneration: 7,
+    }
+    const causal = observer()
+    const bootstrap = causal.bootstrap()
+    if (!bootstrap) throw new Error('expected bootstrap observation')
+    const bootResult = acceptAgentObservation(null, lease, bootstrap, at)
+    if (bootResult.kind === 'rejected') throw new Error(bootResult.rejectionReason)
+    const opened = await causal.observeHook(
+      hook('UserPromptSubmit', { prompt_id: 'same-eof' }),
+      100,
+    )
+    expect(opened?.providerCursor.components).toEqual({ transcript: 100, hook: 1 })
+    if (!opened) throw new Error('expected opening observation')
+    const openResult = acceptAgentObservation(bootResult.checkpoint, lease, opened, at)
+    if (openResult.kind === 'rejected') throw new Error(openResult.rejectionReason)
+    const terminal = await causal.observeHook(hook('Stop', { prompt_id: 'same-eof' }), 100)
+    if (!terminal) throw new Error('expected terminal observation')
+    expect(terminal?.providerCursor.components).toEqual({ transcript: 100, hook: 2 })
+    const terminalResult = acceptAgentObservation(openResult.checkpoint, lease, terminal, at)
+    if (terminalResult.kind === 'rejected') throw new Error(terminalResult.rejectionReason)
+
+    const restarted = new ClaudeCausalObserver({
+      podiumSessionId: 'podium-1',
+      observerGeneration: 8,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: terminal.state,
+      bootstrapOffset: 100,
+      acceptedCheckpoint: terminalResult.checkpoint,
+      now: () => at,
+    })
+    expect(restarted.bootstrap()?.providerCursor.components).toEqual({ transcript: 100, hook: 2 })
+    expect(
+      await restarted.observeHook(hook('UserPromptSubmit', { prompt_id: 'after-restart' }), 120),
+    ).toMatchObject({
+      turnEpoch: 2,
+      providerCursor: { components: { transcript: 120, hook: 3 } },
+    })
+  })
+
+  it('captures only complete JSONL boundaries and recognizes a prompt when a torn record completes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-capture-'))
+    const path = join(dir, 'claude.jsonl')
+    const prompt = `${JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'continue' },
+    })}\n`
+    const torn = '{"type":"assistant"'
+    await writeFile(path, `${prompt}${torn}`)
+    const first = await captureClaudeTranscript(path)
+    expect(first.boundary).toBe(Buffer.byteLength(prompt))
+    expect(first.prompts).toEqual([
+      expect.objectContaining({ offset: 0, origin: 'unknown', hasAssistantOutputAfter: false }),
+    ])
+
+    const completion =
+      ',"message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}\n'
+    await appendFile(path, completion)
+    const second = await captureClaudeTranscript(path)
+    expect(second.boundary).toBe(Buffer.byteLength(`${prompt}${torn}${completion}`))
+    expect(second.prompts).toEqual([
+      expect.objectContaining({ offset: 0, origin: 'unknown', hasAssistantOutputAfter: true }),
+    ])
+    expect(second.fileIdentity).toBe(first.fileIdentity)
+    expect(parseClaudeTranscriptSegmentId(claudeTranscriptSegmentId('claude-1', second))).toEqual({
+      path,
+      device: second.device,
+      inode: second.inode,
+    })
+    expect(second).toMatchObject({ path, device: expect.any(String), inode: expect.any(String) })
+  })
+
+  it('classifies a bounded tail while incrementally scanning only the accepted large-prefix gap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-large-gap-'))
+    const path = join(dir, 'claude.jsonl')
+    const prefix = `${'x'.repeat(2 * 1024 * 1024)}\n`
+    const promptRecord = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'gap prompt' },
+    })
+    await writeFile(path, `${prefix}${promptRecord}`)
+    const capture = await captureClaudeTranscript(path, {
+      promptScanStart: Buffer.byteLength(prefix),
+    })
+    expect(capture.boundary).toBe(Buffer.byteLength(`${prefix}${promptRecord}`))
+    expect(capture.promptCount).toBe(1)
+    expect(capture.prompts).toEqual([])
+    expect(capture.latestPrompt).toMatchObject({
+      offset: Buffer.byteLength(prefix),
+      recordBoundary: capture.boundary,
+      hasAssistantOutputAfter: false,
+    })
+
+    await appendFile(path, '\n{"type":"assistant"')
+    const torn = await captureClaudeTranscript(path, {
+      promptScanStart: capture.boundary,
+      promptScanIdentity: capture,
+    })
+    expect(torn.boundary).toBe(capture.boundary + 1)
+    expect(torn.prompts).toEqual([])
+    expect(torn.promptCount).toBe(0)
+  })
+
+  it('detects same-path replacement and scans the successor from byte zero', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-replacement-'))
+    const path = join(dir, 'claude.jsonl')
+    const replacement = join(dir, 'replacement.jsonl')
+    await writeFile(path, `${JSON.stringify({ type: 'bridge-session' })}\n`)
+    const accepted = await captureClaudeTranscript(path)
+    const prompt = JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: 'replacement prompt' },
+    })
+    await writeFile(replacement, prompt)
+    await rename(replacement, path)
+
+    const captured = await captureClaudeTranscript(path, {
+      promptScanStart: accepted.boundary,
+      promptScanIdentity: accepted,
+    })
+    expect(captured.fileIdentity).not.toBe(accepted.fileIdentity)
+    expect(captured.promptCount).toBe(1)
+    expect(captured.latestPrompt).toMatchObject({ offset: 0, recordBoundary: captured.boundary })
+  })
+})
 const assistantLine = (blocks: unknown[]) =>
   JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: blocks } })
 const userLine = (content: unknown) =>
