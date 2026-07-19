@@ -9,6 +9,7 @@ import type {
   AgentObservationAckMessage,
   AgentRuntimeState,
   ProviderCursor,
+  SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { type StatTick, scheduleStatPoll } from '@podium/transcript'
 import {
@@ -225,6 +226,8 @@ async function translateCodexHookEvent(
       return [{ kind: 'session_started' }]
     case 'UserPromptSubmit':
       return [{ kind: 'prompt_submitted' }]
+    case 'SessionEnd':
+      return [{ kind: 'session_ended' }]
     case 'PreToolUse':
       if (isCodexQuestionTool(payload)) return codexQuestionEvent(payload)
       return [{ kind: 'activity' }]
@@ -457,30 +460,57 @@ async function completeRecordEnd(
  * oversized content records are discarded through their newline (Codex's state
  * boundary records are small structured envelopes).
  */
-export async function foldCodexRolloutBootstrap(path: string): Promise<CodexRolloutBootstrap> {
+export async function foldCodexRolloutBootstrap(
+  path: string,
+  checkpoint?: SessionObservationCheckpointV1 | null,
+): Promise<CodexRolloutBootstrap> {
   const handle = await open(path, 'r')
   try {
     const info = await handle.stat()
     const completeEnd = await completeRecordEnd(handle, info.size)
     const device = String(info.dev)
     const inode = String(info.ino)
+    const acceptedCursor = checkpoint?.provider === 'codex' ? checkpoint.providerCursor : null
+    const acceptedOffset = acceptedCursor?.components.file ?? 0
+    const canResumeCheckpoint =
+      acceptedCursor !== null &&
+      acceptedCursor.device === device &&
+      acceptedCursor.inode === inode &&
+      acceptedOffset >= 0 &&
+      acceptedOffset <= completeEnd
     const providerCursor: ProviderCursor = {
-      segmentId: `codex-rollout:${device}:${inode}`,
+      segmentId: canResumeCheckpoint
+        ? acceptedCursor.segmentId
+        : `codex-rollout:${device}:${inode}`,
       pathHint: path,
       device,
       inode,
       components: { file: completeEnd },
     }
 
-    let state = initialAgentState(new Date(0).toISOString())
-    state = reduceAgentState(state, { kind: 'session_started', at: state.since }, state.since)
-    let providerSessionId: string | null = null
-    let providerTurnId: string | null = null
-    let providerPromptId: string | null = null
-    let providerAt: string | null = null
+    let state =
+      checkpoint && canResumeCheckpoint
+        ? checkpoint.turnState
+        : initialAgentState(new Date(0).toISOString())
+    if (!canResumeCheckpoint) {
+      state = reduceAgentState(state, { kind: 'session_started', at: state.since }, state.since)
+    }
+    let providerSessionId: string | null =
+      checkpoint && canResumeCheckpoint ? checkpoint.providerSessionId : null
+    let providerTurnId: string | null =
+      checkpoint && canResumeCheckpoint ? checkpoint.providerTurnId : null
+    let providerPromptId: string | null =
+      checkpoint && canResumeCheckpoint ? checkpoint.providerPromptId : null
+    let providerAt: string | null = checkpoint && canResumeCheckpoint ? checkpoint.providerAt : null
     let firstPromptTitle: string | undefined
-    let turnEpoch = 0
-    let turnOpen = false
+    let turnEpoch = checkpoint && canResumeCheckpoint ? checkpoint.turnEpoch : 0
+    let turnOpen =
+      checkpoint && canResumeCheckpoint
+        ? checkpoint.terminalFence === null &&
+          (state.phase === 'working' ||
+            state.phase === 'needs_user' ||
+            state.phase === 'compacting')
+        : false
     let recordBytes = 0
     let recordParts: Buffer[] = []
     let oversizedRecord = false
@@ -539,7 +569,7 @@ export async function foldCodexRolloutBootstrap(path: string): Promise<CodexRoll
       if (at && translated.length === 0 && recordType === 'turn_context') providerAt ??= at
     }
 
-    for (let offset = 0; offset < completeEnd; ) {
+    for (let offset = canResumeCheckpoint ? acceptedOffset : 0; offset < completeEnd; ) {
       const length = Math.min(ROLLOUT_FOLD_CHUNK_BYTES, completeEnd - offset)
       const chunk = Buffer.alloc(length)
       const { bytesRead } = await handle.read(chunk, 0, length, offset)
@@ -590,6 +620,8 @@ export async function foldCodexRolloutBootstrap(path: string): Promise<CodexRoll
 
 export interface CodexCausalObserverConfig {
   podiumSessionId: string
+  providerSessionId: string
+  onRebindRequired?: (providerSessionId: string, cursor: ProviderCursor) => void
   observerGeneration: number
   bindingVersion: number
   now?: () => string
@@ -613,9 +645,24 @@ function cursorAt(base: ProviderCursor, offset: number): ProviderCursor {
   return { ...base, components: { ...base.components, file: offset } }
 }
 
+function sameProviderCursor(left: ProviderCursor | null, right: ProviderCursor): boolean {
+  return (
+    left !== null &&
+    left.segmentId === right.segmentId &&
+    left.pathHint === right.pathHint &&
+    left.device === right.device &&
+    left.inode === right.inode &&
+    JSON.stringify(left.components) === JSON.stringify(right.components)
+  )
+}
+
 function sourceKind(record: Record<string, unknown>): string | undefined {
   const payload = isRecord(record.payload) ? record.payload : undefined
-  return payload ? strField(payload, 'type') : strField(record, 'type')
+  return (
+    strField(record, 'hook_event_name') ??
+    (payload ? strField(payload, 'type') : undefined) ??
+    strField(record, 'type')
+  )
 }
 
 /** The sole historical envelope. Its provenance makes the folded records
@@ -625,10 +672,19 @@ export function codexBootstrapObservation(
   bootstrap: CodexRolloutBootstrap,
 ): AgentObservation {
   const receivedAt = config.now?.() ?? new Date().toISOString()
+  if (
+    bootstrap.providerSessionId !== null &&
+    bootstrap.providerSessionId !== config.providerSessionId
+  ) {
+    config.onRebindRequired?.(bootstrap.providerSessionId, bootstrap.providerCursor)
+    throw new Error(
+      `Codex rollout ${bootstrap.providerSessionId} does not match lease ${config.providerSessionId}`,
+    )
+  }
   return {
     podiumSessionId: config.podiumSessionId,
     provider: 'codex',
-    providerSessionId: bootstrap.providerSessionId,
+    providerSessionId: config.providerSessionId,
     bindingVersion: config.bindingVersion,
     providerTurnId: bootstrap.providerTurnId,
     providerPromptId: bootstrap.providerPromptId,
@@ -644,7 +700,7 @@ export function codexBootstrapObservation(
     priorPhase: bootstrap.state.phase,
     nextPhase: bootstrap.state.phase,
     transitionId: codexTransitionId([
-      bootstrap.providerSessionId,
+      config.providerSessionId,
       config.bindingVersion,
       bootstrap.turnEpoch,
       bootstrap.providerCursor.segmentId,
@@ -662,12 +718,23 @@ export function codexBootstrapObservation(
 export class CodexCausalCursorObserver {
   private accepted: CodexRolloutBootstrap
   private pending: PendingCodexObservation | null = null
+  private physicalReadOffset: number
 
   constructor(
     private readonly config: CodexCausalObserverConfig,
     bootstrap: CodexRolloutBootstrap,
   ) {
-    this.accepted = bootstrap
+    if (
+      bootstrap.providerSessionId !== null &&
+      bootstrap.providerSessionId !== config.providerSessionId
+    ) {
+      config.onRebindRequired?.(bootstrap.providerSessionId, bootstrap.providerCursor)
+      throw new Error(
+        `Codex rollout ${bootstrap.providerSessionId} does not match lease ${config.providerSessionId}`,
+      )
+    }
+    this.accepted = { ...bootstrap, providerSessionId: config.providerSessionId }
+    this.physicalReadOffset = bootstrap.providerCursor.components.file ?? 0
   }
 
   get acceptedSnapshot(): CodexRolloutBootstrap {
@@ -678,23 +745,30 @@ export class CodexCausalCursorObserver {
     return this.pending !== null
   }
 
+  get readOffset(): number {
+    return this.physicalReadOffset
+  }
   async observeRecord(record: unknown, endOffset: number): Promise<AgentObservation | null> {
     if (this.pending) return null
-    const acceptedOffset = this.accepted.providerCursor.components.file ?? 0
-    if (!Number.isInteger(endOffset) || endOffset <= acceptedOffset || !isRecord(record))
+    if (!Number.isInteger(endOffset) || endOffset <= this.physicalReadOffset || !isRecord(record))
       return null
     const payload = isRecord(record.payload) ? record.payload : undefined
     const recordType = strField(record, 'type')
+    const sessionId =
+      (recordType === 'session_meta' && payload ? strField(payload, 'id') : undefined) ??
+      strField(record, 'session_id') ??
+      (payload ? strField(payload, 'session_id') : undefined)
+    if (sessionId && sessionId !== this.config.providerSessionId) {
+      this.config.onRebindRequired?.(sessionId, cursorAt(this.accepted.providerCursor, endOffset))
+      return null
+    }
+    this.physicalReadOffset = endOffset
     const kind = sourceKind(record)
     if (!kind) return null
 
     const next: CodexRolloutBootstrap = {
       ...this.accepted,
       providerCursor: cursorAt(this.accepted.providerCursor, endOffset),
-    }
-    if (recordType === 'session_meta' && payload) {
-      const sessionId = strField(payload, 'id')
-      if (sessionId && sessionId !== this.accepted.providerSessionId) return null
     }
     if (recordType === 'turn_context' && payload) {
       next.providerTurnId = strField(payload, 'turn_id') ?? next.providerTurnId
@@ -708,10 +782,15 @@ export class CodexCausalCursorObserver {
           strField(payload, 'prompt_id') ?? strField(payload, 'id') ?? next.providerPromptId
       }
     }
+    if (kind === 'UserPromptSubmit') {
+      next.providerTurnId = strField(record, 'turn_id') ?? next.providerTurnId
+      next.providerPromptId = strField(record, 'prompt_id') ?? next.providerPromptId
+    }
 
     const events = await translateCodexEvent(record)
     const promptSignal =
-      recordType === 'event_msg' && (kind === 'task_started' || kind === 'user_message')
+      kind === 'UserPromptSubmit' ||
+      (recordType === 'event_msg' && (kind === 'task_started' || kind === 'user_message'))
     let transitionKind: AgentObservation['transitionKind'] | undefined
     let event: AgentStateEvent | undefined
     if (promptSignal) {
@@ -728,7 +807,10 @@ export class CodexCausalCursorObserver {
     } else {
       event = events[0]
       if (!event) return null
-      if (event.kind === 'turn_completed' || event.kind === 'turn_failed') {
+      if (event.kind === 'session_ended') {
+        next.turnOpen = false
+        transitionKind = 'session_terminal'
+      } else if (event.kind === 'turn_completed' || event.kind === 'turn_failed') {
         if (!this.accepted.turnOpen) return null
         next.turnOpen = false
         transitionKind = 'turn_terminal'
@@ -736,10 +818,7 @@ export class CodexCausalCursorObserver {
         return null
       } else if (event.kind === 'needs_user') transitionKind = 'needs_user'
       else if (event.kind === 'compaction') transitionKind = 'compaction'
-      else if (event.kind === 'session_ended') {
-        next.turnOpen = false
-        transitionKind = 'session_terminal'
-      } else transitionKind = 'activity'
+      else transitionKind = 'activity'
     }
     if (!event || !transitionKind) return null
 
@@ -783,14 +862,25 @@ export class CodexCausalCursorObserver {
   acknowledge(ack: AgentObservationAckMessage): boolean {
     const pending = this.pending
     if (!pending) return false
+    const durableAck = ack as AgentObservationAckMessage & {
+      bindingVersion?: number
+      acceptedCursor?: ProviderCursor | null
+    }
     if (
       ack.sessionId !== this.config.podiumSessionId ||
       ack.observerGeneration !== this.config.observerGeneration ||
-      ack.transitionId !== pending.observation.transitionId
+      ack.transitionId !== pending.observation.transitionId ||
+      (durableAck.bindingVersion !== undefined &&
+        durableAck.bindingVersion !== this.config.bindingVersion)
     ) {
       return false
     }
-    if (ack.result !== 'rejected') this.accepted = pending.next
+    const advancesCursor =
+      ack.result !== 'rejected' ||
+      (ack.result === 'rejected' &&
+        ack.rejectionReason === 'duplicate_transition' &&
+        sameProviderCursor(durableAck.acceptedCursor ?? null, pending.observation.providerCursor))
+    if (advancesCursor) this.accepted = pending.next
     this.pending = null
     return true
   }

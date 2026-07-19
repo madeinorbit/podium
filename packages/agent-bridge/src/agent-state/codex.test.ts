@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -709,6 +709,35 @@ describe('foldCodexRolloutBootstrap', () => {
     return path
   }
 
+  function acceptBootstrap(
+    folded: Awaited<ReturnType<typeof foldCodexRolloutBootstrap>>,
+    providerSessionId: string,
+  ) {
+    const now = '2026-07-19T12:00:00.000Z'
+    const outcome = acceptAgentObservation(
+      null,
+      {
+        provider: 'codex',
+        providerSessionId,
+        bindingVersion: 1,
+        observationGeneration: 1,
+      },
+      codexBootstrapObservation(
+        {
+          podiumSessionId: 'podium-checkpoint',
+          providerSessionId,
+          observerGeneration: 1,
+          bindingVersion: 1,
+          now: () => now,
+        },
+        folded,
+      ),
+      now,
+    )
+    if (outcome.kind === 'rejected') throw new Error(outcome.rejectionReason)
+    return outcome.checkpoint
+  }
+
   it('folds frozen history larger than 128KiB into one exact terminal snapshot', async () => {
     const threadId = 'thread-bootstrap'
     const turnId = 'turn-bootstrap'
@@ -787,6 +816,83 @@ describe('foldCodexRolloutBootstrap', () => {
     expect(folded.turnEpoch).toBe(0)
   })
 
+  it('restores an exact EOF checkpoint without rescanning frozen history', async () => {
+    const contents =
+      line({ type: 'session_meta', payload: { id: 'thread-resume', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:15:00.000Z', { turn_id: 'turn-resume' }) +
+      event('task_complete', '2026-07-19T08:15:01.000Z')
+    const path = await rollout(contents)
+    const folded = await foldCodexRolloutBootstrap(path)
+    const checkpoint = acceptBootstrap(folded, 'thread-resume')
+    const rewritten = contents.replace('task_complete', 'token_count__')
+    expect(Buffer.byteLength(rewritten)).toBe(Buffer.byteLength(contents))
+    await writeFile(path, rewritten)
+    const resumed = await foldCodexRolloutBootstrap(path, checkpoint)
+    expect(resumed.state.phase).toBe('idle')
+    expect(resumed.turnEpoch).toBe(checkpoint.turnEpoch)
+    expect(resumed.providerCursor).toEqual(checkpoint.providerCursor)
+  })
+
+  it('folds only a checkpoint gap when a torn record completes after restart', async () => {
+    const complete =
+      line({ type: 'session_meta', payload: { id: 'thread-torn-restart', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:16:00.000Z', { turn_id: 'turn-frozen' }) +
+      event('task_complete', '2026-07-19T08:16:01.000Z')
+    const nextRecord = JSON.stringify({
+      type: 'event_msg',
+      timestamp: '2026-07-19T08:17:00.000Z',
+      payload: { type: 'task_started', turn_id: 'turn-after-restart' },
+    })
+    const torn = nextRecord.slice(0, -5)
+    const path = await rollout(complete + torn)
+    const frozen = await foldCodexRolloutBootstrap(path)
+    const checkpoint = acceptBootstrap(frozen, 'thread-torn-restart')
+    await appendFile(path, `${nextRecord.slice(-5)}\n`)
+    const resumed = await foldCodexRolloutBootstrap(path, checkpoint)
+    expect(resumed.providerCursor.components.file).toBe(
+      Buffer.byteLength(`${complete}${nextRecord}\n`),
+    )
+    expect(resumed.turnEpoch).toBe(2)
+    expect(resumed.state.phase).toBe('working')
+    expect(resumed.turnOpen).toBe(true)
+    expect(resumed.providerTurnId).toBe('turn-after-restart')
+  })
+
+  it('starts a fresh bootstrap after truncation or inode rotation', async () => {
+    const original =
+      line({ type: 'session_meta', payload: { id: 'thread-before-change', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:18:00.000Z', { turn_id: 'turn-before-change' }) +
+      line({
+        type: 'response_item',
+        payload: { type: 'message', content: 'x'.repeat(8192) },
+      }) +
+      event('task_complete', '2026-07-19T08:18:01.000Z')
+    const path = await rollout(original)
+    const frozen = await foldCodexRolloutBootstrap(path)
+    const checkpoint = acceptBootstrap(frozen, 'thread-before-change')
+    const truncatedContents =
+      line({ type: 'session_meta', payload: { id: 'thread-truncated', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:19:00.000Z', { turn_id: 'turn-truncated' })
+    expect(Buffer.byteLength(truncatedContents)).toBeLessThan(
+      checkpoint.providerCursor?.components.file ?? 0,
+    )
+    await writeFile(path, truncatedContents)
+    const truncated = await foldCodexRolloutBootstrap(path, checkpoint)
+    expect(truncated.providerSessionId).toBe('thread-truncated')
+    expect(truncated.state.phase).toBe('working')
+    expect(truncated.providerCursor.components.file).toBe(Buffer.byteLength(truncatedContents))
+    await rename(path, `${path}.old`)
+    const rotatedContents =
+      line({ type: 'session_meta', payload: { id: 'thread-rotated', cwd: '/repo/x' } }) +
+      event('task_started', '2026-07-19T08:20:00.000Z', { turn_id: 'turn-rotated' }) +
+      event('task_complete', '2026-07-19T08:20:01.000Z')
+    await writeFile(path, rotatedContents)
+    const rotated = await foldCodexRolloutBootstrap(path, checkpoint)
+    expect(rotated.providerSessionId).toBe('thread-rotated')
+    expect(rotated.state.phase).toBe('idle')
+    expect(rotated.providerCursor.segmentId).not.toBe(checkpoint.providerCursor?.segmentId)
+  })
+
   it('discards an oversized content record without losing later state boundaries', async () => {
     const contents =
       line({ type: 'session_meta', payload: { id: 'thread-large', cwd: '/repo/x' } }) +
@@ -837,6 +943,7 @@ describe('foldCodexRolloutBootstrap', () => {
     const config = {
       podiumSessionId: 'podium-causal',
       observerGeneration: 1,
+      providerSessionId: 'thread-causal',
       bindingVersion: 1,
       now,
     }
@@ -941,14 +1048,93 @@ describe('foldCodexRolloutBootstrap', () => {
     ])
   })
 
+  it('accepts an idle native SessionEnd as a session terminal', async () => {
+    const folded = await foldCodexRolloutBootstrap(
+      await rollout(
+        line({ type: 'session_meta', payload: { id: 'thread-ended', cwd: '/repo/x' } }),
+      ),
+    )
+    const observer = new CodexCausalCursorObserver(
+      {
+        podiumSessionId: 'podium-ended',
+        providerSessionId: 'thread-ended',
+        observerGeneration: 1,
+        bindingVersion: 1,
+      },
+      folded,
+    )
+    const observation = await observer.observeRecord(
+      { hook_event_name: 'SessionEnd', session_id: 'thread-ended' },
+      (folded.providerCursor.components.file ?? 0) + 100,
+    )
+    expect(observation).toMatchObject({
+      transitionKind: 'session_terminal',
+      nextPhase: 'ended',
+    })
+  })
+
+  it('recovers a lost ack only from an exact durable duplicate', async () => {
+    const folded = await foldCodexRolloutBootstrap(
+      await rollout(line({ type: 'session_meta', payload: { id: 'thread-ack', cwd: '/repo/x' } })),
+    )
+    const observer = new CodexCausalCursorObserver(
+      {
+        podiumSessionId: 'podium-ack',
+        providerSessionId: 'thread-ack',
+        observerGeneration: 4,
+        bindingVersion: 2,
+      },
+      folded,
+    )
+    const offset = (folded.providerCursor.components.file ?? 0) + 100
+    const observation = await observer.observeRecord(
+      {
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'turn-ack' },
+      },
+      offset,
+    )
+    if (!observation) throw new Error('missing prompt observation')
+    const wrongBinding = {
+      type: 'agentObservationAck',
+      sessionId: 'podium-ack',
+      observerGeneration: 4,
+      transitionId: observation.transitionId,
+      result: 'live_transition_accepted',
+      bindingVersion: 99,
+    } as Parameters<typeof observer.acknowledge>[0]
+    expect(observer.acknowledge(wrongBinding)).toBe(false)
+    expect(observer.waitingForAck).toBe(true)
+    const duplicate = {
+      type: 'agentObservationAck',
+      sessionId: 'podium-ack',
+      observerGeneration: 4,
+      transitionId: observation.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: observation.providerCursor,
+      bindingVersion: 2,
+    } as Parameters<typeof observer.acknowledge>[0]
+    expect(observer.acknowledge(duplicate)).toBe(true)
+    expect(observer.waitingForAck).toBe(false)
+    expect(observer.acceptedSnapshot.providerCursor.components.file).toBe(offset)
+  })
+
   it('validates exact session identity before cursor handling and blocks reads behind ack', async () => {
     const folded = await foldCodexRolloutBootstrap(
       await rollout(
         line({ type: 'session_meta', payload: { id: 'thread-bound', cwd: '/repo/x' } }),
       ),
     )
+    const rebinds: string[] = []
     const observer = new CodexCausalCursorObserver(
-      { podiumSessionId: 'podium-bound', observerGeneration: 3, bindingVersion: 2 },
+      {
+        podiumSessionId: 'podium-bound',
+        providerSessionId: 'thread-bound',
+        observerGeneration: 3,
+        bindingVersion: 2,
+        onRebindRequired: (providerSessionId) => rebinds.push(providerSessionId),
+      },
       folded,
     )
     const offset = (folded.providerCursor.components.file ?? 0) + 100
@@ -958,6 +1144,14 @@ describe('foldCodexRolloutBootstrap', () => {
         offset,
       ),
     ).toBeNull()
+    expect(
+      await observer.observeRecord(
+        { hook_event_name: 'SessionEnd', session_id: 'foreign-hook-thread' },
+        offset,
+      ),
+    ).toBeNull()
+    expect(rebinds).toEqual(['foreign-thread', 'foreign-hook-thread'])
+    expect(observer.readOffset).toBe(offset - 100)
     const prompt = await observer.observeRecord(
       { type: 'event_msg', payload: { type: 'task_started', turn_id: 'bound-turn' } },
       offset,
