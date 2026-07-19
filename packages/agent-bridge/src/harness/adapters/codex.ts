@@ -254,23 +254,50 @@ export const codexAdapter: HarnessAdapter = {
     // the session's original spawn time so it can't latch onto an older
     // sibling's rollout. Spawn passes its own start; reattach the persisted one.
     const floor = input.startedAtMs ?? input.createdAtMs
-    let boundThread: string | undefined
     let observationLease = input.observationLease
-    const requestExactRebind = (providerSessionId: string, lease: HarnessObservationLease): void =>
+    let boundThread = observationLease?.providerSessionId ?? input.resumeValue
+    let pendingRebind: { rebindId: string; providerSessionId: string } | null = null
+    const discovered = new Map<
+      string,
+      { path: string; confidence: 'exact' | 'heuristic' | undefined }
+    >()
+    const publishSession = (
+      providerSessionId: string,
+      path: string,
+      confidence: 'exact' | 'heuristic' | undefined,
+    ): void => {
+      boundThread = providerSessionId
+      host.onResumeValue(providerSessionId, confidence)
+      host.tailFile(path)
+    }
+    const requestExactRebind = (
+      providerSessionId: string,
+      lease: HarnessObservationLease,
+    ): void => {
+      if (pendingRebind) return
+      const rebindId = `codex:${lease.bindingVersion}:${lease.observerGeneration}:${providerSessionId}`
+      pendingRebind = { rebindId, providerSessionId }
       host.onExactProviderRebind({
         nextProviderSessionId: providerSessionId,
         resumeKind: 'codex-thread',
-        rebindId: `codex:${lease.bindingVersion}:${lease.observerGeneration}:${providerSessionId}`,
+        rebindId,
       })
+    }
     const start = (
       resumeValue: string | undefined,
       startedAtMs: number | undefined,
     ): ReturnType<typeof observeCodexState> => {
       const lease = observationLease
+      // Once the durable lease names a thread, resumeValue is the exact binding.
+      // Process correlation remains useful only for legacy or initially-unbound
+      // observers; allowing it to replace a leased thread would move the inner
+      // observer before the exact rebind ack. [spec:SP-cdb2]
+      const processBindingSessionId =
+        !lease || lease.providerSessionId === null ? input.podiumSessionId : undefined
       return observeCodexState({
         cwd: input.cwd,
         ...(input.statTick ? { statTick: input.statTick } : {}),
-        ...(input.podiumSessionId ? { podiumSessionId: input.podiumSessionId } : {}),
+        ...(processBindingSessionId ? { podiumSessionId: processBindingSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
@@ -289,11 +316,14 @@ export const codexAdapter: HarnessAdapter = {
             }
           : {}),
         onSession: (rolloutId, rolloutPath, confidence) => {
-          boundThread = rolloutId
-          host.onResumeValue(rolloutId, confidence)
-          // Codex's rollout file carries both the conversation and state — the
-          // same path the observer found feeds the chat tail.
-          host.tailFile(rolloutPath)
+          discovered.set(rolloutId, { path: rolloutPath, confidence })
+          const activeLease = observationLease
+          if (activeLease && activeLease.providerSessionId !== rolloutId) {
+            requestExactRebind(rolloutId, activeLease)
+            return
+          }
+          // Only the accepted binding may move the durable resume ref and tail.
+          publishSession(rolloutId, rolloutPath, confidence)
         },
         // Codex's OSC terminal title is just the cwd basename (suppressed by
         // the daemon); the observer derives a real title from the thread instead.
@@ -313,6 +343,20 @@ export const codexAdapter: HarnessAdapter = {
       },
       onProviderRebindAck(ack) {
         const priorLease = observationLease
+        const pending = pendingRebind
+        if (
+          !priorLease ||
+          !pending ||
+          ack.provider !== 'codex' ||
+          (input.podiumSessionId !== undefined && ack.sessionId !== input.podiumSessionId) ||
+          ack.priorObserverGeneration !== priorLease.observerGeneration ||
+          ack.priorBindingVersion !== priorLease.bindingVersion ||
+          ack.rebindId !== pending.rebindId ||
+          ack.nextProviderSessionId !== pending.providerSessionId ||
+          (ack.result === 'accepted' && ack.providerSessionId !== pending.providerSessionId)
+        )
+          return
+        pendingRebind = null
         observationLease = {
           provider: 'codex',
           providerSessionId: ack.providerSessionId,
@@ -324,10 +368,15 @@ export const codexAdapter: HarnessAdapter = {
           priorLease?.providerSessionId !== observationLease.providerSessionId ||
           priorLease.observerGeneration !== observationLease.observerGeneration ||
           priorLease.bindingVersion !== observationLease.bindingVersion
-        if (!leaseChanged || !ack.providerSessionId) return
+        if (!leaseChanged) return
         inner.stop()
-        boundThread = ack.providerSessionId
-        inner = start(ack.providerSessionId, undefined)
+        boundThread = ack.providerSessionId ?? undefined
+        inner = start(ack.providerSessionId ?? undefined, ack.providerSessionId ? undefined : floor)
+        if (!ack.providerSessionId) return
+        const accepted = discovered.get(ack.providerSessionId)
+        if (accepted) {
+          publishSession(ack.providerSessionId, accepted.path, accepted.confidence)
+        }
       },
       bindHookThread(threadId) {
         // Deterministic binding: the hook names the thread this pane REALLY
@@ -335,12 +384,18 @@ export const codexAdapter: HarnessAdapter = {
         // siblings, a mid-session /new rolling to a fresh thread). Re-pin only
         // when the binding disagrees — every later POST is a cheap comparison.
         if (boundThread === threadId) return
-        if (observationLease && observationLease.providerSessionId !== threadId) {
-          requestExactRebind(threadId, observationLease)
+        const activeLease = observationLease
+        if (activeLease && activeLease.providerSessionId !== threadId) {
+          requestExactRebind(threadId, activeLease)
+          return
         }
         inner.stop()
         boundThread = threadId
         inner = start(threadId, undefined)
+        const accepted = discovered.get(threadId)
+        if (accepted) {
+          publishSession(threadId, accepted.path, accepted.confidence)
+        }
       },
     }
   },
