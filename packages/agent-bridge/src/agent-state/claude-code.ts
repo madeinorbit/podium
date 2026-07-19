@@ -247,6 +247,7 @@ export class ClaudeCausalObserver {
   private currentOrigin: ObservationInputOrigin = 'unknown'
   private readonly pendingOrigins: ObservationInputOrigin[] = []
   private readonly seen = new Set<string>()
+  private readonly seenOrder: string[] = []
   private readonly activeChildren = new Set<string>()
   constructor(private readonly options: ClaudeCausalObserverOptions) {
     const checkpoint = options.acceptedCheckpoint
@@ -296,6 +297,14 @@ export class ClaudeCausalObserver {
       this.epochOpen = true
     }
   }
+  get pendingInputOriginCount(): number {
+    return this.pendingOrigins.length
+  }
+
+  get seenRecordCount(): number {
+    return this.seen.size
+  }
+
   /** Rebase after the server's durable ack (including replay rejection, whose
    * acceptedCursor is the already-committed fence) before releasing hooks. */
   acknowledgeCursor(cursor: AgentObservation['providerCursor'] | null | undefined): void {
@@ -317,7 +326,9 @@ export class ClaudeCausalObserver {
     return Number.isSafeInteger(observedOffset) ? observedOffset : this.lastOffset
   }
   recordInputOrigin(origin: ObservationInputOrigin): void {
-    if (origin !== 'provider' && origin !== 'unknown') this.pendingOrigins.push(origin)
+    if (origin === 'provider' || origin === 'unknown') return
+    if (this.pendingOrigins.length === MAX_PENDING_INPUT_ORIGINS) this.pendingOrigins.shift()
+    this.pendingOrigins.push(origin)
   }
 
   bootstrap(): AgentObservation | null {
@@ -410,6 +421,11 @@ export class ClaudeCausalObserver {
     // Cursor/segment/prompt validation must precede dedupe insertion: invalid
     // evidence cannot poison a later valid hook with the same native identity.
     this.seen.add(identity)
+    this.seenOrder.push(identity)
+    if (this.seenOrder.length > MAX_SEEN_HOOK_RECORDS) {
+      const evictedIdentity = this.seenOrder.shift()
+      if (evictedIdentity !== undefined) this.seen.delete(evictedIdentity)
+    }
     this.lastOffset = Math.max(this.lastOffset, transcriptOffset)
     this.hookSequence += 1
 
@@ -554,6 +570,8 @@ export class ClaudeCausalObserver {
 }
 
 const TAIL_BYTES = 128 * 1024
+const MAX_PENDING_INPUT_ORIGINS = 64
+const MAX_SEEN_HOOK_RECORDS = 256
 
 type IdleClassification = {
   kind: 'done' | 'question' | 'approval' | 'interrupted'

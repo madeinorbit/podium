@@ -1223,7 +1223,8 @@ describe('foldCodexRolloutBootstrap', () => {
       turnOpen: false,
       state: checkpoint.turnState,
     })
-    expect(observer.readOffset).toBe(offset)
+    expect(observer.readOffset).toBe(checkpoint.providerCursor?.components.file)
+    offset = checkpoint.providerCursor?.components.file ?? 0
 
     offset += 100
     expect(
@@ -1277,6 +1278,136 @@ describe('foldCodexRolloutBootstrap', () => {
       turnEpoch: checkpoint.turnEpoch + 1,
     })
     expect([opened.nextPhase, terminal.nextPhase]).toEqual(['working', 'idle'])
+  })
+
+  it('retains turn_context identity until the next acknowledged phase edge', async () => {
+    const folded = await foldCodexRolloutBootstrap(
+      await rollout(
+        line({ type: 'session_meta', payload: { id: 'thread-context', cwd: '/repo/x' } }),
+      ),
+    )
+    const observer = new CodexCausalCursorObserver(
+      {
+        podiumSessionId: 'podium-context',
+        providerSessionId: 'thread-context',
+        observerGeneration: 1,
+        bindingVersion: 1,
+      },
+      folded,
+    )
+    const base = folded.providerCursor.components.file ?? 0
+    expect(
+      await observer.observeRecord(
+        { type: 'turn_context', payload: { turn_id: 'turn-from-context' } },
+        base + 100,
+      ),
+    ).toBeNull()
+    const opened = await observer.observeRecord(
+      { type: 'event_msg', payload: { type: 'task_started' } },
+      base + 200,
+    )
+    expect(opened).toMatchObject({
+      providerTurnId: 'turn-from-context',
+      transitionKind: 'turn_opened',
+    })
+  })
+
+  it('reconciles an accepted local edge to a foreign authoritative checkpoint', async () => {
+    const folded = await foldCodexRolloutBootstrap(
+      await rollout(
+        line({ type: 'session_meta', payload: { id: 'thread-foreign-ack', cwd: '/repo/x' } }),
+      ),
+    )
+    const observer = new CodexCausalCursorObserver(
+      {
+        podiumSessionId: 'podium-foreign-ack',
+        providerSessionId: 'thread-foreign-ack',
+        observerGeneration: 1,
+        bindingVersion: 1,
+      },
+      folded,
+    )
+    const opened = await observer.observeRecord(
+      {
+        type: 'event_msg',
+        payload: { type: 'task_started', turn_id: 'local-turn' },
+      },
+      (folded.providerCursor.components.file ?? 0) + 100,
+    )
+    if (!opened) throw new Error('missing local edge')
+    const outcome = acceptAgentObservation(
+      null,
+      {
+        provider: 'codex',
+        providerSessionId: 'thread-foreign-ack',
+        bindingVersion: 1,
+        observationGeneration: 1,
+      },
+      opened,
+      '2026-07-19T12:00:00.000Z',
+    )
+    if (outcome.kind === 'rejected') throw new Error(outcome.rejectionReason)
+    const authoritative = {
+      ...outcome.checkpoint,
+      turnEpoch: 7,
+      providerTurnId: 'foreign-turn',
+      providerPromptId: 'foreign-prompt',
+    }
+    expect(
+      observer.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: 'podium-foreign-ack',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: opened.transitionId,
+        result: 'live_transition_accepted',
+        acceptedCursor: authoritative.providerCursor,
+        checkpoint: authoritative,
+      }),
+    ).toBe(true)
+    expect(observer.acceptedSnapshot).toMatchObject({
+      turnEpoch: 7,
+      providerTurnId: 'foreign-turn',
+      providerPromptId: 'foreign-prompt',
+      providerCursor: authoritative.providerCursor,
+    })
+  })
+
+  it('folds a rollout only once while an exact rebind remains pending', async () => {
+    const path = await rollout(
+      line({ type: 'session_meta', payload: { id: 'thread-foreign', cwd: '/repo/x' } }),
+    )
+    const livePath = join(resolve(path, '..'), 'rollout-2026-07-19T10-00-00-thread-lease.jsonl')
+    await rename(path, livePath)
+    let folds = 0
+    const rebinds: string[] = []
+    const observation = observeCodexState({
+      cwd: '/repo/x',
+      homeDir: resolve(livePath, '../../../../../..'),
+      resumeValue: 'thread-lease',
+      pollMs: 10,
+      onBootstrapFold: () => {
+        folds += 1
+      },
+      causal: {
+        podiumSessionId: 'podium-rebind-loop',
+        providerSessionId: 'thread-lease',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        acceptedCheckpoint: null,
+        retryMs: 20,
+        onObservation: () => {},
+        onRebindRequired: (providerSessionId) => rebinds.push(providerSessionId),
+      },
+      onEvents: () => {},
+    })
+    try {
+      await waitFor(() => folds === 1 && rebinds.includes('thread-foreign'))
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 80))
+      expect(folds).toBe(1)
+    } finally {
+      observation.stop()
+    }
   })
 
   it('validates exact session identity before cursor handling and blocks reads behind ack', async () => {
