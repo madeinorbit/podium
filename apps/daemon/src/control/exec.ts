@@ -66,7 +66,12 @@ async function runHarnessExec(
   try {
     // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
     // (refusing a silent tool-less run) — that must surface as a failed turn.
-    const { cmd, args, stdin } = buildHarnessExec(
+    const {
+      cmd,
+      args,
+      stdin,
+      env: execEnv,
+    } = buildHarnessExec(
       msg.agent,
       {
         prompt: msg.prompt,
@@ -82,10 +87,12 @@ async function runHarnessExec(
     // stdin (claude — variadic --allowedTools would eat an argv prompt) and
     // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
     // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
+    // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
     const pending = execFileAsync(cmd, args, {
       timeout: msg.timeoutMs ?? 240_000,
       maxBuffer: 4 * 1024 * 1024,
       ...(msg.cwd ? { cwd: msg.cwd } : {}),
+      ...(execEnv ? { env: { ...process.env, ...execEnv } } : {}),
     })
     pending.child.stdin?.end(stdin ?? '')
     const { stdout } = await pending

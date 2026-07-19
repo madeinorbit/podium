@@ -242,7 +242,7 @@ export function buildHeadlessExec(
   agent: Exclude<HarnessAgent, 'claude-code'>,
   opts: HeadlessExecOptions,
   bins: HarnessBins,
-): { cmd: string; args: string[] } {
+): { cmd: string; args: string[]; env?: Record<string, string> } {
   const buildExec = harnessAdapterFor(agent)?.headless.buildExec
   if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
   return buildExec(opts, bins)
@@ -311,7 +311,11 @@ function collectStderr(child: ChildProcess): () => string {
  * swapping in an app-server client later changes nothing upstream.
  */
 function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
-  const { cmd, args } = buildHeadlessExec(
+  const {
+    cmd,
+    args,
+    env: execEnv,
+  } = buildHeadlessExec(
     'codex',
     {
       prompt: spec.prompt,
@@ -331,7 +335,9 @@ function runCodexTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnH
     args,
     spec.cwd,
     spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
-    spec.env,
+    // codex's MCP bearer token rides an env var (POD-1021), merged over the
+    // turn's base env.
+    { ...spec.env, ...execEnv },
     async (child) => {
       const stderrTail = collectStderr(child)
       let threadId = spec.resumeValue ?? ''

@@ -50,16 +50,41 @@ function maskedAccountId(accountId: string): string {
   return accountId.length <= 8 ? '••••' : `${accountId.slice(0, 4)}…${accountId.slice(-4)}`
 }
 
+/** Header names Podium uses to carry the MCP auth bearer. codex 0.144.5's rmcp
+ *  Streamable-HTTP client must receive this as a FIRST-CLASS `bearer_token_env_var`
+ *  (see below) — a raw `http_headers` bearer makes it attempt OAuth and die. */
+const CODEX_AUTH_HEADERS = new Set(['x-podium-mcp-token', 'authorization'])
+
+/** Deterministic per-server env var carrying the bearer token to codex. */
+function bearerEnvVar(serverName: string): string {
+  return `PODIUM_MCP_BEARER_${serverName.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+}
+
 /**
  * Translate a Claude-shaped MCP config JSON into codex `-c` TOML overrides:
- * `mcp_servers."<name>".url="…"` plus `mcp_servers."<name>".http_headers={"k"="v"}`.
- * JSON string literals are valid TOML basic strings, so JSON.stringify quotes
- * every key segment and value safely. An unparseable config THROWS rather than
- * quietly yielding a tool-less run — the caller reports the failed turn, so the
- * tool loss is visible on the thread (never silent).
+ * `mcp_servers."<name>".url="…"`, the auth bearer via `bearer_token_env_var`, and
+ * any remaining identity headers via `http_headers={"k"="v"}`. JSON string
+ * literals are valid TOML basic strings, so JSON.stringify quotes every key
+ * segment and value safely. An unparseable config THROWS rather than quietly
+ * yielding a tool-less run — the caller reports the failed turn, so the tool
+ * loss is visible on the thread (never silent).
+ *
+ * AUTH TRANSPORT (POD-1021): codex 0.144.5's rmcp Streamable-HTTP client opens a
+ * URL server by probing for OAuth. If the bearer is smuggled as a plain
+ * `http_headers` entry, codex doesn't recognise the server as statically
+ * authenticated, runs OAuth discovery, finds none, and the transport worker
+ * quits with `Auth(AuthorizationRequired)` — killing the whole turn. Declaring
+ * the token via the first-class `bearer_token_env_var` field makes codex send
+ * `Authorization: Bearer <token>` over plain POST and skip OAuth entirely. The
+ * token rides an env var (returned here) rather than argv, which also keeps it
+ * out of process listings. Podium's MCP route accepts either `x-podium-mcp-token`
+ * or `Authorization: Bearer`, so the switch is transparent server-side.
  */
-function codexMcpArgs(mcpConfig: string | undefined, context: 'harness' | 'headless'): string[] {
-  if (!mcpConfig) return []
+function codexMcpArgs(
+  mcpConfig: string | undefined,
+  context: 'harness' | 'headless',
+): { args: string[]; env: Record<string, string> } {
+  if (!mcpConfig) return { args: [], env: {} }
   let servers: Record<string, { url?: string; headers?: Record<string, string> }>
   try {
     servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
@@ -71,16 +96,28 @@ function codexMcpArgs(mcpConfig: string | undefined, context: 'harness' | 'headl
     throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')
   }
   const args: string[] = []
+  const env: Record<string, string> = {}
   for (const [name, srv] of Object.entries(servers)) {
     if (!srv.url) continue
     args.push('-c', `mcp_servers.${JSON.stringify(name)}.url=${JSON.stringify(srv.url)}`)
     const headers = Object.entries(srv.headers ?? {})
-    if (headers.length > 0) {
-      const toml = headers.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
+    const auth = headers.find(([k]) => CODEX_AUTH_HEADERS.has(k.toLowerCase()))
+    if (auth) {
+      const envVar = bearerEnvVar(name)
+      // codex prepends "Bearer " itself; strip any existing prefix.
+      env[envVar] = auth[1].replace(/^Bearer\s+/i, '')
+      args.push(
+        '-c',
+        `mcp_servers.${JSON.stringify(name)}.bearer_token_env_var=${JSON.stringify(envVar)}`,
+      )
+    }
+    const rest = headers.filter(([k]) => !CODEX_AUTH_HEADERS.has(k.toLowerCase()))
+    if (rest.length > 0) {
+      const toml = rest.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
       args.push('-c', `mcp_servers.${JSON.stringify(name)}.http_headers={${toml}}`)
     }
   }
-  return args
+  return { args, env }
 }
 
 // Codex stores no derivable per-cwd path; resolve the rollout from the resume
@@ -142,6 +179,7 @@ export const codexAdapter: HarnessAdapter = {
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     // No native extra-system-prompt flag — prepend it to the prompt.
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
+    const mcp = codexMcpArgs(opts.mcpConfig, 'harness')
     return {
       cmd: 'codex',
       args: [
@@ -149,18 +187,19 @@ export const codexAdapter: HarnessAdapter = {
         '--skip-git-repo-check',
         ...(model ? ['--model', model] : []),
         // Podium's MCP servers as per-invocation config overrides: verified on
-        // codex-cli 0.142.5 that `mcp_servers.<name>.url` + `.http_headers`
-        // mount a streamable HTTP server with our identity headers attached.
-        // Codex has no --allowedTools equivalent — allowedTools is ignored
-        // here; the run rides `codex exec`'s own default read-only sandbox,
-        // and MCP tool calls need no approval flag in exec mode.
+        // codex-cli 0.144.5 that `mcp_servers.<name>.url` + `.bearer_token_env_var`
+        // (+ `.http_headers` for identity) mount a streamable HTTP server over
+        // plain POST. Codex has no --allowedTools equivalent — allowedTools is
+        // ignored here; the run rides `codex exec`'s own default read-only
+        // sandbox, and MCP tool calls need no approval flag in exec mode.
         // Prompt as positional is safe here: `-c` is single-value (clap
         // `<key=value>`), no variadic flag precedes the positional. The
         // daemon closes stdin immediately, else codex would block appending
         // a `<stdin>` block from the never-EOF pipe.
-        ...codexMcpArgs(opts.mcpConfig, 'harness'),
+        ...mcp.args,
         prompt,
       ],
+      ...(Object.keys(mcp.env).length > 0 ? { env: mcp.env } : {}),
     }
   },
 
@@ -175,12 +214,13 @@ export const codexAdapter: HarnessAdapter = {
         .map((part) => part?.trim())
         .filter(Boolean)
         .join('\n\n')
+      const mcp = codexMcpArgs(opts.mcpConfig, 'headless')
       return {
         cmd: 'codex',
         args: [
           'exec',
           // Turns ≥2 thread onto the existing rollout; `resume` is a subcommand,
-          // not a flag (verified codex-cli 0.142.5).
+          // not a flag (verified codex-cli 0.144.5).
           ...(opts.resumeValue ? ['resume', opts.resumeValue] : []),
           '--json',
           '--skip-git-repo-check',
@@ -189,11 +229,12 @@ export const codexAdapter: HarnessAdapter = {
           // Codex exposes a native developer-instruction layer. Using it keeps
           // Podium's seed/focus blocks out of the transcript's user message.
           ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
-          ...codexMcpArgs(opts.mcpConfig, 'headless'),
+          ...mcp.args,
           // Prompt as positional is safe: no variadic flag precedes it (same
           // reasoning as exec above). The caller closes stdin immediately.
           opts.prompt,
         ],
+        ...(Object.keys(mcp.env).length > 0 ? { env: mcp.env } : {}),
       }
     },
   },

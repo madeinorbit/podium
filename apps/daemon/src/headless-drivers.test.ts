@@ -47,6 +47,23 @@ describe('buildHeadlessExec argv shapes', () => {
     )
   })
 
+  it('codex routes the MCP auth token to a bearer env var, not argv (POD-1021)', () => {
+    const mcpConfig = JSON.stringify({
+      mcpServers: {
+        podium: {
+          url: 'http://127.0.0.1:1/mcp',
+          headers: { 'x-podium-mcp-token': 'sekret', 'x-podium-mcp-thread': 'thr' },
+        },
+      },
+    })
+    const { args, env } = buildHeadlessExec('codex', { prompt: 'p', mcpConfig }, bins)
+    expect(args).toContain('mcp_servers."podium".bearer_token_env_var="PODIUM_MCP_BEARER_PODIUM"')
+    expect(env).toEqual({ PODIUM_MCP_BEARER_PODIUM: 'sekret' })
+    expect(args).toContain('mcp_servers."podium".http_headers={"x-podium-mcp-thread"="thr"}')
+    // The token never leaks into argv.
+    expect(args.some((a) => a.includes('sekret'))).toBe(false)
+  })
+
   it('grok: -p with the pinned --session-id (create-or-resume) and positional prompt', () => {
     const { cmd, args } = buildHeadlessExec(
       'grok',

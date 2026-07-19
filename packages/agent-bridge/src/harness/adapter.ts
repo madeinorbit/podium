@@ -78,6 +78,9 @@ export interface HarnessExecSpec {
   args: string[]
   /** Delivered on the child's stdin (then EOF) — Claude's headless prompt path. */
   stdin?: string
+  /** Extra env for the child (merged over process.env). Codex passes the MCP
+   *  bearer token here via `bearer_token_env_var` rather than argv (POD-1021). */
+  env?: Record<string, string>
 }
 
 /** Bin resolvers for agents whose executable path isn't a fixed name. */
@@ -149,8 +152,12 @@ export interface HarnessHeadless {
    */
   resumeIdAllocation: 'sdk-session-uuid' | 'stream-captured' | 'daemon-minted-uuid' | 'create-chat'
   /** Pure argv builder for the child-process drivers. Absent for 'claude-sdk'
-   *  (the SDK builds its own invocation). */
-  buildExec?: (opts: HeadlessExecOptions, bins: HarnessBins) => { cmd: string; args: string[] }
+   *  (the SDK builds its own invocation). `env` (when present) is merged over the
+   *  child's environment — codex passes its MCP bearer token here (POD-1021). */
+  buildExec?: (
+    opts: HeadlessExecOptions,
+    bins: HarnessBins,
+  ) => { cmd: string; args: string[]; env?: Record<string, string> }
 }
 
 // ---------------------------------------------------------------------------

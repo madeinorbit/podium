@@ -138,7 +138,13 @@ function prepareInvocation(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
   bins: HarnessBins,
-): { cmd: string; args: string[]; stdin?: string; knownSessionId?: string } {
+): {
+  cmd: string
+  args: string[]
+  stdin?: string
+  knownSessionId?: string
+  env?: Record<string, string>
+} {
   if (spec.agent === 'claude-code') {
     if (spec.mcpConfig) writeAtomic(paths.mcp, spec.mcpConfig)
     const exec = buildClaudeDurableExec(spec, paths)
@@ -171,7 +177,7 @@ function writeRunner(
   spec: HeadlessTurnSpec,
   paths: DurablePaths,
   bins: HarnessBins,
-): { knownSessionId?: string } {
+): { knownSessionId?: string; env?: Record<string, string> } {
   mkdirSync(paths.dir, { recursive: true, mode: 0o700 })
   if (!existsSync(paths.createdAt)) writeAtomic(paths.createdAt, String(Date.now()))
   const invocation = prepareInvocation(spec, paths, bins)
@@ -189,7 +195,12 @@ exit "$code"
 `
   writeFileSync(paths.script, script, { mode: 0o700 })
   chmodSync(paths.script, 0o700)
-  return invocation.knownSessionId ? { knownSessionId: invocation.knownSessionId } : {}
+  return {
+    ...(invocation.knownSessionId ? { knownSessionId: invocation.knownSessionId } : {}),
+    // Adapter-supplied env (codex's MCP bearer token, POD-1021) — merged into the
+    // abduco child's environment at spawn, never written into the run script.
+    ...(invocation.env && Object.keys(invocation.env).length > 0 ? { env: invocation.env } : {}),
+  }
 }
 
 function readResult(paths: DurablePaths): DurableResult | undefined {
@@ -310,7 +321,8 @@ export function runDurableHeadlessTurn(
   if (previous) return settledHandle(previous, turnId)
 
   const label = spec.durableLabel ?? `podium-${sessionId}`
-  const { knownSessionId } = writeRunner(spec, paths, bins)
+  const { knownSessionId, env: execEnv } = writeRunner(spec, paths, bins)
+  const spawnEnv = { ...spec.env, ...execEnv }
   let attachment: AgentSession | undefined
   let settled = false
   let disposed = false
@@ -386,7 +398,7 @@ export function runDurableHeadlessTurn(
           cwd: spec.cwd,
           cols: 120,
           rows: 40,
-          ...(spec.env ? { env: spec.env } : {}),
+          ...(Object.keys(spawnEnv).length > 0 ? { env: spawnEnv } : {}),
         })
       }
       if (disposed) {

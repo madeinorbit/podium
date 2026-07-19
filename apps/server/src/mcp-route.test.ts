@@ -83,6 +83,30 @@ describe('registerMcpRoute', () => {
   })
 })
 
+// Streamable-HTTP transport handshake (POD-1021): modern MCP clients (codex
+// 0.144.5's rmcp) open the connection with `GET /mcp` looking for a
+// server-initiated SSE stream. Podium is POST-only JSON-RPC, so the spec's
+// answer is 405 — without it the GET 404s and rmcp mis-reads that as an OAuth
+// challenge, dying with `Auth(AuthorizationRequired)` and killing the turn.
+describe('registerMcpRoute streamable-HTTP handshake', () => {
+  it('answers GET /mcp with 405 + Allow: POST so a client falls back to POST', async () => {
+    const res = await app().request('/mcp', {
+      method: 'GET',
+      headers: { 'x-podium-mcp-token': TOKEN },
+    })
+    expect(res.status).toBe(405)
+    expect(res.headers.get('allow')).toContain('POST')
+  })
+
+  it('answers DELETE /mcp with 405 (no client-driven session termination)', async () => {
+    const res = await app().request('/mcp', {
+      method: 'DELETE',
+      headers: { 'x-podium-mcp-token': TOKEN },
+    })
+    expect(res.status).toBe(405)
+  })
+})
+
 // Thread identity (issue #67): the route resolves the opaque x-podium-mcp-thread
 // token server-side and passes the threadId into callMcpTool.
 describe('registerMcpRoute thread identity', () => {
