@@ -4527,6 +4527,7 @@ export class SessionsService {
             ...(lease?.checkpoint?.providerCursor
               ? { acceptedCursor: lease.checkpoint.providerCursor }
               : {}),
+            checkpoint: lease?.checkpoint ?? null,
           })
           break
         }
@@ -4573,6 +4574,7 @@ export class SessionsService {
           transitionId: observation.transitionId,
           result: outcome.kind,
           acceptedCursor: outcome.checkpoint.providerCursor,
+          checkpoint: outcome.checkpoint,
         })
 
         this.broadcastToClients({

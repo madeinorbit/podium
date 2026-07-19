@@ -247,6 +247,10 @@ export const AgentObservationAckMessage = z.object({
   result: ObservationAcceptanceKind,
   rejectionReason: ObservationRejectionReason.optional(),
   acceptedCursor: ProviderCursor.nullable().optional(),
+  /** Authoritative durable state after acceptance or rejection. New daemons use
+   * this to rebootstrap after a causal disagreement instead of replaying the
+   * rejected live edge. Optional for rolling compatibility with older servers. */
+  checkpoint: SessionObservationCheckpointV1.nullable().optional(),
 })
 export type AgentObservationAckMessage = z.infer<typeof AgentObservationAckMessage>
 
