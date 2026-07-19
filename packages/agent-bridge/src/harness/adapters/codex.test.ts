@@ -128,6 +128,7 @@ describe('codex adapter exact rebind fence', () => {
     initial.opts.onSession?.('thread-a', '/rollout/a.jsonl', 'exact')
     initial.opts.onSession?.('thread-b', '/rollout/b.jsonl', 'heuristic')
     observation.bindHookThread?.('thread-b')
+    const request = vi.mocked(observerHost.onExactProviderRebind).mock.calls[0]?.[0]
 
     observation.onProviderRebindAck?.(ack('rejected', 'thread-a'))
 
@@ -137,6 +138,8 @@ describe('codex adapter exact rebind fence', () => {
     expect(observerHost.onResumeValue).toHaveBeenLastCalledWith('thread-a', 'exact')
     expect(observerHost.tailFile).toHaveBeenCalledTimes(1)
     expect(observerHost.tailFile).toHaveBeenLastCalledWith('/rollout/a.jsonl')
+    expect(observerHost.onExactProviderRebind).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(observerHost.onExactProviderRebind).mock.calls[1]?.[0]).toEqual(request)
   })
 
   it('publishes nothing from a null binding until B is accepted', () => {

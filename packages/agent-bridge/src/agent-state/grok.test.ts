@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rename, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type {
@@ -9,7 +9,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessObserverHost } from '../harness/adapter'
 import { grokAdapter } from '../harness/adapters/grok'
-import { acceptAgentObservation } from './causal'
+import { acceptAgentObservation, type ObservationLease } from './causal'
 import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
@@ -932,7 +932,325 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
   it.each([
     'cursor_not_after_checkpoint',
     'terminal_epoch_closed',
-  ] as const)('pauses after %s without an authoritative accepted cursor', (rejectionReason) => {
+  ] as const)('adopts an authoritative checkpoint after %s and emits one later real turn', (rejectionReason) => {
+    const segment = {
+      segmentId: 'grok:g-authoritative-recovery:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    const lease: ObservationLease = {
+      provider: 'grok',
+      providerSessionId: 'g-authoritative-recovery',
+      bindingVersion: 1,
+      observationGeneration: 1,
+    }
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const seedObservations: AgentObservation[] = []
+    const seed = new GrokCausalObserver({
+      podiumSessionId: 'podium-authoritative-recovery',
+      providerSessionId: 'g-authoritative-recovery',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T13:30:00.000Z',
+      onObservation: (observation) => seedObservations.push(observation),
+    })
+    const acceptLatest = (causal: GrokCausalObserver, observation: AgentObservation) => {
+      const outcome = acceptAgentObservation(
+        checkpoint,
+        lease,
+        observation,
+        '2026-07-19T13:30:00.000Z',
+      )
+      if (outcome.kind === 'rejected') throw new Error(outcome.rejectionReason)
+      checkpoint = outcome.checkpoint
+      causal.acknowledge({
+        type: 'agentObservationAck',
+        sessionId: 'podium-authoritative-recovery',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result: outcome.kind,
+        acceptedCursor: outcome.checkpoint.providerCursor,
+        checkpoint: outcome.checkpoint,
+      })
+      return outcome.checkpoint
+    }
+
+    seed.finishBootstrap(seed.cursorFor(segment, 0))
+    acceptLatest(seed, seedObservations.at(-1)!)
+    seed.enqueue({
+      record: { prompt_id: 'closed-prompt' },
+      cursor: seed.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    const workingCheckpoint = acceptLatest(seed, seedObservations.at(-1)!)
+    seed.enqueue({
+      record: { turn_id: 'closed-turn' },
+      cursor: seed.cursorFor(segment, 20),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    const terminalCheckpoint = acceptLatest(seed, seedObservations.at(-1)!)
+    expect(terminalCheckpoint.terminalFence).not.toBeNull()
+
+    const observations: AgentObservation[] = []
+    const recovery = new GrokCausalObserver({
+      podiumSessionId: 'podium-authoritative-recovery',
+      providerSessionId: 'g-authoritative-recovery',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: {
+        ...terminalCheckpoint,
+        turnState: workingCheckpoint.turnState,
+        terminalFence: null,
+      },
+      now: () => '2026-07-19T13:31:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    recovery.enqueue({
+      record: { turn_id: 'rejected-terminal' },
+      cursor: recovery.cursorFor(segment, 30),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    const rejected = observations[0]!
+    recovery.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-authoritative-recovery',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: rejected.transitionId,
+      result: 'rejected',
+      rejectionReason,
+      acceptedCursor: terminalCheckpoint.providerCursor,
+      checkpoint: terminalCheckpoint,
+    })
+    expect(observations).toHaveLength(1)
+    expect(recovery.hasPendingDelivery).toBe(false)
+    expect(recovery.acceptedProviderCursor).toEqual(terminalCheckpoint.providerCursor)
+
+    recovery.enqueue({
+      record: {},
+      cursor: recovery.cursorFor(segment, 40),
+      events: [{ kind: 'activity' }],
+      sourceEventKind: 'update:agent_message_chunk',
+      providerAt: null,
+    })
+    expect(observations).toHaveLength(1)
+    recovery.enqueue({
+      record: { prompt_id: 'later-real-prompt' },
+      cursor: recovery.cursorFor(segment, 50),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    const opened = observations[1]!
+    expect(opened).toMatchObject({
+      transitionKind: 'turn_opened',
+      nextPhase: 'working',
+      turnEpoch: terminalCheckpoint.turnEpoch + 1,
+    })
+    const acceptedOpen = acceptAgentObservation(
+      terminalCheckpoint,
+      lease,
+      opened,
+      '2026-07-19T13:32:00.000Z',
+    )
+    if (acceptedOpen.kind === 'rejected') throw new Error(acceptedOpen.rejectionReason)
+    recovery.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-authoritative-recovery',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: opened.transitionId,
+      result: acceptedOpen.kind,
+      acceptedCursor: acceptedOpen.checkpoint.providerCursor,
+      checkpoint: acceptedOpen.checkpoint,
+    })
+    recovery.enqueue({
+      record: { turn_id: 'later-real-turn' },
+      cursor: recovery.cursorFor(segment, 60),
+      events: [{ kind: 'turn_completed' }],
+      sourceEventKind: 'update:turn_completed',
+      providerAt: null,
+    })
+    const terminal = observations[2]!
+    expect(terminal).toMatchObject({
+      transitionKind: 'turn_terminal',
+      nextPhase: 'idle',
+      turnEpoch: terminalCheckpoint.turnEpoch + 1,
+    })
+    expect(observations.slice(1).map((observation) => observation.nextPhase)).toEqual([
+      'working',
+      'idle',
+    ])
+  })
+
+  it('retains an in-flight record across file rotation before folding the successor', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-pending-rotation-'))
+    const cwd = '/repo/grok-rotation'
+    const sessionId = 'g-pending-rotation'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: sessionId, cwd } }))
+    await writeFile(paths.updatesPath, '')
+    const observations: AgentObservation[] = []
+    const observer = observeGrokState({
+      homeDir: home,
+      cwd,
+      resumeValue: sessionId,
+      pollMs: 10,
+      causal: {
+        podiumSessionId: 'podium-pending-rotation',
+        providerSessionId: sessionId,
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        onObservation: (observation) => observations.push(observation),
+      },
+    })
+
+    const ack = (observation: AgentObservation): void =>
+      observer.onObservationAck?.({
+        type: 'agentObservationAck',
+        sessionId: 'podium-pending-rotation',
+        observerGeneration: 1,
+        bindingVersion: 1,
+        transitionId: observation.transitionId,
+        result:
+          observation.provenance === 'bootstrap' ? 'snapshot_applied' : 'live_transition_accepted',
+        acceptedCursor: observation.providerCursor,
+      })
+    const update = (sessionUpdate: string, extra: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        method: 'session/update',
+        params: { update: { sessionUpdate, ...extra } },
+      }) + '\n'
+
+    try {
+      await waitFor(() => observations.length === 1)
+      ack(observations[0]!)
+      await appendFile(paths.updatesPath, update('user_message_chunk', { prompt_id: 'before' }))
+      await waitFor(() => observations.length === 2)
+      const pending = observations[1]!
+      expect(pending.transitionKind).toBe('turn_opened')
+
+      await rename(paths.updatesPath, paths.updatesPath + '.old')
+      await writeFile(
+        paths.updatesPath,
+        update('user_message_chunk', { prompt_id: 'replacement' }) +
+          update('turn_completed', { turn_id: 'replacement-turn' }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      expect(observations).toHaveLength(2)
+
+      ack(pending)
+      await waitFor(() => observations.length === 3)
+      expect(observations[2]).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        nextPhase: 'idle',
+      })
+      expect(observations[2]?.providerCursor.predecessorSegmentId).toBe(
+        pending.providerCursor.segmentId,
+      )
+      expect(observations.filter((value) => value.provenance === 'live')).toEqual([pending])
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('retries lost bootstrap and live acknowledgements with bounded backpressure', () => {
+    let retryNow = 0
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-retry-bounded',
+      providerSessionId: 'g-retry-bounded',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T12:20:00.000Z',
+      retryMs: 10,
+      retryNow: () => retryNow,
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-retry-bounded:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    const bootstrap = observations[0]!
+    expect(causal.retryPending()).toBe(true)
+    expect(observations).toHaveLength(1)
+    retryNow = 10
+    expect(causal.retryPending()).toBe(true)
+    expect(observations).toHaveLength(2)
+    expect(observations[1]?.transitionId).toBe(bootstrap.transitionId)
+
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-retry-bounded',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: bootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: bootstrap.providerCursor,
+    })
+    causal.enqueue({
+      record: { prompt_id: 'prompt-live' },
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+    const live = observations.at(-1)!
+    expect(live.transitionKind).toBe('turn_opened')
+
+    const accepted = Array.from({ length: 65 }, (_, index) =>
+      causal.enqueue({
+        record: {},
+        cursor: causal.cursorFor(segment, 20 + index),
+        events: [{ kind: 'activity' }],
+        sourceEventKind: 'update:agent_message_chunk',
+        providerAt: null,
+      }),
+    )
+    expect(accepted.filter(Boolean)).toHaveLength(64)
+    expect(accepted.at(-1)).toBe(false)
+    expect(causal.bufferedRecordCount).toBe(64)
+
+    retryNow = 20
+    causal.retryPending()
+    expect(observations.at(-1)?.transitionId).toBe(live.transitionId)
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-retry-bounded',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: live.transitionId,
+      result: 'rejected',
+      rejectionReason: 'provider_binding_mismatch',
+      acceptedCursor: bootstrap.providerCursor,
+    })
+    expect(observations.at(-1)?.transitionId).toBe(live.transitionId)
+    expect(causal.hasPendingDelivery).toBe(true)
+    expect(causal.bufferedRecordCount).toBe(64)
+  })
+
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('retries %s without advancing an authoritative cursor', (rejectionReason) => {
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
       podiumSessionId: 'podium-rejected-without-cursor',
@@ -969,7 +1287,8 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       rejectionReason,
     })
 
-    expect(observations).toHaveLength(1)
+    expect(observations).toHaveLength(2)
+    expect(observations[1]?.transitionId).toBe(bootstrap.transitionId)
     expect(causal.hasPendingDelivery).toBe(true)
   })
 
@@ -1029,14 +1348,15 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
       rejectionReason: 'duplicate_transition',
       acceptedCursor: stale.causal.cursorFor(stale.segment, 10),
     })
-    expect(stale.observations).toHaveLength(1)
+    expect(stale.observations).toHaveLength(2)
+    expect(stale.observations[1]?.transitionId).toBe(staleBootstrap.transitionId)
     expect(stale.causal.hasPendingDelivery).toBe(true)
   })
 
   it.each([
     'cursor_not_after_checkpoint',
     'terminal_epoch_closed',
-  ] as const)('uses an authoritative cursor to recover from %s', (rejectionReason) => {
+  ] as const)('retains %s even when rejection reports the current cursor', (rejectionReason) => {
     const observations: AgentObservation[] = []
     const causal = new GrokCausalObserver({
       podiumSessionId: 'podium-authoritative-cursor',
@@ -1075,7 +1395,11 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     })
 
     expect(observations).toHaveLength(2)
-    expect(observations[1]).toMatchObject({ transitionKind: 'turn_opened' })
+    expect(observations[1]).toMatchObject({
+      transitionId: bootstrap.transitionId,
+      transitionKind: 'snapshot',
+    })
+    expect(causal.hasPendingDelivery).toBe(true)
   })
 
   it.each([
@@ -1240,7 +1564,8 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
         observerGeneration: 9,
         bindingVersion: 3,
       })
-      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(2)
+      expect(onExactProviderRebind.mock.calls[1]?.[0]).toEqual(request)
     } finally {
       observer.stop()
     }

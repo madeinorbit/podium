@@ -416,11 +416,18 @@ function tailGrokUpdates(
   let observedWork = false
   const decoder = new BoundedLineDecoder()
 
-  const translateLines = async (lines: DecodedGrokLine[], emit: boolean): Promise<void> => {
+  const translateLines = async (
+    lines: DecodedGrokLine[],
+    emit: boolean,
+  ): Promise<{ backpressured: boolean; processedThrough: number | null }> => {
     const events: AgentStateEvent[] = []
+    let processedThrough: number | null = null
     for (const line of lines) {
       const trimmed = line.text.trim()
-      if (!trimmed) continue
+      if (!trimmed) {
+        processedThrough = line.endOffset
+        continue
+      }
       try {
         const record = JSON.parse(trimmed) as unknown
         const payload = isRecord(record)
@@ -440,8 +447,10 @@ function tailGrokUpdates(
             sourceEventKind: grokSourceEventKind(record),
             providerAt: at ?? null,
           }
-          if (emit) causal.enqueue(evidence)
-          else causal.fold(evidence)
+          if (emit && !causal.enqueue(evidence)) {
+            return { backpressured: true, processedThrough }
+          }
+          if (!emit) causal.fold(evidence)
         } else {
           for (const event of normalized) {
             // Background/tool-only records are activity inside an already-open
@@ -466,8 +475,10 @@ function tailGrokUpdates(
         // Invalid complete records are inert. Torn records remain buffered until
         // their newline arrives and never advance the accepted record boundary.
       }
+      processedThrough = line.endOffset
     }
     if (events.length > 0) onEvents(events)
+    return { backpressured: false, processedThrough }
   }
 
   const readRange = async (
@@ -475,7 +486,7 @@ function tailGrokUpdates(
     start: number,
     end: number,
     emit: boolean,
-  ): Promise<void> => {
+  ): Promise<number> => {
     let position = start
     while (position < end) {
       const length = Math.min(GROK_READ_BYTES, end - position)
@@ -484,10 +495,19 @@ function tailGrokUpdates(
       if (bytesRead === 0) break
       const bytes = chunk.subarray(0, bytesRead)
       const lastNewline = bytes.lastIndexOf(0x0a)
+      const translated = await translateLines(decoder.push(bytes, position), emit)
+      if (translated.backpressured) {
+        decoder.reset()
+        if (translated.processedThrough !== null) {
+          lastCompleteRecordOffset = translated.processedThrough
+          return translated.processedThrough
+        }
+        return position
+      }
       if (lastNewline >= 0) lastCompleteRecordOffset = position + lastNewline + 1
-      await translateLines(decoder.push(bytes, position), emit)
       position += bytesRead
     }
+    return position
   }
 
   const bootstrap = async (
@@ -530,6 +550,7 @@ function tailGrokUpdates(
     if (reading || stopped) return
     reading = true
     try {
+      causal?.retryPending()
       const handle = await open(paths.updatesPath, 'r')
       try {
         const info = await handle.stat()
@@ -563,12 +584,16 @@ function tailGrokUpdates(
           return
         }
         const end = info.size
-        await readRange(handle, readOffset, end, true)
-        readOffset = end
-        const finalRecord = decoder.takeValidFinalRecord(readOffset)
+        readOffset = await readRange(handle, readOffset, end, true)
+        const finalRecord = readOffset === end ? decoder.takeValidFinalRecord(readOffset) : null
         if (finalRecord) {
-          lastCompleteRecordOffset = readOffset
-          await translateLines([finalRecord], true)
+          const translated = await translateLines([finalRecord], true)
+          if (translated.backpressured) {
+            readOffset = lastCompleteRecordOffset
+            decoder.reset()
+          } else {
+            lastCompleteRecordOffset = readOffset
+          }
         }
         prefixAnchor = await readGrokPrefix(handle, readOffset)
         const accepted = causal?.acceptedProviderCursor
