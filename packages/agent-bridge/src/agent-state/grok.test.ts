@@ -898,6 +898,323 @@ describe('Grok durable causal observations ([spec:SP-cdb2])', () => {
     expect(accepted.kind).toBe('snapshot_applied')
   })
 
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('pauses after %s without an authoritative accepted cursor', (rejectionReason) => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-rejected-without-cursor',
+      providerSessionId: 'g-rejected-without-cursor',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T12:30:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-rejected-without-cursor:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    causal.enqueue({
+      record: {},
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+
+    const bootstrap = observations[0]!
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-rejected-without-cursor',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: bootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason,
+    })
+
+    expect(observations).toHaveLength(1)
+    expect(causal.hasPendingDelivery).toBe(true)
+  })
+
+  it('releases an ack-lost duplicate only when the accepted cursor is exact', () => {
+    const makeObserver = (podiumSessionId: string) => {
+      const observations: AgentObservation[] = []
+      const causal = new GrokCausalObserver({
+        podiumSessionId,
+        providerSessionId: 'g-duplicate',
+        bindingVersion: 1,
+        observerGeneration: 1,
+        acceptedCheckpoint: null,
+        now: () => '2026-07-19T12:45:00.000Z',
+        onObservation: (observation) => observations.push(observation),
+      })
+      const segment = {
+        segmentId: 'grok:g-duplicate:1:2:/tmp/updates.jsonl',
+        pathHint: '/tmp/updates.jsonl',
+        device: '1',
+        inode: '2',
+      }
+      causal.finishBootstrap(causal.cursorFor(segment, 0))
+      causal.enqueue({
+        record: {},
+        cursor: causal.cursorFor(segment, 10),
+        events: [{ kind: 'prompt_submitted' }],
+        sourceEventKind: 'update:user_message_chunk',
+        providerAt: null,
+      })
+      return { causal, observations, segment }
+    }
+
+    const exact = makeObserver('podium-exact-duplicate')
+    const exactBootstrap = exact.observations[0]!
+    exact.causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-exact-duplicate',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: exactBootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: exactBootstrap.providerCursor,
+    })
+    expect(exact.observations).toHaveLength(2)
+    expect(exact.observations[1]).toMatchObject({ transitionKind: 'turn_opened' })
+
+    const stale = makeObserver('podium-stale-duplicate')
+    const staleBootstrap = stale.observations[0]!
+    stale.causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-stale-duplicate',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: staleBootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason: 'duplicate_transition',
+      acceptedCursor: stale.causal.cursorFor(stale.segment, 10),
+    })
+    expect(stale.observations).toHaveLength(1)
+    expect(stale.causal.hasPendingDelivery).toBe(true)
+  })
+
+  it.each([
+    'cursor_not_after_checkpoint',
+    'terminal_epoch_closed',
+  ] as const)('uses an authoritative cursor to recover from %s', (rejectionReason) => {
+    const observations: AgentObservation[] = []
+    const causal = new GrokCausalObserver({
+      podiumSessionId: 'podium-authoritative-cursor',
+      providerSessionId: 'g-authoritative-cursor',
+      bindingVersion: 1,
+      observerGeneration: 1,
+      acceptedCheckpoint: null,
+      now: () => '2026-07-19T13:00:00.000Z',
+      onObservation: (observation) => observations.push(observation),
+    })
+    const segment = {
+      segmentId: 'grok:g-authoritative-cursor:1:2:/tmp/updates.jsonl',
+      pathHint: '/tmp/updates.jsonl',
+      device: '1',
+      inode: '2',
+    }
+    causal.finishBootstrap(causal.cursorFor(segment, 0))
+    causal.enqueue({
+      record: {},
+      cursor: causal.cursorFor(segment, 10),
+      events: [{ kind: 'prompt_submitted' }],
+      sourceEventKind: 'update:user_message_chunk',
+      providerAt: null,
+    })
+
+    const bootstrap = observations[0]!
+    causal.acknowledge({
+      type: 'agentObservationAck',
+      sessionId: 'podium-authoritative-cursor',
+      observerGeneration: 1,
+      bindingVersion: 1,
+      transitionId: bootstrap.transitionId,
+      result: 'rejected',
+      rejectionReason,
+      acceptedCursor: bootstrap.providerCursor,
+    })
+
+    expect(observations).toHaveLength(2)
+    expect(observations[1]).toMatchObject({ transitionKind: 'turn_opened' })
+  })
+
+  it.each([
+    { name: 'null fresh binding', priorSessionId: null },
+    { name: 'A to discovered B', priorSessionId: 'g-old-a' },
+  ])('accepts exact rebind for $name before publishing B', async ({ priorSessionId }) => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-rebind-accepted-'))
+    const cwd = '/repo/grok'
+    const candidate = 'g-new-b'
+    const paths = grokSessionPaths({ homeDir: home, cwd, sessionId: candidate })
+    await mkdir(paths.sessionDir, { recursive: true })
+    await writeFile(paths.summaryPath, JSON.stringify({ info: { id: candidate, cwd } }))
+    await writeFile(paths.updatesPath, '')
+
+    const observations: AgentObservation[] = []
+    const onResumeValue = vi.fn()
+    const tailFile = vi.fn()
+    const onExactProviderRebind = vi.fn()
+    const host: HarnessObserverHost = {
+      tailFile,
+      onResumeValue,
+      onTitle: vi.fn(),
+      onStateEvents: vi.fn(),
+      onObservation: (observation) => observations.push(observation),
+      onExactProviderRebind,
+      onTranscriptItems: vi.fn(),
+    }
+    const observer = grokAdapter.observer?.(
+      {
+        cwd,
+        homeDir: home,
+        resumeValue: candidate,
+        podiumSessionId: 'podium-rebind',
+        observationLease: {
+          provider: 'grok',
+          providerSessionId: priorSessionId,
+          bindingVersion: 1,
+          observerGeneration: 7,
+          acceptedCheckpoint: null,
+        },
+      },
+      host,
+    )
+    if (!observer) throw new Error('missing Grok adapter observer')
+
+    try {
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+      const request = onExactProviderRebind.mock.calls[0]?.[0]
+      expect(request).toMatchObject({
+        nextProviderSessionId: candidate,
+        resumeKind: 'grok-session',
+      })
+      expect(onResumeValue).not.toHaveBeenCalled()
+      expect(tailFile).not.toHaveBeenCalled()
+      expect(observations).toEqual([])
+
+      observer.onProviderRebindAck?.({
+        type: 'agentObservationRebindAck',
+        sessionId: 'podium-rebind',
+        provider: 'grok',
+        rebindId: request!.rebindId,
+        priorObserverGeneration: 7,
+        priorBindingVersion: 1,
+        nextProviderSessionId: candidate,
+        providerSessionId: candidate,
+        result: 'accepted',
+        observerGeneration: 8,
+        bindingVersion: 2,
+        checkpoint: null,
+      })
+
+      await waitFor(() => observations.length === 1)
+      expect(onResumeValue).toHaveBeenCalledWith(candidate)
+      expect(tailFile).toHaveBeenCalledWith(paths.chatHistoryPath)
+      expect(observations[0]).toMatchObject({
+        provenance: 'bootstrap',
+        providerSessionId: candidate,
+        observerGeneration: 8,
+        bindingVersion: 2,
+      })
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+    } finally {
+      observer.stop()
+    }
+  })
+
+  it('keeps old A authoritative when exact rebind to B is rejected', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-rebind-rejected-'))
+    const cwd = '/repo/grok'
+    const oldSessionId = 'g-old-a'
+    const candidate = 'g-new-b'
+    const oldPaths = grokSessionPaths({ homeDir: home, cwd, sessionId: oldSessionId })
+    const candidatePaths = grokSessionPaths({ homeDir: home, cwd, sessionId: candidate })
+    for (const paths of [oldPaths, candidatePaths]) {
+      await mkdir(paths.sessionDir, { recursive: true })
+      await writeFile(paths.summaryPath, JSON.stringify({ info: { id: paths.sessionId, cwd } }))
+      await writeFile(paths.updatesPath, '')
+    }
+
+    const observations: AgentObservation[] = []
+    const onResumeValue = vi.fn()
+    const tailFile = vi.fn()
+    const onExactProviderRebind = vi.fn()
+    const host: HarnessObserverHost = {
+      tailFile,
+      onResumeValue,
+      onTitle: vi.fn(),
+      onStateEvents: vi.fn(),
+      onObservation: (observation) => observations.push(observation),
+      onExactProviderRebind,
+      onTranscriptItems: vi.fn(),
+    }
+    const observer = grokAdapter.observer?.(
+      {
+        cwd,
+        homeDir: home,
+        resumeValue: candidate,
+        podiumSessionId: 'podium-rebind-rejected',
+        observationLease: {
+          provider: 'grok',
+          providerSessionId: oldSessionId,
+          bindingVersion: 3,
+          observerGeneration: 9,
+          acceptedCheckpoint: null,
+        },
+      },
+      host,
+    )
+    if (!observer) throw new Error('missing Grok adapter observer')
+
+    try {
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+      const request = onExactProviderRebind.mock.calls[0]?.[0]
+      expect(onResumeValue).not.toHaveBeenCalled()
+      expect(tailFile).not.toHaveBeenCalled()
+      expect(observations).toEqual([])
+
+      observer.onProviderRebindAck?.({
+        type: 'agentObservationRebindAck',
+        sessionId: 'podium-rebind-rejected',
+        provider: 'grok',
+        rebindId: request!.rebindId,
+        priorObserverGeneration: 9,
+        priorBindingVersion: 3,
+        nextProviderSessionId: candidate,
+        providerSessionId: oldSessionId,
+        result: 'rejected',
+        rejectionReason: 'provider_binding_mismatch',
+        observerGeneration: 9,
+        bindingVersion: 3,
+        checkpoint: null,
+      })
+
+      await waitFor(() => observations.length === 1)
+      expect(onResumeValue).toHaveBeenCalledWith(oldSessionId)
+      expect(onResumeValue).not.toHaveBeenCalledWith(candidate)
+      expect(tailFile).toHaveBeenCalledWith(oldPaths.chatHistoryPath)
+      expect(tailFile).not.toHaveBeenCalledWith(candidatePaths.chatHistoryPath)
+      expect(observations[0]).toMatchObject({
+        provenance: 'bootstrap',
+        providerSessionId: oldSessionId,
+        observerGeneration: 9,
+        bindingVersion: 3,
+      })
+      expect(onExactProviderRebind).toHaveBeenCalledTimes(1)
+    } finally {
+      observer.stop()
+    }
+  })
+
   it('routes the adapter lease and durable ack without legacy state effects', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-adapter-'))
     const cwd = '/repo/grok'

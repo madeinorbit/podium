@@ -143,48 +143,120 @@ export const grokAdapter: HarnessAdapter = {
   // floor), so the latest-by-activity session is found even if it predates
   // this daemon process start.
   observer(input, host) {
-    const lease = input.observationLease
-    const causal =
-      lease?.provider === 'grok' && input.podiumSessionId
-        ? {
-            podiumSessionId: input.podiumSessionId,
-            providerSessionId: lease.providerSessionId,
-            bindingVersion: lease.bindingVersion,
-            observerGeneration: lease.observerGeneration,
-            acceptedCheckpoint: lease.acceptedCheckpoint,
-            onObservation: (observation: Parameters<typeof host.onObservation>[0]) =>
-              host.onObservation(observation),
+    let lease = input.observationLease
+    let active: ReturnType<typeof observeGrokState> | undefined
+    let stopped = false
+    let pendingRebind:
+      | {
+          sessionId: string
+          rebindId: string
+          observerGeneration: number
+          bindingVersion: number
+        }
+      | undefined
+
+    const start = (resumeValue: string | undefined): void => {
+      if (stopped) return
+      active?.stop()
+      const causal =
+        lease?.provider === 'grok' && lease.providerSessionId && input.podiumSessionId
+          ? {
+              podiumSessionId: input.podiumSessionId,
+              providerSessionId: lease.providerSessionId,
+              bindingVersion: lease.bindingVersion,
+              observerGeneration: lease.observerGeneration,
+              acceptedCheckpoint: lease.acceptedCheckpoint,
+              onObservation: (observation: Parameters<typeof host.onObservation>[0]) =>
+                host.onObservation(observation),
+            }
+          : undefined
+      active = observeGrokState({
+        cwd: input.cwd,
+        ...(input.statTick ? { statTick: input.statTick } : {}),
+        ...(resumeValue ? { resumeValue } : {}),
+        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
+        onSessionCandidate: (grokSessionId) => {
+          if (!lease) return true
+          if (lease.provider !== 'grok' || !input.podiumSessionId) return false
+          if (lease.providerSessionId === grokSessionId) return true
+          if (!pendingRebind) {
+            const rebindId = [
+              'grok',
+              input.podiumSessionId,
+              lease.observerGeneration,
+              lease.bindingVersion,
+              grokSessionId,
+            ].join(':')
+            pendingRebind = {
+              sessionId: grokSessionId,
+              rebindId,
+              observerGeneration: lease.observerGeneration,
+              bindingVersion: lease.bindingVersion,
+            }
+            host.onExactProviderRebind({
+              nextProviderSessionId: grokSessionId,
+              resumeKind: 'grok-session',
+              rebindId,
+            })
           }
-        : undefined
-    const obs = observeGrokState({
-      cwd: input.cwd,
-      ...(input.statTick ? { statTick: input.statTick } : {}),
-      ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-      ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
-      onSession: (grokSessionId) => {
-        host.onResumeValue(grokSessionId)
-        host.tailFile(
-          // The chat-history path is exact once the native session is bound.
-          grokSessionPaths({
-            cwd: input.cwd,
-            sessionId: grokSessionId,
-            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-          }).chatHistoryPath,
-        )
-      },
-      ...(causal
-        ? { causal }
-        : lease
-          ? {}
-          : {
-              onEvents: (events: Parameters<typeof host.onStateEvents>[0]) =>
-                host.onStateEvents(events),
-            }),
-    })
+          return false
+        },
+        onSession: (grokSessionId) => {
+          host.onResumeValue(grokSessionId)
+          host.tailFile(
+            grokSessionPaths({
+              cwd: input.cwd,
+              sessionId: grokSessionId,
+              ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+            }).chatHistoryPath,
+          )
+        },
+        ...(causal
+          ? { causal }
+          : lease
+            ? {}
+            : {
+                onEvents: (events: Parameters<typeof host.onStateEvents>[0]) =>
+                  host.onStateEvents(events),
+              }),
+      })
+    }
+
+    start(input.resumeValue)
     return {
-      stop: () => obs.stop(),
-      onObservationAck: (ack) => obs.onObservationAck?.(ack),
+      stop() {
+        stopped = true
+        active?.stop()
+      },
+      onObservationAck: (ack) => active?.onObservationAck?.(ack),
+      onProviderRebindAck(ack) {
+        const pending = pendingRebind
+        if (
+          !pending ||
+          ack.provider !== 'grok' ||
+          ack.rebindId !== pending.rebindId ||
+          ack.priorObserverGeneration !== pending.observerGeneration ||
+          ack.priorBindingVersion !== pending.bindingVersion ||
+          ack.nextProviderSessionId !== pending.sessionId
+        ) {
+          return
+        }
+        const acceptedCandidate =
+          ack.result === 'accepted' && ack.providerSessionId === pending.sessionId
+        lease = {
+          provider: 'grok',
+          providerSessionId: ack.providerSessionId,
+          bindingVersion: ack.bindingVersion,
+          observerGeneration: ack.observerGeneration,
+          acceptedCheckpoint: ack.checkpoint,
+        }
+        pendingRebind = undefined
+        active?.stop()
+        active = undefined
+        if (acceptedCandidate) start(pending.sessionId)
+        else if (ack.providerSessionId) start(ack.providerSessionId)
+      },
     }
   },
 
