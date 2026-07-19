@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -64,10 +65,18 @@ export function grokSessionPaths(opts: {
   }
 }
 
-export async function translateGrokUpdatePayload(payload: unknown): Promise<AgentStateEvent[]> {
+interface GrokTranslationOptions {
+  classifyIdleVerdict?: boolean
+  onVerdictRead?: () => void
+}
+
+export async function translateGrokUpdatePayload(
+  payload: unknown,
+  options: GrokTranslationOptions = {},
+): Promise<AgentStateEvent[]> {
   if (!isRecord(payload)) return []
   const directEvent = grokHookEventName(payload)
-  if (directEvent) return grokLifecycleEvents(directEvent, payload, payload)
+  if (directEvent) return grokLifecycleEvents(directEvent, payload, payload, options)
 
   const method = stringField(payload, 'method')
   if (method !== 'session/update' && method !== '_x.ai/session/update') return []
@@ -99,7 +108,10 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
       // 'working') leaves the session stuck 'working' once the turn ends. This is
       // the provider owning its run-state verdict; the reducer only transports it.
       // [spec:SP-8b0e]
-      const verdict = await classifyStopPayload(payload)
+      const verdict =
+        options.classifyIdleVerdict === false
+          ? undefined
+          : await classifyStopPayload(payload, options.onVerdictRead)
       return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
     }
     case 'retry_state': {
@@ -118,7 +130,7 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
       // after turn_completed must not resurrect an idle session.
       return []
     case 'hook_execution':
-      return withEventTime(await grokHookEvents(update, payload), at)
+      return withEventTime(await grokHookEvents(update, payload, options), at)
     default:
       return []
   }
@@ -127,7 +139,8 @@ export async function translateGrokUpdatePayload(payload: unknown): Promise<Agen
 export function classifyGrokIdleTranscript(
   records: unknown[],
 ): { kind: 'done' | 'question' | 'approval'; summary?: string } | undefined {
-  for (let i = records.length - 1; i >= 0; i--) {
+  const floor = Math.max(0, records.length - GROK_IDLE_CLASSIFICATION_RECORDS)
+  for (let i = records.length - 1; i >= floor; i--) {
     const record = records[i]
     if (!isRecord(record) || record.type !== 'assistant') continue
     const text =
@@ -224,6 +237,7 @@ export function observeGrokState(opts: {
   onEvents?: (events: AgentStateEvent[]) => void
   causal?: GrokCausalOptions
   onLivePollComplete?: (providerCursor: ProviderCursor) => void
+  onVerdictRead?: () => void
 }): GrokStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
   // watermarkMs is the spawn time: only sessions created at or after this point
@@ -249,6 +263,7 @@ export function observeGrokState(opts: {
       statTick: opts.statTick,
       onBootstrap: opts.onBootstrap,
       onLivePollComplete: opts.onLivePollComplete,
+      onVerdictRead: opts.onVerdictRead,
       ...(opts.causal ? { causal: { ...opts.causal, providerSessionId: paths.sessionId } } : {}),
     })
   }
@@ -321,11 +336,12 @@ async function grokBootEvents(opts: {
 async function grokHookEvents(
   update: Record<string, unknown>,
   payload: Record<string, unknown>,
+  options: GrokTranslationOptions,
 ): Promise<AgentStateEvent[]> {
   const event = normalizeName(
     stringField(update, 'event_name') ?? stringField(update, 'hook_event_name'),
   )
-  return event ? grokLifecycleEvents(event, update, payload) : []
+  return event ? grokLifecycleEvents(event, update, payload, options) : []
 }
 
 function grokHookEventName(payload: Record<string, unknown>): string | undefined {
@@ -338,6 +354,7 @@ async function grokLifecycleEvents(
   event: string,
   fields: Record<string, unknown>,
   payload: Record<string, unknown>,
+  options: GrokTranslationOptions,
 ): Promise<AgentStateEvent[]> {
   switch (event) {
     case 'session_start':
@@ -361,7 +378,10 @@ async function grokLifecycleEvents(
       return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
     }
     case 'stop': {
-      const verdict = await classifyStopPayload(payload)
+      const verdict =
+        options.classifyIdleVerdict === false
+          ? undefined
+          : await classifyStopPayload(payload, options.onVerdictRead)
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
@@ -402,6 +422,7 @@ function tailGrokUpdates(
     onBootstrap?: (lastCompleteRecordOffset: number) => void
     causal?: GrokObservationLease
     onLivePollComplete?: (providerCursor: ProviderCursor) => void
+    onVerdictRead?: () => void
   } = {},
 ): GrokStateObserver {
   const causal = opts.causal ? new GrokCausalObserver(opts.causal) : undefined
@@ -409,12 +430,40 @@ function tailGrokUpdates(
   let lastCompleteRecordOffset = 0
   let fileIdentity: string | undefined
   let segmentIdentity: Parameters<GrokCausalObserver['beginSegment']>[0] | undefined
-  let prefixAnchor: Buffer<ArrayBufferLike> = Buffer.alloc(0)
+  let rewriteAnchors: GrokRewriteAnchor[] = []
   let first = true
   let stopped = false
   let reading = false
   let observedWork = false
   const decoder = new BoundedLineDecoder()
+  let integrityHash = createHash('sha256')
+  let integrityHashedThrough = 0
+  const integrityWitnesses = new Map<number, string>()
+
+  const extendIntegrity = (bytes: Buffer, position: number): void => {
+    if (position !== integrityHashedThrough) return
+    let start = 0
+    for (let index = 0; index < bytes.length; index += 1) {
+      if (bytes[index] !== 0x0a) continue
+      integrityHash.update(bytes.subarray(start, index + 1))
+      integrityWitnesses.set(position + index + 1, integrityHash.copy().digest('hex'))
+      start = index + 1
+    }
+    integrityHash.update(bytes.subarray(start))
+    integrityHashedThrough = position + bytes.length
+    integrityWitnesses.set(integrityHashedThrough, integrityHash.copy().digest('hex'))
+  }
+
+  const resetIntegrity = async (
+    handle: Awaited<ReturnType<typeof open>>,
+    through: number,
+  ): Promise<Map<number, string>> => {
+    const seeded = await seedGrokIntegrity(handle, through, [through])
+    integrityHash = seeded.hash
+    integrityHashedThrough = through
+    integrityWitnesses.clear()
+    return seeded.witnesses
+  }
 
   const translateLines = async (
     lines: DecodedGrokLine[],
@@ -423,6 +472,8 @@ function tailGrokUpdates(
     const events: AgentStateEvent[] = []
     let processedThrough: number | null = null
     for (const line of lines) {
+      const lineIntegrity = integrityWitnesses.get(line.endOffset)
+      integrityWitnesses.delete(line.endOffset)
       const trimmed = line.text.trim()
       if (!trimmed) {
         processedThrough = line.endOffset
@@ -433,7 +484,10 @@ function tailGrokUpdates(
         const payload = isRecord(record)
           ? { ...record, chat_history_path: paths.chatHistoryPath }
           : record
-        const next = await translateGrokUpdatePayload(payload)
+        const next = await translateGrokUpdatePayload(payload, {
+          classifyIdleVerdict: emit,
+          onVerdictRead: opts.onVerdictRead,
+        })
         if (isAvailableCommandsUpdate(payload) && (causal || observedWork)) {
           next.push({ kind: 'turn_completed' })
         }
@@ -442,7 +496,12 @@ function tailGrokUpdates(
         if (causal && segmentIdentity && isRecord(record)) {
           const evidence = {
             record,
-            cursor: causal.cursorFor(segmentIdentity, line.endOffset),
+            cursor: causal.cursorFor(
+              segmentIdentity,
+              line.endOffset,
+              lineIntegrity ?? segmentIdentity.integrity,
+              line.endOffset,
+            ),
             events: normalized,
             sourceEventKind: grokSourceEventKind(record),
             providerAt: at ?? null,
@@ -495,9 +554,11 @@ function tailGrokUpdates(
       if (bytesRead === 0) break
       const bytes = chunk.subarray(0, bytesRead)
       const lastNewline = bytes.lastIndexOf(0x0a)
+      if (emit) extendIntegrity(bytes, position)
       const translated = await translateLines(decoder.push(bytes, position), emit)
       if (translated.backpressured) {
         decoder.reset()
+        await resetIntegrity(handle, translated.processedThrough ?? position)
         if (translated.processedThrough !== null) {
           lastCompleteRecordOffset = translated.processedThrough
           return translated.processedThrough
@@ -522,13 +583,45 @@ function tailGrokUpdates(
     // history once without live callbacks, then begin strictly after it.
     // Historical files may be large, so both scanning and parsing are chunked.
     const boundary = await lastCompleteGrokRecordOffset(handle, size)
+    const accepted = causal?.acceptedProviderCursor
+    const sameAcceptedFile =
+      accepted?.pathHint === paths.updatesPath &&
+      accepted.device === device &&
+      accepted.inode === inode
+    const acceptedOffset = accepted?.components.updates
+    const acceptedWitnessBytes = accepted?.components.integrityBytes
+    const resumableWitness =
+      sameAcceptedFile &&
+      Number.isSafeInteger(acceptedOffset) &&
+      acceptedOffset !== undefined &&
+      acceptedOffset <= boundary &&
+      acceptedWitnessBytes === acceptedOffset
+    const integrityBytes = boundary
+    const seededIntegrity = await seedGrokIntegrity(
+      handle,
+      boundary,
+      resumableWitness ? [acceptedOffset] : [],
+    )
+    const integrity = seededIntegrity.witnesses.get(boundary)!
+    const integrityMismatch = Boolean(
+      sameAcceptedFile &&
+        (!resumableWitness ||
+          accepted?.integrity === undefined ||
+          accepted.integrity !== seededIntegrity.witnesses.get(acceptedOffset!)),
+    )
+    integrityHash = seededIntegrity.hash
+    integrityHashedThrough = boundary
+    integrityWitnesses.clear()
     segmentIdentity = {
-      segmentId: `grok:${paths.sessionId}:${device}:${inode}:${paths.updatesPath}`,
+      segmentId: ['grok', paths.sessionId, device, inode, paths.updatesPath].join(':'),
       pathHint: paths.updatesPath,
       device,
       inode,
+      integrity,
+      integrityBytes,
     }
-    const start = causal?.beginSegment(segmentIdentity, boundary, forceSuccessor) ?? 0
+    const start =
+      causal?.beginSegment(segmentIdentity, boundary, forceSuccessor || integrityMismatch) ?? 0
     decoder.reset()
     observedWork = false
     await readRange(handle, start, boundary, false)
@@ -538,7 +631,7 @@ function tailGrokUpdates(
     readOffset = boundary
     lastCompleteRecordOffset = boundary
     fileIdentity = identity
-    prefixAnchor = await readGrokPrefix(handle, boundary)
+    rewriteAnchors = await readGrokRewriteAnchors(handle, boundary)
     first = false
     if (causal && segmentIdentity) {
       causal.finishBootstrap(causal.cursorFor(segmentIdentity, boundary))
@@ -557,12 +650,12 @@ function tailGrokUpdates(
         const identity = `${info.dev}:${info.ino}`
         const device = String(info.dev)
         const inode = String(info.ino)
-        const prefixChanged =
+        const rewritten =
           !first &&
           identity === fileIdentity &&
-          prefixAnchor.length > 0 &&
-          !(await grokPrefixMatches(handle, prefixAnchor, info.size))
-        if (first || identity !== fileIdentity || info.size < readOffset || prefixChanged) {
+          rewriteAnchors.length > 0 &&
+          !(await grokRewriteAnchorsMatch(handle, rewriteAnchors, info.size))
+        if (first || identity !== fileIdentity || info.size < readOffset || rewritten) {
           if (causal?.hasPendingDelivery) return
           // Rotation/replacement/truncation is a new bootstrap segment. Never
           // replay the replacement prefix through the live callback.
@@ -595,7 +688,7 @@ function tailGrokUpdates(
             lastCompleteRecordOffset = readOffset
           }
         }
-        prefixAnchor = await readGrokPrefix(handle, readOffset)
+        rewriteAnchors = await readGrokRewriteAnchors(handle, readOffset)
         const accepted = causal?.acceptedProviderCursor
         if (
           accepted &&
@@ -638,27 +731,69 @@ function tailGrokUpdates(
 const GROK_READ_BYTES = 64 * 1024
 const GROK_MAX_RECORD_BYTES = 1024 * 1024
 const GROK_PREFIX_ANCHOR_BYTES = 256
+const GROK_IDLE_CLASSIFICATION_RECORDS = 256
 
-async function readGrokPrefix(
+async function seedGrokIntegrity(
   handle: Awaited<ReturnType<typeof open>>,
   through: number,
-): Promise<Buffer> {
-  const length = Math.min(GROK_PREFIX_ANCHOR_BYTES, through)
-  if (length === 0) return Buffer.alloc(0)
-  const prefix = Buffer.alloc(length)
-  const { bytesRead } = await handle.read(prefix, 0, length, 0)
-  return prefix.subarray(0, bytesRead)
+  checkpoints: number[],
+): Promise<{
+  hash: ReturnType<typeof createHash>
+  witnesses: Map<number, string>
+}> {
+  const hash = createHash('sha256')
+  const witnesses = new Map<number, string>()
+  const targets = [...new Set([...checkpoints, through])].sort((left, right) => left - right)
+  let offset = 0
+  for (const target of targets) {
+    while (offset < target) {
+      const length = Math.min(GROK_READ_BYTES, target - offset)
+      const chunk = Buffer.alloc(length)
+      const { bytesRead } = await handle.read(chunk, 0, length, offset)
+      if (bytesRead === 0) break
+      hash.update(chunk.subarray(0, bytesRead))
+      offset += bytesRead
+    }
+    if (offset === target) witnesses.set(target, hash.copy().digest('hex'))
+  }
+  return { hash, witnesses }
 }
 
-async function grokPrefixMatches(
+interface GrokRewriteAnchor {
+  offset: number
+  bytes: Buffer
+}
+
+async function readGrokRewriteAnchors(
   handle: Awaited<ReturnType<typeof open>>,
-  expected: Buffer,
+  through: number,
+): Promise<GrokRewriteAnchor[]> {
+  if (through === 0) return []
+  const length = Math.min(GROK_PREFIX_ANCHOR_BYTES, through)
+  const offsets = [
+    ...new Set([0, Math.max(0, Math.floor((through - length) / 2)), through - length]),
+  ]
+  const anchors: GrokRewriteAnchor[] = []
+  for (const offset of offsets) {
+    const bytes = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(bytes, 0, length, offset)
+    anchors.push({ offset, bytes: bytes.subarray(0, bytesRead) })
+  }
+  return anchors
+}
+
+async function grokRewriteAnchorsMatch(
+  handle: Awaited<ReturnType<typeof open>>,
+  anchors: GrokRewriteAnchor[],
   size: number,
 ): Promise<boolean> {
-  if (size < expected.length) return false
-  const actual = Buffer.alloc(expected.length)
-  const { bytesRead } = await handle.read(actual, 0, actual.length, 0)
-  return bytesRead === expected.length && actual.equals(expected)
+  for (const anchor of anchors) {
+    if (size < anchor.offset + anchor.bytes.length) return false
+    const actual = Buffer.alloc(anchor.bytes.length)
+    const { bytesRead } = await handle.read(actual, 0, actual.length, anchor.offset)
+    if (bytesRead !== anchor.bytes.length || !actual.equals(anchor.bytes)) return false
+  }
+  return true
 }
 
 interface DecodedGrokLine {
@@ -791,12 +926,14 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
 
 async function classifyStopPayload(
   payload: Record<string, unknown>,
+  onVerdictRead?: () => void,
 ): Promise<{ kind: 'done' | 'question' | 'approval'; summary?: string } | undefined> {
   const path =
     stringField(payload, 'chat_history_path') ??
     stringField(payload, 'chatHistoryPath') ??
     grokHookChatHistoryPath(payload)
   if (!path) return undefined
+  onVerdictRead?.()
   try {
     return classifyGrokIdleTranscript(await readGrokChatHistoryTail(path))
   } catch {

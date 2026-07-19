@@ -360,6 +360,21 @@ describe('ClaudeCausalObserver [spec:SP-cdb2]', () => {
     )
   })
 
+  it('bounds pending input origins and seen hook identities', async () => {
+    const causal = observer()
+    causal.bootstrap()
+    for (let index = 0; index < 100; index += 1) causal.recordInputOrigin('human')
+    expect(causal.pendingInputOriginCount).toBe(64)
+
+    for (let index = 0; index < 400; index += 1) {
+      await causal.observeHook(
+        hook('PreToolUse', { prompt_id: 'p1', tool_use_id: `tool-${index}` }),
+        100 + index,
+      )
+    }
+    expect(causal.seenRecordCount).toBe(256)
+  })
+
   it('makes terminal absorbing: duplicate stop and late same-epoch hooks emit nothing', async () => {
     const causal = observer()
     causal.bootstrap()

@@ -4287,9 +4287,10 @@ export class SessionsService {
         const session = this.sessions.get(observation.podiumSessionId)
         if (!session || session.machineId !== machineId) break
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
-        const lease =
-          this.observationLeases.get(observation.podiumSessionId) ??
-          this.store.observationCheckpoints.get(observation.podiumSessionId)
+        // Durable state is authoritative: a foreign daemon or reattach may
+        // have advanced the lease since this process cached it.
+        const lease = this.store.observationCheckpoints.get(observation.podiumSessionId)
+        if (lease) this.observationLeases.set(observation.podiumSessionId, lease)
         const outcome =
           observation.podiumSessionId !== session.sessionId || !lease
             ? ({ kind: 'rejected', rejectionReason: 'legacy_unfenced_observation' } as const)

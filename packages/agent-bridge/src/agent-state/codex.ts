@@ -733,15 +733,6 @@ function authoritativeCodexCheckpoint(
     : null
 }
 
-function sameProviderFile(left: ProviderCursor, right: ProviderCursor): boolean {
-  return (
-    left.segmentId === right.segmentId &&
-    left.pathHint === right.pathHint &&
-    left.device === right.device &&
-    left.inode === right.inode
-  )
-}
-
 function codexBootstrapFromCheckpoint(
   checkpoint: SessionObservationCheckpointV1,
   providerCursor: ProviderCursor,
@@ -923,7 +914,12 @@ export class CodexCausalCursorObserver {
       }
     } else {
       event = events[0]
-      if (!event) return null
+      if (!event) {
+        // Metadata-only records still carry causal identity used by the next
+        // phase edge. Retain it locally until an observation can durably advance.
+        this.accepted = { ...this.accepted, providerTurnId: next.providerTurnId }
+        return null
+      }
       if (event.kind === 'session_ended') {
         next.turnOpen = false
         transitionKind = 'session_terminal'
@@ -999,17 +995,21 @@ export class CodexCausalCursorObserver {
     if (ack.result === 'rejected' && !duplicate) {
       const checkpoint = authoritativeCodexCheckpoint(this.config, ack.checkpoint)
       if (!checkpoint?.providerCursor) return true
-      const rejectedCursor = pending.observation.providerCursor
       const durableOffset = checkpoint.providerCursor.components.file ?? 0
       this.accepted = codexBootstrapFromCheckpoint(checkpoint, checkpoint.providerCursor)
-      this.physicalReadOffset = sameProviderFile(checkpoint.providerCursor, rejectedCursor)
-        ? Math.max(durableOffset, rejectedCursor.components.file ?? 0)
-        : durableOffset
+      this.physicalReadOffset = durableOffset
       this.pending = null
       this.recoveredCheckpoint = checkpoint
       return true
     }
-    this.accepted = pending.next
+    const checkpoint = authoritativeCodexCheckpoint(this.config, ack.checkpoint)
+    this.accepted = checkpoint?.providerCursor
+      ? codexBootstrapFromCheckpoint(checkpoint, checkpoint.providerCursor)
+      : pending.next
+    if (checkpoint?.providerCursor) {
+      this.physicalReadOffset = checkpoint.providerCursor.components.file ?? this.physicalReadOffset
+      this.recoveredCheckpoint = checkpoint
+    }
     this.pending = null
     return true
   }
@@ -1088,6 +1088,7 @@ export function observeCodexState(opts: {
   onTitle?: (title: string) => void
   onEvents: (events: AgentStateEvent[]) => void
   causal?: CodexCausalStateOptions
+  onBootstrapFold?: () => void
 }): CodexStateObservation {
   const codexHome = join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
@@ -1231,12 +1232,17 @@ export function observeCodexState(opts: {
     const causal = opts.causal
     if (!causal) return false
     if (!threadId || !rolloutPath) return true
+    if (requestedRebindSessionId && causal.providerSessionId !== requestedRebindSessionId) {
+      requestCausalRebind(requestedRebindSessionId)
+      return true
+    }
     if (causal.providerSessionId !== threadId) {
       requestCausalRebind(threadId)
       return true
     }
     if (causalObserver) return true
     const activePath = rolloutPath
+    opts.onBootstrapFold?.()
     const folded = await foldCodexRolloutBootstrap(
       activePath,
       causalAcceptedCheckpoint,

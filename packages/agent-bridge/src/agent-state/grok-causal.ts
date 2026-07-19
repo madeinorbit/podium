@@ -27,6 +27,7 @@ export interface GrokRecordEvidence {
   events: AgentStateEvent[]
   sourceEventKind: string
   providerAt: string | null
+  eventBase?: number
 }
 
 const MAX_BUFFERED_GROK_RECORDS = 64
@@ -36,6 +37,8 @@ export type GrokSegmentIdentity = {
   pathHint: string
   device: string
   inode: string
+  integrity?: string
+  integrityBytes?: number
 }
 
 /**
@@ -52,6 +55,7 @@ export class GrokCausalObserver {
   private epochOpen: boolean
   private predecessorSegmentId: string | undefined
   private acceptedCursor: ProviderCursor | null
+  private transitionSequence: number
   private readonly queued: GrokRecordEvidence[] = []
   private inFlight: AgentObservation | null = null
   private nextRetryAt = 0
@@ -65,6 +69,7 @@ export class GrokCausalObserver {
     this.providerTurnId = checkpoint?.providerTurnId ?? null
     this.providerPromptId = checkpoint?.providerPromptId ?? null
     this.acceptedCursor = checkpoint?.providerCursor ?? null
+    this.transitionSequence = checkpoint?.providerCursor?.components.transition ?? 0
     this.epochOpen =
       checkpoint?.terminalFence === null &&
       (this.state.phase === 'working' ||
@@ -113,7 +118,15 @@ export class GrokCausalObserver {
         acceptedOffset > boundary)
     if (accepted && (forceSuccessor || sameSegmentInvalid)) {
       identity.segmentId = createHash('sha256')
-        .update([accepted.segmentId, 'successor', identity.pathHint, boundary].join('|'))
+        .update(
+          [
+            accepted.segmentId,
+            'successor',
+            identity.pathHint,
+            boundary,
+            identity.integrity ?? '',
+          ].join('|'),
+        )
         .digest('hex')
     }
     const exact = accepted?.segmentId === identity.segmentId && sameFile
@@ -126,8 +139,17 @@ export class GrokCausalObserver {
     return 0
   }
 
-  cursorFor(identity: GrokSegmentIdentity, offset: number): ProviderCursor {
-    return grokProviderCursor(identity, offset, this.predecessorSegmentId)
+  cursorFor(
+    identity: GrokSegmentIdentity,
+    offset: number,
+    integrity = identity.integrity,
+    integrityBytes = identity.integrityBytes,
+  ): ProviderCursor {
+    return grokProviderCursor(
+      { ...identity, integrity, integrityBytes },
+      offset,
+      this.predecessorSegmentId,
+    )
   }
 
   fold(record: GrokRecordEvidence): void {
@@ -181,7 +203,13 @@ export class GrokCausalObserver {
       this.retryPending(true)
       return
     }
+    const checkpoint = this.authoritativeCheckpoint(ack.checkpoint)
+    if (checkpoint) {
+      this.adoptCheckpoint(checkpoint)
+      return
+    }
     this.acceptedCursor = acceptedCursor ?? current.providerCursor
+    this.transitionSequence = this.acceptedCursor.components.transition ?? this.transitionSequence
     this.restoreAcceptedCheckpoint(this.acceptedCursor)
     this.inFlight = null
     this.nextRetryAt = 0
@@ -210,6 +238,7 @@ export class GrokCausalObserver {
     this.providerTurnId = checkpoint.providerTurnId
     this.providerPromptId = checkpoint.providerPromptId
     this.acceptedCursor = cursor
+    this.transitionSequence = cursor.components.transition ?? 0
     this.epochOpen =
       checkpoint.terminalFence === null &&
       (this.state.phase === 'working' ||
@@ -223,7 +252,9 @@ export class GrokCausalObserver {
           record.cursor.pathHint !== cursor.pathHint ||
           record.cursor.device !== cursor.device ||
           record.cursor.inode !== cursor.inode ||
-          (record.cursor.components.updates ?? 0) > durableOffset,
+          (record.cursor.components.updates ?? 0) > durableOffset ||
+          ((record.cursor.components.updates ?? 0) === durableOffset &&
+            (record.cursor.components.transition ?? 0) > (cursor.components.transition ?? 0)),
       )
       this.queued.splice(0, this.queued.length, ...retained)
     }
@@ -273,16 +304,18 @@ export class GrokCausalObserver {
         this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId'])
         const prior = this.state
         this.state = reduceAgentState(prior, event, this.now())
-        if (live && !result) {
+        if (live) {
           result = this.observation({
-            cursor: record.cursor,
+            cursor: this.transitionCursor(record.cursor),
             sourceEventKind: record.sourceEventKind,
             transitionKind: 'turn_opened',
             provenance: 'live',
             priorPhase: prior.phase,
             providerAt: record.providerAt,
-            identity: recordIdentity(record, index),
+            identity: recordIdentity(record, (record.eventBase ?? 0) + index),
           })
+          this.requeueRemaining(record, index)
+          return result
         }
         continue
       }
@@ -299,9 +332,9 @@ export class GrokCausalObserver {
       this.state = next
       this.providerTurnId = nativeId(record.record, ['turn_id', 'turnId']) ?? this.providerTurnId
       if (terminal) this.epochOpen = false
-      if (live && !result) {
+      if (live) {
         result = this.observation({
-          cursor: record.cursor,
+          cursor: this.transitionCursor(record.cursor),
           sourceEventKind: record.sourceEventKind,
           transitionKind:
             event.kind === 'session_ended'
@@ -316,11 +349,36 @@ export class GrokCausalObserver {
           provenance: 'live',
           priorPhase: prior.phase,
           providerAt: record.providerAt,
-          identity: recordIdentity(record, index),
+          identity: recordIdentity(record, (record.eventBase ?? 0) + index),
         })
+        this.requeueRemaining(record, index)
+        return result
       }
     }
     return result
+  }
+
+  private requeueRemaining(record: GrokRecordEvidence, index: number): void {
+    const events = record.events.slice(index + 1)
+    if (events.length > 0) {
+      this.queued.unshift({
+        ...record,
+        cursor: {
+          ...record.cursor,
+          components: { ...record.cursor.components, transition: this.transitionSequence + 1 },
+        },
+        events,
+        eventBase: (record.eventBase ?? 0) + index + 1,
+      })
+    }
+  }
+
+  private transitionCursor(cursor: ProviderCursor): ProviderCursor {
+    this.transitionSequence += 1
+    return {
+      ...cursor,
+      components: { ...cursor.components, transition: this.transitionSequence },
+    }
   }
 
   private deliver(observation: AgentObservation): void {
@@ -387,7 +445,11 @@ export function grokProviderCursor(
     pathHint: identity.pathHint,
     device: identity.device,
     inode: identity.inode,
-    components: { updates: offset },
+    ...(identity.integrity ? { integrity: identity.integrity } : {}),
+    components: {
+      updates: offset,
+      ...(identity.integrityBytes !== undefined ? { integrityBytes: identity.integrityBytes } : {}),
+    },
   }
 }
 
@@ -397,7 +459,8 @@ function sameCursor(left: ProviderCursor | null, right: ProviderCursor): boolean
     left.pathHint === right.pathHint &&
     left.device === right.device &&
     left.inode === right.inode &&
-    left.components.updates === right.components.updates
+    left.integrity === right.integrity &&
+    JSON.stringify(left.components) === JSON.stringify(right.components)
   )
 }
 

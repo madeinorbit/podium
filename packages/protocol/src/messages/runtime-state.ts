@@ -86,6 +86,7 @@ export const ProviderCursor = z.object({
   pathHint: z.string().optional(),
   device: z.string().optional(),
   inode: z.string().optional(),
+  integrity: z.string().min(1).optional(),
   components: z.record(z.string().min(1), z.number().int().nonnegative()),
 })
 export type ProviderCursor = z.infer<typeof ProviderCursor>

@@ -180,6 +180,58 @@ describe('causal session observation gate', () => {
     store.close()
   })
 
+  it('routes a foreign lease advance to an explicit rejection acknowledgement', () => {
+    const store = new SessionStore(':memory:')
+    const sent: ControlMessage[] = []
+    const reg = new SessionRegistry(store)
+    reg.modules.sessions.attachDaemon('local', (msg) => sent.push(msg))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/proj',
+    })
+    store.observationCheckpoints.advanceGeneration(sessionId, 'codex', null)
+
+    expect(() =>
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentObservation',
+        observation: {
+          podiumSessionId: sessionId,
+          provider: 'codex',
+          providerSessionId: null,
+          bindingVersion: 1,
+          providerTurnId: null,
+          providerPromptId: null,
+          observerGeneration: 1,
+          providerCursor: { segmentId: 'rollout-stale', components: { file: 10 } },
+          providerAt: at(10),
+          receivedAt: at(11),
+          sourceEventKind: 'rollout_fold',
+          transitionKind: 'snapshot',
+          provenance: 'bootstrap',
+          inputOrigin: 'provider',
+          turnEpoch: 0,
+          priorPhase: 'unknown',
+          nextPhase: 'idle',
+          transitionId: 'stale-foreign-lease',
+          state: runtime('idle', 10),
+        },
+      }),
+    ).not.toThrow()
+    expect(sent.at(-1)).toMatchObject({
+      type: 'agentObservationAck',
+      sessionId,
+      transitionId: 'stale-foreign-lease',
+      result: 'rejected',
+      rejectionReason: 'stale_observer_generation',
+    })
+    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+      observationGeneration: 2,
+      checkpoint: null,
+    })
+    reg.dispose()
+    store.close()
+  })
+
   it('atomically rebinds an exact native session without phase or notification effects', () => {
     const store = new SessionStore(':memory:')
     const sent: ControlMessage[] = []

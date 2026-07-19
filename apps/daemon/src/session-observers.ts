@@ -169,6 +169,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   >()
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
+  const MAX_PENDING_CLAUDE_ORIGINS = 64
   const claudeStarting = new Map<string, unknown[]>()
   const pendingBindingHooks = new Map<string, Map<string, unknown>>()
   const liveConfirmationStates = new Map<
@@ -877,8 +878,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (!origin) return
     const causal = claudeCausal.get(sessionId)
     if (causal) causal.observer.recordInputOrigin(origin)
-    else
-      pendingClaudeOrigins.set(sessionId, [...(pendingClaudeOrigins.get(sessionId) ?? []), origin])
+    else {
+      const pending = pendingClaudeOrigins.get(sessionId) ?? []
+      pending.push(origin)
+      if (pending.length > MAX_PENDING_CLAUDE_ORIGINS) pending.shift()
+      pendingClaudeOrigins.set(sessionId, pending)
+    }
   }
 
   // Live-tail SEED window (POD-613): the first read only refills the server's
