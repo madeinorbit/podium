@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium loop inventory &amp; split plan — 2026-07-17</title>
+<style>
+  :root { --fg:#1a1a1a; --bg:#ffffff; --muted:#6b7280; --line:#e5e7eb; --accent:#0f6b8c; --warn:#b45309; --hot:#b91c1c; --ok:#15803d; --card:#f8fafc; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e5e7eb; --bg:#111418; --muted:#9ca3af; --line:#2d333b; --accent:#5cc8e8; --warn:#f59e0b; --hot:#f87171; --ok:#4ade80; --card:#1a1f26; } }
+  body { font:15px/1.55 system-ui,-apple-system,sans-serif; color:var(--fg); background:var(--bg); margin:0; padding:2rem 1rem 6rem; }
+  main { max-width:1100px; margin:0 auto; }
+  h1 { font-size:1.6rem; margin:.2rem 0 .3rem; } h2 { font-size:1.25rem; margin:2.2rem 0 .6rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; }
+  h3 { font-size:1.02rem; margin:1.4rem 0 .4rem; }
+  .sub { color:var(--muted); margin:0 0 1.4rem; }
+  table { border-collapse:collapse; width:100%; font-size:.86rem; margin:.6rem 0 1rem; }
+  th,td { border:1px solid var(--line); padding:.38rem .55rem; text-align:left; vertical-align:top; }
+  th { background:var(--card); font-weight:600; }
+  code { font-family:var(--mono); font-size:.85em; background:var(--card); padding:.08em .3em; border-radius:3px; }
+  .tablewrap { overflow-x:auto; }
+  .hot { color:var(--hot); font-weight:600; } .warm { color:var(--warn); font-weight:600; } .ok { color:var(--ok); font-weight:600; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding: .9rem 1.1rem; margin: .8rem 0; }
+  .k { color:var(--accent); font-family:var(--mono); font-size:.85em; }
+  ul { margin:.3rem 0 .8rem; padding-left:1.3rem; } li { margin:.25rem 0; }
+  .small { font-size:.82rem; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>Podium loop inventory &amp; split plan</h1>
+<p class="sub">2026-07-17 · POD-829 · measured on ludovico (8 cores, 24GB) at world size <b>588 sessions</b> (106 live), <b>794 issues</b>, 52 claude processes, ~65 abduco PTYs. Cost figures are measured where noted, otherwise derived from those measurements.</p>
+
+<div class="card">
+<b>TL;DR.</b> Both processes are single event loops that mix <i>interactive</i> work (WS frames, tRPC, PTY relay) with <i>O(world) housekeeping</i> on the same thread. The server's dominant recurring cost is the <b>broadcast pipeline</b> (wire-build + JSON diffing of all 588 sessions on nearly every state change, ~90–150ms per run, several runs/sec under load); until today it also had the 60s message sweep at 8s/run (fixed, POD-817). The daemon's dominant cost is <b>PTY output relay + transcript parsing</b>, which is already reasonably tiered. The right split is: (1) kill O(world) byte-diffing with revision counters, (2) move snapshot serialization to a Bun Worker, (3) move janitor timers to a separate process that talks to the server over the existing WS/tRPC surface, (4) keep per-session tailer parsing budgeted (it already yields). Primitives: Bun <code>Worker</code> (already proven in the daemon), <code>Bun.spawn</code>/systemd sibling processes over the existing protocol, WAL SQLite multi-process reads, revision integers instead of byte-compare.</div>
+
+<h2>1 · Host reality (why it's slow even with auto-hibernation)</h2>
+<div class="tablewrap"><table>
+<tr><th>Consumer</th><th>Measured</th><th>Note</th></tr>
+<tr><td>3–5 <b>working</b> claude agents</td><td>30–50% of a core <i>each</i></td><td>legitimately busy (thinking, tool calls, builds)</td></tr>
+<tr><td>49 <b>idle</b> claude agents</td><td>~1.6% core each ⇒ <b>~80% of one core, continuously</b></td><td>heartbeats, MCP servers, watchers — measured over 5s: 52 procs totalled 185% core with only 3 busy</td></tr>
+<tr><td>52 claude agents, RSS</td><td>250–450MB each ⇒ <b>~15–19GB</b></td><td>the box has 24GB ⇒ permanently ≥80% memory, 12.8GB swapped</td></tr>
+<tr><td>podium-server / podium-daemon</td><td>~30% / ~40–50% core</td><td>see loop tables below</td></tr>
+<tr><td>esbuild watchers, camoufox, tailscaled</td><td>~15% + 29% + 14% core</td><td>dev-server watch mode & browser automation left running</td></tr>
+<tr><td>Disk</td><td>99% full (3.5GB free)</td><td>~/src is 76GB; slows SQLite, builds, swap</td></tr>
+</table></div>
+<p><b>Why hibernation doesn't save you:</b> it fires at most <b>1 session/min/machine</b>, only for sessions idle <b>≥30min</b> with a 60s-quiet PTY, never <code>needs_user</code>/working — and mail nudges, sweep deliveries and offer bars keep resetting <code>lastInputAt</code>, so busy issues never age into eligibility. Meanwhile each <i>parked</i> candidate only returns ~300MB; the standing population of 50+ processes regenerates faster than 60/hour can park. The bottleneck is <b>memory</b> (swap → I/O stalls → everything feels wedged), not the idle agents' CPU.</p>
+
+<h2>2 · Server loops — what runs, how often, what it costs</h2>
+<p class="small">World-size cost anchors, measured live: <span class="k">listSessions()</span> (full wire meta of 588 sessions) ≈ <b>43–50ms</b> (derived from POD-817: 166 calls ≈ 8.4s; 77 calls ≈ 3.3s). <span class="k">publishIssues</span> full rebuild ≈ <b>700ms</b> (measured pre-memo, POD-279 audit; now dirty-scoped, POD-723). <span class="k">quota.summary</span> RPC ≈ <b>600ms</b> (measured, recurring).</p>
+
+<h3>2a · Fixed-interval timers</h3>
+<div class="tablewrap"><table>
+<tr><th>Loop</th><th>Where</th><th>Cadence</th><th>Work per tick</th><th>Cost/tick</th><th>Cost/min</th></tr>
+<tr><td>Client WS heartbeat</td><td><code>wsServer.ts:338</code></td><td>15s</td><td>ping/terminate every client socket</td><td>&lt;1ms</td><td class="ok">negligible</td></tr>
+<tr><td>Daemon WS heartbeat</td><td><code>wsServer.ts:345</code></td><td>10s</td><td>ping/terminate daemon links</td><td>&lt;1ms</td><td class="ok">negligible</td></tr>
+<tr><td><b>messages sweep</b></td><td><code>relay.ts:1129</code></td><td>60s</td><td>expire + re-attempt every queued row (77)</td><td>was <b>8,400ms</b> → now ~50–100ms (one listSessions + cheap rows) — POD-817</td><td class="ok">~0.1s (was 8.4s ⇒ 14% of a core and a full loop freeze)</td></tr>
+<tr><td>activity flush</td><td><code>sessions/service.ts:266</code></td><td>12s</td><td>persist dirty-activity sessions (SQLite writes)</td><td>1–20ms, dirty-gated</td><td class="ok">~50ms</td></tr>
+<tr><td>Automations tick</td><td><code>automations/scheduler.ts:29</code></td><td>30s</td><td>cron eval over stored automations; on fire: spawn + ledger commit + 2 publishes</td><td>&lt;1ms idle; <span class="warm">10–700ms on fire</span> (publish tail)</td><td class="ok">negligible idle</td></tr>
+<tr><td>Steward poll</td><td><code>steward.ts:225</code></td><td>15s</td><td>read podium_events past cursor; on events: handlers + <span class="warm">subscriptions × events × listSessions</span></td><td>&lt;1ms empty; bursts scale with issue churn</td><td class="warm">spiky — every handler batch can pull a 45ms listSessions + issues().get per event (see §4 H3/H4)</td></tr>
+<tr><td>Typing refresh</td><td><code>messaging/service.ts:407</code></td><td>4s per active reply</td><td>external sendTyping</td><td>I/O only</td><td class="ok">negligible</td></tr>
+<tr><td>Watchdog pet</td><td><code>runtime/sd-notify.ts:46</code></td><td>WatchdogSec/2</td><td>1 socket write — <b>but a wedged loop missing it = systemd restart</b></td><td>~0</td><td class="ok">the reason loop stalls become restarts</td></tr>
+</table></div>
+
+<h3>2b · Scheduled/cron jobs</h3>
+<div class="tablewrap"><table>
+<tr><th>Job</th><th>Where</th><th>Cadence</th><th>Work</th><th>Cost</th></tr>
+<tr><td>Event-log retention</td><td><code>events/retention.ts:26</code></td><td>6h (boot+60s)</td><td>SQL prune of podium_events (14d / 50k rows)</td><td class="warm">one big DELETE; podium_events is 7MB — tens of ms, on-loop</td></tr>
+<tr><td>Issue auto-archive</td><td><code>issues/auto-archive.ts:24</code></td><td>1h (boot+90s)</td><td>sweepAutoArchive over issues (shared sessionList — already optimized)</td><td class="ok">~50–100ms/h</td></tr>
+<tr><td>Ledger change-log prune</td><td><code>sync/ledger.ts:241</code></td><td>every 64 appends</td><td>pruneChanges (keep 20k rows / 3d) — <b>changes table is 53MB</b></td><td class="warm">amortized DELETEs on the hot append path</td></tr>
+</table></div>
+
+<h3>2c · Event-driven O(world) hot paths — the real load</h3>
+<div class="tablewrap"><table>
+<tr><th>Path</th><th>Where</th><th>Triggered by</th><th>Work per run</th><th>Estimated cost</th></tr>
+<tr><td class="hot">runSessionsBroadcast</td><td><code>sessions/service.ts:3231</code></td><td>nearly every session state change (activity, daemon frames, attach/detach, phase flips), coalesced to ≤2/event-loop turn</td><td>listSessions (588×toMeta, ~45ms) → ledger.reconcile (588× JSON.stringify + diff, ~30–60ms) → JSON.stringify dedup key over the whole list (~15–30ms) → snapshot fan-out → dirty-gated publishIssues</td><td class="hot">~90–150ms/run · with 106 live sessions this fires continuously ⇒ plausibly <b>20–40% of a core</b> — the bulk of the server's steady CPU, and every run blocks the loop</td></tr>
+<tr><td class="hot">publishIssues → allWire</td><td><code>sessions/service.ts:3315</code>, <code>relay.ts:342</code></td><td>issue-relevant session changes (projection-gated, POD-722) + issue mutations</td><td>794 issues × toWireMemo (dirty-scoped POD-723) + ledger.reconcile('issue') + fan-out</td><td class="warm">memo-hit ~50ms; miss-heavy runs up to ~700ms</td></tr>
+<tr><td class="warm">funnel flushDeltas</td><td><code>funnel.ts:129</code></td><td>every durable change (microtask-coalesced)</td><td>one metadataDelta batch to delta-capable clients</td><td class="ok">small, well-coalesced</td></tr>
+<tr><td class="warm">quota.summary RPC</td><td><code>router.ts:1025</code></td><td>client chip poll, ~60s per client</td><td>fan-out to daemons (async wait) + merge</td><td class="warm">600ms wall (mostly awaited I/O, small on-loop share) per client per minute</td></tr>
+</table></div>
+
+<h2>3 · Daemon loops</h2>
+<p class="small">Architectural note: the two historically-expensive jobs — conversation discovery (SQLite + transcript summarize) and the /proc memory walk — already run on a dedicated <b>Bun Worker thread</b> (<code>apps/daemon/src/worker-client.ts</code>). That worker is the model for the server-side split (§5).</p>
+<div class="tablewrap"><table>
+<tr><th>Loop</th><th>Where</th><th>Cadence</th><th>Work per tick</th><th>Cost</th></tr>
+<tr><td>Host metrics push</td><td><code>daemon.ts:701</code></td><td>5s</td><td>readFileSync /proc/meminfo + send — feeds the server's auto-hibernate check</td><td class="ok">&lt;1ms</td></tr>
+<tr><td>Uploads GC</td><td><code>daemon.ts:705</code></td><td>1h</td><td>async walk of ~/.podium/uploads, rm &gt;24h</td><td class="ok">async I/O</td></tr>
+<tr><td class="warm">Transcript tailers</td><td><code>transcript/tailer.ts:266</code></td><td><b>700ms × every loaded session</b> (~65)</td><td>open+stat; on growth: chunked read with await-yields (POD-613), JSON.parse per record, transcriptDelta send</td><td class="warm">idle: ~93 stats/s ≈ &lt;1% core · active agents: parse cost scales with output volume — the "tails" share of daemon stalls</td></tr>
+<tr><td class="warm">Agent-state pollers (codex/grok/cursor/opencode)</td><td><code>agent-state/*.ts</code> (POLL_MS=700)</td><td>700ms × non-claude session</td><td>mtime-gated sqlite/JSONL incremental reads; codex /proc scan every 10s (cached 9s, pgrep-first)</td><td class="ok">well-guarded; claude sessions have NO poller (hook-driven)</td></tr>
+<tr><td>Discovery scan</td><td><code>discovery-loop.ts:121</code></td><td>15s (re-arming)</td><td>indexRefresh on the <b>worker thread</b>; empty delta ⇒ no broadcast</td><td class="ok">off-loop by design</td></tr>
+<tr><td>Active-refresh debounce</td><td><code>active-refresh.ts:72</code></td><td>1s window, dirty-driven</td><td>targeted worker summarize of changed transcripts</td><td class="ok">off-loop</td></tr>
+<tr><td>Durable-headless poll</td><td><code>durable-headless.ts:398</code></td><td>100ms per in-flight headless turn</td><td>one existsSync</td><td class="ok">bounded per turn</td></tr>
+<tr><td class="hot">PTY output relay</td><td><code>output-scheduler.ts</code></td><td>event-driven</td><td>per-session coalescing (75ms/64KB tiers), encode + WS send per batch; OSC-title scan per chunk</td><td class="hot">the daemon's dominant CPU — scales with total PTY output of ~65 sessions; observed 300–700ms own-cpu bursts</td></tr>
+<tr><td>Stop-hook classify</td><td><code>agent-state/claude-code.ts:277</code></td><td>per agent Stop event</td><td>128KB transcript tail read + parse + deterministic classify</td><td class="ok">bounded per event</td></tr>
+</table></div>
+
+<h2>4 · The issues().get() hunt (POD-826) — hidden O(sessions) per call</h2>
+<p><code>IssueService.get(id)</code> → <code>toWire(row, sessionList = listSessions())</code>: every call without an explicit list pays ~45ms at current world size. Confirmed loop/recurring callers:</p>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Site</th><th>Loop context</th><th>Reads only</th><th>Est. impact</th></tr>
+<tr><td class="hot">H1</td><td><code>messages/gate.ts:642</code></td><td>.map over every inbox/ledger row (≤50/RPC)</td><td><code>.seq</code></td><td class="hot">up to 50 × 45ms ≈ 2.3s per inbox/ledger RPC — likely today's worst remaining single-RPC stall</td></tr>
+<tr><td class="hot">H2</td><td><code>superagent/tools.ts:721</code></td><td>.map over ≤50 search results</td><td><code>.seq</code></td><td class="hot">up to ~2.3s per superagent search</td></tr>
+<tr><td class="warm">H5</td><td><code>messages/service.ts:1067/1079/1117</code></td><td>per message in delivery batch renders</td><td><code>.seq</code></td><td class="warm">45ms × batch size on every mail delivery</td></tr>
+<tr><td class="warm">H3/H4</td><td><code>steward.ts:433/350</code></td><td>per event in steward batch / per subscription×event</td><td><code>.id/.parentId</code></td><td class="warm">spiky with issue churn</td></tr>
+<tr><td class="warm">H6</td><td><code>superagent/service.ts:866</code></td><td>readyList per repo in concierge overview</td><td>count</td><td class="warm">one listSessions per repo per overview</td></tr>
+<tr><td class="ok">WARM</td><td>~25 single-call sites (registry, relay, read-toolkit, spawn…)</td><td>one per RPC</td><td>mostly <code>.seq/.worktreePath</code>/existence</td><td class="ok">45ms flat tax per RPC</td></tr>
+</table></div>
+<p><b>Structural fix:</b> add a lightweight <code>getMeta(id)</code> (row fields, no <code>toWire</code>, no sessions) and an existence <code>has(id)</code>; the large majority of callers read only <code>seq / parentId / worktreePath / repoPath</code>. Then <code>get(id)</code> keeps full semantics for the one caller that wants <code>.sessions</code> (the <code>issues.get</code> RPC).</p>
+
+<h2>5 · Split plan — stop the loops from starving each other</h2>
+
+<div class="card">
+<b>Implementation status (2026-07-18, final).</b> The plan is <b>fully live in production</b>, plus one discovered-and-fixed daemon defect (POD-983: a 26-observer thundering herd on the codex state DB, accidentally synchronized by the shared stat tick — max daemon stall <b>2968ms → 621ms (−79%)</b>, heap crest <b>1116MB → 187MB (−83%)</b>, the 110-reattach burst now 105ms/16MB). Measured server outcome: per-minute 8s freezes eliminated; steady stalls 100–400ms occasional. Remaining: POD-851 acceptance (proof), POD-957 settings UI, POD-846 (gated, likely unneeded per final attribution). Every review went through a two-gate process (Fable checklist + adversarial architect pass); every branch had at least one adversarial-only blocker, all fixed before (or fixed-forward immediately after) landing.
+<ul>
+<li><span class="ok">✅ DONE, live</span> — <b>Step 0 in full</b>: messages sweep hoist + 7d mail expiry (POD-817); <code>getMeta/has</code> lightweight issue reads across every caller (POD-826, dbddc296); session dirty-generations with ordered projection patches, hot-path coalescing, durable-write rollback, and transactional ref-letter allocation (POD-841, 21b3b07c…c10a36f6); event-complete mail delivery — all eligibility transitions, fair keyset pagination, durable restart-safe cooldowns, exact counts, fenced drains (POD-842, 035c9fe0…e13c7425); slice-budget helper + indexed, batched, failure-safe retention/prune (POD-843, f2354f38…41dcb160).</li>
+<li><span class="ok">✅ DONE, live</span> — <b>Step 3b</b> shared daemon stat tick (POD-847, bfa14795) · <b>Step 4</b> idle-session cap (POD-848, 652c7333) — capability live, <b>setting still unset</b> (operator choice pending, no behavior change until set).</li>
+<li><span class="ok">✅ DONE, live (complete)</span> — <b>Step 2 janitor, in full</b> (POD-845 surface 3721cc1c…67dd72be + POD-925 migrations c222c4a7/2067c6ea): fenced authenticated maintenance surface (idempotency keys, single-generation lease, apply-time revalidation, schema handshake), <code>podium-janitor</code> systemd sibling live and leased, and ALL housekeeping jobs migrated — message expiry (live-probe-verified: fence gen 75, single event, payload parity), event/change-log prune, issue auto-archive, maintenance-commands prune, steward poll (delivery-fact-keyed suppression), automations cron (occurrence reserved before side effects), connect-scan orchestration. Server-side timers retired. Residuals: POD-929 compat-revive, pinned in POD-851.</li>
+<li><span class="ok">✅ DONE, live</span> — <b>Step 1 publish worker</b> (POD-844, 31bdcfbc): pure ViewKey projection actor with priority/supersession, compiled-binary worker embedding, plus the round-2 delivery-seam fixes (ViewKey-filtered deltas everywhere — the scoped-client leak reproduced and closed; scoped revocation removals; worker crash respawn/retry; 0-scan attach / 1-scan broadcast at 588 sessions via the POD-841 patch stream; bootstrap/delta ordering fence). Verified post-deploy: worker thread live in the server process, real client switch/bootstrap clean. Follow-ups: POD-943/944/949 (internal, non-blocking).</li>
+<li><span class="warm">⏳ NOT STARTED</span> — <b>POD-851 acceptance</b> (shadow comparison, world-size load targets, worker/janitor fault injection, two-client scoping; now also carries all review-deferred residuals) — gates POD-844 closure. · <b>POD-925</b> janitor job migrations.</li>
+<li><span class="ok">◻ PARKED by design</span> — <b>Step 3a</b> daemon parse offload (POD-846): gated on a fresh post-POD-847 measurement; only proceeds if transcript parse remains a material share of daemon stalls.</li>
+</ul>
+</div>
+
+<h3>Step 0 — remove O(world) work instead of moving it <span class="small">(biggest win, no new primitives)</span></h3>
+<ul>
+<li><b>Replace byte-compare dedup with revision counters.</b> <code>runSessionsBroadcast</code> pays 588 × toMeta + 588 × stringify + a full-list stringify <i>to decide nothing changed</i>. A monotonically bumped <code>rev</code> per session (incremented at each mutation site) makes "anything to send?" an integer compare and turns the broadcast into "serialize only sessions with rev &gt; lastSent". This alone removes most of the estimated 20–40% steady core.</li>
+<li><b><code>getMeta(id)</code>/<code>has(id)</code></b> for the §4 call sites (H1/H2 first).</li>
+<li><b>Event-driven message delivery</b>: the sweep exists because delivery is poll-retried; delivering on <code>session.idle</code> events (already partially wired via <code>onSessionIdle</code>) lets the sweep shrink to expiry-only.</li>
+<li>Chunk any remaining &gt;50ms synchronous job with await-yields — the daemon's tailer (POD-613) and transcript-indexer already model this.</li>
+</ul>
+
+<h3>Step 1 — a publish worker inside the server <span class="small">(Bun Worker, same DB, same process)</span></h3>
+<div class="card">
+<b>Primitive:</b> Bun <code>new Worker()</code> (Web Worker API; the daemon's <code>DiscoveryWorkerClient</code> is the in-repo template, including job timeouts and restart-on-crash). Workers get their own event loop and can open their own <code>bun:sqlite</code> connection (WAL handles concurrent readers).<br><br>
+Move to the worker: wire-building of full snapshots, <code>ledger.reconcile</code> diffing, big <code>JSON.stringify</code>, the <code>changes</code>-table pruning. Main loop sends compact dirty-deltas (ids + revs) via <code>postMessage</code>; the worker posts back <i>ready-to-send strings</i> which the main loop only fans out (WS sends must stay where the sockets live). Rule of thumb: postMessage structured-clone costs about one serialize — so ship <i>small deltas in</i>, <i>final strings out</i>, never the whole world both ways.<br><br>
+<span class="small">Caveat from repo memory: <code>bun --compile</code> misses <code>new Worker(URL)</code> embedding — fine for the systemd server (runs from source), needs care if the desktop binary ever hosts this code path.</span></div>
+
+<h3>Step 2 — a janitor sibling process <span class="small">(systemd unit, existing protocol)</span></h3>
+<div class="card">
+<b>Primitive:</b> a third systemd service (<code>podium-janitor</code>) — or <code>Bun.spawn</code> with its <code>ipc</code> channel if you want the server to own the lifecycle. It opens the same WAL SQLite read-side and talks to the server over the <i>existing</i> WS/tRPC surface for anything that must mutate live state (sendText, spawn).<br><br>
+Move there: messages sweep + expiry, steward polling, automations cron, event-log retention, issue auto-archive, repo-discovery orchestration. These are all "read DB, decide, issue a few commands" jobs — none needs to live on the interactive loop, and a janitor stall then costs nothing user-visible. It also decouples them from the redeploy restart cycle (janitor restarts don't drop client connections).<br><br>
+<span class="small">Watch out: single-writer discipline — keep all SQLite <i>writes</i> on the server (janitor mutates via RPC), or you re-fight the write-funnel/ledger design.</span></div>
+
+<h3>Step 3 — daemon: keep parsing budgeted, consider a tail worker-pool if needed</h3>
+<ul>
+<li>PTY relay must stay near the sockets (it's already tiered/coalesced well).</li>
+<li>If transcript parse ever dominates again: move the JSONL parse of tier-2/3 (unwatched) sessions to the existing worker (it already owns transcript summarize code) and keep only focused sessions' parse on the main loop.</li>
+<li>Replace the 65 × 700ms stat-pollers with one shared stat batch per tick (one timer, one pass) — cosmetic now, but removes 65 timers' scheduling jitter.</li>
+</ul>
+
+<h3>Step 4 — idle-session cap <span class="small">(human decision 2026-07-17 [spec:SP-c29e]: replaces broader host tuning)</span></h3>
+<ul>
+<li>Auto-hibernation gains a tunable <b>max-idle-sessions cap</b> per machine: beyond the cap, oldest-idle sessions hibernate <b>even without memory pressure</b> — motivation is the idle fleet's standing CPU (~1.6%/proc ⇒ ~80% of a core at 49 idle) and RSS (15–19GB). The memory-pressure trigger stays as-is. Candidate filter reuses <code>maybeAutoHibernate</code>'s safety gates (idle window, PTY-quiet, never <code>needs_user</code>/working, resume ref).</li>
+</ul>
+
+<h3>Sequencing &amp; expected effect</h3>
+<div class="tablewrap"><table>
+<tr><th>Order</th><th>Change</th><th>Effort</th><th>Expected effect</th></tr>
+<tr><td>1</td><td>getMeta/has + fix H1/H2/H5 (POD-826)</td><td>small</td><td>removes multi-second inbox/search RPC stalls + flat 45ms RPC tax — <span class="ok">✅ DONE (dbddc296)</span></td></tr>
+<tr><td>2</td><td>Session rev counters → incremental broadcast (POD-841)</td><td>medium</td><td>reclaims most of the server's steady 20–40% core; loop stalls stop tracking session count — <span class="ok">✅ DONE (c10a36f6)</span></td></tr>
+<tr><td>3</td><td>Publish worker (Bun Worker) (POD-844)</td><td>medium</td><td>remaining big serializations leave the interactive loop entirely — <span class="ok">✅ DONE (31bdcfbc, live)</span></td></tr>
+<tr><td>4</td><td>Janitor process (POD-845 + POD-925)</td><td>medium-large</td><td>timers can never block interactive work; redeploys stop killing housekeeping mid-run — <span class="ok">✅ CUT LANDED (67dd72be: surface + unit + expiry)</span>, job migrations pending (POD-925)</td></tr>
+<tr><td>5</td><td>Idle-session cap (POD-848)</td><td>small</td><td>bounds the idle fleet's standing CPU/RSS regardless of memory pressure — <span class="ok">✅ DONE (652c7333)</span>, setting unset pending operator</td></tr>
+</table></div>
+
+<p class="small">Sources: live measurements from this session (journalctl loop-stall lines, /proc sampling, top, sqlite counts) + three exhaustive code sweeps over apps/server, apps/daemon, packages/agent-bridge, packages/sync, packages/runtime at worktree sweep-hotloop-817 (main @ 65061c83). POD-817 numbers are before/after measurements of the deployed fix.</p>
+</main>
+</body>
+</html>
