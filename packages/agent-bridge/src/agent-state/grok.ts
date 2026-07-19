@@ -211,7 +211,7 @@ export function observeGrokState(opts: {
   statTick?: StatTick
   onSession?: (sessionId: string) => void
   /** Fires after history is folded through the captured complete-record EOF. */
-  onBootstrap?: () => void
+  onBootstrap?: (lastCompleteRecordOffset: number) => void
   onEvents: (events: AgentStateEvent[]) => void
 }): GrokStateObserver {
   const pollMs = opts.pollMs ?? POLL_MS
@@ -379,9 +379,14 @@ function grokQuestionSummary(fields: Record<string, unknown>): string | undefine
 function tailGrokUpdates(
   paths: GrokSessionPaths,
   onEvents: (events: AgentStateEvent[]) => void,
-  opts: { pollMs?: number; statTick?: StatTick; onBootstrap?: () => void } = {},
+  opts: {
+    pollMs?: number
+    statTick?: StatTick
+    onBootstrap?: (lastCompleteRecordOffset: number) => void
+  } = {},
 ): GrokStateObserver {
-  let offset = 0
+  let readOffset = 0
+  let lastCompleteRecordOffset = 0
   let fileIdentity: string | undefined
   let prefixAnchor: Buffer<ArrayBufferLike> = Buffer.alloc(0)
   let first = true
@@ -417,7 +422,8 @@ function tailGrokUpdates(
               event.kind === 'needs_user' ||
               event.kind === 'turn_completed' ||
               event.kind === 'turn_failed' ||
-              event.kind === 'compaction')
+              event.kind === 'compaction' ||
+              event.kind === 'task_delta')
           ) {
             continue
           }
@@ -444,8 +450,11 @@ function tailGrokUpdates(
       const chunk = Buffer.alloc(length)
       const { bytesRead } = await handle.read(chunk, 0, length, position)
       if (bytesRead === 0) break
+      const bytes = chunk.subarray(0, bytesRead)
+      const lastNewline = bytes.lastIndexOf(0x0a)
+      if (lastNewline >= 0) lastCompleteRecordOffset = position + lastNewline + 1
       position += bytesRead
-      await translateLines(decoder.push(chunk.subarray(0, bytesRead)), emit)
+      await translateLines(decoder.push(bytes), emit)
     }
   }
 
@@ -461,12 +470,15 @@ function tailGrokUpdates(
     decoder.reset()
     observedWork = false
     await readRange(handle, 0, boundary, false)
+    const finalRecord = decoder.takeValidFinalRecord()
+    if (finalRecord) await translateLines([finalRecord], false)
     decoder.reset()
-    offset = boundary
+    readOffset = boundary
+    lastCompleteRecordOffset = boundary
     fileIdentity = identity
     prefixAnchor = await readGrokPrefix(handle, boundary)
     first = false
-    opts.onBootstrap?.()
+    opts.onBootstrap?.(lastCompleteRecordOffset)
   }
 
   const readNew = async (): Promise<void> => {
@@ -482,16 +494,21 @@ function tailGrokUpdates(
           identity === fileIdentity &&
           prefixAnchor.length > 0 &&
           !(await grokPrefixMatches(handle, prefixAnchor, info.size))
-        if (first || identity !== fileIdentity || info.size < offset || prefixChanged) {
+        if (first || identity !== fileIdentity || info.size < readOffset || prefixChanged) {
           // Rotation/replacement/truncation is a new bootstrap segment. Never
           // replay the replacement prefix through the live callback.
           await bootstrap(handle, info.size, identity)
         }
-        if (info.size <= offset) return
+        if (info.size <= readOffset) return
         const end = info.size
-        await readRange(handle, offset, end, true)
-        offset = end
-        prefixAnchor = await readGrokPrefix(handle, offset)
+        await readRange(handle, readOffset, end, true)
+        readOffset = end
+        const finalRecord = decoder.takeValidFinalRecord()
+        if (finalRecord) {
+          lastCompleteRecordOffset = readOffset
+          await translateLines([finalRecord], true)
+        }
+        prefixAnchor = await readGrokPrefix(handle, readOffset)
       } finally {
         await handle.close()
       }
@@ -582,6 +599,13 @@ class BoundedLineDecoder {
     return lines
   }
 
+  takeValidFinalRecord(): string | null {
+    if (this.dropping || !validGrokJsonRecord(this.pending)) return null
+    const record = this.pending.toString('utf8')
+    this.pending = Buffer.alloc(0)
+    return record
+  }
+
   reset(): void {
     this.pending = Buffer.alloc(0)
     this.dropping = false
@@ -592,16 +616,40 @@ async function lastCompleteGrokRecordOffset(
   handle: Awaited<ReturnType<typeof open>>,
   size: number,
 ): Promise<number> {
-  let end = size
+  if (size === 0) return 0
+
+  // A valid final JSON value is complete even when Grok has not appended its
+  // newline yet. Invalid/torn suffixes remain strictly beyond the boundary.
+  const candidateStart = Math.max(0, size - GROK_MAX_RECORD_BYTES)
+  const candidate = Buffer.alloc(size - candidateStart)
+  const { bytesRead } = await handle.read(candidate, 0, candidate.length, candidateStart)
+  const bytes = candidate.subarray(0, bytesRead)
+  const lastNewline = bytes.lastIndexOf(0x0a)
+  const suffix = bytes.subarray(lastNewline + 1)
+  if ((candidateStart === 0 || lastNewline >= 0) && validGrokJsonRecord(suffix)) return size
+  if (lastNewline >= 0) return candidateStart + lastNewline + 1
+
+  let end = candidateStart
   while (end > 0) {
     const start = Math.max(0, end - GROK_READ_BYTES)
     const chunk = Buffer.alloc(end - start)
-    const { bytesRead } = await handle.read(chunk, 0, chunk.length, start)
-    const newline = chunk.subarray(0, bytesRead).lastIndexOf(0x0a)
+    const read = await handle.read(chunk, 0, chunk.length, start)
+    const newline = chunk.subarray(0, read.bytesRead).lastIndexOf(0x0a)
     if (newline >= 0) return start + newline + 1
     end = start
   }
   return 0
+}
+
+function validGrokJsonRecord(bytes: Buffer): boolean {
+  const text = bytes.toString('utf8').trim()
+  if (!text) return false
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function isAvailableCommandsUpdate(payload: unknown): boolean {
