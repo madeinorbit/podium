@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -20,6 +20,7 @@ import type {
 import type { StatTick } from '@podium/transcript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  CAUSAL_DELIVERY_RETRY_BASE_MS,
   createSessionObservers,
   IDLE_TRANSITION_DEBOUNCE_MS,
   type SpawnControl,
@@ -565,6 +566,174 @@ describe('generic causal observer host [spec:SP-cdb2]', () => {
     })
   })
 
+  it('resends an exact lost observation and cancels it on authoritative reconnect', async () => {
+    vi.useFakeTimers()
+    const sent: DaemonMessage[] = []
+    let host: HarnessObserverHost | undefined
+    const codex = harnessAdapterFor('codex')
+    if (!codex) throw new Error('Codex adapter missing')
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: (kind) =>
+        kind === 'codex'
+          ? {
+              ...codex,
+              observer: (_input, nextHost) => {
+                host = nextHost
+                return { stop: vi.fn() }
+              },
+            }
+          : harnessAdapterFor(kind),
+    })
+    const init = (generation: number, bindingVersion: number, providerSessionId: string) =>
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId: 'retry-observation',
+          durableLabel: 'podium-retry-observation',
+          agentKind: 'codex',
+          cwd: '/repo',
+          geometry: G,
+          resume: { kind: 'codex-thread', value: providerSessionId },
+          observationGeneration: generation,
+          observationBindingVersion: bindingVersion,
+          observationProviderSessionId: providerSessionId,
+        },
+        { onFrame: () => () => {} } as never,
+        undefined,
+        { seedOnFrame: false },
+      )
+    const observation = (
+      generation: number,
+      bindingVersion: number,
+      providerSessionId: string,
+      transitionId: string,
+    ): AgentObservation => ({
+      podiumSessionId: 'retry-observation',
+      provider: 'codex',
+      providerSessionId,
+      bindingVersion,
+      providerTurnId: null,
+      providerPromptId: null,
+      observerGeneration: generation,
+      providerCursor: { segmentId: providerSessionId, components: { file: 1 } },
+      providerAt: null,
+      receivedAt: '2026-07-19T08:00:00.000Z',
+      sourceEventKind: 'test',
+      transitionKind: 'snapshot',
+      provenance: 'bootstrap',
+      inputOrigin: 'provider',
+      turnEpoch: 0,
+      priorPhase: 'unknown',
+      nextPhase: 'idle',
+      transitionId,
+      state: { phase: 'idle', since: '2026-07-19T08:00:00.000Z', nativeSubagentCount: 0 },
+    })
+    try {
+      init(7, 2, 'thread-1')
+      host?.onObservation(observation(7, 2, 'thread-1', 'lost-bootstrap'))
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS)
+      const retries = sent.filter((message) => message.type === 'agentObservation')
+      expect(retries).toHaveLength(2)
+      expect(retries[1]).toEqual(retries[0])
+
+      init(8, 3, 'thread-2')
+      await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS * 8)
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+
+      host?.onObservation(observation(8, 3, 'thread-2', 'reconnected-bootstrap'))
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'retry-observation',
+        observerGeneration: 8,
+        bindingVersion: 3,
+        transitionId: 'reconnected-bootstrap',
+        result: 'snapshot_applied',
+        acceptedCursor: { segmentId: 'thread-2', components: { file: 1 } },
+      })
+      await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS * 8)
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
+    } finally {
+      observers.clearSession('retry-observation')
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries the exact rebind command until its authoritative ack', async () => {
+    vi.useFakeTimers()
+    const sent: DaemonMessage[] = []
+    let host: HarnessObserverHost | undefined
+    const codex = harnessAdapterFor('codex')
+    if (!codex) throw new Error('Codex adapter missing')
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      harnessAdapterFor: (kind) =>
+        kind === 'codex'
+          ? {
+              ...codex,
+              observer: (_input, nextHost) => {
+                host = nextHost
+                return { stop: vi.fn() }
+              },
+            }
+          : harnessAdapterFor(kind),
+    })
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId: 'retry-rebind',
+          durableLabel: 'podium-retry-rebind',
+          agentKind: 'codex',
+          cwd: '/repo',
+          geometry: G,
+          resume: { kind: 'codex-thread', value: 'thread-1' },
+          observationGeneration: 7,
+          observationBindingVersion: 2,
+          observationProviderSessionId: 'thread-1',
+        },
+        { onFrame: () => () => {} } as never,
+        undefined,
+        { seedOnFrame: false },
+      )
+      host?.onExactProviderRebind({
+        nextProviderSessionId: 'thread-2',
+        resumeKind: 'codex-thread',
+        rebindId: 'exact-rebind',
+      })
+      await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS)
+      const retries = sent.filter((message) => message.type === 'agentObservationRebind')
+      expect(retries).toHaveLength(2)
+      expect(retries[1]).toEqual(retries[0])
+
+      observers.onProviderRebindAck({
+        type: 'agentObservationRebindAck',
+        sessionId: 'retry-rebind',
+        provider: 'codex',
+        rebindId: 'exact-rebind',
+        priorObserverGeneration: 7,
+        priorBindingVersion: 2,
+        nextProviderSessionId: 'thread-2',
+        providerSessionId: 'thread-2',
+        result: 'accepted',
+        observerGeneration: 8,
+        bindingVersion: 3,
+        checkpoint: null,
+      })
+      await vi.advanceTimersByTimeAsync(CAUSAL_DELIVERY_RETRY_BASE_MS * 8)
+      expect(sent.filter((message) => message.type === 'agentObservationRebind')).toHaveLength(2)
+    } finally {
+      observers.clearSession('retry-rebind')
+      vi.useRealTimers()
+    }
+  })
+
   it('ignores late old hooks before transcript or binding mutation', () => {
     const sent: DaemonMessage[] = []
     const statTick = new ManualStatTick()
@@ -746,6 +915,82 @@ describe('session observer →idle debounce', () => {
   })
 })
 describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
+  it('cannot install a dead generation when reset while bootstrap capture is awaiting', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-reset-capture-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    await writeFile(transcript, '')
+    let releaseCapture!: () => void
+    const captureGate = new Promise<void>((resolve) => {
+      releaseCapture = resolve
+    })
+    let resolveFirstCapture!: () => void
+    const firstCaptureReturned = new Promise<void>((resolve) => {
+      resolveFirstCapture = resolve
+    })
+    let captures = 0
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      captureClaudeTranscript: async (path, options) => {
+        captures += 1
+        const captureNumber = captures
+        if (captureNumber === 1) await captureGate
+        const result = await captureClaudeTranscript(path, options)
+        if (captureNumber === 1) resolveFirstCapture()
+        return result
+      },
+    })
+    const init = (observerGeneration: number) =>
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId: 'podium-reset-capture',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          durableLabel: 'podium-podium-reset-capture',
+          observationGeneration: observerGeneration,
+          observationBindingVersion: 2,
+        },
+        { onFrame: () => () => {} } as never,
+        agentStateProviderFor('claude-code'),
+        { seedOnFrame: false },
+      )
+    const prompt = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+      prompt_id: 'prompt-1',
+    }
+    try {
+      init(7)
+      observers.onHookPayload('podium-reset-capture', prompt)
+      await vi.waitFor(() => expect(captures).toBe(1))
+
+      init(8)
+      releaseCapture()
+      await firstCaptureReturned
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(0)
+
+      observers.onHookPayload('podium-reset-capture', prompt)
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      expect(sent.find((message) => message.type === 'agentObservation')).toMatchObject({
+        observation: { observerGeneration: 8 },
+      })
+      expect(captures).toBe(2)
+    } finally {
+      observers.clearSession('podium-reset-capture')
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('buffers live hooks behind one bootstrap ack and preserves the submitted steward origin', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-causal-'))
     const transcript = join(dir, 'claude-1.jsonl')
@@ -939,30 +1184,6 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       bindingVersion: 2,
       transitionId: firstSnapshot.observation.transitionId,
       result: 'rejected',
-      rejectionReason: 'provider_binding_mismatch',
-      acceptedCursor: firstSnapshot.observation.providerCursor,
-    })
-    observers.onObservationAck({
-      type: 'agentObservationAck',
-      sessionId: 'podium-roll',
-      observerGeneration: 7,
-      bindingVersion: 2,
-      transitionId: firstSnapshot.observation.transitionId,
-      result: 'rejected',
-      rejectionReason: 'duplicate_transition',
-      acceptedCursor: {
-        ...firstSnapshot.observation.providerCursor,
-        components: { transcript: 99 },
-      },
-    })
-    expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
-    observers.onObservationAck({
-      type: 'agentObservationAck',
-      sessionId: 'podium-roll',
-      observerGeneration: 7,
-      bindingVersion: 2,
-      transitionId: firstSnapshot.observation.transitionId,
-      result: 'rejected',
       rejectionReason: 'duplicate_transition',
       acceptedCursor: firstSnapshot.observation.providerCursor,
     })
@@ -1088,6 +1309,138 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       beforeLate.observations,
     )
     observers.clearSession('podium-roll')
+  })
+
+  it('reboots from an authoritative live rejection without replaying buffered effects', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-reject-'))
+    const transcript = join(dir, 'claude-1.jsonl')
+    await writeFile(transcript, '')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const lease = {
+      provider: 'claude-code' as const,
+      providerSessionId: 'claude-1',
+      bindingVersion: 2,
+      observationGeneration: 7,
+    }
+    const prompt = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'claude-1',
+      transcript_path: transcript,
+      cwd: dir,
+      prompt_id: 'prompt-1',
+    }
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId: 'podium-reject',
+          agentKind: 'claude-code',
+          cwd: dir,
+          geometry: G,
+          durableLabel: 'podium-podium-reject',
+          resume: { kind: 'claude-session', value: 'claude-1' },
+          observationGeneration: 7,
+          observationBindingVersion: 2,
+          observationProviderSessionId: 'claude-1',
+        },
+        { onFrame: () => () => {} } as never,
+        agentStateProviderFor('claude-code'),
+        { seedOnFrame: false },
+      )
+      observers.onHookPayload('podium-reject', prompt)
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(1)
+      })
+      const bootstrapMessage = sent.find((message) => message.type === 'agentObservation')
+      if (!bootstrapMessage || bootstrapMessage.type !== 'agentObservation') {
+        throw new Error('missing Claude bootstrap')
+      }
+      const bootstrap = bootstrapMessage.observation
+      const bootstrapResult = acceptAgentObservation(
+        null,
+        lease,
+        bootstrap,
+        '2026-07-19T08:00:00.000Z',
+      )
+      if (bootstrapResult.kind === 'rejected') throw new Error(bootstrapResult.rejectionReason)
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-reject',
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: bootstrap.transitionId,
+        result: bootstrapResult.kind,
+        acceptedCursor: bootstrapResult.checkpoint.providerCursor,
+        checkpoint: bootstrapResult.checkpoint,
+      })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(2)
+      })
+      const openedMessage = sent.filter((message) => message.type === 'agentObservation').at(-1)
+      if (!openedMessage || openedMessage.type !== 'agentObservation') {
+        throw new Error('missing Claude live open')
+      }
+      const opened = openedMessage.observation
+      expect(opened.transitionKind).toBe('turn_opened')
+
+      observers.onHookPayload('podium-reject', { ...prompt, hook_event_name: 'Stop' })
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-reject',
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: opened.transitionId,
+        result: 'rejected',
+        rejectionReason: 'terminal_epoch_closed',
+        acceptedCursor: bootstrapResult.checkpoint.providerCursor,
+        checkpoint: bootstrapResult.checkpoint,
+      })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(3)
+      })
+      const recoveryMessage = sent.filter((message) => message.type === 'agentObservation').at(-1)
+      if (!recoveryMessage || recoveryMessage.type !== 'agentObservation') {
+        throw new Error('missing Claude recovery bootstrap')
+      }
+      expect(recoveryMessage.observation).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        nextPhase: 'idle',
+      })
+      expect(
+        sent
+          .filter((message) => message.type === 'agentObservation')
+          .slice(2)
+          .some((message) => message.observation.provenance === 'live'),
+      ).toBe(false)
+
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId: 'podium-reject',
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: recoveryMessage.observation.transitionId,
+        result: 'rejected',
+        rejectionReason: 'duplicate_transition',
+        acceptedCursor: recoveryMessage.observation.providerCursor,
+        checkpoint: bootstrapResult.checkpoint,
+      })
+      observers.onHookPayload('podium-reject', { ...prompt, prompt_id: 'prompt-2' })
+      await vi.waitFor(() => {
+        expect(sent.filter((message) => message.type === 'agentObservation')).toHaveLength(4)
+      })
+      expect(sent.filter((message) => message.type === 'agentObservation').at(-1)).toMatchObject({
+        observation: { provenance: 'live', transitionKind: 'turn_opened' },
+      })
+    } finally {
+      observers.clearSession('podium-reject')
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('does not let a stale generation ack release an identical current bootstrap transition', async () => {
@@ -1334,6 +1687,16 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     const openedResult = acceptAgentObservation(acceptedBootstrap, lease, opened, at)
     expect(openedResult.kind).toBe('live_transition_accepted')
     if (openedResult.kind === 'rejected') throw new Error(openedResult.rejectionReason)
+    observers.onObservationAck({
+      type: 'agentObservationAck',
+      sessionId: 'podium-1',
+      observerGeneration: 8,
+      bindingVersion: 2,
+      transitionId: opened.transitionId,
+      result: openedResult.kind,
+      acceptedCursor: openedResult.checkpoint.providerCursor,
+      checkpoint: openedResult.checkpoint,
+    })
 
     observers.onHookPayload('podium-1', {
       ...prompt,

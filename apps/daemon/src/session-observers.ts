@@ -62,6 +62,8 @@ export interface SessionObserversDeps {
   cwdTracker: Pick<SessionCwdTracker, 'onHookCwd'>
   /** Test/embedding override for the otherwise canonical harness registry. */
   harnessAdapterFor?: typeof harnessAdapterFor
+  /** Test seam for deterministically fencing an in-flight Claude bootstrap capture. */
+  captureClaudeTranscript?: typeof captureClaudeTranscript
   /** Persist and replay an exact process-derived Codex P→T binding until acked. */
   onExactCodexBinding?: (sessionId: string, nativeId: string) => Promise<void>
   /** Paces each tail's FIRST backfill read (the expensive part of a reattach
@@ -89,6 +91,9 @@ export type SessionObservers = ReturnType<typeof createSessionObservers>
  */
 export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
 
+export const CAUSAL_DELIVERY_RETRY_BASE_MS = 250
+export const CAUSAL_DELIVERY_RETRY_MAX_MS = 4_000
+
 /**
  * All per-session observation state the daemon holds: agent-state trackers
  * (hook/observer events folded by the reducer), live transcript tails, and one
@@ -102,6 +107,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const { send } = deps
   const adapterForKind = deps.harnessAdapterFor ?? harnessAdapterFor
   // One timer fans out every transcript/native-state stat poll in this daemon;
+  const captureTranscript = deps.captureClaudeTranscript ?? captureClaudeTranscript
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
@@ -136,7 +142,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     bufferedHooks: unknown[]
     processing: Promise<void>
     acceptedCursor: AgentObservation['providerCursor'] | null
-    pendingTransitionId: string | null
+    pendingObservation: AgentObservation | null
     confirming: boolean
     stopConfirmationPoll?: () => void
   }
@@ -150,6 +156,16 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bindingVersion: number
       bufferedObservations: AgentObservation[]
       queuedRebinds: HarnessProviderRebind[]
+      retryAttempt: number
+      retryTimer?: ReturnType<typeof setTimeout>
+    }
+  >()
+  const pendingObservationDeliveries = new Map<
+    string,
+    {
+      observation: AgentObservation
+      retryAttempt: number
+      retryTimer?: ReturnType<typeof setTimeout>
     }
   >()
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
@@ -200,6 +216,82 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     })
   }
 
+  const observationDeliveryKey = (observation: AgentObservation): string =>
+    [
+      observation.podiumSessionId,
+      observation.observerGeneration,
+      observation.bindingVersion,
+      observation.transitionId,
+    ].join('\u0000')
+
+  const cancelObservationDelivery = (observation: AgentObservation): void => {
+    const key = observationDeliveryKey(observation)
+    const pending = pendingObservationDeliveries.get(key)
+    if (!pending) return
+    if (pending.retryTimer !== undefined) clearTimeout(pending.retryTimer)
+    pendingObservationDeliveries.delete(key)
+  }
+
+  const cancelSessionObservationDeliveries = (sessionId: string): void => {
+    for (const pending of [...pendingObservationDeliveries.values()]) {
+      if (pending.observation.podiumSessionId === sessionId) {
+        cancelObservationDelivery(pending.observation)
+      }
+    }
+  }
+
+  const transmitObservation = (
+    key: string,
+    pending: {
+      observation: AgentObservation
+      retryAttempt: number
+      retryTimer?: ReturnType<typeof setTimeout>
+    },
+  ): void => {
+    if (pendingObservationDeliveries.get(key) !== pending) return
+    const observation = pending.observation
+    const lease = causalLeases.get(observation.podiumSessionId)
+    if (
+      lease &&
+      !pendingRebinds.has(observation.podiumSessionId) &&
+      observation.provider === lease.provider &&
+      (lease.providerSessionId === null ||
+        observation.providerSessionId === lease.providerSessionId) &&
+      observation.observerGeneration === lease.observerGeneration &&
+      observation.bindingVersion === lease.bindingVersion
+    ) {
+      send({ type: 'agentObservation', observation })
+    }
+    const delay = Math.min(
+      CAUSAL_DELIVERY_RETRY_BASE_MS * 2 ** pending.retryAttempt,
+      CAUSAL_DELIVERY_RETRY_MAX_MS,
+    )
+    pending.retryTimer = setTimeout(() => {
+      pending.retryTimer = undefined
+      pending.retryAttempt = Math.min(pending.retryAttempt + 1, 4)
+      transmitObservation(key, pending)
+    }, delay)
+  }
+
+  const deliverObservation = (observation: AgentObservation): void => {
+    const key = observationDeliveryKey(observation)
+    if (pendingObservationDeliveries.has(key)) return
+    const pending = { observation, retryAttempt: 0 }
+    pendingObservationDeliveries.set(key, pending)
+    transmitObservation(key, pending)
+  }
+
+  const cancelObservationAckDelivery = (
+    msg: Extract<ControlMessage, { type: 'agentObservationAck' }>,
+    bindingVersion: number,
+  ): void => {
+    const key = [msg.sessionId, msg.observerGeneration, bindingVersion, msg.transitionId].join(
+      '\u0000',
+    )
+    const pending = pendingObservationDeliveries.get(key)
+    if (pending) cancelObservationDelivery(pending.observation)
+  }
+
   const emitObservation = (
     sessionId: string,
     observation: Extract<DaemonMessage, { type: 'agentObservation' }>['observation'],
@@ -220,15 +312,19 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         observation.providerSessionId !== lease.providerSessionId)
     )
       return
-    send({ type: 'agentObservation', observation })
+    deliverObservation(observation)
   }
 
-  const applyClaudeHook = async (causal: ClaudeCausalTracker, payload: unknown): Promise<void> => {
+  async function applyClaudeHook(causal: ClaudeCausalTracker, payload: unknown): Promise<void> {
+    if (causal.pendingObservation) {
+      causal.bufferedHooks.push(payload)
+      return
+    }
     const p = payload as Record<string, unknown>
     const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
     let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
     try {
-      capture = await captureClaudeTranscript(path)
+      capture = await captureTranscript(path)
     } catch {
       return
     }
@@ -250,8 +346,18 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         : undefined,
     )
     if (observation) {
-      causal.pendingTransitionId = observation.transitionId
+      causal.pendingObservation = observation
       emitObservation(observation.podiumSessionId, observation)
+      return
+    }
+    drainClaudeHooks(causal)
+  }
+
+  function drainClaudeHooks(causal: ClaudeCausalTracker): void {
+    if (causal.awaitingBootstrapAck || causal.pendingObservation) return
+    const payload = causal.bufferedHooks.shift()
+    if (payload !== undefined) {
+      causal.processing = causal.processing.then(() => applyClaudeHook(causal, payload))
     }
   }
 
@@ -281,7 +387,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const acceptedIdentity = parseClaudeTranscriptSegmentId(acceptedCursor?.segmentId)
     let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
     try {
-      capture = await captureClaudeTranscript(
+      capture = await captureTranscript(
         transcriptPath,
         checkpoint && p?.hook_event_name !== 'UserPromptSubmit'
           ? {
@@ -307,11 +413,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         latestPrompt: null,
       }
     }
-    // Reattach can replace the authoritative lease while the transcript capture
-    // above is in flight. Never let the predecessor generation install a tracker
-    // after that fence moved; the replacement bootstrap owns the session now.
-    if (causalLeases.get(sessionId) !== lease) return
     const bootstrapOffset = capture.boundary
+    // Capture is asynchronous; Spawn/Reattach may have replaced this exact
+    // generation while I/O was in flight. A replacement tracker is not the
+    // tracker this bootstrap was authorized to mutate.
+    if (causalLeases.get(sessionId) !== lease || trackers.get(sessionId) !== tracker) return
     const baseSegmentId = claudeTranscriptSegmentId(providerSessionId, capture)
     const acceptedSameFile = Boolean(
       acceptedCursor &&
@@ -398,13 +504,80 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       bufferedHooks: claudeStarting.get(sessionId) ?? (bufferInitialPayload ? [payload] : []),
       processing: Promise.resolve(),
       acceptedCursor: null,
-      pendingTransitionId: null,
+      pendingObservation: null,
       confirming: false,
     }
+    if (causalLeases.get(sessionId) !== lease || trackers.get(sessionId) !== tracker) return
     claudeCausal.set(sessionId, causal)
     claudeStarting.delete(sessionId)
     tracker.state = bootstrapState
     emitObservation(sessionId, snapshot)
+  }
+
+  const authoritativeClaudeCheckpoint = (
+    sessionId: string,
+    causal: ClaudeCausalTracker,
+    msg: Extract<ControlMessage, { type: 'agentObservationAck' }>,
+  ): SessionObservationCheckpointV1 | null => {
+    const lease = causalLeases.get(sessionId)
+    const checkpoint = msg.checkpoint
+    return lease &&
+      checkpoint &&
+      checkpoint.podiumSessionId === sessionId &&
+      checkpoint.provider === 'claude-code' &&
+      checkpoint.providerSessionId === causal.providerSessionId &&
+      checkpoint.bindingVersion === lease.bindingVersion &&
+      checkpoint.lifecycleObservationGeneration <= lease.observerGeneration
+      ? checkpoint
+      : null
+  }
+
+  const rebootClaudeFromCheckpoint = (
+    sessionId: string,
+    causal: ClaudeCausalTracker,
+    checkpoint: SessionObservationCheckpointV1,
+  ): void => {
+    const lease = causalLeases.get(sessionId)
+    if (!lease) return
+    cancelSessionObservationDeliveries(sessionId)
+    causal.stopConfirmationPoll?.()
+    claudeCausal.delete(sessionId)
+    causalLeases.set(sessionId, {
+      ...lease,
+      providerSessionId: checkpoint.providerSessionId,
+      acceptedCheckpoint: checkpoint,
+    })
+    // The durable snapshot subsumes every hook already seen. Replaying those
+    // hooks as live would reopen an epoch or repeat terminal side effects.
+    claudeStarting.set(sessionId, [])
+    void startClaudeCausal(sessionId, {
+      hook_event_name: 'SessionStart',
+      session_id: causal.providerSessionId,
+      transcript_path: causal.transcriptPath,
+    })
+  }
+
+  const requestClaudeAuthorityRecovery = (
+    sessionId: string,
+    causal: ClaudeCausalTracker,
+    transitionId: string,
+  ): void => {
+    const lease = causalLeases.get(sessionId)
+    if (!lease) return
+    cancelSessionObservationDeliveries(sessionId)
+    causal.stopConfirmationPoll?.()
+    claudeStarting.set(sessionId, [
+      {
+        hook_event_name: 'SessionStart',
+        session_id: causal.providerSessionId,
+        transcript_path: causal.transcriptPath,
+      },
+    ])
+    sendProviderRebind(sessionId, {
+      nextProviderSessionId: causal.providerSessionId,
+      resumeKind: 'claude-session',
+      rebindId: `recover:${lease.observerGeneration}:${lease.bindingVersion}:${transitionId}`,
+    })
   }
 
   const onObservationAck = (
@@ -417,29 +590,56 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // generic adapters require the exact binding fence.
     if (msg.bindingVersion === undefined && bound?.adapter.kind !== 'claude-code') return
     if (msg.bindingVersion !== undefined && msg.bindingVersion !== lease.bindingVersion) return
+    cancelObservationAckDelivery(msg, msg.bindingVersion ?? lease.bindingVersion)
     bound?.observation.onObservationAck?.(msg)
     const causal = claudeCausal.get(msg.sessionId)
     if (!causal) return
     if (msg.transitionId !== causal.bootstrapTransitionId || !causal.awaitingBootstrapAck) {
+      const pending = causal.pendingObservation
+      if (!pending || msg.transitionId !== pending.transitionId) return
+      const duplicateLive =
+        msg.result === 'rejected' &&
+        msg.rejectionReason === 'duplicate_transition' &&
+        msg.acceptedCursor !== undefined &&
+        msg.acceptedCursor !== null &&
+        isDeepStrictEqual(msg.acceptedCursor, pending.providerCursor)
+      if (msg.result === 'rejected' && !duplicateLive) {
+        const checkpoint = authoritativeClaudeCheckpoint(msg.sessionId, causal, msg)
+        if (checkpoint) rebootClaudeFromCheckpoint(msg.sessionId, causal, checkpoint)
+        else requestClaudeAuthorityRecovery(msg.sessionId, causal, msg.transitionId)
+        return
+      }
       causal.observer.acknowledgeCursor(msg.acceptedCursor)
-      if (msg.transitionId !== causal.pendingTransitionId) return
-      causal.pendingTransitionId = null
+      causal.pendingObservation = null
       if (msg.acceptedCursor !== undefined && msg.acceptedCursor !== null) {
         causal.acceptedCursor = msg.acceptedCursor
       }
+      const checkpoint = authoritativeClaudeCheckpoint(msg.sessionId, causal, msg)
+      if (checkpoint) {
+        const current = causalLeases.get(msg.sessionId)
+        if (current) causalLeases.set(msg.sessionId, { ...current, acceptedCheckpoint: checkpoint })
+      }
+      drainClaudeHooks(causal)
       return
     }
     const reconciledBootstrap =
       msg.result === 'rejected' &&
       msg.acceptedCursor !== undefined &&
+      msg.acceptedCursor !== null &&
       (msg.rejectionReason === 'cursor_not_after_checkpoint' ||
         msg.rejectionReason === 'terminal_epoch_closed')
     const duplicateBootstrap =
       msg.result === 'rejected' &&
       msg.rejectionReason === 'duplicate_transition' &&
       msg.acceptedCursor !== undefined &&
+      msg.acceptedCursor !== null &&
       isDeepStrictEqual(msg.acceptedCursor, causal.bootstrapCursor)
-    if (msg.result === 'rejected' && !reconciledBootstrap && !duplicateBootstrap) return
+    if (msg.result === 'rejected' && !reconciledBootstrap && !duplicateBootstrap) {
+      const checkpoint = authoritativeClaudeCheckpoint(msg.sessionId, causal, msg)
+      if (checkpoint) rebootClaudeFromCheckpoint(msg.sessionId, causal, checkpoint)
+      else requestClaudeAuthorityRecovery(msg.sessionId, causal, msg.transitionId)
+      return
+    }
     causal.observer.acknowledgeCursor(msg.acceptedCursor)
     if (msg.acceptedCursor !== undefined && msg.acceptedCursor !== null) {
       causal.acceptedCursor = msg.acceptedCursor
@@ -447,12 +647,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if ((msg.result !== 'rejected' || duplicateBootstrap) && lease.providerSessionId === null) {
       causalLeases.set(msg.sessionId, { ...lease, providerSessionId: causal.providerSessionId })
     }
-    causal.pendingTransitionId = null
-    causal.awaitingBootstrapAck = false
-    const buffered = causal.bufferedHooks.splice(0)
-    for (const payload of buffered) {
-      causal.processing = causal.processing.then(() => applyClaudeHook(causal, payload))
+    const checkpoint = authoritativeClaudeCheckpoint(msg.sessionId, causal, msg)
+    if (checkpoint) {
+      const current = causalLeases.get(msg.sessionId)
+      if (current) causalLeases.set(msg.sessionId, { ...current, acceptedCheckpoint: checkpoint })
     }
+    causal.pendingObservation = null
+    causal.awaitingBootstrapAck = false
+    drainClaudeHooks(causal)
     if (!causal.stopConfirmationPoll) {
       causal.stopConfirmationPoll = statTick.subscribe(() => {
         if (causal.awaitingBootstrapAck || causal.confirming || !causal.acceptedCursor) return
@@ -461,14 +663,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           .then(async () => {
             if (
               causal.bufferedHooks.length > 0 ||
-              causal.pendingTransitionId !== null ||
+              causal.pendingObservation !== null ||
               !causal.acceptedCursor
             )
               return
             const cursor = causal.acceptedCursor
             const identity = parseClaudeTranscriptSegmentId(cursor.segmentId)
             if (!identity) return
-            const capture = await captureClaudeTranscript(causal.transcriptPath, {
+            const capture = await captureTranscript(causal.transcriptPath, {
               promptScanStart: cursor.components.transcript ?? 0,
               promptScanIdentity: identity,
             })
@@ -493,7 +695,49 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   }
 
-  const sendProviderRebind = (sessionId: string, rebind: HarnessProviderRebind): void => {
+  function cancelPendingRebind(sessionId: string): void {
+    const pending = pendingRebinds.get(sessionId)
+    if (!pending) return
+    if (pending.retryTimer !== undefined) clearTimeout(pending.retryTimer)
+    pendingRebinds.delete(sessionId)
+  }
+
+  function transmitPendingRebind(
+    sessionId: string,
+    pending: typeof pendingRebinds extends Map<string, infer P> ? P : never,
+  ): void {
+    const lease = causalLeases.get(sessionId)
+    if (
+      !lease ||
+      pendingRebinds.get(sessionId) !== pending ||
+      lease.observerGeneration !== pending.observerGeneration ||
+      lease.bindingVersion !== pending.bindingVersion
+    )
+      return
+    if (pending.retryTimer !== undefined) clearTimeout(pending.retryTimer)
+    send({
+      type: 'agentObservationRebind',
+      sessionId,
+      provider: lease.provider,
+      providerSessionId: lease.providerSessionId,
+      observerGeneration: pending.observerGeneration,
+      bindingVersion: pending.bindingVersion,
+      nextProviderSessionId: pending.request.nextProviderSessionId,
+      resumeKind: pending.request.resumeKind,
+      rebindId: pending.request.rebindId,
+    })
+    const delay = Math.min(
+      CAUSAL_DELIVERY_RETRY_BASE_MS * 2 ** pending.retryAttempt,
+      CAUSAL_DELIVERY_RETRY_MAX_MS,
+    )
+    pending.retryTimer = setTimeout(() => {
+      pending.retryTimer = undefined
+      pending.retryAttempt = Math.min(pending.retryAttempt + 1, 4)
+      transmitPendingRebind(sessionId, pending)
+    }, delay)
+  }
+
+  function sendProviderRebind(sessionId: string, rebind: HarnessProviderRebind): void {
     const lease = causalLeases.get(sessionId)
     if (!lease) return
     const pending = pendingRebinds.get(sessionId)
@@ -502,40 +746,22 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         pending.request.rebindId === rebind.rebindId &&
         pending.request.nextProviderSessionId === rebind.nextProviderSessionId
       ) {
-        send({
-          type: 'agentObservationRebind',
-          sessionId,
-          provider: lease.provider,
-          providerSessionId: lease.providerSessionId,
-          observerGeneration: pending.observerGeneration,
-          bindingVersion: pending.bindingVersion,
-          nextProviderSessionId: rebind.nextProviderSessionId,
-          resumeKind: rebind.resumeKind,
-          rebindId: rebind.rebindId,
-        })
+        transmitPendingRebind(sessionId, pending)
       } else if (!pending.queuedRebinds.some((queued) => queued.rebindId === rebind.rebindId)) {
         pending.queuedRebinds.push(rebind)
       }
       return
     }
-    pendingRebinds.set(sessionId, {
+    const next = {
       request: rebind,
       observerGeneration: lease.observerGeneration,
       bindingVersion: lease.bindingVersion,
       bufferedObservations: [],
       queuedRebinds: [],
-    })
-    send({
-      type: 'agentObservationRebind',
-      sessionId,
-      provider: lease.provider,
-      providerSessionId: lease.providerSessionId,
-      observerGeneration: lease.observerGeneration,
-      bindingVersion: lease.bindingVersion,
-      nextProviderSessionId: rebind.nextProviderSessionId,
-      resumeKind: rebind.resumeKind,
-      rebindId: rebind.rebindId,
-    })
+      retryAttempt: 0,
+    }
+    pendingRebinds.set(sessionId, next)
+    transmitPendingRebind(sessionId, next)
   }
 
   const onProviderRebindAck = (
@@ -568,7 +794,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         msg.bindingVersion < pending.bindingVersion)
     )
       return
-    pendingRebinds.delete(msg.sessionId)
+    cancelPendingRebind(msg.sessionId)
+    cancelSessionObservationDeliveries(msg.sessionId)
     const acceptedCheckpoint =
       msg.checkpoint &&
       msg.checkpoint.podiumSessionId === msg.sessionId &&
@@ -846,7 +1073,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // restarted server issues a freshly fenced reattach lease. Retain only the
     // identity needed to reconstruct a bootstrap under that new generation;
     // the old observer, pending effects, and acknowledgement state are retired
-    // below before anything from the replacement may reach the wire.
+    // before anything from the replacement may reach the wire.
     const survivingClaude = claudeCausal.get(msg.sessionId)
     const survivingClaudeBinding = survivingClaude
       ? {
@@ -854,6 +1081,17 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           transcriptPath: survivingClaude.transcriptPath,
         }
       : undefined
+
+    // Spawn/reattach is authoritative even when it replaces an identical
+    // generation. Preserve only the identity above for fresh-lease adoption;
+    // no delivery timer, pending effect, or provider callback may survive it.
+    cancelPendingRebind(msg.sessionId)
+    cancelSessionObservationDeliveries(msg.sessionId)
+    pendingBindingHooks.delete(msg.sessionId)
+    claudeStarting.delete(msg.sessionId)
+    claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
+    claudeCausal.delete(msg.sessionId)
+    causalLeases.delete(msg.sessionId)
     if (provider) {
       trackers.set(msg.sessionId, {
         provider,
@@ -867,11 +1105,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       msg.observationGeneration !== undefined &&
       msg.observationBindingVersion !== undefined
     ) {
-      pendingRebinds.delete(msg.sessionId)
-      pendingBindingHooks.delete(msg.sessionId)
-      claudeStarting.delete(msg.sessionId)
-      claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
-      claudeCausal.delete(msg.sessionId)
       const checkpoint = SessionObservationCheckpointV1.safeParse(msg.observationCheckpoint)
       const providerSessionId =
         msg.observationProviderSessionId !== undefined
@@ -1102,7 +1335,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     trackers.delete(sessionId)
     stopObservation(sessionId)
     causalLeases.delete(sessionId)
-    pendingRebinds.delete(sessionId)
+    cancelPendingRebind(sessionId)
+    cancelSessionObservationDeliveries(sessionId)
     pendingBindingHooks.delete(sessionId)
     claudeCausal.get(sessionId)?.stopConfirmationPoll?.()
     claudeCausal.delete(sessionId)
@@ -1120,6 +1354,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
    *  separately by close() — matching the pre-split shutdown order. */
   const disposeObservers = (): void => {
     for (const id of [...pendingIdleEmits.keys()]) cancelPendingIdleEmit(id)
+    for (const id of [...pendingRebinds.keys()]) cancelPendingRebind(id)
+    for (const pending of [...pendingObservationDeliveries.values()]) {
+      cancelObservationDelivery(pending.observation)
+    }
     for (const id of [...observations.keys()]) stopObservation(id)
     trackers.clear()
   }
