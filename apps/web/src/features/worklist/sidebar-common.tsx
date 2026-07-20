@@ -441,7 +441,11 @@ export function PanelRow({
       className={cn(
         'group relative flex min-w-0 items-center rounded-md transition-colors',
         dotRight ? 'min-h-7' : 'min-h-8',
-        active ? 'bg-[#232330]' : 'hover:bg-[#20202a]',
+        // Var-driven so a coloured issue's unfolded block (SidebarUnified sets
+        // --child-*-bg on .tree-children) tints these; neutral elsewhere.
+        active
+          ? 'bg-[var(--child-active-bg,#232330)]'
+          : 'hover:bg-[var(--child-hover-bg,#20202a)]',
       )}
       data-session={session.sessionId}
     >

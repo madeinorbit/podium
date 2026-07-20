@@ -943,11 +943,29 @@ function WorkRowShell({
         )}
       </div>
       {/* Child agent rows: a tree guide (vertical line + per-row stubs, via
-          .tree-children CSS) ties the group to its parent. */}
+          .tree-children CSS) ties the group to its parent. A coloured issue
+          flows its tint into the unfolded block: a quiet wash behind the
+          children, a tinted guide, and colour-mixed active/hover on the child
+          rows — all via vars with neutral fallbacks so uncoloured rows (and
+          every other PanelRow context) are untouched. */}
       {!collapsed && children && (
-        <div className="tree-children relative pt-0.5 pb-1">
+        <div
+          className="tree-children relative rounded-b-[7px] pt-0.5 pb-1"
+          style={
+            hex
+              ? ({
+                  '--tree-guide': `color-mix(in srgb, ${hex} 55%, var(--border))`,
+                  '--child-active-bg': `color-mix(in srgb, ${hex} 26%, #16161c)`,
+                  '--child-hover-bg': `color-mix(in srgb, ${hex} 18%, #16161c)`,
+                  // Same 12% mix as the unselected coloured row, so row +
+                  // unfolded block read as one continuous coloured card.
+                  background: `color-mix(in srgb, ${hex} 12%, #16161c)`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
           <span
-            className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-border"
+            className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
             aria-hidden="true"
           />
           {children}

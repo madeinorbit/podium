@@ -349,7 +349,7 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
                 handleSide="left"
                 className="max-w-[45vw]"
               >
-                <aside className="right-dock-shell">
+                <aside className="right-dock-shell issue-base-card issue-fade">
                   <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
                 </aside>
               </ResizableColumn>

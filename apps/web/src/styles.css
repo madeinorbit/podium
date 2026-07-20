@@ -248,7 +248,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   /* Same hairline language as the rail (#65): 35% issue tint, 30% slate —
      the quiet override lives with the rail's in index.css. */
   border-left: 1px solid color-mix(in srgb, var(--issue) 35%, transparent);
-  background: var(--card);
+  /* No background here: the aside wears issue-base-card issue-fade (same tint
+     language as the rail) — an unlayered rule would override that utility. */
 }
 .right-rail {
   display: flex;
@@ -294,7 +295,8 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
   top: 50%;
   width: 9px;
   height: 1px;
-  background: var(--border);
+  /* Inherits a coloured issue's tint when the wrapper sets --tree-guide. */
+  background: var(--tree-guide, var(--border));
   pointer-events: none;
 }
 /* Composer caret block (CLI-style prompt decoration). */
