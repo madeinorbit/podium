@@ -67,20 +67,40 @@ function isBackendRoute(pathname: string): boolean {
   return BACKEND_PREFIXES.some((pre) => pathname === pre || pathname.startsWith(pre + '/'))
 }
 
+/** Phone (not tablet) user agents — the devices the Expo mobile app targets. */
+const PHONE_UA = /Android.+Mobile|iPhone|iPod/i
+
 /**
- * Mobile entry routing [spec:SP-902c]: phone browsers get the responsive web shell at /
- * (no user-agent redirect); the Expo build is opt-in at /mobile. When the Expo build is
- * absent, /mobile redirects to / instead of falling through to the main SPA under a wrong
- * base path. /desktop stays as the Expo app's link back to the web shell. Every redirect
- * preserves the query string (?server, ?e2e).
+ * Mobile entry routing [POD-102, reverses SP-902c]: the Expo app at /mobile is
+ * the ONLY mobile UX — phone browsers hitting exactly `/` are redirected there.
+ * The responsive web shell is gone; /desktop remains as the Expo app's escape
+ * hatch to the desktop web shell (`/?desktop=1` suppresses the phone redirect
+ * for that navigation). Deep links (e.g. /session/xyz) are never redirected.
+ * When the Expo build is absent, /mobile falls back to / instead of loading the
+ * main SPA under a wrong base path. Every redirect preserves the query string
+ * (?server, ?e2e).
  */
 export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boolean }): void {
   const toRoot = (c: Context) => c.redirect('/' + new URL(c.req.url).search)
-  app.get('/desktop', toRoot)
   if (!opts.expoMobileServed) {
+    app.get('/desktop', toRoot)
     app.get('/mobile', toRoot)
     app.get('/mobile/*', toRoot)
+    return
   }
+  app.get('/', async (c, next) => {
+    const url = new URL(c.req.url)
+    const ua = c.req.header('user-agent') ?? ''
+    if (PHONE_UA.test(ua) && !url.searchParams.has('desktop')) {
+      return c.redirect('/mobile' + url.search)
+    }
+    await next()
+  })
+  app.get('/desktop', (c) => {
+    // Raw-string append keeps the original encoding of ?server=wss://… intact.
+    const search = new URL(c.req.url).search
+    return c.redirect('/' + (search ? search + '&desktop=1' : '?desktop=1'))
+  })
 }
 
 /**
@@ -89,11 +109,7 @@ export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boole
  * UI, not this route. Returns false (registers nothing) when no build is present, so a
  * source/dev run or an API-only server is unaffected. Call AFTER the API routes.
  */
-export function registerWebStatic(
-  app: Hono,
-  webDir: string,
-  opts: StaticWebOptions = {},
-): boolean {
+export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOptions = {}): boolean {
   if (!existsSync(join(webDir, 'index.html'))) return false
 
   const basePath = normalizedBasePath(opts.basePath)

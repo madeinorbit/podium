@@ -69,7 +69,7 @@ describe('registerWebStatic', () => {
       rmSync(mobile, { recursive: true, force: true })
     }
   })
-  it('serves the web shell at / to phone user agents (no redirect) [spec:SP-902c]', async () => {
+  it('redirects phone user agents at / to /mobile [POD-102]', async () => {
     const app = new Hono()
     registerMobileRouting(app, { expoMobileServed: true })
     app.get('/', (c) => c.text('web shell'))
@@ -78,16 +78,42 @@ describe('registerWebStatic', () => {
     const root = await app.request('/?server=wss://x&e2e=1', {
       headers: { 'user-agent': iphone },
     })
-    expect(root.status).toBe(200)
-    expect(await root.text()).toBe('web shell')
+    expect(root.status).toBe(302)
+    expect(root.headers.get('location')).toBe('/mobile?server=wss://x&e2e=1')
   })
-  it('redirects /desktop to / preserving the query string', async () => {
+  it('keeps the web shell at / for desktop UAs, ?desktop, and deep links', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobileServed: true })
+    app.get('/', (c) => c.text('web shell'))
+    app.get('/session/s1', (c) => c.text('deep link'))
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148'
+    const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15'
+
+    expect(await (await app.request('/', { headers: { 'user-agent': mac } })).text()).toBe(
+      'web shell',
+    )
+    expect(
+      await (await app.request('/?desktop=1', { headers: { 'user-agent': iphone } })).text(),
+    ).toBe('web shell')
+    expect(
+      await (await app.request('/session/s1', { headers: { 'user-agent': iphone } })).text(),
+    ).toBe('deep link')
+  })
+  it('redirects /desktop to /?desktop=1 preserving the query string', async () => {
     const app = new Hono()
     registerMobileRouting(app, { expoMobileServed: true })
 
     const res = await app.request('/desktop?server=wss://x&e2e=1')
     expect(res.status).toBe(302)
-    expect(res.headers.get('location')).toBe('/?server=wss://x&e2e=1')
+    expect(res.headers.get('location')).toBe('/?server=wss://x&e2e=1&desktop=1')
+  })
+  it('redirects /desktop to / when the Expo build is absent', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobileServed: false })
+
+    const res = await app.request('/desktop?e2e=1')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/?e2e=1')
   })
   it('redirects /mobile to / with the query when the Expo build is absent', async () => {
     const app = new Hono()

@@ -13,7 +13,7 @@ import { type MainView, useStoreSelector } from './store'
  * (.design/specs/shell-layout.md §2.1): logo · text nav (Tasks · Workflows ·
  * Specs · Automations) · machine + quota chips
  * right-aligned. The icon-cell header with issue-context dropdown and “+”
- * belongs to the MOBILE shell (MobileApp.tsx), not here.
+ * belonged to the retired responsive shell, not here.
  * [spec:SP-3834] The same header becomes the native app's integrated title bar.
  */
 export function TopBar(): JSX.Element {

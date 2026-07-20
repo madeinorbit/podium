@@ -18,7 +18,6 @@ import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside, ResizableColumn } from '@/features/worklist/sidebar-common'
 import { desktopReplicaFactory } from '@/lib/desktopReplica'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
@@ -30,7 +29,6 @@ import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedSuperagentBar } from './FoldedSuperagentBar'
-import { MobileApp } from './MobileApp'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
@@ -87,7 +85,6 @@ function useDesktopReplica(): { createReplicaFn?: () => Replica } | null {
 export function AppShell(): JSX.Element {
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
-  const isMobile = useIsMobile()
   const desktopReplica = useDesktopReplica()
 
   if (!desktopReplica) {
@@ -117,7 +114,7 @@ export function AppShell(): JSX.Element {
             <ThemeUiStateMirror />
             <BrowserOpenOverlay />
             <ConfirmProvider>
-              <AppBody isMobile={isMobile} />
+              <AppBody />
             </ConfirmProvider>
           </StoreProvider>
         </ErrorBoundary>
@@ -131,7 +128,7 @@ export function AppShell(): JSX.Element {
   )
 }
 
-function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
+function AppBody(): JSX.Element {
   const {
     repos,
     reposLoaded,
@@ -202,24 +199,20 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   }
 
   // superOpen (store) is how surfaces outside the shell drive the column
-  // (palette toggle, concierge/btw opens, mobile overlay). The desktop shell
-  // mirrors persisted mode back into the store once, then follows superOpen
-  // CHANGES only — and resolves close to 'folded': the column never fully
-  // disappears (#65). Skipped entirely under the mobile shell, whose overlay
-  // semantics for superOpen must not rewrite the desktop mode (the pre-#65
-  // 'closed' poisoning came exactly from that coupling).
+  // (palette toggle, concierge/btw opens). The shell mirrors persisted mode
+  // back into the store once, then follows superOpen CHANGES only — and
+  // resolves close to 'folded': the column never fully disappears (#65).
   const lastSuperOpen = useRef(superOpen)
   useEffect(() => {
-    if (isMobile) return
     if (superOpen === lastSuperOpen.current) return
     lastSuperOpen.current = superOpen
     const mode = superOpen ? 'open' : 'folded'
     setSuperModeState(mode)
     uiState.set(SUPERAGENT_MODE_KEY, mode)
-  }, [isMobile, superOpen, uiState])
+  }, [superOpen, uiState])
   // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — seed the store from the persisted desktop mode.
   useEffect(() => {
-    if (!isMobile) setSuperOpen(superMode === 'open')
+    setSuperOpen(superMode === 'open')
   }, [])
 
   // The folded 3d bar keeps the ✦ unread dot live — this instance polls only
@@ -284,103 +277,99 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
 
   return (
     <>
-      {isMobile ? (
-        <MobileApp />
-      ) : (
-        <div
-          className="desktop-shell issue-scope"
-          data-issue-colored={effectiveHex ? 'true' : 'false'}
-          style={issueStyle}
-        >
-          <TopBar />
-          <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
-            {sidebarCollapsed ? (
-              <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                <button
-                  type="button"
-                  className="collapsed-sidebar-expand"
-                  aria-label="Expand sidebar"
-                  title="Expand sidebar"
-                  onClick={() => setSidebarCollapsed(false)}
-                >
-                  <ChevronRight size={13} aria-hidden="true" />
-                </button>
-                <SidebarRail />
+      <div
+        className="desktop-shell issue-scope"
+        data-issue-colored={effectiveHex ? 'true' : 'false'}
+        style={issueStyle}
+      >
+        <TopBar />
+        <div className="desktop-shell-row" data-sidebar-collapsed={sidebarCollapsed}>
+          {sidebarCollapsed ? (
+            <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
+              <button
+                type="button"
+                className="collapsed-sidebar-expand"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+                onClick={() => setSidebarCollapsed(false)}
+              >
+                <ChevronRight size={13} aria-hidden="true" />
+              </button>
+              <SidebarRail />
+            </aside>
+          ) : (
+            <div className="relative z-10 flex flex-none">
+              <ResizableAside>
+                <SidebarUnified />
+              </ResizableAside>
+              <button
+                type="button"
+                className="sidebar-collapse-control"
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+                onClick={() => setSidebarCollapsed(true)}
+              >
+                <ChevronLeft size={12} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+          {superMode === 'open' && (
+            <ResizableColumn
+              storageKey="podium:superagent:width"
+              min={320}
+              max={860}
+              defaultWidth={460}
+              handleLabel="Resize tray and superagent"
+              className="max-w-[55vw]"
+            >
+              <aside
+                className="engraved-column issue-base-engraved issue-glow"
+                data-superagent-mode="open"
+              >
+                <SuperagentView onClose={() => setSuperMode('folded')} />
               </aside>
-            ) : (
-              <div className="relative z-10 flex flex-none">
-                <ResizableAside>
-                  <SidebarUnified />
-                </ResizableAside>
-                <button
-                  type="button"
-                  className="sidebar-collapse-control"
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar"
-                  onClick={() => setSidebarCollapsed(true)}
-                >
-                  <ChevronLeft size={12} aria-hidden="true" />
-                </button>
-              </div>
-            )}
-            {superMode === 'open' && (
-              <ResizableColumn
-                storageKey="podium:superagent:width"
-                min={320}
-                max={860}
-                defaultWidth={460}
-                handleLabel="Resize tray and superagent"
-                className="max-w-[55vw]"
-              >
-                <aside
-                  className="engraved-column issue-base-engraved issue-glow"
-                  data-superagent-mode="open"
-                >
-                  <SuperagentView onClose={() => setSuperMode('folded')} />
-                </aside>
-              </ResizableColumn>
-            )}
-            {superMode === 'folded' && (
-              <FoldedSuperagentBar
-                issue={selectedIssue}
-                trayCount={trayCount(issues, selectedIssue?.id ?? null)}
-                unread={foldedFeed.unread}
-                onExpand={(target) => {
-                  // Land on the clicked half (3b/3d): pre-open that section so
-                  // the expanding column mounts with it visible.
-                  if (target === 'tray') uiState.set(TRAY_OPEN_KEY, 'true')
-                  if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
-                  setSuperMode('open')
-                }}
-                onColorChange={changeIssueColor}
-              />
-            )}
-            <MainViewOutlet workspace={<Workspace />} />
-            {visibleRightPanel && (
-              <ResizableColumn
-                storageKey="podium:rightdock:width"
-                min={280}
-                max={860}
-                defaultWidth={340}
-                handleLabel="Resize right dock"
-                handleSide="left"
-                className="max-w-[45vw]"
-              >
-                <aside className="right-dock-shell issue-base-card issue-fade">
-                  <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
-                </aside>
-              </ResizableColumn>
-            )}
-            <RightRail
+            </ResizableColumn>
+          )}
+          {superMode === 'folded' && (
+            <FoldedSuperagentBar
               issue={selectedIssue}
-              rightPanel={visibleRightPanel}
-              lastPanel={lastRightPanel}
-              onPanelChange={setRightPanel}
+              trayCount={trayCount(issues, selectedIssue?.id ?? null)}
+              unread={foldedFeed.unread}
+              onExpand={(target) => {
+                // Land on the clicked half (3b/3d): pre-open that section so
+                // the expanding column mounts with it visible.
+                if (target === 'tray') uiState.set(TRAY_OPEN_KEY, 'true')
+                if (target === 'superagent') uiState.set(SUPER_CHAT_OPEN_KEY, 'true')
+                setSuperMode('open')
+              }}
               onColorChange={changeIssueColor}
             />
-          </div>
+          )}
+          <MainViewOutlet workspace={<Workspace />} />
+          {visibleRightPanel && (
+            <ResizableColumn
+              storageKey="podium:rightdock:width"
+              min={280}
+              max={860}
+              defaultWidth={340}
+              handleLabel="Resize right dock"
+              handleSide="left"
+              className="max-w-[45vw]"
+            >
+              <aside className="right-dock-shell issue-base-card issue-fade">
+                <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
+              </aside>
+            </ResizableColumn>
+          )}
+          <RightRail
+            issue={selectedIssue}
+            rightPanel={visibleRightPanel}
+            lastPanel={lastRightPanel}
+            onPanelChange={setRightPanel}
+            onColorChange={changeIssueColor}
+          />
         </div>
-      )}
+      </div>
       <AutoContinueDialog />
       <ApprovalDialog />
       {commandPaletteEnabled && <CommandPalette />}

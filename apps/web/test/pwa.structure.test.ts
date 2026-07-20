@@ -34,21 +34,10 @@ describe('PWA shell height + safe-area inset', () => {
   it('safe-area-inset-bottom is NOT applied to the shell root (composer owns it once)', () => {
     const css = readWeb('src/styles.css')
     // The global safe-area padding belongs in the bottommost UI component
-    // (ChatView composer / SuperagentView composer / mobile toolbar), not on the
-    // shell wrapper. If the shell added it too the inset would be double-counted.
-    // Guard: no padding-bottom referencing safe-area-inset-bottom on .desktop-shell
-    // or .mobile-shell directly (the toolbar rule inside .mobile-shell is fine).
+    // (ChatView composer / SuperagentView composer), not on the shell wrapper.
+    // If the shell added it too the inset would be double-counted.
     const desktopBlock = css.match(/\.desktop-shell\s*\{[^}]*\}/)?.[0] ?? ''
     expect(desktopBlock).not.toContain('safe-area-inset-bottom')
-  })
-
-  it('mobile-shell uses dvh (via --viewport-h fallback) not a fixed 100vh', () => {
-    const css = readWeb('src/styles.css')
-    // mobile-shell must NOT use the old fixed 100vh (layout viewport), which
-    // doesn't shrink when the soft keyboard opens.
-    const mobileBlock = css.match(/\.mobile-shell\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(mobileBlock).not.toContain('100vh')
-    expect(mobileBlock).toMatch(/100dvh/)
   })
 
   it('ChatView composer applies safe-area-inset-bottom exactly once', () => {

@@ -310,25 +310,6 @@ html[data-podium-platform="macos"] .desktop-topbar-nav {
     opacity: 0;
   }
 }
-.mobile-shell {
-  display: flex;
-  flex-direction: column;
-  height: var(--viewport-h, 100dvh);
-  /* No double-tap zoom anywhere in the mobile UI; children that scroll
-     (terminal, pickers, key bar) still pan normally. */
-  touch-action: manipulation;
-}
-/* The mobile shell is an app surface, not a page: the document itself must
-   never scroll or rubber-band (e.g. dragging the key bar up over the soft
-   keyboard used to reveal blank page below the shell). All scrolling happens
-   inside the shell's own scrollable regions. */
-body:has(.mobile-shell) {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  overflow: hidden;
-}
-
 /* Cold-start splash (AppShell LoadingScreen): the wordmark as ASCII art
    (AsciiLoader) over the themed background. */
 .app-loading {
@@ -363,153 +344,14 @@ body:has(.mobile-shell) {
   letter-spacing: 0.4em;
   text-transform: uppercase;
 }
-/* Key accessory bar: a flat, scrollable strip of terminal/agent keys.
-   Hidden on desktop (the hardware keyboard has these) — only shown inside the
-   mobile shell, where it rides directly above the soft keyboard. */
+/* Key accessory bars (terminal keys / submit row): these belonged to the
+   retired responsive mobile shell [POD-102]. AgentPanel still renders the DOM;
+   these base rules keep it hidden until that markup is stripped too. */
 .toolbar {
   display: none;
 }
-.mobile-shell .toolbar {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 5px;
-  /* Reserve the home-indicator safe area ONLY while the keyboard is closed. With
-     the keyboard open the bar rides just above it and the safe area is hidden
-     behind the keyboard, so adding it there is the dead gap under the keys that
-     read as "whitespace at the bottom". --kb-open (0/1) is set from visualViewport
-     in MobileApp; default 0 (keyboard closed) keeps the safe area on desktop/SSR. */
-  padding: 4px 8px calc(8px + (1 - var(--kb-open, 0)) * env(safe-area-inset-bottom, 0px));
-  /* Key-bar strip (mobile.md §2.3): the --bar surface with bordered card keys. */
-  background: var(--bar);
-  border-top: 1px solid var(--hairline-soft);
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  /* Horizontal pan only: vertical drags on the bar must not move the page,
-     and double-taps must not zoom. */
-  touch-action: pan-x;
-  scrollbar-width: none;
-}
-.mobile-shell .toolbar::-webkit-scrollbar {
-  display: none;
-}
-.toolbar .key {
-  flex: 0 0 auto;
-  min-width: 32px;
-  height: 30px;
-  padding: 0 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--hairline-bar);
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  font: 11px / 1 var(--font-mono, ui-monospace, monospace);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-  transition: background 0.06s ease;
-}
-.toolbar .key:active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--attention-foreground);
-}
-/* Sticky modifier (Ctrl): lit while armed for the next keystroke. */
-.toolbar .key.mod.armed {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--attention-foreground);
-}
-.toolbar .key-sep {
-  flex: 0 0 auto;
-  align-self: center;
-  width: 1px;
-  height: 18px;
-  margin: 0 2px;
-  background: var(--hairline-bar);
-}
-
-/* ---- second key row (above the key bar): submit / newline / paste / voice /
-   arrow D-pad. Mobile + native only, like the key bar. ---- */
 .key-actions {
   display: none;
-}
-.mobile-shell .key-actions {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 8px 2px;
-  background: var(--bar);
-  border-top: 1px solid var(--hairline-bar);
-}
-/* No mic on the right — pad the bar as if the 36px mic slot were still there. */
-.mobile-shell .key-actions:not(:has(.key-mic)) {
-  padding-right: calc(8px + 36px + 4px);
-}
-/* Hidden until the panel has output (kb-hidden — no key bar over "Starting…"), or in
-   chat mode (.hidden, applied by AgentPanel): the terminal key rows belong to the
-   NATIVE view, not chat. Named explicitly because the base `.mobile-shell
-   .key-actions{display:flex}` (specificity 0,2,0) outweighs Tailwind's `.hidden`. */
-.mobile-shell .key-actions.kb-hidden,
-.mobile-shell .key-actions.hidden,
-.mobile-shell .toolbar.kb-hidden,
-.mobile-shell .toolbar.hidden {
-  display: none;
-}
-.key-actions .key-act {
-  flex: 1 1 0;
-  min-width: 0;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--hairline-bar);
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-/* The submit key is the design's tinted ⏎ (2b): the one key that acts. */
-.key-actions .key-act.key-submit {
-  color: #e8c477;
-}
-.key-actions .key-act:active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--attention-foreground);
-}
-.key-actions .key-mic {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--hairline-bar);
-  border-radius: 6px;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.key-actions .key-mic.active {
-  color: var(--destructive);
-  border-color: var(--destructive);
-  animation: conn-pulse 1.2s ease-in-out infinite;
 }
 
 /* ---- worker label ---- */

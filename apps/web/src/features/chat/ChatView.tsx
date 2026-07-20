@@ -1040,7 +1040,7 @@ export function ChatView({
         // Bottom inset only when the keyboard is CLOSED. With it open (iOS), the home-
         // indicator safe area sits behind the keyboard, so keeping that padding just
         // leaves a dead gap above the keyboard under the composer. --kb-open (0/1) is
-        // set from visualViewport in MobileApp; mirrors the native toolbar's handling.
+        // set from visualViewport by the shell when a soft keyboard is tracked.
         className={cn(
           'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
           // The superagent dock composer mirrors the native Claude Code prompt

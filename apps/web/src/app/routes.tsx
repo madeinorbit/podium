@@ -17,16 +17,14 @@ const SpecsView = lazy(() =>
 
 /**
  * The ONE route table (issue #15 Phase 4): the URL router resolves the current
- * `view`, and this outlet renders it. AppShell (desktop) and MobileApp share it
- * verbatim — the only per-shell difference is what "workspace" looks like.
+ * `view`, and this outlet renders it for the desktop shell. (Mobile is the
+ * Expo app at /mobile — the responsive shell is gone, POD-102.)
  */
 export function MainViewOutlet({
   workspace,
   issues,
 }: {
   workspace: ReactNode
-  /** Responsive shells can replace the desktop task board with their primary
-   * work-navigation surface. [spec:SP-7696] */
   issues?: ReactNode
 }): JSX.Element {
   const view = useStoreSelector((s) => s.view)
