@@ -1,6 +1,7 @@
 import { relativeTime } from '@podium/client-core'
 import type { IssueWire } from '@podium/protocol'
 import { type CSSProperties, type JSX, useState } from 'react'
+import { GitStamp } from '@/components/GitStamp'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { offerKey, type TrayItem } from './derive-tray'
@@ -247,6 +248,22 @@ export function TrayCard({
             </button>
           </div>
         </>
+      )}
+      {/* Git footer [POD-98]: the merge/send-back decision needs the git facts
+          ON the card — a dirty tree here visibly contradicts "ready to merge". */}
+      {issue.gitState && (
+        <div
+          data-testid="tray-card-git"
+          className="flex min-w-0 items-center border-t pt-1.5"
+          style={{ borderColor: 'color-mix(in srgb, var(--issue) 25%, transparent)' }}
+        >
+          <GitStamp
+            issueBranch={issue.branch}
+            git={issue.gitState}
+            density="footer"
+            className="min-w-0 text-muted-foreground"
+          />
+        </div>
       )}
     </div>
   )

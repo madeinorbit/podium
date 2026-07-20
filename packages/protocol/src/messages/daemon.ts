@@ -21,11 +21,6 @@ import {
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
 } from './handoff'
-import {
-  WorkspaceCleanResultMessage,
-  WorkspaceExportResultMessage,
-  WorkspaceImportResultMessage,
-} from './workspace'
 import { HarnessExecResultMessage } from './harness'
 import {
   HeadlessBindResultMessage,
@@ -57,6 +52,11 @@ import {
   TranscriptMirrorResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
+import {
+  WorkspaceCleanResultMessage,
+  WorkspaceExportResultMessage,
+  WorkspaceImportResultMessage,
+} from './workspace'
 
 // The daemon learned how to resume this session later (e.g. the Claude session
 // uuid from its transcript path). Unlocks hibernate→resume for spawned sessions.
@@ -105,6 +105,19 @@ export const SessionCwdMessage = z.object({
 })
 export type SessionCwdMessage = z.infer<typeof SessionCwdMessage>
 
+// daemon -> server: git activity attributed to ONE session [POD-98] — commit
+// shas from the HEAD delta the hook ingest measured around the session's own
+// tool call, and/or files its edit tools touched. An empty message (SessionStart
+// baseline) still REGISTERS the session as attribution-capable: its issue's
+// git-state probes leave disclosed fallback mode.
+export const SessionGitActivityMessage = z.object({
+  type: z.literal('sessionGitActivity'),
+  sessionId: z.string(),
+  commits: z.array(z.string()).optional(),
+  touched: z.array(z.string()).optional(),
+})
+export type SessionGitActivityMessage = z.infer<typeof SessionGitActivityMessage>
+
 // daemon -> server: the native composer draft the daemon scraped from a flagged
 // session's PTY (Draft Sync v2, POD-859). The server sequences it as an
 // origin='native' versioned edit and broadcasts, so drafts reach every view/device
@@ -137,6 +150,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ImageUploadResultMessage,
   SessionResumeRefMessage,
   SessionCwdMessage,
+  SessionGitActivityMessage,
   NativeDraftMessage,
   InventoryReportMessage,
   BindMessage,

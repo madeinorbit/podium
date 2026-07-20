@@ -192,6 +192,7 @@ export const DAEMON_MESSAGE_CLASS = {
   imageUploadResult: 'command',
   sessionResumeRef: 'command',
   sessionCwd: 'command',
+  sessionGitActivity: 'command',
   // Draft Sync v2 (POD-859): the daemon's scraped native composer — a live runtime
   // stream the server sequences into a durable draft edit.
   nativeDraft: 'live',

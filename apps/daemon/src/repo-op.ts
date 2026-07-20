@@ -19,6 +19,24 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
   switch (op) {
     case 'status':
       return { bin: 'git', argv: ['status', '--porcelain=v1', '-b'] }
+    case 'statusProbe':
+      // Background git-state probe [POD-98]: --no-optional-locks so a probe can
+      // never take index.lock and break an agent's concurrent `git commit`.
+      return { bin: 'git', argv: ['--no-optional-locks', 'status', '--porcelain=v1', '-b'] }
+    case 'revListCount': {
+      // Count commits in `from..to` (merge-axis ahead, unpushed @{u}..HEAD).
+      // The range is one token: a dash value fails as an invalid object name,
+      // and both halves are validated as defense in depth. `@{u}` and `HEAD`
+      // pass the leading-dash guard.
+      const { from, to } = args
+      if (!from || !to) return { error: 'missing args' }
+      const bad = assertSafeRef(from, 'from') ?? assertSafeRef(to, 'to')
+      if (bad) return { error: bad }
+      return { bin: 'git', argv: ['rev-list', '--count', `${from}..${to}`, '--'] }
+    }
+    case 'logHead':
+      // Head sha + committer date, tab-separated — feeds gitState.lastCommitAt.
+      return { bin: 'git', argv: ['log', '-1', '--format=%H%x09%cI'] }
     case 'log':
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':
@@ -28,7 +46,7 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!ref) return { error: 'missing args' }
       const bad = assertSafeRef(ref, 'ref')
       if (bad) return { error: bad }
-      return { bin: 'git', argv: ['rev-parse', '--verify', ref + '^{commit}'] }
+      return { bin: 'git', argv: ['rev-parse', '--verify', `${ref}^{commit}`] }
     }
     case 'worktreeAdd': {
       // Options before `--`; path + optional startPoint ride after it as

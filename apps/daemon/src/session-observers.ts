@@ -19,6 +19,7 @@ import {
   type TranscriptTailer,
   tailTranscript,
 } from '@podium/transcript'
+import { createGitCapture } from './git-capture'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionCwdTracker } from './worktree-resolve'
 
@@ -82,6 +83,9 @@ export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
  */
 export function createSessionObservers(deps: SessionObserversDeps) {
   const { send } = deps
+  // Git attribution capture [POD-98]: brackets shell tool calls with HEAD reads
+  // and reports commit/touched-file deltas as sessionGitActivity.
+  const gitCapture = createGitCapture({ send })
   // One timer fans out every transcript/native-state stat poll in this daemon;
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
@@ -425,6 +429,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (typeof hookCwd === 'string' && hookCwd) {
       void deps.cwdTracker.onHookCwd(sessionId, hookCwd)
     }
+    // Commit/touched-file attribution [POD-98] — fire-and-forget, off the
+    // response path like everything else here.
+    gitCapture.onHookPayload(sessionId, fields)
     void tracker.provider
       .translate(payload)
       .then((events) => applyAgentStateEvents(sessionId, events))
@@ -438,6 +445,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   /** Tear down every observer + tail + tracker one session holds (exit/kill path). */
   const clearSession = (sessionId: string): void => {
     cancelPendingIdleEmit(sessionId)
+    gitCapture.clearSession(sessionId)
     trackers.delete(sessionId)
     stopObservation(sessionId)
     stopTranscriptTail(sessionId)

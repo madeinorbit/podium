@@ -183,6 +183,13 @@ export type BrowseDirsResultMessage = z.infer<typeof BrowseDirsResultMessage>
 // git invocation.
 export const RepoOp = z.enum([
   'status',
+  // git-state probes [POD-98] — read-only, safe to run in the background against
+  // a checkout agents are actively using. statusProbe differs from 'status' in
+  // ONE flag: --no-optional-locks, so a probe can never contend for index.lock
+  // with a concurrent `git commit` in the same checkout.
+  'statusProbe',
+  'revListCount',
+  'logHead',
   'log',
   'branches',
   'revParseVerify',

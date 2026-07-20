@@ -1,5 +1,5 @@
 import { DEFER_NEXT_MESSAGE } from '@podium/domain'
-import type { IssueWire, OrphanIssue } from '@podium/protocol'
+import type { IssueWire, OrphanIssue, SessionMeta } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
@@ -7,6 +7,7 @@ import { type LinearIssue, searchIssues } from '../../../linear'
 import { completeForRole } from '../../../llm-roles'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
+import { probeGitState } from '../git-state'
 import { IssueServiceMail } from './mail'
 import type { CreateIssueInput } from './types'
 
@@ -826,6 +827,118 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         void this.refreshAssistant(row.id).catch(() => {})
       }, 120_000),
     )
+  }
+
+  // ── git-state probes [POD-98] ─────────────────────────────────────────────
+  // "Has this task committed, and on which branch?" — probed on the working→idle
+  // edge (the only moment commits appear), joined into the wire as an ephemeral
+  // field (core.gitStates). Attribution (which commits/files are THIS task's)
+  // comes from the daemon's hook-ingest HEAD-delta capture, recorded per session
+  // here and unioned per issue at probe time; without it a shared checkout runs
+  // in disclosed fallback mode.
+  private gitProbeInflight = new Set<string>()
+  private gitCommitsBySession = new Map<string, string[]>()
+  private gitTouchedBySession = new Map<string, Set<string>>()
+
+  /** Daemon-captured git activity for a session: commit shas from the HEAD
+   *  delta around the session's own tool call, and/or files its Edit/Write
+   *  tools touched. Registers the session as attribution-capable even when
+   *  both lists are empty (SessionStart baseline). */
+  recordSessionGitActivity(
+    sessionId: string,
+    activity: { commits?: string[]; touched?: string[] },
+  ): void {
+    const commits = this.gitCommitsBySession.get(sessionId) ?? []
+    for (const sha of activity.commits ?? []) if (!commits.includes(sha)) commits.push(sha)
+    this.gitCommitsBySession.set(sessionId, commits)
+    const touched = this.gitTouchedBySession.get(sessionId) ?? new Set<string>()
+    for (const f of activity.touched ?? []) touched.add(f)
+    this.gitTouchedBySession.set(sessionId, touched)
+    // A commit is the one git-state change worth a probe OUTSIDE the turn-end
+    // edge — it flips the headline answer ("has it committed?") mid-turn.
+    if (activity.commits?.length) this.onSessionTurnEnd(sessionId)
+  }
+
+  /** Working→idle edge from the sessions service: refresh the git state of the
+   *  issue this session works. Fire-and-forget; never throws into the caller. */
+  onSessionTurnEnd(sessionId: string): void {
+    const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
+    if (!sess) return
+    const row = [...this.rows.values()].find(
+      (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,
+    )
+    if (!row) return
+    void this.refreshGitState(row.id, sess.cwd).catch(() => {})
+  }
+
+  /** Probe the issue's checkout and publish the result. Broadcasts a
+   *  `computing` marker first so clients can shimmer the stamp; concurrent
+   *  requests coalesce onto the in-flight probe. */
+  async refreshGitState(id: string, fallbackCwd?: string): Promise<void> {
+    const row = this.rows.get(id)
+    if (!row || row.deletedAt) return
+    const shared = row.worktreePath === null
+    const cwd = row.worktreePath ?? fallbackCwd
+    if (!cwd) return
+    if (this.gitProbeInflight.has(id)) return
+    this.gitProbeInflight.add(id)
+    const prev = this.gitStates.get(id)
+    this.gitStates.set(
+      id,
+      prev
+        ? { ...prev, computing: true }
+        : // updatedAt '' = "no completed probe yet" — the client's shimmer state.
+          { updatedAt: '', computing: true, branch: null, shared, dirtyFiles: 0 },
+    )
+    this.broadcastList()
+    try {
+      const members = sessionsForIssue(row.worktreePath, this.d.listSessions(), row.id)
+      const attribution = this.gitAttributionFor(members)
+      const state = await probeGitState(
+        {
+          repoOp: (op, opCwd, args, machineId) =>
+            this.d.repoOp(op as never, opCwd, args, machineId),
+        },
+        {
+          cwd,
+          shared,
+          parentBranch: row.parentBranch,
+          branch: row.branch,
+          machineId: row.machineId ?? undefined,
+          ...attribution,
+        },
+        this.now(),
+      )
+      this.gitStates.set(id, state)
+    } catch {
+      // Probe failure: drop the computing marker, keep the previous state.
+      if (prev) this.gitStates.set(id, prev)
+      else this.gitStates.delete(id)
+    } finally {
+      this.gitProbeInflight.delete(id)
+      this.broadcastList()
+    }
+  }
+
+  /** Union the attribution ledgers of an issue's member sessions. Absent (not
+   *  empty) when NO member ever registered — that absence is what flips the
+   *  probe into disclosed fallback mode. */
+  private gitAttributionFor(members: SessionMeta[]): {
+    commits?: string[]
+    touched?: ReadonlySet<string>
+  } {
+    let seen = false
+    const commits: string[] = []
+    const touched = new Set<string>()
+    for (const m of members) {
+      const c = this.gitCommitsBySession.get(m.sessionId)
+      const t = this.gitTouchedBySession.get(m.sessionId)
+      if (c === undefined && t === undefined) continue
+      seen = true
+      for (const sha of c ?? []) if (!commits.includes(sha)) commits.push(sha)
+      for (const f of t ?? []) touched.add(f)
+    }
+    return seen ? { commits, touched } : {}
   }
 
   async refreshAssistant(id: string): Promise<IssueWire> {

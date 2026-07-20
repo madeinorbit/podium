@@ -1,5 +1,5 @@
 import { isIssueBlocked, isIssueClosed, isIssueColorSlot, isIssueDeferred } from '@podium/domain'
-import type { IssueWire, SessionMeta } from '@podium/protocol'
+import type { IssueGitState, IssueWire, SessionMeta } from '@podium/protocol'
 import { formatIssueRef, IssuePanel, parseIssueRef } from '@podium/protocol'
 import { sessionsForIssue, slugifyBranch, summarizeSessions } from '../../../issue-util'
 import type { IssueRow } from '../../../store'
@@ -51,6 +51,13 @@ export abstract class IssueServiceCore {
   // dependents' blocked/ready) are covered because the mutation that caused them
   // bumps this counter, invalidating the affected rows' cache too.
   private issueInputsGen = 0
+
+  /** Git status of each issue's checkout [POD-98] — EPHEMERAL (like the wire's
+   *  `sessions`): probed on the working→idle edge, joined in toWire, never a
+   *  column. Lost on restart by design — the next turn end re-probes, and the
+   *  attribution ledger's absence is what flips `fallback` on. Writers must
+   *  broadcast via {@link broadcastList} so the POD-723 memo invalidates. */
+  protected readonly gitStates = new Map<string, IssueGitState>()
 
   /** Signal that some issue-side input feeding {@link toWire} changed, so cached
    *  wire payloads must be rebuilt on the next list() [POD-723]. */
@@ -148,6 +155,7 @@ export abstract class IssueServiceCore {
     commentCounts?: Map<string, number>,
   ): IssueWire {
     const sessions = row.deletedAt ? [] : sessionsForIssue(row.worktreePath, sessionList, row.id)
+    const gitState = row.deletedAt ? undefined : this.gitStates.get(row.id)
     const labels = this.deps.store.issues.getIssueLabels(row.id)
     const children = [...this.rows.values()].filter((r) => r.parentId === row.id && !r.deletedAt)
     // Wire deps/dependents keep carrying the parent-child edges for client
@@ -240,6 +248,7 @@ export abstract class IssueServiceCore {
       unread: this.computeUnread(row, sessions),
       sessions,
       sessionSummary: summarizeSessions(sessions),
+      ...(gitState ? { gitState } : {}),
       origin: row.origin === 'agent' ? 'agent' : 'human',
       audience: row.audience === 'agent' ? 'agent' : 'human',
       draft: row.draft ?? false,

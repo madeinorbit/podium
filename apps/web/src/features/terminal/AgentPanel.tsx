@@ -26,7 +26,9 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useStoreSelector } from '@/app/store'
+import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,8 +39,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
-import { OfferBar } from '@/features/chat/OfferBar'
 import { accumulateFileLinkPaths } from '@/features/chat/chat'
+import { OfferBar } from '@/features/chat/OfferBar'
 import {
   defaultChatCapable,
   exitedRecovery,
@@ -338,6 +340,17 @@ export function AgentPanel({
   const selectedIssue = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
+  // The SESSION's own issue (not the pane selection) — owns the git stamp
+  // [POD-98]. Explicit attachment wins; else the worktree containing the cwd.
+  const stampIssue = (issues ?? []).find(
+    (i) =>
+      !i.deletedAt &&
+      !i.archived &&
+      (session?.issueId === i.id ||
+        (i.worktreePath !== null &&
+          session?.cwd !== undefined &&
+          (session.cwd === i.worktreePath || session.cwd.startsWith(`${i.worktreePath}/`)))),
+  )
   // Same flow-colour resolution as the shell root (own colour, else nearest
   // coloured ancestor) so the terminal never disagrees with the pane chrome.
   const issueHex = effectiveIssueColorHex(selectedIssue, (id) => issues.find((i) => i.id === id))
@@ -624,6 +637,20 @@ export function AgentPanel({
             <Folder size={11} aria-hidden="true" className="flex-none" />
             <span className="truncate">{prettyCwd(session.cwd)}</span>
           </span>
+        )}
+        {/* Git stamp [POD-98]: has this task committed, and on which branch —
+            always visible for the session you're reading; click opens the Git
+            dock panel. Hidden when the session's issue has no probed state. */}
+        {stampIssue && (
+          <GitStamp
+            issueBranch={stampIssue.branch}
+            git={stampIssue.gitState}
+            density="chip"
+            className="hidden flex-none md:inline-flex"
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'git' }))
+            }
+          />
         )}
         {/* Right control row (§2.3): 26×26 controls; the chat/native switch is
             the emphasized one (tinted border + dark fill), everything else is a

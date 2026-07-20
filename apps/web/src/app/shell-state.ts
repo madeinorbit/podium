@@ -8,6 +8,11 @@ export const RIGHT_PANEL_LAST_KEY = 'podium.rightPanel.last'
 export type SuperagentMode = 'open' | 'folded'
 export type RightPanelTab = 'issue' | 'git' | 'files' | 'shell' | 'mail'
 
+/** Window event asking the shell to open a right-dock panel [POD-98] — fired by
+ *  deep surfaces (the pane header's git stamp) that don't hold the AppShell's
+ *  local panel state. detail = the RightPanelTab to open. */
+export const OPEN_RIGHT_PANEL_EVENT = 'podium:open-right-panel'
+
 export function readBooleanState(value: string | null, fallback = false): boolean {
   if (value === 'true' || value === '1') return true
   if (value === 'false' || value === '0') return false
@@ -23,7 +28,11 @@ export function readSuperagentMode(value: string | null, legacyOpen: boolean): S
 }
 
 export function readRightPanel(value: string | null): RightPanelTab | null {
-  return value === 'issue' || value === 'git' || value === 'files' || value === 'shell' || value === 'mail'
+  return value === 'issue' ||
+    value === 'git' ||
+    value === 'files' ||
+    value === 'shell' ||
+    value === 'mail'
     ? value
     : null
 }

@@ -115,6 +115,43 @@ export const IssueColor = z.enum([
 ])
 export type IssueColor = z.infer<typeof IssueColor>
 
+/** Git status of a task's checkout [POD-98] — derived server-side at
+ *  serialization (like `sessions`), never persisted. Two axes: the MERGE axis
+ *  (`ahead` vs parentBranch — only meaningful on a private issue branch) and
+ *  the TASK axis (`commits`/`dirtyOwn` — harness-attributed, the only truthful
+ *  counters on a shared checkout like main or a long-lived project branch).
+ *  Tolerant so payloads from newer peers parse rather than failing the issue. */
+export const IssueGitState = z.object({
+  /** ISO time of the last completed probe. */
+  updatedAt: z.string(),
+  /** A probe is in flight — clients render the stamp's loading shimmer. */
+  computing: z.boolean().optional(),
+  /** Branch the checkout is actually on (may differ from issue.branch). */
+  branch: z.string().nullable(),
+  /** True = multi-task checkout (repo root / long-lived branch): the merge
+   *  axis is suppressed and only attributed counters render. */
+  shared: z.boolean(),
+  /** Merge axis: commits on branch not on parentBranch. Absent when shared. */
+  ahead: z.number().int().optional(),
+  /** Working-tree dirty file count (whole checkout). */
+  dirtyFiles: z.number().int(),
+  /** Task axis: dirty files ∩ this task's harness-observed touched files.
+   *  Absent when the harness has no touched-file set (fallback mode). */
+  dirtyOwn: z.number().int().optional(),
+  /** Task axis: commit shas attributed to this task's sessions. */
+  commits: z.array(z.string()).optional(),
+  /** ISO committer date of the checkout's last commit. */
+  lastCommitAt: z.string().optional(),
+  /** Commits not yet on the upstream (@{u}..HEAD). Absent = no upstream. */
+  unpushed: z.number().int().optional(),
+  /** Branch fully contained in parentBranch (merge axis only). */
+  merged: z.boolean().optional(),
+  /** True when counters come from checkout-level fallback (no harness
+   *  attribution available) — the UI discloses this in the hover. */
+  fallback: z.boolean().optional(),
+})
+export type IssueGitState = z.infer<typeof IssueGitState>
+
 export const IssueWire = z.object({
   id: z.string(),
   repoPath: z.string(),
@@ -231,6 +268,10 @@ export const IssueWire = z.object({
   // Derived server-side at serialization (not persisted):
   sessions: z.array(SessionMeta),
   sessionSummary: IssueSessionSummary,
+  /** Git status of the task's checkout [POD-98]. Absent = no checkout to probe
+   *  (or a pre-field peer). Tolerant: malformed from a newer peer parses as
+   *  unset rather than failing the whole issue. */
+  gitState: IssueGitState.optional().catch(undefined),
   /** True for an issue mirrored FROM this node's upstream hub (node⇄hub issues,
    *  docs/spec/node-hub-issues.md §2.1) — stamped at ingest, never on local
    *  issues. Derived fields (ready/blocked/deps) arrive hub-computed. Additive:

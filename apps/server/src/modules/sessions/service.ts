@@ -3883,6 +3883,11 @@ export class SessionsService {
           state: next,
         })
         this.issues().onSessionActivity(msg.sessionId)
+        // Turn end (working → anything else) is the only moment new commits can
+        // appear — refresh the owning issue's git state [POD-98].
+        if (prev?.phase === 'working' && next.phase !== 'working') {
+          this.issues().onSessionTurnEnd(msg.sessionId)
+        }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
         // as the old direct notifyAttention call.
         this.bus.emit('session.stateChanged', { sessionId: msg.sessionId, prev, next })
@@ -4095,6 +4100,15 @@ export class SessionsService {
           this.broadcastSessions()
         }
         if (msg.cwd && session.issueId) this.adoptWorktree(session.issueId, msg)
+        break
+      }
+      case 'sessionGitActivity': {
+        // Daemon-captured commit/touched attribution [POD-98] — feed the issue
+        // service's per-session ledger; it unions per issue at probe time.
+        this.issues().recordSessionGitActivity(msg.sessionId, {
+          ...(msg.commits ? { commits: msg.commits } : {}),
+          ...(msg.touched ? { touched: msg.touched } : {}),
+        })
         break
       }
       case 'transcriptDelta': {

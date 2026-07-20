@@ -35,6 +35,7 @@ import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import {
+  OPEN_RIGHT_PANEL_EVENT,
   RIGHT_PANEL_KEY,
   RIGHT_PANEL_LAST_KEY,
   type RightPanelTab,
@@ -224,6 +225,21 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
   // The folded 3d bar keeps the ✦ unread dot live — this instance polls only
   // while folded (the open column's own view polls otherwise).
   const foldedFeed = useIssueEvents(trpc, uiState, false, superMode === 'folded')
+
+  // Deep surfaces (the pane header's git stamp [POD-98]) ask for a dock panel
+  // via a window event — the panel state is AppShell-local. A request for a
+  // feature-gated panel falls back to the Task panel (its Git section is the
+  // next-best detail view).
+  useEffect(() => {
+    const onOpenPanel = (event: Event): void => {
+      const detail = (event as CustomEvent).detail
+      const panel = readRightPanel(typeof detail === 'string' ? detail : null)
+      if (!panel) return
+      setRightPanel(panelAllowed(panel) ? panel : 'issue')
+    }
+    window.addEventListener(OPEN_RIGHT_PANEL_EVENT, onOpenPanel)
+    return () => window.removeEventListener(OPEN_RIGHT_PANEL_EVENT, onOpenPanel)
+  })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {

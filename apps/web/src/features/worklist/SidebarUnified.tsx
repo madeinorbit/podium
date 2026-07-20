@@ -20,6 +20,7 @@ import type { CSSProperties, JSX, MouseEvent as ReactMouseEvent, ReactNode } fro
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
+import { GitStamp } from '@/components/GitStamp'
 import { IdSquare } from '@/components/IdSquare'
 import {
   DropdownMenu,
@@ -801,6 +802,7 @@ function WorkRowShell({
   deemphasized = false,
   domMark,
   statusExtra,
+  gitStamp,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -839,6 +841,8 @@ function WorkRowShell({
   domMark?: string
   /** Line 2's trailing slot after the timer (the spin-off ⤷ tick, POD-85). */
   statusExtra?: ReactNode
+  /** Line 2's git stamp [POD-98]: dot + commit counters after the status phrase. */
+  gitStamp?: ReactNode
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -948,6 +952,7 @@ function WorkRowShell({
               <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                 {statusLine}
               </span>
+              {gitStamp}
               {timeMeta}
               {statusExtra}
             </span>
@@ -1150,6 +1155,16 @@ function UnifiedIssueRow({
           />
         }
         active={draftAgentOnly ? active && paneA === first?.sessionId : active}
+        gitStamp={
+          issue.gitState && (
+            <GitStamp
+              issueBranch={issue.branch}
+              git={issue.gitState}
+              density="stamp"
+              className="flex-none"
+            />
+          )
+        }
         unread={unread}
         expandable={!draftAgentOnly && showChildren}
         collapsed={draftAgentOnly || !showChildren ? true : collapsed}
