@@ -23,6 +23,7 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { AppErrorPage } from './AppErrorPage'
 import { ApprovalDialog } from './ApprovalDialog'
+import { AsciiLoader } from './AsciiLoader'
 import { AutoContinueDialog } from './AutoContinueDialog'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
 import { CommandPalette } from './CommandPalette'
@@ -54,8 +55,7 @@ import { Workspace } from './Workspace'
 function LoadingScreen(): JSX.Element {
   return (
     <div className="app-loading" role="status" aria-live="polite">
-      <span className="app-loading-spinner" aria-hidden="true" />
-      <span>Loading Podium…</span>
+      <AsciiLoader />
     </div>
   )
 }

@@ -329,30 +329,39 @@ body:has(.mobile-shell) {
   overflow: hidden;
 }
 
-@keyframes term-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-/* Cold-start splash (AppShell LoadingScreen): full-viewport centered spinner. */
+/* Cold-start splash (AppShell LoadingScreen): the wordmark as ASCII art
+   (AsciiLoader) over the themed background. */
 .app-loading {
   height: var(--viewport-h, 100dvh);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
-  color: var(--muted-foreground);
-  font-size: 13px;
+  gap: 28px;
+  overflow: hidden;
   background: var(--background);
 }
-.app-loading-spinner {
-  width: 26px;
-  height: 26px;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: term-spin 0.8s linear infinite;
+.app-loading-ascii {
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: min(1.15vw, 12px);
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: pre;
+  user-select: none;
+  /* Reserve the grid's box before the first frame lands so the label
+     doesn't jump: 120 columns × 28 rows of 1ch/1em cells. */
+  min-width: 120ch;
+  min-height: 28em;
+}
+.app-loading-label {
+  color: var(--foreground);
+  opacity: 0.55;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-size: 12px;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
 }
 /* Key accessory bar: a flat, scrollable strip of terminal/agent keys.
    Hidden on desktop (the hardware keyboard has these) — only shown inside the
