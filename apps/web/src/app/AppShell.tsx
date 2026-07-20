@@ -31,6 +31,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { FoldedSuperagentBar } from './FoldedSuperagentBar'
 import { MobileApp } from './MobileApp'
 import { RightDock } from './RightDock'
+import { dockSurface } from './right-dock-peek'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import {
@@ -139,6 +140,8 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
     setSuperOpen,
     paletteOpen,
     setPaletteOpen,
+    peekIssueId,
+    setPeekIssueId,
     uiState,
     trpc,
   } = useStoreSelector(
@@ -151,6 +154,8 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
       setSuperOpen: s.setSuperOpen,
       paletteOpen: s.paletteOpen,
       setPaletteOpen: s.setPaletteOpen,
+      peekIssueId: s.peekIssueId,
+      setPeekIssueId: s.setPeekIssueId,
       uiState: s.uiState,
       trpc: s.trpc,
     }),
@@ -179,6 +184,9 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
         ? gitPanelEnabled
         : messagesPanelEnabled
   const visibleRightPanel = panelAllowed(rightPanel) ? rightPanel : null
+  // A peek (chat ref opened in place, POD-95) holds the dock open even when no
+  // panel is selected, and rides a separate width key (the "width bump").
+  const dockSurf = dockSurface({ tab: visibleRightPanel, peekIssueId })
 
   const setSidebarCollapsed = (collapsed: boolean): void => {
     setSidebarCollapsedState(collapsed)
@@ -339,18 +347,26 @@ function AppBody({ isMobile }: { isMobile: boolean }): JSX.Element {
               />
             )}
             <MainViewOutlet workspace={<Workspace />} />
-            {visibleRightPanel && (
+            {dockSurf && (
               <ResizableColumn
-                storageKey="podium:rightdock:width"
+                // Keyed by surface: a peek gets its own persisted (wider) width
+                // and ResizableColumn reads storage at mount (POD-95).
+                key={dockSurf.widthKey}
+                storageKey={dockSurf.widthKey}
                 min={280}
                 max={860}
-                defaultWidth={340}
+                defaultWidth={dockSurf.defaultWidth}
                 handleLabel="Resize right dock"
                 handleSide="left"
                 className="max-w-[45vw]"
               >
                 <aside className="right-dock-shell issue-base-card issue-fade">
-                  <RightDock tab={visibleRightPanel} onClose={() => setRightPanel(null)} />
+                  <RightDock
+                    tab={visibleRightPanel}
+                    peekIssueId={peekIssueId}
+                    onClose={() => setRightPanel(null)}
+                    onClosePeek={() => setPeekIssueId(null)}
+                  />
                 </aside>
               </ResizableColumn>
             )}

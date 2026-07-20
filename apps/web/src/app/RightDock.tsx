@@ -1,6 +1,8 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { issueDisplayRef } from '@podium/protocol'
 import {
   CircleDot,
+  ExternalLink,
   FolderTree,
   GitBranch,
   type LucideIcon,
@@ -9,7 +11,7 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
@@ -47,29 +49,135 @@ function GitPlaceholder(): JSX.Element {
   )
 }
 
-/** The right dock panel: Files / Git / Issue for the active worktree. Opened
- *  from the thin icon rail on the shell's right edge; one panel at a time. */
+/** The right dock panel: Files / Git / Issue for the active worktree — or a
+ *  transient issue PEEK (POD-95): a chat ref opened in place, as a labeled tab
+ *  beside the selected panel so it can't be mistaken for the current task. */
 export function RightDock({
   tab,
+  peekIssueId,
   onClose,
+  onClosePeek,
 }: {
-  tab: RightPanelTab
+  /** Null when only a peek holds the dock open. */
+  tab: RightPanelTab | null
+  peekIssueId?: string | null
   onClose: () => void
+  onClosePeek?: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions, issues } = useStoreSelector(
-    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions, issues: s.issues }),
+  const { paneA, fileTabs, sessions, issues, setOpenIssueId, setView } = useStoreSelector(
+    (s) => ({
+      paneA: s.paneA,
+      fileTabs: s.fileTabs,
+      sessions: s.sessions,
+      issues: s.issues,
+      setOpenIssueId: s.setOpenIssueId,
+      setView: s.setView,
+    }),
     shallowEqual,
   )
   const active = useMemo(
     () => resolveActiveWorktree({ paneA, fileTabs, sessions }),
     [paneA, fileTabs, sessions],
   )
-  const panel = RIGHT_PANELS.find((p) => p.id === tab) ?? {
-    id: tab,
-    label: 'Panel',
-    icon: FolderTree,
+  const panel = tab
+    ? (RIGHT_PANELS.find((p) => p.id === tab) ?? { id: tab, label: 'Panel', icon: FolderTree })
+    : null
+  const peekIssue = peekIssueId
+    ? (issues.find((i) => i.id === peekIssueId && !i.deletedAt) ?? null)
+    : null
+  const peeking = peekIssueId != null
+
+  // Escape closes the peek — one rung down the ladder (page → peek → miniview),
+  // with the same pass-throughs as the miniview card: a terminal or an open
+  // dialog owns its own Escape.
+  useEffect(() => {
+    if (!peeking || !onClosePeek) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      const t = e.target instanceof Element ? e.target : null
+      if (t?.closest('.xterm')) return
+      if (t?.closest('[role=dialog],[role=alertdialog]')) return
+      onClosePeek()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [peeking, onClosePeek])
+
+  if (peeking) {
+    const peekRef = peekIssue ? issueDisplayRef(peekIssue) : null
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel="peek">
+        <div className="flex h-11 flex-none items-center gap-1.5 border-b border-border px-2.5">
+          {panel && (
+            // The panel underneath stays one click away — that visible escape
+            // hatch is what keeps the peek from reading as the current task.
+            <button
+              type="button"
+              className="flex flex-none items-center gap-1.5 rounded px-2 py-1 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              title={`Back to ${panel.label.toLowerCase()}`}
+              onClick={onClosePeek}
+            >
+              <panel.icon size={14} aria-hidden="true" />
+              {panel.label}
+            </button>
+          )}
+          <span
+            className="flex min-w-0 flex-1 items-center gap-[7px] rounded bg-primary/10 px-2 py-1"
+            data-testid="dock-peek-tab"
+          >
+            <span className="flex-none font-mono text-[12px] font-medium text-primary">
+              {peekRef ?? '#?'}
+            </span>
+            <span className="truncate text-[13px] italic text-secondary-foreground">
+              {peekIssue?.title ?? 'Issue not found'}
+            </span>
+          </span>
+          {peekIssue && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 flex-none text-muted-foreground"
+              title="Open full page"
+              onClick={() => {
+                onClosePeek?.()
+                setOpenIssueId(peekIssue.id)
+                setView('issues')
+              }}
+            >
+              <ExternalLink size={13} aria-hidden="true" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="size-7 flex-none text-muted-foreground"
+            title="Close peek"
+            onClick={onClosePeek}
+          >
+            <X size={14} aria-hidden="true" />
+          </Button>
+        </div>
+        <div
+          key={peekIssueId}
+          className="flex min-h-0 flex-1 flex-col animate-in fade-in slide-in-from-bottom-1 duration-150"
+        >
+          {peekIssue ? (
+            <IssuePanelView
+              cwd={active?.cwd ?? ''}
+              machineId={active?.machineId}
+              issueId={peekIssue.id}
+            />
+          ) : (
+            <div className="p-3 text-xs text-muted-foreground/70">
+              This issue is no longer available.
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
+  if (!panel || !tab) return <></>
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
       <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">

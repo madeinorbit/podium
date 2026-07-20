@@ -129,6 +129,12 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Issues tab), or null when closed. Ephemeral — not persisted. */
   openIssueId: string | null
   setOpenIssueId: (id: string | null) => void
+  /** The issue peeked in the right dock (POD-95): a chat ref's "open" that stays
+   *  in the conversation. A labeled transient surface beside the Task panel —
+   *  not routed, not persisted; the full /issues/:id page remains openIssueId.
+   *  One peek at a time: opening another ref replaces it. */
+  peekIssueId: string | null
+  setPeekIssueId: (id: string | null) => void
   /** Whether the Cmd/Ctrl+K command palette is open. In the store (not palette-
    *  local) so other surfaces (toolbar button, shell shortcut) can open it. */
   paletteOpen: boolean

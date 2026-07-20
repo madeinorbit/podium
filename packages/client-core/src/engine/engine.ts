@@ -160,6 +160,7 @@ interface EngineState {
   view: MainView
   settingsTab: string | null
   openIssueId: string | null
+  peekIssueId: string | null
   superThreadId: string
   superOpen: boolean
   dockTab: DockTab
@@ -334,6 +335,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       view: route.view,
       settingsTab: route.settingsTab,
       openIssueId: route.issueId,
+      peekIssueId: null,
       superThreadId: 'global',
       // Default OPEN: the superagent is the desktop shell's center column now, not
       // an optional dock — only an explicit close ('0') keeps it collapsed.
@@ -1107,6 +1109,7 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         if (cur.view === 'issues' && cur.issueId === id) return
         this.router.navigate({ ...cur, view: 'issues', issueId: id })
       },
+      setPeekIssueId: (id: string | null) => this.apply({ peekIssueId: id }),
       setSuperThreadId: (id: string) => this.apply({ superThreadId: id }),
       setSuperOpen: (open: boolean) => this.apply({ superOpen: open }),
       setDockTab: (tab: DockTab) => this.apply({ dockTab: tab }),

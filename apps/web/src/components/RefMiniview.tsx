@@ -1,6 +1,14 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { formatLong, issueDisplayRef, truncateTitle } from '@podium/protocol'
-import { CircleAlert, CircleCheck, ExternalLink, GripVertical, User, X } from 'lucide-react'
+import {
+  CircleAlert,
+  CircleCheck,
+  ExternalLink,
+  GripVertical,
+  PanelRight,
+  User,
+  X,
+} from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
@@ -30,16 +38,18 @@ import {
  *  - rendering the draggable <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
-  const { issues, sessions, setOpenIssueId, setView, navigateToSession } = useStoreSelector(
-    (s) => ({
-      issues: s.issues,
-      sessions: s.sessions,
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const { issues, sessions, setOpenIssueId, setView, setPeekIssueId, navigateToSession } =
+    useStoreSelector(
+      (s) => ({
+        issues: s.issues,
+        sessions: s.sessions,
+        setOpenIssueId: s.setOpenIssueId,
+        setView: s.setView,
+        setPeekIssueId: s.setPeekIssueId,
+        navigateToSession: s.navigateToSession,
+      }),
+      shallowEqual,
+    )
 
   const openIssueFull = (issueId: string): void => {
     setOpenIssueId(issueId)
@@ -80,7 +90,11 @@ export function RefMiniviewHost(): JSX.Element | null {
       onOpenFull={() => {
         if (!target) return
         closeMiniview()
-        if (target.kind === 'issue') openIssueFull(target.issue.id)
+        // One rung up the ladder (POD-95): an issue escalates to the right-dock
+        // PEEK — the chat stays put; the full /issues/:id page remains one more
+        // step away (peek header's "Open full page", or Cmd/Ctrl-click on the
+        // chip). Sessions have no peek surface and still navigate.
+        if (target.kind === 'issue') setPeekIssueId(target.issue.id)
         else navigateToSession(state.ref)
       }}
     />,
@@ -219,11 +233,15 @@ export function RefCard({
           <button
             type="button"
             className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="Open full view"
-            aria-label="Open full view"
+            title={target.kind === 'issue' ? 'Open in side panel' : 'Open full view'}
+            aria-label={target.kind === 'issue' ? 'Open in side panel' : 'Open full view'}
             onClick={onOpenFull}
           >
-            <ExternalLink size={13} aria-hidden="true" />
+            {target.kind === 'issue' ? (
+              <PanelRight size={13} aria-hidden="true" />
+            ) : (
+              <ExternalLink size={13} aria-hidden="true" />
+            )}
           </button>
         )}
         <button
