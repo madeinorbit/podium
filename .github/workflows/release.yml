@@ -12,8 +12,8 @@ jobs:
   release:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     steps:
-      - uses: actions/checkout@v4
-      - uses: useblacksmith/setup-bun@v1   # or oven-sh/setup-bun if unavailable
+      - uses: actions/checkout@v7
+      - uses: useblacksmith/setup-bun@v2   # or oven-sh/setup-bun if unavailable
         with: { bun-version: '1.3.14' }
       - uses: useblacksmith/cache@v5
         with:
