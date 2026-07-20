@@ -808,7 +808,19 @@ export class SessionsService {
     this.sessions.set(session.sessionId, session)
     if (session.sessionId in snoozes) session.snoozedUntil = snoozes[session.sessionId]
     if (session.sessionId in draftTimes) session.draftUpdatedAt = draftTimes[session.sessionId]
-    if (session.sessionId in offers) session.offer = offers[session.sessionId] // [spec:SP-c7f1]
+    // Offer replay [spec:SP-c7f1] with boot reconciliation: user input AFTER the
+    // offer was posted means the conversation moved past it while we were down —
+    // drop it instead of resurrecting a dead suggestion. (Live continuations are
+    // handled by the working-transition clear; this covers what happened while
+    // the server wasn't watching.)
+    if (session.sessionId in offers) {
+      const offer = offers[session.sessionId]
+      if (offer && session.lastInputAtMs > Date.parse(offer.createdAt)) {
+        this.store.sessions.clearOffer(session.sessionId)
+      } else {
+        session.offer = offer
+      }
+    }
     if (session.sessionId in drafts) {
       this.draftBySession.set(session.sessionId, drafts[session.sessionId] ?? '')
     }

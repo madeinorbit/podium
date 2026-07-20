@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -30,7 +31,10 @@ function metaOffer(reg: SessionRegistry, sessionId: string) {
 describe('agent action offer [spec:SP-c7f1]', () => {
   it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', () => {
     const reg = new SessionRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
 
     expect(metaOffer(reg, sessionId)).toBeUndefined()
 
@@ -47,7 +51,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
   it('clearOffer removes it', () => {
     const reg = new SessionRegistry()
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.modules.sessions.clearOffer(sessionId)
     expect(metaOffer(reg, sessionId)).toBeUndefined()
@@ -57,7 +64,10 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
     const reg = new SessionRegistry(new SessionStore(file))
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.dispose()
 
@@ -68,11 +78,45 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     reg2.dispose()
   })
 
+  it('boot reconciliation: user input after the offer drops it on reload', () => {
+    const dir = trackTmp('podium-offer-')
+    const file = join(dir, 'store.db')
+    const reg = new SessionRegistry(new SessionStore(file))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
+    reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+    const createdAt = metaOffer(reg, sessionId)?.createdAt as string
+    reg.dispose()
+
+    // The user typed into the session after the offer was posted (e.g. via the
+    // raw PTY while the server was down / before the stale-clear shipped).
+    const db = openDatabase(file)
+    db.prepare('UPDATE sessions SET last_input_at = ? WHERE id = ?').run(
+      new Date(Date.parse(createdAt) + 60_000).toISOString(),
+      sessionId,
+    )
+    db.close()
+
+    const reg2 = new SessionRegistry(new SessionStore(file))
+    expect(metaOffer(reg2, sessionId)).toBeUndefined()
+    reg2.dispose()
+
+    // ...and the offers table row is gone too, not just the in-memory overlay.
+    const check = openDatabase(file)
+    expect(check.prepare('SELECT COUNT(*) n FROM offers').get()).toEqual({ n: 0 })
+    check.close()
+  })
+
   it('clears the offer when a message is queued to the session (a user turn)', () => {
     const reg = new SessionRegistry()
     // A session with no live daemon parks the send into the durable queue, which
     // is the clear-on-turn path a button click also rides through.
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/p' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.modules.sessions.queueText({ sessionId, text: 'do the thing' })
     expect(metaOffer(reg, sessionId)).toBeUndefined()
@@ -104,15 +148,15 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const createdAt = metaOffer(reg, sessionId)?.createdAt as string
       return { reg, sessionId, createdAt }
     }
-    const after = (iso: string) => new Date(Date.parse(iso) + 60_000).toISOString()
-    const before = (iso: string) => new Date(Date.parse(iso) - 60_000).toISOString()
+    const plusMinute = (iso: string) => new Date(Date.parse(iso) + 60_000).toISOString()
+    const minusMinute = (iso: string) => new Date(Date.parse(iso) - 60_000).toISOString()
 
     it('entering working after the offer was made consumes it', () => {
       const { reg, sessionId, createdAt } = seed()
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
-        state: working(after(createdAt)),
+        state: working(plusMinute(createdAt)),
       })
       expect(metaOffer(reg, sessionId)).toBeUndefined()
     })
@@ -122,7 +166,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
-        state: working(before(createdAt)),
+        state: working(minusMinute(createdAt)),
       })
       expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
     })
@@ -133,7 +177,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
-        state: idle(after(createdAt)),
+        state: idle(plusMinute(createdAt)),
       })
       expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
       // working → working (hook updates mid-turn) never re-triggers: only the
@@ -141,13 +185,13 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
-        state: working(after(createdAt)),
+        state: working(plusMinute(createdAt)),
       })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
-        state: working(after(after(createdAt))),
+        state: working(plusMinute(plusMinute(createdAt))),
       })
       expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
     })
