@@ -308,12 +308,14 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('--title')
   })
 
-  it('bound real issue gets the sub-issue re-home line', () => {
+  it('bound real issue gets the spinoff-vs-subissue litmus re-home line (POD-85)', () => {
     const { svc } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const text = svc.prime({ boundIssueId: a.id })
     expect(text).toContain('You are working on #1: A')
+    expect(text).toContain('podium issue attach --spinoff')
     expect(text).toContain('podium issue attach --subissue')
+    expect(text).toContain('close with the new work untouched')
     expect(text).toContain('--confirm-rehome')
     expect(text).toContain('native subagent must not self-attach')
   })

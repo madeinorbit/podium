@@ -12,7 +12,13 @@ import type {
   OrphanIssue,
   SessionMeta,
 } from '@podium/protocol'
-import { DELEGATION_RULE, formatIssueRef, LOCK_RULE, TITLE_RULE } from '@podium/protocol'
+import {
+  DELEGATION_RULE,
+  formatIssueRef,
+  LOCK_RULE,
+  SPINOFF_RULE,
+  TITLE_RULE,
+} from '@podium/protocol'
 import { lintIssue } from '../../../issue-lint'
 import { jaccard, tokenize } from '../../../issue-similarity'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
@@ -533,7 +539,9 @@ export abstract class IssueServiceReads extends IssueServiceCore {
       'Track durable/discovered/cross-session work as issues, not markdown TODO files. Discovered work that can ship separately is top-level plus `discovered-from` and lands in Proposed automatically; do not stage or claim it. Decomposition and blocking adjacent work are sub-issues under the current deliverable.',
       'Issue descriptions are 1–3 plain, context-free sentences for the human. Put repro steps, file pointers, constraints, and agent instructions in `brief` (`podium issue create/update --brief "…"`). [spec:SP-6144]',
       // Issue identity is immutable [spec:SP-9c7b].
-      'Never reuse an existing issue for something completely different — an issue keeps its identity. If you start on new work, start a new issue and attach to it (`podium issue attach --subissue "<title>" --confirm-rehome`), and switch yourself only on the human\'s push; otherwise file a new issue/sub-issue for another agent to implement. A native subagent must not self-attach; its parent attaches it.',
+      "Never reuse an existing issue for something completely different — an issue keeps its identity. New work gets a new issue (attach yourself only on the human's push; otherwise file it for another agent). A native subagent must not self-attach; its parent attaches it.",
+      // Spin-off vs subissue litmus (POD-85) [spec:SP-6144] — single-sourced.
+      SPINOFF_RULE,
       TITLE_RULE,
       'Agents may repair lifecycle structure inside their issue subtree with `reparent`, `supersede`, `duplicate`, `dep-remove`, and `archive`; use `--outside-scope` to confirm a target elsewhere. `delete` and `restore` remain operator-only.',
       'Top-level agent-created issues are human-facing proposals; internal decomposition uses `--parent-id` and stays nested under tracked work. [spec:SP-6144]',
@@ -589,7 +597,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
           me.stage === 'backlog'
             ? `This issue is still in \`backlog\` but you are working it — fix that now: \`podium issue update --id ${me.seq} --stage planning\` (designing/investigating) or \`--stage in_progress\` (changing code).`
             : null,
-          'If the user\'s request is NOT a continuation of this issue but a new piece of work, create a sub-issue and move there: podium issue attach --subissue "<title>" --confirm-rehome. A native subagent must not self-attach; its parent attaches it.',
+          'If the user\'s request is NOT a continuation of this issue but a new piece of work, move onto a new issue — litmus: could this issue close with the new work untouched? Yes → `podium issue attach --spinoff "<title>" --confirm-rehome` (independent work, provenance edge); No → `podium issue attach --subissue "<title>" --confirm-rehome` (this issue cannot ship without it). A native subagent must not self-attach; its parent attaches it.',
           me.description ? `Human summary: ${me.description}` : null,
           me.brief ? `Brief:\n${me.brief}` : null,
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
