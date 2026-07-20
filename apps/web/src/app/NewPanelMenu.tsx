@@ -39,10 +39,9 @@ export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }
   { kind: 'shell', label: 'New Shell', Icon: SquareTerminal },
 ]
 
-// The workspace "+" (new tab) menu offers AGENTS only [spec:SP-75b1] — shells
-// are spawned from the sidebar's New-work dropdown, which keeps the full
-// NEW_AGENTS list.
-const TAB_AGENTS = NEW_AGENTS.filter((a) => a.kind !== 'shell')
+// The workspace "+" (new tab) menu offers the full NEW_AGENTS list including
+// 'New Shell' [spec:SP-75b1] — a shell spawned here is a regular workspace tab
+// (panel-system participant), independent of the right dock's per-worktree shell.
 
 const MINI_LIMIT = 8
 // Fewer hits shown inside each machine's submenu to keep it compact.
@@ -196,7 +195,7 @@ export function NewPanelMenu({
           }
         />
         <DropdownMenuContent align="end" className="flex w-56 flex-col">
-          {TAB_AGENTS.map(({ kind, label, Icon }) => (
+          {NEW_AGENTS.map(({ kind, label, Icon }) => (
             <DropdownMenuItem key={kind} onClick={() => void create(kind)}>
               <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
               {label}
@@ -260,7 +259,7 @@ export function NewPanelMenu({
       />
       <DropdownMenuContent align="end" className="flex w-56 flex-col">
         {/* 1. Agent options — open on the resolved target machine */}
-        {TAB_AGENTS.map(({ kind, label, Icon }) => (
+        {NEW_AGENTS.map(({ kind, label, Icon }) => (
           <DropdownMenuItem key={kind} onClick={() => void create(kind, target)}>
             <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
             {label}
@@ -384,7 +383,7 @@ function MachineSubmenu({
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent>
-        {TAB_AGENTS.map(({ kind, label, Icon }) => (
+        {NEW_AGENTS.map(({ kind, label, Icon }) => (
           <DropdownMenuItem key={kind} onClick={() => void onCreate(kind, machine.id)}>
             <Icon size={14} aria-hidden="true" className="text-muted-foreground" />
             {label}

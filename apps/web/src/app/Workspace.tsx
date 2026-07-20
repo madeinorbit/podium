@@ -487,7 +487,7 @@ function SortableTab({
       // the hover-reveal of the pin/close controls. Active tab (spec §2.2): tinted fill,
       // tinted hairline (no bottom edge), the 2px issue-colour inset top line.
       className={cn(
-        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[7px] border border-b-0 border-transparent px-0.5',
+        'group relative flex max-w-[200px] min-w-[110px] flex-[1_1_180px] items-center rounded-t-[3px] border border-b-0 border-transparent px-0.5',
         isDragging ? 'z-[2] cursor-grabbing opacity-90' : 'cursor-grab',
         active
           ? 'native-tab-active issue-hairline-50 issue-hairline-slate-45 issue-mix-28 issue-mix-slate-22'

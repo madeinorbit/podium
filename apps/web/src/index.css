@@ -676,9 +676,9 @@
   border-radius: 2.5px;
   background: var(--issue);
 }
-/* Active tab's 2px issue-colour top inset line. */
+/* Active tab's 1px issue-colour top inset line. */
 @utility native-tab-active {
-  box-shadow: inset 0 2px 0 var(--issue);
+  box-shadow: inset 0 1px 0 var(--issue);
 }
 
 @layer base {
