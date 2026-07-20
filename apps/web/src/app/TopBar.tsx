@@ -34,8 +34,8 @@ export function TopBar(): JSX.Element {
 
   return (
     <header className="desktop-topbar" data-testid="desktop-topbar" {...dragRegion}>
-      <span className="desktop-topbar-logo" {...dragRegion}>
-        <PodiumLogo className="flex-none" />
+      <span className="desktop-topbar-logo ml-[15px]" {...dragRegion}>
+        <PodiumLogo height={19} className="flex-none" />
       </span>
       <nav
         className="desktop-topbar-nav ml-[10px] inline-flex flex-none items-center gap-0.5"
@@ -126,7 +126,7 @@ function NavItem({
       onClick={() => onSelect(target)}
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-[6px] px-3 py-1 text-[11.5px] text-muted-foreground hover:text-foreground',
+        'inline-flex items-center gap-1.5 rounded-[6px] px-3 py-1 text-[13px] text-muted-foreground hover:text-foreground',
         active && 'px-2.5 font-semibold text-[var(--text-strong)]',
       )}
     >
