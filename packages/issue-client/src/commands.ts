@@ -499,20 +499,25 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'attach',
-    summary: `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope) or attach --subissue "<title>" --confirm-rehome (create a child of your current real issue and move there). A native subagent must not self-attach; its parent attaches it. Draft moves and self-attach no-ops need no confirmation. An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
+    summary: `Re-home THIS session onto an issue: attach --id <issue> (existing, may be outside your scope), attach --subissue "<title>" --confirm-rehome (decomposition: a child of your current issue — the parent cannot ship without it), or attach --spinoff "<title>" --confirm-rehome (work discovered en route that the current issue can close WITHOUT: a new top-level issue keeping a discovered-from edge). Litmus: could the current issue close honestly with the new work untouched? Then --spinoff, not --subissue. A native subagent must not self-attach; its parent attaches it. Draft moves and self-attach no-ops need no confirmation. An abandoned empty draft is cleaned up. ${TITLE_RULE_TERSE}`,
     args: z.strictObject({
       id: idArg.optional(),
       subissue: z.string().min(1).optional(),
+      spinoff: z.string().min(1).optional(),
       confirmRehome: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
-      if (!a.id && !a.subissue) throw new Error('attach needs --id <issue> or --subissue "<title>"')
+      if (!a.id && !a.subissue && !a.spinoff) {
+        throw new Error('attach needs --id <issue>, --subissue "<title>" or --spinoff "<title>"')
+      }
+      if (a.subissue && a.spinoff) throw new Error('attach takes --subissue or --spinoff, not both')
       // sessionId is stamped server-side from the relay context (the daemon knows
       // which session is calling); it is never taken from agent-supplied input.
       const i = (await c.issues.attachSession.mutate({
         ...(a.id ? { targetId: a.id as string } : {}),
         ...(a.subissue ? { newSubissue: { title: a.subissue as string } } : {}),
+        ...(a.spinoff ? { newSpinoff: { title: a.spinoff as string } } : {}),
         ...(a.confirmRehome ? { confirmRehome: true } : {}),
       } as never)) as { seq: number; title: string }
       return { text: `attached to #${i.seq} ${i.title}`, data: i }

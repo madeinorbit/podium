@@ -1,5 +1,5 @@
-import { normalizeSettings } from '@podium/runtime'
 import type { SessionMeta } from '@podium/protocol'
+import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
@@ -199,9 +199,9 @@ describe('attachSession', () => {
 
   it('newSubissue with no current issue requires targetId as parent', () => {
     const { svc, issueBySession } = harness([sess('s1')])
-    expect(() => svc.attachSession({ sessionId: 's1', newSubissue: { title: 'x', origin: 'human' } })).toThrow(
-      /no parent/,
-    )
+    expect(() =>
+      svc.attachSession({ sessionId: 's1', newSubissue: { title: 'x', origin: 'human' } }),
+    ).toThrow(/no parent/)
     const parent = svc.create({ repoPath: '/r', title: 'P', startNow: false })
     const w = svc.attachSession({
       sessionId: 's1',
@@ -210,6 +210,48 @@ describe('attachSession', () => {
     })
     expect(w.parentId).toBe(parent.id)
     expect(issueBySession.get('s1')).toBe(w.id)
+  })
+
+  it('newSpinoff creates a TOP-LEVEL issue with a discovered-from edge and moves there (POD-85)', () => {
+    const { svc, issueBySession } = harness([sess('s1')])
+    const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
+    issueBySession.set('s1', origin.id)
+    const w = svc.attachSession({
+      sessionId: 's1',
+      newSpinoff: { title: 'Adjacent discovery', origin: 'agent' },
+      confirmRehome: true,
+    })
+    expect(w.title).toBe('Adjacent discovery')
+    // Provenance, not containment: no parent, but a discovered-from edge back.
+    expect(w.parentId ?? null).toBeNull()
+    expect(w.deps).toContainEqual({ id: origin.id, type: 'discovered-from' })
+    expect(issueBySession.get('s1')).toBe(w.id)
+    // Agent-created but immediately worked: NOT proposed — the session is on it.
+    expect(w.stage).not.toBe('proposed')
+    // The origin's tally of decomposition children is untouched.
+    expect(svc.get(origin.id)?.childCount ?? 0).toBe(0)
+  })
+
+  it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', () => {
+    const { svc, issueBySession } = harness([sess('s1')])
+    const origin = svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
+    issueBySession.set('s1', origin.id)
+    expect(() =>
+      svc.attachSession({ sessionId: 's1', newSpinoff: { title: 'x', origin: 'agent' } }),
+    ).toThrow(/--confirm-rehome/)
+    expect(() =>
+      svc.attachSession({
+        sessionId: 's1',
+        newSubissue: { title: 'a', origin: 'agent' },
+        newSpinoff: { title: 'b', origin: 'agent' },
+        confirmRehome: true,
+      }),
+    ).toThrow(/not both/)
+    // Unattached session with no --id: nothing to spin off from.
+    issueBySession.delete('s1')
+    expect(() =>
+      svc.attachSession({ sessionId: 's1', newSpinoff: { title: 'x', origin: 'human' } }),
+    ).toThrow(/no origin/)
   })
 
   it('throws without --id/--subissue and on unknown target', () => {

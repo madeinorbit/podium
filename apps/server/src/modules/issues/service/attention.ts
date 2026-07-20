@@ -13,7 +13,11 @@ import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
 export abstract class IssueServiceAttention extends IssueServiceCrud {
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current
-   *    issue, else `targetId`), then attach to it.
+   *    issue, else `targetId`), then attach to it. Decomposition: the parent is
+   *    not shippable without it.
+   *  - `newSpinoff` (POD-85): create a TOP-LEVEL issue with a `discovered-from`
+   *    edge back to the origin, then attach to it. For work discovered en route
+   *    that the origin can close without — provenance, not containment.
    *  - else attach to `targetId` (self-attach is a no-op).
    *  After the move, an abandoned EMPTY draft (no attached sessions, no worktree,
    *  no children) is deleted. */
@@ -21,15 +25,20 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
     sessionId: string
     targetId?: string
     newSubissue?: { title: string; origin: 'human' | 'agent' }
+    newSpinoff?: { title: string; origin: 'human' | 'agent' }
     confirmRehome?: boolean
   }): IssueWire {
     const { getSessionIssueId, setSessionIssueId } = this.deps
     if (!getSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
     }
+    if (opts.newSubissue && opts.newSpinoff) {
+      throw new Error('attach takes --subissue or --spinoff, not both')
+    }
     const prevId = getSessionIssueId(opts.sessionId)
     let target: IssueRow | undefined
-    if (opts.newSubissue) {
+    const newIssue = opts.newSubissue ?? opts.newSpinoff
+    if (newIssue) {
       const prev = prevId ? this.rows.get(prevId) : undefined
       // A native subagent inherits its parent's relay, so an unconfirmed attach
       // could silently re-home the parent session [spec:SP-bab8].
@@ -41,25 +50,30 @@ export abstract class IssueServiceAttention extends IssueServiceCrud {
             'with `--confirm-rehome`.',
         )
       }
-      const title = opts.newSubissue.title.trim()
-      if (!title) throw new Error('subissue title is empty')
-      const parentId = prevId ?? (opts.targetId ? this.resolveRef(opts.targetId) : null)
-      if (!parentId) {
-        throw new Error('no parent for the sub-issue: session is unattached and no --id given')
+      const title = newIssue.title.trim()
+      if (!title) throw new Error(`${opts.newSubissue ? 'subissue' : 'spinoff'} title is empty`)
+      const anchorId = prevId ?? (opts.targetId ? this.resolveRef(opts.targetId) : null)
+      if (!anchorId) {
+        throw new Error(
+          `no ${opts.newSubissue ? 'parent' : 'origin'} for the new issue: session is unattached and no --id given`,
+        )
       }
-      const parent = this.rowOrThrow(parentId)
+      const anchor = this.rowOrThrow(anchorId)
       const wire = this.create({
-        repoPath: parent.repoPath,
+        repoPath: anchor.repoPath,
         title,
         startNow: false,
-        parentId,
+        // Subissue = decomposition, nests under the anchor. Spinoff = a sibling
+        // at top level; its provenance is the discovered-from edge below.
+        ...(opts.newSubissue ? { parentId: anchorId } : {}),
         // Derived by the registry from the caller (#348) — never client-supplied.
-        origin: opts.newSubissue.origin,
+        origin: newIssue.origin,
         // A session re-homes here and works out of it — it is a real, trackable
         // piece of work, so it is human-audience (visible on the board) even when
         // an agent created it (#198). The "agent cuts a human-facing issue" case.
         audience: 'human',
       })
+      if (opts.newSpinoff) this.addDep(wire.id, anchorId, 'discovered-from')
       target = this.rowOrThrow(wire.id)
     } else {
       if (!opts.targetId) throw new Error('attach needs --id <issue> or --subissue "<title>"')

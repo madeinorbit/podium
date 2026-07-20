@@ -19,6 +19,7 @@ import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
 import { issueIdTitle, STAGE_LABELS } from './issue-card'
+import { groupRelations } from './issue-relations'
 
 /** Stage → dot + tinted chip classes (token-tinted, works across the 4 themes). */
 const STAGE_ACCENT: Record<IssueStage, { dot: string; chip: string }> = {
@@ -498,6 +499,10 @@ export function IssuePanelView({
     () => children.filter((c) => !c.archived).filter(panelNonEmpty),
     [children],
   )
+  // Typed relations (POD-85): the compact disclosure surface — the sidebar
+  // whispers (⤷ tick), this panel names every edge.
+  const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
+  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
 
   if (!issue) {
     return (
@@ -528,6 +533,42 @@ export function IssuePanelView({
                 </div>
               </details>
             )}
+          </div>
+        </DockSection>
+      )}
+      {relations.length > 0 && (
+        <DockSection
+          storageKey="relations"
+          title="Relations"
+          count={relations.reduce((n, g) => n + g.entries.length, 0)}
+        >
+          <div className="flex flex-col gap-1.5" data-testid="dock-relations">
+            {relations.map((group) => (
+              <div key={group.section} className="flex items-baseline gap-2">
+                <span className="w-[84px] flex-none text-[9.5px] text-muted-foreground uppercase tracking-wide">
+                  {group.section}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {group.entries.map((entry) => {
+                    const target = issueById.get(entry.id)
+                    return (
+                      <button
+                        key={`${group.section}-${entry.direction}-${entry.id}`}
+                        type="button"
+                        className="min-w-0 truncate text-left text-[11.5px] hover:text-primary hover:underline"
+                        onClick={() => target && openIssuePage(target.id)}
+                        title={target ? `${issueDisplayRef(target)} ${target.title}` : entry.id}
+                      >
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {target ? issueDisplayRef(target) : '?'}
+                        </span>{' '}
+                        {target?.title ?? entry.id}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </DockSection>
       )}

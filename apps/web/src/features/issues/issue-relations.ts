@@ -40,7 +40,9 @@ const EXCLUDED_TYPES = new Set(['parent-child', 'supersedes'])
 
 // Fixed leading sections, in display order. Anything not matched here falls
 // through to a per-type "misc" section (label derived from the type string).
-const NAMED_ORDER = ['Blocked by', 'Blocks', 'Related', 'Discovered from'] as const
+// Provenance leads (POD-85): where work came from / what came out of it is the
+// first thing a reader orients by; scheduling facts follow.
+const NAMED_ORDER = ['Spun off from', 'Spin-offs', 'Blocked by', 'Blocks', 'Related'] as const
 
 /** Turn a dep type string into a human section label ('caused-by' → 'Caused by'). */
 function typeLabel(type: string): string {
@@ -52,14 +54,16 @@ function typeLabel(type: string): string {
 function sectionFor(type: string, direction: RelationDirection): string {
   if (type === 'blocks') return direction === 'dep' ? 'Blocked by' : 'Blocks'
   if (type === 'related') return 'Related'
-  if (type === 'discovered-from') return 'Discovered from'
+  // Direction-aware provenance (POD-85): an outgoing edge names the origin this
+  // issue was spun off from; an incoming one lists the work spun off of it.
+  if (type === 'discovered-from') return direction === 'dep' ? 'Spun off from' : 'Spin-offs'
   return typeLabel(type)
 }
 
 /**
  * Group an issue's deps + dependents into ordered, labeled relation sections for
- * the sidebar's Relations block. Named sections ("Blocked by", "Blocks",
- * "Related", "Discovered from") come first in that order; any remaining types
+ * the sidebar's Relations block. Named sections ("Spun off from", "Spin-offs",
+ * "Blocked by", "Blocks", "Related") come first in that order; any remaining types
  * follow, one section per type, sorted by label for a stable render. Entries are
  * de-duplicated per section by target id (a symmetric `related` edge stored on
  * both sides won't list the same issue twice). An issue with no relations returns

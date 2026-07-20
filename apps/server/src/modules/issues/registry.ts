@@ -708,8 +708,7 @@ const defs = {
       }
       // M5 [spec:SP-6144]: sub-creates under a proposed parent (or deeper in a
       // proposal subtree) stay inert — never auto-started, never board-facing.
-      const underProposed =
-        parent != null && !isOperator && ctx.issues.inProposedSubtree(parent.id)
+      const underProposed = parent != null && !isOperator && ctx.issues.inProposedSubtree(parent.id)
       const isAgentTopLevel = origin === 'agent' && !input.parentId
       const audience: 'human' | 'agent' = isOperator
         ? 'human'
@@ -877,6 +876,8 @@ const defs = {
       // #348 [spec:SP-a859]: no caller-supplied `origin` — provenance is derived
       // from the caller below, exactly like issues.create, so it cannot be forged.
       newSubissue: z.object({ title: z.string().min(1) }).optional(),
+      // POD-85: spinoff = top-level issue + discovered-from edge to the origin.
+      newSpinoff: z.object({ title: z.string().min(1) }).optional(),
     }),
     action: 'write',
     handler: (ctx, input) => {
@@ -887,10 +888,12 @@ const defs = {
       if (input.targetId != null) {
         assertNotProposedForAgent(ctx, input.targetId, 'attach a session to')
       }
-      const { newSubissue, ...rest } = input
-      return ctx.issues.attachSession(
-        newSubissue ? { ...rest, newSubissue: { title: newSubissue.title, origin } } : { ...rest },
-      )
+      const { newSubissue, newSpinoff, ...rest } = input
+      return ctx.issues.attachSession({
+        ...rest,
+        ...(newSubissue ? { newSubissue: { title: newSubissue.title, origin } } : {}),
+        ...(newSpinoff ? { newSpinoff: { title: newSpinoff.title, origin } } : {}),
+      })
     },
   }),
   archive: def({

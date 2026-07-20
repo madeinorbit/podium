@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/domain'
-import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
+import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
@@ -76,6 +76,19 @@ import { GroupedSessionRows, PanelRow, StaleSection, useCollapsed } from './side
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
 function agentIconFor(kind: AgentKind) {
   return NEW_AGENTS.find((a) => a.kind === kind)?.Icon
+}
+
+/** Lineage flash (POD-85): briefly outline another issue's row — provenance as
+ *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
+ *  purpose: the origin row is a sibling React branch, and a one-shot class
+ *  beats threading transient state through the whole list. */
+function flashLineage(issueId: string): void {
+  const el = document.querySelector(`[data-issue-row="${CSS.escape(issueId)}"]`)
+  if (!(el instanceof HTMLElement)) return
+  el.classList.remove('morph-lineage')
+  void el.offsetWidth
+  el.classList.add('morph-lineage')
+  window.setTimeout(() => el.classList.remove('morph-lineage'), 1700)
 }
 
 /**
@@ -786,6 +799,8 @@ function WorkRowShell({
   children,
   testId,
   deemphasized = false,
+  domMark,
+  statusExtra,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -820,6 +835,10 @@ function WorkRowShell({
   testId: string
   /** Internal decomposition stays visible but subordinate to tracked work. */
   deemphasized?: boolean
+  /** Issue id stamped as data-issue-row so lineage flashes can find the row. */
+  domMark?: string
+  /** Line 2's trailing slot after the timer (the spin-off ⤷ tick, POD-85). */
+  statusExtra?: ReactNode
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -849,6 +868,7 @@ function WorkRowShell({
         style={rowStyle}
         data-phase={phase}
         data-selected={active ? 'true' : 'false'}
+        {...(domMark ? { 'data-issue-row': domMark } : {})}
       >
         <span className={cn('flex flex-none', morph === 'working' && 'morph-ignite')}>
           {square}
@@ -929,6 +949,7 @@ function WorkRowShell({
                 {statusLine}
               </span>
               {timeMeta}
+              {statusExtra}
             </span>
           </button>
         )}
@@ -1064,6 +1085,11 @@ function UnifiedIssueRow({
       onColorChange={(color) => onColorChangeIssue(issue.id, color)}
     />
   )
+  // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
+  // issue this one was spun off from. One quiet ⤷ tick on line 2; selecting
+  // the row flashes the origin.
+  const originDep = issue.deps.find((d) => d.type === 'discovered-from')
+  const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
   // Draft vessel whose only content is agents → clicking opens the session.
   const draftAgentOnly = issue.draft && mine.length > 0 && !issue.worktreePath
   const first = mine[0]
@@ -1132,7 +1158,22 @@ function UnifiedIssueRow({
         onSelect={
           draftAgentOnly && first
             ? () => onSelectPanelForIssue(issue, first.sessionId)
-            : () => onSelectIssue(issue)
+            : () => {
+                if (origin) flashLineage(origin.id)
+                onSelectIssue(issue)
+              }
+        }
+        domMark={issue.id}
+        statusExtra={
+          origin && (
+            <span
+              className="flex-none font-mono text-[10px] tabular-nums"
+              data-testid="spinoff-origin-tick"
+              title={`Spun off from ${issueDisplayRef(origin)} · ${origin.title}`}
+            >
+              ⤷ {origin.seq}
+            </span>
+          )
         }
         onContextMenu={onContextMenu}
         onDoubleClick={() => setEditing(true)}

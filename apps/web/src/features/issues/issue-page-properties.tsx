@@ -164,11 +164,12 @@ export function IssueProperties({
   commands: IssuePageCommands
   onNavigate: (id: string) => void
 }): JSX.Element {
-  const { trpc, issues, machines, navigateToSession } = useStoreSelector(
+  const { trpc, issues, machines, sessions, navigateToSession } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       issues: s.issues,
       machines: s.machines,
+      sessions: s.sessions,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
@@ -206,6 +207,13 @@ export function IssueProperties({
 
   const relations = groupRelations(issue)
   const parent = issue.parentId ? byId.get(issue.parentId) : undefined
+
+  // Forwarding ghosts (POD-89): sessions BORN here (permanent refIssueId) that
+  // re-homed elsewhere. "No agents" was misread as work lost — the honest shape
+  // is "the agent moved on to POD-x".
+  const movedOn = (sessions ?? []).filter(
+    (s) => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived,
+  )
 
   // ---- Status: 6 stages + Close done/wontfix. Reopen is intentionally omitted:
   // the `update` router can't clear `closedReason` (string, no null), and an empty
@@ -624,6 +632,30 @@ export function IssueProperties({
                 {sessionDisplayName(s)}
               </Button>
             ))}
+          </div>
+        )}
+        {movedOn.length > 0 && (
+          <div className="flex flex-col gap-1" data-testid="moved-on-sessions">
+            {movedOn.map((s) => {
+              const dest = s.issueId ? byId.get(s.issueId) : undefined
+              return (
+                <Button
+                  key={s.sessionId}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal text-muted-foreground opacity-80"
+                  title={dest ? `Session continued on ${issueRefLong(dest)}` : 'Session moved on'}
+                  onClick={() => openSession(s)}
+                >
+                  <span className="mr-1.5" aria-hidden="true">
+                    ⤷
+                  </span>
+                  {sessionDisplayName(s)} · continued on{' '}
+                  {dest ? issueDisplayRef(dest) : 'another issue'}
+                </Button>
+              )
+            })}
           </div>
         )}
         {issue.worktreePath ? (

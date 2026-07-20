@@ -78,7 +78,13 @@ vi.mock('@/app/store', () => {
     setPinned: vi.fn(),
     issues: [
       issue('a', 'Read selected issue'),
-      issue('b', 'Unread issue', { readAt: null, unread: true }),
+      issue('b', 'Unread issue', {
+        readAt: null,
+        unread: true,
+        // Spin-off provenance (POD-85): b came out of a.
+        deps: [{ id: 'a', type: 'discovered-from' }],
+        displayRef: 'POD-2',
+      }),
     ],
     trpc: {
       settings: {
@@ -164,6 +170,20 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(plain.className).toContain('py-[5px]')
     expect(active.className.split(/\s+/)).not.toContain('border')
     expect(active.style.boxShadow).toContain('inset')
+  })
+
+  it('a spin-off row carries the quiet ⤷ origin tick; a plain row does not (POD-85)', () => {
+    render(<SidebarUnified />)
+    const spin = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    const tick = spin.querySelector('[data-testid="spinoff-origin-tick"]')
+    expect(tick).toBeTruthy()
+    expect(tick?.textContent).toContain('⤷ 1')
+    expect(tick?.getAttribute('title')).toContain('Spun off from')
+    expect(tick?.getAttribute('title')).toContain('Read selected issue')
+    const plain = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
+    expect(plain.querySelector('[data-testid="spinoff-origin-tick"]')).toBeNull()
+    // The origin row is findable for the lineage flash.
+    expect(plain.getAttribute('data-issue-row')).toBe('a')
   })
 
   it('an unread, unselected row carries the unread beacon dot; the selected row never does (POD-81)', () => {
