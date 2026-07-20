@@ -7,6 +7,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::menu::{Menu, MenuItem};
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri::path::BaseDirectory;
@@ -399,6 +401,57 @@ fn main() {
                 app.add_capability(capability)?;
             }
 
+            // macOS app menu: replaces Tauri's implicit default, whose File > Close
+            // Window owns Cmd+W — the accelerator never reaches the webview, so a JS
+            // keydown handler alone cannot repurpose it. Here Cmd+W is a custom
+            // "Close Tab" item routed to the web app (see on_menu_event below) and
+            // the window-level close moves to the conventional Shift+Cmd+W. The Edit
+            // submenu must be rebuilt too: WKWebView clipboard chords (Cmd+C/V/X/A)
+            // only work as menu accelerators.
+            #[cfg(target_os = "macos")]
+            {
+                let podium_menu = SubmenuBuilder::new(app, "Podium")
+                    .about(None)
+                    .separator()
+                    .services()
+                    .separator()
+                    .hide()
+                    .hide_others()
+                    .show_all()
+                    .separator()
+                    .quit()
+                    .build()?;
+                let close_tab = MenuItemBuilder::with_id("close-tab", "Close Tab")
+                    .accelerator("CmdOrCtrl+W")
+                    .build(app)?;
+                let close_window = MenuItemBuilder::with_id("close-window", "Close Window")
+                    .accelerator("Shift+CmdOrCtrl+W")
+                    .build(app)?;
+                let file_menu = SubmenuBuilder::new(app, "File")
+                    .item(&close_tab)
+                    .item(&close_window)
+                    .build()?;
+                let edit_menu = SubmenuBuilder::new(app, "Edit")
+                    .undo()
+                    .redo()
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let window_menu = SubmenuBuilder::new(app, "Window")
+                    .minimize()
+                    .maximize()
+                    .separator()
+                    .fullscreen()
+                    .build()?;
+                let menu = MenuBuilder::new(app)
+                    .items(&[&podium_menu, &file_menu, &edit_menu, &window_menu])
+                    .build()?;
+                app.set_menu(menu)?;
+            }
+
             // Build the tray icon with Open / Quit menu items.
             let open = MenuItem::with_id(app, "open", "Open Podium", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -473,6 +526,27 @@ fn main() {
 
             Ok(())
         })
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            // Cmd+W (macOS app menu). The web app registers __PODIUM_CLOSE_TAB__
+            // while a tab strip is on screen; it returns true when it closed a tab.
+            // With no handler (or nothing to close) fall back to the window-level
+            // close — hidden via the CloseRequested handler, same as before.
+            "close-tab" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.eval(
+                        "if (!window.__PODIUM_CLOSE_TAB__ || window.__PODIUM_CLOSE_TAB__() !== true) \
+                         { window.__PODIUM_DESKTOP__ && window.__PODIUM_DESKTOP__.close(); }",
+                    );
+                }
+            }
+            // Shift+Cmd+W: window close → CloseRequested → hidden (tray/dock reopen).
+            "close-window" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.close();
+                }
+            }
+            _ => {}
+        })
         .on_window_event(|window, event| {
             match event {
                 // FIX 3: hide-on-close so the tray "Open Podium" is meaningful. Intercept
@@ -504,6 +578,15 @@ fn main() {
         .expect("error while building Podium");
 
     app.run(|app_handle, event| {
+        // Dock-icon click with the window hidden (hide-on-close): reshow it, matching
+        // normal macOS app behavior — previously only the tray "Open Podium" could.
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { .. } = event {
+            if let Some(w) = app_handle.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }
         if let tauri::RunEvent::Exit = event {
             // Set the shutting-down flag first so the monitor thread stops respawning.
             if let Some(sd) = app_handle.try_state::<Arc<AtomicBool>>() {

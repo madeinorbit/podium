@@ -253,6 +253,27 @@ export function Workspace(): JSX.Element {
     setPane('B', null)
   }, [allTabs, paneB, setPane, sessions])
 
+  // Cmd+W in the desktop shell [POD-93]: the native menu owns the accelerator (the
+  // webview never sees the keypress), so the shell's "Close Tab" item evals this
+  // hook instead. Closing the active tab mirrors the tab's own ✕ — sessions go
+  // through the working-agent guard, files close immediately. Returning false
+  // (no tab to close, or Workspace unmounted) lets the shell fall back to its
+  // window-level close (hide). Re-registered every render so it always sees the
+  // current pane; no deps array on purpose.
+  useEffect(() => {
+    const g = globalThis as { __PODIUM_CLOSE_TAB__?: () => boolean }
+    g.__PODIUM_CLOSE_TAB__ = () => {
+      const active = paneA ? byId.get(paneA) : undefined
+      if (!active) return false
+      if (active.kind === 'session') void guardedKill(active.id)
+      else closeFileTab(active.id)
+      return true
+    }
+    return () => {
+      delete g.__PODIUM_CLOSE_TAB__
+    }
+  })
+
   if (!worktree && !issue) {
     // The selected path is no longer a live worktree, but it may still own
     // sessions whose directory was removed out from under them (an orphaned
