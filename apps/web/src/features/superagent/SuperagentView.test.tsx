@@ -53,6 +53,7 @@ const fakeTrpc = {
     events: { query: vi.fn(async () => []) },
     clearNeedsHuman: { mutate: vi.fn(async () => {}) },
     update: { mutate: vi.fn(async () => {}) },
+    archive: { mutate: vi.fn(async () => {}) },
   },
   sessions: {
     sendText: { mutate: vi.fn(async () => ({})) },
@@ -222,6 +223,34 @@ describe('tray filtering (human-actionable only)', () => {
     expect(setPane).not.toHaveBeenCalled()
     // Optimistically consumed — the card is gone before the server clears it.
     expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
+  })
+
+  it('finished issues render a deterministic card whose Archive routes to issues.archive', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'f',
+        seq: 8,
+        title: 'Notification sounds',
+        stage: 'done',
+        closedAt: new Date(Date.now() - 60_000).toISOString(),
+        closedReason: 'merged to main',
+        unread: true,
+      }),
+    ]
+    await mount()
+    const card = container.querySelector('[data-testid="tray-card-finished"]')
+    expect(card?.textContent).toContain('finished')
+    expect(card?.textContent).toContain('merged to main')
+    const archive = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Archive'),
+    )
+    await act(async () => {
+      archive?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.issues.archive.mutate).toHaveBeenCalledWith({ id: 'f' })
+    // The button never ALSO navigates.
+    expect(setPane).not.toHaveBeenCalled()
   })
 
   it('clicking a tray card focuses its native agent tab', async () => {

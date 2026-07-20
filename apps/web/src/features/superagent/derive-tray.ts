@@ -1,11 +1,18 @@
 import { attentionGroup } from '@podium/client-core'
 import type { IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 
+/** How long a finished task's Archive card stays in the tray. Deliberately
+ *  TIGHTER than the sidebar's unread visibility (7d): the sidebar row may wait
+ *  for acknowledgment, but the tray is "act now" — a day later the archive
+ *  nudge is noise (the historical never-read population would flood it). */
+const FINISHED_WINDOW_MS = 24 * 60 * 60 * 1000
+
 /**
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3–§2.4): the
  * ONLY things it ever shows are items that need a HUMAN — an agent's question
- * (`needsHuman`) or an agent's action offer (SessionOffer [spec:SP-c7f1],
- * which is also how review-ready work announces itself). Working/status rows never
+ * (`needsHuman`), an agent's action offer (SessionOffer [spec:SP-c7f1],
+ * which is also how review-ready work announces itself), or a deterministic
+ * finished-task card awaiting Archive. Working/status rows never
  * appear; when nothing waits, the tray collapses to the quiet empty line whose
  * live counter comes from {@link workingSessionCount}.
  *
@@ -23,6 +30,9 @@ export type TrayItem = {
 } & (
   | { kind: 'question'; text: string }
   | { kind: 'offer'; session: SessionMeta; offer: SessionOffer }
+  // Deterministic completion card: recognized from issue state, not
+  // agent-offered — a finished task waits for the human to archive it.
+  | { kind: 'finished' }
 )
 
 /** Identity of one offer instance — a NEW offer on the same session is a new
@@ -61,6 +71,9 @@ export function deriveTrayItems(
    *  {@link offerKey} — hidden until the server's cleared meta arrives
    *  (the same pattern as ChatView's dismissedOfferAt). */
   dismissedOffers?: ReadonlySet<string>,
+  /** Clock for the finished-card decay window (defaults to the real clock;
+   *  injectable for tests and the Tray's slow tick). */
+  now: number = Date.now(),
 ): TrayItem[] {
   const items: TrayItem[] = []
   for (const issue of trayScopeIssues(issues, selectedIssueId)) {
@@ -85,6 +98,14 @@ export function deriveTrayItems(
       if (!offer) continue
       if (dismissedOffers?.has(offerKey(session.sessionId, offer.createdAt))) continue
       items.push({ kind: 'offer', issue, session, offer, since: offer.createdAt })
+    }
+    // Deterministic finished card: a recently-done human issue gets an Archive
+    // action — archiving is the acknowledgment that removes card and sidebar
+    // row immediately.
+    const finished = issue.stage === 'done' || issue.closedReason != null
+    const finishedAt = Date.parse(issue.closedAt ?? issue.updatedAt) || 0
+    if (finished && issue.audience === 'human' && now - finishedAt <= FINISHED_WINDOW_MS) {
+      items.push({ kind: 'finished', issue, since: issue.closedAt ?? issue.updatedAt })
     }
   }
   // Newest first — the handoff's cards read top-down by recency.
@@ -113,6 +134,7 @@ export function trayCount(
   issues: IssueWire[],
   selectedIssueId: string | null,
   dismissedOffers?: ReadonlySet<string>,
+  now?: number,
 ): number {
-  return deriveTrayItems(issues, selectedIssueId, dismissedOffers).length
+  return deriveTrayItems(issues, selectedIssueId, dismissedOffers, now).length
 }

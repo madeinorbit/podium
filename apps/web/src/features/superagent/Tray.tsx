@@ -34,7 +34,7 @@ export function Tray({
     return () => clearInterval(t)
   }, [])
 
-  const items = deriveTrayItems(issues, selectedIssueId, dismissedOffers)
+  const items = deriveTrayItems(issues, selectedIssueId, dismissedOffers, now)
   if (items.length === 0) {
     const working = workingSessionCount(issues, selectedIssueId)
     return (

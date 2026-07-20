@@ -16,6 +16,9 @@ export interface TrayActions {
    *  prompt to ITS session as a normal user turn (the server then clears the
    *  offer, same as the chat/native offer bars). */
   onOfferAction: (item: Extract<TrayItem, { kind: 'offer' }>, prompt: string) => void
+  /** Finished card's deterministic Archive: acknowledge a done task
+   *  (issues.archive) — removes the card and the sidebar row together. */
+  onArchive: (item: TrayItem) => void
 }
 
 /** Cards that already row-flashed this app session — a card flashes amber once
@@ -30,9 +33,10 @@ export const itemKey = (item: TrayItem): string =>
 
 /**
  * One human-actionable tray card (engraved-column.md §2.3): an agent's action
- * offer with its dynamic buttons [spec:SP-c7f1], or a question with its answer
- * chips. Each card is tinted by ITS issue's colour (slate when uncoloured) —
- * the colour bridges sidebar → tray.
+ * offer with its dynamic buttons [spec:SP-c7f1], a question with its answer
+ * chips, or a deterministic finished card with its Archive acknowledgment.
+ * Each card is tinted by ITS issue's colour (slate when uncoloured) — the
+ * colour bridges sidebar → tray.
  */
 export function TrayCard({
   item,
@@ -92,6 +96,9 @@ export function TrayCard({
           {item.kind === 'offer' && (
             <span className="font-normal text-muted-foreground"> · suggests next steps</span>
           )}
+          {item.kind === 'finished' && (
+            <span className="font-normal text-muted-foreground"> · finished</span>
+          )}
         </span>
         {agentSession?.name && (
           <span className="flex-none truncate text-[9.5px] text-muted-foreground">
@@ -139,6 +146,23 @@ export function TrayCard({
             </button>
           </div>
         </>
+      ) : item.kind === 'finished' ? (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[11px] leading-[1.5] text-(--issue-bright)">
+            {issue.closedReason?.trim() || 'Done.'}
+          </span>
+          <button
+            type="button"
+            title="Acknowledge and archive this task"
+            className="ml-auto flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-transparent px-[9px] py-[3px] text-[10.5px] text-(--issue-text)"
+            onClick={(e) => {
+              e.stopPropagation()
+              actions.onArchive(item)
+            }}
+          >
+            Archive ✓
+          </button>
+        </div>
       ) : (
         <>
           <div className="pl-[14px] text-[11px] leading-[1.5] text-(--issue-bright)">

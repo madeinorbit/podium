@@ -119,6 +119,33 @@ describe('deriveTrayItems', () => {
     expect(deriveTrayItems([again], null, dismissed)).toHaveLength(1)
   })
 
+  it('finished human issues get a deterministic card for 24h after finishing', () => {
+    const NOW = Date.parse('2026-07-14T12:00:00Z')
+    const fresh = makeIssue({
+      id: 'f',
+      stage: 'done',
+      closedAt: '2026-07-14T11:00:00Z',
+      closedReason: 'merged',
+    })
+    const internal = makeIssue({
+      id: 'i',
+      stage: 'done',
+      audience: 'agent',
+      closedAt: '2026-07-14T11:00:00Z',
+    })
+    // Past the 24h window — even NEVER-READ old done issues stay out (the tray
+    // is "act now"; the sidebar's 7d unread visibility does not apply here).
+    const decayed = makeIssue({
+      id: 'd',
+      stage: 'done',
+      closedAt: '2026-07-10T11:00:00Z',
+      unread: true,
+    })
+    const items = deriveTrayItems([fresh, internal, decayed], null, undefined, NOW)
+    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['finished:f'])
+    expect(items[0]).toMatchObject({ since: '2026-07-14T11:00:00Z' })
+  })
+
   it('an issue with both a question and a session offer yields both cards', () => {
     const both = makeIssue({
       id: 'b',
