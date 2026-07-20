@@ -90,10 +90,11 @@ export function RefMiniviewHost(): JSX.Element | null {
       onOpenFull={() => {
         if (!target) return
         closeMiniview()
-        // One rung up the ladder (POD-95): an issue escalates to the right-dock
-        // PEEK — the chat stays put; the full /issues/:id page remains one more
-        // step away (peek header's "Open full page", or Cmd/Ctrl-click on the
-        // chip). Sessions have no peek surface and still navigate.
+        // One rung up the ladder (POD-95): an issue escalates to the PEEK
+        // DRAWER over the right edge — the chat stays put; the full /issues/:id
+        // page remains one more step away (drawer header's "Open full page", or
+        // Cmd/Ctrl-click on the chip). Sessions have no peek surface and still
+        // navigate.
         if (target.kind === 'issue') setPeekIssueId(target.issue.id)
         else navigateToSession(state.ref)
       }}
