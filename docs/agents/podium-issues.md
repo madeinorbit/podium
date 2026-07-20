@@ -49,6 +49,26 @@ Your **session** title follows the same rules, and Podium will ask you to set on
 issue in the sidebar, so name it for what distinguishes *this* session from the others on the same issue
 — don't restate the issue title. A name the user set by hand always wins and is never overwritten.
 
+## Offering next actions
+
+`podium offer` posts your suggested next steps as clickable buttons [spec:SP-c7f1]:
+
+```
+podium offer --message "PR is green and rebased." \
+  --action "Merge it::Merge the PR under the merge lock and close the issue" \
+  --action "Hold::Summarize the diff for review instead"
+```
+
+Each `--action` is `Label::prompt` — clicking the button sends the prompt to you as a normal
+user turn (up to 6 actions; `podium offer clear` removes the offer). The offer renders under
+your chat composer, beneath your native terminal, and as a card in the workspace Tray. It is
+ephemeral: the next user turn consumes it, and it self-clears when you start another turn —
+so it never announces yesterday's choice.
+
+**Review handoffs ride offers.** The Tray shows review-ready work only through your offer —
+moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
+post an offer naming the decision you need (merge, send back, discuss).
+
 ## Rules
 
 - Track durable, discovered, or cross-session work as issues — not markdown TODO files or a parallel list.
