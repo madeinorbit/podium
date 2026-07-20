@@ -516,7 +516,7 @@ export abstract class IssueServiceReads extends IssueServiceCore {
    *  issue + its open children + blockers; unbound = a lobby of ready work. Ends with the rules. */
   /** The human-facing nice id for an issue row (`POD-13`, or `#13` before a
    *  prefix exists) — the form agents should use when referencing issues (#474). */
-  protected niceRef(row: { repoPath: string; seq: number }): string {
+  niceRef(row: { repoPath: string; seq: number }): string {
     const prefix = this.deps.store.repos.prefixForPath(row.repoPath)
     return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
   }

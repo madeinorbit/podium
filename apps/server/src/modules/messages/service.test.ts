@@ -38,6 +38,8 @@ function fakeIssues(
   /** Per-issue coordinator session id (bare id) for prefer-coordinator routing tests. */
   coordinatorByIssue?: Map<string, string>,
   resolveIssueForCwd?: (cwd: string) => string | null,
+  /** Repo prefix for nice-id labels; absent = the real niceRef `#seq` fallback. */
+  prefix?: string,
 ) {
   const byId = new Map([
     [ISSUE.id, ISSUE],
@@ -73,6 +75,7 @@ function fakeIssues(
       }
     },
     has: (id: string) => byId.has(id),
+    niceRef: (row: { seq: number }) => (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`),
     ancestorIds: () => [],
     issueForCwd:
       resolveIssueForCwd ??
@@ -167,6 +170,8 @@ interface HarnessOpts {
   store?: SessionStore
   /** Override inferred issue membership for cwd/rehome transition tests. */
   issueForCwd?: (cwd: string) => string | null
+  /** Repo prefix for nice-id envelope labels (#474). */
+  prefix?: string
 }
 
 function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
@@ -193,7 +198,13 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
     notificationFacts: store.notificationFacts,
     events: store.events,
     issues: () =>
-      fakeIssues(issueGetLists, opts?.archivedIds, opts?.coordinatorByIssue, opts?.issueForCwd),
+      fakeIssues(
+        issueGetLists,
+        opts?.archivedIds,
+        opts?.coordinatorByIssue,
+        opts?.issueForCwd,
+        opts?.prefix,
+      ),
     sessions: () => ({
       listSessions: () => {
         listCalls.n += 1
@@ -343,6 +354,15 @@ describe('MessageDeliveryService.send', () => {
     expect(r.message.urgency).toBe('next-turn') // peer clamp applied
     expect(interrupted).toHaveLength(0)
     expect(sent).toHaveLength(0) // running target: queued, not injected raw
+  })
+
+  it('renders nice-id labels when the repo has a prefix (#474)', () => {
+    const { svc, sent } = harness([session({ sessionId: 's1' })], { prefix: 'POD' })
+    const r = svc.send(
+      { kind: 'agent', issueId: SENDER_ISSUE.id },
+      { to: { kind: 'session', id: 's1' }, body: 'peer note' },
+    )
+    expect(sent[0]!.text).toContain(`· from issue:POD-${SENDER_ISSUE.seq} ·`)
   })
 
   it('envelopes agent and superagent messages; operator stays unwrapped', () => {

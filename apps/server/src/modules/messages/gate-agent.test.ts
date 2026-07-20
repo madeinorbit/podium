@@ -34,6 +34,7 @@ function fakeIssues(created: Record<string, unknown>[] = []) {
     },
     get: (id: string) => byId.get(id),
     getMeta: (id: string) => byId.get(id),
+    niceRef: (row: { seq: number }) => `#${row.seq}`,
     has: (id: string) => byId.has(id),
     ancestorIds: () => [],
     create: (input: Record<string, unknown>) => {

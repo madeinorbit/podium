@@ -2051,8 +2051,12 @@ export class MessageDeliveryService {
   private fromLabel(message: MessageRow): string {
     if (message.fromKind === 'agent') {
       if (message.fromIssue) {
-        const issue = this.deps.issues().getMeta(message.fromIssue)
-        return issue ? `issue:#${issue.seq}` : message.fromIssue
+        // Nice-id form (#474): `issue:POD-13` — clickable in the web transcript
+        // and the reference form agents are told to use; `#seq` only before a
+        // repo prefix exists (niceRef's own fallback).
+        const issues = this.deps.issues()
+        const issue = issues.getMeta(message.fromIssue)
+        return issue ? `issue:${issues.niceRef(issue)}` : message.fromIssue
       }
       if (message.fromSession) return `session:${message.fromSession}`
       return 'agent'
@@ -2064,8 +2068,9 @@ export class MessageDeliveryService {
 
   private toLabel(message: MessageRow): string {
     if (message.toKind === 'issue') {
-      const issue = this.deps.issues().getMeta(message.toId ?? '')
-      return issue ? `your issue #${issue.seq}` : `your issue ${message.toId}`
+      const issues = this.deps.issues()
+      const issue = issues.getMeta(message.toId ?? '')
+      return issue ? `your issue ${issues.niceRef(issue)}` : `your issue ${message.toId}`
     }
     if (message.toKind === 'session') return 'your session'
     return 'the operator'

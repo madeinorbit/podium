@@ -1,18 +1,69 @@
 import { formatChurn, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo } from 'react'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
-import { renderMarkdown } from '@/lib/markdown'
+import { isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
 import { activateRef } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
-import { envelopePrincipalLabel, parseMessageEnvelope } from './message-envelope'
+import { envelopePrincipal, parseMessageEnvelope } from './message-envelope'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
+
+/** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
+ *  plain click opens the floating miniview, Cmd/Ctrl-click jumps to the full
+ *  view), and file links. Used by the ordinary turn body AND the envelope
+ *  block, so refs behave identically everywhere. */
+function handleChatMdClick(
+  e: ReactMouseEvent,
+  sessionId: string,
+  cwd: string,
+  openFile: (sessionId: string, path: string) => void,
+): void {
+  if (handleCodeCopyClick(e)) return
+  const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
+  if (refA) {
+    const ref = refA.getAttribute('data-ref')
+    if (ref) {
+      e.preventDefault()
+      activateRef(ref, e)
+    }
+    return
+  }
+  const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
+  if (!a) return
+  e.preventDefault()
+  const p = a.getAttribute('data-path')
+  if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
+}
+
+/** An envelope-header principal: the nice-id issue ref renders as the same
+ *  clickable ref-link chip the markdown pass emits, so the sender/recipient
+ *  are as navigable as refs in the body. Legacy `#seq` labels and sessions
+ *  stay plain text. */
+function PrincipalLabel({ label }: { label: string }): JSX.Element {
+  const p = envelopePrincipal(label)
+  const chip = p.ref !== null && isKnownRefPrefix(p.ref.split('-')[0] ?? '')
+  return (
+    <>
+      {p.pre}
+      {p.ref !== null &&
+        (chip ? (
+          // biome-ignore lint/a11y/useValidAnchor: in-window chip like the markdown-emitted ref links — navigation is store-driven, there is no URL to href
+          <a className="ref-link ref-link--issue" data-ref={p.ref}>
+            {p.ref}
+          </a>
+        ) : (
+          p.ref
+        ))}
+      {p.post}
+    </>
+  )
+}
 
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
@@ -174,16 +225,28 @@ export const ChatBlockView = memo(function ChatBlockView({
       <div className={rowClass} data-block={index} data-testid="message-envelope">
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body">
-          <div className="rounded-md border border-info/40 bg-info/5 px-3 py-2">
+          <div
+            className="rounded-md border border-info/40 bg-info/5 px-3 py-2"
+            onClick={(e) => {
+              handleChatMdClick(e, sessionId, cwd, openFile)
+            }}
+          >
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px]">
               <MailIcon size={12} className="self-center text-info" aria-hidden="true" />
-              <span className="font-medium text-info">{envelopePrincipalLabel(envelope.from)}</span>
+              <span className="font-medium text-info">
+                <PrincipalLabel label={envelope.from} />
+              </span>
               <span className="text-muted-foreground/70">
-                → {envelopePrincipalLabel(envelope.to)}
+                → <PrincipalLabel label={envelope.to} />
               </span>
               {envelope.question && (
                 <span className="rounded border border-amber-500/50 px-1 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                   question
+                </span>
+              )}
+              {envelope.expectsReply && (
+                <span className="rounded border border-info/50 px-1 text-[9px] font-semibold uppercase tracking-wide text-info">
+                  reply requested
                 </span>
               )}
               <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
@@ -192,12 +255,14 @@ export const ChatBlockView = memo(function ChatBlockView({
             </div>
             <div
               className="chat-md mt-1"
-              onClick={(e) => {
-                handleCodeCopyClick(e)
-              }}
               // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
               dangerouslySetInnerHTML={{ __html: html }}
             />
+            {envelope.machineNote && (
+              <div className="mt-1.5 border-t border-info/20 pt-1 text-[10px] text-muted-foreground/60">
+                {envelope.machineNote}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -242,23 +307,7 @@ export const ChatBlockView = memo(function ChatBlockView({
         <div
           className="chat-md"
           onClick={(e) => {
-            if (handleCodeCopyClick(e)) return
-            // Human-facing ref links (#474): plain click opens the floating
-            // miniview, Cmd/Ctrl-click jumps to the full issue/session view.
-            const refA = (e.target as HTMLElement).closest('a.ref-link') as HTMLElement | null
-            if (refA) {
-              const ref = refA.getAttribute('data-ref')
-              if (ref) {
-                e.preventDefault()
-                activateRef(ref, e)
-              }
-              return
-            }
-            const a = (e.target as HTMLElement).closest('a.file-link') as HTMLElement | null
-            if (!a) return
-            e.preventDefault()
-            const p = a.getAttribute('data-path')
-            if (p) openFile(sessionId, resolveAgainstCwd(cwd, p))
+            handleChatMdClick(e, sessionId, cwd, openFile)
           }}
           // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
           dangerouslySetInnerHTML={{ __html: html }}
