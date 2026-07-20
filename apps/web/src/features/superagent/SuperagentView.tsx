@@ -81,7 +81,6 @@ export function SuperagentView({
     setView,
     uiState,
     setSessionDraft,
-    getUserFocus,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -96,7 +95,6 @@ export function SuperagentView({
       setView: s.setView,
       uiState: s.uiState,
       setSessionDraft: s.setSessionDraft,
-      getUserFocus: s.getUserFocus,
     }),
     shallowEqual,
   )
@@ -237,23 +235,7 @@ export function SuperagentView({
     else setPendingDraft(text)
     focusComposer()
   }
-  const sendSuperTurn = async (text: string): Promise<void> => {
-    setError(null)
-    try {
-      await trpc.superagent.sendTurn.mutate({ threadId: THREAD_ID, text, focus: getUserFocus() })
-      setChatOpen(true)
-      void refreshThreads()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    }
-  }
   const trayActions: TrayActions = {
-    onMerge: (item: TrayItem) =>
-      void sendSuperTurn(
-        `Issue #${item.issue.seq} ("${item.issue.title}") is approved — merge it via the merge workflow and close the issue.`,
-      ),
-    onSendBack: (item: TrayItem) =>
-      prefillComposer(`Send #${item.issue.seq} ("${item.issue.title}") back to its agent: `),
     onDiscuss: (item: TrayItem) =>
       prefillComposer(
         item.kind === 'question'
@@ -261,7 +243,7 @@ export function SuperagentView({
           : `Re #${item.issue.seq} ("${item.issue.title}"): `,
       ),
     onOpenSession: (item: TrayItem) => {
-      // An offer card names its exact session; other cards fall back to the
+      // An offer card names its exact session; question cards fall back to the
       // issue's first live agent session.
       const agentSession =
         item.kind === 'offer'

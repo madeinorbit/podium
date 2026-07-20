@@ -39,7 +39,7 @@ describe('trayScopeIssues', () => {
 })
 
 describe('deriveTrayItems', () => {
-  it('shows ONLY human-actionable items: questions and human-audience reviews', () => {
+  it('shows ONLY human-actionable items: questions (review stages surface nothing hardcoded)', () => {
     const asking = makeIssue({
       id: 'q',
       parentId: 'p',
@@ -47,6 +47,8 @@ describe('deriveTrayItems', () => {
       humanQuestion: 'Ship with flag on?',
       updatedAt: '2026-07-14T10:00:00Z',
     })
+    // Review-ready work announces itself via a session offer now — the stage
+    // alone renders no card.
     const review = makeIssue({
       id: 'r',
       parentId: 'p',
@@ -55,31 +57,22 @@ describe('deriveTrayItems', () => {
       updatedAt: '2026-07-14T11:00:00Z',
     })
     const working = makeIssue({ id: 'w', parentId: 'p', stage: 'in_progress' })
-    const internalReview = makeIssue({
-      id: 'i',
-      parentId: 'p',
-      stage: 'review',
-      audience: 'agent',
-    })
-    const items = deriveTrayItems(
-      [makeIssue({ id: 'p' }), asking, review, working, internalReview],
-      'p',
-    )
-    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['review:r', 'question:q'])
+    const items = deriveTrayItems([makeIssue({ id: 'p' }), asking, review, working], 'p')
+    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['question:q'])
   })
 
-  it('sorts newest first and falls back to placeholder texts', () => {
+  it('sorts newest first and falls back to the question placeholder', () => {
     const older = makeIssue({ id: 'a', needsHuman: true, updatedAt: '2026-07-14T09:00:00Z' })
     const newer = makeIssue({
       id: 'b',
-      stage: 'review',
-      prUrl: 'https://pr/1',
+      needsHuman: true,
+      humanQuestion: 'Which flag?',
       updatedAt: '2026-07-14T12:00:00Z',
     })
     const items = deriveTrayItems([older, newer], null)
     expect(items.map((i) => i.issue.id)).toEqual(['b', 'a'])
     expect(items[1]).toMatchObject({ kind: 'question', text: 'Needs your input.' })
-    expect(items[0]).toMatchObject({ kind: 'review', body: 'Ready for review — https://pr/1' })
+    expect(items[0]).toMatchObject({ kind: 'question', text: 'Which flag?' })
   })
 
   it('surfaces a session offer as a card, excluding shells/headless/archived', () => {
@@ -126,18 +119,24 @@ describe('deriveTrayItems', () => {
     expect(deriveTrayItems([again], null, dismissed)).toHaveLength(1)
   })
 
-  it('an issue in review that also asks a question yields both cards', () => {
+  it('an issue with both a question and a session offer yields both cards', () => {
     const both = makeIssue({
       id: 'b',
       stage: 'review',
       needsHuman: true,
       humanQuestion: 'Merge strategy?',
+      sessions: [
+        session({
+          sessionId: 'agent',
+          offer: { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' },
+        }),
+      ] as SessionMeta[],
     })
     expect(
       deriveTrayItems([both], null)
         .map((i) => i.kind)
         .sort(),
-    ).toEqual(['question', 'review'])
+    ).toEqual(['offer', 'question'])
   })
 })
 

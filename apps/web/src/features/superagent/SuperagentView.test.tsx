@@ -155,7 +155,7 @@ describe('engraved column structure', () => {
 })
 
 describe('tray filtering (human-actionable only)', () => {
-  it('renders question + human review cards from the selected subtree and NEVER working rows', async () => {
+  it('renders question cards from the selected subtree and NEVER working or review rows', async () => {
     storeIssues = [
       makeIssue({ id: 'p', seq: 1, title: 'Parent epic' }),
       makeIssue({
@@ -165,38 +165,20 @@ describe('tray filtering (human-actionable only)', () => {
         needsHuman: true,
         humanQuestion: 'Ship behind a flag?',
       }),
+      // Review stage alone renders nothing — review-ready work announces
+      // itself via a session offer [spec:SP-c7f1].
       makeIssue({ id: 'r', seq: 3, parentId: 'p', stage: 'review', title: 'Refresh-timer fix' }),
       makeIssue({ id: 'w', seq: 4, parentId: 'p', stage: 'in_progress', title: 'Worker issue' }),
-      makeIssue({ id: 'i', seq: 5, parentId: 'p', stage: 'review', audience: 'agent' }),
       makeIssue({ id: 'x', seq: 9, needsHuman: true, humanQuestion: 'Outside the subtree?' }),
     ]
     storeSelectedIssueId = 'p'
     await mount()
     const cards = [...container.querySelectorAll('[data-testid^="tray-card-"]')]
-    expect(cards.map((c) => c.getAttribute('data-issue-seq')).sort()).toEqual(['2', '3'])
+    expect(cards.map((c) => c.getAttribute('data-issue-seq'))).toEqual(['2'])
     expect(container.textContent).toContain('Ship behind a flag?')
-    expect(container.textContent).toContain('ready for review')
+    expect(container.textContent).not.toContain('Refresh-timer fix')
     expect(container.textContent).not.toContain('Worker issue')
     expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
-  })
-
-  it('review actions: ✓ Done — merge hands the instruction to the super agent turn', async () => {
-    storeIssues = [makeIssue({ id: 'r', seq: 3, stage: 'review', title: 'Refresh-timer fix' })]
-    await mount()
-    const merge = [...container.querySelectorAll('button')].find((b) =>
-      b.textContent?.includes('Done — merge'),
-    )
-    expect(merge).not.toBeNull()
-    await act(async () => {
-      merge?.click()
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.superagent.sendTurn.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        threadId: 'global',
-        text: expect.stringContaining('#3'),
-      }),
-    )
   })
 
   it('offer cards [spec:SP-c7f1]: dynamic buttons send the prompt to the offer session and hide the card', async () => {
@@ -236,8 +218,38 @@ describe('tray filtering (human-actionable only)', () => {
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'agent-1', text: 'Merge the PR and close out.' }),
     )
+    // An action click never ALSO navigates (stopPropagation on the buttons).
+    expect(setPane).not.toHaveBeenCalled()
     // Optimistically consumed — the card is gone before the server clears it.
     expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
+  })
+
+  it('clicking a tray card focuses its native agent tab', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'o',
+        seq: 6,
+        sessions: [
+          {
+            sessionId: 'agent-1',
+            agentKind: 'claude-code',
+            status: 'live',
+            cwd: '/r/wt',
+            createdAt: 't',
+            lastActiveAt: 't',
+            offer: { message: 'Pick one.', actions: [], createdAt: '2026-07-14T12:00:00Z' },
+          },
+        ] as never,
+      }),
+    ]
+    await mount()
+    const card = container.querySelector<HTMLElement>('[data-testid="tray-card-offer"]')
+    await act(async () => {
+      card?.click()
+    })
+    expect(setSelectedIssueId).toHaveBeenCalledWith('o')
+    expect(setPane).toHaveBeenCalledWith('A', 'agent-1')
+    expect(setView).toHaveBeenCalledWith('workspace')
   })
 
   it('question resolve routes through issues.clearNeedsHuman', async () => {

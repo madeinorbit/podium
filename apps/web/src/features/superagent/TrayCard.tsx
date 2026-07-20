@@ -1,17 +1,13 @@
 import { relativeTime } from '@podium/client-core'
 import type { IssueWire } from '@podium/protocol'
 import type { CSSProperties, JSX } from 'react'
-import { effectiveIssueColorHex, FLOW_SLATE, issueSquareFg } from '@/lib/issueColors'
+import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { offerKey, type TrayItem } from './derive-tray'
 
 export interface TrayActions {
-  /** ✓ Done — merge: hand the merge instruction to the super agent. */
-  onMerge: (item: TrayItem) => void
-  /** Send back: compose feedback in the super agent chat. */
-  onSendBack: (item: TrayItem) => void
-  /** Discuss ↓ / Reply…: focus the chat composer with the item as context. */
+  /** Reply…: focus the chat composer with the question as context. */
   onDiscuss: (item: TrayItem) => void
-  /** session →: open the issue's agent session in the native pane. */
+  /** session →: open the item's agent session in the native pane. */
   onOpenSession: (item: TrayItem) => void
   /** Quiet dismiss for a question (issues.clearNeedsHuman — answers ride the
    *  composer until #53 gives the web a real answer path). */
@@ -33,9 +29,10 @@ export const itemKey = (item: TrayItem): string =>
     : `${item.kind}:${item.issue.id}`
 
 /**
- * One human-actionable tray card (engraved-column.md §2.3): a review with its
- * action row, or a question with its answer chips. Each card is tinted by ITS
- * issue's colour (slate when uncoloured) — the colour bridges sidebar → tray.
+ * One human-actionable tray card (engraved-column.md §2.3): an agent's action
+ * offer with its dynamic buttons [spec:SP-c7f1], or a question with its answer
+ * chips. Each card is tinted by ITS issue's colour (slate when uncoloured) —
+ * the colour bridges sidebar → tray.
  */
 export function TrayCard({
   item,
@@ -54,9 +51,8 @@ export function TrayCard({
   const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
   const hex = flowHex ?? FLOW_SLATE
   const colored = flowHex !== undefined
-  const review = item.kind === 'review'
-  // An offer belongs to a SPECIFIC session; question/review cards fall back to
-  // the issue's first live agent session for the name chip.
+  // An offer belongs to a SPECIFIC session; question cards fall back to the
+  // issue's first live agent session for the name chip.
   const agentSession =
     item.kind === 'offer'
       ? item.session
@@ -68,17 +64,22 @@ export function TrayCard({
   const ago = relativeTime(item.since, now)
   const cardStyle = {
     '--issue': hex,
-    border: `1px solid color-mix(in srgb, var(--issue) ${review ? (colored ? 60 : 55) : colored ? 40 : 40}%, transparent)`,
-    background: `color-mix(in srgb, var(--issue) ${review ? (colored ? 20 : 14) : colored ? 10 : 8}%, #0e0e12)`,
+    border: `1px solid color-mix(in srgb, var(--issue) 40%, transparent)`,
+    background: `color-mix(in srgb, var(--issue) ${colored ? 10 : 8}%, #0e0e12)`,
   } as CSSProperties
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: the whole card is a shortcut to its session; the inner buttons stay the accessible path
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach the same target via the session → button
     <div
       data-testid={`tray-card-${item.kind}`}
       data-issue-seq={issue.seq}
       data-issue-colored={colored ? 'true' : 'false'}
-      className={`issue-scope flex flex-col gap-1.5 rounded-[10px] ${review ? 'px-[11px] py-[9px]' : 'px-[11px] py-2'} ${flash ? 'morph-row-flash' : ''}`}
+      className={`issue-scope flex cursor-pointer flex-col gap-1.5 rounded-[10px] px-[11px] py-2 ${flash ? 'morph-row-flash' : ''}`}
       style={cardStyle}
+      // Anywhere on the card focuses the related native agent tab; the action
+      // buttons stop propagation so acting never also navigates.
+      onClick={() => actions.onOpenSession(item)}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
@@ -88,7 +89,6 @@ export function TrayCard({
         />
         <span className="min-w-0 truncate text-[11.5px] font-semibold text-(--issue-text)">
           #{issue.seq} {issue.title}
-          {review && <span className="font-normal text-muted-foreground"> · ready for review</span>}
           {item.kind === 'offer' && (
             <span className="font-normal text-muted-foreground"> · suggests next steps</span>
           )}
@@ -105,42 +105,7 @@ export function TrayCard({
           {ago}
         </span>
       </div>
-      {review ? (
-        <>
-          <div className="text-[11px] leading-[1.5] text-(--issue-bright)">{item.body}</div>
-          <div className="flex min-w-0 items-center gap-1.5">
-            <button
-              type="button"
-              className="flex-none cursor-pointer rounded-[6px] border-0 px-2.5 py-[3px] text-[10.5px] font-semibold"
-              style={{ background: 'var(--issue)', color: issueSquareFg(hex) }}
-              onClick={() => actions.onMerge(item)}
-            >
-              ✓ Done — merge
-            </button>
-            <button
-              type="button"
-              className="flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-transparent px-[9px] py-[3px] text-[10.5px] text-(--issue-text)"
-              onClick={() => actions.onSendBack(item)}
-            >
-              Send back
-            </button>
-            <button
-              type="button"
-              className="flex-none cursor-pointer rounded-[6px] border border-border-strong bg-transparent px-[9px] py-[3px] text-[10.5px] text-[#9a9aa8]"
-              onClick={() => actions.onDiscuss(item)}
-            >
-              Discuss ↓
-            </button>
-            <button
-              type="button"
-              className="ml-auto flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
-              onClick={() => actions.onOpenSession(item)}
-            >
-              session →
-            </button>
-          </div>
-        </>
-      ) : item.kind === 'offer' ? (
+      {item.kind === 'offer' ? (
         <>
           {/* The same SessionOffer the chat/native offer bars render [spec:SP-c7f1]:
               freeform message, then the agent's own action buttons. */}
@@ -154,7 +119,10 @@ export function TrayCard({
                 type="button"
                 title={action.prompt}
                 className="flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-[color-mix(in_srgb,var(--issue)_12%,transparent)] px-[9px] py-[3px] text-[10.5px] font-medium text-(--issue-text) transition-colors hover:bg-[color-mix(in_srgb,var(--issue)_24%,transparent)]"
-                onClick={() => actions.onOfferAction(item, action.prompt)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  actions.onOfferAction(item, action.prompt)
+                }}
               >
                 {action.label}
               </button>
@@ -162,7 +130,10 @@ export function TrayCard({
             <button
               type="button"
               className="ml-auto flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
-              onClick={() => actions.onOpenSession(item)}
+              onClick={(e) => {
+                e.stopPropagation()
+                actions.onOpenSession(item)
+              }}
             >
               session →
             </button>
@@ -179,7 +150,10 @@ export function TrayCard({
             <button
               type="button"
               className="flex-none cursor-pointer whitespace-nowrap rounded-[5px] border border-border-strong bg-transparent px-2 py-[2px] text-[10px] text-[#9a9aa8]"
-              onClick={() => actions.onDiscuss(item)}
+              onClick={(e) => {
+                e.stopPropagation()
+                actions.onDiscuss(item)
+              }}
             >
               Reply…
             </button>
@@ -187,7 +161,10 @@ export function TrayCard({
               type="button"
               className="ml-auto flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
               title="Dismiss without answering"
-              onClick={() => actions.onResolve(item)}
+              onClick={(e) => {
+                e.stopPropagation()
+                actions.onResolve(item)
+              }}
             >
               resolve ✓
             </button>

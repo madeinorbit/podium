@@ -4,8 +4,8 @@ import type { IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 /**
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3–§2.4): the
  * ONLY things it ever shows are items that need a HUMAN — an agent's question
- * (`needsHuman`), an issue sitting in review, or an agent's action offer
- * (SessionOffer [spec:SP-c7f1]). Working/status rows never
+ * (`needsHuman`) or an agent's action offer (SessionOffer [spec:SP-c7f1],
+ * which is also how review-ready work announces itself). Working/status rows never
  * appear; when nothing waits, the tray collapses to the quiet empty line whose
  * live counter comes from {@link workingSessionCount}.
  *
@@ -22,7 +22,6 @@ export type TrayItem = {
   since: string
 } & (
   | { kind: 'question'; text: string }
-  | { kind: 'review'; body: string }
   | { kind: 'offer'; session: SessionMeta; offer: SessionOffer }
 )
 
@@ -73,24 +72,13 @@ export function deriveTrayItems(
         since: issue.updatedAt,
       })
     }
-    // Review cards only for issues the human tracks: an INTERNAL (agent-audience)
-    // issue's review stage is agent working detail, not a human review request.
-    if (issue.stage === 'review' && issue.audience === 'human') {
-      items.push({
-        kind: 'review',
-        issue,
-        body:
-          issue.suggestedReason?.trim() ||
-          (issue.prUrl ? `Ready for review — ${issue.prUrl}` : 'Ready for review.'),
-        since: issue.updatedAt,
-      })
-    }
     // Agent action offers [spec:SP-c7f1]: a live session's suggested next
     // actions are exactly "an item that needs a human" — the same dynamic
     // offer channel the chat composer bar and native PTY bar render, surfaced
-    // here so the tray is action-complete. Same session filter as everywhere
-    // else: shells can't offer, headless (superagent-embedded) threads keep
-    // theirs in the super chat.
+    // here so the tray is action-complete. This replaced the old hardcoded
+    // review cards: review-ready work announces itself through an offer.
+    // Same session filter as everywhere else: shells can't offer, headless
+    // (superagent-embedded) threads keep theirs in the super chat.
     for (const session of issue.sessions ?? []) {
       if (session.archived || session.headless === true || session.agentKind === 'shell') continue
       const offer = session.offer
