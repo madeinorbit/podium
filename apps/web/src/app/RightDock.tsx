@@ -63,7 +63,7 @@ export function RightDock({
   peekIssueId?: string | null
   onClose: () => void
   onClosePeek?: () => void
-}): JSX.Element {
+}): JSX.Element | null {
   const { paneA, fileTabs, sessions, issues, setOpenIssueId, setView } = useStoreSelector(
     (s) => ({
       paneA: s.paneA,
@@ -85,6 +85,10 @@ export function RightDock({
   const peekIssue = peekIssueId
     ? (issues.find((i) => i.id === peekIssueId && !i.deletedAt) ?? null)
     : null
+  // IssuePanelView's explicit-id path skips archived issues — render the tab
+  // (identity) from the laxer lookup but say "archived" instead of mounting a
+  // panel that would contradict it with "no issue attached".
+  const peekRenderable = peekIssue != null && !peekIssue.archived
   const peeking = peekIssueId != null
 
   // Escape closes the peek — one rung down the ladder (page → peek → miniview),
@@ -106,7 +110,14 @@ export function RightDock({
   if (peeking) {
     const peekRef = peekIssue ? issueDisplayRef(peekIssue) : null
     return (
-      <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel="peek">
+      // Keyed by the peeked issue: the arrival motion (slide from the right
+      // edge + the tab's amber flash) replays when one peek replaces another —
+      // without it the swap is a blink you miss unless you're staring at it.
+      <div
+        key={peekIssueId}
+        className="flex min-h-0 flex-1 animate-in flex-col fade-in slide-in-from-right-8 duration-300"
+        data-right-dock-panel="peek"
+      >
         <div className="flex h-11 flex-none items-center gap-1.5 border-b border-border px-2.5">
           {panel && (
             // The panel underneath stays one click away — that visible escape
@@ -122,7 +133,9 @@ export function RightDock({
             </button>
           )}
           <span
-            className="flex min-w-0 flex-1 items-center gap-[7px] rounded bg-primary/10 px-2 py-1"
+            // morph-row-flash (motion.css): one amber flash decaying to the
+            // resting bg-primary/10 — the "look here" moment of the arrival.
+            className="morph-row-flash flex min-w-0 flex-1 items-center gap-[7px] rounded bg-primary/10 px-2 py-1"
             data-testid="dock-peek-tab"
           >
             <span className="flex-none font-mono text-[12px] font-medium text-primary">
@@ -157,11 +170,8 @@ export function RightDock({
             <X size={14} aria-hidden="true" />
           </Button>
         </div>
-        <div
-          key={peekIssueId}
-          className="flex min-h-0 flex-1 flex-col animate-in fade-in slide-in-from-bottom-1 duration-150"
-        >
-          {peekIssue ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {peekRenderable ? (
             <IssuePanelView
               cwd={active?.cwd ?? ''}
               machineId={active?.machineId}
@@ -169,7 +179,7 @@ export function RightDock({
             />
           ) : (
             <div className="p-3 text-xs text-muted-foreground/70">
-              This issue is no longer available.
+              {peekIssue ? 'This issue is archived.' : 'This issue is no longer available.'}
             </div>
           )}
         </div>
@@ -177,7 +187,7 @@ export function RightDock({
     )
   }
 
-  if (!panel || !tab) return <></>
+  if (!panel || !tab) return null
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
       <div className="flex h-11 flex-none items-center gap-2.5 border-b border-border px-3.5">
