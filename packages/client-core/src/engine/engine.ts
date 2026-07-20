@@ -50,6 +50,7 @@ import {
   type RouteState,
   routeDefaults,
 } from '../router'
+import { NotificationSounder } from '../sound/notification-sounds'
 import { createDraftAgent, type SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
@@ -459,6 +460,16 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       }),
     )
+
+    // Agent-state transitions → sound cues [POD-78]. Fed from 'sessions' (not
+    // 'attention'): the attention broadcast is gated on the web-notification
+    // setting and never fires for a clean "done"; sounds want both.
+    const sounder = new NotificationSounder({
+      ui: this.ui,
+      visibleSessionIds: () => this.getUserFocus().visibleSessionIds ?? [],
+    })
+    offs.push(sounder.attach())
+    offs.push(this.hub.on('sessions', (list) => sounder.onSessions(list)))
 
     // Presence feeds the server's smart router (skip mobile push while visible).
     // Re-report view-state too so hiding the tab clears it (and showing re-asserts).
