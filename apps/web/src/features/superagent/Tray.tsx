@@ -3,7 +3,7 @@ import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { BrailleSpinner } from '@/lib/motion'
 import { deriveTrayItems, workingSessionCount } from './derive-tray'
-import { type TrayActions, TrayCard } from './TrayCard'
+import { itemKey, type TrayActions, TrayCard } from './TrayCard'
 
 /**
  * The Tray (engraved-column.md §2.3–§2.4): ONLY items that need a human —
@@ -17,12 +17,15 @@ export function Tray({
   selectedIssueId,
   actions,
   maxHeight,
+  dismissedOffers,
 }: {
   issues: IssueWire[]
   selectedIssueId: string | null
   actions: TrayActions
   /** Set by the tray/chat split handle; null = size to content. */
   maxHeight: number | null
+  /** Offer cards optimistically consumed by a click (derive-tray offerKey). */
+  dismissedOffers?: ReadonlySet<string>
 }): JSX.Element {
   // Coarse "ago" stamps tick on a slow clock — the tray is deliberately still.
   const [now, setNow] = useState(() => Date.now())
@@ -31,7 +34,7 @@ export function Tray({
     return () => clearInterval(t)
   }, [])
 
-  const items = deriveTrayItems(issues, selectedIssueId)
+  const items = deriveTrayItems(issues, selectedIssueId, dismissedOffers)
   if (items.length === 0) {
     const working = workingSessionCount(issues, selectedIssueId)
     return (
@@ -60,13 +63,7 @@ export function Tray({
       style={maxHeight !== null ? { maxHeight } : undefined}
     >
       {items.map((item) => (
-        <TrayCard
-          key={`${item.kind}:${item.issue.id}`}
-          item={item}
-          issues={issues}
-          actions={actions}
-          now={now}
-        />
+        <TrayCard key={itemKey(item)} item={item} issues={issues} actions={actions} now={now} />
       ))}
     </div>
   )

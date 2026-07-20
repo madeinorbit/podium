@@ -1,10 +1,11 @@
 import { attentionGroup } from '@podium/client-core'
-import type { IssueWire } from '@podium/protocol'
+import type { IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 
 /**
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3–§2.4): the
  * ONLY things it ever shows are items that need a HUMAN — an agent's question
- * (`needsHuman`) or an issue sitting in review. Working/status rows never
+ * (`needsHuman`), an issue sitting in review, or an agent's action offer
+ * (SessionOffer [spec:SP-c7f1]). Working/status rows never
  * appear; when nothing waits, the tray collapses to the quiet empty line whose
  * live counter comes from {@link workingSessionCount}.
  *
@@ -19,7 +20,16 @@ export type TrayItem = {
    *  would be exacter, but updatedAt is on the wire and moves when needsHuman
    *  or the stage flips, which is the moment the card appears. */
   since: string
-} & ({ kind: 'question'; text: string } | { kind: 'review'; body: string })
+} & (
+  | { kind: 'question'; text: string }
+  | { kind: 'review'; body: string }
+  | { kind: 'offer'; session: SessionMeta; offer: SessionOffer }
+)
+
+/** Identity of one offer instance — a NEW offer on the same session is a new
+ *  card (and a fresh flash), so the key carries createdAt, not just the session. */
+export const offerKey = (sessionId: string, createdAt: string): string =>
+  `${sessionId}@${createdAt}`
 
 const live = (issue: IssueWire): boolean => !issue.archived && !issue.deletedAt
 
@@ -45,7 +55,14 @@ export function trayScopeIssues(issues: IssueWire[], selectedIssueId: string | n
   return scope
 }
 
-export function deriveTrayItems(issues: IssueWire[], selectedIssueId: string | null): TrayItem[] {
+export function deriveTrayItems(
+  issues: IssueWire[],
+  selectedIssueId: string | null,
+  /** Offers optimistically consumed by a button click, keyed by
+   *  {@link offerKey} — hidden until the server's cleared meta arrives
+   *  (the same pattern as ChatView's dismissedOfferAt). */
+  dismissedOffers?: ReadonlySet<string>,
+): TrayItem[] {
   const items: TrayItem[] = []
   for (const issue of trayScopeIssues(issues, selectedIssueId)) {
     if (issue.needsHuman) {
@@ -67,6 +84,19 @@ export function deriveTrayItems(issues: IssueWire[], selectedIssueId: string | n
           (issue.prUrl ? `Ready for review — ${issue.prUrl}` : 'Ready for review.'),
         since: issue.updatedAt,
       })
+    }
+    // Agent action offers [spec:SP-c7f1]: a live session's suggested next
+    // actions are exactly "an item that needs a human" — the same dynamic
+    // offer channel the chat composer bar and native PTY bar render, surfaced
+    // here so the tray is action-complete. Same session filter as everywhere
+    // else: shells can't offer, headless (superagent-embedded) threads keep
+    // theirs in the super chat.
+    for (const session of issue.sessions ?? []) {
+      if (session.archived || session.headless === true || session.agentKind === 'shell') continue
+      const offer = session.offer
+      if (!offer) continue
+      if (dismissedOffers?.has(offerKey(session.sessionId, offer.createdAt))) continue
+      items.push({ kind: 'offer', issue, session, offer, since: offer.createdAt })
     }
   }
   // Newest first — the handoff's cards read top-down by recency.
@@ -91,6 +121,10 @@ export function workingSessionCount(issues: IssueWire[], selectedIssueId: string
 
 /** Re-exported shape guard for the bar badge: the pill shows the CARD count
  *  (spec §6.11 working assumption), not the waiting-session count. */
-export function trayCount(issues: IssueWire[], selectedIssueId: string | null): number {
-  return deriveTrayItems(issues, selectedIssueId).length
+export function trayCount(
+  issues: IssueWire[],
+  selectedIssueId: string | null,
+  dismissedOffers?: ReadonlySet<string>,
+): number {
+  return deriveTrayItems(issues, selectedIssueId, dismissedOffers).length
 }

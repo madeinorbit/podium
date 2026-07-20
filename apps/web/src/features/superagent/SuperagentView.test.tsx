@@ -54,6 +54,9 @@ const fakeTrpc = {
     clearNeedsHuman: { mutate: vi.fn(async () => {}) },
     update: { mutate: vi.fn(async () => {}) },
   },
+  sessions: {
+    sendText: { mutate: vi.fn(async () => ({})) },
+  },
 }
 
 vi.mock('@/app/store', () => {
@@ -194,6 +197,47 @@ describe('tray filtering (human-actionable only)', () => {
         text: expect.stringContaining('#3'),
       }),
     )
+  })
+
+  it('offer cards [spec:SP-c7f1]: dynamic buttons send the prompt to the offer session and hide the card', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'o',
+        seq: 6,
+        title: 'Offer host',
+        sessions: [
+          {
+            sessionId: 'agent-1',
+            agentKind: 'claude-code',
+            status: 'live',
+            cwd: '/r/wt',
+            createdAt: 't',
+            lastActiveAt: 't',
+            offer: {
+              message: 'PR is up — pick a next step.',
+              actions: [{ label: 'Merge it', prompt: 'Merge the PR and close out.' }],
+              createdAt: '2026-07-14T12:00:00Z',
+            },
+          },
+        ] as never,
+      }),
+    ]
+    await mount()
+    const card = container.querySelector('[data-testid="tray-card-offer"]')
+    expect(card?.textContent).toContain('PR is up — pick a next step.')
+    const button = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Merge it',
+    )
+    expect(button).not.toBeNull()
+    await act(async () => {
+      button?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'agent-1', text: 'Merge the PR and close out.' }),
+    )
+    // Optimistically consumed — the card is gone before the server clears it.
+    expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
   })
 
   it('question resolve routes through issues.clearNeedsHuman', async () => {

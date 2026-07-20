@@ -1,3 +1,4 @@
+import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { ChevronDown, Eraser, Mic, PanelRightClose, Send, SquareTerminal } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
@@ -21,7 +22,7 @@ import {
   TRAY_OPEN_KEY,
 } from './column-state'
 import type { TrayItem } from './derive-tray'
-import { trayCount } from './derive-tray'
+import { offerKey, trayCount } from './derive-tray'
 import { EventFeed } from './EventFeed'
 import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
@@ -215,7 +216,12 @@ export function SuperagentView({
   const selectedIssue = selectedIssueId
     ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
     : undefined
-  const itemCount = trayCount(issues, selectedIssueId ?? null)
+
+  // Agent action offers [spec:SP-c7f1]: a clicked offer hides optimistically
+  // until the server clears it off the session meta (mirrors ChatView's
+  // dismissedOfferAt). Keyed by offerKey so a NEW offer re-shows.
+  const [dismissedOffers, setDismissedOffers] = useState<ReadonlySet<string>>(new Set())
+  const itemCount = trayCount(issues, selectedIssueId ?? null, dismissedOffers)
 
   // ---- tray actions (v1 wiring — real backend verbs are #53/#54) ----
   const focusComposer = (): void => {
@@ -255,9 +261,14 @@ export function SuperagentView({
           : `Re #${item.issue.seq} ("${item.issue.title}"): `,
       ),
     onOpenSession: (item: TrayItem) => {
-      const agentSession = (item.issue.sessions ?? []).find(
-        (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
-      )
+      // An offer card names its exact session; other cards fall back to the
+      // issue's first live agent session.
+      const agentSession =
+        item.kind === 'offer'
+          ? item.session
+          : (item.issue.sessions ?? []).find(
+              (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
+            )
       setSelectedIssueId(item.issue.id)
       if (agentSession) setPane('A', agentSession.sessionId)
       setView('workspace')
@@ -267,6 +278,25 @@ export function SuperagentView({
       trpc.issues.clearNeedsHuman
         .mutate({ id: item.issue.id })
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+    },
+    // Offer button [spec:SP-c7f1]: send the agent-authored prompt to the
+    // offer's OWN session as a normal user turn — the same sendText path the
+    // chat/native offer bars use, so the server auto-clears the offer. Hide
+    // the card optimistically; un-hide on failure so it can be retried.
+    onOfferAction: (item, prompt) => {
+      const key = offerKey(item.session.sessionId, item.offer.createdAt)
+      setError(null)
+      setDismissedOffers((d) => new Set(d).add(key))
+      trpc.sessions.sendText
+        .mutate({ sessionId: item.session.sessionId, text: prompt, mutationId: randomUUID() })
+        .catch((e: unknown) => {
+          setDismissedOffers((d) => {
+            const next = new Set(d)
+            next.delete(key)
+            return next
+          })
+          setError(e instanceof Error ? e.message : String(e))
+        })
     },
   }
 
@@ -316,6 +346,7 @@ export function SuperagentView({
                 selectedIssueId={selectedIssueId ?? null}
                 actions={trayActions}
                 maxHeight={chatOpen ? trayHeight : null}
+                dismissedOffers={dismissedOffers}
               />
             </div>
           )}

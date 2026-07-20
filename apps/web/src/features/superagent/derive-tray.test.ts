@@ -1,7 +1,7 @@
 import type { SessionMeta } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { deriveTrayItems, trayScopeIssues, workingSessionCount } from './derive-tray'
+import { deriveTrayItems, offerKey, trayScopeIssues, workingSessionCount } from './derive-tray'
 
 const session = (over: Partial<SessionMeta>): SessionMeta =>
   ({
@@ -80,6 +80,50 @@ describe('deriveTrayItems', () => {
     expect(items.map((i) => i.issue.id)).toEqual(['b', 'a'])
     expect(items[1]).toMatchObject({ kind: 'question', text: 'Needs your input.' })
     expect(items[0]).toMatchObject({ kind: 'review', body: 'Ready for review — https://pr/1' })
+  })
+
+  it('surfaces a session offer as a card, excluding shells/headless/archived', () => {
+    const offer = {
+      message: 'PR is up.',
+      actions: [{ label: 'Merge it', prompt: 'merge the PR' }],
+      createdAt: '2026-07-14T12:00:00Z',
+    }
+    const issue = makeIssue({
+      id: 'o',
+      updatedAt: '2026-07-14T10:00:00Z',
+      sessions: [
+        session({ sessionId: 'agent', offer }),
+        session({ sessionId: 'sh', agentKind: 'shell', offer }),
+        session({ sessionId: 'hl', headless: true, offer }),
+        session({ sessionId: 'dead', archived: true, offer }),
+        session({ sessionId: 'quiet' }),
+      ] as SessionMeta[],
+    })
+    const items = deriveTrayItems([issue], null)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      kind: 'offer',
+      offer,
+      session: { sessionId: 'agent' },
+      since: offer.createdAt,
+    })
+  })
+
+  it('hides an offer optimistically via the dismissed set, keyed per offer instance', () => {
+    const offer = { message: 'm', actions: [], createdAt: '2026-07-14T12:00:00Z' }
+    const issue = makeIssue({
+      id: 'o',
+      sessions: [session({ sessionId: 'agent', offer })] as SessionMeta[],
+    })
+    const dismissed = new Set([offerKey('agent', offer.createdAt)])
+    expect(deriveTrayItems([issue], null, dismissed)).toHaveLength(0)
+    // A NEW offer on the same session is a new key — it shows again.
+    const fresh = { ...offer, createdAt: '2026-07-14T13:00:00Z' }
+    const again = makeIssue({
+      id: 'o',
+      sessions: [session({ sessionId: 'agent', offer: fresh })] as SessionMeta[],
+    })
+    expect(deriveTrayItems([again], null, dismissed)).toHaveLength(1)
   })
 
   it('an issue in review that also asks a question yields both cards', () => {
