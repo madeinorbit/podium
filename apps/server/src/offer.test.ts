@@ -77,4 +77,79 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     reg.modules.sessions.queueText({ sessionId, text: 'do the thing' })
     expect(metaOffer(reg, sessionId)).toBeUndefined()
   })
+
+  // The conversation continuing past the offer makes it stale — a NEW turn
+  // (entry into 'working' after the offer's createdAt) clears it, catching the
+  // paths sendText never sees: raw PTY input, mail/cron wakes, other clients.
+  describe('staleness: a new turn after the offer clears it', () => {
+    const working = (since: string) => ({
+      phase: 'working' as const,
+      since,
+      nativeSubagentCount: 0,
+    })
+    const idle = (since: string) => ({
+      phase: 'idle' as const,
+      since,
+      nativeSubagentCount: 0,
+    })
+
+    function seed() {
+      const reg = new SessionRegistry()
+      reg.modules.sessions.attachDaemon('local', () => {})
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/p',
+      })
+      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      const createdAt = metaOffer(reg, sessionId)?.createdAt as string
+      return { reg, sessionId, createdAt }
+    }
+    const after = (iso: string) => new Date(Date.parse(iso) + 60_000).toISOString()
+    const before = (iso: string) => new Date(Date.parse(iso) - 60_000).toISOString()
+
+    it('entering working after the offer was made consumes it', () => {
+      const { reg, sessionId, createdAt } = seed()
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: working(after(createdAt)),
+      })
+      expect(metaOffer(reg, sessionId)).toBeUndefined()
+    })
+
+    it('a boot replay of the turn that produced the offer (older event-time) leaves it', () => {
+      const { reg, sessionId, createdAt } = seed()
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: working(before(createdAt)),
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+
+    it('non-working phases and continued working do not clear', () => {
+      const { reg, sessionId, createdAt } = seed()
+      // Turn end after the offer — the offer is exactly for this moment.
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: idle(after(createdAt)),
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+      // working → working (hook updates mid-turn) never re-triggers: only the
+      // ENTRY into working counts, so an offer set mid-turn survives its turn.
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: working(after(createdAt)),
+      })
+      reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: working(after(after(createdAt))),
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+  })
 })

@@ -3886,6 +3886,19 @@ export class SessionsService {
         if (!SessionsService.isAttentionPhase(prev) && SessionsService.isAttentionPhase(next)) {
           this.issues().onSessionAttention(msg.sessionId)
         }
+        // A NEW turn beginning after the offer was made means the conversation
+        // moved past it — its suggested actions no longer apply [spec:SP-c7f1].
+        // This catches the continuations sendText never sees: raw PTY input,
+        // mail/cron wakes, another client. The event-time guard keeps a boot
+        // replay of the very turn that produced the offer from consuming it.
+        if (
+          session.offer !== undefined &&
+          prev?.phase !== 'working' &&
+          next.phase === 'working' &&
+          next.since > session.offer.createdAt
+        ) {
+          this.clearOffer(msg.sessionId)
+        }
         break
       }
       case 'agentColor': {
