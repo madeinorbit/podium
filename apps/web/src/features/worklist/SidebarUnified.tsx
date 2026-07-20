@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
 import type { IssueColorSlot } from '@podium/domain'
-import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } from '@podium/protocol'
+import type { AgentKind, IssueWire, SessionMeta } from '@podium/protocol'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
@@ -32,7 +32,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { issueIdTitle } from '@/features/issues/issue-card'
-import { isEpic } from '@/features/issues/issue-hierarchy'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import {
@@ -1141,11 +1140,9 @@ function UnifiedIssueRow({
         titleHint={issueIdTitle(issue)}
         extras={
           <>
-            {/* The seq agents cite ("#15") — small and muted, purely for
-                orientation when matching chat/CLI references to rows (#21). */}
-            <span className="flex-none font-mono text-[10.5px] text-[#6c6c78] tabular-nums">
-              {issueDisplayRef(issue)}
-            </span>
+            {/* The row's ref lives in the identity square alone (POD-85) — the
+                muted repeat here doubled every row's ID for no added signal.
+                Hover still surfaces the full ref via titleHint. */}
             {issue.audience === 'agent' && (
               <span
                 className="flex-none rounded border border-slate-500/40 px-1 text-[8.5px] uppercase tracking-wide text-slate-500"
@@ -1154,15 +1151,8 @@ function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {startedByDepth > 0 && (
-              <span
-                className="flex-none rounded border border-teal-500/45 bg-teal-500/10 px-1 text-[8.5px] font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400"
-                data-testid="started-by-badge"
-                title="Started by an agent on the parent issue (provenance nest, not a formal sub-issue)"
-              >
-                started-by
-              </span>
-            )}
+            {/* No started-by/epic jargon chips (POD-85): the dashed provenance
+                nest and the expand chevron already say it visually. */}
             {issue.pinned && (
               <Pin size={10} className="flex-none text-muted-foreground" aria-hidden="true" />
             )}
@@ -1179,11 +1169,6 @@ function UnifiedIssueRow({
                 title="Snooze ended — back in your queue"
               >
                 Unsnoozed
-              </span>
-            )}
-            {isEpic(issue) && (
-              <span className="flex-none rounded border border-violet-500/50 px-1 text-[8.5px] leading-4 text-violet-600 dark:text-violet-400">
-                epic
               </span>
             )}
           </>

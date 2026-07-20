@@ -65,6 +65,18 @@ describe('IdSquare identity', () => {
     })
   })
 
+  it('uses the server displayRef so the square reads POD-78, not #78 (POD-85)', () => {
+    expect(idSquareLabel({ ...issue({ seq: 78 }), displayRef: 'POD-78' })).toEqual({
+      prefix: 'POD',
+      number: '78',
+      full: 'POD-78',
+    })
+    // An explicit linear identifier still wins over the local ref.
+    expect(
+      idSquareLabel({ ...issue({ linearIdentifier: 'ENG-4' }), displayRef: 'POD-9' }).prefix,
+    ).toBe('ENG')
+  })
+
   it('keeps the fixed 26px / 7px / 6.5px square in every state', () => {
     render(
       <IdSquare

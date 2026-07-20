@@ -1322,8 +1322,8 @@ function buildUnifiedRows(
     if (issue.archived || issue.deletedAt || issue.stage === 'proposed') continue
     const mine = elevateCoordinatorSession(
       sortSessionsForSidebar(
-        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter(
-          (s) => sessionVisibleInSidebar(s, now),
+        sessionsForIssueNav(issue, sessions, allWorktreePaths, {}, ownership).filter((s) =>
+          sessionVisibleInSidebar(s, now),
         ),
         now,
       ),
@@ -1500,8 +1500,7 @@ export function nestStartedByIssues(
           visibleIssues,
           allWorktreePaths,
           ownership,
-        ) ??
-        undefined
+        ) ?? undefined
     }
     if (!parentId || parentId === issue.id || !byId.has(parentId)) continue
     let walk: string | undefined = parentId
@@ -1646,7 +1645,9 @@ function rowWithSessions(row: UnifiedWorkRow, keep: SessionMeta[], now: number):
     // counting a lifted session in the row's status. [spec:SP-6144]
     const aggregate = [
       ...keep,
-      ...(row.startedByChildren ?? []).flatMap((child) => child.aggregateSessions ?? child.sessions),
+      ...(row.startedByChildren ?? []).flatMap(
+        (child) => child.aggregateSessions ?? child.sessions,
+      ),
     ]
     return {
       ...row,
@@ -1706,11 +1707,7 @@ export function partitionUnifiedWork(
     const own = row.kind === 'issue' ? row.sessions : row.worktree.sessions
     const hasNestedChildren = row.kind === 'issue' && (row.startedByChildren?.length ?? 0) > 0
     const runningNow = own.filter(isSessionWorking)
-    if (
-      !hasNestedChildren &&
-      runningNow.length > 0 &&
-      runningNow.length === own.length
-    ) {
+    if (!hasNestedChildren && runningNow.length > 0 && runningNow.length === own.length) {
       working.push(row.kind === 'issue' ? { kind: 'issue', row } : { kind: 'worktree', row })
     } else if (runningNow.length > 0) {
       work.push(
@@ -2037,10 +2034,10 @@ export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): st
     return 'awaiting first prompt'
   }
   const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
-  const progress =
-    row.kind === 'issue' && row.issue.childCount > 0
-      ? ` · ${row.issue.childDoneCount}/${row.issue.childCount} done`
-      : ''
+  // Child progress speaks of subtasks, not a bare "N/M done" — appended to the
+  // phase word that used to read "done · 0/1 done" (POD-85).
+  const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
+  const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
     const urgent = mostUrgentSession(
       sessions.filter((s) => motionPhase(s) === 'waiting'),
@@ -2050,7 +2047,14 @@ export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): st
     return head + label + progress
   }
   if (phase === 'working') return head + 'working' + progress
-  if (phase === 'done') return head + 'done' + progress
+  if (phase === 'done') {
+    // A parent whose own sessions are done but whose subtasks aren't is not
+    // "done" — the open subtasks ARE its status.
+    if (children && children.childDoneCount < children.childCount) {
+      return head + `${children.childDoneCount}/${children.childCount} subtasks done`
+    }
+    return head + 'done'
+  }
   return head + 'queued' + progress
 }
 

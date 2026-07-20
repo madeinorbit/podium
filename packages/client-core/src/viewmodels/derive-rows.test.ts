@@ -41,10 +41,14 @@ const waiting = (over: Partial<AgentRuntimeState> = {}) =>
 const done = (over: Partial<AgentRuntimeState> = {}) =>
   sess({ agentState: agentState({ phase: 'idle', idle: { kind: 'done' }, ...over }) })
 
-function issueRow(sessions: SessionMeta[], draft = false): UnifiedWorkRow {
+function issueRow(
+  sessions: SessionMeta[],
+  draft = false,
+  issueOver: Record<string, unknown> = {},
+): UnifiedWorkRow {
   return {
     kind: 'issue',
-    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft },
+    issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft, ...issueOver },
     sessions,
     activityAt: NOW - 120_000,
     rank: 0,
@@ -84,6 +88,20 @@ describe('rowStatusLine — the second line copy grammar', () => {
     expect(rowStatusLine(issueRow([done()]), NOW)).toBe('done')
     expect(rowStatusLine(issueRow([sess()]), NOW)).toBe('queued')
     expect(rowStatusLine(issueRow([working(), working()]), NOW)).toBe('2 agents · working')
+  })
+
+  it('child progress reads as subtasks; open subtasks override a bare "done" (POD-85)', () => {
+    // The old grammar produced "done · 0/1 done" — nonsense to a human.
+    expect(
+      rowStatusLine(issueRow([done()], false, { childCount: 1, childDoneCount: 0 }), NOW),
+    ).toBe('0/1 subtasks done')
+    expect(
+      rowStatusLine(issueRow([working()], false, { childCount: 3, childDoneCount: 1 }), NOW),
+    ).toBe('working · 1/3 subtasks')
+    // All subtasks done: plain "done", no redundant tally.
+    expect(
+      rowStatusLine(issueRow([done()], false, { childCount: 2, childDoneCount: 2 }), NOW),
+    ).toBe('done')
   })
 
   it('a draft vessel with only unstarted sessions reads "awaiting first prompt", not "queued"', () => {

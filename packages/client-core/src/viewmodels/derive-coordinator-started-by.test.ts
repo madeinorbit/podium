@@ -331,7 +331,9 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       activityAt: NOW,
       rank: 1,
     }
-    expect(rowStatusLine(parent, NOW)).toContain('4/6 done')
+    // POD-85 grammar: progress speaks of subtasks ("done · 0/1 done" read as
+    // nonsense before).
+    expect(rowStatusLine(parent, NOW)).toContain('4/6 subtasks')
   })
 
   it('excludes proposed issues even if a session is attached', () => {

@@ -34,9 +34,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(value, max))
 }
 
-/** Split the current display identifier into the square's two fixed lines. */
-export function idSquareLabel(issue: Pick<IssueWire, 'linearIdentifier' | 'seq'>): IdSquareLabel {
-  const identifier = issue.linearIdentifier?.trim()
+/** Split the current display identifier into the square's two fixed lines.
+ *  The server-derived `displayRef` ("POD-78") replaces the bare `#seq`
+ *  fallback (POD-85): the square is the row's ONE identity mark, so it must
+ *  carry the prefix humans actually cite. */
+export function idSquareLabel(
+  issue: Pick<IssueWire, 'linearIdentifier' | 'seq'> & { displayRef?: string },
+): IdSquareLabel {
+  const identifier = issue.linearIdentifier?.trim() || issue.displayRef?.trim()
   const match = identifier?.match(/^(.+?)[-_\s]+(\d+)$/)
   if (identifier && match?.[1] && match[2]) {
     return { prefix: match[1].toUpperCase(), number: match[2], full: identifier }
