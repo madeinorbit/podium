@@ -1,7 +1,12 @@
 import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/viewmodels'
+import type { IssueWire } from '@podium/protocol'
 import { StyleSheet, Text, View } from 'react-native'
-import { type AttentionTone, color, elevation, font, radius, space, tone } from '../theme/theme'
+import { flow, issueColorHex } from '../theme/issueColors'
+import { alpha } from '../theme/mix'
+import { type AttentionTone, color, font, mono, radius, sans, space, tone } from '../theme/theme'
+import { IdSquare, type IdSquareState } from './IdSquare'
 import { PressableScale } from './PressableScale'
+import { BrailleSpinner } from './StatusGlyphs'
 import { Pill, StatusDot } from './ui'
 
 export type { SessionCardModel }
@@ -15,26 +20,38 @@ const DOT_TONE: Record<DotTone, AttentionTone> = {
   neutral: 'idle',
 }
 
+const SQUARE_STATE: Record<DotTone, IdSquareState> = {
+  working: 'working',
+  attention: 'waiting',
+  error: 'waiting',
+  ready: 'idle',
+  neutral: 'idle',
+}
+
 /**
- * One session on the board. Needs-you cards are the heroes: warmer surface,
- * amber glow, the agent's actual question in a quote block. Idle/working rows
- * stay compact and quiet. The agent's self-chosen identity color paints the
- * avatar square so you can tell your agents apart at a glance.
+ * One session row in the redesign's work-list grammar: the 26px ID square is
+ * the identity mark, the row tints in the issue's colour (slate-quiet when
+ * uncoloured), status lives as a glyph column on the right. Needs-you rows are
+ * the heroes — amber border + tint, the agent's actual question quoted below.
  */
 export function SessionCard({
   model,
+  issue,
   agentColor,
   onPress,
   children,
 }: {
   model: SessionCardModel
+  issue?: IssueWire
   agentColor?: string
   onPress: () => void
   children?: React.ReactNode
 }) {
   const toneKey = DOT_TONE[model.dotTone]
   const needsYou = model.group === 'needsYou'
-  const identity = agentColorHex(agentColor) ?? color.accent
+  const working = model.dotTone === 'working'
+  const hex = issue ? issueColorHex(issue.color) : undefined
+  const identity = agentColorHex(agentColor) ?? color.idle
   const initial = (model.title.trim()[0] ?? '?').toUpperCase()
 
   return (
@@ -43,31 +60,36 @@ export function SessionCard({
       accessibilityLabel={model.title}
       onPress={onPress}
       style={[
-        styles.card,
-        elevation.card,
-        needsYou && styles.cardNeedsYou,
-        needsYou && (elevation.glow('rgba(255, 180, 84, 0.16)') as object),
+        styles.row,
+        hex ? { backgroundColor: flow.rowBg(hex) } : styles.rowNeutral,
+        needsYou && styles.rowNeedsYou,
       ]}
     >
       <View style={styles.topRow}>
-        <View
-          style={[
-            styles.avatar,
-            { backgroundColor: `${identity}22`, borderColor: `${identity}55` },
-          ]}
-        >
-          <Text style={[styles.avatarText, { color: identity }]}>{initial}</Text>
-        </View>
+        {issue ? (
+          <IdSquare
+            issue={issue}
+            state={SQUARE_STATE[model.dotTone]}
+            ringColor={hex ? flow.rowBg(hex) : color.surface}
+          />
+        ) : (
+          <View style={[styles.avatar, { borderColor: alpha(identity, 0.45) }]}>
+            <Text style={[mono(600), styles.avatarText, { color: identity }]}>{initial}</Text>
+          </View>
+        )}
         <View style={styles.titles}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text style={[styles.title, hex ? { color: flow.text(hex) } : null]} numberOfLines={1}>
             {model.title}
           </Text>
-          <Text style={styles.subtitle} numberOfLines={1}>
+          <Text
+            style={[styles.subtitle, hex ? { color: flow.muted(hex) } : null]}
+            numberOfLines={1}
+          >
             {model.subtitle}
           </Text>
         </View>
         <View style={styles.status}>
-          <StatusDot toneKey={toneKey} />
+          {working ? <BrailleSpinner size={11} /> : <StatusDot toneKey={toneKey} />}
           {model.queuedCount ? (
             <Pill label={`${model.queuedCount} queued`} toneKey="accent" />
           ) : null}
@@ -97,36 +119,39 @@ export function SessionCard({
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: color.surface,
-    borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    marginHorizontal: space.lg,
-    marginBottom: space.md,
-    padding: space.lg,
-    gap: space.sm,
+  row: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    marginHorizontal: space.sm + 2,
+    marginBottom: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    gap: 6,
   },
-  cardNeedsYou: {
-    backgroundColor: '#191720',
+  rowNeutral: {
+    backgroundColor: color.surface,
+  },
+  rowNeedsYou: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
     borderColor: color.needsYouBorder,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.md,
+    gap: 9,
   },
   avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: radius.sm,
+    width: 26,
+    height: 26,
+    borderRadius: radius.md,
     borderWidth: 1,
+    backgroundColor: color.elevated,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    fontSize: font.heading,
-    fontWeight: '800',
+    fontSize: 11,
   },
   titles: {
     flex: 1,
@@ -134,42 +159,43 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   title: {
+    ...sans(500),
     color: color.text,
-    fontSize: font.body,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    fontSize: font.small,
+    letterSpacing: -0.1,
   },
   subtitle: {
+    ...sans(400),
     color: color.textFaint,
     fontSize: font.tiny,
-    fontWeight: '500',
   },
   status: {
     alignItems: 'flex-end',
     gap: space.xs,
   },
   issue: {
-    color: color.accent,
-    fontSize: font.tiny,
-    fontWeight: '600',
+    ...mono(500),
+    color: color.textDim,
+    fontSize: font.micro,
   },
   summary: {
+    ...sans(400),
     color: color.textDim,
-    fontSize: font.small,
-    lineHeight: 19,
+    fontSize: 11.5,
+    lineHeight: 16,
   },
   quote: {
     backgroundColor: tone.needsYou.bg,
     borderLeftWidth: 3,
     borderLeftColor: color.needsYou,
-    borderRadius: radius.sm,
+    borderRadius: radius.xs,
     paddingHorizontal: space.md,
-    paddingVertical: space.sm + 2,
+    paddingVertical: space.sm,
   },
   quoteText: {
-    color: '#ffd9a3',
-    fontSize: font.small,
-    lineHeight: 19,
-    fontWeight: '500',
+    ...sans(500),
+    color: color.accentTint,
+    fontSize: 11.5,
+    lineHeight: 16,
   },
 })

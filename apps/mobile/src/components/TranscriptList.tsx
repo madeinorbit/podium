@@ -2,7 +2,7 @@ import { isAskUserQuestion, latestPendingQuestion } from '@podium/client-core/vi
 import type { TranscriptItem } from '@podium/protocol'
 import { useMemo, useRef } from 'react'
 import { FlatList, StyleSheet, Text, View } from 'react-native'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { AskQuestionCard } from './AskQuestionCard'
 
 function itemKey(item: TranscriptItem): string {
@@ -147,19 +147,21 @@ const styles = StyleSheet.create({
     borderColor: color.accentBorder,
   },
   bubbleText: {
-    color: color.text,
+    ...sans(400),
+    color: color.body,
     fontSize: font.body,
-    lineHeight: 22,
+    lineHeight: 19,
   },
   systemLabel: {
+    ...mono(500),
     color: color.textFaint,
-    fontSize: font.tiny,
+    fontSize: font.micro,
     marginBottom: 2,
   },
   toolRow: {
+    ...mono(500),
     color: color.toolText,
-    fontSize: font.tiny,
-    fontWeight: '600',
+    fontSize: font.micro,
     alignSelf: 'center',
     backgroundColor: color.idleSoft,
     borderRadius: radius.full,

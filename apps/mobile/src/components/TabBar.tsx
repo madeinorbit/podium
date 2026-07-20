@@ -2,7 +2,7 @@ import { BlurView } from 'expo-blur'
 import { CircleDot, Inbox, Rows3, Sparkles } from 'lucide-react-native'
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, elevation, font, radius, space } from '../theme/theme'
+import { color, elevation, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 
 const ICONS: Record<string, typeof Inbox> = {
@@ -101,8 +101,8 @@ const styles = StyleSheet.create({
     marginHorizontal: space.lg,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    backgroundColor: 'rgba(19, 21, 28, 0.94)',
+    borderColor: color.hairlineBar,
+    backgroundColor: 'rgba(10, 10, 14, 0.92)',
     paddingHorizontal: space.sm,
     paddingVertical: 6,
     overflow: 'hidden',
@@ -122,9 +122,9 @@ const styles = StyleSheet.create({
     backgroundColor: color.accentSoft,
   },
   label: {
+    ...sans(600),
     color: color.textFaint,
     fontSize: font.tiny,
-    fontWeight: '600',
     letterSpacing: 0.2,
   },
   labelActive: {
@@ -143,8 +143,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   badgeText: {
+    ...mono(700),
     color: color.onAccent,
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 9,
   },
 })

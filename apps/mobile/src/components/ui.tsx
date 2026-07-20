@@ -1,6 +1,15 @@
 import type { ReactNode } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { type AttentionTone, color, font, radius, space, tone } from '../theme/theme'
+import {
+  type AttentionTone,
+  color,
+  mono,
+  monoLabel,
+  radius,
+  sans,
+  space,
+  tone,
+} from '../theme/theme'
 
 export function Pill({ label, toneKey }: { label: string; toneKey?: AttentionTone }) {
   const t = toneKey ? tone[toneKey] : null
@@ -11,23 +20,28 @@ export function Pill({ label, toneKey }: { label: string; toneKey?: AttentionTon
   )
 }
 
-export function StatusDot({ toneKey, size = 8 }: { toneKey: AttentionTone; size?: number }) {
+export function StatusDot({ toneKey, size = 7 }: { toneKey: AttentionTone; size?: number }) {
   return (
     <View
       style={{
         width: size,
         height: size,
-        borderRadius: radius.full,
+        borderRadius: 2.5,
         backgroundColor: tone[toneKey].fg,
       }}
     />
   )
 }
 
+/** Mono section label with a trailing hairline rule — the redesign's group
+ *  header grammar (project names, WORK, NEEDS YOU …). */
 export function SectionHeader({ label, right }: { label: string; right?: ReactNode }) {
   return (
     <View style={styles.sectionHeader}>
-      <Text style={styles.sectionLabel}>{label}</Text>
+      <Text style={styles.sectionLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <View style={styles.sectionRule} />
       {right}
     </View>
   )
@@ -57,30 +71,32 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.full,
-    paddingHorizontal: space.sm + 1,
-    paddingVertical: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     alignSelf: 'flex-start',
   },
   pillText: {
+    ...mono(500),
     color: color.textDim,
-    fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 0.4,
+    fontSize: 9,
+    letterSpacing: 0.3,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.xl,
-    paddingTop: space.xl,
-    paddingBottom: space.sm,
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg + 2,
+    paddingBottom: 4,
   },
   sectionLabel: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-    fontWeight: '800',
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
+    ...monoLabel(9),
+    color: color.label,
+  },
+  sectionRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
   empty: {
     alignItems: 'center',
@@ -89,8 +105,8 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   emptyIcon: {
-    width: 64,
-    height: 64,
+    width: 56,
+    height: 56,
     borderRadius: radius.lg,
     backgroundColor: color.surface,
     borderWidth: StyleSheet.hairlineWidth,
@@ -100,15 +116,16 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   emptyTitle: {
+    ...sans(600),
     color: color.text,
-    fontSize: font.heading,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    fontSize: 14,
+    letterSpacing: -0.1,
   },
   emptyBody: {
+    ...sans(400),
     color: color.textFaint,
-    fontSize: font.small,
+    fontSize: 11.5,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 17,
   },
 })

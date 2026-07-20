@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
 import { useState } from 'react'
 import { Platform, StyleSheet, TextInput, View } from 'react-native'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
@@ -17,7 +17,9 @@ export function Composer({
   disabled?: boolean
 }) {
   const [text, setText] = useState('')
+  const [focused, setFocused] = useState(false)
   const canSend = !disabled && text.trim().length > 0
+  const armed = focused || canSend
 
   const send = () => {
     const trimmed = text.trim()
@@ -30,9 +32,11 @@ export function Composer({
     <View style={styles.row}>
       <TextInput
         accessibilityLabel={placeholder}
-        style={styles.input}
+        style={[styles.input, armed && styles.inputArmed]}
         value={text}
         onChangeText={setText}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         placeholderTextColor={color.textFaint}
         multiline
@@ -70,17 +74,22 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(14px)' } as object) : null),
   },
   input: {
+    ...sans(400),
     flex: 1,
     color: color.text,
     fontSize: font.body,
-    lineHeight: 20,
+    lineHeight: 19,
     maxHeight: 120,
-    backgroundColor: color.bgSunken,
-    borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm + 3,
+    backgroundColor: 'rgba(8, 8, 12, 0.7)',
+    borderColor: color.borderStrong,
+    borderWidth: 1.5,
+    borderRadius: 9,
+    paddingHorizontal: space.md + 1,
+    paddingVertical: space.sm + 2,
+  },
+  // Focused/armed composer lights amber — the redesign's composer grammar.
+  inputArmed: {
+    borderColor: color.accent,
   },
   sendWrap: {
     borderRadius: radius.full,

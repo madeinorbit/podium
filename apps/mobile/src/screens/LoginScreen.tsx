@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native'
 import { login } from '../client/auth'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 export function LoginScreen({
   httpOrigin,
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   title: {
     color: color.text,
     fontSize: 28,
-    fontWeight: '800',
+    ...sans(700),
     textAlign: 'center',
   },
   subtitle: {
@@ -119,6 +119,6 @@ const styles = StyleSheet.create({
   buttonText: {
     color: color.accentText,
     fontSize: font.body,
-    fontWeight: '700',
+    ...sans(700),
   },
 })

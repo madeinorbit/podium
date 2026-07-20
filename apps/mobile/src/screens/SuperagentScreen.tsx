@@ -1,11 +1,15 @@
+import { LinearGradient } from 'expo-linear-gradient'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import type { SuperagentMessage, SuperagentThread } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Screen } from '../components/Screen'
+import { BrailleSpinner } from '../components/StatusGlyphs'
 import { EmptyState } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { FLOW_SLATE } from '../theme/issueColors'
+import { alpha, mix } from '../theme/mix'
+import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 function threadLabel(thread: SuperagentThread): string {
   if (thread.id === 'global') return 'Global'
@@ -131,32 +135,42 @@ export function SuperagentScreen() {
   const data = useMemo(() => [...visible].reverse(), [visible])
 
   return (
-    <Screen
-      large
-      title="Superagent"
-      subtitle="delegate work, steer sessions"
-      right={
-        running ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Stop turn"
-            onPress={() => void interrupt()}
-            hitSlop={8}
+    <Screen noHeader>
+      {/* Engraved canvas: slate context glow fading into #0a0a0e (colour-flow §2.4). */}
+      <View style={styles.engraved}>
+        <LinearGradient
+          colors={[mix(FLOW_SLATE, 9, color.engraved), color.engraved]}
+          style={styles.glow}
+          pointerEvents="none"
+        />
+        {/* Super-agent section bar — the compact #08080c bar grammar. */}
+        <View style={styles.saBar}>
+          <Text style={styles.saGlyph}>✦</Text>
+          <Text style={styles.saTitle}>Super agent</Text>
+          <Text style={styles.saScope}>OVERARCHING</Text>
+          {running ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Stop turn"
+              onPress={() => void interrupt()}
+              hitSlop={8}
+              style={styles.stopWrap}
+            >
+              <Text style={styles.stop}>Stop</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {threads.length > 1 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chips}
+            contentContainerStyle={styles.chipsContent}
           >
-            <Text style={styles.stop}>Stop</Text>
-          </Pressable>
-        ) : undefined
-      }
-    >
-      {threads.length > 1 ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chips}
-          contentContainerStyle={styles.chipsContent}
-        >
-          {[{ id: 'global' } as SuperagentThread, ...threads.filter((t) => t.id !== 'global')].map(
-            (t) => (
+            {[
+              { id: 'global' } as SuperagentThread,
+              ...threads.filter((t) => t.id !== 'global'),
+            ].map((t) => (
               <Pressable
                 key={t.id}
                 accessibilityRole="button"
@@ -168,62 +182,99 @@ export function SuperagentScreen() {
                   {threadLabel(t)}
                 </Text>
               </Pressable>
-            ),
-          )}
-        </ScrollView>
-      ) : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <FlatList
-        inverted
-        data={data}
-        keyExtractor={(m) => String(m.id)}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={
-          running ? (
-            <View style={styles.liveRow}>
-              {liveText ? (
-                <View style={[styles.bubble, styles.assistantBubble]}>
-                  <Text style={styles.bubbleText}>{liveText}</Text>
-                </View>
-              ) : (
-                <Text style={styles.status}>{statusLabel ? `⋯ ${statusLabel}` : '⋯ thinking'}</Text>
-              )}
-            </View>
-          ) : null
-        }
-        renderItem={({ item: m }) => (
-          <View style={[styles.row, m.role === 'user' && styles.userAlign]}>
-            <View
-              style={[
-                styles.bubble,
-                m.role === 'user' ? styles.userBubble : styles.assistantBubble,
-              ]}
-            >
-              <Text style={styles.bubbleText} selectable>
+            ))}
+          </ScrollView>
+        ) : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <FlatList
+          inverted
+          data={data}
+          keyExtractor={(m) => String(m.id)}
+          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={
+            running ? (
+              <View style={styles.liveRow}>
+                {liveText ? (
+                  <View style={[styles.block, styles.agentBlock]}>
+                    <Text style={styles.roleLabel}>SUPER AGENT</Text>
+                    <Text style={styles.blockText}>{liveText}</Text>
+                  </View>
+                ) : (
+                  <View style={styles.statusRow}>
+                    <BrailleSpinner size={11} />
+                    <Text style={styles.status}>{statusLabel ?? 'thinking'}</Text>
+                  </View>
+                )}
+              </View>
+            ) : null
+          }
+          renderItem={({ item: m }) => (
+            <View style={[styles.block, m.role === 'user' ? styles.youBlock : styles.agentBlock]}>
+              <Text style={[styles.roleLabel, m.role === 'user' && styles.youLabel]}>
+                {m.role === 'user' ? 'YOU' : 'SUPER AGENT'}
+              </Text>
+              <Text style={styles.blockText} selectable>
                 {m.content.trim()}
               </Text>
             </View>
-          </View>
-        )}
-        ListEmptyComponent={
-          !running ? (
-            <View style={styles.emptyFlip}>
-              <EmptyState
-                title="Hand off some work"
-                body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
-              />
-            </View>
-          ) : null
-        }
-      />
-      <View style={styles.composerLift}>
-        <Composer placeholder="Delegate a task…" onSend={(text) => void send(text)} />
+          )}
+          ListEmptyComponent={
+            !running ? (
+              <View style={styles.emptyFlip}>
+                <EmptyState
+                  title="Hand off some work"
+                  body="The superagent can read your repos, file tasks, spawn worker sessions and steer them — describe what you want done."
+                />
+              </View>
+            ) : null
+          }
+        />
+        <View style={styles.composerLift}>
+          <Composer placeholder="Delegate a task…" onSend={(text) => void send(text)} />
+        </View>
       </View>
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
+  engraved: {
+    flex: 1,
+    backgroundColor: color.engraved,
+  },
+  glow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 220,
+  },
+  saBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: color.bar,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairlineBar,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+  },
+  saGlyph: {
+    color: color.accent,
+    fontSize: 12,
+  },
+  saTitle: {
+    ...sans(600),
+    color: color.text,
+    fontSize: font.small,
+  },
+  saScope: {
+    ...monoLabel(8),
+    color: color.textMicro,
+  },
+  stopWrap: {
+    marginLeft: 'auto',
+  },
   composerLift: {
     paddingBottom: 86,
   },
@@ -231,16 +282,16 @@ const styles = StyleSheet.create({
     flexGrow: 0,
   },
   chipsContent: {
-    gap: space.sm,
-    paddingHorizontal: space.xl,
-    paddingBottom: space.sm,
+    gap: 6,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   chip: {
-    borderRadius: radius.full,
-    paddingHorizontal: space.lg,
-    paddingVertical: 7,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: 5,
     backgroundColor: color.surface,
-    borderColor: color.border,
+    borderColor: color.hairlineBar,
     borderWidth: StyleSheet.hairlineWidth,
   },
   chipActive: {
@@ -248,63 +299,69 @@ const styles = StyleSheet.create({
     borderColor: color.accentBorder,
   },
   chipText: {
+    ...sans(600),
     color: color.textDim,
-    fontSize: font.small,
-    fontWeight: '600',
+    fontSize: font.tiny + 1,
   },
   chipTextActive: {
     color: color.accent,
-    fontWeight: '700',
   },
   listContent: {
     paddingHorizontal: space.md,
     paddingVertical: space.md,
     flexGrow: 1,
   },
-  row: {
-    marginBottom: space.sm,
-  },
-  userAlign: {
-    alignItems: 'flex-end',
-  },
   liveRow: {
     marginBottom: space.sm,
   },
-  bubble: {
-    maxWidth: '90%',
-    borderRadius: radius.lg,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.sm + 3,
+  // Chat feed grammar: role blocks with a 3px left rule — blue = you,
+  // green = the agent (engraved-column spec).
+  block: {
+    borderLeftWidth: 3,
+    paddingLeft: 10,
+    paddingVertical: 2,
+    marginBottom: space.md,
+    gap: 3,
   },
-  userBubble: {
-    backgroundColor: color.userBubble,
-    borderBottomRightRadius: radius.sm - 6,
-    alignSelf: 'flex-end',
+  youBlock: {
+    borderLeftColor: alpha(color.info, 0.75),
   },
-  assistantBubble: {
-    backgroundColor: color.assistantBubble,
-    borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderBottomLeftRadius: radius.sm - 6,
-    alignSelf: 'flex-start',
+  agentBlock: {
+    borderLeftColor: alpha(color.working, 0.75),
   },
-  bubbleText: {
-    color: color.text,
+  roleLabel: {
+    ...sans(600),
+    color: color.working,
+    fontSize: font.micro,
+    letterSpacing: 0.63,
+  },
+  youLabel: {
+    color: color.info,
+  },
+  blockText: {
+    ...sans(400),
+    color: color.body,
     fontSize: font.body,
-    lineHeight: 22,
+    lineHeight: 19,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 13,
   },
   status: {
+    ...mono(400),
     color: color.textFaint,
-    fontSize: font.small,
-    fontStyle: 'italic',
-    paddingHorizontal: space.sm,
+    fontSize: font.tiny,
   },
   stop: {
+    ...sans(700),
     color: color.danger,
-    fontSize: font.body,
-    fontWeight: '700',
+    fontSize: font.small,
   },
   error: {
+    ...sans(400),
     color: color.danger,
     fontSize: font.small,
     paddingHorizontal: space.lg,

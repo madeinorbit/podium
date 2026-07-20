@@ -5,9 +5,11 @@ import { useMemo, useState } from 'react'
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Icon } from '../components/Icon'
+import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
 import { EmptyState, Pill } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { flow, issueColorHex } from '../theme/issueColors'
+import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
 
 const STAGE_ORDER: IssueStage[] = [
   'in_progress',
@@ -79,34 +81,58 @@ export function IssuesScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionLabel}>{section.title.toUpperCase()}</Text>
             <Text style={styles.sectionCount}>{section.data.length}</Text>
+            <View style={styles.sectionRule} />
           </View>
         )}
-        renderItem={({ item: issue }) => (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Issue ${issue.seq}: ${issue.title}`}
-            onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-          >
-            <View style={styles.topRow}>
-              <Text style={styles.seq}>#{issue.seq}</Text>
-              <Text style={styles.title} numberOfLines={2}>
-                {issue.title}
-              </Text>
-            </View>
-            <View style={styles.metaRow}>
-              <Pill label={issue.type} />
-              <Pill label={`P${issue.priority}`} />
-              {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
-              {issue.blockedBy.length > 0 ? (
-                <Pill label={`blocked by ${issue.blockedBy.length}`} toneKey="danger" />
-              ) : null}
-              <Text style={styles.repo} numberOfLines={1}>
-                {repoName(issue)}
-              </Text>
-            </View>
-          </Pressable>
-        )}
+        renderItem={({ item: issue }) => {
+          const hex = issueColorHex(issue.color)
+          const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
+          return (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Issue ${issue.seq}: ${issue.title}`}
+              onPress={() => router.push(`/issue/${encodeURIComponent(issue.id)}`)}
+              style={({ pressed }) => [
+                styles.card,
+                hex ? { backgroundColor: flow.rowBg(hex) } : null,
+                pressed && styles.cardPressed,
+              ]}
+            >
+              <View style={styles.topRow}>
+                <IdSquare
+                  issue={issue}
+                  state={
+                    issue.stage === 'done'
+                      ? 'done'
+                      : issue.needsHuman
+                        ? 'waiting'
+                        : resting
+                          ? 'queued'
+                          : 'working'
+                  }
+                  ringColor={hex ? flow.rowBg(hex) : color.surface}
+                />
+                <Text
+                  style={[styles.title, hex ? { color: flow.text(hex) } : null]}
+                  numberOfLines={2}
+                >
+                  {issue.title}
+                </Text>
+              </View>
+              <View style={styles.metaRow}>
+                <Pill label={issue.type} />
+                <Pill label={`P${issue.priority}`} />
+                {issue.needsHuman ? <Pill label="needs human" toneKey="needsYou" /> : null}
+                {issue.blockedBy.length > 0 ? (
+                  <Pill label={`blocked by ${issue.blockedBy.length}`} toneKey="danger" />
+                ) : null}
+                <Text style={styles.repo} numberOfLines={1}>
+                  {repoName(issue)}
+                </Text>
+              </View>
+            </Pressable>
+          )
+        }}
         ListEmptyComponent={
           <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
         }
@@ -121,66 +147,66 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   toggle: {
+    ...sans(600),
     color: color.accent,
-    fontSize: font.small,
-    fontWeight: '600',
+    fontSize: font.tiny + 1,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md + 2,
     paddingTop: space.lg,
-    paddingBottom: space.sm,
+    paddingBottom: 5,
   },
   sectionLabel: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 1.2,
+    ...monoLabel(9),
+    color: color.label,
   },
   sectionCount: {
+    ...mono(600),
     color: color.textFaint,
-    fontSize: font.tiny,
+    fontSize: font.micro,
+  },
+  sectionRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
   card: {
     backgroundColor: color.surface,
-    borderColor: color.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    marginHorizontal: space.lg,
-    marginBottom: space.md,
-    padding: space.lg,
-    gap: space.sm,
+    borderRadius: radius.md,
+    marginHorizontal: space.sm + 2,
+    marginBottom: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    gap: 6,
   },
   cardPressed: {
     backgroundColor: color.surfacePressed,
   },
   topRow: {
     flexDirection: 'row',
-    gap: space.sm,
-  },
-  seq: {
-    color: color.textFaint,
-    fontSize: font.body,
-    fontVariant: ['tabular-nums'],
+    alignItems: 'center',
+    gap: 9,
   },
   title: {
+    ...sans(500),
     flex: 1,
     color: color.text,
-    fontSize: font.body,
-    fontWeight: '600',
-    lineHeight: 20,
+    fontSize: font.small,
+    lineHeight: 16,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: space.sm,
+    gap: 6,
     flexWrap: 'wrap',
   },
   repo: {
+    ...mono(400),
     color: color.textFaint,
-    fontSize: font.tiny,
+    fontSize: font.micro,
     marginLeft: 'auto',
   },
 })

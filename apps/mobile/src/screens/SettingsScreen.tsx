@@ -7,7 +7,7 @@ import { useMobileClient } from '../client/MobileClientProvider'
 import { Icon } from '../components/Icon'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 function openDesktop() {
   // The web shell is the default at / for every device now [spec:SP-902c]; /desktop is
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   },
   actionText: {
     color: color.accentText,
-    fontWeight: '700',
+    ...sans(700),
     fontSize: font.body,
   },
   panel: {
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: color.danger,
-    fontWeight: '700',
+    ...sans(700),
     fontSize: font.body,
   },
   hint: {

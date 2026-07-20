@@ -1,68 +1,95 @@
 import { Platform } from 'react-native'
 
 /**
- * Podium mobile design language ("Podium Dark").
+ * Podium mobile design language — the app-wide redesign palette. [spec:SP-b4d1]
  *
- * Principles: one deep neutral canvas with layered, softly-lit surfaces;
- * a single violet-blue accent used sparingly; semantic attention colors that
- * match the product's triage language (amber = needs you, green = working);
- * large friendly radii; real depth (shadow + hairline border together).
+ * Token values mirror the web's `podium` dark preset (apps/web/src/index.css)
+ * and `.design/specs/tokens.md`: one near-black canvas (#0e0e12) with darker
+ * engraved tiers below it, a three-tier hairline system, a six-step text ramp,
+ * and STRICT status semantics — amber #f59e0b means "waiting on you", green
+ * #10b981 means "agent working", terracotta #d97757 is Claude. Issue accents
+ * come from the 10-colour palette in ./issueColors.ts and are always tinted
+ * via ./mix.ts, never flat.
  */
 export const color = {
-  // Canvas
-  bg: '#0a0b0f',
-  bgGradientTop: '#101321',
-  bgSunken: '#07080b',
+  // Canvas tiers (darker = deeper)
+  bg: '#0e0e12',
+  bgGradientTop: '#0e0e12',
+  bgSunken: '#0a0a0e',
+  /** Engraved column surface (superagent overlay). */
+  engraved: '#0a0a0e',
+  /** Compact section bars, key-bar strip — the darkest tier. */
+  bar: '#08080c',
   // Legacy alias used by older components; same as surface.
-  bgRaised: '#14161d',
+  bgRaised: '#16161c',
 
-  // Surfaces (each step ~4% lighter)
-  surface: '#14161d',
-  surfaceHigh: '#1a1d26',
-  surfacePressed: '#20242f',
-  glass: 'rgba(20, 22, 29, 0.72)',
+  // Surfaces
+  surface: '#16161c',
+  surfaceHigh: '#1b1b22',
+  surfacePressed: '#25252f',
+  /** Raised chips ("New Claude in podium"), neutral ID-square fill. */
+  elevated: '#25252f',
+  glass: 'rgba(10, 10, 14, 0.78)',
   // Legacy aliases
-  card: '#14161d',
-  cardPressed: '#20242f',
+  card: '#16161c',
+  cardPressed: '#25252f',
 
-  border: 'rgba(148, 163, 197, 0.14)',
-  borderStrong: 'rgba(148, 163, 197, 0.28)',
-  hairline: 'rgba(148, 163, 197, 0.09)',
+  // Hairline tiers
+  border: '#2a2a34',
+  borderStrong: '#3a3a46',
+  hairline: '#25252f',
+  /** Hairlines on the darkest #08080c bars. */
+  hairlineBar: '#2e2e38',
 
-  // Ink
-  text: '#f4f6fb',
-  textDim: '#a3adc2',
-  textFaint: '#636d84',
+  // Ink — six-step ramp
+  text: '#f3f3f8',
+  body: '#d7d7e0',
+  textDim: '#9a9aa8',
+  textFaint: '#6c6c78',
+  /** Micro labels, hints. */
+  textMicro: '#5a5a66',
+  /** Mono section labels (project names). */
+  label: '#7a7a86',
 
-  // Accent — violet-blue, with a gradient pair for primary actions
-  accent: '#8b9dff',
-  accentSoft: 'rgba(139, 157, 255, 0.14)',
-  accentBorder: 'rgba(139, 157, 255, 0.45)',
-  accentGradient: ['#8b9dff', '#6f7dff'] as const,
-  onAccent: '#0a0b0f',
+  // Accent = attention amber. One amber everywhere.
+  accent: '#f59e0b',
+  accentSoft: 'rgba(245, 158, 11, 0.13)',
+  accentBorder: 'rgba(245, 158, 11, 0.45)',
+  accentGradient: ['#f7ac2e', '#e18a06'] as const,
+  onAccent: '#161006',
+  /** Amber-tinted text (the lit ⏎ key, tinted labels). */
+  accentTint: '#e8c477',
   // Legacy alias
-  accentText: '#0a0b0f',
+  accentText: '#161006',
 
-  // Attention semantics
-  needsYou: '#ffb454',
-  needsYouSoft: 'rgba(255, 180, 84, 0.12)',
-  needsYouBorder: 'rgba(255, 180, 84, 0.4)',
-  needsYouBg: 'rgba(255, 180, 84, 0.12)',
-  working: '#3ddc97',
-  workingSoft: 'rgba(61, 220, 151, 0.11)',
-  workingBg: 'rgba(61, 220, 151, 0.11)',
-  idle: '#8a94ab',
-  idleSoft: 'rgba(138, 148, 171, 0.12)',
-  idleBg: 'rgba(138, 148, 171, 0.12)',
-  danger: '#ff7a85',
-  dangerSoft: 'rgba(255, 122, 133, 0.12)',
-  dangerBg: 'rgba(255, 122, 133, 0.12)',
+  // Attention semantics — reserved hues, never issue colours
+  needsYou: '#f59e0b',
+  needsYouSoft: 'rgba(245, 158, 11, 0.12)',
+  needsYouBorder: 'rgba(245, 158, 11, 0.4)',
+  needsYouBg: 'rgba(245, 158, 11, 0.12)',
+  working: '#10b981',
+  workingSoft: 'rgba(16, 185, 129, 0.11)',
+  workingBg: 'rgba(16, 185, 129, 0.11)',
+  /** Host/health dots, quota bars, done ✓. */
+  success: '#34d399',
+  idle: '#8d8d9a',
+  idleSoft: 'rgba(141, 141, 154, 0.12)',
+  idleBg: 'rgba(141, 141, 154, 0.12)',
+  danger: '#f87171',
+  dangerSoft: 'rgba(248, 113, 113, 0.12)',
+  dangerBg: 'rgba(248, 113, 113, 0.12)',
+  /** User / YOU rail blue. */
+  info: '#3b82f6',
+  /** Claude brand terracotta. */
+  claude: '#d97757',
+  /** Neutral no-colour issue flow. */
+  flow: '#94a3b8',
 
   // Chat
-  userBubbleGradient: ['#3a4a80', '#2c3862'] as const,
-  userBubble: '#32406e',
-  assistantBubble: '#171a22',
-  toolText: '#6c7690',
+  userBubbleGradient: ['#233052', '#1a2440'] as const,
+  userBubble: '#1c2740',
+  assistantBubble: '#16161c',
+  toolText: '#6c6c78',
 } as const
 
 export const space = {
@@ -74,51 +101,88 @@ export const space = {
   xxl: 32,
 } as const
 
+/** Discrete redesign radii — the workhorse row/square radius is 7. */
 export const radius = {
-  sm: 12,
-  md: 16,
-  lg: 22,
-  xl: 28,
+  xs: 5,
+  sm: 6,
+  md: 7,
+  lg: 10,
+  xl: 14,
   full: 999,
 } as const
 
 export const font = {
-  largeTitle: 32,
-  title: 20,
-  heading: 17,
-  body: 15,
-  small: 13,
-  tiny: 11,
+  largeTitle: 24,
+  title: 18,
+  heading: 15,
+  body: 13,
+  small: 12,
+  tiny: 10,
+  micro: 9,
 } as const
+
+/**
+ * Geist / Geist Mono, one static family per weight (loaded in app/_layout).
+ * Use these instead of fontWeight — mixing a weight-specific family with
+ * fontWeight makes Android synthesize fake bolds.
+ */
+export const sans = (weight: 400 | 500 | 600 | 700 = 400) =>
+  ({
+    fontFamily: {
+      400: 'Geist_400Regular',
+      500: 'Geist_500Medium',
+      600: 'Geist_600SemiBold',
+      700: 'Geist_700Bold',
+    }[weight],
+  }) as const
+
+export const mono = (weight: 400 | 500 | 600 | 700 = 400) =>
+  ({
+    fontFamily: {
+      400: 'GeistMono_400Regular',
+      500: 'GeistMono_500Medium',
+      600: 'GeistMono_600SemiBold',
+      700: 'GeistMono_700Bold',
+    }[weight],
+  }) as const
+
+/** Mono micro-label style (project/scope labels): tracking ≈ .12em. */
+export const monoLabel = (size = 10) =>
+  ({
+    ...mono(500),
+    fontSize: size,
+    letterSpacing: size * 0.12,
+    textTransform: 'uppercase',
+  }) as const
 
 export type AttentionTone = 'needsYou' | 'working' | 'idle' | 'danger' | 'accent'
 
 export const tone: Record<AttentionTone, { fg: string; bg: string; border: string }> = {
   needsYou: { fg: color.needsYou, bg: color.needsYouSoft, border: color.needsYouBorder },
-  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(61, 220, 151, 0.35)' },
-  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(138, 148, 171, 0.3)' },
-  danger: { fg: color.danger, bg: color.dangerSoft, border: 'rgba(255, 122, 133, 0.4)' },
+  working: { fg: color.working, bg: color.workingSoft, border: 'rgba(16, 185, 129, 0.35)' },
+  idle: { fg: color.idle, bg: color.idleSoft, border: 'rgba(141, 141, 154, 0.3)' },
+  danger: { fg: color.danger, bg: color.dangerSoft, border: 'rgba(248, 113, 113, 0.4)' },
   accent: { fg: color.accent, bg: color.accentSoft, border: color.accentBorder },
 }
 
 /** Depth: shadow + hairline border together (either alone reads flat). */
 export const elevation = {
   card: Platform.select({
-    web: { boxShadow: '0 2px 16px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.4)' },
+    web: { boxShadow: '0 2px 12px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.45)' },
     default: {
       shadowColor: '#000',
-      shadowOpacity: 0.35,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 6,
+      shadowOpacity: 0.4,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 5,
     },
   }) as object,
   raised: Platform.select({
-    web: { boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.45)' },
+    web: { boxShadow: '0 8px 24px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.45)' },
     default: {
       shadowColor: '#000',
-      shadowOpacity: 0.5,
-      shadowRadius: 20,
+      shadowOpacity: 0.55,
+      shadowRadius: 18,
       shadowOffset: { width: 0, height: 8 },
       elevation: 12,
     },
@@ -128,7 +192,7 @@ export const elevation = {
       web: { boxShadow: `0 0 24px ${glowColor}, 0 2px 16px rgba(0,0,0,0.4)` },
       default: {
         shadowColor: glowColor,
-        shadowOpacity: 0.55,
+        shadowOpacity: 0.5,
         shadowRadius: 16,
         shadowOffset: { width: 0, height: 2 },
         elevation: 8,

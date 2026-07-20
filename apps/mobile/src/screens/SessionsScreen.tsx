@@ -10,7 +10,7 @@ import { Icon } from '../components/Icon'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 type Filter = 'active' | 'all' | 'archived'
 
@@ -72,6 +72,7 @@ export function SessionsScreen() {
         renderItem={({ item: session }) => (
           <SessionCard
             model={sessionCardModel(session, issueFor(session), now)}
+            issue={issueFor(session)}
             agentColor={session.agentColor}
             onPress={() => router.push(`/session/${session.sessionId}`)}
           />
@@ -90,16 +91,16 @@ export function SessionsScreen() {
 const styles = StyleSheet.create({
   filters: {
     flexDirection: 'row',
-    gap: space.sm,
-    paddingHorizontal: space.xl,
-    paddingBottom: space.md,
+    gap: 6,
+    paddingHorizontal: space.md + 2,
+    paddingBottom: space.sm + 2,
   },
   filter: {
-    borderRadius: radius.full,
-    paddingHorizontal: space.lg,
-    paddingVertical: 7,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: 5,
     backgroundColor: color.surface,
-    borderColor: color.border,
+    borderColor: color.hairlineBar,
     borderWidth: StyleSheet.hairlineWidth,
   },
   filterActive: {
@@ -107,13 +108,12 @@ const styles = StyleSheet.create({
     borderColor: color.accentBorder,
   },
   filterText: {
+    ...sans(600),
     color: color.textDim,
-    fontSize: font.small,
-    fontWeight: '600',
+    fontSize: font.tiny + 1,
   },
   filterTextActive: {
     color: color.accent,
-    fontWeight: '700',
   },
   listContent: {
     paddingBottom: 120,

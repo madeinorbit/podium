@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { color, elevation, font, radius, space } from '../theme/theme'
+import { color, elevation, font, monoLabel, radius, sans, space } from '../theme/theme'
 
 export interface SheetAction {
   label: string
@@ -137,11 +137,8 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   title: {
-    color: color.textFaint,
-    fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+    ...monoLabel(9),
+    color: color.textMicro,
     textAlign: 'center',
     marginBottom: space.sm,
   },
@@ -164,9 +161,9 @@ const styles = StyleSheet.create({
     backgroundColor: color.surfacePressed,
   },
   actionText: {
+    ...sans(600),
     color: color.text,
     fontSize: font.body,
-    fontWeight: '600',
   },
   destructive: {
     color: color.danger,
@@ -178,8 +175,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   cancelText: {
+    ...sans(600),
     color: color.textDim,
     fontSize: font.body,
-    fontWeight: '600',
   },
 })

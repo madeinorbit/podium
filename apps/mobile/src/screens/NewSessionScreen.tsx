@@ -5,7 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 const AGENT_KINDS: { key: AgentKind | undefined; label: string }[] = [
   { key: undefined, label: 'Default' },
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
   chipText: {
     color: color.textDim,
     fontSize: font.small,
-    fontWeight: '600',
+    ...sans(600),
   },
   chipTextActive: {
     color: color.accentText,
@@ -236,6 +236,6 @@ const styles = StyleSheet.create({
   createText: {
     color: color.accentText,
     fontSize: font.body,
-    fontWeight: '700',
+    ...sans(700),
   },
 })

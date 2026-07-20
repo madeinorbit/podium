@@ -17,10 +17,12 @@ import { useMobileClient } from '../client/MobileClientProvider'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
+import { IdSquare } from '../components/IdSquare'
 import { HeaderButton, Screen } from '../components/Screen'
 import { TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
-import { color, font, space } from '../theme/theme'
+import { FLOW_SLATE, issueColorHex } from '../theme/issueColors'
+import { color, font, monoLabel, sans, space } from '../theme/theme'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',
@@ -106,6 +108,9 @@ export function SessionScreen() {
   }, [client.focusSessionIds, router, sessionId])
 
   const title = session ? sessionTitle(session) : 'Session'
+  const issue = session?.issueId ? client.issueById(session.issueId) : undefined
+  // The issue colour flows through the chrome; slate when the issue is uncoloured.
+  const accent = issue ? (issueColorHex(issue.color) ?? FLOW_SLATE) : undefined
 
   const menuActions = useMemo<SheetAction[]>(() => {
     if (!session) return []
@@ -179,6 +184,8 @@ export function SessionScreen() {
       }
       onBack={() => router.back()}
       backLabel="Back"
+      accent={accent}
+      leading={issue ? <IdSquare issue={issue} state="working" size={18} /> : undefined}
       right={
         <>
           <Pressable
@@ -257,20 +264,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   activity: {
+    ...monoLabel(9),
     color: color.working,
-    fontSize: font.tiny,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    paddingHorizontal: space.xl,
+    paddingHorizontal: space.lg,
     paddingBottom: space.xs,
   },
   activityAttention: {
     color: color.needsYou,
   },
   nextText: {
+    ...sans(600),
     color: color.accent,
-    fontSize: font.body,
-    fontWeight: '600',
+    fontSize: font.small,
   },
 })

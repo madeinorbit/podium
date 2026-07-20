@@ -10,7 +10,7 @@ import { Composer } from '../components/Composer'
 import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { EmptyState, Pill, SectionHeader } from '../components/ui'
-import { color, font, radius, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 
 export function IssueScreen() {
   const params = useLocalSearchParams<{ issueId: string | string[] }>()
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
   startText: {
     color: color.accentText,
     fontSize: font.body,
-    fontWeight: '700',
+    ...sans(700),
   },
   customLink: {
     alignItems: 'center',
@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
   customLinkText: {
     color: color.accent,
     fontSize: font.small,
-    fontWeight: '600',
+    ...sans(600),
   },
   comment: {
     marginHorizontal: space.lg,
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
   commentAuthor: {
     color: color.accent,
     fontSize: font.tiny,
-    fontWeight: '700',
+    ...sans(700),
   },
   commentTime: {
     color: color.textFaint,
