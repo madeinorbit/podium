@@ -1028,6 +1028,82 @@ describe('artifact file tabs ([spec:SP-0fc9] #441)', () => {
     engine.dispose()
   })
 
+  it('openArtifact from the issues view lands on the workspace with the issue selected (#101)', async () => {
+    const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().setPeekIssueId('iss_1')
+    engine.getSnapshot().openArtifact({
+      issueId: 'iss_1',
+      artifactId: 'abc123',
+      path: 'index.html',
+      worktreePath: '/tmp/known-repo/.worktrees/wt1',
+    })
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedIssueId).toBe('iss_1')
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('file:a:iss_1:abc123:index.html')
+    // the peek overlay is closed so the opened tab is actually visible
+    expect(st.peekIssueId).toBeNull()
+    // the URL landed on the workspace with the tab as the pane and STAYED there
+    expect(rw.url()).toContain('/workspace')
+    expect(decodeURIComponent(rw.url())).toContain('pane=file:a:iss_1:abc123:index.html')
+    engine.dispose()
+  })
+
+  it('openArtifact without a worktree still lands (issue-owned tab, no worktree bounce)', async () => {
+    const { engine, rw } = makeEngine({ url: '/issues/iss_1' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().openArtifact({ issueId: 'iss_1', artifactId: 'abc123', path: 'doc.md' })
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedIssueId).toBe('iss_1')
+    expect(st.paneA).toBe('file:a:iss_1:abc123:doc.md')
+    expect(rw.url()).toContain('/workspace')
+    engine.dispose()
+  })
+
+  it('openFileInWorktree from a non-workspace view navigates to the workspace (#101)', async () => {
+    const { engine, rw } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.getSnapshot().openFileInWorktree({
+      root: '/tmp/known-repo/.worktrees/wt1',
+      path: 'notes.md',
+    })
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('file:w:/tmp/known-repo/.worktrees/wt1:notes.md')
+    expect(rw.url()).toContain('/workspace')
+    engine.dispose()
+  })
+
+  it("openFile from the issues view lands on the workspace, resolving the session's worktree", async () => {
+    const { engine, rw } = makeEngine({ url: '/issues' })
+    engine.start()
+    await settle()
+    engine.replica.applySnapshot('sessions', [
+      session('s1', '/tmp/known-repo/.worktrees/wt1/sub'),
+    ])
+    await settle()
+    engine.getSnapshot().openFile('s1', 'notes.md')
+    await settle()
+    const st = engine.getSnapshot()
+    expect(st.view).toBe('workspace')
+    // the containing worktree, not the session's deeper cwd
+    expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.fileTabs[0]?.worktreePath).toBe('/tmp/known-repo/.worktrees/wt1')
+    expect(st.paneA).toBe('file:s:s1:notes.md')
+    expect(rw.url()).toContain('/workspace')
+    engine.dispose()
+  })
+
   it('readFileScoped routes artifact scope to the artifact input; writes are rejected', async () => {
     const api = makeApi()
     const reads: unknown[] = []

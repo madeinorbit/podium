@@ -1058,6 +1058,28 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
+  // Land a just-opened file/artifact tab on screen (#101) — the file-tab twin of
+  // navigateToSession: opening a tab from a non-workspace view (issues page,
+  // peek overlay) must switch to the workspace via the router (mirrorUrl bails
+  // unless the view is already 'workspace', and setView would re-apply the
+  // current route's stale pane). Selecting the tab's issue/worktree keeps
+  // fileTabsForWorkspace from dropping the tab and bouncing the pane; an open
+  // peek overlay is closed so the tab is actually visible.
+  private revealFileTab(args: { tabId: string; worktreePath?: string; issueId?: string }): void {
+    this.apply({
+      ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
+      ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
+      ...(this.state.peekIssueId ? { peekIssueId: null } : {}),
+      paneA: args.tabId,
+      focusedPane: 'A',
+    })
+    this.router.navigate({
+      ...routeDefaults('workspace'),
+      ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
+      pane: args.tabId,
+    })
+  }
+
   // ------------------------------------------------------------------- actions
 
   /** The imperative store actions — the old provider's trpc.* closures, moved
@@ -1203,11 +1225,21 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const scope: FileScope = { kind: 'session', sessionId }
         const id = tabIdFor(scope, path)
         const st = this.state
-        const worktreePath = st.sessions.find((s) => s.sessionId === sessionId)?.cwd ?? ''
+        const cwd = st.sessions.find((s) => s.sessionId === sessionId)?.cwd ?? ''
+        // The known worktree containing the session's cwd (deepest match wins,
+        // as in navigateToSession) — a cwd deeper than the worktree root would
+        // otherwise select a path the workspace can't render.
+        const worktreePath =
+          reposToViews(st.repos)
+            .flatMap((repo) => repo.worktrees)
+            .map((w) => w.path)
+            .filter((p) => cwd === p || cwd.startsWith(`${p}/`))
+            .sort((a, b) => b.length - a.length)[0] ?? cwd
         const fileTabs = st.fileTabs.some((t) => t.id === id)
           ? st.fileTabs
           : [...st.fileTabs, { id, scope, path, worktreePath }]
-        this.apply({ fileTabs, paneA: id })
+        this.apply({ fileTabs })
+        this.revealFileTab({ tabId: id, ...(worktreePath ? { worktreePath } : {}) })
       },
       openFileInWorktree: (args: { machineId?: string; root: string; path: string }) => {
         const scope: FileScope = { kind: 'worktree', machineId: args.machineId, root: args.root }
@@ -1216,7 +1248,8 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
         const fileTabs = st.fileTabs.some((t) => t.id === id)
           ? st.fileTabs
           : [...st.fileTabs, { id, scope, path: args.path, worktreePath: args.root }]
-        this.apply({ fileTabs, paneA: id })
+        this.apply({ fileTabs })
+        this.revealFileTab({ tabId: id, worktreePath: args.root })
       },
       // Open a permanent artifact snapshot as a file tab ([spec:SP-0fc9] #441):
       // reads ride the server-local artifact store (the source file may be
@@ -1247,7 +1280,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
                 issueId: args.issueId,
               },
             ]
-        this.apply({ fileTabs, paneA: id })
+        this.apply({ fileTabs })
+        this.revealFileTab({
+          tabId: id,
+          issueId: args.issueId,
+          ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
+        })
       },
       closeFileTab: (id: string) => {
         const st = this.state
