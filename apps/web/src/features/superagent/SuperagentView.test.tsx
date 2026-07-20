@@ -223,6 +223,69 @@ describe('tray filtering (human-actionable only)', () => {
     expect(setPane).not.toHaveBeenCalled()
     // Optimistically consumed — the card is gone before the server clears it.
     expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
+    // No redundant session link — the whole card already opens the session.
+    expect(
+      [...container.querySelectorAll('button')].some((b) => b.textContent?.includes('session')),
+    ).toBe(false)
+  })
+
+  it('offer input actions collect feedback in the card, then send prompt + feedback', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'o',
+        seq: 6,
+        title: 'Offer host',
+        sessions: [
+          {
+            sessionId: 'agent-1',
+            agentKind: 'claude-code',
+            status: 'live',
+            cwd: '/r/wt',
+            createdAt: 't',
+            lastActiveAt: 't',
+            offer: {
+              message: 'POD-93 is ready.',
+              actions: [{ label: 'Send back', prompt: 'Revise per this feedback:', input: true }],
+              createdAt: '2026-07-14T12:00:00Z',
+            },
+          },
+        ] as never,
+      }),
+    ]
+    await mount()
+    const button = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Send back…',
+    )
+    await act(async () => {
+      button?.click()
+    })
+    // No send yet, no navigation — the card swapped into feedback mode.
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+    expect(setPane).not.toHaveBeenCalled()
+    const field = container.querySelector<HTMLTextAreaElement>(
+      '[data-testid="tray-offer-feedback"] textarea',
+    )
+    expect(field).not.toBeNull()
+    await act(async () => {
+      if (!field) return
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+      setter?.call(field, 'Dock icon still dead.')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    const confirm = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Send back',
+    )
+    await act(async () => {
+      confirm?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'agent-1',
+        text: 'Revise per this feedback:\n\nDock icon still dead.',
+      }),
+    )
+    expect(setPane).not.toHaveBeenCalled()
   })
 
   it('finished issues render a deterministic card whose Archive routes to issues.archive', async () => {

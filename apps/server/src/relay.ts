@@ -707,7 +707,9 @@ export class SessionRegistry {
               if (!prompt || prompt.length > 4_000) {
                 throw new Error(`action ${i + 1}: prompt must contain 1..4000 characters`)
               }
-              return { label, prompt }
+              // Feedback-collecting action [spec:SP-c7f1]: the UI asks for
+              // freeform text before sending, appended to the prompt.
+              return rec.input === true ? { label, prompt, input: true } : { label, prompt }
             })
             sessionsSvc.setOffer({ sessionId: actorSessionId, message, actions })
             return Promise.resolve({ ok: true })

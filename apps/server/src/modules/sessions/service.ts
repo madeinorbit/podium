@@ -3,11 +3,11 @@ import { basename } from 'node:path'
 import { computePriorities } from '@podium/domain'
 import {
   AGENT_CAPABILITIES,
-  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AgentInstruction,
   AgentKind,
   type AgentRuntimeState,
   type ApprovalWire,
+  AUTO_ARCHIVE_READ_WINDOW_MS,
   type AutomationRunWire,
   type AutomationWire,
   agentSupportsEffort,
@@ -1228,7 +1228,7 @@ export class SessionsService {
   }: {
     sessionId: string
     message: string
-    actions: { label: string; prompt: string }[]
+    actions: { label: string; prompt: string; input?: boolean }[]
   }): void {
     const offer = { message, actions, createdAt: new Date().toISOString() }
     const session = this.sessions.get(sessionId)

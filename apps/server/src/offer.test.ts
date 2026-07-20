@@ -21,7 +21,11 @@ afterAll(() => {
 
 const OFFER = {
   message: 'Tests are red on main',
-  actions: [{ label: 'Fix them', prompt: 'Please fix the failing tests' }],
+  actions: [
+    { label: 'Fix them', prompt: 'Please fix the failing tests' },
+    // Feedback-collecting action — `input` must survive set + persistence.
+    { label: 'Send back', prompt: 'Revise per this feedback:', input: true },
+  ],
 }
 
 function metaOffer(reg: SessionRegistry, sessionId: string) {

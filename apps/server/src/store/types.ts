@@ -20,7 +20,7 @@ export type SnoozeMap = Record<string, string | null>
 /** One agent action offer [spec:SP-c7f1] — decoded from the `offers` row. */
 export interface OfferRecord {
   message: string
-  actions: { label: string; prompt: string }[]
+  actions: { label: string; prompt: string; input?: boolean }[]
   createdAt: string
 }
 /** sessionId → its live offer. */

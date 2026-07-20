@@ -85,7 +85,15 @@ export type WorkState = z.infer<typeof WorkState>
  *  buttons an agent offers the user as suggested next actions. */
 export const SessionOffer = z.object({
   message: z.string(),
-  actions: z.array(z.object({ label: z.string(), prompt: z.string() })),
+  actions: z.array(
+    z.object({
+      label: z.string(),
+      prompt: z.string(),
+      /** True when clicking must first collect freeform user feedback (e.g. a
+       *  "Send back" button); the UI appends the text to `prompt`. */
+      input: z.boolean().optional(),
+    }),
+  ),
   createdAt: z.string(), // ISO 8601
 })
 export type SessionOffer = z.infer<typeof SessionOffer>

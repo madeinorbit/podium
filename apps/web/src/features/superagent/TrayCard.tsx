@@ -1,13 +1,14 @@
 import { relativeTime } from '@podium/client-core'
 import type { IssueWire } from '@podium/protocol'
-import type { CSSProperties, JSX } from 'react'
+import { type CSSProperties, type JSX, useState } from 'react'
+import { composeOfferPrompt } from '@/features/chat/OfferBar'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { offerKey, type TrayItem } from './derive-tray'
 
 export interface TrayActions {
   /** Reply…: focus the chat composer with the question as context. */
   onDiscuss: (item: TrayItem) => void
-  /** session →: open the item's agent session in the native pane. */
+  /** Card click: open the item's agent session in the native pane. */
   onOpenSession: (item: TrayItem) => void
   /** Quiet dismiss for a question (issues.clearNeedsHuman — answers ride the
    *  composer until #53 gives the web a real answer path). */
@@ -52,6 +53,9 @@ export function TrayCard({
   now: number
 }): JSX.Element {
   const issue = item.issue
+  // An offer's `input` action awaiting feedback (index into offer.actions).
+  const [pending, setPending] = useState<number | null>(null)
+  const [feedback, setFeedback] = useState('')
   const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
   const hex = flowHex ?? FLOW_SLATE
   const colored = flowHex !== undefined
@@ -74,7 +78,7 @@ export function TrayCard({
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the whole card is a shortcut to its session; the inner buttons stay the accessible path
-    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach the same target via the session → button
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach the same session via its sidebar row
     <div
       data-testid={`tray-card-${item.kind}`}
       data-issue-seq={issue.seq}
@@ -119,32 +123,81 @@ export function TrayCard({
           <div className="whitespace-pre-wrap text-[11px] leading-[1.5] text-(--issue-bright)">
             {item.offer.message}
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {item.offer.actions.map((action) => (
-              <button
-                key={`${action.label}:${action.prompt}`}
-                type="button"
-                title={action.prompt}
-                className="flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-[color-mix(in_srgb,var(--issue)_12%,transparent)] px-[9px] py-[3px] text-[10.5px] font-medium text-(--issue-text) transition-colors hover:bg-[color-mix(in_srgb,var(--issue)_24%,transparent)]"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  actions.onOfferAction(item, action.prompt)
-                }}
-              >
-                {action.label}
-              </button>
-            ))}
-            <button
-              type="button"
-              className="ml-auto flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
-              onClick={(e) => {
-                e.stopPropagation()
-                actions.onOpenSession(item)
-              }}
+          {pending !== null && item.offer.actions[pending] ? (
+            // Feedback overlay for an `input` action (e.g. "Send back"): the
+            // agent declared this button only makes sense with an explanation,
+            // so collect it here and send prompt + feedback as one turn.
+            // biome-ignore lint/a11y/noStaticElementInteractions: only swallows card-click navigation around the field
+            // biome-ignore lint/a11y/useKeyWithClickEvents: not an interactive target, just a propagation fence
+            <div
+              data-testid="tray-offer-feedback"
+              className="flex flex-col gap-1.5"
+              onClick={(e) => e.stopPropagation()}
             >
-              session →
-            </button>
-          </div>
+              <textarea
+                // biome-ignore lint/a11y/noAutofocus: the field appears on the user's own click; focus is the expected next step
+                autoFocus
+                rows={2}
+                value={feedback}
+                placeholder={`${item.offer.actions[pending].label} — add your feedback…`}
+                onChange={(e) => setFeedback(e.target.value)}
+                onKeyDown={(e) => {
+                  const action = item.offer.actions[pending]
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && action && feedback.trim()) {
+                    actions.onOfferAction(item, composeOfferPrompt(action.prompt, feedback))
+                  }
+                  if (e.key === 'Escape') setPending(null)
+                }}
+                className="w-full resize-none rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-transparent px-2 py-1.5 text-[11px] text-(--issue-bright) outline-none placeholder:text-muted-foreground"
+              />
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={!feedback.trim()}
+                  className="flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-[color-mix(in_srgb,var(--issue)_12%,transparent)] px-[9px] py-[3px] text-[10.5px] font-medium text-(--issue-text) transition-colors hover:bg-[color-mix(in_srgb,var(--issue)_24%,transparent)] disabled:cursor-default disabled:opacity-50"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const action = item.offer.actions[pending]
+                    if (action && feedback.trim()) {
+                      actions.onOfferAction(item, composeOfferPrompt(action.prompt, feedback))
+                    }
+                  }}
+                >
+                  {item.offer.actions[pending].label}
+                </button>
+                <button
+                  type="button"
+                  className="flex-none cursor-pointer border-0 bg-transparent p-0 text-[10px] text-muted-foreground hover:text-text-strong"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPending(null)
+                    setFeedback('')
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {item.offer.actions.map((action, ai) => (
+                <button
+                  key={`${action.label}:${action.prompt}`}
+                  type="button"
+                  title={action.prompt}
+                  className="flex-none cursor-pointer rounded-[6px] border border-[color-mix(in_srgb,var(--issue-text)_30%,transparent)] bg-[color-mix(in_srgb,var(--issue)_12%,transparent)] px-[9px] py-[3px] text-[10.5px] font-medium text-(--issue-text) transition-colors hover:bg-[color-mix(in_srgb,var(--issue)_24%,transparent)]"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (action.input === true) setPending(ai)
+                    else actions.onOfferAction(item, action.prompt)
+                  }}
+                >
+                  {action.label}
+                  {action.input === true && '…'}
+                </button>
+              ))}
+            </div>
+          )}
         </>
       ) : item.kind === 'finished' ? (
         <div className="flex min-w-0 items-center gap-1.5">
