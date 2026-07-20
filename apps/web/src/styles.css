@@ -743,18 +743,48 @@ body:has(.mobile-shell) {
   text-decoration: underline;
   cursor: pointer;
 }
-/* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown/terminal.
-   A subtle accent-tinted underline, distinct from external links but clearly live. */
-.ref-link {
+/* Human-facing ref links (#474): PREFIX-N tokens linkified in markdown.
+   An accent-tinted inline chip with a small kind icon — deliberately NOT a
+   text-decoration style: dotted underlines render very differently across
+   Chromium and WebKit (the Tauri shell), a chip renders identically in both.
+   `a.ref-link` outranks `.chat-md a`, which would otherwise force its solid
+   underline back on. */
+a.ref-link {
   color: var(--primary);
-  text-decoration: underline;
-  text-decoration-style: dotted;
-  text-underline-offset: 2px;
+  text-decoration: none;
   cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
   font-weight: 500;
+  white-space: nowrap;
+  padding: 0px 4px 1px 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
 }
-.ref-link:hover {
-  text-decoration-style: solid;
+a.ref-link:hover {
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+  text-decoration: none;
+}
+/* Kind icon: currentColor through an SVG mask (same technique as .code-copy),
+   so it follows the accent in both themes. Default (and issues): circle-dot. */
+a.ref-link::before {
+  content: "";
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 3px;
+  vertical-align: -1.5px;
+  background-color: currentColor;
+  -webkit-mask: var(--ref-icon-mask) center / contain no-repeat;
+  mask: var(--ref-icon-mask) center / contain no-repeat;
+  /* lucide circle-dot */
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Ccircle%20cx='12'%20cy='12'%20r='10'/%3E%3Ccircle%20cx='12'%20cy='12'%20r='2'%20fill='black'/%3E%3C/svg%3E");
+}
+/* Session refs (POD-13-A / POD-DRAFT-3): lucide terminal. */
+a.ref-link--session::before {
+  --ref-icon-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='black'%20stroke-width='2.5'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolyline%20points='4%2017%2010%2011%204%205'/%3E%3Cline%20x1='12'%20x2='20'%20y1='19'%20y2='19'/%3E%3C/svg%3E");
 }
 .chat-md blockquote {
   border-left: 2px solid var(--border);

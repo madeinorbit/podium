@@ -57,17 +57,27 @@ describe('resolveRef', () => {
 })
 
 describe('miniviewReducer', () => {
-  it('opens to a ref', () => {
-    expect(miniviewReducer(null, { type: 'open', ref: 'POD-13' })).toEqual({ ref: 'POD-13' })
+  it('opens to a ref, carrying the click anchor', () => {
+    expect(miniviewReducer(null, { type: 'open', ref: 'POD-13', anchor: { x: 40, y: 90 } })).toEqual(
+      { ref: 'POD-13', anchor: { x: 40, y: 90 }, seq: 1 },
+    )
   })
 
-  it('opening again replaces the previous ref (single instance)', () => {
-    const s = miniviewReducer({ ref: 'POD-13' }, { type: 'open', ref: 'POD-27' })
-    expect(s).toEqual({ ref: 'POD-27' })
+  it('opening again replaces the previous ref (single instance) and bumps seq', () => {
+    const s = miniviewReducer({ ref: 'POD-13', seq: 1 }, { type: 'open', ref: 'POD-27' })
+    expect(s).toEqual({ ref: 'POD-27', anchor: undefined, seq: 2 })
+  })
+
+  it('re-opening the same ref still bumps seq (position re-seeds per click)', () => {
+    const s = miniviewReducer(
+      { ref: 'POD-13', anchor: { x: 1, y: 2 }, seq: 3 },
+      { type: 'open', ref: 'POD-13', anchor: { x: 300, y: 400 } },
+    )
+    expect(s).toEqual({ ref: 'POD-13', anchor: { x: 300, y: 400 }, seq: 4 })
   })
 
   it('closes', () => {
-    expect(miniviewReducer({ ref: 'POD-13' }, { type: 'close' })).toBeNull()
+    expect(miniviewReducer({ ref: 'POD-13', seq: 1 }, { type: 'close' })).toBeNull()
   })
 })
 

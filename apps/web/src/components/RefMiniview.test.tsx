@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { RefIssueLike, ResolvedRef } from '@/lib/ref-miniview'
-import { RefCard } from './RefMiniview'
+import { RefCard, seedCardPosition } from './RefMiniview'
 
 const parent: RefIssueLike = {
   id: 'iss_parent',
@@ -111,5 +111,24 @@ describe('RefCard issue summary (#517)', () => {
   it('omits the parent chip when the parent is not resolvable', () => {
     renderCard(root, { ...rich, parentId: 'iss_gone' })
     expect(container.textContent).not.toContain('in POD-500')
+  })
+})
+
+describe('seedCardPosition', () => {
+  const viewport = { width: 1200, height: 800 }
+
+  it('seeds just below-left of the activating click', () => {
+    expect(seedCardPosition({ x: 400, y: 300 }, viewport)).toEqual({ x: 376, y: 314 })
+  })
+
+  it('clamps into the viewport on every edge', () => {
+    expect(seedCardPosition({ x: 2, y: 2 }, viewport)).toEqual({ x: 12, y: 16 })
+    const r = seedCardPosition({ x: 1195, y: 795 }, viewport)
+    expect(r.x).toBe(1200 - 340 - 12)
+    expect(r.y).toBe(800 - 120)
+  })
+
+  it('falls back to the top-right seed without an anchor', () => {
+    expect(seedCardPosition(undefined, viewport)).toEqual({ x: 1200 - 340 - 20, y: 88 })
   })
 })

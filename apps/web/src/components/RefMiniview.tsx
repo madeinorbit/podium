@@ -1,7 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { formatLong, issueDisplayRef, truncateTitle } from '@podium/protocol'
 import { CircleAlert, CircleCheck, ExternalLink, GripVertical, User, X } from 'lucide-react'
-import { type JSX, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
@@ -48,14 +48,14 @@ export function RefMiniviewHost(): JSX.Element | null {
   // Register the activator: plain click opens the miniview; Cmd/Ctrl-click jumps
   // straight to the full view. Kept fresh so it always sees the latest store data.
   useEffect(() => {
-    setRefActivator((ref, mods) => {
+    setRefActivator((ref, mods, anchor) => {
       if (!mods.direct) {
-        openMiniview(ref)
+        openMiniview(ref, anchor)
         return
       }
       const target = resolveRef(ref, issues, sessions)
       if (!target) {
-        openMiniview(ref) // nothing to navigate to — fall back to the card (shows "not found")
+        openMiniview(ref, anchor) // nothing to navigate to — fall back to the card (shows "not found")
         return
       }
       if (target.kind === 'issue') openIssueFull(target.issue.id)
@@ -71,7 +71,9 @@ export function RefMiniviewHost(): JSX.Element | null {
 
   return createPortal(
     <RefCard
+      key={state.seq} // re-seed the position on every activation, even same-ref
       refToken={state.ref}
+      anchor={state.anchor}
       target={target}
       issues={issues}
       onClose={closeMiniview}
@@ -86,28 +88,67 @@ export function RefMiniviewHost(): JSX.Element | null {
   )
 }
 
+const CARD_WIDTH = 340
+const VIEWPORT_MARGIN = 12
+
+/** Seed the card near the activating click: slightly below-left, clamped into
+ *  the viewport. Without an anchor (keyboard/synthetic activation) fall back to
+ *  the old top-right seed. Exported for tests. */
+export function seedCardPosition(
+  anchor: { x: number; y: number } | undefined,
+  viewport: { width: number; height: number },
+): { x: number; y: number } {
+  if (!anchor) return { x: Math.max(16, viewport.width - CARD_WIDTH - 20), y: 88 }
+  return {
+    x: Math.min(
+      Math.max(VIEWPORT_MARGIN, anchor.x - 24),
+      viewport.width - CARD_WIDTH - VIEWPORT_MARGIN,
+    ),
+    y: Math.min(Math.max(VIEWPORT_MARGIN, anchor.y + 14), viewport.height - 120),
+  }
+}
+
 /** The draggable, fixed-position miniview card. Drag by its header. Exported for tests. */
 export function RefCard({
   refToken,
+  anchor,
   target,
   issues,
   onClose,
   onOpenFull,
 }: {
   refToken: string
+  anchor?: { x: number; y: number }
   target: ResolvedRef | null
   issues: readonly RefIssueLike[]
   onClose: () => void
   onOpenFull: () => void
 }): JSX.Element {
-  // Fixed position, dragged by the header. Seeded near the top-right; the user
-  // drags it wherever. Kept in state so a re-resolve (issues update) doesn't reset it.
-  const [pos, setPos] = useState<{ x: number; y: number }>(() => ({
-    x: Math.max(16, window.innerWidth - 360),
-    y: 88,
-  }))
+  // Fixed position, dragged by the header. Seeded next to the activating click
+  // (falling back to top-right when there is none); the user drags it wherever.
+  // Kept in state so a re-resolve (issues update) doesn't reset it.
+  const [pos, setPos] = useState<{ x: number; y: number }>(() =>
+    seedCardPosition(anchor, { width: window.innerWidth, height: window.innerHeight }),
+  )
   const drag = useRef<{ dx: number; dy: number } | null>(null)
   const cardEl = useRef<HTMLDivElement | null>(null)
+
+  // The seed only estimates the card's height; once real, nudge it fully into
+  // view — and if that would cover an anchored link, flip above the click instead.
+  // Mount-only by design (the card is keyed per activation): later height changes
+  // (issue updates) shouldn't yank a card the user may have dragged.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only reposition; see above.
+  useLayoutEffect(() => {
+    const el = cardEl.current
+    if (!el) return
+    const h = el.offsetHeight
+    setPos((p) => {
+      const maxY = window.innerHeight - h - VIEWPORT_MARGIN
+      if (p.y <= maxY) return p
+      const flipY = anchor ? anchor.y - h - 10 : maxY
+      return { ...p, y: Math.max(VIEWPORT_MARGIN, Math.min(maxY, anchor ? flipY : maxY)) }
+    })
+  }, [])
   const targetTitle =
     target?.kind === 'issue'
       ? target.issue.title

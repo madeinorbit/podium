@@ -78,16 +78,29 @@ export function resolveRef(
 // Open/close reducer — single miniview at a time (opening one replaces it).
 // ---------------------------------------------------------------------------
 
-/** The miniview state: the ref currently shown, or null when closed. */
-export type MiniviewState = { ref: string } | null
+/** Viewport point (clientX/clientY) of the click that opened the miniview. */
+export interface MiniviewAnchor {
+  x: number
+  y: number
+}
 
-export type MiniviewAction = { type: 'open'; ref: string } | { type: 'close' }
+/**
+ * The miniview state: the ref currently shown, or null when closed. `anchor` is
+ * where the activating click landed (absent for non-pointer activations — the
+ * card then falls back to a fixed seed). `seq` increments on every open so the
+ * card re-seeds its position per activation, even for the same ref.
+ */
+export type MiniviewState = { ref: string; anchor?: MiniviewAnchor; seq: number } | null
 
-export function miniviewReducer(_state: MiniviewState, action: MiniviewAction): MiniviewState {
+export type MiniviewAction =
+  | { type: 'open'; ref: string; anchor?: MiniviewAnchor }
+  | { type: 'close' }
+
+export function miniviewReducer(state: MiniviewState, action: MiniviewAction): MiniviewState {
   switch (action.type) {
     case 'open':
       // Only one at a time — opening always replaces whatever was open.
-      return { ref: action.ref }
+      return { ref: action.ref, anchor: action.anchor, seq: (state?.seq ?? 0) + 1 }
     case 'close':
       return null
   }
