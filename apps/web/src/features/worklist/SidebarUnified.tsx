@@ -830,7 +830,9 @@ function WorkRowShell({
   const rowStyle: CSSProperties = active
     ? {
         background: `color-mix(in srgb, ${accent} ${hex ? 28 : 20}%, #16161c)`,
-        borderColor: `color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
+        // Inset ring, not a border: selection must not change the row's height
+        // (POD-81) — the box stays identical to a plain row's.
+        boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
       }
     : hex
       ? { background: `color-mix(in srgb, ${hex} 12%, #16161c)` }
@@ -839,10 +841,7 @@ function WorkRowShell({
     <div className="min-w-0" data-testid={testId}>
       <div
         className={cn(
-          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] px-2',
-          // Handoff §2.4/§2.5: plain rows are borderless at 5px 8px; ONLY the
-          // selected row grows its border and 6px vertical padding.
-          active ? 'border py-[6px]' : 'py-[5px]',
+          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] px-2 py-[5px]',
           !active && !hex && 'hover:bg-[#20202a]',
           phase === 'queued' && !active && 'opacity-65',
           morph === 'waiting' && 'morph-row-flash',
@@ -897,6 +896,17 @@ function WorkRowShell({
               >
                 {label}
               </span>
+              {/* Unread beacon (POD-81): the weight bump alone was invisible in
+                  a scan — an info-toned dot marks where the news is. Hidden on
+                  the selected row: you are already looking at it. */}
+              {unread && !active && (
+                <span
+                  className="size-[7px] flex-none rounded-full bg-info ring-2 ring-info/25"
+                  role="img"
+                  aria-label="Unread update"
+                  data-testid="row-unread-dot"
+                />
+              )}
               {extras}
               {waitingCount > 0 && (
                 <span

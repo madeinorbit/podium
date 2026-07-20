@@ -434,6 +434,20 @@ export function PanelRow({
       : null
   // Nested child rows (dotRight): show the session's own issue ref when present.
   const issueLinkage = dotRight ? sessionIssueLinkage(session) : null
+  // Email-style unread emphasis (#126), suppressed (#138) for WORKING-section
+  // rows AND any currently-working session; also while snoozed.
+  const unreadEmphasis = session.unread && !suppressUnread && !isSessionWorking(session) && !snoozed
+  // The weight bump alone was invisible when scanning after a notification
+  // sound (POD-81) — name the news in a chip. A finished turn is the case with
+  // no other signal at all (attention/error rows already carry their amber
+  // meta, stopped sessions their outcome chip), so it gets an explicit DONE;
+  // anything else unread reads NEW. Cleared by opening the session.
+  const unreadNews =
+    unreadEmphasis && !meta && !terminalOutcome
+      ? session.agentState?.phase === 'idle' && session.agentState.idle?.kind === 'done'
+        ? 'done'
+        : 'new'
+      : null
   return (
     // One rounded row: [agent chip][name][meta][dot]. Pin/close reveal as an
     // overlay cluster on hover so the row's layout never shifts.
@@ -443,9 +457,7 @@ export function PanelRow({
         dotRight ? 'min-h-7' : 'min-h-8',
         // Var-driven so a coloured issue's unfolded block (SidebarUnified sets
         // --child-*-bg on .tree-children) tints these; neutral elsewhere.
-        active
-          ? 'bg-[var(--child-active-bg,#232330)]'
-          : 'hover:bg-[var(--child-hover-bg,#20202a)]',
+        active ? 'bg-[var(--child-active-bg,#232330)]' : 'hover:bg-[var(--child-hover-bg,#20202a)]',
       )}
       data-session={session.sessionId}
     >
@@ -480,13 +492,7 @@ export function PanelRow({
             // Email-style unread emphasis (#126): an unread session reads at
             // medium weight, lifting it out of the muted baseline — INDEPENDENT of
             // selection, so a selected+unread row is still bold (on accent).
-            // Suppressed (#138) for WORKING-section rows AND for any currently-
-            // working session anywhere; also for a snoozed session.
-            session.unread &&
-              !suppressUnread &&
-              !isSessionWorking(session) &&
-              !snoozed &&
-              (active ? 'font-medium' : 'font-medium text-foreground'),
+            unreadEmphasis && (active ? 'font-medium' : 'font-medium text-foreground'),
           )}
           onClick={onSelect}
           // Double-click the row to rename — matches the tab strip.
@@ -540,6 +546,20 @@ export function PanelRow({
               title="Snooze ended — back in your queue"
             >
               Unsnoozed
+            </span>
+          )}
+          {unreadNews && (
+            <span
+              className={cn(
+                'flex-none rounded border px-1 text-[9px] font-semibold uppercase tracking-wide',
+                unreadNews === 'done'
+                  ? 'border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
+                  : 'border-sky-500/40 text-sky-600 dark:text-sky-400',
+              )}
+              data-testid="session-unread-chip"
+              title="New since you last looked"
+            >
+              {unreadNews}
             </span>
           )}
           {meta && (

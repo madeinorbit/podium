@@ -153,4 +153,26 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     const unreadLabel = screen.getByText('Unread issue')
     expect(unreadLabel.className).toContain('font-medium')
   })
+
+  it('selection never changes row geometry: same padding, no border class (POD-81)', () => {
+    render(<SidebarUnified />)
+    const active = rowButton('Read selected issue').closest('[class*="group/row"]') as HTMLElement
+    const plain = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    // The selection ring is an inset box-shadow (inline style), never a border
+    // or padding change — a click must not shift the list by a pixel.
+    expect(active.className).toContain('py-[5px]')
+    expect(plain.className).toContain('py-[5px]')
+    expect(active.className.split(/\s+/)).not.toContain('border')
+    expect(active.style.boxShadow).toContain('inset')
+  })
+
+  it('an unread, unselected row carries the unread beacon dot; the selected row never does (POD-81)', () => {
+    render(<SidebarUnified />)
+    const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
+    expect(unreadRow.querySelector('[data-testid="row-unread-dot"]')).toBeTruthy()
+    const activeRow = rowButton('Read selected issue').closest(
+      '[class*="group/row"]',
+    ) as HTMLElement
+    expect(activeRow.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
+  })
 })
