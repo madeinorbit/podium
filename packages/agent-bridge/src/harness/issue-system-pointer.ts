@@ -26,10 +26,19 @@ export const ISSUE_SYSTEM_POINTER =
   // Cross-issue reattach is blocked [spec:SP-8744]; only a draft may attach --id.
   'A session on a DRAFT may join the issue that covers its work: `podium issue attach --id <issue>`. ' +
   'Once on a real issue you cannot reattach elsewhere — for a new piece of work you move onto, use --spinoff/--subissue below. ' +
+  // Git-state attribution [POD-98]: trailers keep shared-branch commits attributable.
+  'When you commit on a SHARED branch (main or a long-lived project branch), add a trailer line ' +
+  '`Podium-Issue: <your issue ref>` to the commit message so the commit stays attributable to your issue. ' +
   SPINOFF_RULE_TERSE +
   ' A native subagent must not self-attach; its parent attaches it. Otherwise, file it for another agent. ' +
   "If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), " +
   'send it mail: `podium issue mail send <id> --body "…"` — it is delivered to whoever works that issue. ' +
+  // Issue artifacts: reviewable deliverables live ON the issue, not only in chat.
+  'Any reviewable deliverable you produce for your issue (UX shots, mockups, concept docs, HTML/MD proposals) ' +
+  'must ALSO be attached to the issue so it shows in its sidebar: save it to a durable path inside the ' +
+  'worktree/repo (never a scratchpad or /tmp — those paths do not render), then ' +
+  '`podium issue artifact <id> --add <path> --title "…"`. Re-add each significant iteration; the issue ' +
+  'artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. ' +
   // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.
   'When you finish a turn and there are natural next actions the user might pick, offer them: ' +
   '`podium offer --message "…" --action "Label::prompt to send when clicked"` (repeat --action, up to 6; ' +

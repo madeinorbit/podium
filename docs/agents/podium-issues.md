@@ -49,6 +49,24 @@ Your **session** title follows the same rules, and Podium will ask you to set on
 issue in the sidebar, so name it for what distinguishes *this* session from the others on the same issue
 — don't restate the issue title. A name the user set by hand always wins and is never overwritten.
 
+## Issue artifacts — where reviewable deliverables live
+
+Anything the human should *look at* — UX screenshots, mockups, concept docs, HTML/MD design
+proposals — belongs on the issue, not only in the chat where it scrolls away:
+
+```
+podium issue artifact <id> --add <path> --title "Commit chip — iteration 2"
+```
+
+The artifact renders in the issue's sidebar and survives across sessions. Two rules:
+
+- **Durable paths only.** Save the file inside the issue's worktree or the repo (e.g. an
+  `e2e/` or `.design/` directory) before adding it — session scratchpads and `/tmp` paths do
+  not render for the user.
+- **Post each significant iteration** with a title that names it. The artifact list doubles as
+  the review trail for visual work; publishing somewhere else (chat upload, external artifact
+  link) does not replace attaching it here.
+
 ## Offering next actions
 
 `podium offer` posts your suggested next steps as clickable buttons [spec:SP-c7f1]:
