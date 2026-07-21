@@ -942,6 +942,17 @@ export class SessionsService {
     // until the next viewState/attach happened to flip a session.
     this.lastPriority.clear()
     this.pushPriorities()
+    // Archived survivors are never rebound — archive means stopped (POD-108).
+    // Rows archived before archive learned to kill, or archived while this
+    // machine's daemon was away, are still 'live'/'reconnecting' here; parking
+    // them sends the kill now that a daemon can receive it (the daemon reaps the
+    // durable host by label even without a bridge). Must run BEFORE the probe
+    // fan-out below so an archived 'reconnecting' row is parked, not reattached.
+    for (const s of this.sessions.values()) {
+      if (s.machineId === machineId && !s.headless && s.archived) {
+        this.parkArchivedSession(s.sessionId)
+      }
+    }
     // Re-bind survivor sessions ON THIS MACHINE: ask its daemon to reattach to their
     // live durable host. 'reconnecting' = was live/starting at boot. 'exited' (not
     // archived) is also probed because a row can be wrongly 'exited': its attach
@@ -2196,7 +2207,44 @@ export class SessionsService {
       session.archived = archived
     })
     // Archiving can leave its draft issue with no living sessions — reap it.
-    if (archived) this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
+    if (archived) {
+      this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
+      this.parkArchivedSession(sessionId)
+    }
+  }
+
+  /**
+   * Archive also stops the process (POD-108). Archive used to be pure metadata,
+   * so every archived-but-live session kept its abduco master + agent resident
+   * forever — dozens of idle agent processes with no way to reap them from the
+   * UI. Same park as stopSession: 'hibernated' when a cold resume is possible
+   * (resume ref kept), else 'exited'. Unlike hibernateSession this does not
+   * refuse a working agent — the archive guard already made the user confirm
+   * archiving a working session, and that confirmed intent is "stop it".
+   * Unarchiving does NOT resurrect; that stays an explicit resume.
+   */
+  private parkArchivedSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    const running =
+      session.status === 'live' ||
+      session.status === 'starting' ||
+      session.status === 'reconnecting'
+    if (!running) return
+    if (session.agentKind !== 'shell' && !session.resume) {
+      session.status = 'exited'
+      session.exitCode = session.exitCode ?? 0
+    } else {
+      session.status = 'hibernated'
+    }
+    this.autoContinue.onSessionGone(sessionId)
+    session.stoppedAt = new Date(this.now()).toISOString()
+    session.stopReason = 'parent'
+    // Unlike stopSession, readAt is left alone: archiving IS the acknowledgment —
+    // resurfacing the session as unread would undo the tidy-up the user just did.
+    this.persist(session)
+    this.killStoppedSession(session)
+    this.broadcastSessions()
   }
 
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */

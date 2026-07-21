@@ -288,6 +288,30 @@ export async function killAbducoSessionAsync(label: string): Promise<void> {
   } catch {
     // already gone
   }
+  // Also sweep the session's scope cgroup (POD-108): SIGTERMing the master takes
+  // the agent down via PTY hangup, but grandchildren the agent spawned (test
+  // runs, builds, stray Xvfb) survive in the scope and stay resident — the same
+  // orphans reclaimStaleScope otherwise has to clear at the NEXT spawn, which an
+  // archived session never gets. `systemctl stop` signals the whole cgroup and
+  // escalates to SIGKILL on its stop timeout; reset-failed clears leftover unit
+  // state. Unconditional: a dead master with squatting orphans still needs it.
+  await stopSessionScopeAsync(label)
+}
+
+/**
+ * Async, guard-free counterpart of {@link reclaimStaleScope} for the kill path:
+ * stop the label's transient scope unit and clear its unit state. Best-effort —
+ * no systemd, an unscoped spawn (fallback path), or an already-gone unit all
+ * make these no-ops. tmux labels never had a scope, so it's a no-op there too.
+ */
+export async function stopSessionScopeAsync(label: string): Promise<void> {
+  for (const args of scopeReclaimArgvs(scopeUnitName(label))) {
+    try {
+      await execFileAsync('systemctl', args, { env: scopeEnv(liveEnv()), timeout: 8000 })
+    } catch {
+      // best-effort: no such unit / no systemd
+    }
+  }
 }
 
 const ATTACH_CHROME = Buffer.from('\x1b[?1049h\x1b[H', 'latin1')
