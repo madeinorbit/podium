@@ -163,7 +163,7 @@ export function Workspace(): JSX.Element {
         : []
   ).filter((s) => !dockShellIds.has(s.sessionId))
   const sessionList = showArchived ? [...liveSessionList, ...archivedMembers] : liveSessionList
-  const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: worktree?.path })
+  const fileList = fileTabsForWorkspace(fileTabs, { issue, worktreePath: panelTarget?.path })
   const orderKey = issue ? `issue:${issue.id}` : worktree?.path
   const byId = new Map<string, WTab>()
   for (const s of sessionList)

@@ -33,6 +33,20 @@ describe('fileTabsForWorkspace', () => {
     expect(out).toEqual([file])
   })
 
+  it('keeps a dock-opened file for a worktree-LESS issue via the effective root (POD-130)', () => {
+    const file = tab({
+      id: 'w',
+      worktreePath: '/main',
+      scope: { kind: 'worktree', root: '/main' },
+    })
+    const foreign = tab({ id: 'x', worktreePath: '/other' })
+    const out = fileTabsForWorkspace([file, foreign], {
+      issue: issue({ worktreePath: undefined }),
+      worktreePath: '/main',
+    })
+    expect(out).toEqual([file])
+  })
+
   it('falls back to worktree path when no issue is selected', () => {
     const file = tab({ id: 'w', worktreePath: '/wt' })
     expect(fileTabsForWorkspace([file], { issue: null, worktreePath: '/wt' })).toEqual([file])
