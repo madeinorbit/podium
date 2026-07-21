@@ -42,7 +42,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web --port 8082",
-    "build:web": "expo export -p web",
+    "build:web": "expo export -p web && bun scripts/patch-web-html.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:tsc": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
