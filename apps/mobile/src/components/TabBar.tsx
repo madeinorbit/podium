@@ -98,11 +98,10 @@ const styles = StyleSheet.create({
   },
   bar: {
     flexDirection: 'row',
-    // Content-sized tabs, leftover space between them: equal quarters would
-    // squeeze "Superagent" while "Inbox" floats in dead space, and the active
-    // pill would kiss its neighbour.
-    justifyContent: 'space-between',
-    alignSelf: 'stretch',
+    // Centered floating pill hugging its content: tabs are content-sized
+    // (equal quarters would squeeze "Superagent"), with a fixed gap so the
+    // active pill never kisses its neighbour.
+    gap: 6,
     marginHorizontal: 6,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
