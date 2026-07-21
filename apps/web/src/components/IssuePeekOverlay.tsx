@@ -1,10 +1,12 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { issueDisplayRef } from '@podium/protocol'
-import { ExternalLink, X } from 'lucide-react'
+import { ExternalLink, Play, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { useStoreSelector } from '@/app/store'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
+import { isIssueStartable } from '@/features/issues/issue-startable'
 import { resolveActiveWorktree } from '@/lib/dock-panel'
 import { cn } from '@/lib/utils'
 import { finishPeekClose, nextPeekPhase, PEEK_CLOSED, type PeekPhase } from './issue-peek-phase'
@@ -25,6 +27,7 @@ const EXIT_FALLBACK_MS = 400
  */
 export function IssuePeekOverlay(): JSX.Element | null {
   const {
+    trpc,
     peekIssueId,
     setPeekIssueId,
     issues,
@@ -35,6 +38,7 @@ export function IssuePeekOverlay(): JSX.Element | null {
     setView,
   } = useStoreSelector(
     (s) => ({
+      trpc: s.trpc,
       peekIssueId: s.peekIssueId,
       setPeekIssueId: s.setPeekIssueId,
       issues: s.issues,
@@ -50,6 +54,14 @@ export function IssuePeekOverlay(): JSX.Element | null {
   const [phase, setPhase] = useState<PeekPhase>(PEEK_CLOSED)
   useEffect(() => {
     setPhase((p) => nextPeekPhase(p, peekIssueId))
+  }, [peekIssueId])
+
+  // In-flight guard for the header's Run now (POD-110). Reset when the peeked
+  // issue changes so a slow start can't disable the button for the next issue.
+  const [starting, setStarting] = useState(false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: peekIssueId is a deliberate reset trigger — a new peeked issue clears the in-flight guard.
+  useEffect(() => {
+    setStarting(false)
   }, [peekIssueId])
 
   // `slid` drives the transform: mounted off-screen, then two frames later
@@ -111,6 +123,17 @@ export function IssuePeekOverlay(): JSX.Element | null {
   const active = resolveActiveWorktree({ paneA, fileTabs, sessions })
   const visible = open && slid
   const close = (): void => setPeekIssueId(null)
+  const runNow = (): void => {
+    if (!issue || starting) return
+    setStarting(true)
+    trpc.issues.start.mutate({ id: issue.id }).then(
+      () => setStarting(false),
+      (e: unknown) => {
+        setStarting(false)
+        toast.error(e instanceof Error ? e.message : String(e))
+      },
+    )
+  }
 
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-40" data-testid="peek-overlay-root">
@@ -160,6 +183,21 @@ export function IssuePeekOverlay(): JSX.Element | null {
               {issue?.title ?? 'Issue not found'}
             </span>
           </span>
+          {/* Run now (POD-110): one-click agent start without leaving the chat.
+              Present only while startable — once the worktree lands the store
+              update drops the button (the body then shows the live agent). */}
+          {issue && renderable && isIssueStartable(issue) && (
+            <button
+              type="button"
+              disabled={starting}
+              className="inline-flex h-7 flex-none items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
+              data-testid="peek-run-now"
+              onClick={runNow}
+            >
+              <Play size={12} aria-hidden="true" />
+              {starting ? 'Starting…' : 'Run now'}
+            </button>
+          )}
           {issue && (
             <button
               type="button"

@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RefIssueLike, ResolvedRef } from '@/lib/ref-miniview'
 import { RefCard, seedCardPosition } from './RefMiniview'
 
@@ -111,6 +111,76 @@ describe('RefCard issue summary (#517)', () => {
   it('omits the parent chip when the parent is not resolvable', () => {
     renderCard(root, { ...rich, parentId: 'iss_gone' })
     expect(container.textContent).not.toContain('in POD-500')
+  })
+})
+
+describe('RefCard run now (POD-110)', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  function renderWithStart(
+    issue: RefIssueLike,
+    onStart: (issueId: string) => Promise<unknown>,
+  ): void {
+    act(() => {
+      root.render(
+        <RefCard
+          refToken={issue.displayRef ?? ''}
+          target={issueTarget(issue)}
+          issues={issues}
+          onClose={() => {}}
+          onOpenFull={() => {}}
+          onStart={onStart}
+        />,
+      )
+    })
+  }
+
+  const runNowButton = (): HTMLButtonElement | undefined =>
+    [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Run now'))
+
+  it('offers Run now on a startable issue and fires onStart with the issue id', async () => {
+    const onStart = vi.fn(async () => ({}))
+    renderWithStart(rich, onStart) // rich has no worktreePath and is open
+    const btn = runNowButton()
+    expect(btn).toBeDefined()
+    await act(async () => btn?.click())
+    expect(onStart).toHaveBeenCalledWith('iss_1')
+    // A settled start stays disabled ("Started") until the store's worktree
+    // update unmounts the action.
+    const started = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Started'),
+    )
+    expect(started?.disabled).toBe(true)
+  })
+
+  it('hides Run now once the issue has a worktree (agent already on it)', () => {
+    renderWithStart({ ...rich, worktreePath: '/r/.worktrees/issue-517' }, vi.fn())
+    expect(runNowButton()).toBeUndefined()
+  })
+
+  it('hides Run now on closed and archived issues', () => {
+    renderWithStart({ ...rich, closedReason: 'done' }, vi.fn())
+    expect(runNowButton()).toBeUndefined()
+    renderWithStart({ ...rich, archived: true }, vi.fn())
+    expect(runNowButton()).toBeUndefined()
+  })
+
+  it('renders the failure inline and re-offers the button', async () => {
+    const onStart = vi.fn(() => Promise.reject(new Error('spawn failed')))
+    renderWithStart(rich, onStart)
+    await act(async () => runNowButton()?.click())
+    expect(container.textContent).toContain('spawn failed')
+    expect(runNowButton()?.disabled).toBe(false)
   })
 })
 

@@ -6,6 +6,7 @@ import {
   ExternalLink,
   GripVertical,
   PanelRight,
+  Play,
   User,
   X,
 } from 'lucide-react'
@@ -13,6 +14,7 @@ import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternal
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
+import { isIssueStartable } from '@/features/issues/issue-startable'
 import { setKnownRefPrefixes } from '@/lib/markdown'
 import {
   closeMiniview,
@@ -38,9 +40,10 @@ import {
  *  - rendering the draggable <RefCard> when a ref is open and resolvable.
  */
 export function RefMiniviewHost(): JSX.Element | null {
-  const { issues, sessions, setOpenIssueId, setView, setPeekIssueId, navigateToSession } =
+  const { trpc, issues, sessions, setOpenIssueId, setView, setPeekIssueId, navigateToSession } =
     useStoreSelector(
       (s) => ({
+        trpc: s.trpc,
         issues: s.issues,
         sessions: s.sessions,
         setOpenIssueId: s.setOpenIssueId,
@@ -98,6 +101,7 @@ export function RefMiniviewHost(): JSX.Element | null {
         if (target.kind === 'issue') setPeekIssueId(target.issue.id)
         else navigateToSession(state.ref)
       }}
+      onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
     />,
     document.body,
   )
@@ -131,6 +135,7 @@ export function RefCard({
   issues,
   onClose,
   onOpenFull,
+  onStart,
 }: {
   refToken: string
   anchor?: { x: number; y: number }
@@ -138,6 +143,8 @@ export function RefCard({
   issues: readonly RefIssueLike[]
   onClose: () => void
   onOpenFull: () => void
+  /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
+  onStart?: (issueId: string) => Promise<unknown>
 }): JSX.Element {
   // Fixed position, dragged by the header. Seeded next to the activating click
   // (falling back to top-right when there is none); the user drags it wherever.
@@ -259,7 +266,12 @@ export function RefCard({
         {!target ? (
           <p className="text-muted-foreground">Reference not found.</p>
         ) : target.kind === 'issue' ? (
-          <IssueSummary issue={target.issue} issues={issues} />
+          <>
+            <IssueSummary issue={target.issue} issues={issues} />
+            {onStart && isIssueStartable(target.issue) && (
+              <RunNowAction issueId={target.issue.id} onStart={onStart} />
+            )}
+          </>
         ) : (
           <SessionSummary session={target.session} issues={issues} />
         )}
@@ -316,6 +328,48 @@ export function RefPrefixSync(): null {
     setKnownRefPrefixes(new Set([...repoPrefixes, ...issuePrefixes]))
   }, [issuePrefixKey, repoPrefixes])
   return null
+}
+
+/**
+ * One-click agent start from the preview card (POD-110). Rendered only while
+ * the issue is startable; once the start lands the store's worktreePath update
+ * unmounts it, so local state only has to cover the in-flight window. Errors
+ * render inline — the card has no toast surface.
+ */
+function RunNowAction({
+  issueId,
+  onStart,
+}: {
+  issueId: string
+  onStart: (issueId: string) => Promise<unknown>
+}): JSX.Element {
+  const [state, setState] = useState<
+    { kind: 'idle' | 'busy' | 'started' } | { kind: 'error'; message: string }
+  >({ kind: 'idle' })
+  const busy = state.kind === 'busy' || state.kind === 'started'
+  return (
+    <div className="mt-1 flex flex-col gap-1">
+      <button
+        type="button"
+        disabled={busy}
+        className="inline-flex h-7 w-fit items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
+        onClick={() => {
+          setState({ kind: 'busy' })
+          onStart(issueId).then(
+            () => setState({ kind: 'started' }),
+            (e: unknown) =>
+              setState({ kind: 'error', message: e instanceof Error ? e.message : String(e) }),
+          )
+        }}
+      >
+        <Play size={12} aria-hidden="true" />
+        {state.kind === 'busy' ? 'Starting…' : state.kind === 'started' ? 'Started' : 'Run now'}
+      </button>
+      {state.kind === 'error' && (
+        <span className="text-[11px] leading-snug text-red-400">{state.message}</span>
+      )}
+    </div>
+  )
 }
 
 /** At-a-glance issue body (#517) — mirrors the docked panel's SummaryHeader,

@@ -17,6 +17,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Play,
   Tag,
   Trash2,
   X,
@@ -42,6 +43,7 @@ import {
   toggleLabelAcross,
 } from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import { isIssueStartable } from './issue-startable'
 
 /** Which flat second-level flyout is open (SessionContextMenu-style, no nesting). */
 type SubKind = 'stage' | 'priority' | 'agent' | 'labels' | 'duplicate' | 'defer' | 'handoff'
@@ -152,7 +154,7 @@ export function IssueContextMenu({
     if (!handoffSession) return
     onClose()
     void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
-      () => toast.success('Handed off to ' + machineName),
+      () => toast.success(`Handed off to ${machineName}`),
       (error: unknown) => toast.error(error instanceof Error ? error.message : String(error)),
     )
   }
@@ -463,6 +465,20 @@ export function IssueContextMenu({
       {elig.canSetStage && subTrigger('stage', <StageGlyph stage={first.stage} />, 'Set stage')}
       {elig.canSetPriority &&
         subTrigger('priority', <PriorityGlyph priority={first.priority} />, 'Set priority')}
+      {/* Run now (POD-110): one-click start with the default agent — the
+          "Assign agent" flyout stays for choosing a kind. Only while startable;
+          a started issue's quick path is the flyout's "+ session" semantics. */}
+      {elig.canAssignAgent && isIssueStartable(first) && (
+        <button
+          type="button"
+          role="menuitem"
+          className={itemCls}
+          {...leafHover}
+          onClick={() => assignAgent('')}
+        >
+          <Play size={14} aria-hidden="true" /> Run now
+        </button>
+      )}
       {elig.canAssignAgent &&
         subTrigger('agent', <Bot size={14} aria-hidden="true" />, 'Assign agent')}
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}

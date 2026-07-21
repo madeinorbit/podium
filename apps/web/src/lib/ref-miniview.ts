@@ -34,6 +34,12 @@ export interface RefIssueLike {
   parentId?: string
   activityNotes?: string
   panel?: { todos?: readonly { text: string; done: boolean }[] }
+  // Startability fields for the card's "Run now" action (POD-110) — the same
+  // structural subset `isIssueStartable` reads off IssueWire.
+  worktreePath?: string | null
+  closedReason?: string | null
+  archived?: boolean
+  deletedAt?: string | null
 }
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
