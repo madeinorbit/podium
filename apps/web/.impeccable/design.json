@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-21T17:30:00Z",
+  "title": "Design System: Podium",
+  "extensions": {
+    "colorMeta": {
+      "superade-yellow": { "role": "primary", "displayName": "Superade Yellow", "canonical": "#f5c518", "tonalRamp": ["#332902", "#5c4a05", "#8a6f08", "#b8940c", "#e0b512", "#f5c518", "#f9d95e", "#fdf0b8"] },
+      "royal-blue": { "role": "primary", "displayName": "Royal Blue (light variant lead)", "canonical": "#1d4ed8", "tonalRamp": ["#0a1440", "#122566", "#183a9e", "#1d4ed8", "#3b6ae6", "#6b8ff0", "#a3bcf7", "#d8e2fc"] },
+      "alert-red": { "role": "secondary", "displayName": "Alert Red", "canonical": "#e5303f", "tonalRamp": ["#3a0a0e", "#661218", "#9e1c26", "#cc2734", "#e5303f", "#ee6470", "#f5a0a8", "#fbd6da"] },
+      "accent-blue": { "role": "secondary", "displayName": "Accent Blue", "canonical": "#2f6bff", "tonalRamp": ["#0a1840", "#122a66", "#1c439e", "#2657cc", "#2f6bff", "#638fff", "#9cb8ff", "#d3e0ff"] },
+      "race-navy": { "role": "neutral", "displayName": "Race Navy", "canonical": "#0a0f1c", "tonalRamp": ["#050912", "#0a0f1c", "#121b30", "#1c2a4c", "#2c3e66", "#4a5c86", "#7c8aa8", "#c2c9d9"] },
+      "claude-terracotta": { "role": "tertiary", "displayName": "Claude Terracotta (reserved)", "canonical": "#d97757", "tonalRamp": ["#36160c", "#5e2817", "#8c3f26", "#b45a3a", "#d97757", "#e39a82", "#eec0b0", "#f8e2da"] },
+      "flow-slate": { "role": "tertiary", "displayName": "Flow Slate", "canonical": "#94a3b8", "tonalRamp": ["#1a2028", "#2e3844", "#475466", "#64748b", "#7c8ba0", "#94a3b8", "#b8c2d0", "#dde2e9"] }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "Section headers, strong ink." },
+      "title": { "displayName": "Title", "purpose": "Row titles; 600 weight when selected." },
+      "body": { "displayName": "Body", "purpose": "Chat and prose, 11.5-12px / 1.5." },
+      "label": { "displayName": "Mono Label", "purpose": "UPPERCASE tracked machine-voice labels (WORK, TRAY)." },
+      "mono": { "displayName": "Terminal Mono", "purpose": "Terminal output 10.5px/1.7; timers 9px tabular-nums." }
+    },
+    "shadows": [
+      { "name": "engraved", "value": "inset 3px 0 6px -3px rgb(0 0 0 / 0.85), inset -3px 0 6px -3px rgb(0 0 0 / 0.85), inset 0 3px 6px -3px rgb(0 0 0 / 0.85)", "purpose": "Recessed middle column — depth carved inward." },
+      { "name": "engraved-bar", "value": "inset 2px 0 5px -2px rgb(0 0 0 / 0.85), inset -2px 0 5px -2px rgb(0 0 0 / 0.85)", "purpose": "Folded 44px vertical bar." },
+      { "name": "bar-drop", "value": "0 5px 10px -5px rgb(0 0 0 / 0.9)", "purpose": "Tight fold-shadow below compact section bars." },
+      { "name": "popover", "value": "0 14px 34px rgb(0 0 0 / 0.65), 0 2px 8px rgb(0 0 0 / 0.5)", "purpose": "The only lifted tier: transient overlays." }
+    ],
+    "motion": [
+      { "name": "phase-crossfade", "value": "0.4s", "purpose": "Issue-color crossfade via registered --issue @property; gated on prefers-reduced-motion." },
+      { "name": "control-transition", "value": "150ms", "purpose": "Button/hover state transitions." },
+      { "name": "spinner", "value": "braille 10-frame CSS content animation", "purpose": "The only perpetual motion, only while an agent computes; stillness means needs-you." }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Superade Yellow signal action; navy ink, presses down 1px.",
+      "html": "<button class=\"ds-btn-primary\">Start agent</button>",
+      "css": ".ds-btn-primary { background: #f5c518; color: #0a0f1c; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms, transform 150ms; } .ds-btn-primary:hover { background: rgba(245,197,24,0.8); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; border-color: #f5c518; box-shadow: 0 0 0 3px rgba(245,197,24,0.5); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Neutral action chip on the navy chassis.",
+      "html": "<button class=\"ds-btn-outline\">Open board</button>",
+      "css": ".ds-btn-outline { background: rgba(54,74,120,0.3); color: #d7d7e0; height: 32px; padding: 0 10px; border: 1px solid #364a78; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms; } .ds-btn-outline:hover { background: rgba(54,74,120,0.5); color: #f3f3f8; } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245,197,24,0.35); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Chrome-level quiet action; gains only a muted wash.",
+      "html": "<button class=\"ds-btn-ghost\">Cancel</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #9a9aa8; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms, color 150ms; } .ds-btn-ghost:hover { background: #16223c; color: #f3f3f8; } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(245,197,24,0.35); }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Red tint, never a solid red slab.",
+      "html": "<button class=\"ds-btn-danger\">Delete</button>",
+      "css": ".ds-btn-danger { background: rgba(229,48,63,0.15); color: #e5303f; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 6px; font: 500 14px/1 'Geist Variable', sans-serif; transition: background 150ms; } .ds-btn-danger:hover { background: rgba(229,48,63,0.28); } .ds-btn-danger:focus-visible { outline: none; border-color: rgba(229,48,63,0.4); box-shadow: 0 0 0 3px rgba(229,48,63,0.25); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Compact field on the app background; ring focus, no glow.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search issues…\" />",
+      "css": ".ds-input { width: 100%; background: #0a0f1c; color: #d7d7e0; padding: 8px 10px; border: 1px solid #364a78; border-radius: 4.8px; font: 400 14px/1.4 'Geist Variable', sans-serif; transition: box-shadow 150ms; } .ds-input::placeholder { color: #6c7690; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(245,197,24,0.4); }"
+    },
+    {
+      "name": "Mono Section Label",
+      "kind": "chip",
+      "refersTo": "label",
+      "description": "Machine-voice section label (WORK, TRAY).",
+      "html": "<span class=\"ds-label-mono\">Tray</span>",
+      "css": ".ds-label-mono { font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 8.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #7a84a0; }"
+    },
+    {
+      "name": "Quota Chip",
+      "kind": "chip",
+      "refersTo": "input",
+      "description": "Header chip: dim mono-adjacent text plus a 34x3.5px meter.",
+      "html": "<span class=\"ds-quota-chip\">claude <span class=\"ds-meter\"><span class=\"ds-meter-fill\"></span></span></span>",
+      "css": ".ds-quota-chip { display: inline-flex; align-items: center; gap: 6px; color: #6c7690; font: 400 10.5px/1 'Geist Variable', sans-serif; white-space: nowrap; } .ds-meter { display: inline-block; width: 34px; height: 3.5px; border-radius: 2px; background: #223564; overflow: hidden; } .ds-meter-fill { display: block; width: 60%; height: 100%; background: #2f6bff; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Podium",
+    "overview": "A stage where the work performs and the operator conducts. Dozens of agents run at once; the interface is the podium the conductor stands on — everything visible at a glance, nothing shouting for attention it hasn't earned. Superade Yellow is the winner's color: it marks the primary action and the one thing that needs you now, against a deep race-navy chassis. Fast, calm, precise, technical — Linear-grade density and instant interactions, with terminal honesty at its core.",
+    "keyCharacteristics": [
+      "Compact 12px-base type scale; density is a feature, not a compromise",
+      "One brand yellow used as signal, never as decoration",
+      "Surfaces carved into the chassis (inset shadows, hairline seams), not floated above it",
+      "Issue colors as translucent tints over surfaces, never flat fills",
+      "Stillness means 'needs you' — the only perpetual motion is an agent actually working"
+    ],
+    "rules": [
+      { "name": "The Signal Rule", "body": "Yellow marks the primary action or the thing waiting on you — one voice per screen region. If yellow appears somewhere nothing is asked of the operator, it is wrong.", "section": "colors" },
+      { "name": "The Tint, Never Fill Rule", "body": "Issue colors color-mix into their base surface at prescribed percentages. A flat fill of an issue color is prohibited.", "section": "colors" },
+      { "name": "The Reserved Hues Rule", "body": "Terracotta (Claude), the motion colors, and the theme's signal hues are excluded from the issue palette so state and identity never collide.", "section": "colors" },
+      { "name": "The Machine Voice Rule", "body": "Anything the system says about itself — labels, timers, counts, IDs, terminal — is Geist Mono. Anything addressed to the human is Geist Sans.", "section": "typography" },
+      { "name": "The Carved Rule", "body": "If a resting surface needs to look different from its neighbor, change its tone or engrave it — never lift it. Drop shadows are for things that will disappear.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use Superade Yellow only where action or attention is being asked — The Signal Rule.",
+      "Do tint issue-colored surfaces with color-mix over their base at the prescribed percentages; pair every colored surface with its quieter slate fallback.",
+      "Do keep controls on the compact scale: 32px buttons, 12px type, 4px spacing grid, 6-10px radii.",
+      "Do put machine voice (labels, timers, IDs, counts) in Geist Mono with tabular-nums where digits tick.",
+      "Do carve depth inward — tonal tiers, hairline seams, engraved insets; reserve drop shadows for transient overlays.",
+      "Do honor prefers-reduced-motion: the issue-color crossfade and phase morphs already gate on it; new motion must too."
+    ],
+    "donts": [
+      "Don't build SaaS dashboard clichés: metric-card grids, gradient accents, or marketing gloss inside the product.",
+      "Don't drift toward the AI-chat startup look: bubbly chat-first layouts, sparkle icons, purple gradients, mascot energy.",
+      "Don't ship enterprise-DevOps-console sprawl: cluttered toolbars, inconsistent panels, Jenkins/Grafana utilitarianism.",
+      "Don't let it feel like Electron-app blandness — a website in a frame; the shell is an instrument with native manners.",
+      "Don't flat-fill an issue color, use terracotta or a signal hue as an issue color, or add a green anywhere in the Superade theme — its palette is navy, yellow, red, blue.",
+      "Don't add perpetual motion beyond the working spinner and timer; stillness is the 'needs you' signal and must stay legible.",
+      "Don't use white text on Superade Yellow — ink on yellow is always Race Navy."
+    ]
+  }
+}
