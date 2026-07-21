@@ -22,7 +22,7 @@ export default function TabsLayout() {
         options={{ title: 'Inbox', tabBarBadge: needsYou > 0 ? needsYou : undefined }}
       />
       <Tabs.Screen name="sessions" options={{ title: 'Sessions' }} />
-      <Tabs.Screen name="agent" options={{ title: 'Superagent' }} />
+      <Tabs.Screen name="agent" options={{ title: 'Super' }} />
       <Tabs.Screen name="issues" options={{ title: 'Tasks' }} />
     </Tabs>
   )

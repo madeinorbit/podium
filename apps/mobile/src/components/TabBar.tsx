@@ -98,25 +98,29 @@ const styles = StyleSheet.create({
   },
   bar: {
     flexDirection: 'row',
-    marginHorizontal: space.lg,
+    gap: 4,
+    // Slimmer insets than the screen gutter: four labels ("Superagent") need
+    // the width, and the active pill must not kiss its neighbours.
+    marginHorizontal: space.sm,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.hairlineBar,
     backgroundColor: 'rgba(10, 10, 14, 0.92)',
-    paddingHorizontal: space.sm,
+    paddingHorizontal: 6,
     paddingVertical: 6,
     overflow: 'hidden',
     ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(18px)' } as object) : null),
   },
   tab: {
     flex: 1,
+    minWidth: 0,
   },
   tabInner: {
     alignItems: 'center',
     gap: 3,
     borderRadius: radius.lg,
     paddingVertical: 7,
-    paddingHorizontal: space.sm,
+    paddingHorizontal: 4,
   },
   tabInnerActive: {
     backgroundColor: color.accentSoft,
@@ -124,8 +128,8 @@ const styles = StyleSheet.create({
   label: {
     ...sans(600),
     color: color.textFaint,
-    fontSize: font.tiny,
-    letterSpacing: 0.2,
+    fontSize: 9.5,
+    letterSpacing: 0,
   },
   labelActive: {
     color: color.accent,
