@@ -205,7 +205,7 @@ describe('ChatView headless mode', () => {
     drafts = { h1: 'do the thing' } // draft lives in the store, keyed by session
     mount()
     await flush()
-    const send = container.querySelector('[title="Send (⌘/Ctrl+Enter)"]') as HTMLButtonElement
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
     await act(async () => {
       send.click()
     })
@@ -222,7 +222,7 @@ describe('ChatView headless mode', () => {
     drafts = { h1: 'file an issue' }
     mount({ threadId: 'c1', kind: 'concierge' as never, repoPath: '/repo' } as never)
     await flush()
-    const send = container.querySelector('[title="Send (⌘/Ctrl+Enter)"]') as HTMLButtonElement
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
     await act(async () => {
       send.click()
     })
@@ -239,7 +239,7 @@ describe('ChatView headless mode', () => {
     drafts = { h1: 'x' }
     mount()
     await flush()
-    const send = container.querySelector('[title="Send (⌘/Ctrl+Enter)"]') as HTMLButtonElement
+    const send = container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement
     await act(async () => {
       send.click()
     })

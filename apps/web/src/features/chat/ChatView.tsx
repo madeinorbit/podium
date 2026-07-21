@@ -506,7 +506,15 @@ export function ChatView({
     const ta = taRef.current
     if (!ta) return
     ta.style.height = 'auto'
-    ta.style.height = `${ta.scrollHeight}px`
+    // Cap in px (max-h-44 = 176px) so the animated height never fights the
+    // CSS clamp; past the cap the textarea scrolls. When empty, scrollHeight
+    // includes the (possibly wrapped) placeholder — size to one line instead.
+    const cs = getComputedStyle(ta)
+    const oneLine =
+      Number.parseFloat(cs.lineHeight) +
+      Number.parseFloat(cs.paddingTop) +
+      Number.parseFloat(cs.paddingBottom)
+    ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 176) : oneLine}px`
   }, [draft])
 
   const scrollToBlock = (index: number) => {
@@ -757,7 +765,7 @@ export function ChatView({
           (!draft.trim() && attachments.length === 0) ||
           attachments.some((a) => a.state === 'uploading')
         }
-        title="Send (⌘/Ctrl+Enter)"
+        title="Send (Enter)"
         onClick={() => void send()}
       >
         <ArrowUp size={16} aria-hidden="true" />
@@ -1142,16 +1150,22 @@ export function ChatView({
                       : 'Session is not running.'
               }
               className={cn(
-                'max-h-44 min-h-11 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground transition-none outline-none [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
-                compact && 'min-h-0 text-[13px] caret-transparent placeholder:text-[#4d4d59]',
+                'block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground outline-none transition-[height] duration-1000 ease-in-out [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                compact && 'text-[13px] caret-transparent placeholder:text-[#4d4d59]',
               )}
               value={draft}
               disabled={!composerEnabled}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                // Desktop power-shortcut: ⌘/Ctrl+Enter submits. Plain Enter is a
-                // newline (the send button submits), matching the mobile keyboard.
+                // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
+                // still submits). Mobile keeps plain Enter as a newline — the
+                // send button submits there.
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  void send()
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
                   e.preventDefault()
                   void send()
                 }
