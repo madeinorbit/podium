@@ -37,6 +37,7 @@ import {
   applyRealAgentCodexEnv,
   harnessPidFile,
   reapHarnessSessions,
+  reapStaleHarnessDirs,
 } from './harness-env'
 
 /**
@@ -89,6 +90,10 @@ const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$
 // abduco/tmux sockets in a per-port dir (never touches the user's ~/.podium or
 // real sessions). globalTeardown reaps the same dir after the suite.
 reapHarnessSessions(PORT)
+// Also sweep ABANDONED sibling ports (an ad-hoc run SIGKILLed days ago leaves its
+// abduco masters parked under /tmp/podium-e2e-<other-port> that no same-port run
+// will ever revisit) — POD-107.
+reapStaleHarnessDirs()
 const { stateDir } = applyHarnessEnv(PORT)
 
 // A scratch repo WITH a linked worktree, at a deterministic per-port path so specs

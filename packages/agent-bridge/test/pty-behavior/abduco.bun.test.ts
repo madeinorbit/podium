@@ -7,12 +7,13 @@
 // Narrow imports (../../src/abduco) keep node:sqlite and the node-pty native addon
 // out of the graph.
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'bun:test'
+import { afterAll, describe, expect, it } from 'bun:test'
 import {
   abducoHasSession,
   attachAbducoAgent,
   isAbducoAvailable,
   killAbducoSession,
+  reapAbducoTestSessions,
   spawnAbducoAgent,
 } from '../../src/abduco'
 import { bunTerminalBackend } from '../../src/pty/bun-terminal-backend'
@@ -24,6 +25,13 @@ const backend = bunTerminalBackend()
 
 // bun:test has no describe.skipIf; pick the variant up front.
 const d = isAbducoAvailable() ? describe : describe.skip
+
+// POD-107: the in-test kills sit on the happy path — a failed assertion leaks the
+// detached master. Sweep this file's labels for this pid and for dead prior runs.
+afterAll(() => {
+  if (!isAbducoAvailable()) return
+  reapAbducoTestSessions([/^podium-abduco-bun(?:-repaint)?-(\d+)$/])
+})
 
 d('abduco durable path [bun-terminal]', () => {
   it('streams frames, surfaces the OSC title, strips chrome, round-trips input, reattaches, kills', async () => {

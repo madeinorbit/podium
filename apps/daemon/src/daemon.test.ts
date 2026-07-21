@@ -12,6 +12,7 @@ import {
   isTmuxAvailable,
   killAbducoSession,
   killTmuxServer,
+  reapAbducoTestSessions,
   tmuxHasSession,
 } from '@podium/agent-bridge'
 import type {
@@ -47,6 +48,14 @@ function trackTmp(prefix: string): string {
   return dir
 }
 afterAll(() => {
+  // POD-107: the per-test killAbducoSession calls sit inside try/finally blocks
+  // that a mid-phase assertion failure can bypass (ab-restart-seed's first phase
+  // detaches WITHOUT killing by design). Sweep every label this file can create,
+  // for this pid (this run, pass or fail) and for dead pids (crashed prior runs).
+  // Before the tmp rm below: unlinking a socket dir orphans its master forever.
+  if (isAbducoAvailable()) {
+    reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
+  }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 

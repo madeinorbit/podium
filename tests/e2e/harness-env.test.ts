@@ -11,12 +11,13 @@ import {
 } from 'node:fs'
 import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   applyRealAgentCodexEnv,
   harnessEnv,
   harnessPidFile,
   reapHarnessSessions,
+  reapStaleHarnessDirs,
   stopHarnessProcess,
 } from './harness-env'
 
@@ -191,6 +192,82 @@ describe('reapHarnessSessions isolation', () => {
     expect(sentinel.signalCode).toBe('SIGTERM')
   })
 })
+/**
+ * POD-107: reapHarnessSessions is keyed by port, so a hard-killed run on an
+ * ad-hoc port parked its abduco masters under /tmp/podium-e2e-<port> forever.
+ * reapStaleHarnessDirs sweeps abandoned sibling-port dirs — and ONLY those.
+ */
+describe('reapStaleHarnessDirs', () => {
+  const root = join(tmpdir(), `podium-stale-root-${process.pid}`)
+  let origRoot: string | undefined
+
+  beforeEach(() => {
+    origRoot = process.env.PODIUM_TEST_HOST_TMPDIR
+    process.env.PODIUM_TEST_HOST_TMPDIR = root
+    mkdirSync(root, { recursive: true })
+  })
+  afterEach(() => {
+    if (origRoot === undefined) delete process.env.PODIUM_TEST_HOST_TMPDIR
+    else process.env.PODIUM_TEST_HOST_TMPDIR = origRoot
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  const seedDir = (port: number, pid?: number | string): string => {
+    const base = join(root, `podium-e2e-${port}`)
+    mkdirSync(join(base, 'state'), { recursive: true })
+    if (pid !== undefined) writeFileSync(harnessPidFile(port), String(pid))
+    return base
+  }
+
+  it('reaps a dir whose recorded harness pid is dead', () => {
+    // Far beyond any kernel pid_max — kill(pid, 0) is a guaranteed ESRCH.
+    const base = seedDir(9931, 2 ** 30)
+    expect(reapStaleHarnessDirs()).toContain(9931)
+    expect(existsSync(base)).toBe(false)
+  })
+
+  it('leaves a dir whose harness pid is alive (a concurrent run on another port)', () => {
+    const base = seedDir(9932, process.pid)
+    expect(reapStaleHarnessDirs()).not.toContain(9932)
+    expect(existsSync(base)).toBe(true)
+  })
+
+  it('does not turn a corrupt pid marker into a reap of a fresh dir', () => {
+    const base = seedDir(9933, 'not-a-pid')
+    expect(reapStaleHarnessDirs()).not.toContain(9933)
+    expect(existsSync(base)).toBe(true)
+  })
+
+  it('age-gates pid-file-less dirs: fresh stays (a harness mid-startup), stale goes', () => {
+    const base = seedDir(9934)
+    expect(reapStaleHarnessDirs()).not.toContain(9934)
+    expect(existsSync(base)).toBe(true)
+    expect(reapStaleHarnessDirs(Date.now() + 31 * 60 * 1000)).toContain(9934)
+    expect(existsSync(base)).toBe(false)
+  })
+
+  it('age-gates orphaned scratch repos whose state dir is already gone', () => {
+    const orphan = join(root, 'zz-podium-e2e-repo-9936')
+    mkdirSync(orphan, { recursive: true })
+    reapStaleHarnessDirs()
+    expect(existsSync(orphan)).toBe(true) // fresh — could belong to a starting run
+    reapStaleHarnessDirs(Date.now() + 31 * 60 * 1000)
+    expect(existsSync(orphan)).toBe(false)
+  })
+
+  it('reaps the per-port scratch repos alongside the state dir', () => {
+    seedDir(9935, 2 ** 30)
+    const scratch = join(root, 'zz-podium-e2e-repo-9935')
+    for (const dir of [scratch, `${scratch}-feat`, `${scratch}-target`]) {
+      mkdirSync(dir, { recursive: true })
+    }
+    expect(reapStaleHarnessDirs()).toContain(9935)
+    for (const dir of [scratch, `${scratch}-feat`, `${scratch}-target`]) {
+      expect(existsSync(dir)).toBe(false)
+    }
+  })
+})
+
 const WRITING_HARNESS_FIXTURE = [
   "const fs = require('node:fs')",
   'const pidFile = process.env.HARNESS_PID_FILE',
