@@ -428,3 +428,11 @@ export const AgentColorMessage = z.object({
   sessionId: z.string(),
   color: z.string(),
 })
+// Daemon → server: the model observed producing assistant turns (`message.model`
+// in the transcript). Resolves a spawn-time `auto` to the concrete id and tracks
+// mid-session `/model` switches; rides the same transcript tail as agentColor.
+export const AgentModelMessage = z.object({
+  type: z.literal('agentModel'),
+  sessionId: z.string(),
+  model: z.string(),
+})

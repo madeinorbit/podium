@@ -23,6 +23,25 @@ export function claudeRecordColor(record: unknown): string | undefined {
   return typeof r.agentColor === 'string' ? r.agentColor : undefined
 }
 
+/**
+ * The model that actually produced this record, if it is an assistant turn —
+ * `message.model` (e.g. "claude-fable-5"). This is the OBSERVED model: it
+ * resolves a spawn-time `auto` selection to the concrete id, and follows
+ * mid-session `/model` switches. Claude stamps API-error placeholder records
+ * with the sentinel `<synthetic>`; those aren't a real model, so they're
+ * filtered here rather than at every consumer.
+ */
+export function claudeRecordModel(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as Record<string, unknown>
+  if (r.type !== 'assistant') return undefined
+  const message = r.message
+  if (typeof message !== 'object' || message === null) return undefined
+  const model = (message as Record<string, unknown>).model
+  if (typeof model !== 'string' || model === '' || model.startsWith('<')) return undefined
+  return model
+}
+
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>

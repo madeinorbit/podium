@@ -207,6 +207,7 @@ export interface SessionDurableState {
   workingMsTotal: number | undefined
   incomingWorkingMsTotal: number | undefined
   agentColor: string | undefined
+  observedModel: string | undefined
   snoozedUntil: string | null | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
@@ -291,6 +292,11 @@ export class Session {
   /** The agent's `/color` identity accent (a named colour), learned from the
    *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
   agentColor: string | undefined
+  /** The model OBSERVED producing assistant turns, learned from the transcript
+   *  tail (`message.model`). Resolves a spawn-time `auto` selection to the real
+   *  id and follows mid-session `/model` switches. Not persisted: like
+   *  agentColor it is re-learned from the tail's seed window on reattach. */
+  observedModel: string | undefined
   /** Snooze deadline — orthogonal to agentState. undefined = not snoozed; null =
    *  until next message; ISO string = timed. Lives in its own `snoozes` table, so
    *  it is NOT part of toRow(); the registry seeds it at load and on mutation. */
@@ -858,6 +864,15 @@ export class Session {
     return true
   }
 
+  /** Adopt an observed-model sighting from the transcript tail. Returns true
+   *  when it actually changed (so the caller can skip a redundant broadcast). */
+  setObservedModel(model: string): boolean {
+    const next = model.trim()
+    if (!next || next === this.observedModel) return false
+    this.observedModel = next
+    return true
+  }
+
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
   setTitle(title: string): void {
@@ -927,6 +942,7 @@ export class Session {
       workingMsTotal: this.workingMsTotal,
       incomingWorkingMsTotal: this.incomingWorkingMsTotal,
       agentColor: this.agentColor,
+      observedModel: this.observedModel,
       snoozedUntil: this.snoozedUntil,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
@@ -972,6 +988,7 @@ export class Session {
     this.workingMsTotal = state.workingMsTotal
     this.incomingWorkingMsTotal = state.incomingWorkingMsTotal
     this.agentColor = state.agentColor
+    this.observedModel = state.observedModel
     this.snoozedUntil = state.snoozedUntil
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
@@ -1086,6 +1103,7 @@ export class Session {
       ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.shellBusy ? { busy: true } : {}),
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
+      ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.snoozedUntil !== undefined ? { snoozedUntil: this.snoozedUntil } : {}),
       ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { claudeRecordColor, claudeRecordToItems, toolInputPreview } from './claude'
+import {
+  claudeRecordColor,
+  claudeRecordModel,
+  claudeRecordToItems,
+  toolInputPreview,
+} from './claude'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {
@@ -11,6 +16,27 @@ describe('claudeRecordColor', () => {
     expect(claudeRecordColor({ type: 'assistant', message: {} })).toBeUndefined()
     expect(claudeRecordColor({ type: 'agent-color' })).toBeUndefined()
     expect(claudeRecordColor(null)).toBeUndefined()
+  })
+})
+
+describe('claudeRecordModel', () => {
+  it('reads message.model from an assistant record', () => {
+    expect(claudeRecordModel({ type: 'assistant', message: { model: 'claude-fable-5' } })).toBe(
+      'claude-fable-5',
+    )
+  })
+  it('ignores non-assistant records and missing/synthetic models', () => {
+    expect(
+      claudeRecordModel({ type: 'user', message: { model: 'claude-fable-5' } }),
+    ).toBeUndefined()
+    expect(claudeRecordModel({ type: 'assistant', message: {} })).toBeUndefined()
+    expect(claudeRecordModel({ type: 'assistant', message: { model: '' } })).toBeUndefined()
+    // API-error placeholder records carry the '<synthetic>' sentinel — not a model.
+    expect(
+      claudeRecordModel({ type: 'assistant', message: { model: '<synthetic>' } }),
+    ).toBeUndefined()
+    expect(claudeRecordModel({ type: 'assistant' })).toBeUndefined()
+    expect(claudeRecordModel(null)).toBeUndefined()
   })
 })
 

@@ -154,6 +154,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           statTick,
           // The agent's `/color` accent rides the same transcript tail.
           onColor: (color) => send({ type: 'agentColor', sessionId, color }),
+          // As does the observed model (assistant turns' `message.model`).
+          onModel: (model) => send({ type: 'agentModel', sessionId, model }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,

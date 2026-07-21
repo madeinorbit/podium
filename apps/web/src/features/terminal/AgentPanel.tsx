@@ -13,6 +13,7 @@ import {
   Archive,
   ArrowDownToLine,
   Copy,
+  Ellipsis,
   Folder,
   Keyboard,
   MessageSquareText,
@@ -21,7 +22,6 @@ import {
   RotateCcw,
   Sparkles,
   SquareTerminal,
-  Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -121,6 +122,54 @@ export function initialPanelMode({
 /** Collapse the user's home directory to `~` for a compact cwd display. */
 export function prettyCwd(path: string): string {
   return path.replace(/^\/(?:home|Users)\/[^/]+/, '~')
+}
+
+/** Effort tiers, compacted to header width. Unknown spellings pass through. */
+const EFFORT_SHORT: Record<string, string> = {
+  low: 'low',
+  medium: 'med',
+  high: 'high',
+  xhigh: 'xhigh',
+  max: 'max',
+}
+
+/**
+ * The header's model token [POD-121]: "fable 5 · med". The model is the
+ * transcript-OBSERVED one when known (`observedModel` — resolves a spawn-time
+ * `auto` and follows `/model` switches), else the spawn selection; effort only
+ * exists as the spawn-time request. Null until either model source is known.
+ *
+ * Id compaction: "claude-fable-5" → "fable 5", "claude-opus-4-8" → "opus 4.8",
+ * "claude-haiku-4-5-20251001" → "haiku 4.5" (date suffix dropped, consecutive
+ * numeric parts join as a dotted version).
+ */
+export function modelToken(session: {
+  observedModel?: string
+  model?: string
+  effort?: string
+}): string | null {
+  const raw =
+    session.observedModel ?? (session.model && session.model !== 'auto' ? session.model : undefined)
+  if (!raw) return null
+  const parts = raw
+    .replace(/^claude-/, '')
+    .replace(/-\d{8}$/, '')
+    .split('-')
+  const words: string[] = []
+  for (const part of parts) {
+    const last = words.at(-1)
+    if (/^\d+$/.test(part) && last !== undefined && /^\d/.test(last)) {
+      words[words.length - 1] = `${last}.${part}`
+    } else {
+      words.push(part)
+    }
+  }
+  const label = words.join(' ')
+  const effort =
+    session.effort && session.effort !== 'auto'
+      ? (EFFORT_SHORT[session.effort] ?? session.effort)
+      : undefined
+  return effort ? `${label} · ${effort}` : label
 }
 
 export function AgentPanel({
@@ -587,32 +636,22 @@ export function AgentPanel({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      {/* Session header (native-pane spec §2.3): 42px, issue-tinted surface +
-          hairline; agent identity chip, NATIVE/CHAT eyebrow, name, cwd, then
-          the 26px control row. */}
+      {/* Session header, revised Variant A [POD-121]: 40px, issue-tinted surface
+          + hairline. Identity is de-boxed (kind glyph + name as the anchor), the
+          mode lives in ONE segmented control on the right (no eyebrow), and the
+          right cluster is model token · segment · snooze · archive · overflow. */}
       <div
         data-testid="agent-panel-header"
-        className="flex h-[42px] flex-none items-center overflow-hidden gap-2 border-b issue-hairline-45 issue-hairline-slate-40 issue-mix-24 issue-mix-slate-18 px-[10px]"
+        className="flex h-[40px] flex-none items-center overflow-hidden gap-2 border-b issue-hairline-45 issue-hairline-slate-40 issue-mix-24 issue-mix-slate-18 px-[10px]"
       >
         {session && (
           <>
-            <span className="inline-flex flex-none items-center gap-[5px] rounded-[6px] border issue-hairline-35 bg-background/50 px-[7px] py-[3px]">
-              <KindIcon kind={session.agentKind} />
-              <span className="whitespace-nowrap text-[11px] font-semibold text-text-strong">
-                {panelLabel(session.agentKind)}
-              </span>
-            </span>
-            <span className="flex-none text-[9px] font-semibold tracking-[0.06em] text-(--issue-muted)">
-              {effectiveMode === 'chat' ? 'CHAT' : 'NATIVE'}
-            </span>
-            <span className="inline-flex min-w-0 items-center gap-[5px]">
-              <span className="h-4 w-px flex-none bg-border" aria-hidden="true" />
-              <span
-                className="overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] text-(--issue-text)"
-                title={sessionDisplayName(session)}
-              >
-                {sessionDisplayName(session)}
-              </span>
+            <KindIcon kind={session.agentKind} />
+            <span
+              className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[12.5px] font-semibold text-text-strong"
+              title={sessionDisplayName(session)}
+            >
+              {sessionDisplayName(session)}
             </span>
           </>
         )}
@@ -652,151 +691,162 @@ export function AgentPanel({
             }
           />
         )}
-        {/* Right control row (§2.3): 26×26 controls; the chat/native switch is
-            the emphasized one (tinted border + dark fill), everything else is a
-            borderless quiet glyph. Snooze and take-control aren't in the mock
-            but keep their inline homes, restyled to match (Q4). */}
-        <span className="ml-auto inline-flex flex-none items-center gap-[3px]">
-          {/* Chat/native view toggle, restored per #20 [spec:SP-9e10]. A single
-              icon button showing the view a click switches TO (the header's
-              CHAT/NATIVE eyebrow states the current one). Only offered with a
-              live PTY behind it — a hibernated/exited session has no terminal
-              to switch to, so hide it rather than render a control that
-              visibly does nothing. */}
-          {chatCapable && !hibernated && !exited && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-[26px] rounded-[6px] border issue-hairline-30 bg-background/45 text-(--issue-bright)"
-              aria-label={
-                effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'
-              }
-              title={effectiveMode === 'chat' ? 'Switch to native terminal' : 'Switch to chat view'}
-              onClick={() => pickMode(effectiveMode === 'chat' ? 'native' : 'chat')}
-            >
-              {effectiveMode === 'chat' ? (
-                <SquareTerminal size={13} aria-hidden="true" />
-              ) : (
-                <MessageSquareText size={13} aria-hidden="true" />
-              )}
-            </Button>
-          )}
-          {effectiveMode === 'native' && !hibernated && !exited && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              data-testid="take-control"
-              className={cn(
-                'size-[26px] rounded-[6px] text-(--issue-muted-bright)',
-                isMobile && 'border issue-hairline-30 bg-background/45 text-(--issue-bright)',
-              )}
-              aria-label="Take control of the terminal"
-              title="Take control of the terminal"
-              onClick={() => mountedRef.current?.connection.requestControl()}
-            >
-              <Keyboard size={13} aria-hidden="true" />
-            </Button>
-          )}
-          {/* Native resume command (#119): the literal `claude --resume <id>` etc.
-              so you can pick the conversation back up in your own terminal. */}
-          {!isMobile && resumeCmd && (
-            <ResumeCommandMenu
-              command={resumeCmd}
-              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-            />
-          )}
-          {!isMobile && showSnooze && session && (
-            <SnoozeControl session={session} iconSize={15} dimmed={false} />
-          )}
-          {!isMobile && chatCapable && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-              title="Ask the superagent about this session (BTW)"
-              onClick={() => void startBtw(sessionId)}
-            >
-              <Sparkles size={13} aria-hidden="true" />
-            </Button>
-          )}
-          {!isMobile && canHibernate && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-              disabled={agentWorking}
+        {/* Right cluster [POD-121]: model token · mode segment · the triage pair
+            (snooze, archive) · overflow. Transient utilities (take control, copy
+            resume, ask superagent, hibernate) live in the overflow menu. */}
+        <span className="ml-auto inline-flex flex-none items-center gap-2">
+          {/* The running model + requested effort ("fable 5 · med"): observed
+              model from the transcript tail (resolves a spawn-time `auto`),
+              effort from the spawn selection — hidden until either is known. */}
+          {session && modelToken(session) && (
+            <span
+              className="hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
               title={
-                agentWorking
-                  ? 'Agent is working — hibernate once it reaches idle'
-                  : 'Hibernate — stop the process to free memory, keep the conversation'
+                session.observedModel
+                  ? `Model observed in the transcript${session.effort ? ' · effort as requested at spawn' : ''}`
+                  : 'Model as requested at spawn'
               }
-              onClick={() => void hibernateSession(sessionId)}
             >
-              <Moon size={13} aria-hidden="true" />
-            </Button>
+              {session.agentKind === 'claude-code' && (
+                <span className="size-[6px] flex-none rounded-full bg-claude" aria-hidden="true" />
+              )}
+              {modelToken(session)}
+            </span>
           )}
-          {/* Archive stays available in every read-only state — both hibernated
-              (process paused to free memory) and exited (process gone, transcript
-              read-only). You can read the transcript and file it under Done without
-              waking/resuming first. Only hidden when there's no session at all. */}
-          {session && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
-              title="Archive session — files it under Done"
-              onClick={() => void guardedArchive(sessionId, true)}
+          {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
+              control — both views always visible and labeled, the filled segment
+              is the current one. Only offered with a live PTY behind it — a
+              hibernated/exited session has no terminal to switch to. */}
+          {chatCapable && !hibernated && !exited && (
+            <span
+              role="tablist"
+              aria-label="Panel view"
+              className="inline-flex h-[26px] flex-none items-stretch overflow-hidden rounded-[7px] border issue-hairline-30 bg-background/45"
             >
-              <Archive size={13} aria-hidden="true" />
-            </Button>
+              {(['chat', 'native'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={effectiveMode === m}
+                  data-testid={`mode-${m}`}
+                  className={cn(
+                    'inline-flex cursor-pointer items-center gap-[5px] px-[9px] text-[11px] font-medium transition-colors',
+                    m === 'native' && 'border-l issue-hairline-20',
+                    effectiveMode === m
+                      ? 'bg-secondary text-text-strong'
+                      : 'text-(--issue-muted) hover:text-(--issue-bright)',
+                  )}
+                  onClick={() => pickMode(m)}
+                >
+                  {m === 'chat' ? (
+                    <MessageSquareText size={12} aria-hidden="true" />
+                  ) : (
+                    <SquareTerminal size={12} aria-hidden="true" />
+                  )}
+                  {m === 'chat' ? 'Chat' : 'Native'}
+                </button>
+              ))}
+            </span>
           )}
+          <span className="inline-flex flex-none items-center gap-[3px]">
+            {!isMobile && showSnooze && session && (
+              <SnoozeControl session={session} iconSize={15} dimmed={false} />
+            )}
+            {/* Archive stays available in every read-only state — both hibernated
+                (process paused to free memory) and exited (process gone, transcript
+                read-only). You can read the transcript and file it under Done without
+                waking/resuming first. Only hidden when there's no session at all. */}
+            {session && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+                title="Archive session — files it under Done"
+                onClick={() => void guardedArchive(sessionId, true)}
+              >
+                <Archive size={13} aria-hidden="true" />
+              </Button>
+            )}
+            {session && (
+              // modal={false}: a modal menu loses the focus fight with the
+              // terminal underneath (xterm re-grabs focus, the menu closes on
+              // open) — same setting the issue-page property menus use.
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      data-testid="header-menu"
+                      className="size-[26px] rounded-[6px] text-(--issue-muted-bright)"
+                      title="More session actions"
+                      aria-label="More session actions"
+                    >
+                      <Ellipsis size={14} aria-hidden="true" />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-auto min-w-[230px] max-w-[90vw]">
+                  {effectiveMode === 'native' && !hibernated && !exited && (
+                    <DropdownMenuItem
+                      data-testid="take-control"
+                      aria-label="Take control of the terminal"
+                      onClick={() => mountedRef.current?.connection.requestControl()}
+                    >
+                      <Keyboard size={13} aria-hidden="true" /> Take control
+                    </DropdownMenuItem>
+                  )}
+                  {chatCapable && (
+                    <DropdownMenuItem onClick={() => void startBtw(sessionId)}>
+                      <Sparkles size={13} aria-hidden="true" /> Ask superagent
+                    </DropdownMenuItem>
+                  )}
+                  {canHibernate && (
+                    <DropdownMenuItem
+                      disabled={agentWorking}
+                      title={
+                        agentWorking
+                          ? 'Agent is working — hibernate once it reaches idle'
+                          : undefined
+                      }
+                      onClick={() => void hibernateSession(sessionId)}
+                    >
+                      <Moon size={13} aria-hidden="true" /> Hibernate
+                    </DropdownMenuItem>
+                  )}
+                  {/* Native resume command (#119): the literal `claude --resume <id>`
+                      etc. so you can pick the conversation back up in your own
+                      terminal, outside Podium. */}
+                  {/* Base UI's GroupLabel THROWS outside a Group (the popup render
+                      crashes on open and the boundary swallows it — the menu just
+                      never opens), so the label must live inside DropdownMenuGroup. */}
+                  {resumeCmd && (
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Resume in your terminal</DropdownMenuLabel>
+                      <code className="mx-1.5 mb-1 block overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px] whitespace-pre text-foreground">
+                        {resumeCmd}
+                      </code>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          void navigator.clipboard
+                            ?.writeText(resumeCmd)
+                            .then(() => toast('Resume command copied'))
+                            .catch(() => toast.error('Could not copy to clipboard'))
+                        }}
+                      >
+                        <Copy size={13} aria-hidden="true" /> Copy command
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </span>
         </span>
       </div>
-      {/* Model / command strip (§2.4): 32px issue-tinted mono strip — Claude
-          dot + agent kind (the session's model name once the server reports
-          one, Q5), the literal resume command as a copy pill, and the CLI
-          hint. */}
-      {session && !hibernated && !exited && effectiveMode === 'native' && (
-        <div
-          data-testid="agent-model-strip"
-          className="flex h-8 flex-none items-center gap-[9px] overflow-hidden border-b issue-hairline-30 px-[11px] font-mono text-[10px] text-(--issue-muted)"
-        >
-          <span className="inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-(--issue-bright)">
-            <span className="size-[6px] flex-none rounded-full bg-claude" aria-hidden="true" />
-            {panelLabel(session.agentKind).toLowerCase()}
-          </span>
-          {resumeCmd && (
-            <>
-              <span className="flex-none text-(--issue-dim)" aria-hidden="true">
-                │
-              </span>
-              <button
-                type="button"
-                title="Copy resume command"
-                aria-label={`Copy resume command: ${resumeCmd}`}
-                className="inline-flex min-w-0 flex-none items-center gap-1.5 overflow-hidden rounded-[5px] border issue-hairline-30 bg-background/50 px-[7px] py-px whitespace-nowrap text-(--issue-muted-bright) transition-colors hover:text-(--issue-text)"
-                onClick={() => {
-                  void navigator.clipboard
-                    ?.writeText(resumeCmd)
-                    .then(() => toast('Resume command copied'))
-                    .catch(() => toast.error('Could not copy to clipboard'))
-                }}
-              >
-                <span className="truncate" style={{ whiteSpace: 'pre', wordSpacing: '0.5ch' }}>
-                  {resumeCmd}
-                </span>
-                <Copy size={11} aria-hidden="true" className="flex-none" />
-              </button>
-            </>
-          )}
-          <span className="ml-auto flex-none truncate text-text-dim">esc to interrupt</span>
-        </div>
-      )}
       {hibernated ? (
         chatCapable ? (
           // The transcript outlives the process — a hibernated agent's history is
@@ -977,53 +1027,6 @@ export function AgentPanel({
         </>
       )}
     </div>
-  )
-}
-
-/**
- * Header affordance for #119: a small overflow menu that shows the session's
- * native CLI resume command (e.g. `claude --resume <id>`) and copies it to the
- * clipboard. The id is what lets you reopen the exact conversation in your own
- * terminal, outside Podium.
- */
-function ResumeCommandMenu({
-  command,
-  className,
-}: {
-  command: string
-  className?: string
-}): JSX.Element {
-  const copy = () => {
-    void navigator.clipboard
-      ?.writeText(command)
-      .then(() => toast('Resume command copied'))
-      .catch(() => toast.error('Could not copy to clipboard'))
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={className}
-            title="Resume command — copy the CLI command to reopen this conversation"
-          >
-            <TerminalIcon size={13} aria-hidden="true" />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end" className="w-auto min-w-[260px] max-w-[90vw]">
-        <DropdownMenuLabel>Resume in your terminal</DropdownMenuLabel>
-        <code className="mx-1.5 block overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px] whitespace-pre text-foreground">
-          {command}
-        </code>
-        <DropdownMenuItem onClick={copy}>
-          <Copy size={13} aria-hidden="true" /> Copy command
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

@@ -3992,6 +3992,17 @@ export class SessionsService {
         }
         break
       }
+      case 'agentModel': {
+        const session = this.sessions.get(msg.sessionId)
+        if (!session) break
+        // Observed model changes rarely (first sighting, `/model` switch), so a
+        // full session rebroadcast is fine, mirroring agentColor above.
+        if (session.setObservedModel(msg.model)) {
+          this.persist(session)
+          this.broadcastSessions()
+        }
+        break
+      }
       case 'title': {
         const session = this.sessions.get(msg.sessionId)
         if (!session) break

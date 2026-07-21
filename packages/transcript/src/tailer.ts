@@ -1,6 +1,6 @@
 import { open } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
-import { claudeRecordColor, claudeRecordToItems } from './claude'
+import { claudeRecordColor, claudeRecordModel, claudeRecordToItems } from './claude'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
 import { type StatTick, scheduleStatPoll } from './stat-tick'
@@ -48,6 +48,10 @@ export interface TranscriptTailOptions {
    *  alongside recordToItems; `onColor` fires when the value changes. */
   recordColor?: (record: unknown) => string | undefined
   onColor?: (color: string) => void
+  /** Extract the observed model id from a record (assistant turns' `message.model`).
+   *  `onModel` fires when the value changes (initial sighting included). */
+  recordModel?: (record: unknown) => string | undefined
+  onModel?: (model: string) => void
   /** Runs the tail's FIRST read (the multi-MB backfill seed — the expensive one)
    *  through a pacing gate; poll ticks hold off until the gated seed completes.
    *  Lets a caller standing up many tails at once (daemon reattach burst,
@@ -114,11 +118,13 @@ export function tailTranscript(
 ): TranscriptTailer {
   const recordToItems = opts.recordToItems ?? claudeRecordToItems
   const recordColor = opts.recordColor ?? claudeRecordColor
+  const recordModel = opts.recordModel ?? claudeRecordModel
   const windowBytes = opts.initialWindowBytes ?? TAIL_BYTES
   const maxInitialItems = opts.maxInitialItems ?? MAX_INITIAL_ITEMS
   const chunkBytes = opts.readChunkBytes ?? READ_CHUNK_BYTES
   const fileId = fileIdFor(path)
   let lastColor: string | undefined
+  let lastModel: string | undefined
   // Absolute byte position where `leftover` begins (= the start of the next
   // unparsed line). Bytes before this have been parsed into emitted items.
   let offset = 0
@@ -152,6 +158,12 @@ export function tailTranscript(
     if (color !== undefined && color !== lastColor) {
       lastColor = color
       opts.onColor?.(color)
+    }
+    // The observed model rides the same tail — emit on change (last wins).
+    const model = recordModel(record)
+    if (model !== undefined && model !== lastModel) {
+      lastModel = model
+      opts.onModel?.(model)
     }
     return stampCursors(recordToItems(record), fileId, lineOffset, recordUuid(record))
   }

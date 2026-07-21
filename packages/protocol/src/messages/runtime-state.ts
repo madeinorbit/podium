@@ -163,6 +163,11 @@ export const SessionMeta = z.object({
    *  shown as the tab/sidebar accent line. Absent / 'default' = no colour. This is
    *  identity, distinct from the runtime *status* dot. */
   agentColor: z.string().optional(),
+  /** The model OBSERVED producing this session's assistant turns (transcript
+   *  `message.model`, e.g. "claude-fable-5") — resolves a spawn-time `auto` and
+   *  follows mid-session `/model` switches. Distinct from `model` above, which is
+   *  the spawn-time *selection*. Absent until the first assistant turn is seen. */
+  observedModel: z.string().optional(),
   // The machine (daemon) this session runs on. machineId is the stable join key;
   // machineName is the display label (server-resolved from the machines table).
   // OPTIONAL during build-out so every task stays typecheck-green: Task 5 always

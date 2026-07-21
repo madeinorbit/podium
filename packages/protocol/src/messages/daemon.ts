@@ -39,6 +39,7 @@ import { AgentStateMessage } from './runtime-state'
 import {
   AgentColorMessage,
   AgentExitMessage,
+  AgentModelMessage,
   AgentFrameBatchMessage,
   AgentFrameMessage,
   BindMessage,
@@ -162,6 +163,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   TitleMessage,
   AgentStateMessage,
   AgentColorMessage,
+  AgentModelMessage,
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,

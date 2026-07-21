@@ -184,15 +184,39 @@ describe('AgentPanel active wiring', () => {
     expect(button?.disabled).toBe(false)
   })
 
-  it('keeps Take control reachable and requests terminal control', async () => {
+  it('keeps Take control reachable (via the header overflow menu) and requests terminal control', async () => {
     await act(async () => {
       root.render(<AgentPanel sessionId="s1" active />)
     })
     await flush()
-    const button = container.querySelector<HTMLButtonElement>('[data-testid="take-control"]')
-    expect(button?.getAttribute('aria-label')).toBe('Take control of the terminal')
-    await act(async () => button?.click())
+    // Take control lives in the header's ⋯ overflow menu [POD-121] — open it first.
+    const trigger = container.querySelector<HTMLButtonElement>('[data-testid="header-menu"]')
+    expect(trigger).toBeTruthy()
+    await act(async () => trigger?.click())
+    await flush()
+    // The menu renders in a portal, so query the document, not the container.
+    const item = document.querySelector<HTMLElement>('[data-testid="take-control"]')
+    expect(item?.getAttribute('aria-label')).toBe('Take control of the terminal')
+    await act(async () => item?.click())
     expect(requestControl).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the overflow menu with the resume-command section (GroupLabel regression)', async () => {
+    // The resume section renders a Base UI GroupLabel, which THROWS when not
+    // wrapped in a Group — the popup render then crashes on open and the menu
+    // silently never appears. This pins the with-resume-ref branch open.
+    storeSessions = [meta({ resume: { kind: 'claude-session', value: 'abc-123' } })]
+    await act(async () => {
+      root.render(<AgentPanel sessionId="s1" active />)
+    })
+    await flush()
+    const trigger = container.querySelector<HTMLButtonElement>('[data-testid="header-menu"]')
+    await act(async () => trigger?.click())
+    await flush()
+    expect(document.querySelector('[data-testid="take-control"]')).toBeTruthy()
+    const menuText = document.querySelector('[role="menu"]')?.textContent ?? ''
+    expect(menuText).toContain('Resume in your terminal')
+    expect(menuText).toContain('claude --resume abc-123')
   })
 
   it('passes initial active to mountSession for a live native panel', async () => {

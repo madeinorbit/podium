@@ -206,6 +206,7 @@ export const DAEMON_MESSAGE_CLASS = {
   title: 'live',
   agentState: 'live',
   agentColor: 'live',
+  agentModel: 'live',
   scanResult: 'command',
   conversationsChanged: 'durable',
   scanReposResult: 'command',
