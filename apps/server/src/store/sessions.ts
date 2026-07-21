@@ -349,14 +349,35 @@ export class SessionsRepository {
    *  row with corrupt JSON actions is dropped rather than failing the load. */
   listOffers(): OfferMap {
     const rows = this.db
-      .prepare('SELECT session_id, message, actions, created_at FROM offers')
-      .all() as { session_id: string; message: string; actions: string; created_at: string }[]
+      .prepare('SELECT session_id, message, actions, artifacts, created_at FROM offers')
+      .all() as {
+      session_id: string
+      message: string
+      actions: string
+      artifacts: string | null
+      created_at: string
+    }[]
     const out: OfferMap = {}
     for (const r of rows) {
       try {
         const actions = JSON.parse(r.actions)
         if (!Array.isArray(actions)) continue
-        out[r.session_id] = { message: r.message, actions, createdAt: r.created_at }
+        // A corrupt artifacts column degrades to "no artifacts", not "no offer".
+        let artifacts: string[] | undefined
+        if (r.artifacts != null) {
+          try {
+            const parsed = JSON.parse(r.artifacts)
+            if (Array.isArray(parsed) && parsed.every((p) => typeof p === 'string')) {
+              artifacts = parsed
+            }
+          } catch {}
+        }
+        out[r.session_id] = {
+          message: r.message,
+          actions,
+          ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+          createdAt: r.created_at,
+        }
       } catch {
         // corrupt row -> treat as no offer
       }
@@ -370,13 +391,20 @@ export class SessionsRepository {
     if (!id) throw new Error('offer session id is empty')
     this.db
       .prepare(
-        `INSERT INTO offers (session_id, message, actions, created_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO offers (session_id, message, actions, artifacts, created_at) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            message = excluded.message,
            actions = excluded.actions,
+           artifacts = excluded.artifacts,
            created_at = excluded.created_at`,
       )
-      .run(id, offer.message, JSON.stringify(offer.actions), offer.createdAt)
+      .run(
+        id,
+        offer.message,
+        JSON.stringify(offer.actions),
+        offer.artifacts && offer.artifacts.length > 0 ? JSON.stringify(offer.artifacts) : null,
+        offer.createdAt,
+      )
   }
 
   /** Remove a session's offer (no-op if none). */

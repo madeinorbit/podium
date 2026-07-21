@@ -1,6 +1,7 @@
-import type { SessionOffer } from '@podium/protocol'
+import type { SessionMeta, SessionOffer } from '@podium/protocol'
 import { Lightbulb } from 'lucide-react'
 import { type JSX, useState } from 'react'
+import { OfferArtifactStrip } from './OfferArtifactStrip'
 
 /** The user's feedback rides the action's prompt as one turn. */
 export const composeOfferPrompt = (prompt: string, feedback: string): string =>
@@ -20,10 +21,14 @@ export function OfferBar({
   offer,
   disabled,
   onAction,
+  session,
 }: {
   offer: SessionOffer
   disabled: boolean
   onAction: (prompt: string, offerCreatedAt: string) => void
+  /** When given, the offer's issue-artifact evidence renders as a thumbnail
+   *  strip [POD-120] (needs the session to find its issue + input recency). */
+  session?: SessionMeta
 }): JSX.Element {
   // The input-action awaiting feedback (index into offer.actions), if any.
   const [pending, setPending] = useState<number | null>(null)
@@ -46,6 +51,7 @@ export function OfferBar({
         <Lightbulb size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
         <span className="whitespace-pre-wrap">{offer.message}</span>
       </div>
+      {session && <OfferArtifactStrip offer={offer} session={session} className="mt-2" />}
       {pendingAction ? (
         <div className="mt-2 flex flex-col gap-1.5" data-testid="offer-feedback">
           <textarea

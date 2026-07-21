@@ -912,6 +912,7 @@ export function AgentPanel({
                 offer={nativeOffer}
                 disabled={false}
                 onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+                {...(session ? { session } : {})}
               />
             </div>
           )}

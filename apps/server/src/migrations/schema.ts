@@ -198,6 +198,7 @@ export const offers = sqliteTable("offers", {
 	sessionId: text("session_id").primaryKey(),
 	message: text().notNull(),
 	actions: text().notNull(), // JSON array of { label, prompt }
+	artifacts: text(), // JSON array of issue-artifact paths [POD-120]; NULL = none
 	createdAt: text("created_at").notNull(),
 });
 

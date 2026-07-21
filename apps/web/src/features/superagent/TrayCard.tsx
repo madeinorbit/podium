@@ -2,6 +2,7 @@ import { relativeTime } from '@podium/client-core'
 import type { IssueWire } from '@podium/protocol'
 import { type CSSProperties, type JSX, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
+import { OfferArtifactStrip } from '@/features/chat/OfferArtifactStrip'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'
 import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
 import { offerKey, type TrayItem } from './derive-tray'
@@ -127,6 +128,10 @@ export function TrayCard({
           <div className="whitespace-pre-wrap text-[11px] leading-[1.5] text-(--issue-bright)">
             {item.offer.message}
           </div>
+          {/* Evidence thumbnails [POD-120]: issue artifacts the offer names.
+              Thumbnail clicks preview (lightbox / file tab) without entering
+              the session — the strip stops its own propagation. */}
+          <OfferArtifactStrip offer={item.offer} session={item.session} />
           {pending !== null && item.offer.actions[pending] ? (
             // Feedback overlay for an `input` action (e.g. "Send back"): the
             // agent declared this button only makes sense with an explanation,

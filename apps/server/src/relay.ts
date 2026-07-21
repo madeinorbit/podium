@@ -711,7 +711,31 @@ export class SessionRegistry {
               // freeform text before sending, appended to the prompt.
               return rec.input === true ? { label, prompt, input: true } : { label, prompt }
             })
-            sessionsSvc.setOffer({ sessionId: actorSessionId, message, actions })
+            // Issue-artifact references [POD-120]: bare paths, resolved by the
+            // client against the issue panel's artifact list — validated here
+            // only for shape (the artifact may legitimately not exist yet).
+            let artifacts: string[] | undefined
+            if (raw.artifacts !== undefined) {
+              if (!Array.isArray(raw.artifacts)) {
+                throw new Error('artifacts must be an array')
+              }
+              if (raw.artifacts.length > 6) {
+                throw new Error('at most 6 artifacts are allowed')
+              }
+              artifacts = raw.artifacts.map((p, i) => {
+                const path = typeof p === 'string' ? p.trim() : ''
+                if (!path || path.length > 512) {
+                  throw new Error(`artifact ${i + 1}: path must contain 1..512 characters`)
+                }
+                return path
+              })
+            }
+            sessionsSvc.setOffer({
+              sessionId: actorSessionId,
+              message,
+              actions,
+              ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+            })
             return Promise.resolve({ ok: true })
           }
           return undefined

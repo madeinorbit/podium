@@ -94,6 +94,11 @@ export const SessionOffer = z.object({
       input: z.boolean().optional(),
     }),
   ),
+  /** Issue-artifact references [POD-120] — paths (as published via `podium
+   *  issue artifact --add`) of the session's issue's artifacts offered as
+   *  evidence. Ordered, ≤6; clients resolve them against the issue panel's
+   *  artifact list and silently drop paths that no longer resolve. */
+  artifacts: z.array(z.string()).optional(),
   createdAt: z.string(), // ISO 8601
 })
 export type SessionOffer = z.infer<typeof SessionOffer>
@@ -120,6 +125,10 @@ export const SessionMeta = z.object({
   clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
   lastActiveAt: z.string(), // ISO 8601 — recency signal for the home board
+  /** ISO 8601 time of the last human (controller) input into this session, when
+   *  one has happened. The offer-artifact freshness fallback [POD-120] compares
+   *  issue-artifact addedAt against this to show "new since you last typed". */
+  lastInputAt: z.string().optional(),
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),

@@ -53,6 +53,32 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg, sessionId)?.actions).toEqual([])
   })
 
+  it('carries artifact references [POD-120] on meta and across a restart', () => {
+    const dir = trackTmp('podium-offer-')
+    const file = join(dir, 'store.db')
+    const reg = new SessionRegistry(new SessionStore(file))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/p',
+    })
+    const artifacts = ['e2e/header-after.png', 'docs/proposal.md']
+    reg.modules.sessions.setOffer({ sessionId, ...OFFER, artifacts })
+    expect(metaOffer(reg, sessionId)?.artifacts).toEqual(artifacts)
+    reg.dispose()
+
+    const reg2 = new SessionRegistry(new SessionStore(file))
+    expect(metaOffer(reg2, sessionId)?.artifacts).toEqual(artifacts)
+
+    // A replacing offer WITHOUT artifacts drops them (no sticky column).
+    reg2.modules.sessions.setOffer({ sessionId, ...OFFER })
+    expect(metaOffer(reg2, sessionId)?.artifacts).toBeUndefined()
+    reg2.dispose()
+
+    const reg3 = new SessionRegistry(new SessionStore(file))
+    expect(metaOffer(reg3, sessionId)?.artifacts).toBeUndefined()
+    reg3.dispose()
+  })
+
   it('clearOffer removes it', () => {
     const reg = new SessionRegistry()
     const { sessionId } = reg.modules.sessions.createSession({

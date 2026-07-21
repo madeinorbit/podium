@@ -41,6 +41,21 @@ describe('podium offer CLI (argv shape)', () => {
     ])
   })
 
+  it('collects repeated --artifact in argv order [POD-120]', () => {
+    const parsed = parseOfferArgs([
+      '--message',
+      'Shots ready',
+      '--artifact',
+      'e2e/before.png',
+      '--action',
+      'Ship::Merge it',
+      '--artifact',
+      'e2e/after.png',
+    ])
+    expect(parsed.artifacts).toEqual(['e2e/before.png', 'e2e/after.png'])
+    expect(parsed.actions).toEqual([{ token: 'Ship::Merge it', input: false }])
+  })
+
   it('reads a bare sub-command (clear)', () => {
     expect(parseOfferArgs(['clear']).command).toBe('clear')
   })
@@ -96,6 +111,31 @@ describe('podium offer CLI (behavior)', () => {
       message: 'Heads up: deploy is queued',
       actions: [],
     })
+  })
+
+  it('passes --artifact paths through to offer.set, omitting the key when none [POD-120]', async () => {
+    const c = client()
+    await runOfferCli(
+      ['--message', 'Shots ready', '--artifact', 'e2e/after.png', '--artifact', '/abs/doc.md'],
+      c,
+    )
+    expect(c.offer.set.mutate).toHaveBeenCalledWith({
+      message: 'Shots ready',
+      actions: [],
+      artifacts: ['e2e/after.png', '/abs/doc.md'],
+    })
+    const c2 = client()
+    await runOfferCli(['--message', 'No evidence'], c2)
+    expect(c2.offer.set.mutate).toHaveBeenCalledWith({ message: 'No evidence', actions: [] })
+  })
+
+  it('rejects more than 6 artifacts and an empty artifact path [POD-120]', async () => {
+    const many = ['--message', 'm']
+    for (let i = 0; i < 7; i++) many.push('--artifact', `a${i}.png`)
+    await expect(runOfferCli(many, client())).rejects.toThrow(/at most 6/)
+    await expect(runOfferCli(['--message', 'm', '--artifact', '  '], client())).rejects.toThrow(
+      /empty path/,
+    )
   })
 
   it('clears via the clear sub-command', async () => {

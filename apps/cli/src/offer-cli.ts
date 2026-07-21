@@ -47,17 +47,20 @@ const BOOL_FLAGS = new Set(['json', 'outside-scope', 'help'])
 
 /**
  * Parse `podium offer` argv. Unlike the mail parser, `--action` (and its
- * feedback-collecting twin `--action-input`) REPEATS — each occurrence appends
- * a button, in argv order — while every other flag keeps last-wins semantics.
+ * feedback-collecting twin `--action-input`) and `--artifact` REPEAT — each
+ * occurrence appends, in argv order — while every other flag keeps last-wins
+ * semantics.
  */
 export function parseOfferArgs(argv: string[]): {
   command?: string
   args: Record<string, string | boolean>
   actions: { token: string; input: boolean }[]
+  artifacts: string[]
   positionals: string[]
 } {
   const args: Record<string, string | boolean> = {}
   const actions: { token: string; input: boolean }[] = []
+  const artifacts: string[] = []
   const positionals: string[] = []
   // A bare first token that isn't a flag is the sub-command (e.g. `clear`).
   let command: string | undefined
@@ -86,9 +89,13 @@ export function parseOfferArgs(argv: string[]): {
       if (typeof value === 'string') actions.push({ token: value, input: key === 'action-input' })
       continue
     }
+    if (key === 'artifact') {
+      if (typeof value === 'string') artifacts.push(value)
+      continue
+    }
     args[key] = value
   }
-  return { ...(command ? { command } : {}), args, actions, positionals }
+  return { ...(command ? { command } : {}), args, actions, artifacts, positionals }
 }
 
 /** Split a `Label::Prompt` token. The FIRST `::` separates them, so a prompt may
@@ -124,6 +131,9 @@ function helpText(): string {
     '                           Like --action, but clicking first asks the user for freeform',
     '                           feedback, appended to the prompt. Use it for actions that only',
     '                           make sense with an explanation (e.g. "Send back").',
+    '  --artifact <path>        Reference an issue artifact (as published via `podium issue',
+    '                           artifact --add`) as evidence — it shows as a thumbnail on the',
+    '                           offer. Repeat --artifact for more (up to 6).',
     '  clear                    Remove the current offer.',
     '',
     'Examples:',
@@ -133,13 +143,16 @@ function helpText(): string {
     '  podium offer --message "POD-12 is ready for review" \\',
     '    --action "Merge it::Merge POD-12 to main" \\',
     '    --action-input "Send back::Revise POD-12 per this feedback:"',
+    '  podium offer --message "New header layout is ready" \\',
+    '    --artifact e2e/header-after.png \\',
+    '    --action "Ship it::Merge the header change"',
     '  podium offer clear',
   ].join('\n')
 }
 
 export async function runOfferCli(argv: string[], client: OfferClient): Promise<string> {
   if (argv.includes('--help') || argv.includes('-h')) return helpText()
-  const { command, args, actions } = parseOfferArgs(argv)
+  const { command, args, actions, artifacts } = parseOfferArgs(argv)
   const known = new Set(['message', 'json', 'outside-scope'])
   const unknown = Object.keys(args).filter((k) => !known.has(k))
   if (unknown.length) {
@@ -171,15 +184,28 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
     throw new OfferCliError('offer needs --message "…" (or use `podium offer clear`)')
   }
   if (actions.length > 6) throw new OfferCliError('at most 6 --action buttons are allowed')
+  if (artifacts.length > 6) throw new OfferCliError('at most 6 --artifact references are allowed')
+  const artifactPaths = artifacts.map((p, i) => {
+    const path = p.trim()
+    if (!path) throw new OfferCliError(`--artifact ${i + 1} has an empty path`)
+    return path
+  })
   const parsed = actions.map((a) => parseAction(a.token, a.input))
-  const r = (await client.offer.set.mutate({ message: message.trim(), actions: parsed })) as {
+  const r = (await client.offer.set.mutate({
+    message: message.trim(),
+    actions: parsed,
+    ...(artifactPaths.length > 0 ? { artifacts: artifactPaths } : {}),
+  })) as {
     ok: boolean
     reason?: string
   }
   if (!r.ok) throw new OfferCliError(r.reason ?? 'offer was not accepted')
-  const note = parsed.length
-    ? `${parsed.length} action${parsed.length > 1 ? 's' : ''}`
-    : 'no actions'
+  const note = [
+    parsed.length ? `${parsed.length} action${parsed.length > 1 ? 's' : ''}` : 'no actions',
+    ...(artifactPaths.length > 0
+      ? [`${artifactPaths.length} artifact${artifactPaths.length > 1 ? 's' : ''}`]
+      : []),
+  ].join(', ')
   return done(`offer set (${note})`, r)
 }
 

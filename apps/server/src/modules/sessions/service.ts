@@ -1236,12 +1236,20 @@ export class SessionsService {
     sessionId,
     message,
     actions,
+    artifacts,
   }: {
     sessionId: string
     message: string
     actions: { label: string; prompt: string; input?: boolean }[]
+    /** Issue-artifact paths named as evidence [POD-120]; resolved client-side. */
+    artifacts?: string[]
   }): void {
-    const offer = { message, actions, createdAt: new Date().toISOString() }
+    const offer = {
+      message,
+      actions,
+      ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
+      createdAt: new Date().toISOString(),
+    }
     const session = this.sessions.get(sessionId)
     if (!session) {
       this.store.sessions.setOffer(sessionId, offer)

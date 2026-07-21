@@ -1064,6 +1064,9 @@ export class Session {
       clientCount: this.clients.size,
       createdAt: this.createdAt,
       lastActiveAt: this.lastActiveAt,
+      // Last human (controller) input — the offer-artifact freshness fallback
+      // [POD-120] compares issue-artifact addedAt against this on the client.
+      ...(this.inputAtMs > 0 ? { lastInputAt: new Date(this.inputAtMs).toISOString() } : {}),
       origin: this.origin,
       archived: this.archived,
       // Email-style read state (issue #124). unread = there is activity the operator

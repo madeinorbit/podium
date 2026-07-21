@@ -1,0 +1,1 @@
+ALTER TABLE `offers` ADD `artifacts` text;

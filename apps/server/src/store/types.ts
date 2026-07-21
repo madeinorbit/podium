@@ -21,6 +21,8 @@ export type SnoozeMap = Record<string, string | null>
 export interface OfferRecord {
   message: string
   actions: { label: string; prompt: string; input?: boolean }[]
+  /** Issue-artifact paths the offer names as evidence [POD-120]; absent = none. */
+  artifacts?: string[]
   createdAt: string
 }
 /** sessionId → its live offer. */

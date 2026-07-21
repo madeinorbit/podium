@@ -1087,6 +1087,7 @@ export function ChatView({
               offer={offer}
               disabled={!composerEnabled}
               onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+              {...(session ? { session } : {})}
             />
           </div>
         )}
