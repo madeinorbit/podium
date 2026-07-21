@@ -65,9 +65,15 @@ describe('POD-98 git-state service wiring', () => {
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     sessions.push(member('sess-1', id))
 
-    // Daemon-captured attribution: one commit, one touched file.
+    // Daemon-captured attribution: one touched file. Registration also fires
+    // the repopulation probe in the background, so poll until one settles.
     svc.recordSessionGitActivity('sess-1', { touched: ['/repo/apps/a.ts'] })
     await svc.refreshGitState(id, '/repo')
+    for (let i = 0; i < 50; i++) {
+      const gs = svc.allWire().find((w) => w.id === id)?.gitState
+      if (gs && gs.updatedAt !== '' && gs.computing !== true) break
+      await new Promise((r) => setTimeout(r, 10))
+    }
 
     const wire = svc.allWire().find((w) => w.id === id)
     expect(wire?.gitState).toMatchObject({
@@ -114,6 +120,26 @@ describe('POD-98 git-state service wiring', () => {
     const wire = svc.allWire().find((w) => w.id === id)
     expect(wire?.gitState?.fallback).toBe(true)
     expect(wire?.gitState?.dirtyOwn).toBeUndefined()
+  })
+
+  it('first registration after a restart repopulates the stamp without a turn end', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions, {
+      statusProbe: '## main',
+      logHead: 'abc\t2026-07-20T11:00:00Z',
+    })
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    sessions.push(member('sess-1', id))
+
+    // The daemon's empty baseline registration (SessionStart) is enough.
+    svc.recordSessionGitActivity('sess-1', {})
+    let state: unknown
+    for (let i = 0; i < 50 && state === undefined; i++) {
+      await new Promise((r) => setTimeout(r, 10))
+      const gs = svc.allWire().find((w) => w.id === id)?.gitState
+      state = gs && gs.updatedAt !== '' && gs.computing !== true ? gs : undefined
+    }
+    expect(state).toMatchObject({ shared: true, branch: 'main' })
   })
 
   it('sessions without an issue are a no-op on turn end', () => {

@@ -77,7 +77,10 @@ export function deriveGitStamp(
     }
   }
 
-  const attributed = !git.fallback && (git.commits !== undefined || git.dirtyOwn !== undefined)
+  // Commit attribution (ledger or message markers) and dirty attribution
+  // (touched-file set) arrive independently — marker-derived commits without a
+  // touched set must NOT relabel the checkout-wide dirty count as "yours".
+  const attributedDirty = git.shared && git.dirtyOwn !== undefined && !git.fallback
   const commits = git.shared ? (git.commits?.length ?? 0) : 0
   const ahead = git.shared ? 0 : (git.ahead ?? 0)
   const dirty = git.shared && git.dirtyOwn !== undefined ? git.dirtyOwn : git.dirtyFiles
@@ -97,7 +100,11 @@ export function deriveGitStamp(
     ? undefined
     : !committed && dirty === 0
       ? git.shared
-        ? 'no changes'
+        ? // "no changes" would lie when the CHECKOUT is dirty with other
+          // sessions' files — say whose absence we actually mean.
+          attributedDirty && git.dirtyFiles > 0
+          ? 'none yours'
+          : 'no changes'
         : 'no commits'
       : dirty === 0 && !git.shared
         ? 'clean'
@@ -112,11 +119,9 @@ export function deriveGitStamp(
   if (commits > 0) titleParts.push(`${commits} commit${commits === 1 ? '' : 's'} by this task`)
   if (dirty > 0)
     titleParts.push(
-      git.shared && attributed
-        ? `${dirty} of this task's files uncommitted`
-        : `${dirty} uncommitted`,
+      attributedDirty ? `${dirty} of this task's files uncommitted` : `${dirty} uncommitted`,
     )
-  if (git.shared && attributed && git.dirtyFiles > dirty)
+  if (attributedDirty && git.dirtyFiles > dirty)
     titleParts.push(`+${git.dirtyFiles - dirty} more from other sessions`)
   if (unpushed) titleParts.push('not pushed')
   if (git.fallback) titleParts.push('checkout-level data (no per-task attribution)')
@@ -131,7 +136,7 @@ export function deriveGitStamp(
     ahead: ahead > 0 ? ahead : undefined,
     commits: commits > 0 ? commits : undefined,
     dirty: dirty > 0 ? dirty : undefined,
-    dirtyLabel: git.shared && attributed ? 'yours' : 'files',
+    dirtyLabel: attributedDirty ? 'yours' : 'files',
     unpushed,
     merged,
     note,

@@ -32,6 +32,18 @@ export interface GitProbeTarget {
   commits?: string[]
   /** Harness-observed files this task's sessions touched (repo-relative). */
   touched?: ReadonlySet<string>
+  /** ERE matching the issue's commit-message markers ([POD-98] subject tag /
+   *  Podium-Issue trailer) — the restart-proof attribution source on shared
+   *  checkouts: history remembers what the in-memory ledger forgets. */
+  refsPattern?: string
+}
+
+/** Build the message-marker pattern for `logIssueCommits` from an issue's
+ *  human ref (e.g. `POD-98` or `#98`). ERE special chars in the ref are
+ *  escaped so `[POD-98]` matches literally. */
+export function issueRefsPattern(ref: string): string {
+  const esc = ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return `Podium-Issue: ${esc}|\\[${esc}\\]`
 }
 
 /** Parse `git status --porcelain=v1 -b`: header `## branch...upstream` +
@@ -81,7 +93,7 @@ export async function probeGitState(
   ): Promise<{ ok: boolean; output: string }> =>
     io.repoOp(name, target.cwd, args, target.machineId).catch(() => ({ ok: false, output: '' }))
 
-  const [status, head, unpushedRes, aheadRes] = await Promise.all([
+  const [status, head, unpushedRes, aheadRes, refCommitsRes] = await Promise.all([
     op('statusProbe'),
     op('logHead'),
     // No upstream configured → rev-list fails → counter absent, never zero-lies.
@@ -89,6 +101,9 @@ export async function probeGitState(
     target.shared
       ? Promise.resolve({ ok: false, output: '' })
       : op('revListCount', { from: target.parentBranch, to: 'HEAD' }),
+    target.shared && target.refsPattern
+      ? op('logIssueCommits', { grep: target.refsPattern })
+      : Promise.resolve({ ok: false, output: '' }),
   ])
 
   const { branch, dirtyPaths } = parsePorcelainStatus(status.output)
@@ -109,7 +124,12 @@ export async function probeGitState(
   }
 
   const lastCommitAt = head.ok ? head.output.split('\t')[1]?.trim() : undefined
-  const attributed = target.commits !== undefined || target.touched !== undefined
+  // Task-axis commits: the live ledger unioned with message-marker matches from
+  // history (dedup preserves ledger-first order; marker finds are appended).
+  const markerShas = refCommitsRes.ok ? refCommitsRes.output.split('\n').filter(Boolean) : []
+  const commits = [...new Set([...(target.commits ?? []), ...markerShas])]
+  const attributed =
+    target.commits !== undefined || target.touched !== undefined || markerShas.length > 0
 
   return {
     updatedAt: nowIso,
@@ -119,7 +139,7 @@ export async function probeGitState(
     ...(target.shared && target.touched !== undefined
       ? { dirtyOwn: countDirtyOwn(dirtyPaths, target.touched) }
       : {}),
-    ...(target.shared && target.commits !== undefined ? { commits: target.commits } : {}),
+    ...(target.shared && attributed ? { commits } : {}),
     ...(!target.shared && Number.isFinite(ahead) ? { ahead } : {}),
     ...(Number.isFinite(unpushed) ? { unpushed } : {}),
     ...(lastCommitAt ? { lastCommitAt } : {}),

@@ -37,6 +37,20 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
     case 'logHead':
       // Head sha + committer date, tab-separated — feeds gitState.lastCommitAt.
       return { bin: 'git', argv: ['log', '-1', '--format=%H%x09%cI'] }
+    case 'logIssueCommits': {
+      // Shas of commits whose message carries the issue's marker — the
+      // restart-proof attribution source on shared checkouts [POD-98]. The
+      // pattern is one argv token (execFile, no shell), ERE via -E; the
+      // leading-dash guard keeps it from parsing as an option.
+      const { grep } = args
+      if (!grep) return { error: 'missing args' }
+      const bad = assertSafeRef(grep, 'grep')
+      if (bad) return { error: bad }
+      return {
+        bin: 'git',
+        argv: ['log', '--reverse', '--format=%H', '-E', '--grep', grep, '-n', '50'],
+      }
+    }
     case 'log':
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { countDirtyOwn, parsePorcelainStatus, probeGitState } from './git-state'
+import { countDirtyOwn, issueRefsPattern, parsePorcelainStatus, probeGitState } from './git-state'
 
 const io = (
   responses: Record<string, { ok: boolean; output: string }>,
@@ -135,6 +135,51 @@ describe('probeGitState', () => {
     expect(state.fallback).toBe(true)
     expect(state.dirtyOwn).toBeUndefined()
     expect(state.dirtyFiles).toBe(1)
+  })
+
+  test('marker commits from history union with the ledger and defeat fallback', async () => {
+    const state = await probeGitState(
+      io({
+        statusProbe: { ok: true, output: '## main\n M x.ts' },
+        logIssueCommits: { ok: true, output: 'sha1\nsha2' },
+      }),
+      {
+        cwd: '/repo',
+        shared: true,
+        parentBranch: 'main',
+        branch: null,
+        commits: ['sha2', 'sha3'], // overlaps history; union dedupes
+        refsPattern: issueRefsPattern('POD-98'),
+      },
+      now,
+    )
+    expect(state.commits).toEqual(['sha2', 'sha3', 'sha1'])
+    expect(state.fallback).toBeUndefined()
+  })
+
+  test('marker-only attribution (restart amnesia) still yields commits', async () => {
+    const state = await probeGitState(
+      io({
+        statusProbe: { ok: true, output: '## main' },
+        logIssueCommits: { ok: true, output: 'sha9' },
+      }),
+      {
+        cwd: '/repo',
+        shared: true,
+        parentBranch: 'main',
+        branch: null,
+        refsPattern: issueRefsPattern('POD-98'),
+      },
+      now,
+    )
+    expect(state.commits).toEqual(['sha9'])
+    expect(state.fallback).toBeUndefined()
+    expect(state.dirtyOwn).toBeUndefined()
+  })
+
+  test('issueRefsPattern escapes ERE specials and matches both markers', () => {
+    expect(issueRefsPattern('POD-98')).toBe('Podium-Issue: POD-98|\\[POD-98\\]')
+    expect(issueRefsPattern('#98')).toBe('Podium-Issue: #98|\\[#98\\]')
   })
 
   test('no upstream → unpushed absent, not zero', async () => {

@@ -190,6 +190,9 @@ export const RepoOp = z.enum([
   'statusProbe',
   'revListCount',
   'logHead',
+  // Re-derive a task's commits from history by message marker ([POD-98] subject
+  // tag or Podium-Issue trailer) — the restart-proof half of attribution.
+  'logIssueCommits',
   'log',
   'branches',
   'revParseVerify',

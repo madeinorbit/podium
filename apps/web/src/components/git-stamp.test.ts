@@ -106,6 +106,31 @@ describe('deriveGitStamp', () => {
     expect(m.note).toBe('no changes')
   })
 
+  test('marker-only attribution never labels checkout dirt as yours', () => {
+    const m = deriveGitStamp(null, {
+      ...base,
+      branch: 'main',
+      shared: true,
+      dirtyFiles: 7,
+      commits: ['a', 'b', 'c'], // history markers; no touched-file set
+    })
+    expect(m.commits).toBe(3)
+    expect(m.dirty).toBe(7)
+    expect(m.dirtyLabel).toBe('files')
+  })
+
+  test('clean-for-you on a dirty shared checkout says "none yours"', () => {
+    const m = deriveGitStamp(null, {
+      ...base,
+      branch: 'main',
+      shared: true,
+      dirtyFiles: 7,
+      dirtyOwn: 0,
+    })
+    expect(m.dot).toBe('none')
+    expect(m.note).toBe('none yours')
+  })
+
   test('unpushed lights only when task commits are off-upstream', () => {
     const on = deriveGitStamp(null, {
       ...base,

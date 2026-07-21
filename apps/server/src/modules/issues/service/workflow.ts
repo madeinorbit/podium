@@ -1,5 +1,10 @@
 import { DEFER_NEXT_MESSAGE } from '@podium/domain'
-import type { IssueWire, OrphanIssue, SessionMeta } from '@podium/protocol'
+import {
+  formatIssueRef,
+  type IssueWire,
+  type OrphanIssue,
+  type SessionMeta,
+} from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { sessionsForIssue } from '../../../issue-util'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
@@ -7,7 +12,7 @@ import { type LinearIssue, searchIssues } from '../../../linear'
 import { completeForRole } from '../../../llm-roles'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
-import { probeGitState } from '../git-state'
+import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueServiceMail } from './mail'
 import type { CreateIssueInput } from './types'
 
@@ -855,20 +860,40 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     for (const f of activity.touched ?? []) touched.add(f)
     this.gitTouchedBySession.set(sessionId, touched)
     // A commit is the one git-state change worth a probe OUTSIDE the turn-end
-    // edge — it flips the headline answer ("has it committed?") mid-turn.
-    if (activity.commits?.length) this.onSessionTurnEnd(sessionId)
+    // edge — it flips the headline answer ("has it committed?") mid-turn. And
+    // after a restart the ephemeral gitStates map is empty: the first hook
+    // registration from a live session repopulates its issue's stamp instead
+    // of leaving the UI blank until the next full turn ends.
+    const resolved = this.issueForSession(sessionId)
+    if (!resolved) return
+    if (activity.commits?.length || !this.gitStates.has(resolved.row.id)) {
+      void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+    }
   }
 
   /** Working→idle edge from the sessions service: refresh the git state of the
    *  issue this session works. Fire-and-forget; never throws into the caller. */
   onSessionTurnEnd(sessionId: string): void {
+    const resolved = this.issueForSession(sessionId)
+    if (!resolved) return
+    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+  }
+
+  /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the
+   *  commit-message marker logIssueCommits greps for. */
+  private issueRef(row: IssueRow): string {
+    const prefix = this.d.store.repos.prefixForPath(row.repoPath)
+    return prefix ? formatIssueRef(prefix, row.seq) : `#${row.seq}`
+  }
+
+  /** The issue a session works: explicit attachment or worktree membership. */
+  private issueForSession(sessionId: string): { row: IssueRow; sess: SessionMeta } | null {
     const sess = this.d.listSessions().find((s) => s.sessionId === sessionId)
-    if (!sess) return
+    if (!sess) return null
     const row = [...this.rows.values()].find(
       (r) => !r.deletedAt && sessionsForIssue(r.worktreePath, [sess], r.id).length > 0,
     )
-    if (!row) return
-    void this.refreshGitState(row.id, sess.cwd).catch(() => {})
+    return row ? { row, sess } : null
   }
 
   /** Probe the issue's checkout and publish the result. Broadcasts a
@@ -906,6 +931,10 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
           branch: row.branch,
           machineId: row.machineId ?? undefined,
           ...attribution,
+          // Restart-proof task axis: commits whose message carries the issue's
+          // marker ([POD-98] tag / Podium-Issue trailer) count even when the
+          // in-memory ledger is empty or the commits predate capture.
+          refsPattern: issueRefsPattern(this.issueRef(row)),
         },
         this.now(),
       )
