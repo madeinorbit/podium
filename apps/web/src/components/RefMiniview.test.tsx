@@ -184,6 +184,54 @@ describe('RefCard run now (POD-110)', () => {
   })
 })
 
+describe('RefCard outside-click dismissal', () => {
+  let container: HTMLDivElement
+  let root: Root
+  beforeEach(() => {
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  function renderWithClose(onClose: () => void): void {
+    act(() => {
+      root.render(
+        <RefCard
+          refToken={rich.displayRef ?? ''}
+          target={issueTarget(rich)}
+          issues={issues}
+          onClose={onClose}
+          onOpenFull={() => {}}
+        />,
+      )
+    })
+  }
+
+  it('closes on a pointerdown outside the card', () => {
+    const onClose = vi.fn()
+    renderWithClose(onClose)
+    act(() => {
+      document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    })
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays open on a pointerdown inside the card', () => {
+    const onClose = vi.fn()
+    renderWithClose(onClose)
+    const inside = document.querySelector('[role=dialog] span')
+    expect(inside).not.toBeNull()
+    act(() => {
+      inside?.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    })
+    expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
 describe('seedCardPosition', () => {
   const viewport = { width: 1200, height: 800 }
 

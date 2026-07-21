@@ -195,6 +195,21 @@ export function RefCard({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [onClose])
 
+  // Light-dismiss: a pointerdown anywhere outside the card closes it. Safe from
+  // the activating click because activation happens on `click` — that click's
+  // pointerdown fired before this card mounted. Clicking another ref link still
+  // works: the pointerdown closes this card, then the click opens the next one.
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent): void => {
+      const el = cardEl.current
+      if (!el) return
+      if (e.target instanceof Node && el.contains(e.target)) return
+      onClose()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [onClose])
+
   return (
     <div
       ref={cardEl}
