@@ -1457,9 +1457,12 @@ export function issueIdOwningSession(
 /**
  * Nest top-level agent-started issues under the issue that owns their
  * `startedBySession` (M6 started-by tree). Formal `parentId` edges are left
- * alone — this is provenance grouping, not sub-issue hierarchy. If the starter
- * session or its issue is not in the current sidebar view, the issue stays
- * top-level (never hidden). Cycle-safe.
+ * alone — this is provenance grouping, not sub-issue hierarchy. Spin-offs
+ * (issues with an outgoing `discovered-from` edge) are also left alone: their
+ * provenance renders as the ⤷ origin tick, not nesting (POD-85/POD-117), so
+ * started-by nesting survives only as a fallback for agent-started issues that
+ * carry no explicit edge. If the starter session or its issue is not in the
+ * current sidebar view, the issue stays top-level (never hidden). Cycle-safe.
  */
 export function nestStartedByIssues(
   rows: UnifiedWorkRow[],
@@ -1492,7 +1495,12 @@ export function nestStartedByIssues(
       seenParents.add(parentId)
       parentId = allById.get(parentId)?.parentId
     }
-    if (!parentId && !issue.parentId && issue.startedBySession) {
+    // A spin-off (outgoing `discovered-from` edge) is deliberately TOP-LEVEL:
+    // the sidebar renders its provenance as the ⤷ origin tick (POD-85), so the
+    // startedBySession fallback must not re-nest it under the origin — which
+    // would also bubble its sessions into the origin's aggregate agent count.
+    const isSpinOff = issue.deps?.some((dep) => dep.type === 'discovered-from')
+    if (!parentId && !issue.parentId && !isSpinOff && issue.startedBySession) {
       parentId =
         issueIdOwningSession(
           issue.startedBySession,

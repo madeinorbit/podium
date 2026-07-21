@@ -179,6 +179,31 @@ describe('nestStartedByIssues', () => {
     expect((nested[0] as UnifiedIssueRow).issue.id).toBe('child')
   })
 
+  it('keeps a spin-off top-level and out of the origin aggregate (POD-117)', () => {
+    // POD-85 spin-offs carry an outgoing discovered-from edge and render the
+    // ⤷ origin tick — startedBySession must not re-nest them under the origin.
+    const originSess = sess('starter', { issueId: 'origin' })
+    const spinSess = sess('spin-worker', { issueId: 'spin' })
+    const origin = row(issue({ id: 'origin', title: 'Origin' }), [originSess])
+    const spin = row(
+      issue({
+        id: 'spin',
+        title: 'Spin-off',
+        startedBySession: 'starter',
+        origin: 'agent',
+        deps: [{ id: 'origin', type: 'discovered-from' }],
+        seq: 2,
+      }),
+      [spinSess],
+    )
+    const nested = nestStartedByIssues([origin, spin], [originSess, spinSess], [])
+    expect(nested.map((r) => (r as UnifiedIssueRow).issue.id)).toEqual(['origin', 'spin'])
+    const originRow = nested[0] as UnifiedIssueRow
+    expect(originRow.startedByChildren).toBeUndefined()
+    // The origin row must not claim the spin-off's agents.
+    expect(originRow.aggregateSessions ?? originRow.sessions).toHaveLength(1)
+  })
+
   it('nests formal sub-issues and lets parentId win over startedBy provenance', () => {
     const parentSess = sess('starter', { issueId: 'parent' })
     const childSess = sess('worker', { issueId: 'child' })
