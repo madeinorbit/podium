@@ -111,6 +111,15 @@ export interface PodiumClientApi {
     }>
     list: ApiQuery<{ machineId?: string; root: string; path?: string }, unknown>
   }
+  /** Git dock panel [POD-114] — raw output of fixed read-only repo ops. */
+  git: {
+    status: ApiQuery<{ machineId?: string; root: string }, { ok: boolean; output: string }>
+    log: ApiQuery<{ machineId?: string; root: string }, { ok: boolean; output: string }>
+    diffFile: ApiQuery<
+      { machineId?: string; root: string; path: string },
+      { ok: boolean; output: string }
+    >
+  }
   settings: {
     get: ApiQuery<void, PodiumSettings>
     set: ApiMutation<PodiumSettings, PodiumSettings>

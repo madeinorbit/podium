@@ -193,6 +193,10 @@ export const RepoOp = z.enum([
   // Re-derive a task's commits from history by message marker ([POD-98] subject
   // tag or Podium-Issue trailer) — the restart-proof half of attribution.
   'logIssueCommits',
+  // Git dock panel [POD-114] — read-only, --no-optional-locks like the probes.
+  // logPanel: parseable recent-commit list; diffFile: one file's diff vs HEAD.
+  'logPanel',
+  'diffFile',
   'log',
   'branches',
   'revParseVerify',

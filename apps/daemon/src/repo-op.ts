@@ -51,6 +51,22 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
         argv: ['log', '--reverse', '--format=%H', '-E', '--grep', grep, '-n', '50'],
       }
     }
+    case 'logPanel':
+      // Git dock panel [POD-114]: recent commits, tab-separated
+      // shortSha/sha/committerDate/author/subject (subject last — it may itself
+      // contain tabs, so clients split on the first four only).
+      return {
+        bin: 'git',
+        argv: ['--no-optional-locks', 'log', '-50', '--format=%h%x09%H%x09%cI%x09%an%x09%s'],
+      }
+    case 'diffFile': {
+      // Git dock panel [POD-114]: one file's combined (staged+unstaged) diff vs
+      // HEAD. The path rides after `--` as a pathspec, so a dash value can
+      // never parse as an option; untracked files simply produce empty output.
+      const { path } = args
+      if (!path) return { error: 'missing args' }
+      return { bin: 'git', argv: ['--no-optional-locks', 'diff', 'HEAD', '--', path] }
+    }
     case 'log':
       return { bin: 'git', argv: ['log', '--oneline', '-20'] }
     case 'branches':

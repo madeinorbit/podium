@@ -202,6 +202,21 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     root: string
     path?: string
   }) => Promise<Awaited<ReturnType<TApi['files']['list']['query']>>>
+  /** Git dock panel [POD-114] — read-only checkout inspection (raw git output;
+   *  parsing lives in the web viewmodels). */
+  gitStatus: (args: {
+    machineId?: string
+    root: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['status']['query']>>>
+  gitLog: (args: {
+    machineId?: string
+    root: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['log']['query']>>>
+  gitDiffFile: (args: {
+    machineId?: string
+    root: string
+    path: string
+  }) => Promise<Awaited<ReturnType<TApi['git']['diffFile']['query']>>>
   split: boolean
   toggleSplit: () => void
   /** Enrich the registered repos with branch/worktree metadata (fast — no

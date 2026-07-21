@@ -10,6 +10,22 @@ describe('repoOpCommand', () => {
     expect(repoOpCommand('status')).toEqual({ bin: 'git', argv: ['status', '--porcelain=v1', '-b'] })
     expect(repoOpCommand('log')).toEqual({ bin: 'git', argv: ['log', '--oneline', '-20'] })
   })
+  it('git dock panel ops are lock-free reads [POD-114]', () => {
+    expect(repoOpCommand('logPanel')).toEqual({
+      bin: 'git',
+      argv: ['--no-optional-locks', 'log', '-50', '--format=%h%x09%H%x09%cI%x09%an%x09%s'],
+    })
+    expect(repoOpCommand('diffFile', { path: 'src/a.ts' })).toEqual({
+      bin: 'git',
+      argv: ['--no-optional-locks', 'diff', 'HEAD', '--', 'src/a.ts'],
+    })
+    // A dash path is inert after `--` (pathspec, never an option).
+    expect(repoOpCommand('diffFile', { path: '-D' })).toEqual({
+      bin: 'git',
+      argv: ['--no-optional-locks', 'diff', 'HEAD', '--', '-D'],
+    })
+    expect(repoOpCommand('diffFile', {})).toEqual({ error: 'missing args' })
+  })
   it('worktreeAdd with and without start point (options before --, positionals after)', () => {
     expect(repoOpCommand('worktreeAdd', { path: '/r/wt', branch: 'issue/1-x' }))
       .toEqual({ bin: 'git', argv: ['worktree', 'add', '-b', 'issue/1-x', '--', '/r/wt'] })

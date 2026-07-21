@@ -1395,6 +1395,38 @@ export const appRouter = t.router({
           mods(ctx).messageGate.dispatch(ctx.capability, ctx.overrideScope, 'awaitAgent', input)!,
       ),
   }),
+  // Git dock panel [POD-114] — read-only checkout inspection for the web
+  // RightDock: working-tree status, recent commits, one file's diff. Same
+  // repo-root allowlist gate as `files`; each query maps to a fixed lock-free
+  // daemon repo op (never a shell string).
+  git: t.router({
+    status: t.procedure
+      .input(z.object({ machineId: z.string().optional(), root: z.string() }))
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return mods(ctx).rpc.repoOp('statusProbe', input.root, undefined, input.machineId)
+      }),
+    log: t.procedure
+      .input(z.object({ machineId: z.string().optional(), root: z.string() }))
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return mods(ctx).rpc.repoOp('logPanel', input.root, undefined, input.machineId)
+      }),
+    diffFile: t.procedure
+      .input(
+        z.object({ machineId: z.string().optional(), root: z.string(), path: z.string() }),
+      )
+      .query(({ ctx, input }) => {
+        if (!isAllowedRoot(ctx.repos.list(), input.root)) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
+        }
+        return mods(ctx).rpc.repoOp('diffFile', input.root, { path: input.path }, input.machineId)
+      }),
+  }),
   files: t.router({
     read: t.procedure
       .input(

@@ -12,6 +12,7 @@ import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { WorktreeFileTree } from '@/features/files/WorktreeFileTree'
+import { GitPanelView } from '@/features/git/GitPanelView'
 import { IssuePanelView } from '@/features/issues/IssuePanelView'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { DockShellPanel } from '@/features/terminal/DockShellPanel'
@@ -33,19 +34,6 @@ export const RIGHT_PANELS: { id: RightPanelTab; label: string; icon: LucideIcon 
   // its issue's delivery ledger ("what happened to my message").
   { id: 'mail', label: 'Messages', icon: Mail },
 ]
-
-function GitPlaceholder(): JSX.Element {
-  return (
-    <div className="p-3 text-xs text-muted-foreground/70">
-      <div className="font-medium text-muted-foreground">Git — coming soon</div>
-      <ul className="mt-2 list-disc pl-4">
-        <li>Working-tree status</li>
-        <li>Diff view</li>
-        <li>Commit log</li>
-      </ul>
-    </div>
-  )
-}
 
 /** The right dock panel: Files / Git / Issue for the active worktree. Opened
  *  from the thin icon rail on the shell's right edge; one panel at a time. */
@@ -95,7 +83,22 @@ export function RightDock({
         ) : (
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}
-      {tab === 'git' && <GitPlaceholder />}
+      {tab === 'git' &&
+        (active ? (
+          // Keyed by cwd: switching worktrees re-roots status/log/diff state.
+          <GitPanelView
+            key={active.cwd}
+            cwd={active.cwd}
+            machineId={active.machineId}
+            issue={
+              (active.issueId ? issues.find((i) => i.id === active.issueId) : undefined) ??
+              issueForCwd(issues, active.cwd) ??
+              undefined
+            }
+          />
+        ) : (
+          <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
+        ))}
       {tab === 'mail' &&
         (active ? (
           <MessageLedgerView

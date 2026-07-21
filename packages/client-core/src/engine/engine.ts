@@ -1331,6 +1331,12 @@ export class Engine<TApi extends PodiumClientApi = PodiumClientApi> {
       }) as Store<TApi>['writeFileScoped'],
       listDir: ((args: { machineId?: string; root: string; path?: string }) =>
         api.files.list.query(args)) as Store<TApi>['listDir'],
+      gitStatus: ((args: { machineId?: string; root: string }) =>
+        api.git.status.query(args)) as Store<TApi>['gitStatus'],
+      gitLog: ((args: { machineId?: string; root: string }) =>
+        api.git.log.query(args)) as Store<TApi>['gitLog'],
+      gitDiffFile: ((args: { machineId?: string; root: string; path: string }) =>
+        api.git.diffFile.query(args)) as Store<TApi>['gitDiffFile'],
       spawnDraftAgent: (args: {
         target: SpawnTarget
         agentKind: AgentKind
