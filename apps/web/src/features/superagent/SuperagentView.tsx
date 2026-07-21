@@ -475,6 +475,17 @@ function FreshThreadComposer({
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const voice = useVoiceInput((text) => setDraft((d) => (d ? `${d} ${text}` : text)))
 
+  // Auto-grow the composer with its content like the native-agent one, capped
+  // at ~6 lines after which it scrolls. Measured at height:auto, then set as an
+  // explicit px height so the CSS height transition animates grow/shrink (the
+  // momentary auto never paints).
+  useEffect(() => {
+    const ta = inputRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.min(ta.scrollHeight, 114)}px`
+  }, [draft])
+
   // ---- @ context menu (repos, worktrees, conversations) ----
   const localAtOptions = useMemo<AtOption[]>(() => {
     const views = reposToViews(repos)
@@ -627,9 +638,9 @@ function FreshThreadComposer({
           <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
-            rows={Math.min(6, Math.max(1, draft.split('\n').length))}
-            placeholder="Ask about anything — @ to pull other tasks into context"
+            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-150 ease-out placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+            rows={1}
+            placeholder="Ask anything — @ to add context"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value)
