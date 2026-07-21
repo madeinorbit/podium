@@ -42,6 +42,19 @@ export function claudeRecordModel(record: unknown): string | undefined {
   return model
 }
 
+/**
+ * The reasoning-effort tier this assistant record ran at — Claude stamps it
+ * top-level on assistant lines (`"effort":"medium"`). The OBSERVED counterpart
+ * to the spawn-time effort request: it also covers sessions Podium never
+ * spawned (CLI attach) and follows mid-session changes.
+ */
+export function claudeRecordEffort(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as Record<string, unknown>
+  if (r.type !== 'assistant') return undefined
+  return typeof r.effort === 'string' && r.effort !== '' ? r.effort : undefined
+}
+
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>

@@ -215,7 +215,7 @@ describe('AgentPanel active wiring', () => {
     await flush()
     expect(document.querySelector('[data-testid="take-control"]')).toBeTruthy()
     const menuText = document.querySelector('[role="menu"]')?.textContent ?? ''
-    expect(menuText).toContain('Resume in your terminal')
+    expect(menuText).toContain('Copy resume command')
     expect(menuText).toContain('claude --resume abc-123')
   })
 

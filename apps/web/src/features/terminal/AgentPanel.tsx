@@ -12,7 +12,6 @@ import { useTerminalSession } from '@podium/terminal-client-react'
 import {
   Archive,
   ArrowDownToLine,
-  Copy,
   Ellipsis,
   Folder,
   Keyboard,
@@ -22,6 +21,7 @@ import {
   RotateCcw,
   Sparkles,
   SquareTerminal,
+  Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -34,9 +34,9 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChatView } from '@/features/chat/ChatView'
@@ -145,6 +145,7 @@ const EFFORT_SHORT: Record<string, string> = {
  */
 export function modelToken(session: {
   observedModel?: string
+  observedEffort?: string
   model?: string
   effort?: string
 }): string | null {
@@ -165,10 +166,10 @@ export function modelToken(session: {
     }
   }
   const label = words.join(' ')
-  const effort =
-    session.effort && session.effort !== 'auto'
-      ? (EFFORT_SHORT[session.effort] ?? session.effort)
-      : undefined
+  const rawEffort =
+    session.observedEffort ??
+    (session.effort && session.effort !== 'auto' ? session.effort : undefined)
+  const effort = rawEffort ? (EFFORT_SHORT[rawEffort] ?? rawEffort) : undefined
   return effort ? `${label} · ${effort}` : label
 }
 
@@ -789,7 +790,10 @@ export function AgentPanel({
                     </Button>
                   }
                 />
-                <DropdownMenuContent align="end" className="w-auto min-w-[230px] max-w-[90vw]">
+                <DropdownMenuContent
+                  align="end"
+                  className="w-auto min-w-[236px] max-w-[90vw] p-[5px] **:data-[slot=dropdown-menu-item]:gap-[9px] **:data-[slot=dropdown-menu-item]:px-[9px] **:data-[slot=dropdown-menu-item]:py-[6px] **:data-[slot=dropdown-menu-item]:text-[12px]"
+                >
                   {effectiveMode === 'native' && !hibernated && !exited && (
                     <DropdownMenuItem
                       data-testid="take-control"
@@ -799,47 +803,56 @@ export function AgentPanel({
                       <Keyboard size={13} aria-hidden="true" /> Take control
                     </DropdownMenuItem>
                   )}
+                  {/* Native resume command (#119): one glanceable item — the verb
+                      up top, the literal command as a mono sub-line. (No
+                      DropdownMenuLabel here: Base UI's GroupLabel throws outside a
+                      Group and the popup then silently never opens.) */}
+                  {resumeCmd && (
+                    <DropdownMenuItem
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(resumeCmd)
+                          .then(() => toast('Resume command copied'))
+                          .catch(() => toast.error('Could not copy to clipboard'))
+                      }}
+                    >
+                      <TerminalIcon
+                        size={13}
+                        aria-hidden="true"
+                        className="translate-y-[3px] self-start"
+                      />
+                      <span className="min-w-0">
+                        Copy resume command
+                        <span
+                          className="mt-px block max-w-[26ch] truncate font-mono text-[9.5px] text-muted-foreground"
+                          title={resumeCmd}
+                        >
+                          {resumeCmd}
+                        </span>
+                      </span>
+                    </DropdownMenuItem>
+                  )}
                   {chatCapable && (
                     <DropdownMenuItem onClick={() => void startBtw(sessionId)}>
                       <Sparkles size={13} aria-hidden="true" /> Ask superagent
+                      <DropdownMenuShortcut>/btw</DropdownMenuShortcut>
                     </DropdownMenuItem>
                   )}
                   {canHibernate && (
-                    <DropdownMenuItem
-                      disabled={agentWorking}
-                      title={
-                        agentWorking
-                          ? 'Agent is working — hibernate once it reaches idle'
-                          : undefined
-                      }
-                      onClick={() => void hibernateSession(sessionId)}
-                    >
-                      <Moon size={13} aria-hidden="true" /> Hibernate
-                    </DropdownMenuItem>
-                  )}
-                  {/* Native resume command (#119): the literal `claude --resume <id>`
-                      etc. so you can pick the conversation back up in your own
-                      terminal, outside Podium. */}
-                  {/* Base UI's GroupLabel THROWS outside a Group (the popup render
-                      crashes on open and the boundary swallows it — the menu just
-                      never opens), so the label must live inside DropdownMenuGroup. */}
-                  {resumeCmd && (
-                    <DropdownMenuGroup>
-                      <DropdownMenuLabel>Resume in your terminal</DropdownMenuLabel>
-                      <code className="mx-1.5 mb-1 block overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px] whitespace-pre text-foreground">
-                        {resumeCmd}
-                      </code>
+                    <>
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        onClick={() => {
-                          void navigator.clipboard
-                            ?.writeText(resumeCmd)
-                            .then(() => toast('Resume command copied'))
-                            .catch(() => toast.error('Could not copy to clipboard'))
-                        }}
+                        disabled={agentWorking}
+                        title={
+                          agentWorking
+                            ? 'Agent is working — hibernate once it reaches idle'
+                            : undefined
+                        }
+                        onClick={() => void hibernateSession(sessionId)}
                       >
-                        <Copy size={13} aria-hidden="true" /> Copy command
+                        <Moon size={13} aria-hidden="true" /> Hibernate
                       </DropdownMenuItem>
-                    </DropdownMenuGroup>
+                    </>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>

@@ -1,6 +1,11 @@
 import { open } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/protocol'
-import { claudeRecordColor, claudeRecordModel, claudeRecordToItems } from './claude'
+import {
+  claudeRecordColor,
+  claudeRecordEffort,
+  claudeRecordModel,
+  claudeRecordToItems,
+} from './claude'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
 import { type StatTick, scheduleStatPoll } from './stat-tick'
@@ -48,10 +53,12 @@ export interface TranscriptTailOptions {
    *  alongside recordToItems; `onColor` fires when the value changes. */
   recordColor?: (record: unknown) => string | undefined
   onColor?: (color: string) => void
-  /** Extract the observed model id from a record (assistant turns' `message.model`).
-   *  `onModel` fires when the value changes (initial sighting included). */
+  /** Extract the observed model id / effort tier from a record (assistant turns'
+   *  `message.model` and top-level `effort`). `onModel` fires when either value
+   *  changes (initial sighting included), with the latest of both. */
   recordModel?: (record: unknown) => string | undefined
-  onModel?: (model: string) => void
+  recordEffort?: (record: unknown) => string | undefined
+  onModel?: (model: string, effort: string | undefined) => void
   /** Runs the tail's FIRST read (the multi-MB backfill seed — the expensive one)
    *  through a pacing gate; poll ticks hold off until the gated seed completes.
    *  Lets a caller standing up many tails at once (daemon reattach burst,
@@ -119,12 +126,14 @@ export function tailTranscript(
   const recordToItems = opts.recordToItems ?? claudeRecordToItems
   const recordColor = opts.recordColor ?? claudeRecordColor
   const recordModel = opts.recordModel ?? claudeRecordModel
+  const recordEffort = opts.recordEffort ?? claudeRecordEffort
   const windowBytes = opts.initialWindowBytes ?? TAIL_BYTES
   const maxInitialItems = opts.maxInitialItems ?? MAX_INITIAL_ITEMS
   const chunkBytes = opts.readChunkBytes ?? READ_CHUNK_BYTES
   const fileId = fileIdFor(path)
   let lastColor: string | undefined
   let lastModel: string | undefined
+  let lastEffort: string | undefined
   // Absolute byte position where `leftover` begins (= the start of the next
   // unparsed line). Bytes before this have been parsed into emitted items.
   let offset = 0
@@ -159,11 +168,16 @@ export function tailTranscript(
       lastColor = color
       opts.onColor?.(color)
     }
-    // The observed model rides the same tail — emit on change (last wins).
+    // The observed model + effort ride the same tail — one emit when either
+    // changes (assistant records carry both), always with the latest pair.
     const model = recordModel(record)
-    if (model !== undefined && model !== lastModel) {
-      lastModel = model
-      opts.onModel?.(model)
+    const effort = recordEffort(record)
+    const modelChanged = model !== undefined && model !== lastModel
+    const effortChanged = effort !== undefined && effort !== lastEffort
+    if (modelChanged) lastModel = model
+    if (effortChanged) lastEffort = effort
+    if ((modelChanged || effortChanged) && lastModel !== undefined) {
+      opts.onModel?.(lastModel, lastEffort)
     }
     return stampCursors(recordToItems(record), fileId, lineOffset, recordUuid(record))
   }

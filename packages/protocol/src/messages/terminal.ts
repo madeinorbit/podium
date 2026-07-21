@@ -435,4 +435,7 @@ export const AgentModelMessage = z.object({
   type: z.literal('agentModel'),
   sessionId: z.string(),
   model: z.string(),
+  /** The observed reasoning-effort tier (assistant records' top-level `effort`),
+   *  when the transcript reports one. Optional for wire-compat with older daemons. */
+  effort: z.string().optional(),
 })

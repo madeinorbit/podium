@@ -28,4 +28,13 @@ describe('modelToken', () => {
     expect(modelToken({ observedModel: 'claude-fable-5', effort: 'auto' })).toBe('fable 5')
     expect(modelToken({ observedModel: 'claude-fable-5', effort: 'ultra' })).toBe('fable 5 · ultra')
   })
+
+  it('prefers the observed effort over the spawn request', () => {
+    expect(
+      modelToken({ observedModel: 'claude-fable-5', observedEffort: 'high', effort: 'medium' }),
+    ).toBe('fable 5 · high')
+    expect(modelToken({ observedModel: 'claude-fable-5', observedEffort: 'medium' })).toBe(
+      'fable 5 · med',
+    )
+  })
 })
