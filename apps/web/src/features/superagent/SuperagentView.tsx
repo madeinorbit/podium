@@ -638,7 +638,7 @@ function FreshThreadComposer({
           <BlockCaret taRef={inputRef} value={draft} />
           <Textarea
             ref={inputRef}
-            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
+            className="min-h-0 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-foreground caret-transparent shadow-none field-sizing-fixed transition-[height] duration-1000 ease-in-out placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
             rows={1}
             placeholder="Ask anything — @ to add context"
             value={draft}
