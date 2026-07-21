@@ -76,7 +76,11 @@ export function SessionsSection({
             }}
           >
             <SelectTrigger className="w-full flex-1">
-              <SelectValue />
+              <SelectValue>
+                {settings.roles.coding.subagentStrategy === 'builtin'
+                  ? "Built-in (the harness's own)"
+                  : 'Coordinate via Podium'}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="builtin">Built-in (the harness's own)</SelectItem>
@@ -102,7 +106,15 @@ export function SessionsSection({
             }
           >
             <SelectTrigger className="w-full flex-1">
-              <SelectValue />
+              <SelectValue>
+                {
+                  {
+                    native: 'Native terminal',
+                    chat: 'Chat view',
+                    auto: 'Auto (chat on mobile, terminal on desktop)',
+                  }[settings.roles.coding.startScreen]
+                }
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="native">Native terminal</SelectItem>

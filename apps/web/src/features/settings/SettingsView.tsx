@@ -1,6 +1,7 @@
 import { shallowEqual } from '@podium/client-core/store'
 import type { HostMetricsWire } from '@podium/protocol'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
+import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -348,7 +349,9 @@ export function SettingsView(): JSX.Element {
 
   const patch = (p: Partial<PodiumSettings>) => setSettings((s) => (s ? { ...s, ...p } : s))
   const dirty =
-    settings !== null && lastSaved !== null && JSON.stringify(settings) !== JSON.stringify(lastSaved)
+    settings !== null &&
+    lastSaved !== null &&
+    JSON.stringify(settings) !== JSON.stringify(lastSaved)
   // The saved flash keeps the bar visible for a beat after a successful save.
   const [, forceTick] = useState(0)
   const savedFlash = savedAt > 0 && Date.now() - savedAt < 1500
@@ -387,6 +390,8 @@ export function SettingsView(): JSX.Element {
       } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault()
         if (dirty && !saving && BLOB_TABS.has(tab)) void save()
+      } else if (e.key === 'Escape' && !typing) {
+        setView('issues')
       }
     }
     window.addEventListener('keydown', onKey)
@@ -394,137 +399,153 @@ export function SettingsView(): JSX.Element {
   })
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Settings">
-      <div className="flex items-center justify-between border-border border-b px-4 py-3 md:px-[22px] md:py-3.5">
-        <h2 className="font-medium text-base text-foreground">Settings</h2>
+    <section
+      className="settings-overlay fixed inset-0 z-40 flex flex-col bg-background"
+      aria-label="Settings"
+    >
+      <header className="flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5">
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
-          title="Close settings"
+          size="sm"
+          className="gap-1 pr-2.5 pl-1.5 text-muted-foreground hover:text-foreground"
           onClick={() => setView('issues')}
         >
-          ✕
+          <ChevronLeft size={14} aria-hidden="true" />
+          Back
         </Button>
-      </div>
-      {error && !settings && (
-        <div className="border-border border-b px-4 py-2 text-destructive text-xs">{error}</div>
-      )}
-      <div className="relative flex min-h-0 flex-1 flex-col md:flex-row">
-        <nav
-          className="flex flex-row gap-1 overflow-x-auto border-border border-b p-2 md:w-[216px] md:flex-none md:flex-col md:gap-0 md:overflow-y-auto md:border-hairline-soft md:border-r md:border-b-0 md:bg-rail md:p-3 md:px-2.5 md:shadow-[inset_-3px_0_6px_-3px_rgb(0_0_0_/_0.55)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          aria-label="Settings sections"
-        >
-          <div className="relative mb-2 hidden md:block">
-            <input
-              ref={filterRef}
-              type="text"
-              value={filter}
-              placeholder="Find a setting"
-              className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[11.5px] text-foreground placeholder:text-text-faint focus:outline-none focus:ring-1 focus:ring-ring/40"
-              onChange={(e) => setFilter(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const first = visibleGroups[0]?.tabs[0]
-                  if (first) setSettingsTab(first.key)
-                } else if (e.key === 'Escape') {
-                  setFilter('')
-                  e.currentTarget.blur()
-                  e.stopPropagation()
-                }
-              }}
-            />
-            {filter === '' && (
-              <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[9px] text-text-faint">
-                /
-              </kbd>
-            )}
-          </div>
-          {visibleGroups.map((g) => (
-            <div key={g.label} className="contents md:block">
-              <div className="mt-3 mb-1 hidden px-2 font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em] first:mt-1 md:block">
-                {g.label}
-              </div>
-              {g.tabs.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  className={cn(
-                    'block w-full cursor-pointer whitespace-nowrap rounded-md px-2.5 py-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground md:py-[5px]',
-                    t.key === tab && 'bg-chip font-medium text-text-strong hover:bg-chip',
-                  )}
-                  aria-current={t.key === tab}
-                  onClick={() => setSettingsTab(t.key)}
-                >
-                  {t.label}
-                </button>
-              ))}
+        <span aria-hidden="true" className="h-4 w-px bg-hairline-soft" />
+        <h2 className="font-semibold text-[13px] text-text-strong">Settings</h2>
+        <div className="ml-auto flex items-center gap-3">
+          {error && !settings && <span className="text-destructive text-xs">{error}</span>}
+          <kbd className="rounded border border-hairline-soft px-1.5 py-0.5 font-mono text-[9px] text-text-faint">
+            esc
+          </kbd>
+        </div>
+      </header>
+      <div className="flex min-h-0 flex-1 justify-center">
+        <div className="flex min-h-0 w-full max-w-[1100px] flex-col gap-0 px-4 md:flex-row md:gap-12 md:px-8 lg:gap-16">
+          <nav
+            className="flex flex-row gap-1 overflow-x-auto border-border border-b py-2 md:w-[224px] md:flex-none md:flex-col md:gap-0 md:overflow-y-auto md:border-b-0 md:py-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            aria-label="Settings sections"
+          >
+            <div className="relative mb-2 hidden md:block">
+              <input
+                ref={filterRef}
+                type="text"
+                value={filter}
+                placeholder="Find a setting"
+                className="h-7 w-full rounded-md border border-hairline-soft bg-background px-2.5 text-[11.5px] text-foreground placeholder:text-text-faint focus:outline-none focus:ring-1 focus:ring-ring/40"
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const first = visibleGroups[0]?.tabs[0]
+                    if (first) setSettingsTab(first.key)
+                  } else if (e.key === 'Escape') {
+                    setFilter('')
+                    e.currentTarget.blur()
+                    e.stopPropagation()
+                  }
+                }}
+              />
+              {filter === '' && (
+                <kbd className="-translate-y-1/2 pointer-events-none absolute top-1/2 right-2 rounded border border-hairline-soft px-1 font-mono text-[9px] text-text-faint">
+                  /
+                </kbd>
+              )}
             </div>
-          ))}
-          {query !== '' && visibleGroups.length === 0 && (
-            <p className="hidden px-2 pt-1 text-[11.5px] text-text-dim md:block">
-              No section matches “{filter.trim()}”.
-            </p>
-          )}
-        </nav>
-        <div className="flex-1 overflow-y-auto px-4 py-3 pb-24 md:px-[30px] md:py-4">
-          <div className="max-w-[620px]">
-            {settings ? (
-              SECTION_VIEWS[tab]({
-                settings,
-                accounts,
-                patch,
-                trpc,
-                telegramSetup,
-                telegramSetupNow,
-                hostMetrics,
-                startTelegramSetup: () => void startTelegramSetup(),
-                resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
-                resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
-              })
-            ) : (
-              <div className="animate-pulse pt-2" aria-hidden="true">
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between gap-4 border-hairline-soft/50 border-b py-3.5 last:border-b-0"
+            {visibleGroups.map((g) => (
+              <div key={g.label} className="contents md:block">
+                <div className="mt-4 mb-1 hidden px-2 font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em] md:block">
+                  {g.label}
+                </div>
+                {g.tabs.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    className={cn(
+                      'block w-full cursor-pointer whitespace-nowrap rounded-md px-2.5 py-2 text-left text-[12.5px] text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground md:py-[5px]',
+                      t.key === tab && 'bg-chip font-medium text-text-strong hover:bg-chip',
+                    )}
+                    aria-current={t.key === tab}
+                    onClick={() => setSettingsTab(t.key)}
                   >
-                    <div className="min-w-0 space-y-1.5">
-                      <div className="h-3 w-36 rounded bg-chip" />
-                      {i % 2 === 0 && <div className="h-2 w-56 max-w-full rounded bg-chip/60" />}
-                    </div>
-                    <div className="h-7 w-[240px] flex-none rounded-md bg-chip/80" />
-                  </div>
+                    {t.label}
+                  </button>
                 ))}
               </div>
+            ))}
+            {query !== '' && visibleGroups.length === 0 && (
+              <p className="hidden px-2 pt-1 text-[11.5px] text-text-dim md:block">
+                No section matches “{filter.trim()}”.
+              </p>
             )}
+          </nav>
+          <div className="relative min-h-0 min-w-0 flex-1">
+            <div className="h-full overflow-y-auto py-4 pb-28 md:py-8">
+              <div className="settings-section-enter max-w-[640px]" key={tab}>
+                {settings ? (
+                  SECTION_VIEWS[tab]({
+                    settings,
+                    accounts,
+                    patch,
+                    trpc,
+                    telegramSetup,
+                    telegramSetupNow,
+                    hostMetrics,
+                    startTelegramSetup: () => void startTelegramSetup(),
+                    resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
+                    resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
+                  })
+                ) : (
+                  <div className="animate-pulse pt-2" aria-hidden="true">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between gap-4 border-hairline-soft/50 border-b py-3.5 last:border-b-0"
+                      >
+                        <div className="min-w-0 space-y-1.5">
+                          <div className="h-3 w-36 rounded bg-chip" />
+                          {i % 2 === 0 && (
+                            <div className="h-2 w-56 max-w-full rounded bg-chip/60" />
+                          )}
+                        </div>
+                        <div className="h-7 w-[240px] flex-none rounded-md bg-chip/80" />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div
+              className={cn(
+                'absolute inset-x-0 bottom-4 z-10 flex max-w-[640px] items-center gap-2 rounded-lg border border-border-strong bg-chip py-1.5 pr-1.5 pl-3.5 shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none',
+                showBar
+                  ? 'translate-y-0 opacity-100'
+                  : 'pointer-events-none translate-y-16 opacity-0',
+              )}
+              aria-hidden={!showBar}
+            >
+              <span
+                className={cn(
+                  'min-w-0 flex-1 truncate text-[12px]',
+                  error ? 'text-destructive' : 'text-foreground',
+                )}
+              >
+                {error ? error : dirty || saving ? 'Unsaved changes' : 'Saved ✓'}
+              </span>
+              {(dirty || error) && (
+                <Button type="button" variant="ghost" size="sm" onClick={discard}>
+                  Discard
+                </Button>
+              )}
+              {(dirty || saving || error) && (
+                <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
+                  {saving ? 'Saving…' : 'Save changes'}
+                </Button>
+              )}
+            </div>
           </div>
-        </div>
-        <div
-          className={cn(
-            'absolute inset-x-3 bottom-3 z-10 flex items-center gap-2 rounded-lg border border-border-strong bg-chip py-1.5 pr-1.5 pl-3.5 shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)] transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none md:right-4 md:left-[240px]',
-            showBar ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-16 opacity-0',
-          )}
-          aria-hidden={!showBar}
-        >
-          <span
-            className={cn(
-              'min-w-0 flex-1 truncate text-[12px]',
-              error ? 'text-destructive' : 'text-foreground',
-            )}
-          >
-            {error ? error : dirty || saving ? 'Unsaved changes' : 'Saved ✓'}
-          </span>
-          {(dirty || error) && (
-            <Button type="button" variant="ghost" size="sm" onClick={discard}>
-              Discard
-            </Button>
-          )}
-          {(dirty || saving || error) && (
-            <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
-          )}
         </div>
       </div>
     </section>

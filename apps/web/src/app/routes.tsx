@@ -2,7 +2,6 @@ import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense } from 'react'
 import { AutomationsView } from '@/features/automations/AutomationsView'
 import { IssuesView } from '@/features/issues/IssuesView'
-import { SettingsView } from '@/features/settings/SettingsView'
 import { UsageView } from '@/features/usage/UsageView'
 import { WorkflowsView } from '@/features/workflows/WorkflowsView'
 import { useFeature } from '@/lib/use-feature'
@@ -34,7 +33,9 @@ export function MainViewOutlet({
   const issuesView = <>{issues ?? <IssuesView />}</>
   switch (view) {
     case 'settings':
-      return <SettingsView />
+      // Settings is a full-viewport takeover layer rendered by AppShell (POD-127);
+      // the outlet keeps the board mounted underneath so closing is instant.
+      return issuesView
     case 'usage':
       return <UsageView />
     case 'issues':

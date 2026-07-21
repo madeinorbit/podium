@@ -752,3 +752,30 @@ a.ref-link--session::before {
 .settings-row + .settings-row {
   border-top: 1px solid color-mix(in oklab, var(--hairline-soft) 60%, transparent);
 }
+
+/* Settings takeover (POD-127): one-shot entrance morphs per the agent-state
+   motion grammar — a single ease-out settle, then stillness. */
+.settings-overlay {
+  animation: settings-overlay-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes settings-overlay-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.settings-section-enter {
+  animation: settings-section-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes settings-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-section-enter {
+    animation: none;
+  }
+}

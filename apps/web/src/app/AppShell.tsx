@@ -9,6 +9,7 @@ import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
+import { SettingsView } from '@/features/settings/SettingsView'
 import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column-state'
 import { trayCount } from '@/features/superagent/derive-tray'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
@@ -153,6 +154,7 @@ function AppBody(): JSX.Element {
     }),
     shallowEqual,
   )
+  const view = useStoreSelector((s) => s.view)
   const [dismissed, setDismissed] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsedState] = useState(() =>
     readBooleanState(uiState.get(SIDEBAR_COLLAPSED_KEY)),
@@ -360,6 +362,9 @@ function AppBody(): JSX.Element {
           />
         </div>
       </div>
+      {/* Settings is a full-viewport takeover above the shell (POD-127) — the
+          board stays mounted underneath, so closing is instant. */}
+      {view === 'settings' && <SettingsView />}
       <AutoContinueDialog />
       <ApprovalDialog />
       {commandPaletteEnabled && <CommandPalette />}

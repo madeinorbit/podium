@@ -312,7 +312,7 @@ export function RoleBackendEditor({
             }
           >
             <SelectTrigger className="w-full flex-1">
-              <SelectValue />
+              <SelectValue>{managedHarness ? harnessAgentLabel(managedHarness) : ''}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {codingHarnesses.map((h) => (

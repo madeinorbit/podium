@@ -49,7 +49,13 @@ export function WorkflowSection({
           }
         >
           <SelectTrigger className="w-full flex-1">
-            <SelectValue />
+            <SelectValue>
+              {
+                { 'ff-only': 'FF-only merge', pr: 'Open PR', ask: 'Ask each time' }[
+                  settings.gitWorkflow.mergeStyle
+                ]
+              }
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="ff-only">FF-only merge</SelectItem>
