@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "ink": "^6.0.0",
-    "react": "^19.0.0"
+    "react": "^19.2.7"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
