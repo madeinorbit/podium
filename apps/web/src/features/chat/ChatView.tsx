@@ -505,6 +505,12 @@ export function ChatView({
   useEffect(() => {
     const ta = taRef.current
     if (!ta) return
+    // Measure the content height at height:auto, then restore the previous
+    // pixel height and force a reflow BEFORE setting the target — the reflow
+    // pins the transition's start value to the old height (measuring at auto
+    // otherwise makes the start value 'auto', which cannot interpolate, so
+    // the height would snap instead of animate).
+    const prev = ta.style.height
     ta.style.height = 'auto'
     // Cap in px (max-h-44 = 176px) so the animated height never fights the
     // CSS clamp; past the cap the textarea scrolls. When empty, scrollHeight
@@ -514,7 +520,10 @@ export function ChatView({
       Number.parseFloat(cs.lineHeight) +
       Number.parseFloat(cs.paddingTop) +
       Number.parseFloat(cs.paddingBottom)
-    ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 176) : oneLine}px`
+    const target = ta.value ? Math.min(ta.scrollHeight, 176) : oneLine
+    ta.style.height = prev || `${target}px`
+    void ta.offsetHeight
+    ta.style.height = `${target}px`
   }, [draft])
 
   const scrollToBlock = (index: number) => {

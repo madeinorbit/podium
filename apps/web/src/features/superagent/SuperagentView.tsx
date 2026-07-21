@@ -482,15 +482,21 @@ function FreshThreadComposer({
   useEffect(() => {
     const ta = inputRef.current
     if (!ta) return
+    // Measure at auto, restore the previous height, reflow, then set the
+    // target — otherwise the transition starts from 'auto' (uninterpolable)
+    // and snaps instead of animating. When empty, scrollHeight includes the
+    // (possibly wrapped) placeholder — size to one line instead.
+    const prev = ta.style.height
     ta.style.height = 'auto'
-    // When empty, scrollHeight includes the (possibly wrapped) placeholder —
-    // size to one line instead.
     const cs = getComputedStyle(ta)
     const oneLine =
       Number.parseFloat(cs.lineHeight) +
       Number.parseFloat(cs.paddingTop) +
       Number.parseFloat(cs.paddingBottom)
-    ta.style.height = `${ta.value ? Math.min(ta.scrollHeight, 114) : oneLine}px`
+    const target = ta.value ? Math.min(ta.scrollHeight, 114) : oneLine
+    ta.style.height = prev || `${target}px`
+    void ta.offsetHeight
+    ta.style.height = `${target}px`
   }, [draft])
 
   // ---- @ context menu (repos, worktrees, conversations) ----
