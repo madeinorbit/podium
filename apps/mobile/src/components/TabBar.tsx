@@ -98,29 +98,30 @@ const styles = StyleSheet.create({
   },
   bar: {
     flexDirection: 'row',
-    gap: 4,
-    // Slimmer insets than the screen gutter: four labels ("Superagent") need
-    // the width, and the active pill must not kiss its neighbours.
-    marginHorizontal: space.sm,
+    // Content-sized tabs, leftover space between them: equal quarters would
+    // squeeze "Superagent" while "Inbox" floats in dead space, and the active
+    // pill would kiss its neighbour.
+    justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    marginHorizontal: 6,
     borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: color.hairlineBar,
     backgroundColor: 'rgba(10, 10, 14, 0.92)',
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     paddingVertical: 6,
     overflow: 'hidden',
     ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(18px)' } as object) : null),
   },
   tab: {
-    flex: 1,
-    minWidth: 0,
+    flexShrink: 1,
   },
   tabInner: {
     alignItems: 'center',
     gap: 3,
     borderRadius: radius.lg,
     paddingVertical: 7,
-    paddingHorizontal: 4,
+    paddingHorizontal: 10,
   },
   tabInnerActive: {
     backgroundColor: color.accentSoft,
