@@ -163,11 +163,11 @@ export function GitPanelView({
           header either way. */}
       <div className="flex flex-none flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-3 py-2">
         {issue?.gitState ? (
-          <GitStamp issueBranch={issue.branch} git={issue.gitState} density="footer" />
+          <GitStamp issueBranch={issue.branch} git={issue.gitState} density="panel" />
         ) : (
-          <span className="inline-flex items-center gap-1.5 font-mono text-[10.5px] leading-none text-muted-foreground">
-            <GitBranch size={11} aria-hidden="true" className="text-muted-foreground/70" />
-            <span className="max-w-[24ch] truncate">{header?.branch ?? '…'}</span>
+          <span className="inline-flex flex-wrap items-center gap-1.5 font-mono text-[12.5px] leading-[1.35] text-secondary-foreground">
+            <GitBranch size={13} aria-hidden="true" className="flex-none text-muted-foreground/70" />
+            <span className="break-all font-semibold">{header?.branch ?? '…'}</span>
           </span>
         )}
         {header?.upstream && (
@@ -248,10 +248,25 @@ export function GitPanelView({
         </ul>
       </div>
 
-      {/* Commit log */}
+      {/* Commit log — the CHECKOUT's history, deliberately not filtered to the
+          task: the section title + subline make that scope explicit. */}
       <div className="flex-none pb-2">
-        <div className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-          Commits
+        <div className="px-3 pt-2.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+          Repo history
+        </div>
+        <div className="px-3 pb-1.5 text-[10.5px] leading-snug text-muted-foreground/60">
+          All recent commits on this checkout
+          {attributed.size > 0 && (
+            <>
+              {' · '}
+              <span
+                className="mb-[1px] inline-block size-[6px] rounded-full align-middle"
+                style={{ background: 'var(--live)' }}
+                aria-hidden="true"
+              />{' '}
+              = this task&rsquo;s
+            </>
+          )}
         </div>
         {log && log.length === 0 && (
           <div className="px-3 pb-2 text-[11px] text-muted-foreground/70">No commits yet.</div>

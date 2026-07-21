@@ -5,8 +5,10 @@ import { deriveGitStamp } from './git-stamp'
 
 /**
  * The git stamp [POD-98]: has this task committed, and on which branch?
- * One grammar in three densities — `chip` (pane header), `stamp` (sidebar
- * line-2), `footer` (tray card). Pure state logic lives in git-stamp.ts.
+ * One grammar in four densities — `chip` (pane header), `stamp` (sidebar
+ * line-2), `footer` (tray card), `panel` (Git dock header [POD-114]: larger
+ * type, full branch name — never truncated). Pure state logic lives in
+ * git-stamp.ts.
  */
 export function GitStamp({
   issueBranch,
@@ -17,7 +19,7 @@ export function GitStamp({
 }: {
   issueBranch: string | null | undefined
   git: IssueGitState | null | undefined
-  density: 'chip' | 'stamp' | 'footer'
+  density: 'chip' | 'stamp' | 'footer' | 'panel'
   /** Chip densities are the click-through to the RightDock Git tab. */
   onClick?: () => void
   className?: string
@@ -86,11 +88,17 @@ export function GitStamp({
   const body = (
     <>
       {density !== 'stamp' && (
-        <GitBranch size={11} aria-hidden="true" className="text-muted-foreground/70" />
+        <GitBranch
+          size={density === 'panel' ? 13 : 11}
+          aria-hidden="true"
+          className="flex-none text-muted-foreground/70"
+        />
       )}
       {showBranch && (
         <span
-          className={`max-w-[16ch] truncate ${m.mismatch ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}
+          className={`${
+            density === 'panel' ? 'break-all font-semibold' : 'max-w-[16ch] truncate'
+          } ${m.mismatch ? 'font-semibold text-destructive' : density === 'panel' ? 'text-secondary-foreground' : 'text-muted-foreground'}`}
         >
           {m.branch}
         </span>
@@ -120,8 +128,12 @@ export function GitStamp({
       data-density={density}
       title={m.title}
       className={`inline-flex items-center gap-1.5 font-mono ${
-        density === 'footer' ? 'text-[10px]' : 'text-[10.5px]'
-      } leading-none ${className}`}
+        density === 'footer'
+          ? 'text-[10px]'
+          : density === 'panel'
+            ? 'flex-wrap text-[12.5px] leading-[1.35]'
+            : 'text-[10.5px]'
+      } ${density === 'panel' ? '' : 'leading-none'} ${className}`}
     >
       {body}
     </span>
