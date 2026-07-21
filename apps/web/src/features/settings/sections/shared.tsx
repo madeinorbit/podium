@@ -241,11 +241,11 @@ export function RoleBackendEditor({
   // as that row's description instead of a detached paragraph (POD-127 F3).
   const accountNote: React.ReactNode =
     accountId === 'native:claude-code' ? (
-      <span className="text-warning">
+      <>
         Runs Claude Code&apos;s programmatic mode (<code className="text-[10px]">claude -p</code>)
-        on this account — usage counts against its limits. API users are billed by token;
-        subscribers consume plan usage.
-      </span>
+        on this account — <span className="text-warning">usage counts against its limits</span>.
+        API users are billed by token; subscribers consume plan usage.
+      </>
     ) : accountId === 'native:codex' ? (
       <>
         Uses your local ChatGPT login (<code className="text-[10px]">codex login</code> on the
