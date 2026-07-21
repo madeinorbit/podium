@@ -37,7 +37,7 @@ export function GitStamp({
         data-testid="git-stamp-loading"
         title={m.title}
         className={`inline-flex animate-pulse items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground/60 ${
-          density === 'chip' ? 'rounded-[6px] border border-border bg-secondary/40 px-2 py-1' : ''
+          density === 'chip' ? 'rounded-[6px] border issue-hairline-35 bg-background/50 px-2 py-1' : ''
         } ${className}`}
       >
         <GitBranch size={11} aria-hidden="true" />
@@ -116,7 +116,7 @@ export function GitStamp({
         data-density="chip"
         title={`${m.title} — open Git panel`}
         onClick={onClick}
-        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-[6px] border border-border bg-secondary/40 px-2 py-1 font-mono text-[10.5px] leading-none transition-colors hover:border-border-strong ${className}`}
+        className={`inline-flex cursor-pointer items-center gap-1.5 rounded-[6px] border issue-hairline-35 bg-background/50 px-2 py-1 font-mono text-[10.5px] leading-none transition-colors hover:issue-hairline-60 ${className}`}
       >
         {body}
       </button>
