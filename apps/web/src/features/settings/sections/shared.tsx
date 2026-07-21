@@ -29,9 +29,9 @@ export function Section({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section className="border-border border-b py-3 last:border-b-0">
-      <h3 className="mb-0.5 font-medium text-[13px] text-foreground">{title}</h3>
-      {hint && <p className="mb-2 max-w-[60ch] text-[12px] text-muted-foreground">{hint}</p>}
+    <section className="mt-6 border-hairline-soft border-t pt-4 first:mt-0 first:border-t-0 first:pt-1">
+      <h3 className="mb-0.5 font-semibold text-[12.5px] text-text-strong">{title}</h3>
+      {hint && <p className="mb-1.5 max-w-[58ch] text-[11.5px] text-text-dim">{hint}</p>}
       {children}
     </section>
   )
@@ -39,17 +39,28 @@ export function Section({
 
 export function Row({
   label,
+  description,
   children,
 }: {
   label: string
+  /** The row's own explanation — lives under the label, never as a detached
+   *  paragraph between rows (POD-127 F3). */
+  description?: React.ReactNode
   children: React.ReactNode
 }): JSX.Element {
   // Every Row holds exactly one control, but the type system can't prove that to
   // the a11y lint — a div keeps it honest; the visible text still sits beside it.
   return (
-    <div className="flex items-center gap-2.5 py-1 text-[13px]">
-      <span className="flex-none basis-[140px] text-foreground md:basis-[180px]">{label}</span>
-      {children}
+    <div className="settings-row grid grid-cols-1 gap-1.5 py-2.5 text-[13px] md:grid-cols-[minmax(0,1fr)_240px] md:items-center md:gap-4">
+      <div className="min-w-0">
+        <span className="text-[12.5px] text-foreground">{label}</span>
+        {description && (
+          <p className="mt-0.5 max-w-[44ch] text-[11px] text-text-dim leading-normal">
+            {description}
+          </p>
+        )}
+      </div>
+      <div className="flex w-full min-w-0 items-center md:justify-end">{children}</div>
     </div>
   )
 }
@@ -226,9 +237,39 @@ export function RoleBackendEditor({
   }
   const updateBackend = (patch: Partial<RoleBackend>) =>
     onChange({ ...backend, ...patch, harness: harnessFor(accountId, harness) })
+  // The billing/execution explainer belongs to the Account choice, so it renders
+  // as that row's description instead of a detached paragraph (POD-127 F3).
+  const accountNote: React.ReactNode =
+    accountId === 'native:claude-code' ? (
+      <span className="text-warning">
+        Runs Claude Code&apos;s programmatic mode (<code className="text-[10px]">claude -p</code>)
+        on this account — usage counts against its limits. API users are billed by token;
+        subscribers consume plan usage.
+      </span>
+    ) : accountId === 'native:codex' ? (
+      <>
+        Uses your local ChatGPT login (<code className="text-[10px]">codex login</code> on the
+        server) — no API key; it uses your plan&apos;s included Codex capacity while limits allow.
+      </>
+    ) : isNative ? (
+      <>
+        Runs a real {harness} agent with its own tool belt, using its local login on this server.
+      </>
+    ) : codingHarnesses.length > 0 ? (
+      <>
+        Podium runs {managedHarness ? harnessAgentLabel(managedHarness) : 'a'} harness and injects
+        the credential you connected under Accounts into its environment — so this session runs on
+        that account from any connected machine.
+      </>
+    ) : (
+      <>
+        Billed per token against the key you set under Settings → API keys. This role calls the
+        provider API directly.
+      </>
+    )
   return (
     <>
-      <Row label="Account">
+      <Row label="Account" description={accountNote}>
         <Select
           value={accountId}
           onValueChange={(value) => {
@@ -310,38 +351,6 @@ export function RoleBackendEditor({
             onChange={(effort) => updateBackend({ effort })}
           />
         </Row>
-      )}
-      {accountId === 'native:claude-code' ? (
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-warning">
-          Agent CLI harness — Claude Code's programmatic mode (
-          <code className="text-[11px]">claude -p</code>).{' '}
-          {
-            "It uses your Claude Code account and counts against that account's usage/rate limits. API users are billed by token; subscribers consume plan usage."
-          }
-        </p>
-      ) : accountId === 'native:codex' ? (
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-          Uses your local ChatGPT login (<code className="text-[11px]">codex login</code> on the
-          server) — no API key; it uses your plan's included Codex capacity while limits allow.
-        </p>
-      ) : isNative ? (
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-          Agent CLI harness: Podium runs a real {harness} agent with its own tool belt, using its
-          local login on this server.
-        </p>
-      ) : codingHarnesses.length > 0 ? (
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-          Managed account: Podium runs {managedHarness ? harnessAgentLabel(managedHarness) : 'a'}{' '}
-          harness and injects the credential you connected under Accounts & Keys into its
-          environment — so this session runs on that account from any connected machine, not on the
-          machine's own login.
-        </p>
-      ) : (
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-          Provider backend (API key or local login): billed per token against the key you set under
-          Settings → API keys. This role calls the provider API directly; it does not yet use a
-          managed account connected under Accounts & Keys.
-        </p>
       )}
     </>
   )

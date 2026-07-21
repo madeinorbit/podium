@@ -59,7 +59,10 @@ export function SessionsSection({
             />
           </Row>
         )}
-        <Row label="Subagents">
+        <Row
+          label="Subagents"
+          description="Built-in subagents share the harness and are the best choice today. Podium-coordinated subagents (for cross-harness work) are coming soon."
+        >
           <Select
             value={settings.roles.coding.subagentStrategy}
             onValueChange={(value) => {
@@ -83,11 +86,6 @@ export function SessionsSection({
             </SelectContent>
           </Select>
         </Row>
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-          Built-in subagents share the harness and are the best choice today. Podium-coordinated
-          subagents (needed to run a different harness or get cross-harness visibility) are coming
-          soon.
-        </p>
         <Row label="New session opens on">
           <Select
             value={settings.roles.coding.startScreen}
@@ -113,7 +111,17 @@ export function SessionsSection({
             </SelectContent>
           </Select>
         </Row>
-        <Row label="Match agent theme to Podium">
+        <Row
+          label="Match agent theme to Podium"
+          description={
+            <>
+              Seeds each spawned CLI&apos;s per-session theme flag (Claude Code{' '}
+              <span className="font-mono">theme: auto</span>, Codex{' '}
+              <span className="font-mono">tui.theme=ansi</span>) so agent colours follow the
+              issue-tinted terminal. Your global agent config is never modified.
+            </>
+          }
+        >
           <Switch
             checked={settings.roles.coding.seedCliTheme}
             onCheckedChange={(checked) =>
@@ -126,13 +134,6 @@ export function SessionsSection({
             }
           />
         </Row>
-        <p className="mt-1.5 mb-0.5 max-w-[60ch] text-[12px] text-muted-foreground">
-          Seeds each spawned CLI with its official per-session theme flag (Claude Code{' '}
-          <span className="font-mono">theme: auto</span>, Codex{' '}
-          <span className="font-mono">tui.theme=ansi</span>) so the agent&apos;s colours follow the
-          issue-tinted terminal. Off = the CLI&apos;s own theme settings apply untouched; your
-          global agent config is never modified either way.
-        </p>
       </Section>
       <Section
         title="Auto-continue on errors"

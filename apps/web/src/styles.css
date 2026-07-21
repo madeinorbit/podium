@@ -745,3 +745,10 @@ a.ref-link--session::before {
 .markdown-preview input[type="checkbox"] {
   margin-right: 0.4em;
 }
+
+/* Settings rows (POD-127): hairline seam between adjacent rows only — never
+   above the first or below the last, and prose/notes between rows break the
+   run naturally. */
+.settings-row + .settings-row {
+  border-top: 1px solid color-mix(in oklab, var(--hairline-soft) 60%, transparent);
+}
