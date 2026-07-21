@@ -11,8 +11,9 @@ const FINISHED_WINDOW_MS = 24 * 60 * 60 * 1000
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3–§2.4): the
  * ONLY things it ever shows are items that need a HUMAN — an agent's question
  * (`needsHuman`), an agent's action offer (SessionOffer [spec:SP-c7f1],
- * which is also how review-ready work announces itself), or a deterministic
- * finished-task card awaiting Archive. Working/status rows never
+ * which is how review-ready work announces itself richly), a deterministic
+ * review backstop for stage=review issues with no live offer [POD-118], or a
+ * deterministic finished-task card awaiting Archive. Working/status rows never
  * appear; when nothing waits, the tray collapses to the quiet empty line whose
  * live counter comes from {@link workingSessionCount}.
  *
@@ -33,6 +34,11 @@ export type TrayItem = {
   // Deterministic completion card: recognized from issue state, not
   // agent-offered — a finished task waits for the human to archive it.
   | { kind: 'finished' }
+  // Deterministic review backstop [POD-118]: an issue sitting in stage=review
+  // whose sessions carry NO live offer still gets a minimal card, so review
+  // visibility never depends on the offer surviving (a stop-hook or mail wake
+  // can force an agent turn that eats it).
+  | { kind: 'review' }
 )
 
 /** Identity of one offer instance — a NEW offer on the same session is a new
@@ -92,12 +98,25 @@ export function deriveTrayItems(
     // review cards: review-ready work announces itself through an offer.
     // Same session filter as everywhere else: shells can't offer, headless
     // (superagent-embedded) threads keep theirs in the super chat.
+    // Whether ANY eligible session carries an offer — dismissed ones count:
+    // an optimistically-hidden offer means the user just acted on it, and the
+    // review backstop below must not pop in for that beat.
+    let hasOffer = false
     for (const session of issue.sessions ?? []) {
       if (session.archived || session.headless === true || session.agentKind === 'shell') continue
       const offer = session.offer
       if (!offer) continue
+      hasOffer = true
       if (dismissedOffers?.has(offerKey(session.sessionId, offer.createdAt))) continue
       items.push({ kind: 'offer', issue, session, offer, since: offer.createdAt })
+    }
+    // Review backstop [POD-118]: stage=review with no live offer renders a
+    // minimal deterministic card. The offer is the richer announcement (its
+    // own buttons), but its lifecycle must not be load-bearing for review
+    // visibility — a hook-forced agent turn or a restart can consume it.
+    // A needsHuman question already gives the issue a card; don't double up.
+    if (issue.stage === 'review' && !hasOffer && !issue.needsHuman) {
+      items.push({ kind: 'review', issue, since: issue.updatedAt })
     }
     // Deterministic finished card: a recently-done human issue gets an Archive
     // action — archiving is the acknowledgment that removes card and sidebar

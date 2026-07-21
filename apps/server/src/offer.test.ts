@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 
@@ -126,10 +126,12 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg, sessionId)).toBeUndefined()
   })
 
-  // The conversation continuing past the offer makes it stale — a NEW turn
-  // (entry into 'working' after the offer's createdAt) clears it, catching the
-  // paths sendText never sees: raw PTY input, mail/cron wakes, other clients.
-  describe('staleness: a new turn after the offer clears it', () => {
+  // The USER moving the conversation past the offer makes it stale — a NEW
+  // turn (entry into 'working' after the offer's createdAt) that follows raw
+  // controller keystrokes clears it, catching the path sendText never sees.
+  // A turn WITHOUT user input (stop-hook continuation, mail/cron wake) must
+  // preserve the standing offer the human never saw [POD-118].
+  describe('staleness: a user-driven new turn after the offer clears it', () => {
     const working = (since: string) => ({
       phase: 'working' as const,
       since,
@@ -152,11 +154,29 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const createdAt = metaOffer(reg, sessionId)?.createdAt as string
       return { reg, sessionId, createdAt }
     }
+    // Raw PTY keystrokes from the controlling client — bumps lastInputAtMs.
+    // Pinned a minute after the offer: same-ms input would not count as "after"
+    // (strictly-greater, matching the boot reconcile).
+    function typeIntoPty(reg: SessionRegistry, sessionId: string, afterIso: string) {
+      const clientId = reg.modules.sessions.attachClient(() => {})
+      reg.modules.sessions.onClientMessage(clientId, { type: 'attach', sessionId })
+      const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(afterIso) + 60_000)
+      try {
+        reg.modules.sessions.onClientMessage(clientId, {
+          type: 'input',
+          sessionId,
+          data: Buffer.from('fix it\r').toString('base64'),
+        })
+      } finally {
+        nowSpy.mockRestore()
+      }
+    }
     const plusMinute = (iso: string) => new Date(Date.parse(iso) + 60_000).toISOString()
     const minusMinute = (iso: string) => new Date(Date.parse(iso) - 60_000).toISOString()
 
-    it('entering working after the offer was made consumes it', () => {
+    it('entering working after the user typed into the PTY consumes it', () => {
       const { reg, sessionId, createdAt } = seed()
+      typeIntoPty(reg, sessionId, createdAt)
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
@@ -165,8 +185,19 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       expect(metaOffer(reg, sessionId)).toBeUndefined()
     })
 
+    it('a forced turn with NO user input (stop-hook/mail wake) preserves it [POD-118]', () => {
+      const { reg, sessionId, createdAt } = seed()
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'agentState',
+        sessionId,
+        state: working(plusMinute(createdAt)),
+      })
+      expect(metaOffer(reg, sessionId)?.message).toBe(OFFER.message)
+    })
+
     it('a boot replay of the turn that produced the offer (older event-time) leaves it', () => {
       const { reg, sessionId, createdAt } = seed()
+      typeIntoPty(reg, sessionId, createdAt)
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,
@@ -177,6 +208,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     it('non-working phases and continued working do not clear', () => {
       const { reg, sessionId, createdAt } = seed()
+      typeIntoPty(reg, sessionId, createdAt)
       // Turn end after the offer — the offer is exactly for this moment.
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
@@ -192,6 +224,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         state: working(plusMinute(createdAt)),
       })
       reg.modules.sessions.setOffer({ sessionId, ...OFFER })
+      typeIntoPty(reg, sessionId, createdAt)
       reg.modules.sessions.onDaemonMessageFrom('local', {
         type: 'agentState',
         sessionId,

@@ -156,7 +156,7 @@ describe('engraved column structure', () => {
 })
 
 describe('tray filtering (human-actionable only)', () => {
-  it('renders question cards from the selected subtree and NEVER working or review rows', async () => {
+  it('renders question cards from the selected subtree and NEVER working rows', async () => {
     storeIssues = [
       makeIssue({ id: 'p', seq: 1, title: 'Parent epic' }),
       makeIssue({
@@ -166,8 +166,9 @@ describe('tray filtering (human-actionable only)', () => {
         needsHuman: true,
         humanQuestion: 'Ship behind a flag?',
       }),
-      // Review stage alone renders nothing — review-ready work announces
-      // itself via a session offer [spec:SP-c7f1].
+      // A review-stage issue with no live offer gets the deterministic
+      // backstop card [POD-118] — review visibility must not depend on an
+      // offer surviving a hook-forced agent turn.
       makeIssue({ id: 'r', seq: 3, parentId: 'p', stage: 'review', title: 'Refresh-timer fix' }),
       makeIssue({ id: 'w', seq: 4, parentId: 'p', stage: 'in_progress', title: 'Worker issue' }),
       makeIssue({ id: 'x', seq: 9, needsHuman: true, humanQuestion: 'Outside the subtree?' }),
@@ -175,9 +176,12 @@ describe('tray filtering (human-actionable only)', () => {
     storeSelectedIssueId = 'p'
     await mount()
     const cards = [...container.querySelectorAll('[data-testid^="tray-card-"]')]
-    expect(cards.map((c) => c.getAttribute('data-issue-seq'))).toEqual(['2'])
+    expect(cards.map((c) => c.getAttribute('data-issue-seq'))).toEqual(['2', '3'])
+    expect(container.querySelector('[data-testid="tray-card-review"]')?.textContent).toContain(
+      'Ready for review.',
+    )
     expect(container.textContent).toContain('Ship behind a flag?')
-    expect(container.textContent).not.toContain('Refresh-timer fix')
+    expect(container.textContent).toContain('Refresh-timer fix')
     expect(container.textContent).not.toContain('Worker issue')
     expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
   })

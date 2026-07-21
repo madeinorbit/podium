@@ -3952,15 +3952,21 @@ export class SessionsService {
           this.issues().onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
-        // moved past it — its suggested actions no longer apply [spec:SP-c7f1].
-        // This catches the continuations sendText never sees: raw PTY input,
-        // mail/cron wakes, another client. The event-time guard keeps a boot
-        // replay of the very turn that produced the offer from consuming it.
+        // moved past it — its suggested actions no longer apply [spec:SP-c7f1]
+        // — but only when the USER moved it: a turn forced by a stop-hook or a
+        // mail/cron wake must NOT consume a standing offer the human never saw
+        // [POD-118]. So this path (which catches the continuations sendText
+        // never sees: raw PTY keystrokes, whichever client they came from)
+        // additionally requires controller input SINCE the offer; chat sends
+        // and button clicks clear directly in sendText. The event-time guard
+        // keeps a boot replay of the very turn that produced the offer from
+        // consuming it.
         if (
           session.offer !== undefined &&
           prev?.phase !== 'working' &&
           next.phase === 'working' &&
-          next.since > session.offer.createdAt
+          next.since > session.offer.createdAt &&
+          session.lastInputAtMs > Date.parse(session.offer.createdAt)
         ) {
           this.clearOffer(msg.sessionId)
         }

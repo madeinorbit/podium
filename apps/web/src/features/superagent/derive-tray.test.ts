@@ -39,7 +39,7 @@ describe('trayScopeIssues', () => {
 })
 
 describe('deriveTrayItems', () => {
-  it('shows ONLY human-actionable items: questions (review stages surface nothing hardcoded)', () => {
+  it('shows ONLY human-actionable items: questions, plus the review backstop', () => {
     const asking = makeIssue({
       id: 'q',
       parentId: 'p',
@@ -47,8 +47,9 @@ describe('deriveTrayItems', () => {
       humanQuestion: 'Ship with flag on?',
       updatedAt: '2026-07-14T10:00:00Z',
     })
-    // Review-ready work announces itself via a session offer now — the stage
-    // alone renders no card.
+    // Review-ready work normally announces itself via a session offer, but the
+    // stage alone gets a deterministic backstop card [POD-118] — a hook-forced
+    // agent turn must not be able to make review work invisible.
     const review = makeIssue({
       id: 'r',
       parentId: 'p',
@@ -58,7 +59,33 @@ describe('deriveTrayItems', () => {
     })
     const working = makeIssue({ id: 'w', parentId: 'p', stage: 'in_progress' })
     const items = deriveTrayItems([makeIssue({ id: 'p' }), asking, review, working], 'p')
-    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['question:q'])
+    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['review:r', 'question:q'])
+  })
+
+  it('review backstop [POD-118]: yields to a live offer, a dismissed offer, or a question', () => {
+    const offer = { message: 'Ready.', actions: [], createdAt: '2026-07-14T12:00:00Z' }
+    // No offer at all → the backstop card carries the review stage.
+    const bare = makeIssue({ id: 'bare', stage: 'review', updatedAt: '2026-07-14T11:00:00Z' })
+    expect(deriveTrayItems([bare], null).map((i) => i.kind)).toEqual(['review'])
+    // A live offer is the richer announcement — no duplicate backstop.
+    const offered = makeIssue({
+      id: 'o',
+      stage: 'review',
+      sessions: [session({ sessionId: 'agent', offer })] as SessionMeta[],
+    })
+    expect(deriveTrayItems([offered], null).map((i) => i.kind)).toEqual(['offer'])
+    // An optimistically-dismissed offer means the user just acted — the
+    // backstop must not pop in for that beat.
+    const dismissed = new Set([offerKey('agent', offer.createdAt)])
+    expect(deriveTrayItems([offered], null, dismissed)).toHaveLength(0)
+    // A needsHuman question already gives the issue a card — don't double up.
+    const asking = makeIssue({
+      id: 'a',
+      stage: 'review',
+      needsHuman: true,
+      humanQuestion: 'Merge?',
+    })
+    expect(deriveTrayItems([asking], null).map((i) => i.kind)).toEqual(['question'])
   })
 
   it('sorts newest first and falls back to the question placeholder', () => {

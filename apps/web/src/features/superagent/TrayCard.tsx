@@ -104,6 +104,9 @@ export function TrayCard({
           {item.kind === 'finished' && (
             <span className="font-normal text-muted-foreground"> · finished</span>
           )}
+          {item.kind === 'review' && (
+            <span className="font-normal text-muted-foreground"> · in review</span>
+          )}
         </span>
         {agentSession?.name && (
           <span className="flex-none truncate text-[9.5px] text-muted-foreground">
@@ -216,6 +219,13 @@ export function TrayCard({
           >
             Archive ✓
           </button>
+        </div>
+      ) : item.kind === 'review' ? (
+        // Backstop review card [POD-118]: minimal by design — the agent's own
+        // offer (with its buttons) is the richer form; this only guarantees a
+        // review-stage issue is never invisible. Card click opens the session.
+        <div className="min-w-0 truncate text-[11px] leading-[1.5] text-(--issue-bright)">
+          Ready for review.
         </div>
       ) : (
         <>
