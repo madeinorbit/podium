@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  readBooleanState,
-  readLastRightPanel,
-  readRightPanel,
-  readSuperagentMode,
-} from './shell-state'
+import { readBooleanState, readRightPanel, readSuperagentMode } from './shell-state'
 
 describe('desktop shell persistence readers', () => {
   it('restores independent sidebar collapse state without treating corrupt values as true', () => {
@@ -23,10 +18,8 @@ describe('desktop shell persistence readers', () => {
     expect(readSuperagentMode('invalid', false)).toBe('folded')
   })
 
-  it('accepts only one of the four right-dock panels and defaults last-used to Issue', () => {
+  it('accepts only a known right-dock panel', () => {
     expect(readRightPanel('git')).toBe('git')
     expect(readRightPanel('unknown')).toBeNull()
-    expect(readLastRightPanel('shell')).toBe('shell')
-    expect(readLastRightPanel(null)).toBe('issue')
   })
 })

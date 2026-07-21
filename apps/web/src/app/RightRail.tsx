@@ -1,6 +1,5 @@
 import type { IssueColorSlot } from '@podium/domain'
 import type { IssueWire } from '@podium/protocol'
-import { ChevronLeft } from 'lucide-react'
 import type { JSX } from 'react'
 import { IdSquare, type IdSquareBadge, idSquareLabel } from '@/components/IdSquare'
 import { aggregateMotionPhase, type MotionPhase, motionPhase } from '@/lib/derive'
@@ -20,22 +19,20 @@ function railBadge(phase: MotionPhase, waitingCount: number): IdSquareBadge | nu
 }
 
 /**
- * The 44px right rail (handoff §2.5): expand chevron, then the selected
- * issue's ID square — the designed bordered/filled square language, carrying
- * the waiting/working corner badge — toggling the Issue dock panel, then the
- * Git/Files/Shell panel cells. The Superagent column is NOT reachable from
- * here (#65): it folds in place and never fully closes.
+ * The 44px right rail (handoff §2.5): the selected issue's ID square — the
+ * designed bordered/filled square language, carrying the waiting/working
+ * corner badge — toggling the Issue dock panel, then the Git/Files/Shell
+ * panel cells. The Superagent column is NOT reachable from here (#65): it
+ * folds in place and never fully closes.
  */
 export function RightRail({
   issue,
   rightPanel,
-  lastPanel,
   onPanelChange,
   onColorChange,
 }: {
   issue?: IssueWire
   rightPanel: RightPanelTab | null
-  lastPanel: RightPanelTab
   onPanelChange: (panel: RightPanelTab | null) => void
   onColorChange?: (color: IssueColorSlot | null) => unknown
 }): JSX.Element {
@@ -49,23 +46,12 @@ export function RightRail({
       : panel === 'git'
         ? gitPanelEnabled
         : messagesPanelEnabled
-  const effectiveLastPanel = panelAllowed(lastPanel) ? lastPanel : 'files'
-
   return (
     <nav
       aria-label="Panels"
       className="right-rail issue-base-card issue-fade"
       data-testid="right-rail"
     >
-      <button
-        type="button"
-        aria-label="Open last panel"
-        title={`Open ${effectiveLastPanel} panel`}
-        onClick={() => onPanelChange(effectiveLastPanel)}
-        className="right-rail-cell h-4 text-[var(--text-dim)]"
-      >
-        <ChevronLeft size={12} aria-hidden="true" />
-      </button>
       {issue && onColorChange ? (
         <IdSquare
           issue={issue}

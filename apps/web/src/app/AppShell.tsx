@@ -35,10 +35,8 @@ import { MainViewOutlet } from './routes'
 import {
   OPEN_RIGHT_PANEL_EVENT,
   RIGHT_PANEL_KEY,
-  RIGHT_PANEL_LAST_KEY,
   type RightPanelTab,
   readBooleanState,
-  readLastRightPanel,
   readRightPanel,
   readSuperagentMode,
   SIDEBAR_COLLAPSED_KEY,
@@ -165,9 +163,6 @@ function AppBody(): JSX.Element {
   const [rightPanel, setRightPanelState] = useState<RightPanelTab | null>(() =>
     readRightPanel(uiState.get(RIGHT_PANEL_KEY)),
   )
-  const [lastRightPanel, setLastRightPanel] = useState<RightPanelTab>(() =>
-    readLastRightPanel(uiState.get(RIGHT_PANEL_LAST_KEY)),
-  )
   const commandPaletteEnabled = useFeature('command-palette')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
@@ -192,10 +187,6 @@ function AppBody(): JSX.Element {
     if (!panelAllowed(panel)) return
     setRightPanelState(panel)
     uiState.set(RIGHT_PANEL_KEY, panel ?? '')
-    if (panel) {
-      setLastRightPanel(panel)
-      uiState.set(RIGHT_PANEL_LAST_KEY, panel)
-    }
   }
 
   // superOpen (store) is how surfaces outside the shell drive the column
@@ -364,7 +355,6 @@ function AppBody(): JSX.Element {
           <RightRail
             issue={selectedIssue}
             rightPanel={visibleRightPanel}
-            lastPanel={lastRightPanel}
             onPanelChange={setRightPanel}
             onColorChange={changeIssueColor}
           />

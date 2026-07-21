@@ -1,7 +1,6 @@
 export const SIDEBAR_COLLAPSED_KEY = 'podium:sidebar:collapsed'
 export const SUPERAGENT_MODE_KEY = 'podium:superagent:mode'
 export const RIGHT_PANEL_KEY = 'podium.rightPanel'
-export const RIGHT_PANEL_LAST_KEY = 'podium.rightPanel.last'
 
 /** The engraved column's two states (#65): human preview feedback removed the
  *  fully-closed state — every collapse resolves to the in-place folded bar. */
@@ -35,8 +34,4 @@ export function readRightPanel(value: string | null): RightPanelTab | null {
     value === 'mail'
     ? value
     : null
-}
-
-export function readLastRightPanel(value: string | null): RightPanelTab {
-  return readRightPanel(value) ?? 'issue'
 }
