@@ -1160,7 +1160,7 @@ export function ChatView({
                       : 'Session is not running.'
               }
               className={cn(
-                'block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground outline-none transition-[height] duration-1000 ease-in-out [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
+                'block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
                 compact && 'text-[13px] caret-transparent placeholder:text-[#4d4d59]',
               )}
               value={draft}
