@@ -16,7 +16,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
-import { Archive, Columns2, FileText, Pin, Plus, X } from 'lucide-react'
+import { Archive, Columns2, FileText, Plus, X } from 'lucide-react'
 import { type JSX, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { AgentPanel } from '@/features/terminal/AgentPanel'
@@ -56,8 +56,6 @@ const tabName = (t: WTab): string =>
 export function Workspace(): JSX.Element {
   const {
     sessions,
-    pins,
-    setPinned,
     tabOrders,
     setTabOrder,
     selectedWorktree,
@@ -76,8 +74,6 @@ export function Workspace(): JSX.Element {
   } = useStoreSelector(
     (s) => ({
       sessions: s.sessions,
-      pins: s.pins,
-      setPinned: s.setPinned,
       tabOrders: s.tabOrders,
       setTabOrder: s.setTabOrder,
       selectedWorktree: s.selectedWorktree,
@@ -170,7 +166,7 @@ export function Workspace(): JSX.Element {
     byId.set(s.sessionId, { id: s.sessionId, kind: 'session', session: s })
   for (const f of fileList) byId.set(f.id, { id: f.id, kind: 'file', file: f })
   const baseIds = [
-    ...orderTabs(sessionList, undefined, pins, issue?.coordinatorSessionId).map((s) => s.sessionId),
+    ...orderTabs(sessionList, undefined, issue?.coordinatorSessionId).map((s) => s.sessionId),
     ...fileList.map((f) => f.id),
   ]
   const manual = orderKey ? tabOrders[orderKey] : undefined
@@ -331,7 +327,6 @@ export function Workspace(): JSX.Element {
                   key={t.id}
                   tab={t}
                   active={t.id === paneA}
-                  pinned={t.kind === 'session' && pins.panels.includes(t.id)}
                   coordinator={
                     t.kind === 'session' &&
                     !!issue &&
@@ -349,11 +344,6 @@ export function Workspace(): JSX.Element {
                     if (t.kind === 'session') void markSessionRead(t.id)
                     setPane('A', t.id)
                   }}
-                  onTogglePin={
-                    t.kind === 'session'
-                      ? () => void setPinned('panel', t.id, !pins.panels.includes(t.id))
-                      : undefined
-                  }
                   onClose={() =>
                     t.kind === 'session' ? void guardedKill(t.id) : closeFileTab(t.id)
                   }
@@ -457,19 +447,15 @@ export function Workspace(): JSX.Element {
 function SortableTab({
   tab,
   active,
-  pinned,
   coordinator = false,
   onSelect,
-  onTogglePin,
   onClose,
 }: {
   tab: WTab
   active: boolean
-  pinned: boolean
   /** M6: issue's designated coordinator session — elevated marker on the tab. */
   coordinator?: boolean
   onSelect: () => void
-  onTogglePin?: () => void
   onClose: () => void
 }): JSX.Element {
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -581,22 +567,6 @@ function SortableTab({
           )}
         </button>
       )}
-      {/* Pin (Q3): kept as a hover-reveal affordance, restyled to a quiet
-          ctx-muted glyph; always visible while pinned. */}
-      {tab.kind === 'session' && onTogglePin && (
-        <button
-          type="button"
-          className={cn(
-            'h-5 w-5 flex-none cursor-pointer items-center justify-center rounded text-(--issue-muted) hover:text-(--issue-text)',
-            pinned ? 'inline-flex text-(--issue-text)' : 'hidden group-hover:inline-flex',
-          )}
-          aria-pressed={pinned}
-          title={pinned ? 'Unpin panel' : 'Pin panel'}
-          onClick={onTogglePin}
-        >
-          <Pin size={11} aria-hidden="true" />
-        </button>
-      )}
       <button
         type="button"
         className={cn(
@@ -611,7 +581,6 @@ function SortableTab({
       {tab.kind === 'session' && menuAnchor && (
         <SessionContextMenu
           session={tab.session}
-          pinned={pinned}
           anchor={menuAnchor}
           onClose={() => setMenuAnchor(null)}
           onRename={() => {

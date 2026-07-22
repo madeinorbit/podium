@@ -5,7 +5,7 @@
  * PanelRow used by every session list in the unified sidebar.
  */
 import type { SessionMeta } from '@podium/protocol'
-import { ChevronDown, ChevronRight, Pin, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import type {
   JSX,
   KeyboardEvent as ReactKeyboardEvent,
@@ -23,7 +23,6 @@ import {
   isSnoozed,
   nativeSubagentCountOf,
   nativeSubagentLabel,
-  repoBranchForCwd,
   returnedFromSnooze,
   sessionDotClass,
   sessionIssueLinkage,
@@ -366,10 +365,8 @@ function ConsumedChildren({
 
 export function PanelRow({
   session,
-  pinned,
   active,
   onSelect,
-  onPinned,
   attention = false,
   dotRight = false,
   suppressUnread = false,
@@ -377,12 +374,10 @@ export function PanelRow({
   coordinator = false,
 }: {
   session: SessionMeta
-  pinned: boolean
   active: boolean
   onSelect: () => void
-  onPinned: (pinned: boolean) => void
   /** True only for the NEEDS YOUR ATTENTION rows: shows the snooze control
-   *  (rightmost, always visible) and reveals pin/close on hover. */
+   *  (rightmost, always visible) and reveals close on hover. */
   attention?: boolean
   /** Unified WORK-list child rows: the status dot moves to the RIGHT edge,
    *  slightly smaller, vertically aligned under the parent row's summary dot
@@ -449,7 +444,7 @@ export function PanelRow({
         : 'new'
       : null
   return (
-    // One rounded row: [agent chip][name][meta][dot]. Pin/close reveal as an
+    // One rounded row: [agent chip][name][meta][dot]. Close reveals as an
     // overlay cluster on hover so the row's layout never shifts.
     <div
       className={cn(
@@ -584,9 +579,6 @@ export function PanelRow({
               aria-hidden="true"
             />
           )}
-          {/* Pinned panels span repos/worktrees, so show which one — compact two
-              lines (repo bold, branch below) where the kind label used to sit. */}
-          {pinned && <RepoBranchTag cwd={session.cwd} />}
           {trailingMeta}
           <span className="flex w-2 flex-none justify-center">
             <span className={cn(sessionDotClass(session), 'size-[7px] min-w-[7px]')} />
@@ -604,27 +596,15 @@ export function PanelRow({
           Continue
         </Button>
       )}
-      {/* Hover overlay: pin + close, floated over the row's right edge (before the
-          dot) so revealing them never reflows the row. Pinned stays lit inline. */}
+      {/* Hover overlay: close, floated over the row's right edge (before the
+          dot) so revealing it never reflows the row. Panel-pinning is retired
+          (POD-169) — issue-pinning is the only pin concept. */}
       <div
         className={cn(
           'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
           active ? 'bg-[#232330]' : 'bg-[#20202a]',
         )}
       >
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={cn(
-            'size-6 flex-none',
-            pinned ? 'text-primary' : 'text-muted-foreground/70 hover:text-foreground',
-          )}
-          aria-pressed={pinned}
-          title={pinned ? 'Unpin panel' : 'Pin panel'}
-          onClick={() => onPinned(!pinned)}
-        >
-          <Pin size={12} aria-hidden="true" />
-        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -635,21 +615,12 @@ export function PanelRow({
           <X size={12} aria-hidden="true" />
         </Button>
       </div>
-      {/* Pinned indicator stays visible without hover. */}
-      {pinned && (
-        <Pin
-          size={11}
-          aria-hidden="true"
-          className="absolute top-1/2 right-5 -translate-y-1/2 text-primary group-hover:hidden"
-        />
-      )}
       {/* Rightmost + always visible. On attention rows: the snooze control.
           Elsewhere only when snoozed (an un-snooze affordance). */}
       {(attention || snoozed) && <SnoozeControl session={session} className="flex-none" />}
       {menuAnchor && (
         <SessionContextMenu
           session={session}
-          pinned={pinned}
           anchor={menuAnchor}
           onClose={() => setMenuAnchor(null)}
           onRename={() => {
@@ -659,28 +630,5 @@ export function PanelRow({
         />
       )}
     </div>
-  )
-}
-
-/** Compact repo/branch stamp for a pinned panel: repo bold on top, branch muted
- *  below. Full "repo · branch" on the hover title. */
-function RepoBranchTag({ cwd }: { cwd: string }): JSX.Element | null {
-  const repos = useStoreSelector((s) => s.repos)
-  const rb = repoBranchForCwd(repos, cwd)
-  if (!rb) return null
-  return (
-    <span
-      className="ml-auto flex flex-none flex-col items-end pl-2 leading-tight"
-      title={rb.branch ? `${rb.repo} · ${rb.branch}` : rb.repo}
-    >
-      <span className="max-w-[12ch] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-bold text-foreground/80">
-        {rb.repo}
-      </span>
-      {rb.branch && (
-        <span className="max-w-[12ch] overflow-hidden text-ellipsis whitespace-nowrap text-[9px] text-muted-foreground/70">
-          {rb.branch}
-        </span>
-      )}
-    </span>
   )
 }

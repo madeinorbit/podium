@@ -13,8 +13,6 @@ import {
   MessageSquareText,
   Moon,
   Pencil,
-  Pin,
-  PinOff,
   Play,
   X,
 } from 'lucide-react'
@@ -121,20 +119,17 @@ export function handoffRejectionText(rejection: HandoffRejection, agentKind: Age
  */
 export function SessionContextMenu({
   session,
-  pinned,
   anchor,
   onClose,
   onRename,
 }: {
   session: SessionMeta
-  pinned: boolean
   anchor: ContextMenuAnchor
   onClose: () => void
   /** Enter inline rename mode in the host (sidebar row / tab). */
   onRename: () => void
 }): JSX.Element {
   const {
-    setPinned,
     setSnooze,
     clearSnooze,
     hibernateSession,
@@ -148,7 +143,6 @@ export function SessionContextMenu({
     issues,
   } = useStoreSelector(
     (s) => ({
-      setPinned: s.setPinned,
       setSnooze: s.setSnooze,
       clearSnooze: s.clearSnooze,
       hibernateSession: s.hibernateSession,
@@ -238,15 +232,6 @@ export function SessionContextMenu({
     >
       <button type="button" role="menuitem" className={itemCls} onClick={() => run(onRename)}>
         <Pencil size={14} aria-hidden="true" /> Rename
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className={itemCls}
-        onClick={() => run(() => setPinned('panel', id, !pinned))}
-      >
-        {pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
-        {pinned ? 'Unpin' : 'Pin'}
       </button>
       {/* Email-style read toggle (#138): mark a read session unread (or an unread
           one read) — mutually exclusive. Store actions are optimistic. */}

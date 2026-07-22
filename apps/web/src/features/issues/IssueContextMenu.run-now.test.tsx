@@ -44,22 +44,27 @@ afterEach(() => {
   addSessionMutate.mockClear()
 })
 
-describe('IssueContextMenu Run now (POD-110)', () => {
-  it('starts the default agent in one click on a startable issue', () => {
+describe('IssueContextMenu consolidated agent entry (POD-110 → POD-169)', () => {
+  it('offers ONE agent entry on a startable issue — "Run now" opening the agent flyout', () => {
     open(makeIssue({ worktreePath: null, stage: 'backlog' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /Run now/ }))
+    const trigger = screen.getByRole('menuitem', { name: /Run now/ })
+    expect(screen.queryByRole('menuitem', { name: /Assign agent/ })).toBeNull()
+    fireEvent.click(trigger)
+    // The flyout's first option is the default agent — the old one-click path.
+    fireEvent.click(screen.getByRole('menuitem', { name: /\(default\)/ }))
     expect(startMutate).toHaveBeenCalledWith({ id: 'i' })
     expect(addSessionMutate).not.toHaveBeenCalled()
   })
 
-  it('is absent once the issue has a worktree (Assign agent flyout remains)', () => {
+  it('reads "Assign agent" once the issue has a worktree — still one entry', () => {
     open(makeIssue()) // default worktreePath is set
     expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
     expect(screen.getByRole('menuitem', { name: /Assign agent/ })).toBeDefined()
   })
 
-  it('is absent on a closed issue', () => {
+  it('offers no agent entry on a closed issue', () => {
     open(makeIssue({ worktreePath: null, closedReason: 'done' }))
     expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /Assign agent/ })).toBeNull()
   })
 })

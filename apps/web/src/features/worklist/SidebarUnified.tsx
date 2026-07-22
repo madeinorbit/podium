@@ -554,7 +554,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     repos,
     sessions,
     pins,
-    setPinned,
     issues,
     trpc,
     selectedWorktree,
@@ -573,7 +572,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       repos: s.repos,
       sessions: s.sessions,
       pins: s.pins,
-      setPinned: s.setPinned,
       issues: s.issues,
       trpc: s.trpc,
       selectedWorktree: s.selectedWorktree,
@@ -704,7 +702,6 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     paneA,
     selectedIssueId,
     selectedWorktree,
-    setPinned,
     selectIssue,
     selectPanelForIssue,
     selectWorktree,
@@ -726,7 +723,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     paneA,
     selectedIssueId,
     selectedWorktree,
-    setPinned,
     selectIssue,
     selectPanelForIssue,
     selectWorktree,
@@ -799,7 +795,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           now={now}
           onSelectIssue={selectIssue}
           onSelectPanelForIssue={selectPanelForIssue}
-          onPinned={(sid, p) => void setPinned('panel', sid, p)}
           onOpenIssue={openIssuePage}
           onRenameIssue={renameIssue}
           onColorChangeIssue={setIssueColor}
@@ -813,7 +808,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           now={now}
           onSelect={() => selectWorktree(row.worktree.path)}
           onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
-          onPinned={(sid, p) => void setPinned('panel', sid, p)}
         />
       )
     return (
@@ -1176,7 +1170,6 @@ function UnifiedIssueRow({
   now,
   onSelectIssue,
   onSelectPanelForIssue,
-  onPinned,
   onOpenIssue,
   onRenameIssue,
   onColorChangeIssue,
@@ -1194,7 +1187,6 @@ function UnifiedIssueRow({
   now: number
   onSelectIssue: (issue: IssueWire) => void
   onSelectPanelForIssue: (issue: IssueWire, sessionId: string) => void
-  onPinned: (sessionId: string, pinned: boolean) => void
   /** Open the issue PAGE (the context menu's "Open"). */
   onOpenIssue: (id: string) => void
   onRenameIssue: (id: string, title: string) => void
@@ -1262,6 +1254,7 @@ function UnifiedIssueRow({
     <IssueContextMenu
       issues={[issue]}
       allIssues={issues}
+      surface="sidebar"
       anchor={menuAnchor}
       onClose={() => setMenuAnchor(null)}
       onOpen={(id) => {
@@ -1278,10 +1271,8 @@ function UnifiedIssueRow({
     <PanelRow
       key={session.sessionId}
       session={session}
-      pinned={false}
       active={active && paneA === session.sessionId}
       onSelect={() => onSelectPanelForIssue(issue, session.sessionId)}
-      onPinned={(p) => onPinned(session.sessionId, p)}
       dotRight
       coordinator={isCoordinatorSession(issue, session.sessionId)}
     />
@@ -1415,7 +1406,6 @@ function UnifiedIssueRow({
                       now={now}
                       onSelectIssue={onSelectIssue}
                       onSelectPanelForIssue={onSelectPanelForIssue}
-                      onPinned={onPinned}
                       onOpenIssue={onOpenIssue}
                       onRenameIssue={onRenameIssue}
                       onColorChangeIssue={onColorChangeIssue}
@@ -1462,7 +1452,6 @@ function UnifiedWorktreeRow({
   now,
   onSelect,
   onSelectPanel,
-  onPinned,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
   active: boolean
@@ -1470,7 +1459,6 @@ function UnifiedWorktreeRow({
   now: number
   onSelect: () => void
   onSelectPanel: (sessionId: string) => void
-  onPinned: (sessionId: string, pinned: boolean) => void
 }): JSX.Element {
   const { worktree } = row
   const unread = rowUnreadEmphasized(row)
@@ -1484,10 +1472,8 @@ function UnifiedWorktreeRow({
     <PanelRow
       key={session.sessionId}
       session={session}
-      pinned={false}
       active={active && paneA === session.sessionId}
       onSelect={() => onSelectPanel(session.sessionId)}
-      onPinned={(p) => onPinned(session.sessionId, p)}
       dotRight
     />
   )

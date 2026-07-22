@@ -467,7 +467,6 @@ export interface RepoNavView {
 export interface SidebarSections {
   /** Shared ownership work for this exact repo/session/issue snapshot. */
   sessionOwnership?: SessionOwnershipIndex
-  pinnedPanels: SessionMeta[]
   pinnedWorktrees: WorktreeNavView[]
   pinnedRepos: RepoNavView[]
   repos: RepoNavView[]
@@ -487,13 +486,6 @@ export const EMPTY_PINS: PinState = { panels: [], worktrees: [], repos: [] }
  *  default hide-archived behavior is unchanged. */
 export function subIssuesOf(issues: readonly IssueWire[], parentId: string): IssueWire[] {
   return issues.filter((i) => i.parentId === parentId && !i.deletedAt).sort((a, b) => a.seq - b.seq)
-}
-
-export function sortSessionsForPins(sessions: SessionMeta[], pins: PinState): SessionMeta[] {
-  const panelOrder = orderMap(pins.panels)
-  return [...sessions].sort((left, right) =>
-    comparePinned(left.sessionId, right.sessionId, panelOrder),
-  )
 }
 
 /**
@@ -521,17 +513,16 @@ export function sortSessionsForSidebar(
 /**
  * Tab-strip order for one worktree/issue. The user's manual (drag) order wins;
  * sessions it doesn't know about — panels opened after the last drag — append
- * at the end in the default pin-aware order. When `coordinatorSessionId` is set
- * (issue workspace, M6), that session is elevated first so the driver is
- * unambiguous among equal tabs.
+ * at the end in arrival order. When `coordinatorSessionId` is set (issue
+ * workspace, M6), that session is elevated first so the driver is unambiguous
+ * among equal tabs. (Panel-pinning is retired, POD-169 — no pin-aware order.)
  */
 export function orderTabs(
   sessions: SessionMeta[],
   manualOrder: string[] | undefined,
-  pins: PinState,
   coordinatorSessionId?: string | null,
 ): SessionMeta[] {
-  const base = elevateCoordinatorSession(sortSessionsForPins(sessions, pins), coordinatorSessionId)
+  const base = elevateCoordinatorSession(sessions, coordinatorSessionId)
   if (!manualOrder || manualOrder.length === 0) return base
   // Manual drag order wins, but still lift the coordinator to the front so a
   // stale saved order can't bury the designated driver.
@@ -600,20 +591,6 @@ export function sidebarSections(
   const allWorktrees = repoViews.flatMap((repo) =>
     repo.worktrees.map((worktree) => ({ repo, worktree })),
   )
-  // Pinned panels are ordered by agent state (same comparator as the repo
-  // sections) rather than pin-insertion order, so the whole sidebar reads
-  // consistently — needs-you first, working sunk to the bottom.
-  const pinnedPanels = sortSessionsForSidebar(
-    pins.panels
-      .map((sessionId) => sessions.find((session) => session.sessionId === sessionId))
-      .filter(
-        (session): session is SessionMeta => session !== undefined && !isHeadlessSession(session),
-      ),
-  )
-
-  // A pinned panel still appears in its own repo/worktree list (it's not removed
-  // from there) — pinning lifts a copy into PINNED PANELS for quick reach without
-  // hiding it from its home. The selected highlight lights up in both places.
   const allWorktreePaths = allWorktrees.map(({ worktree }) => worktree.path)
   const sessionOwnership = indexSessionOwnership(sessions, issues, allWorktreePaths)
   const navWorktree = (repo: RepoView, worktree: WorktreeView): WorktreeNavView => ({
@@ -639,7 +616,6 @@ export function sidebarSections(
 
   return {
     sessionOwnership,
-    pinnedPanels,
     pinnedWorktrees: pins.worktrees
       .map((path) => allWorktrees.find(({ worktree }) => worktree.path === path))
       .filter((item): item is { repo: RepoView; worktree: WorktreeView } => item !== undefined)
@@ -1816,15 +1792,6 @@ export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[]
 
 function orderMap(ids: string[]): Map<string, number> {
   return new Map(ids.map((id, index) => [id, index]))
-}
-
-function comparePinned(leftId: string, rightId: string, order: Map<string, number>): number {
-  const leftOrder = order.get(leftId)
-  const rightOrder = order.get(rightId)
-  if (leftOrder !== undefined && rightOrder !== undefined) return leftOrder - rightOrder
-  if (leftOrder !== undefined) return -1
-  if (rightOrder !== undefined) return 1
-  return 0
 }
 
 export interface AgentBadge {

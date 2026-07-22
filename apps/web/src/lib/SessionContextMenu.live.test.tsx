@@ -89,7 +89,6 @@ function open(session: SessionMeta = meta()): void {
   render(
     <SessionContextMenu
       session={session}
-      pinned={false}
       anchor={{ x: 10, y: 10 }}
       onClose={vi.fn()}
       onRename={vi.fn()}

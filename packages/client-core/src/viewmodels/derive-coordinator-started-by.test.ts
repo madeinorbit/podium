@@ -64,7 +64,6 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
 }
 
 const emptySections = (): SidebarSections => ({
-  pinnedPanels: [],
   pinnedWorktrees: [],
   pinnedRepos: [],
   repos: [],
@@ -96,17 +95,12 @@ describe('elevateCoordinatorSession / isCoordinatorSession', () => {
     expect(isCoordinatorSession(issue(), 'coord')).toBe(false)
   })
 
-  it('orderTabs elevates coordinator ahead of pin order', () => {
+  it('orderTabs elevates coordinator ahead of arrival order', () => {
     const a = sess('a')
     const b = sess('b')
     const c = sess('c')
-    const ordered = orderTabs(
-      [a, b, c],
-      undefined,
-      { panels: ['c'], worktrees: [], repos: [] },
-      'b',
-    )
-    expect(ordered.map((s) => s.sessionId)).toEqual(['b', 'c', 'a'])
+    const ordered = orderTabs([a, b, c], undefined, 'b')
+    expect(ordered.map((s) => s.sessionId)).toEqual(['b', 'a', 'c'])
   })
 })
 

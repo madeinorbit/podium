@@ -1,9 +1,9 @@
 import {
   type HandoffAvailability,
-  handoffAvailability,
   type HandoffIssue,
   type HandoffMachine,
   type HandoffRepo,
+  handoffAvailability,
 } from '@podium/domain'
 import type { IssueWire, SessionMeta } from '@podium/protocol'
 import type { IssuesKeyState } from './issues-keys'
@@ -76,13 +76,20 @@ export function isIssueClosed(issue: IssueWire): boolean {
   return issue.closedReason != null
 }
 
+/** Where the shared issue context menu is hosted — some items are per-surface. */
+export type IssueMenuSurface = 'board' | 'sidebar'
+
 /**
  * Which menu items apply to the current right-click target set. Single-target
  * actions (open, assign agent, close, defer, duplicate, pin) disappear on a
  * multi-selection; bulk-capable ones (stage / priority / labels / delete) match
- * the bulk action bar and stay for any non-empty selection.
+ * the bulk action bar and stay for any non-empty selection. `surface` gates the
+ * per-surface items: "Duplicate of…" stays on the Issues board only (POD-169).
  */
-export function issueMenuEligibility(issues: readonly IssueWire[]): {
+export function issueMenuEligibility(
+  issues: readonly IssueWire[],
+  surface: IssueMenuSurface = 'board',
+): {
   canOpen: boolean
   canRename: boolean
   canSetStage: boolean
@@ -119,8 +126,9 @@ export function issueMenuEligibility(issues: readonly IssueWire[]): {
     canDefer: openSingle && !hasDeleted,
     canUndefer: single && !hasDeleted && first?.deferUntil != null,
     // "Duplicate" marks the issue a duplicate of a canonical sibling — pointless
-    // once it already points at one.
-    canDuplicate: single && !hasDeleted && first?.duplicateOf == null,
+    // once it already points at one. Board-only: the sidebar menu dropped it
+    // in the POD-100 interaction cleanup (decided 2026-07-21).
+    canDuplicate: surface === 'board' && single && !hasDeleted && first?.duplicateOf == null,
     canPin: single && !hasDeleted,
     canDelete: activeAny,
     canRestore: any && issues.every((i) => !!i.deletedAt),

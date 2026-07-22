@@ -115,7 +115,6 @@ function PaletteDialog({
     sessions,
     issues,
     pins,
-    setPinned,
     paneA,
     setPane,
     setView,
@@ -138,7 +137,6 @@ function PaletteDialog({
       sessions: s.sessions,
       issues: s.issues,
       pins: s.pins,
-      setPinned: s.setPinned,
       paneA: s.paneA,
       setPane: s.setPane,
       setView: s.setView,
@@ -328,15 +326,9 @@ function PaletteDialog({
       const id = focused.sessionId
       const { canHibernate, canResume, canClose } = sessionMenuEligibility(focused)
       const snoozed = isSnoozed(focused, Date.now())
-      const pinned = pins.panels.includes(id)
       const sess = (cmd: Omit<PaletteCommand, 'group'>): void => {
         out.push({ ...cmd, group: 'session' })
       }
-      sess({
-        id: 'session:pin',
-        label: pinned ? 'Unpin session' : 'Pin session',
-        run: () => setPinned('panel', id, !pinned),
-      })
       if (snoozed) {
         sess({ id: 'session:unsnooze', label: 'Un-snooze session', run: () => clearSnooze(id) })
       } else {

@@ -54,7 +54,6 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
 }
 
 const emptySections = (): SidebarSections => ({
-  pinnedPanels: [],
   pinnedWorktrees: [],
   pinnedRepos: [],
   repos: [],

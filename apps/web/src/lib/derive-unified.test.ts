@@ -91,7 +91,6 @@ function issue(over: Partial<IssueWire> = {}): IssueWire {
 }
 
 const emptySections = (worktrees: WorktreeNavView[]): SidebarSections => ({
-  pinnedPanels: [],
   pinnedWorktrees: [],
   pinnedRepos: [],
   repos: worktrees.length > 0 ? [{ path: '/r/a', name: 'a', worktrees }] : [],

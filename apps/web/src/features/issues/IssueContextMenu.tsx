@@ -38,6 +38,7 @@ import { useFeature } from '@/lib/use-feature'
 import { STAGE_LABELS } from './issue-card'
 import {
   deferDateFromNow,
+  type IssueMenuSurface,
   issueHandoffAvailability,
   issueMenuEligibility,
   toggleLabelAcross,
@@ -64,6 +65,7 @@ export function IssueContextMenu({
   onClose,
   onOpen,
   onRename,
+  surface = 'board',
 }: {
   /** The issues the menu acts on (the clicked issue, or the multi-selection). */
   issues: IssueWire[]
@@ -74,8 +76,10 @@ export function IssueContextMenu({
   /** Open the issue page for a single target. */
   onOpen: (id: string) => void
   /** Start an inline rename for a single target (#170). When omitted (e.g. the
-   *  board, which has no in-place editor) the item falls back to a prompt. */
+   *  board, which has no in-place editor) the Rename item is not offered. */
   onRename?: (id: string) => void
+  /** Host surface — gates per-surface items like "Duplicate of…" (POD-169). */
+  surface?: IssueMenuSurface
 }): JSX.Element | null {
   const { trpc, markIssueRead, markIssueUnread, sessions, repos, machines } = useStoreSelector(
     (s) => ({
@@ -126,7 +130,7 @@ export function IssueContextMenu({
 
   const first = issues[0]
   if (!first) return null
-  const elig = issueMenuEligibility(issues)
+  const elig = issueMenuEligibility(issues, surface)
   const ids = issues.map((i) => i.id)
   // Single-issue only: the issue-row handoff picture — the chosen agent session's
   // availability, or an issue-level reason. Always shown with its reason (POD-850),
@@ -181,20 +185,11 @@ export function IssueContextMenu({
   // issue back to the TOP of WORK with the "Unsnoozed" tag, unlike defer(null) which
   // clears it silently into the middle of the list.
   const undefer = (): void => run(() => trpc.issues.undefer.mutate({ id: first.id }))
-  // Rename (#170): prefer the host's inline editor; fall back to a prompt where
-  // there's no in-place editor (e.g. the board). Empty/whitespace is a no-op.
+  // Rename (#170): the host's inline editor. Hosts without one (e.g. the board)
+  // pass no onRename and get no Rename item — the prompt() fallback is gone (POD-169).
   const rename = (): void => {
-    if (onRename) {
-      onRename(first.id)
-      onClose()
-      return
-    }
-    const next = window.prompt('Rename task', first.title)?.trim()
-    if (next && next !== first.title) {
-      run(() => trpc.issues.update.mutate({ id: first.id, patch: { title: next } }))
-    } else {
-      onClose()
-    }
+    onRename?.(first.id)
+    onClose()
   }
   const duplicateOf = (canonicalId: string): void =>
     run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
@@ -433,7 +428,7 @@ export function IssueContextMenu({
           <ExternalLink size={14} aria-hidden="true" /> Open
         </button>
       )}
-      {elig.canRename && (
+      {elig.canRename && onRename && (
         <button type="button" role="menuitem" className={itemCls} {...leafHover} onClick={rename}>
           <Pencil size={14} aria-hidden="true" /> Rename
         </button>
@@ -465,22 +460,20 @@ export function IssueContextMenu({
       {elig.canSetStage && subTrigger('stage', <StageGlyph stage={first.stage} />, 'Set stage')}
       {elig.canSetPriority &&
         subTrigger('priority', <PriorityGlyph priority={first.priority} />, 'Set priority')}
-      {/* Run now (POD-110): one-click start with the default agent — the
-          "Assign agent" flyout stays for choosing a kind. Only while startable;
-          a started issue's quick path is the flyout's "+ session" semantics. */}
-      {elig.canAssignAgent && isIssueStartable(first) && (
-        <button
-          type="button"
-          role="menuitem"
-          className={itemCls}
-          {...leafHover}
-          onClick={() => assignAgent('')}
-        >
-          <Play size={14} aria-hidden="true" /> Run now
-        </button>
-      )}
+      {/* ONE agent entry (POD-169 consolidation of POD-110's pair): a startable
+          issue reads "Run now" (Play), a started one "Assign agent" (Bot); both
+          open the same agent flyout, whose first option is the default agent —
+          the old one-click Run-now path. */}
       {elig.canAssignAgent &&
-        subTrigger('agent', <Bot size={14} aria-hidden="true" />, 'Assign agent')}
+        subTrigger(
+          'agent',
+          isIssueStartable(first) ? (
+            <Play size={14} aria-hidden="true" />
+          ) : (
+            <Bot size={14} aria-hidden="true" />
+          ),
+          isIssueStartable(first) ? 'Run now' : 'Assign agent',
+        )}
       {elig.canSetLabels && subTrigger('labels', <Tag size={14} aria-hidden="true" />, 'Labels')}
       {/* [spec:SP-3f7a] When enabled, issue-row handoff shows for a single issue,
           including the reason when it can't move (POD-850). */}

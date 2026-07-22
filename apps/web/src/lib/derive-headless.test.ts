@@ -66,7 +66,7 @@ describe('headless session exclusion (concierge unification)', () => {
     expect(ids).toContain('n1')
   })
 
-  it('sidebarSections keeps headless sessions out of pinned panels and worktree groups', () => {
+  it('sidebarSections keeps headless sessions out of worktree groups', () => {
     const repos = [
       {
         path: '/w',
@@ -75,11 +75,10 @@ describe('headless session exclusion (concierge unification)', () => {
       },
     ] as never
     const sections = sidebarSections(repos, [normal, headless], {
-      panels: ['h1', 'n1'],
+      panels: [],
       worktrees: [],
       repos: [],
     })
-    expect(sections.pinnedPanels.map((s) => s.sessionId)).toEqual(['n1'])
     const grouped = sections.repos.flatMap((r) => r.worktrees.flatMap((w) => w.sessions))
     expect(grouped.map((s) => s.sessionId)).toEqual(['n1'])
   })
