@@ -81,7 +81,10 @@ vi.mock('@/app/store', () => {
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
-vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
+vi.mock('@/lib/markdown', () => ({
+  renderMarkdown: (t: string) => `<p>${t}</p>`,
+  isKnownRefPrefix: () => true,
+}))
 
 const { ChatView } = await import('./ChatView')
 
@@ -265,8 +268,21 @@ describe('ChatView read-then-subscribe', () => {
       role: 'user',
       text: 'LATEST PROMPT after tools',
     }
+    const deliveredMail: TranscriptItem = {
+      id: 'u2',
+      cursor: 'c4',
+      role: 'user',
+      text: `[podium message msg_sticky · from issue:POD-16 · to your session · reply: podium mail reply msg_sticky]
+This is agent mail, not the operator's latest prompt.
+[end podium message msg_sticky]`,
+    }
     await act(async () => {
-      reads[0]?.resolve({ items: [...tools, prompt], head: 'c1', tail: 'c3', hasMore: false })
+      reads[0]?.resolve({
+        items: [...tools, prompt, deliveredMail],
+        head: 'c1',
+        tail: 'c4',
+        hasMore: false,
+      })
     })
     await flush()
 
@@ -294,6 +310,8 @@ describe('ChatView read-then-subscribe', () => {
     act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
     const sticky = container.querySelector<HTMLButtonElement>('[data-testid="sticky-user-message"]')
     expect(sticky?.textContent).toContain('LATEST PROMPT after tools')
+    expect(sticky?.textContent).not.toContain('agent mail')
+    expect(sticky?.querySelector('.transcript-you')).not.toBeNull()
 
     const scrollIntoView = vi.fn()
     userRow.scrollIntoView = scrollIntoView

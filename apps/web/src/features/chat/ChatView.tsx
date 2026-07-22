@@ -32,6 +32,7 @@ import { ChatBlockView } from './ChatBlockView'
 import { blockMatches, type PendingItem, reconcilePending, searchBlocks } from './chat'
 import { hasImageItems } from './image-items'
 import { Minimap } from './Minimap'
+import { parseMessageEnvelope } from './message-envelope'
 import { OfferBar } from './OfferBar'
 import { SinceStopTimer } from './SinceStopTimer'
 import { ToolBatchView } from './ToolBatchView'
@@ -243,8 +244,11 @@ export function ChatView({
     })
     return last
   }, [blocks, session?.status])
-  // The most recent user prompt (block index → sticky header that keeps it in
-  // view while reading the answer; text → tl;dr context) and the latest answer.
+  // The most recent OPERATOR prompt (block index → sticky header that keeps it
+  // in view while reading the answer; text → tl;dr context) and the latest
+  // answer. Delivered Podium mail is represented as a user transcript item so
+  // the harness receives it, but ChatBlockView renders it as an envelope rather
+  // than a "You" turn; it must not displace the human's sticky prompt either.
   const lastUserBlockIndex = useMemo(() => {
     for (let i = blocks.length - 1; i >= 0; i--) {
       const it = blocks[i]?.item
@@ -252,6 +256,7 @@ export function ChatView({
       // Headless: machine-authored context blocks render collapsed — they are
       // not "the user's last prompt" for the sticky header / tl;dr context.
       if (headless && MACHINE_CONTEXT_RE.test(it.text)) continue
+      if (parseMessageEnvelope(it.text)) continue
       return i
     }
     return -1
@@ -870,21 +875,26 @@ export function ChatView({
         </div>
       )}
       <div className="relative flex min-h-0 flex-1">
-        {/* Sticky last-user prompt: stays pinned at the top while reading the
-            answer once it has scrolled out the top of the view. Click to jump. */}
+        {/* Sticky last-operator prompt: stays pinned at the top while reading
+            the answer once its original row has scrolled out of view. It uses
+            the same elevated card language as the real turn so it remains a
+            recognizable prompt, rather than turning into a toolbar strip. */}
         {showStickyUser && lastUserText && (
           <button
             type="button"
             onClick={jumpToLastUser}
             title="Jump to this message"
             data-testid="sticky-user-message"
-            className="absolute top-0 right-[18px] left-0 z-[3] flex items-start gap-2 border-b border-border bg-card/95 px-5 py-1.5 text-left backdrop-blur supports-[backdrop-filter]:bg-card/80"
+            className={cn(
+              'absolute top-0 right-[18px] left-0 z-[3] bg-background/90 pt-2 text-left backdrop-blur-sm',
+              compact ? 'px-3.5' : 'px-5',
+            )}
           >
-            <span className="mt-px flex-none font-mono text-[8.5px] font-medium tracking-[0.12em] text-info uppercase">
-              You
-            </span>
-            <span className="line-clamp-2 min-w-0 flex-1 text-xs whitespace-pre-wrap text-muted-foreground">
-              {lastUserText}
+            <span className="transcript-you mx-auto block w-full max-w-[960px]">
+              <span className="transcript-you-label">You</span>
+              <span className="block whitespace-pre-wrap text-[13.5px] leading-relaxed font-medium text-foreground">
+                {lastUserText}
+              </span>
             </span>
           </button>
         )}

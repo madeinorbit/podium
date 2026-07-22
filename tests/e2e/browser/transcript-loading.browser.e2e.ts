@@ -209,6 +209,13 @@ test('latest user prompt sticks after collapsed tools and jumps back on click', 
     toolUseRec('tool-call-record', t),
     toolResultRec('tool-result-record', t),
     userRec('sticky-user', 'STICKY_USER_PROMPT keep this visible', t),
+    userRec(
+      'delivered-mail',
+      `[podium message msg_sticky_e2e · from issue:POD-16 · to your session · reply: podium mail reply msg_sticky_e2e]
+DELIVERED_AGENT_MAIL must not replace the operator prompt
+[end podium message msg_sticky_e2e]`,
+      t,
+    ),
     answerRec('sticky-answer', longAnswer, t),
   ])
 
@@ -254,6 +261,8 @@ test('latest user prompt sticks after collapsed tools and jumps back on click', 
     .toBe(true)
   const sticky = page.locator('[data-testid="sticky-user-message"]:visible')
   await expect(sticky).toContainText('STICKY_USER_PROMPT keep this visible')
+  await expect(sticky).not.toContainText('DELIVERED_AGENT_MAIL')
+  await expect(sticky.locator('.transcript-you')).toBeVisible()
 
   // Drive the real interaction too: clicking the sticky copy scrolls the real
   // user row back into view.
