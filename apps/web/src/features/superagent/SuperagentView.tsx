@@ -275,14 +275,6 @@ export function SuperagentView({
         .mutate({ id: item.issue.id })
         .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
     },
-    // Finished card: archiving IS the acknowledgment — the card and the
-    // sidebar row leave together.
-    onArchive: (item: TrayItem) => {
-      setError(null)
-      trpc.issues.archive
-        .mutate({ id: item.issue.id })
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-    },
     // Offer button [spec:SP-c7f1]: send the agent-authored prompt to the
     // offer's OWN session as a normal user turn — the same sendText path the
     // chat/native offer bars use, so the server auto-clears the offer. Hide

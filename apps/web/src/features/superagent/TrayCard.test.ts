@@ -13,9 +13,7 @@ const git = (over: Partial<NonNullable<ReturnType<typeof makeIssue>['gitState']>
 
 describe('trayStateSegments (§2.3-v3 machine-set state line)', () => {
   it('renders stage · ⎇ branch · N ahead · clean from real gitState fields only', () => {
-    const segments = trayStateSegments(
-      makeIssue({ stage: 'review', gitState: git({ ahead: 2 }) }),
-    )
+    const segments = trayStateSegments(makeIssue({ stage: 'review', gitState: git({ ahead: 2 }) }))
     expect(segments).toEqual([
       { text: 'review' },
       { text: '⎇ pod-105' },
@@ -25,9 +23,10 @@ describe('trayStateSegments (§2.3-v3 machine-set state line)', () => {
   })
 
   it('marks dirty files as a warning and prefers the attributed count on shared checkouts', () => {
-    expect(
-      trayStateSegments(makeIssue({ gitState: git({ dirtyFiles: 3 }) })).at(-1),
-    ).toEqual({ text: '3 dirty', warn: true })
+    expect(trayStateSegments(makeIssue({ gitState: git({ dirtyFiles: 3 }) })).at(-1)).toEqual({
+      text: '3 dirty',
+      warn: true,
+    })
     // Shared checkout with an attributed set: the task's own dirty count wins.
     expect(
       trayStateSegments(

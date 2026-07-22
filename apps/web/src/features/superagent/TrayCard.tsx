@@ -19,9 +19,6 @@ export interface TrayActions {
    *  prompt to ITS session as a normal user turn (the server then clears the
    *  offer, same as the chat/native offer bars). */
   onOfferAction: (item: Extract<TrayItem, { kind: 'offer' }>, prompt: string) => void
-  /** Finished card's deterministic Archive: acknowledge a done task
-   *  (issues.archive) — removes the card and the sidebar row together. */
-  onArchive: (item: TrayItem) => void
 }
 
 export const itemKey = (item: TrayItem): string =>
@@ -119,10 +116,10 @@ function SessionLink({ item, actions }: { item: TrayItem; actions: TrayActions }
 /**
  * One human-actionable tray card (engraved-column.md §2.3-v3): an agent's
  * action offer with its dynamic buttons [spec:SP-c7f1], a question with
- * Reply…/resolve, or a deterministic finished card with its Archive
- * acknowledgment. Colour is issue IDENTITY, never state: each card tints with
- * ITS issue's user-assigned colour (slate when uncoloured); the selected issue
- * adds only a ring, never a re-sort.
+ * Reply…/resolve, or the deterministic review backstop [POD-118]. Colour is
+ * issue IDENTITY, never state: each card tints with ITS issue's user-assigned
+ * colour (slate when uncoloured); the selected issue adds only a ring, never
+ * a re-sort.
  */
 export function TrayCard({
   item,
@@ -160,13 +157,11 @@ export function TrayCard({
           (s) => !s.archived && s.agentKind !== 'shell' && s.headless !== true,
         )
   const ago = relativeTime(item.since, now)
-  // §2.3-v3 tint tiers: offer/review 16%/.55, question 9%/.38, finished 7%/.30.
+  // §2.3-v3 tint tiers: offer/review 16%/.55, question 9%/.38.
   const tier =
     item.kind === 'question'
       ? { mix: 'issue-mix-9 issue-hairline-38', hover: 'hover:issue-hairline-60' }
-      : item.kind === 'finished'
-        ? { mix: 'issue-mix-7 issue-hairline-30', hover: 'hover:issue-hairline-50' }
-        : { mix: 'issue-mix-16 issue-hairline-55', hover: 'hover:issue-hairline-80' }
+      : { mix: 'issue-mix-16 issue-hairline-55', hover: 'hover:issue-hairline-80' }
   const cardStyle = {
     '--issue': hex,
     ...(selected
@@ -189,8 +184,7 @@ export function TrayCard({
       data-issue-colored={colored ? 'true' : 'false'}
       data-selected={selected || undefined}
       className={cn(
-        'issue-scope flex cursor-pointer flex-col gap-1.5 rounded-[10px] border px-[11px] transition-[border-color]',
-        item.kind === 'finished' ? 'py-[7px] opacity-[.88]' : 'py-[9px]',
+        'issue-scope flex cursor-pointer flex-col gap-1.5 rounded-[10px] border px-[11px] py-[9px] transition-[border-color]',
         tier.mix,
         tier.hover,
         arrived && 'morph-card-flash',
@@ -214,7 +208,7 @@ export function TrayCard({
           {issueDisplayRef(issue)}
         </span>
         <span className="min-w-0 truncate text-[10.5px] text-muted-foreground">{issue.title}</span>
-        {item.kind !== 'finished' && agentSession?.name && (
+        {agentSession?.name && (
           <span className="flex-none truncate whitespace-nowrap text-[9.5px] text-text-dim">
             · <span className="text-claude">◆</span> {agentSession.name}
           </span>
@@ -339,26 +333,6 @@ export function TrayCard({
             </div>
           </>
         )
-      ) : item.kind === 'finished' ? (
-        <div className="flex min-w-0 items-center gap-2 text-[10.5px] text-muted-foreground">
-          <span className="min-w-0 truncate">
-            {issue.closedReason?.trim() || 'Done.'}
-            {issue.gitState?.commits?.length
-              ? ` · ${issue.gitState.commits[issue.gitState.commits.length - 1]?.slice(0, 7)}`
-              : ''}
-          </span>
-          <button
-            type="button"
-            title="Acknowledge and archive this task"
-            className={`${BTN_TER} ml-auto`}
-            onClick={(e) => {
-              e.stopPropagation()
-              actions.onArchive(item)
-            }}
-          >
-            Archive ✓
-          </button>
-        </div>
       ) : item.kind === 'review' ? (
         // Backstop review card [POD-118]: minimal by design — the agent's own
         // offer (with its buttons) is the richer form; this only guarantees a

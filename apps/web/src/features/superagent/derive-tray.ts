@@ -1,21 +1,16 @@
 import { attentionGroup } from '@podium/client-core'
 import type { IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 
-/** How long a finished task's Archive card stays in the tray. Deliberately
- *  TIGHTER than the sidebar's unread visibility (7d): the sidebar row may wait
- *  for acknowledgment, but the tray is "act now" — a day later the archive
- *  nudge is noise (the historical never-read population would flood it). */
-const FINISHED_WINDOW_MS = 24 * 60 * 60 * 1000
-
 /**
  * The Tray's whole contract (.design/specs/engraved-column.md §2.3-v3 + §5):
- * the ONLY things it ever shows are items that need a HUMAN — an agent's
- * question (`needsHuman`), an agent's action offer (SessionOffer
- * [spec:SP-c7f1], which is how review-ready work announces itself richly), a
- * deterministic review backstop for stage=review issues with no live offer
- * [POD-118], or a deterministic finished-task card awaiting Archive. Working/
- * status rows never appear; when nothing waits, the tray collapses to the
- * quiet empty line whose live counter comes from {@link workingSessionCount}.
+ * the ONLY things it ever shows are items that need a HUMAN's ATTENTION — an
+ * agent's question (`needsHuman`), an agent's action offer (SessionOffer
+ * [spec:SP-c7f1], which is how review-ready work announces itself richly), or
+ * a deterministic review backstop for stage=review issues with no live offer
+ * [POD-118]. Finished/done issues never appear [POD-198]: archive cleanup is
+ * not attention (archiving lives on the board/sidebar). Working/status rows
+ * never appear either; when nothing waits, the tray collapses to the quiet
+ * empty line whose live counter comes from {@link workingSessionCount}.
  *
  * Scope (spec §5, POD-113): the tray is GLOBAL — every live item across all
  * tasks, always. The selected issue influences rendering only via the colour
@@ -30,9 +25,6 @@ export type TrayItem = {
 } & (
   | { kind: 'question'; text: string }
   | { kind: 'offer'; session: SessionMeta; offer: SessionOffer }
-  // Deterministic completion card: recognized from issue state, not
-  // agent-offered — a finished task waits for the human to archive it.
-  | { kind: 'finished' }
   // Deterministic review backstop [POD-118]: an issue sitting in stage=review
   // whose sessions carry NO live offer still gets a minimal card, so review
   // visibility never depends on the offer surviving (a stop-hook or mail wake
@@ -53,9 +45,6 @@ export function deriveTrayItems(
    *  {@link offerKey} — hidden until the server's cleared meta arrives
    *  (the same pattern as ChatView's dismissedOfferAt). */
   dismissedOffers?: ReadonlySet<string>,
-  /** Clock for the finished-card decay window (defaults to the real clock;
-   *  injectable for tests and the Tray's slow tick). */
-  now: number = Date.now(),
 ): TrayItem[] {
   const items: TrayItem[] = []
   for (const issue of issues.filter(live)) {
@@ -94,20 +83,14 @@ export function deriveTrayItems(
     if (issue.stage === 'review' && !hasOffer && !issue.needsHuman) {
       items.push({ kind: 'review', issue, since: issue.updatedAt })
     }
-    // Deterministic finished card: a recently-done human issue gets an Archive
-    // action — archiving is the acknowledgment that removes card and sidebar
-    // row immediately.
-    const finished = issue.stage === 'done' || issue.closedReason != null
-    const finishedAt = Date.parse(issue.closedAt ?? issue.updatedAt) || 0
-    if (finished && issue.audience === 'human' && now - finishedAt <= FINISHED_WINDOW_MS) {
-      items.push({ kind: 'finished', issue, since: issue.closedAt ?? issue.updatedAt })
-    }
+    // Finished/done issues deliberately get NO card [POD-198]: an Archive
+    // nudge is cleanup, not attention — on an agent-throughput day a finished
+    // card per closed issue floods the column. Archiving lives on the
+    // board/sidebar.
   }
-  // Stable global sort (§2.3-v3): decisions first (offers, questions, review
-  // backstops), finished last, newest-first within each — identical whatever
-  // is selected. Selection never re-sorts.
-  const rank = (item: TrayItem): number => (item.kind === 'finished' ? 1 : 0)
-  return items.sort((a, b) => rank(a) - rank(b) || b.since.localeCompare(a.since))
+  // Stable global sort (§2.3-v3): newest-first, identical whatever is
+  // selected. Selection never re-sorts.
+  return items.sort((a, b) => b.since.localeCompare(a.since))
 }
 
 /**
@@ -129,10 +112,6 @@ export function workingSessionCount(issues: IssueWire[]): number {
 
 /** Re-exported shape guard for the bar badge: the pill shows the CARD count
  *  (spec §6.11 working assumption), not the waiting-session count. */
-export function trayCount(
-  issues: IssueWire[],
-  dismissedOffers?: ReadonlySet<string>,
-  now?: number,
-): number {
-  return deriveTrayItems(issues, dismissedOffers, now).length
+export function trayCount(issues: IssueWire[], dismissedOffers?: ReadonlySet<string>): number {
+  return deriveTrayItems(issues, dismissedOffers).length
 }

@@ -326,7 +326,7 @@ describe('tray filtering (human-actionable only)', () => {
     expect(setPane).not.toHaveBeenCalled()
   })
 
-  it('finished issues render a deterministic card whose Archive routes to issues.archive', async () => {
+  it('finished issues get NO tray card — the tray is attention-only [POD-198]', async () => {
     storeIssues = [
       makeIssue({
         id: 'f',
@@ -339,18 +339,26 @@ describe('tray filtering (human-actionable only)', () => {
       }),
     ]
     await mount()
-    const card = container.querySelector('[data-testid="tray-card-finished"]')
-    expect(card?.textContent).toContain('merged to main')
-    const archive = [...container.querySelectorAll('button')].find((b) =>
-      b.textContent?.includes('Archive'),
-    )
-    await act(async () => {
-      archive?.click()
-      await Promise.resolve()
-    })
-    expect(fakeTrpc.issues.archive.mutate).toHaveBeenCalledWith({ id: 'f' })
-    // The button never ALSO navigates.
-    expect(setPane).not.toHaveBeenCalled()
+    // Archive cleanup lives on the board/sidebar, never in the tray.
+    expect(container.querySelector('[data-testid^="tray-card-"]')).toBeNull()
+    expect(container.querySelector('[data-testid="tray-empty"]')).not.toBeNull()
+  })
+
+  it('the tray body gets a default height cap when no split height is set [POD-198]', async () => {
+    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
+    await mount()
+    const cards = container.querySelector<HTMLElement>('[data-testid="tray-cards"]')
+    expect(cards?.className).toContain('max-h-[42vh]')
+    expect(cards?.style.maxHeight).toBe('')
+  })
+
+  it('a persisted split height replaces the default cap', async () => {
+    uiStateMap.set('podium:tray:height', '200')
+    storeIssues = [makeIssue({ id: 'q', seq: 2, needsHuman: true, humanQuestion: 'Choose?' })]
+    await mount()
+    const cards = container.querySelector<HTMLElement>('[data-testid="tray-cards"]')
+    expect(cards?.style.maxHeight).toBe('200px')
+    expect(cards?.className).not.toContain('max-h-[42vh]')
   })
 
   it('clicking a tray card focuses its native agent tab', async () => {

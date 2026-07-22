@@ -152,9 +152,9 @@ identity and state can't collide. Selected issue adds only a ring
 tertiary buttons. (Answer-option chips per old §2.3 need an options backend on
 `needsHuman` first — deferred.)
 
-**Finished card**: `color-mix … 7%` / border `.30`, `padding:7px 11px`, `opacity:.88`;
-one line `closedReason · sha` + right-aligned **`Archive ✓` as a 24px tertiary button**
-(deterministic client action — same affordance vocabulary as offer buttons).
+~~Finished card~~ **REMOVED (POD-198, owner decision)**: finished/done issues never render
+in the tray — an Archive nudge is cleanup, not attention, and on an agent-throughput day a
+card per closed issue floods the column. Archiving lives on the board/sidebar.
 
 **Arrival choreography** (motion.md keyframes; one-shot, then total stillness):
 tray-bar count pill `popIn .45s cubic-bezier(.34,1.56,.64,1)` · card unfolds via
@@ -162,8 +162,8 @@ grid-template-rows 0fr→1fr `.35s ease-out` (never animate height) · surface `
 (amber .32 → 0) · ago stamp `flipAgo .5s` · action row `tickIn .35s`. Reduced-motion:
 instant, no morphs.
 
-**Sort (global tray)**: decisions first (offers + questions), finished last, newest-first
-within each — identical whatever is selected. Never re-sort on selection.
+**Sort (global tray)**: newest-first (all items are decisions — offers, questions, review
+backstops) — identical whatever is selected. Never re-sort on selection.
 
 **Never rendered in the tray:** working/status rows, spinners-per-item, done items.
 Motion (1d): a card *arriving* may row-flash amber once (`rowFlash` 0%: `rgba(245,158,11,.32)` → 100%: `rgba(245,158,11,.10)`)
@@ -358,7 +358,7 @@ content vs. chat minimum), even though the handoff doesn't show one explicitly.
 
 ## 5 · Scoping rule — RESOLVED (POD-113, supersedes the subtree proposal)
 
-**The tray is GLOBAL**: every live offer, question and finished item across all tasks,
+**The tray is GLOBAL**: every live offer and question across all tasks,
 always. No issue scoping, no scope toggle — `trayScopeIssues` narrowing is deleted. The
 selected issue influences rendering only via the colour ring on its cards (§2.3-v3); sort is
 stable regardless of selection. Agent-count in the empty state = all non-archived,

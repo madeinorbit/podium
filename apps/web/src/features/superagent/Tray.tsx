@@ -39,13 +39,13 @@ function ArrivalWrap({ arrive, children }: { arrive: boolean; children: ReactNod
 }
 
 /**
- * The GLOBAL Tray (engraved-column.md §2.3-v3 + §5): every live offer,
- * question and finished item across all tasks, always — no issue scoping.
- * Decisions first, finished last, newest-first within each; the selected
- * issue only adds the colour ring on its cards. Working and status rows never
- * render here; when nothing waits, one quiet line with a machine-wide count of
- * agents still working replaces all cards. Total stillness after a card lands
- * IS the "needs you" signal.
+ * The GLOBAL Tray (engraved-column.md §2.3-v3 + §5): every live offer and
+ * question across all tasks, always — no issue scoping. Newest-first; the
+ * selected issue only adds the colour ring on its cards. Working, status and
+ * finished/done rows never render here [POD-198] — the tray is attention
+ * only, cleanup lives on the board/sidebar. When nothing waits, one quiet
+ * line with a machine-wide count of agents still working replaces all cards.
+ * Total stillness after a card lands IS the "needs you" signal.
  */
 export function Tray({
   issues,
@@ -58,7 +58,9 @@ export function Tray({
   /** Ring-only (§5): never narrows or re-sorts the tray. */
   selectedIssueId: string | null
   actions: TrayActions
-  /** Set by the tray/chat split handle; null = size to content. */
+  /** Set by the tray/chat split handle; null = a default viewport-relative
+   *  cap applies instead (the tray must never push the rest of the column
+   *  off screen [POD-198]). */
   maxHeight: number | null
   /** Offer cards optimistically consumed by a click (derive-tray offerKey). */
   dismissedOffers?: ReadonlySet<string>
@@ -70,7 +72,7 @@ export function Tray({
     return () => clearInterval(t)
   }, [])
 
-  const items = deriveTrayItems(issues, dismissedOffers, now)
+  const items = deriveTrayItems(issues, dismissedOffers)
   // Arrival bookkeeping runs during render so `arrived` is true on the card's
   // FIRST paint (an effect would be a frame late and the morphs would miss).
   // Marking keys as seen is idempotent, so StrictMode double-renders agree.
@@ -108,7 +110,15 @@ export function Tray({
   return (
     <div
       data-testid="tray-cards"
-      className="flex flex-none flex-col gap-1.5 overflow-y-auto px-3 pt-2 pb-2.5"
+      className={cn(
+        'flex flex-none flex-col gap-1.5 overflow-y-auto px-3 pt-2 pb-2.5',
+        // No split-handle height → a static viewport-relative cap [POD-198]:
+        // the card stack scrolls internally instead of pushing the chat and
+        // section bars off screen. A CSS max-height, never animated (the
+        // repo's height-transition trap); ArrivalWrap's grid-rows unfold
+        // works unchanged inside the scroll container.
+        maxHeight === null && 'max-h-[42vh]',
+      )}
       style={maxHeight !== null ? { maxHeight } : undefined}
     >
       {items.map((item) => {

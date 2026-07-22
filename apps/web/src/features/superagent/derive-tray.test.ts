@@ -82,14 +82,7 @@ describe('deriveTrayItems', () => {
     expect(deriveTrayItems([asking]).map((i) => i.kind)).toEqual(['question'])
   })
 
-  it('sorts decisions first, finished LAST, newest-first within each (§2.3-v3)', () => {
-    const NOW = Date.parse('2026-07-14T12:00:00Z')
-    const freshFinished = makeIssue({
-      id: 'f-new',
-      stage: 'done',
-      closedAt: '2026-07-14T11:30:00Z',
-      closedReason: 'merged',
-    })
+  it('sorts newest-first, stable whatever is selected (§2.3-v3)', () => {
     const oldQuestion = makeIssue({
       id: 'q-old',
       needsHuman: true,
@@ -105,13 +98,8 @@ describe('deriveTrayItems', () => {
         }),
       ] as SessionMeta[],
     })
-    // A finished card NEWER than every decision still sorts below them.
-    const items = deriveTrayItems([freshFinished, oldQuestion, newOffer], undefined, NOW)
-    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual([
-      'offer:o-new',
-      'question:q-old',
-      'finished:f-new',
-    ])
+    const items = deriveTrayItems([oldQuestion, newOffer])
+    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['offer:o-new', 'question:q-old'])
   })
 
   it('falls back to the question placeholder text', () => {
@@ -166,31 +154,18 @@ describe('deriveTrayItems', () => {
     expect(deriveTrayItems([again], dismissed)).toHaveLength(1)
   })
 
-  it('finished human issues get a deterministic card for 24h after finishing', () => {
-    const NOW = Date.parse('2026-07-14T12:00:00Z')
+  it('finished/done issues NEVER render — the tray is attention-only [POD-198]', () => {
+    // Archive cleanup is not attention: even a just-closed, never-read human
+    // issue gets no card. Archiving lives on the board/sidebar.
     const fresh = makeIssue({
       id: 'f',
       stage: 'done',
       closedAt: '2026-07-14T11:00:00Z',
       closedReason: 'merged',
-    })
-    const internal = makeIssue({
-      id: 'i',
-      stage: 'done',
-      audience: 'agent',
-      closedAt: '2026-07-14T11:00:00Z',
-    })
-    // Past the 24h window — even NEVER-READ old done issues stay out (the tray
-    // is "act now"; the sidebar's 7d unread visibility does not apply here).
-    const decayed = makeIssue({
-      id: 'd',
-      stage: 'done',
-      closedAt: '2026-07-10T11:00:00Z',
       unread: true,
     })
-    const items = deriveTrayItems([fresh, internal, decayed], undefined, NOW)
-    expect(items.map((i) => `${i.kind}:${i.issue.id}`)).toEqual(['finished:f'])
-    expect(items[0]).toMatchObject({ since: '2026-07-14T11:00:00Z' })
+    const reasonOnly = makeIssue({ id: 'r', closedReason: 'superseded' })
+    expect(deriveTrayItems([fresh, reasonOnly])).toHaveLength(0)
   })
 
   it('an issue with both a question and a session offer yields both cards', () => {
