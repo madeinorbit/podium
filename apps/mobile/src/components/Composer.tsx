@@ -1,12 +1,13 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp } from 'lucide-react-native'
 import { useState } from 'react'
-import { Platform, StyleSheet, TextInput, View } from 'react-native'
-import { color, font, radius, sans, space } from '../theme/theme'
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { color, font, mono, radius, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
 
-/** Chat composer: pill input on a glass bar, gradient send orb. */
+/** Chat composer — the super-agent field (Flat Field, POD-159): mono, a '>'
+ *  prompt glyph, yellow border on focus; gradient send orb kept for touch. */
 export function Composer({
   placeholder,
   onSend,
@@ -30,18 +31,21 @@ export function Composer({
 
   return (
     <View style={styles.row}>
-      <TextInput
-        accessibilityLabel={placeholder}
-        style={[styles.input, armed && styles.inputArmed]}
-        value={text}
-        onChangeText={setText}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder={placeholder}
-        placeholderTextColor={color.textFaint}
-        multiline
-        editable={!disabled}
-      />
+      <View style={[styles.field, armed && styles.fieldArmed]}>
+        <Text style={styles.gt}>{'>'}</Text>
+        <TextInput
+          accessibilityLabel={placeholder}
+          style={styles.input}
+          value={text}
+          onChangeText={setText}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          placeholderTextColor={color.textFaint}
+          multiline
+          editable={!disabled}
+        />
+      </View>
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel="Send"
@@ -73,13 +77,11 @@ const styles = StyleSheet.create({
     backgroundColor: color.glass,
     ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(14px)' } as object) : null),
   },
-  input: {
-    ...sans(400),
+  field: {
     flex: 1,
-    color: color.text,
-    fontSize: font.body,
-    lineHeight: 19,
-    maxHeight: 120,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm + 1,
     backgroundColor: 'rgba(8, 8, 12, 0.7)',
     borderColor: color.borderStrong,
     borderWidth: 1.5,
@@ -87,9 +89,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md + 1,
     paddingVertical: space.sm + 2,
   },
-  // Focused/armed composer lights amber — the redesign's composer grammar.
-  inputArmed: {
+  // Focused/armed composer lights Superade Yellow — the composer grammar.
+  fieldArmed: {
     borderColor: color.accent,
+  },
+  gt: {
+    ...mono(400),
+    color: color.textFaint,
+    fontSize: font.body,
+    lineHeight: 19,
+    paddingTop: 1,
+  },
+  input: {
+    ...mono(400),
+    flex: 1,
+    color: color.text,
+    fontSize: font.body,
+    lineHeight: 19,
+    maxHeight: 120,
+    padding: 0,
+    paddingTop: 1,
   },
   sendWrap: {
     borderRadius: radius.full,
