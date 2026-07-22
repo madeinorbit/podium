@@ -438,6 +438,57 @@ describe('section collapse states', () => {
   })
 })
 
+describe('standing event feed removal (POD-113)', () => {
+  it('renders NO cross-issue changelog even when issue events exist', async () => {
+    fakeTrpc.issues.events.query.mockResolvedValue([
+      {
+        id: 4,
+        ts: '2026-07-22T14:07:00Z',
+        kind: 'issue.closed',
+        subject: 'p',
+        repoPath: null,
+        payload: null,
+      },
+    ] as never)
+    storeIssues = [makeIssue({ id: 'p', seq: 7, title: 'Some task' })]
+    await mount()
+    expect(container.querySelector('[data-testid="super-event-feed"]')).toBeNull()
+    expect(container.textContent).not.toContain('Some task — closed')
+  })
+
+  it('keeps the YOU-WERE-HERE divider when events landed since the frozen cursor', async () => {
+    uiStateMap.set('podium:superfeed:cursor', JSON.stringify({ id: 2, ts: '2026-07-22T14:20:00Z' }))
+    fakeTrpc.issues.events.query.mockResolvedValue([
+      {
+        id: 5,
+        ts: '2026-07-22T14:30:00Z',
+        kind: 'issue.closed',
+        subject: 'p',
+        repoPath: null,
+        payload: null,
+      },
+    ] as never)
+    await mount()
+    const divider = container.querySelector('[data-testid="you-were-here"]')
+    expect(divider?.textContent).toContain('YOU WERE HERE')
+  })
+})
+
+describe('Clear context', () => {
+  it('routes through superagent.clear so the global thread restarts fresh', async () => {
+    await mount()
+    const btn = container.querySelector<HTMLButtonElement>(
+      'button[title="Clear context — start the global chat fresh"]',
+    )
+    expect(btn).not.toBeNull()
+    await act(async () => {
+      btn?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.superagent.clear.mutate).toHaveBeenCalledWith({ threadId: 'global' })
+  })
+})
+
 describe('Open in terminal', () => {
   it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
     await mount()

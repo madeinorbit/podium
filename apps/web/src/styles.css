@@ -1217,3 +1217,86 @@ a.ref-link--session::before {
     animation: none;
   }
 }
+
+/* ── Superagent compact chat (engraved-column.md §2.5, POD-113 mock S1) ──────
+   Column-sized transcript: 11px/1.5 body, 8.5px role labels with right-aligned
+   mono 8px clocks, 8px message rhythm, 3px accent bars (--info YOU /
+   --live SUPER AGENT), amber agent label with the quiet context suffix, and
+   the mono amber "→ next:" closing line. Scoped to .chat-compact so the
+   full-size ChatView keeps the Flat Field treatment. */
+
+.chat-compact .transcript-row {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.chat-compact .chat-md {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.chat-compact .transcript-you,
+.chat-compact .transcript-answer {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0 0 0 11px; /* 3px bar + 8px gap */
+}
+.chat-compact .transcript-you::before,
+.chat-compact .transcript-answer::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+}
+.chat-compact .transcript-you::before {
+  background: var(--info);
+}
+.chat-compact .transcript-answer::before {
+  background: var(--live);
+}
+.chat-compact .transcript-you .chat-md {
+  font-size: 11px;
+  font-weight: 400;
+}
+.chat-compact .transcript-you-label,
+.chat-compact .transcript-answer-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 1px;
+  font-family: inherit;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.chat-compact .transcript-you-label {
+  color: var(--muted-foreground);
+}
+.chat-compact .transcript-answer-label {
+  color: var(--attention);
+}
+.chat-compact .chat-ctx {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim, #6c6c78);
+}
+.chat-compact .chat-clk {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: #5a5a66;
+}
+.chat-compact .chat-next {
+  margin-top: 3px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  color: var(--attention);
+}

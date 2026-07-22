@@ -100,6 +100,7 @@ export function ChatView({
     httpOrigin,
     tldrSession,
     getUserFocus,
+    issues,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -113,6 +114,7 @@ export function ChatView({
       httpOrigin: s.httpOrigin,
       tldrSession: s.tldrSession,
       getUserFocus: s.getUserFocus,
+      issues: s.issues,
     }),
     shallowEqual,
   )
@@ -255,6 +257,16 @@ export function ChatView({
     return -1
   }, [blocks, headless])
   const lastUserText = lastUserBlockIndex >= 0 ? (blocks[lastUserBlockIndex]?.item.text ?? '') : ''
+  // Compact (superagent column): the latest ANSWER block carries the
+  // "· POD-x context" label suffix for the issue the turn rode in with.
+  const [ctxSeq, setCtxSeq] = useState<number | null>(null)
+  const lastAnswerBlockIndex = useMemo(() => {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const it = blocks[i]?.item
+      if (it?.role === 'assistant' && it.answer) return i
+    }
+    return -1
+  }, [blocks])
   const lastAnswerText = useMemo(() => {
     let answer = ''
     for (const b of blocks)
@@ -584,6 +596,14 @@ export function ChatView({
           // Every turn carries what the user has on screen (#225), so the
           // orchestrator can resolve "this session"/"this issue" without asking.
           const focus = getUserFocus()
+          // Compact label context (mock S1): remember which issue this turn was
+          // answered with, so the arriving answer carries "· POD-x context".
+          if (compact) {
+            const seq = focus.issueId
+              ? ((issues ?? []).find((i) => i.id === focus.issueId)?.seq ?? null)
+              : null
+            setCtxSeq(seq)
+          }
           if (superThread.kind === 'concierge' && superThread.repoPath) {
             await trpc.superagent.concierge.mutate({
               repoPath: superThread.repoPath,
@@ -769,7 +789,7 @@ export function ChatView({
   )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
       {/* Search + tl;dr header — hidden in the compact superagent dock
           (engraved-column.md §2.5: bar → feed → composer, no extra chrome). */}
       {!compact && (
@@ -847,7 +867,11 @@ export function ChatView({
           </button>
         )}
         <div
-          className="flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto px-5 pt-5 pb-6"
+          className={cn(
+            'flex min-w-0 flex-1 flex-col gap-0 overflow-y-auto',
+            // §2.5 feed geometry: 12px/14px padding in the narrow column.
+            compact ? 'px-3.5 pt-3 pb-4' : 'px-5 pt-5 pb-6',
+          )}
           ref={scrollerRef}
           onScroll={onScroll}
         >
@@ -933,6 +957,8 @@ export function ChatView({
                 askLivePending={row.blockIndex === livePendingAskIndex}
                 onAnswerAsk={answerAsk}
                 collapseContext={headless}
+                compact={compact}
+                ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
               />
             )
           })}

@@ -66,6 +66,18 @@ function PrincipalLabel({ label }: { label: string }): JSX.Element {
   )
 }
 
+/** Right-aligned mono clock on compact role labels (mock S1). Absent ts → no row. */
+function BlockClock({ ts }: { ts?: string | undefined }): JSX.Element | null {
+  if (!ts) return null
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return null
+  return (
+    <span className="chat-clk">
+      {String(d.getHours()).padStart(2, '0')}:{String(d.getMinutes()).padStart(2, '0')}
+    </span>
+  )
+}
+
 // Memoized: ChatView re-renders on every search keystroke, every 700ms
 // transcript poll, and every session-state change in the store. Block identity
 // is stable across renders that don't change `items` (pairToolResults is
@@ -83,6 +95,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   askLivePending,
   onAnswerAsk,
   collapseContext = false,
+  compact = false,
+  ctxSeq = null,
 }: {
   block: ChatBlock
   index: number
@@ -100,6 +114,12 @@ export const ChatBlockView = memo(function ChatBlockView({
   /** Headless superagent sessions: collapse machine-authored [BTW/CONCIERGE
    *  CONTEXT/UPDATE] user blocks into a quiet disclosure row. */
   collapseContext?: boolean
+  /** Superagent-column compact treatment (engraved-column.md §2.5): 11px body,
+   *  8.5px role labels with mono clocks, accent bars, mono amber `→ next:`. */
+  compact?: boolean
+  /** Issue seq the LATEST turn was answered with (compact only) — renders the
+   *  `· POD-x context` suffix on that answer's SUPER AGENT label. */
+  ctxSeq?: number | null
 }): JSX.Element | null {
   const { item } = block
   // Delivered-message envelope (#237) [spec:SP-34d7 web]: an inter-agent /
@@ -111,9 +131,19 @@ export const ChatBlockView = memo(function ChatBlockView({
     () => (item.role === 'user' ? parseMessageEnvelope(item.text) : null),
     [item.role, item.text],
   )
+  // Compact answers ending in a "→ next: …" line render it as a mono amber row
+  // of its own (mock S1), not markdown prose.
+  const nextSplit = useMemo(() => {
+    if (!compact || item.role !== 'assistant' || !item.answer) return null
+    const lines = item.text.trimEnd().split('\n')
+    const last = lines[lines.length - 1]?.trim() ?? ''
+    return /^(→|->)\s*next:/i.test(last)
+      ? { body: lines.slice(0, -1).join('\n'), next: last.replace(/^->\s*/, '→ ') }
+      : null
+  }, [compact, item.role, item.answer, item.text])
   const html = useMemo(
-    () => renderMarkdown(envelope ? envelope.body : item.text),
-    [envelope, item.text],
+    () => renderMarkdown(envelope ? envelope.body : (nextSplit?.body ?? item.text)),
+    [envelope, nextSplit, item.text],
   )
   const rowClass = cn(
     'transcript-row mx-auto w-full max-w-[960px]',
@@ -281,14 +311,31 @@ export const ChatBlockView = memo(function ChatBlockView({
   return (
     <div className={rowClass} data-block={index}>
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      <div className={cn('transcript-body', isUser && 'transcript-you', isAnswer && 'transcript-answer')}>
-        {isUser && <div className="transcript-you-label">You</div>}
+      <div
+        className={cn(
+          'transcript-body',
+          isUser && 'transcript-you',
+          isAnswer && 'transcript-answer',
+        )}
+      >
+        {isUser && (
+          <div className="transcript-you-label">
+            You
+            {compact && <BlockClock ts={item.ts} />}
+          </div>
+        )}
         {item.role === 'system' && (
           <div className="transcript-header">
             <span className="transcript-role transcript-role--system">System</span>
           </div>
         )}
-        {isAnswer && <div className="transcript-answer-label">Answer</div>}
+        {isAnswer && (
+          <div className="transcript-answer-label">
+            {compact ? 'Super agent' : 'Answer'}
+            {compact && ctxSeq !== null && <span className="chat-ctx">· POD-{ctxSeq} context</span>}
+            {compact && <BlockClock ts={item.ts} />}
+          </div>
+        )}
         <div
           className="chat-md"
           onClick={(e) => {
@@ -297,6 +344,7 @@ export const ChatBlockView = memo(function ChatBlockView({
           // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
           dangerouslySetInnerHTML={{ __html: html }}
         />
+        {nextSplit && <div className="chat-next">{nextSplit.next}</div>}
         {/* Attached media (POD-178): a turn's referenced files render as real
             inline previews — images as clickable thumbnails (→ lightbox), other
             files (artifacts, docs) as openable chips — instead of anonymous

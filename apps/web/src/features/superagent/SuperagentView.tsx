@@ -23,7 +23,6 @@ import {
 } from './column-state'
 import type { TrayItem } from './derive-tray'
 import { offerKey, trayCount } from './derive-tray'
-import { EventFeed } from './EventFeed'
 import { CountPill, SectionBar, UnreadDot } from './SectionBar'
 import { Tray } from './Tray'
 import type { TrayActions } from './TrayCard'
@@ -53,6 +52,18 @@ interface AtOption {
  *  binds the global thread; per-turn issue context rides the focus payload.
  *  Per-repo concierge / btw thread history access is #55. */
 const THREAD_ID = 'global'
+
+const clock = (ts: string): string => {
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime())
+    ? ''
+    : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** §2.2 super agent bar icon actions: 20×20, `#6c6c78` at rest,
+ *  hover `#f3f3f8` on `#1b1b22`, 5px radius. */
+const BAR_ACTION_CLS =
+  'size-5 flex-none rounded-[5px] text-[#6c6c78] hover:bg-[#1b1b22] hover:text-[#f3f3f8]'
 
 /**
  * The engraved column's CONTENT (issue #42): the Tray — ONLY items needing a
@@ -396,7 +407,7 @@ export function SuperagentView({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="size-5 flex-none text-muted-foreground"
+                className={BAR_ACTION_CLS}
                 title="Open this conversation in a terminal session"
                 onClick={() => void openInTerminal()}
               >
@@ -406,8 +417,8 @@ export function SuperagentView({
             <Button
               variant="ghost"
               size="icon-sm"
-              className="size-5 flex-none text-muted-foreground"
-              title="Clear the conversation"
+              className={BAR_ACTION_CLS}
+              title="Clear context — start the global chat fresh"
               onClick={() => void clear()}
             >
               <Eraser size={12} aria-hidden="true" />
@@ -422,13 +433,19 @@ export function SuperagentView({
               {error}
             </div>
           )}
-          <EventFeed
-            events={feed.events}
-            issues={issues}
-            dividerId={feed.dividerId}
-            dividerTs={feed.dividerTs}
-            onSelectIssue={(issueId) => setSelectedIssueId(issueId)}
-          />
+          {/* POD-113: the standing event feed is gone — the chat owns the space
+              and "what happened" is a super-agent question. Only the frozen
+              YOU-WERE-HERE return marker survives, pinned atop the chat. */}
+          {feed.dividerId > 0 && feed.events.some((e) => e.id > feed.dividerId) && (
+            <div
+              data-testid="you-were-here"
+              className="flex flex-none items-center gap-2 px-3.5 pt-2 pb-0.5 font-mono text-[9px] tracking-[.08em] text-attention"
+            >
+              <span className="h-px flex-1 bg-[rgba(245,158,11,.4)]" />
+              YOU WERE HERE{feed.dividerTs ? ` · ${clock(feed.dividerTs)}` : ''}
+              <span className="h-px flex-1 bg-[rgba(245,158,11,.4)]" />
+            </div>
+          )}
           {podiumSessionId ? (
             <div data-superagent-composer className="flex min-h-0 flex-1 flex-col">
               <ChatView
