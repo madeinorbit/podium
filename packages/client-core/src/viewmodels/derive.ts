@@ -24,12 +24,13 @@ import {
   withoutHeadless,
   worktreeForCwd,
 } from '@podium/domain'
-import type {
-  AgentKind,
-  GitRepositoryWire,
-  HostMetricsWire,
-  IssueWire,
-  SessionMeta,
+import {
+  type AgentKind,
+  type GitRepositoryWire,
+  type HostMetricsWire,
+  type IssueWire,
+  issueDisplayRef,
+  type SessionMeta,
 } from '@podium/protocol'
 import { attentionGroup, compareRecency } from '../focus'
 import type { PinState, RepoView, WorktreeView } from './types'
@@ -2037,9 +2038,74 @@ export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
 }
 
 /** How many member sessions are waiting on the human — drives the amber count
- *  pill on wide rows and the numbered corner badge on rail squares (#41). */
+ *  pill on wide rows and the numbered corner badge on rail squares (#41).
+ *  Issue rows count their `aggregateSessions` (via {@link rowSessions}), so the
+ *  pill sums needs-you across the WHOLE branch — visible children and rolled-up
+ *  depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3). */
 export function rowWaitingCount(row: UnifiedWorkRow): number {
   return rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
+}
+
+/** Roll-up stats for a subtree hidden behind the sidebar's depth cap (POD-100
+ *  L4): every non-archived descendant of `rootId` via formal parentId edges —
+ *  including done children that already decayed out of their own rows, since
+ *  history is the k/m, not rows (L5). Cycle-safe. */
+export function branchRollup(
+  issues: readonly IssueWire[],
+  rootId: string,
+): { total: number; done: number } {
+  const childrenOf = new Map<string, IssueWire[]>()
+  for (const issue of issues) {
+    if (issue.archived || issue.deletedAt || !issue.parentId) continue
+    const list = childrenOf.get(issue.parentId) ?? []
+    list.push(issue)
+    childrenOf.set(issue.parentId, list)
+  }
+  let total = 0
+  let done = 0
+  const seen = new Set<string>([rootId])
+  const stack = [rootId]
+  while (stack.length > 0) {
+    const id = stack.pop() as string
+    for (const child of childrenOf.get(id) ?? []) {
+      if (seen.has(child.id)) continue
+      seen.add(child.id)
+      total += 1
+      if (child.stage === 'done' || child.closedReason != null) done += 1
+      stack.push(child.id)
+    }
+  }
+  return { total, done }
+}
+
+/** The deepest descendant row whose OWN sessions include one waiting on the
+ *  human — the source the parent's sub-line whispers when depth would otherwise
+ *  hide a request ('deep: POD-224 needs you', POD-100 L3). Depth is relative to
+ *  `row` (1 = direct child). Null when no descendant is waiting. */
+export function deepAttentionSource(
+  row: UnifiedIssueRow,
+): { issue: IssueWire; depth: number } | null {
+  let best: { issue: IssueWire; depth: number } | null = null
+  const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
+  while (stack.length > 0) {
+    const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }
+    if (depth > 0 && r.sessions.some((s) => motionPhase(s) === 'waiting')) {
+      // Breadth-first + `>=` keeps the LAST deepest hit, so ties resolve to the
+      // later sibling deterministically; any deepest source serves the whisper.
+      if (best === null || depth >= best.depth) best = { issue: r.issue, depth }
+    }
+    for (const child of r.startedByChildren ?? []) stack.push({ row: child, depth: depth + 1 })
+  }
+  return best
+}
+
+/** Is any session waiting within `depth` levels of `row` (0 = own sessions
+ *  only)? Distinguishes a visible yellow (the child row explains itself) from
+ *  one hidden behind the roll-up (the parent must whisper the source). */
+function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
+  if (row.sessions.some((s) => motionPhase(s) === 'waiting')) return true
+  if (depth <= 0) return false
+  return (row.startedByChildren ?? []).some((child) => waitingWithinDepth(child, depth - 1))
 }
 
 /**
@@ -2048,7 +2114,13 @@ export function rowWaitingCount(row: UnifiedWorkRow): number {
  * session's badge label — "needs answer", "plan ready"); working/queued/done
  * rows read as their phase; multi-agent rows carry the head-count.
  */
-export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): string {
+export function rowStatusLine(
+  row: UnifiedWorkRow,
+  now: number = Date.now(),
+  /** How many descendant levels render beneath this row (POD-100 L4 cap):
+   *  1 for a top-level row (children visible), 0 for a depth-capped child. */
+  visibleDepth: number = 1,
+): string {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
   // A draft vessel whose sessions were never prompted isn't "queued" work —
@@ -2068,6 +2140,16 @@ export function rowStatusLine(row: UnifiedWorkRow, now: number = Date.now()): st
   const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
   const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
+    // Branch attention whisper (POD-100 L3): the yellow comes from a descendant
+    // hidden behind the depth cap — no visible row explains the pill, so the
+    // sub-line names the deepest source instead of a bare "needs you".
+    if (row.kind === 'issue') {
+      const deep = deepAttentionSource(row)
+      if (deep && deep.depth > visibleDepth && !waitingWithinDepth(row, visibleDepth)) {
+        const own = row.sessions.some(isSessionWorking) ? 'working · ' : ''
+        return `${head}${own}deep: ${issueDisplayRef(deep.issue)} needs you${progress}`
+      }
+    }
     const urgent = mostUrgentSession(
       sessions.filter((s) => motionPhase(s) === 'waiting'),
       now,

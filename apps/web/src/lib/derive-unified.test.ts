@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   archivedSessionsForIssue,
   archivedSessionsForWorktreePath,
+  branchRollup,
+  deepAttentionSource,
   groupUnifiedWorkRows,
   isIssueSnoozed,
   isRowUnread,
@@ -12,7 +14,9 @@ import {
   partitionUnifiedWork,
   type RepoNavView,
   repoUsageAt,
+  rowStatusLine,
   rowUnreadEmphasized,
+  rowWaitingCount,
   type SidebarSections,
   sessionUrgencyRank,
   spawnTargetForRepo,
@@ -867,5 +871,121 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     // Own working session lifts individually; the row (with its child) stays.
     expect(work.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['p'])
     expect(w.map((e) => (e.kind === 'session' ? e.session.sessionId : e.kind))).toEqual(['own'])
+  })
+})
+
+describe('POD-171: depth roll-up + branch attention (L3/L4/L5)', () => {
+  const DAY = 24 * HOUR
+  // A three-deep formal tree: root > mid > leaf, with the needs-you at the leaf.
+  const tree = () => {
+    const root = issue({ id: 'root', seq: 1, title: 'Epic', audience: 'human' })
+    const mid = issue({ id: 'mid', seq: 2, title: 'Mid', audience: 'human', parentId: 'root' })
+    const leaf = issue({
+      id: 'leaf',
+      seq: 3,
+      audience: 'agent' as IssueWire['audience'],
+      parentId: 'mid',
+    })
+    return { root, mid, leaf }
+  }
+  const rowsFor = (issues: IssueWire[], sessions: SessionMeta[]) =>
+    unifiedWorkList(emptySections([]), issues, sessions, [], NOW)
+
+  it('L3: the parent pill counts needs-you across the whole branch, rolled-up depth included', () => {
+    const { root, mid, leaf } = tree()
+    const rows = rowsFor(
+      [root, mid, leaf],
+      [
+        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
+        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionMeta,
+      ],
+    )
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(rootRow.issue.id).toBe('root')
+    expect(rowWaitingCount(rootRow)).toBe(1)
+    // The depth-1 child aggregates its own hidden branch too.
+    const midRow = (rootRow.startedByChildren ?? [])[0]
+    expect(midRow?.issue.id).toBe('mid')
+    expect(rowWaitingCount(midRow as UnifiedWorkRow)).toBe(1)
+  })
+
+  it('L3: the sub-line whispers the deepest source when the yellow is beyond visible depth', () => {
+    const { root, mid, leaf } = tree()
+    const rows = rowsFor(
+      [root, mid, leaf],
+      [
+        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
+        { ...needsYou('lw', '/y'), issueId: 'leaf' } as SessionMeta,
+      ],
+    )
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(deepAttentionSource(rootRow)).toMatchObject({ depth: 2 })
+    expect(rowStatusLine(rootRow, NOW)).toBe('2 agents · working · deep: #3 needs you')
+    // A depth-capped child (visibleDepth 0) whispers even for a direct child source.
+    const midRow = (rootRow.startedByChildren ?? [])[0] as Extract<
+      UnifiedWorkRow,
+      { kind: 'issue' }
+    >
+    expect(rowStatusLine(midRow, NOW, 0)).toBe('deep: #3 needs you')
+  })
+
+  it('L3: a VISIBLE waiting child explains itself — no whisper at default depth', () => {
+    const { root, mid } = tree()
+    const rows = rowsFor(
+      [root, mid],
+      [
+        { ...working('rw', '/x'), issueId: 'root' } as SessionMeta,
+        { ...needsYou('mw', '/y'), issueId: 'mid' } as SessionMeta,
+      ],
+    )
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(rowWaitingCount(rootRow)).toBe(1)
+    expect(rowStatusLine(rootRow, NOW)).not.toContain('deep:')
+  })
+
+  it('L4: branchRollup counts ALL descendants via parentId — decayed done children included', () => {
+    const { root, mid, leaf } = tree()
+    // Done grandchild long past its decay window: gone from rows, kept in k/m.
+    const settled = issue({
+      id: 'settled',
+      seq: 4,
+      parentId: 'mid',
+      stage: 'done',
+      readAt: new Date(NOW - 30 * DAY).toISOString(),
+      closedAt: new Date(NOW - 30 * DAY).toISOString(),
+    })
+    const ghost = issue({ id: 'ghost', seq: 5, parentId: 'mid', archived: true })
+    expect(branchRollup([root, mid, leaf, settled, ghost], 'mid')).toEqual({ total: 2, done: 1 })
+    expect(branchRollup([root, mid, leaf, settled, ghost], 'root')).toEqual({ total: 3, done: 1 })
+    expect(branchRollup([root, mid, leaf, settled, ghost], 'leaf')).toEqual({ total: 0, done: 0 })
+  })
+
+  it('L5: the shipped done-decay applies to nested children — no fold, just the clock', () => {
+    const { root } = tree()
+    const doneChild = (over: Partial<IssueWire>) =>
+      issue({
+        id: 'dc',
+        seq: 9,
+        audience: 'human',
+        parentId: 'root',
+        stage: 'done' as IssueWire['stage'],
+        unread: true,
+        ...over,
+      })
+    const own = { ...working('rw', '/x'), issueId: 'root' } as SessionMeta
+    // Inside the 7-day unread window: the sessionless done child keeps its nested row.
+    const fresh = rowsFor(
+      [root, doneChild({ closedAt: new Date(NOW - 2 * DAY).toISOString() })],
+      [own],
+    )
+    const rootRow = fresh[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect((rootRow.startedByChildren ?? []).map((c) => c.issue.id)).toEqual(['dc'])
+    // Past the window: the row decays away — history lives in k/m and the peek.
+    const stale = rowsFor(
+      [root, doneChild({ closedAt: new Date(NOW - 10 * DAY).toISOString() })],
+      [own],
+    )
+    const staleRoot = stale[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(staleRoot.startedByChildren ?? []).toEqual([])
   })
 })

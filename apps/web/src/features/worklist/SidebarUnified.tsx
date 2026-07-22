@@ -41,6 +41,7 @@ import { issueIdTitle } from '@/features/issues/issue-card'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import {
+  branchRollup,
   draftIssueLabel,
   groupUnifiedWorkRows,
   isCoordinatorSession,
@@ -1235,6 +1236,13 @@ function UnifiedIssueRow({
   // keeps exactly one promise (L1): started-by subtask children.
   const showSessions = sessionsNeedChildRows(mine)
   const hasStartedBy = startedByChildren.length > 0
+  // Depth cap (L4): the sidebar renders parent + children, then numbers. A
+  // depth-1 row never recurses — its whole subtree compresses into the quiet
+  // roll-up line, counted over ALL descendants (parentId edges) so done
+  // children that already decayed out of rows still show up in the k/m (L5).
+  const capped = startedByDepth >= 1
+  const rollup = capped ? branchRollup(issues, issue.id) : null
+  const showRollup = rollup !== null && rollup.total > 0
   // A lone driver next to nested subtasks still shows in the band, so the
   // session doing the driving never vanishes behind plan structure.
   const showBand = showSessions || (hasStartedBy && mine.length > 0)
@@ -1310,7 +1318,7 @@ function UnifiedIssueRow({
         deemphasized={issue.audience === 'agent'}
         square={square}
         label={label}
-        statusLine={rowStatusLine(row, now)}
+        statusLine={rowStatusLine(row, now, capped ? 0 : 1)}
         hex={hex}
         phase={phase}
         waitingCount={waitingCount}
@@ -1336,8 +1344,14 @@ function UnifiedIssueRow({
           )
         }
         unread={unread}
-        expandable={!draftAgentOnly && hasStartedBy}
-        collapsed={draftAgentOnly || !hasStartedBy ? true : collapsed}
+        expandable={!draftAgentOnly && !capped && hasStartedBy}
+        collapsed={
+          capped
+            ? !showRollup // the roll-up line is always-on — no chevron, no fold
+            : draftAgentOnly || !hasStartedBy
+              ? true
+              : collapsed
+        }
         onToggle={toggle}
         band={band}
         // A draft is just its agent — clicking the row opens the session itself.
@@ -1402,7 +1416,27 @@ function UnifiedIssueRow({
           </>
         }
       >
-        {!draftAgentOnly && hasStartedBy && (
+        {showRollup && rollup && (
+          // Roll-up line (L4): depth beyond two levels becomes numbers. Mono,
+          // faint, still; hover surfaces the affordance; click deep-links to
+          // the issue page's subtask tree — no third indent, no camera modes.
+          <button
+            type="button"
+            data-testid="subtree-rollup"
+            className="group/rollup mb-0.5 ml-6 flex w-[calc(100%-2rem)] cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-0.5 text-left font-mono text-[9.5px] leading-[normal] text-muted-foreground/50 hover:bg-white/[.04] hover:text-muted-foreground"
+            title={`Open ${issueIdTitle(issue)} subtask tree`}
+            onClick={() => onOpenIssue(issue.id)}
+          >
+            └ {rollup.total} deeper · {rollup.done}/{rollup.total} done
+            <span
+              className="ml-auto flex-none text-[8.5px] opacity-0 transition-opacity duration-150 group-hover/rollup:opacity-100"
+              aria-hidden="true"
+            >
+              open tree ↗
+            </span>
+          </button>
+        )}
+        {!draftAgentOnly && !capped && hasStartedBy && (
           <div
             className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
             data-testid="started-by-children"
