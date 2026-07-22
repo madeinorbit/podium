@@ -17,9 +17,9 @@ export {
   pairToolResults,
   type SingleRow,
   type ToolBatchRow,
+  type ToolVerdict,
   toolBatchTitle,
   toolVerdict,
-  type ToolVerdict,
 } from '@podium/client-core/viewmodels'
 
 /** Identity key for dedup/merge: the opaque cursor when present (stable across
@@ -247,8 +247,56 @@ export interface PendingItem {
   id: string
   text: string
   at: number
-  state: 'sending' | 'sent' | 'failed'
+  state: 'sending' | 'queued' | 'sent' | 'failed'
   tags?: TranscriptTag[]
+}
+
+/** A human chat message durably held in the unified message ledger until the
+ * agent reaches its next turn boundary. These rows are separate from the
+ * sessions queued_messages outbox, so ChatView must restore them explicitly. */
+export interface QueuedChatMessage {
+  id: string
+  text: string
+  at: number
+}
+
+export function queuedOperatorMessages(rows: unknown, sessionId: string): QueuedChatMessage[] {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    .filter(
+      (row) =>
+        row.from === 'operator' &&
+        row.to === `session:${sessionId}` &&
+        row.status === 'queued' &&
+        typeof row.id === 'string' &&
+        typeof row.body === 'string' &&
+        typeof row.createdAt === 'string',
+    )
+    .map((row) => ({
+      id: row.id as string,
+      text: row.body as string,
+      at: Date.parse(row.createdAt as string) || 0,
+    }))
+    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+}
+
+/** Hide server-restored rows already represented by an optimistic bubble.
+ * Duplicate prompt text is consumed FIFO so two identical queued sends still
+ * render twice after refresh and only once each before it. */
+export function withoutOptimisticDuplicates(
+  queued: QueuedChatMessage[],
+  pending: PendingItem[],
+): QueuedChatMessage[] {
+  const optimisticTexts = pending
+    .filter((item) => item.state !== 'failed')
+    .map((item) => item.text.trim())
+  return queued.filter((item) => {
+    const index = optimisticTexts.indexOf(item.text.trim())
+    if (index === -1) return true
+    optimisticTexts.splice(index, 1)
+    return false
+  })
 }
 
 /**

@@ -36,9 +36,12 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async () => {}) },
+    sendText: { mutate: vi.fn(async () => ({ disposition: 'delivered' })) },
     answerAskUserQuestion: { mutate: vi.fn(async () => {}) },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
+  },
+  messages: {
+    ledger: { query: vi.fn(async (): Promise<unknown> => []) },
   },
 }
 
@@ -324,6 +327,28 @@ This is agent mail, not the operator's latest prompt.
 })
 
 describe('ChatView composer', () => {
+  it('restores a queued chat message from the durable ledger after refresh', async () => {
+    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
+      {
+        id: 'msg_queued',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'please do this next',
+        createdAt: '2026-06-03T00:00:01.000Z',
+        status: 'queued',
+      },
+    ])
+    act(() => {
+      root.render(<ChatView sessionId="s1" />)
+    })
+    await flush()
+
+    const queued = container.querySelector('[data-testid="queued-chat-message"]')
+    expect(queued?.textContent).toContain('please do this next')
+    expect(queued?.textContent).toContain('queued')
+    expect(container.textContent).toContain('1 message queued — delivers when the agent is ready')
+  })
+
   it('does not submit Enter during composition and submits after composition ends', async () => {
     storeDrafts = { s1: '日本語' }
     act(() => {

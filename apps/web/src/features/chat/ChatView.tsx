@@ -17,7 +17,7 @@ import {
   X,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,7 +29,15 @@ import { renderMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 import { useVoiceInput } from '@/lib/voice'
 import { ChatBlockView } from './ChatBlockView'
-import { blockMatches, type PendingItem, reconcilePending, searchBlocks } from './chat'
+import {
+  blockMatches,
+  type PendingItem,
+  type QueuedChatMessage,
+  queuedOperatorMessages,
+  reconcilePending,
+  searchBlocks,
+  withoutOptimisticDuplicates,
+} from './chat'
 import { hasImageItems } from './image-items'
 import { Minimap } from './Minimap'
 import { parseMessageEnvelope } from './message-envelope'
@@ -190,6 +198,7 @@ export function ChatView({
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [pending, setPending] = useState<PendingItem[]>([])
+  const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   const pendingSeq = useRef(0)
   // Block ids seen on the previous render — lets us detect *newly arrived* user
   // blocks so a freshly-echoed prompt reconciles its optimistic bubble.
@@ -204,6 +213,30 @@ export function ChatView({
   // then clears). Keyed by the offer's createdAt so a NEW offer re-shows. */
   const [dismissedOfferAt, setDismissedOfferAt] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // Busy chat sends live in the unified message ledger until the agent reaches
+  // its next turn boundary. Reload those durable rows so an accepted message
+  // remains visible after refresh instead of existing only as a local bubble.
+  const refreshQueuedMessages = useCallback(() => {
+    if (headless) {
+      setQueuedMessages([])
+      return
+    }
+    Promise.resolve()
+      .then(() => trpc.messages.ledger.query({ sessionId, limit: 100 }))
+      .then((rows) => setQueuedMessages(queuedOperatorMessages(rows, sessionId)))
+      .catch(() => {
+        // Transcript/chat remains usable if the optional delivery-ledger read is
+        // temporarily unavailable. Keep the last confirmed queued snapshot.
+      })
+  }, [headless, sessionId, trpc])
+
+  useEffect(() => {
+    refreshQueuedMessages()
+    if (headless || !active) return
+    const timer = setInterval(refreshQueuedMessages, 5_000)
+    return () => clearInterval(timer)
+  }, [active, headless, refreshQueuedMessages])
 
   // The held transcript window (an initial disk read + live-delta subscription
   // + scroll-up back-paging) and its derived render pipeline — see
@@ -304,6 +337,7 @@ export function ChatView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on session switch
   useEffect(() => {
     setPending([])
+    setQueuedMessages([])
     setJustSent(false)
     seenUserIds.current = new Set()
     // The transcript window itself (items/older/headCursor/initialLoaded, the
@@ -654,11 +688,15 @@ export function ChatView({
       // Parked but recoverable → wake it and let the server deliver the text once
       // the resumed CLI is ready.
       if (session?.status === 'live' || session?.status === 'starting') {
-        await trpc.sessions.sendText.mutate({
+        const result = await trpc.sessions.sendText.mutate({
           sessionId,
           text: fullText,
           mutationId: randomUUID(),
         })
+        if (result.disposition === 'queued' || result.disposition === 'accepted') {
+          setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x)))
+        }
+        refreshQueuedMessages()
       } else {
         await resumeAndSend(sessionId, fullText)
       }
@@ -679,7 +717,15 @@ export function ChatView({
     setAtBottom(true)
     try {
       if (session?.status === 'live' || session?.status === 'starting') {
-        await trpc.sessions.sendText.mutate({ sessionId, text: prompt, mutationId: randomUUID() })
+        const result = await trpc.sessions.sendText.mutate({
+          sessionId,
+          text: prompt,
+          mutationId: randomUUID(),
+        })
+        if (result.disposition === 'queued' || result.disposition === 'accepted') {
+          setPending((p) => p.map((x) => (x.id === id ? { ...x, state: 'queued' } : x)))
+        }
+        refreshQueuedMessages()
       } else {
         await resumeAndSend(sessionId, prompt)
       }
@@ -713,6 +759,11 @@ export function ChatView({
   // back (SessionMeta.queuedMessageCount, live via the sessions subscription) —
   // the honest state behind the optimistic pending bubbles.
   const queuedCount = session?.queuedMessageCount ?? 0
+  const restoredQueuedMessages = useMemo(
+    () => withoutOptimisticDuplicates(queuedMessages, pending),
+    [queuedMessages, pending],
+  )
+  const totalQueuedCount = queuedCount + queuedMessages.length
   // Agent action offer [spec:SP-c7f1]: the live offer for this session, unless
   // it was just consumed by a button click (optimistic hide until the server's
   // cleared meta arrives). Not shown for headless superagent threads.
@@ -1021,6 +1072,9 @@ export function ChatView({
                   {p.state === 'sending' && (
                     <span className="ml-2 tracking-normal normal-case opacity-60">sending…</span>
                   )}
+                  {p.state === 'queued' && (
+                    <span className="ml-2 tracking-normal normal-case text-warning">queued</span>
+                  )}
                   {p.state === 'failed' && (
                     <span className="ml-2 tracking-normal normal-case text-destructive">
                       not delivered
@@ -1041,6 +1095,22 @@ export function ChatView({
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          ))}
+          {restoredQueuedMessages.map((message) => (
+            <div
+              key={message.id}
+              className="transcript-row mx-auto w-full max-w-[960px]"
+              data-testid="queued-chat-message"
+            >
+              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+              <div className="transcript-body transcript-you">
+                <div className="transcript-you-label">
+                  You
+                  <span className="ml-2 tracking-normal normal-case text-warning">queued</span>
+                </div>
+                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
               </div>
             </div>
           ))}
@@ -1151,11 +1221,11 @@ export function ChatView({
             />
           </div>
         )}
-        {queuedCount > 0 && (
+        {totalQueuedCount > 0 && (
           <div className="flex items-center gap-1.5 pb-1.5 text-[11px] text-muted-foreground">
             <Clock size={12} aria-hidden="true" />
-            {queuedCount === 1 ? '1 message queued' : `${queuedCount} messages queued`} — delivers
-            when the agent is back
+            {totalQueuedCount === 1 ? '1 message queued' : `${totalQueuedCount} messages queued`} —
+            delivers when the agent is ready
           </div>
         )}
         {turnError !== null && (
