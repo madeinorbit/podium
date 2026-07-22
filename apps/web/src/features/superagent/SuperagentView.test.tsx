@@ -271,7 +271,7 @@ describe('tray filtering (human-actionable only)', () => {
     expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
   })
 
-  it('the session → link opens the offer session without firing the action', async () => {
+  it('opens the offer session from the card without rendering a redundant session link', async () => {
     storeIssues = [
       makeIssue({
         id: 'o',
@@ -294,10 +294,12 @@ describe('tray filtering (human-actionable only)', () => {
       }),
     ]
     await mount()
-    const link = container.querySelector<HTMLButtonElement>('[data-testid="tray-session-link"]')
-    expect(link).not.toBeNull()
+    const card = container.querySelector<HTMLElement>('[data-testid="tray-card-offer"]')
+    expect(card).not.toBeNull()
+    expect(container.querySelector('[data-testid="tray-session-link"]')).toBeNull()
+    expect(card?.textContent).not.toContain('session →')
     await act(async () => {
-      link?.click()
+      card?.click()
     })
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
     expect(setPane).toHaveBeenCalledWith('A', 'agent-1')

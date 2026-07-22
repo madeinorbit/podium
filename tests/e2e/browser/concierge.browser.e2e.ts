@@ -86,6 +86,7 @@ test('super agent chat: the first message fires sendTurn on the global thread', 
   )
   await expect(quietCard).toBeVisible({ timeout: 20_000 })
   await expect(coloredCard).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId('tray-session-link')).toHaveCount(0)
   await expect(quietCard).toHaveAttribute('data-issue-colored', 'false')
   await expect(coloredCard).toHaveAttribute('data-issue-colored', 'true')
   expect(

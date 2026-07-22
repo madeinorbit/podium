@@ -15,7 +15,7 @@ const TRAY_NEUTRAL = '#565965'
 export interface TrayActions {
   /** Reply…: focus the chat composer with the question as context. */
   onDiscuss: (item: TrayItem) => void
-  /** Card click / session →: open the item's agent session in the native pane. */
+  /** Card click: open the item's agent session in the native pane. */
   onOpenSession: (item: TrayItem) => void
   /** Quiet dismiss for a question (issues.clearNeedsHuman — answers ride the
    *  composer until #53 gives the web a real answer path). */
@@ -107,22 +107,6 @@ function PrimaryButton({
   )
 }
 
-function SessionLink({ item, actions }: { item: TrayItem; actions: TrayActions }): JSX.Element {
-  return (
-    <button
-      type="button"
-      data-testid="tray-session-link"
-      className="ml-auto inline-flex min-h-6 flex-none cursor-pointer items-center whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-0 text-[11px] leading-5 text-text-dim hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--issue)"
-      onClick={(e) => {
-        e.stopPropagation()
-        actions.onOpenSession(item)
-      }}
-    >
-      session →
-    </button>
-  )
-}
-
 /**
  * One human-actionable tray card (engraved-column.md §2.3-v3): an agent's
  * action offer with its dynamic buttons [spec:SP-c7f1], a question with
@@ -189,7 +173,7 @@ export function TrayCard({
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: the whole card is a shortcut to its session; the inner buttons stay the accessible path
-    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach the same session via its sidebar row or the session → button
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach the same session via its sidebar row; the card click is a pointer shortcut around its explicit actions
     <div
       data-testid={`tray-card-${item.kind}`}
       data-issue-seq={issue.seq}
@@ -352,7 +336,6 @@ export function TrayCard({
                   </button>
                 ),
               )}
-              <SessionLink item={item} actions={actions} />
             </div>
           </>
         )
@@ -368,9 +351,6 @@ export function TrayCard({
             Ready for review
           </div>
           <StateLine issue={issue} />
-          <div className={cn('flex min-w-0 items-center', arrived && 'morph-tick-in')}>
-            <SessionLink item={item} actions={actions} />
-          </div>
         </>
       ) : (
         <>
@@ -406,7 +386,6 @@ export function TrayCard({
             >
               resolve ✓
             </button>
-            <SessionLink item={item} actions={actions} />
           </div>
         </>
       )}
