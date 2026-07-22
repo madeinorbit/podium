@@ -16,9 +16,11 @@ import { Row, Section } from './shared'
  *  blob), so it applies instantly via useTheme and persists on its own. */
 export function AppearanceSection(): JSX.Element {
   const { preset, mode, setPreset, setMode } = useTheme()
+  // 'superade' is the canonical Podium look (DESIGN.md), so it carries the
+  // product name; the older 'podium' preset stays available as "Classic".
   const presets: { value: ThemePreset; label: string }[] = [
-    { value: 'podium', label: 'Podium' },
-    { value: 'superade', label: 'Superade' },
+    { value: 'superade', label: 'Podium' },
+    { value: 'podium', label: 'Classic' },
     { value: 'shadcn', label: 'shadcn' },
   ]
   const modes: { value: ThemeMode; label: string }[] = [

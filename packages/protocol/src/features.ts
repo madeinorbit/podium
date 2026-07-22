@@ -38,6 +38,12 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
+    id: 'settings-search',
+    name: 'Settings search',
+    description: 'Show the "Find a setting" filter box in the Settings side nav.',
+    visibility: 'stable',
+  },
+  {
     id: 'command-palette',
     name: 'Cmd+K search',
     description: 'Search and navigate Podium from the Cmd+K command palette.',

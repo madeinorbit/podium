@@ -53,7 +53,7 @@ export function readStoredTheme(): ThemeState {
   const p = lsGet(THEME_PRESET_KEY)
   const m = lsGet(THEME_MODE_KEY)
   return {
-    preset: p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'podium',
+    preset: p === 'shadcn' || p === 'podium' || p === 'superade' ? p : 'superade',
     mode: m === 'light' || m === 'dark' || m === 'system' ? m : 'dark',
   }
 }

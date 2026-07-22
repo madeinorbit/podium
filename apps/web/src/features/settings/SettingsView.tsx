@@ -193,6 +193,8 @@ export function SettingsView(): JSX.Element {
     shallowEqual,
   )
   const notificationsEnabled = useFeature('notifications')
+  // The nav filter is experimental (off by default) — Settings → Experimental.
+  const searchEnabled = useFeature('settings-search')
   const settingsTabs = SETTINGS_TABS.filter(
     (tab) => tab.key !== 'notifications' || notificationsEnabled,
   )
@@ -368,7 +370,7 @@ export function SettingsView(): JSX.Element {
   }
 
   const filterRef = useRef<HTMLInputElement | null>(null)
-  const query = filter.trim().toLowerCase()
+  const query = searchEnabled ? filter.trim().toLowerCase() : ''
   const visibleGroups = SETTINGS_GROUPS.map((g) => ({
     label: g.label,
     tabs: g.tabs.filter(
@@ -385,7 +387,7 @@ export function SettingsView(): JSX.Element {
       const typing =
         el instanceof HTMLElement &&
         (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
-      if (e.key === '/' && !typing) {
+      if (e.key === '/' && !typing && searchEnabled) {
         e.preventDefault()
         filterRef.current?.focus()
       } else if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -433,6 +435,7 @@ export function SettingsView(): JSX.Element {
             className="flex flex-row gap-1 overflow-x-auto border-border border-b py-2 md:w-[224px] md:flex-none md:flex-col md:gap-0 md:overflow-y-auto md:border-b-0 md:py-8 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             aria-label="Settings sections"
           >
+            {searchEnabled && (
             <div className="relative mb-2 hidden md:block">
               <input
                 ref={filterRef}
@@ -458,6 +461,7 @@ export function SettingsView(): JSX.Element {
                 </kbd>
               )}
             </div>
+            )}
             {visibleGroups.map((g) => (
               <div key={g.label} className="contents md:block">
                 <div className="mt-4 mb-1 hidden px-2 font-medium font-mono text-[8.5px] text-label uppercase tracking-[0.12em] md:block">
