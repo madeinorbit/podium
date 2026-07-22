@@ -45,14 +45,14 @@ function issueRow(
   sessions: SessionMeta[],
   draft = false,
   issueOver: Record<string, unknown> = {},
-): UnifiedWorkRow {
+): Extract<UnifiedWorkRow, { kind: 'issue' }> {
   return {
     kind: 'issue',
     issue: { id: 'i1', updatedAt: new Date(NOW).toISOString(), draft, ...issueOver },
     sessions,
     activityAt: NOW - 120_000,
     rank: 0,
-  } as unknown as UnifiedWorkRow
+  } as unknown as Extract<UnifiedWorkRow, { kind: 'issue' }>
 }
 
 describe('rowMotionPhase — aggregate row phase (#41)', () => {
