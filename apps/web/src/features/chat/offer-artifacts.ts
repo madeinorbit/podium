@@ -11,8 +11,7 @@ import type { IssuePanelArtifact, IssueWire, SessionOffer } from '@podium/protoc
  *
  * Freshness fallback: an offer that names none shows the issue's artifacts
  * added since the session's last human input (the agent published them during
- * the turn that produced the offer). A fresh interactive HTML artifact leads
- * the review set, followed by the newest remaining artifacts, capped at 3.
+ * the turn that produced the offer), newest first, capped at 3.
  */
 export function resolveOfferArtifacts(args: {
   offer: SessionOffer
@@ -38,23 +37,10 @@ export function resolveOfferArtifacts(args: {
   // no baseline to call an artifact "new" against.
   if (!args.lastInputAt) return []
   const since = args.lastInputAt
-  const fresh = published
+  return published
     .filter((a) => a.addedAt > since)
     .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
-  const interactiveIndex = fresh.findIndex(isInteractiveReviewArtifact)
-  if (interactiveIndex > 0) {
-    const [interactive] = fresh.splice(interactiveIndex, 1)
-    if (interactive) fresh.unshift(interactive)
-  }
-  return fresh.slice(0, 3)
-}
-
-/** HTML concepts can carry the whole interaction while screenshots are only
- * frames from it. Prefer one in the automatic fallback; explicit offer paths
- * above remain authoritative and retain their authored order. */
-function isInteractiveReviewArtifact(artifact: IssuePanelArtifact): boolean {
-  const path = artifact.entry ?? artifact.path
-  return /\.html?$/i.test(path)
+    .slice(0, 3)
 }
 
 /** The newest panel entry matching an offered path — exact match, or an
