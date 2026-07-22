@@ -980,13 +980,20 @@ export function AgentPanel({
               data-testid="native-offer-dock"
               aria-hidden={!nativeOffer}
               onTransitionEnd={(e) => {
-                // The dock's height change WINCHes the PTY once (the terminal
-                // client debounces the burst ~60ms after the transition). Some
-                // TUIs (Codex) repaint in place and leave their previous frame
-                // above the prompt; re-pin the viewport to the bottom after the
-                // fit lands so the fresh frame sits flush and ghosts scroll away.
+                // The dock's height change must WINCH the PTY to its FINAL
+                // size, or a TUI that draws to the old grid (Codex) paints its
+                // prompt box under the dock. Don't rely on the debounced
+                // ResizeObserver alone: force a fit at the settled size, send
+                // the resize if the grid changed, and re-pin the viewport so
+                // any in-place-repaint ghost frame scrolls away.
                 if (e.propertyName !== 'grid-template-rows') return
-                setTimeout(() => mountedRef.current?.view.scrollToBottom(), 140)
+                setTimeout(() => {
+                  const m = mountedRef.current
+                  if (!m) return
+                  const grid = m.view.fit()
+                  if (grid) m.connection.sendResize(grid.cols, grid.rows)
+                  m.view.scrollToBottom()
+                }, 120)
               }}
             >
               <div className="offer-dock-clip">

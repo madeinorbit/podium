@@ -53,6 +53,31 @@ describe('claudeRecordToItems', () => {
     ])
   })
 
+  it('harvests uploaded-image source markers into toolPaths + tag labels', () => {
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u2',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: '[Image #1]does this look right?\n[Image: source: /home/u/.podium/uploads/s1/abc.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: '[Image #1]does this look right?',
+      toolPaths: ['/home/u/.podium/uploads/s1/abc.png'],
+      tags: [{ kind: 'image', label: 'abc.png' }],
+    })
+  })
+
   it('maps an assistant turn with text + tool calls into separate items', () => {
     const items = claudeRecordToItems({
       type: 'assistant',

@@ -200,7 +200,28 @@ function userItems(
       })
     }
   }
-  const text = stripSystemReminders(textParts.join('\n'))
+  let text = stripSystemReminders(textParts.join('\n'))
+  // Pasted/uploaded images ride in as an image block plus a text marker
+  // `[Image: source: /abs/path.png]` (numbered `[Image #N: …]` when several).
+  // Harvest the paths into toolPaths — the web renders them as inline
+  // thumbnails and the server's file-relay policy allow-lists exactly the
+  // paths a transcript references — and strip the raw markers from the shown
+  // text. Paths label the image tags in order (uploads and markers are
+  // emitted pairwise).
+  const imagePaths: string[] = []
+  text = text
+    .replace(/\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
+      imagePaths.push(p.trim())
+      return ''
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+  const imageTags = tags.filter((t) => t.kind === 'image')
+  imagePaths.forEach((p, i) => {
+    const tag = imageTags[i]
+    const label = p.split('/').pop()
+    if (tag && label && tag.label === undefined) tag.label = label
+  })
   if (text || tags.length > 0) {
     items.unshift({
       id: uuid ?? freshId('u'),
@@ -208,6 +229,7 @@ function userItems(
       ts,
       text,
       ...(tags.length > 0 ? { tags } : {}),
+      ...(imagePaths.length > 0 ? { toolPaths: imagePaths } : {}),
       ...(text === INTERRUPT_MARKER ? { event: 'interrupt' as const } : {}),
     })
   }
