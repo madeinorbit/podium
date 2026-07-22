@@ -59,7 +59,7 @@ export function OfferBar({
         {offer.message.split('\n', 1)[0]}
       </div>
       {offer.message.includes('\n') && (
-        <div className="mt-0.5 max-w-[66ch] text-xs whitespace-pre-wrap text-muted-foreground">
+        <div className="mt-0.5 max-w-[132ch] text-xs whitespace-pre-wrap text-muted-foreground">
           {offer.message.slice(offer.message.indexOf('\n') + 1)}
         </div>
       )}
