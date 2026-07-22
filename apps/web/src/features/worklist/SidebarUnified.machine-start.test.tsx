@@ -97,6 +97,11 @@ vi.mock('@/app/store', () => {
 })
 
 vi.mock('@/features/machines/HostIndicators', () => ({ HostIndicators: () => null }))
+// The roster band (POD-170) renders PanelRow even for a lone unowned session;
+// PanelRow pulls in the session guard, which needs a ConfirmProvider — stub it.
+vi.mock('@/lib/hooks/use-session-guard', () => ({
+  useSessionGuard: () => ({ guardedKill: vi.fn(), guardedArchive: vi.fn() }),
+}))
 
 afterEach(() => {
   cleanup()

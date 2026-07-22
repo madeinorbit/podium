@@ -224,13 +224,16 @@ export function CollapsibleSection({
 }
 
 /** Collapsed "Stale" subsection at the bottom of a session group — quiet,
- *  long-inactive sessions tucked away so the active ones stay scannable. */
+ *  long-inactive sessions tucked away so the active ones stay scannable.
+ *  `dense` tightens the indent for the roster band (POD-170). */
 export function StaleSection({
   sessions,
   render,
+  dense = false,
 }: {
   sessions: SessionMeta[]
   render: (session: SessionMeta) => JSX.Element
+  dense?: boolean
 }): JSX.Element | null {
   const [open, setOpen] = useState(false)
   if (sessions.length === 0) return null
@@ -238,7 +241,10 @@ export function StaleSection({
     <div>
       <button
         type="button"
-        className="flex w-full items-center gap-1 py-[3px] pr-3 pl-7 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground"
+        className={cn(
+          'flex w-full items-center gap-1 py-[3px] pr-3 text-left text-[10px] font-semibold tracking-[0.08em] uppercase text-muted-foreground/60 hover:text-muted-foreground',
+          dense ? 'pl-1.5' : 'pl-7',
+        )}
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
@@ -259,13 +265,22 @@ export function StaleSection({
 
 /** Nested indicator for live native (in-process Task) subagents under a
  *  parent session. Count-only — named per-subagent identity is deferred. */
-function NativeSubagentIndicator({ count }: { count: number }): JSX.Element | null {
+function NativeSubagentIndicator({
+  count,
+  dense = false,
+}: {
+  count: number
+  dense?: boolean
+}): JSX.Element | null {
   if (count <= 0) return null
   const label = nativeSubagentLabel(count)
   return (
     <div
       data-testid="native-subagent-indicator"
-      className="flex min-h-7 items-center gap-1.5 py-[5px] pr-2 pl-[30px] text-[11.5px] text-muted-foreground/80"
+      className={cn(
+        'flex items-center gap-1.5 py-[5px] pr-2 text-muted-foreground/80',
+        dense ? 'min-h-6 pl-1.5 text-[10.5px]' : 'min-h-7 pl-[30px] text-[11.5px]',
+      )}
       title={`${label} running inside this session (native Task tool)`}
       aria-label={label}
     >
@@ -284,11 +299,17 @@ function NativeSubagentIndicator({ count }: { count: number }): JSX.Element | nu
 export function GroupedSessionRows({
   sessions,
   render,
+  dense = false,
 }: {
   sessions: SessionMeta[]
   render: (session: SessionMeta) => JSX.Element
+  /** Roster-band styling (POD-170): tighter spawn-nesting indents. */
+  dense?: boolean
 }): JSX.Element {
   const groups = groupSessionsByParent(sessions)
+  const nest = dense
+    ? 'ml-3 border-l border-border/50 pl-0.5'
+    : 'ml-5 border-l border-border/50 pl-0.5'
   return (
     <>
       {groups.map((g) => {
@@ -298,22 +319,16 @@ export function GroupedSessionRows({
           <div key={g.session.sessionId} data-testid="session-group">
             {render(g.session)}
             {(hasRemote || nativeCount > 0) && (
-              <div
-                className="ml-5 border-l border-border/50 pl-0.5"
-                data-testid="session-group-children"
-              >
-                <NativeSubagentIndicator count={nativeCount} />
+              <div className={nest} data-testid="session-group-children">
+                <NativeSubagentIndicator count={nativeCount} dense={dense} />
                 {g.children.map((child) => {
                   const childNative = nativeSubagentCountOf(child)
                   return (
                     <div key={child.sessionId}>
                       {render(child)}
                       {childNative > 0 && (
-                        <div
-                          className="ml-5 border-l border-border/50 pl-0.5"
-                          data-testid="session-group-children"
-                        >
-                          <NativeSubagentIndicator count={childNative} />
+                        <div className={nest} data-testid="session-group-children">
+                          <NativeSubagentIndicator count={childNative} dense={dense} />
                         </div>
                       )}
                     </div>
@@ -363,6 +378,71 @@ function ConsumedChildren({
   )
 }
 
+/**
+ * Agent roster band (POD-170, POD-100 laws L2/L6): sessions are execution and
+ * must be visibly NOT issue rows. A rail-navy tone tier below the panel —
+ * a Superade tone change framed by a hairline, never a black inset — labeled
+ * `AGENTS · N` in mono machine voice. Issue rows render it ADJACENT to the
+ * subtask tree, never inside it; unowned-session worktrees render entirely as
+ * this band, labeled `repo · branch`.
+ */
+export function AgentRosterBand({
+  label,
+  count,
+  active = false,
+  onLabelClick,
+  labelHint,
+  className,
+  testId = 'agent-roster-band',
+  children,
+}: {
+  /** Band label, machine voice — "Agents" (L2) or "repo · branch" (L6). */
+  label: string
+  count: number
+  /** L6 worktree bands are selectable surfaces; active firms the hairline. */
+  active?: boolean
+  onLabelClick?: () => void
+  labelHint?: string
+  className?: string
+  testId?: string
+  children: ReactNode
+}): JSX.Element {
+  const labelRow = (
+    <>
+      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{label}</span>
+      <span className="flex-none">· {count}</span>
+    </>
+  )
+  const labelClass =
+    'flex w-full items-center gap-1.5 px-0.5 pt-[3px] pb-[2px] text-left font-mono text-[7.5px] font-medium uppercase tracking-[0.11em] text-[#7a84a0]'
+  return (
+    <div
+      className={cn(
+        'min-w-0 rounded-[6px] border bg-[#0e1626] px-1.5 pb-1',
+        active ? 'border-[#364a78]' : 'border-[#1e2a4c]',
+        className,
+      )}
+      data-testid={testId}
+    >
+      {onLabelClick ? (
+        <button
+          type="button"
+          className={cn(labelClass, 'cursor-pointer hover:text-[#9aa4c0]')}
+          onClick={onLabelClick}
+          title={labelHint}
+        >
+          {labelRow}
+        </button>
+      ) : (
+        <div className={labelClass} title={labelHint}>
+          {labelRow}
+        </div>
+      )}
+      {children}
+    </div>
+  )
+}
+
 export function PanelRow({
   session,
   active,
@@ -372,6 +452,7 @@ export function PanelRow({
   suppressUnread = false,
   trailingMeta,
   coordinator = false,
+  roster = false,
 }: {
   session: SessionMeta
   active: boolean
@@ -391,6 +472,9 @@ export function PanelRow({
   trailingMeta?: ReactNode
   /** M6: this session is the issue's designated coordinator/driver. */
   coordinator?: boolean
+  /** Roster-band row (POD-170, L2): terracotta glyph, tighter box, chip hover —
+   *  the mono-voiced agent grammar. Controls (close/continue/snooze) carry over. */
+  roster?: boolean
 }): JSX.Element {
   const continueSession = useStoreSelector((s) => s.continueSession)
   const renameSession = useStoreSelector((s) => s.renameSession)
@@ -427,8 +511,8 @@ export function PanelRow({
     : session.agentState?.phase === 'ended' || session.status === 'exited'
       ? 'finished'
       : null
-  // Nested child rows (dotRight): show the session's own issue ref when present.
-  const issueLinkage = dotRight ? sessionIssueLinkage(session) : null
+  // Nested child rows (dotRight) and roster rows: the session's own mono ref.
+  const issueLinkage = dotRight || roster ? sessionIssueLinkage(session) : null
   // Email-style unread emphasis (#126), suppressed (#138) for WORKING-section
   // rows AND any currently-working session; also while snoozed.
   const unreadEmphasis = session.unread && !suppressUnread && !isSessionWorking(session) && !snoozed
@@ -448,11 +532,18 @@ export function PanelRow({
     // overlay cluster on hover so the row's layout never shifts.
     <div
       className={cn(
-        'group relative flex min-w-0 items-center rounded-md transition-colors',
-        dotRight ? 'min-h-7' : 'min-h-8',
-        // Var-driven so a coloured issue's unfolded block (SidebarUnified sets
-        // --child-*-bg on .tree-children) tints these; neutral elsewhere.
-        active ? 'bg-[var(--child-active-bg,#232330)]' : 'hover:bg-[var(--child-hover-bg,#20202a)]',
+        'group relative flex min-w-0 items-center transition-colors',
+        roster ? 'min-h-6 rounded' : dotRight ? 'min-h-7 rounded-md' : 'min-h-8 rounded-md',
+        // Roster rows live on the rail-navy band — chip-toned hover, no issue
+        // tint. Elsewhere var-driven so a coloured issue's unfolded block
+        // (SidebarUnified sets --child-*-bg on .tree-children) tints these.
+        roster
+          ? active
+            ? 'bg-[#1c2a47]'
+            : 'hover:bg-[#16223c]'
+          : active
+            ? 'bg-[var(--child-active-bg,#232330)]'
+            : 'hover:bg-[var(--child-hover-bg,#20202a)]',
       )}
       data-session={session.sessionId}
     >
@@ -460,7 +551,7 @@ export function PanelRow({
         <div
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2 py-[3px] pr-2',
-            dotRight ? 'pl-[30px]' : 'pl-2',
+            roster ? 'pl-1' : dotRight ? 'pl-[30px]' : 'pl-2',
           )}
         >
           <SessionNameEditor
@@ -477,9 +568,11 @@ export function PanelRow({
           type="button"
           className={cn(
             'flex min-w-0 flex-1 cursor-pointer items-center text-left',
-            dotRight
-              ? 'gap-2 py-[5px] pr-2 pl-[30px] text-[12.5px]'
-              : 'gap-2 py-1.5 pr-2 pl-2 text-[13.5px]',
+            roster
+              ? 'gap-1.5 py-[4px] pr-1.5 pl-1 text-[12px]'
+              : dotRight
+                ? 'gap-2 py-[5px] pr-2 pl-[30px] text-[12.5px]'
+                : 'gap-2 py-1.5 pr-2 pl-2 text-[13.5px]',
             // Selection is the accent background ALONE — never a heavier font
             // (#170), so it can't be confused with UNREAD's weight signal.
             active ? 'text-[#f3f3f8]' : 'text-muted-foreground hover:text-foreground',
@@ -498,6 +591,16 @@ export function PanelRow({
             setMenuAnchor({ x: e.clientX, y: e.clientY })
           }}
         >
+          {/* Roster grammar (L2): the terracotta agent glyph opens every row —
+              execution's mark, never worn by an issue row. */}
+          {roster && (
+            <span
+              className="w-3.5 flex-none text-center text-[10px] leading-none text-[#d97757]"
+              aria-hidden="true"
+            >
+              ✳
+            </span>
+          )}
           <span className={cn('flex min-w-0 flex-1', hibernated && 'italic opacity-60')}>
             <WorkerLabel session={session} chip />
           </span>
@@ -602,7 +705,7 @@ export function PanelRow({
       <div
         className={cn(
           'absolute top-1/2 right-5 hidden -translate-y-1/2 items-center gap-0 rounded-md group-hover:flex',
-          active ? 'bg-[#232330]' : 'bg-[#20202a]',
+          roster ? 'bg-[#16223c]' : active ? 'bg-[#232330]' : 'bg-[#20202a]',
         )}
       >
         <Button

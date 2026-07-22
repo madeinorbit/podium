@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Circle,
   FolderPlus,
-  GitBranch,
   Pin,
   Plus,
   Search,
@@ -80,7 +79,13 @@ import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { planReorderKeys } from './reorder'
-import { GroupedSessionRows, PanelRow, StaleSection, useCollapsed } from './sidebar-common'
+import {
+  AgentRosterBand,
+  GroupedSessionRows,
+  PanelRow,
+  StaleSection,
+  useCollapsed,
+} from './sidebar-common'
 import { useRowDrag } from './useRowDrag'
 
 /** Icon component for an agent kind (shared with the "+" menu's agent list). */
@@ -803,6 +808,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       ) : (
         <UnifiedWorktreeRow
           row={row}
+          issues={issues}
           active={selectedIssueId === null && selectedWorktree === row.worktree.path}
           paneA={paneA}
           now={now}
@@ -925,6 +931,7 @@ function WorkRowShell({
   statusExtra,
   gitStamp,
   onGripDown,
+  band,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -968,6 +975,10 @@ function WorkRowShell({
   /** Manual-sort grip (POD-168): when set, a ⠿ handle fades in on the row's
    *  left edge on hover and pointerdown starts a drag. */
   onGripDown?: (e: ReactPointerEvent) => void
+  /** Agent roster band (POD-170, L2): rendered ADJACENT to the row, outside
+   *  the subtask tree and independent of the chevron — the chevron's one
+   *  promise is subtasks, and execution never hides behind it. */
+  band?: ReactNode
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -1121,8 +1132,12 @@ function WorkRowShell({
           />
         )}
       </div>
-      {/* Child agent rows: a tree guide (vertical line + per-row stubs, via
-          .tree-children CSS) ties the group to its parent. A coloured issue
+      {/* Agent roster band (L2): adjacent to the row, one tone tier below the
+          panel, NEVER inside the subtask tree or behind the chevron. */}
+      {band}
+      {/* Subtask rows (L1 — the chevron's one promise): a tree guide (vertical
+          line + per-row stubs, via .tree-children CSS) ties the child ISSUES to
+          their parent; sessions render in the band above. A coloured issue
           flows its tint into the unfolded block: a quiet wash behind the
           children, a tinted guide, and colour-mixed active/hover on the child
           rows — all via vars with neutral fallbacks so uncoloured rows (and
@@ -1215,12 +1230,14 @@ function UnifiedIssueRow({
       onCancel={() => setEditing(false)}
     />
   ) : undefined
-  // Expand when multi-agent / remote spawn children need nesting, when a
-  // lone parent has live native subagents, or when started-by children nest
-  // under this issue (M6 provenance tree).
+  // Sessions earning visibility (multi-agent / remote spawn / native subagents)
+  // render in the ADJACENT roster band (L2), never inside the tree. The chevron
+  // keeps exactly one promise (L1): started-by subtask children.
   const showSessions = sessionsNeedChildRows(mine)
   const hasStartedBy = startedByChildren.length > 0
-  const showChildren = showSessions || hasStartedBy
+  // A lone driver next to nested subtasks still shows in the band, so the
+  // session doing the driving never vanishes behind plan structure.
+  const showBand = showSessions || (hasStartedBy && mine.length > 0)
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   const waitingCount = rowWaitingCount(row)
@@ -1274,9 +1291,18 @@ function UnifiedIssueRow({
       active={active && paneA === session.sessionId}
       onSelect={() => onSelectPanelForIssue(issue, session.sessionId)}
       dotRight
+      roster
       coordinator={isCoordinatorSession(issue, session.sessionId)}
     />
   )
+  // The rail-navy roster band (L2): AGENTS · N, adjacent to the row.
+  const band =
+    !draftAgentOnly && showBand ? (
+      <AgentRosterBand label="Agents" count={mine.length} className="mt-0.5 mb-[3px] ml-8">
+        <GroupedSessionRows sessions={visible} render={renderRow} dense />
+        <StaleSection sessions={stale} render={renderRow} dense />
+      </AgentRosterBand>
+    ) : undefined
   return (
     <>
       <WorkRowShell
@@ -1310,9 +1336,10 @@ function UnifiedIssueRow({
           )
         }
         unread={unread}
-        expandable={!draftAgentOnly && showChildren}
-        collapsed={draftAgentOnly || !showChildren ? true : collapsed}
+        expandable={!draftAgentOnly && hasStartedBy}
+        collapsed={draftAgentOnly || !hasStartedBy ? true : collapsed}
         onToggle={toggle}
+        band={band}
         // A draft is just its agent — clicking the row opens the session itself.
         onSelect={
           draftAgentOnly && first
@@ -1375,48 +1402,35 @@ function UnifiedIssueRow({
           </>
         }
       >
-        {!draftAgentOnly && showChildren && (
-          <>
-            {/* Show member sessions when multi-agent/spawn nesting needs them,
-                or when the row expands for started-by children (so the driver
-                stays visible next to nested provenance issues). */}
-            {(showSessions || (hasStartedBy && mine.length > 0)) && (
-              <>
-                <GroupedSessionRows sessions={visible} render={renderRow} />
-                <StaleSection sessions={stale} render={renderRow} />
-              </>
-            )}
-            {hasStartedBy && (
-              <div
-                className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
-                data-testid="started-by-children"
-                // A parent's children are their own sibling drag scope (POD-168):
-                // children drag within their parent, never across parents.
-                data-drag-scope={`children:${issue.id}`}
-              >
-                {startedByChildren.map((child) => (
-                  <div key={`issue:${child.issue.id}`} data-drag-key={child.issue.id}>
-                    <UnifiedIssueRow
-                      row={child}
-                      allWorktreePaths={allWorktreePaths}
-                      sessions={_all}
-                      issues={issues}
-                      selectedIssueId={selectedIssueId}
-                      paneA={paneA}
-                      now={now}
-                      onSelectIssue={onSelectIssue}
-                      onSelectPanelForIssue={onSelectPanelForIssue}
-                      onOpenIssue={onOpenIssue}
-                      onRenameIssue={onRenameIssue}
-                      onColorChangeIssue={onColorChangeIssue}
-                      onGripDown={onGripDown}
-                      startedByDepth={startedByDepth + 1}
-                    />
-                  </div>
-                ))}
+        {!draftAgentOnly && hasStartedBy && (
+          <div
+            className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
+            data-testid="started-by-children"
+            // A parent's children are their own sibling drag scope (POD-168):
+            // children drag within their parent, never across parents.
+            data-drag-scope={`children:${issue.id}`}
+          >
+            {startedByChildren.map((child) => (
+              <div key={`issue:${child.issue.id}`} data-drag-key={child.issue.id}>
+                <UnifiedIssueRow
+                  row={child}
+                  allWorktreePaths={allWorktreePaths}
+                  sessions={_all}
+                  issues={issues}
+                  selectedIssueId={selectedIssueId}
+                  paneA={paneA}
+                  now={now}
+                  onSelectIssue={onSelectIssue}
+                  onSelectPanelForIssue={onSelectPanelForIssue}
+                  onOpenIssue={onOpenIssue}
+                  onRenameIssue={onRenameIssue}
+                  onColorChangeIssue={onColorChangeIssue}
+                  onGripDown={onGripDown}
+                  startedByDepth={startedByDepth + 1}
+                />
               </div>
-            )}
-          </>
+            ))}
+          </div>
         )}
       </WorkRowShell>
       {menu}
@@ -1424,29 +1438,34 @@ function UnifiedIssueRow({
   )
 }
 
-/** The worktree pseudo-square: a with-session worktree owned by no issue has
- *  no identity square, so it wears the branch glyph in the same 26px frame —
- *  square language (solid/dashed border) intact, no colour, no picker. */
-function BranchSquare({ phase }: { phase: MotionPhase }): JSX.Element {
-  const resting = phase === 'queued'
-  return (
-    <span
-      data-testid="worktree-branch-square"
-      className="phase-surface flex size-[26px] flex-none items-center justify-center rounded-[7px] bg-[#25252f]"
-      style={{
-        border: resting ? '1px dashed #6c6c78' : '1px solid #8d8d9a',
-        color: resting ? '#8d8d9a' : '#c5c5d0',
-        opacity: resting ? 0.65 : 1,
-      }}
-    >
-      <GitBranch size={12} aria-hidden="true" />
-    </span>
-  )
+/** Provenance whisper for an orphaned session (L6): a session whose issue was
+ *  deleted or archived names its origin — `from POD-32 · deleted` — instead of
+ *  silently pooling into an anonymous branch row. Presentation only; the
+ *  data-layer orphan fix is POD-135. */
+function orphanProvenance(
+  session: SessionMeta,
+  issues: IssueWire[],
+): { text: string; hint: string } | null {
+  if (!session.issueId) return null
+  const issue = issues.find((i) => i.id === session.issueId)
+  if (issue && !issue.archived && !issue.deletedAt) return null
+  // Birth displayRef (POD-13-A) carries the issue ref even when the issue row
+  // is gone from the wire entirely.
+  const ref = issue ? issueDisplayRef(issue) : (session.displayRef?.replace(/-[A-Z]+$/, '') ?? null)
+  const cause = issue ? (issue.deletedAt ? 'deleted' : 'archived') : 'deleted'
+  return {
+    text: ref ? `from ${ref} · ${cause}` : `issue ${cause}`,
+    hint: `This session's issue was ${cause}; it decays on its own session clock.`,
+  }
 }
 
-/** A with-session worktree owned by no issue — same row skeleton, branch square. */
+/** Sessions no live issue owns (L6): guests, not issues. The whole worktree
+ *  entry renders in the roster grammar — a rail-navy band at its project
+ *  group's tail labeled `repo · branch` in machine voice — never as a
+ *  pseudo-issue row named "main". */
 function UnifiedWorktreeRow({
   row,
+  issues,
   active,
   paneA,
   now,
@@ -1454,6 +1473,7 @@ function UnifiedWorktreeRow({
   onSelectPanel,
 }: {
   row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
+  issues: IssueWire[]
   active: boolean
   paneA: string | null
   now: number
@@ -1461,61 +1481,43 @@ function UnifiedWorktreeRow({
   onSelectPanel: (sessionId: string) => void
 }): JSX.Element {
   const { worktree } = row
-  const unread = rowUnreadEmphasized(row)
-  const [collapsed, toggle] = useCollapsed(`podium:sidebar:unified-wt:${worktree.path}`, false)
-  // Same expand rule as issue rows: multi-agent / remote spawn / native count.
-  const showChildren = sessionsNeedChildRows(worktree.sessions)
   const { visible, stale } = partitionStaleSessions(worktree.sessions, now)
-  const phase = rowMotionPhase(row)
-  const timing = rowMotionTiming(row)
-  const renderRow = (session: SessionMeta) => (
-    <PanelRow
-      key={session.sessionId}
-      session={session}
-      active={active && paneA === session.sessionId}
-      onSelect={() => onSelectPanel(session.sessionId)}
-      dotRight
-    />
-  )
+  const branch = worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path
+  const renderRow = (session: SessionMeta) => {
+    const orphan = orphanProvenance(session, issues)
+    return (
+      <PanelRow
+        key={session.sessionId}
+        session={session}
+        active={active && paneA === session.sessionId}
+        onSelect={() => onSelectPanel(session.sessionId)}
+        dotRight
+        roster
+        trailingMeta={
+          orphan ? (
+            <span
+              className="flex-none font-mono text-[8.5px] text-[#525c78]"
+              data-testid="orphan-provenance"
+              title={orphan.hint}
+            >
+              {orphan.text}
+            </span>
+          ) : undefined
+        }
+      />
+    )
+  }
   return (
-    <WorkRowShell
+    <AgentRosterBand
       testId="unified-worktree-row"
-      square={<BranchSquare phase={phase} />}
-      label={worktree.branch ?? worktree.path.split('/').pop() ?? worktree.path}
-      statusLine={rowStatusLine(row, now)}
-      hex={undefined}
-      phase={phase}
-      waitingCount={rowWaitingCount(row)}
-      timeMeta={
-        <PhaseTimer
-          phase={timing.phase}
-          sinceMs={timing.sinceMs}
-          baseMs={timing.baseMs ?? 0}
-          totalMs={timing.totalMs}
-          size={9}
-          className="flex-none"
-        />
-      }
+      label={`${worktree.repoName} · ${branch}`}
+      count={worktree.sessions.length}
       active={active}
-      unread={unread}
-      expandable={showChildren}
-      collapsed={showChildren ? collapsed : true}
-      onToggle={toggle}
-      onSelect={onSelect}
-      extras={
-        worktree.isMain ? (
-          <span className="flex-none rounded border border-border px-[5px] py-px text-[8.5px] uppercase tracking-[0.03em] text-[#8a8a97]">
-            main
-          </span>
-        ) : undefined
-      }
+      onLabelClick={onSelect}
+      labelHint={worktree.path}
     >
-      {showChildren && (
-        <>
-          <GroupedSessionRows sessions={visible} render={renderRow} />
-          <StaleSection sessions={stale} render={renderRow} />
-        </>
-      )}
-    </WorkRowShell>
+      <GroupedSessionRows sessions={visible} render={renderRow} dense />
+      <StaleSection sessions={stale} render={renderRow} dense />
+    </AgentRosterBand>
   )
 }
