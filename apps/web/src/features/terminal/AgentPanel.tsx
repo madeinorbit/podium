@@ -979,6 +979,15 @@ export function AgentPanel({
               className={cn('offer-dock flex-none', nativeOffer && 'offer-dock--open')}
               data-testid="native-offer-dock"
               aria-hidden={!nativeOffer}
+              onTransitionEnd={(e) => {
+                // The dock's height change WINCHes the PTY once (the terminal
+                // client debounces the burst ~60ms after the transition). Some
+                // TUIs (Codex) repaint in place and leave their previous frame
+                // above the prompt; re-pin the viewport to the bottom after the
+                // fit lands so the fresh frame sits flush and ghosts scroll away.
+                if (e.propertyName !== 'grid-template-rows') return
+                setTimeout(() => mountedRef.current?.view.scrollToBottom(), 140)
+              }}
             >
               <div className="offer-dock-clip">
                 <div className="offer-dock-inner">
