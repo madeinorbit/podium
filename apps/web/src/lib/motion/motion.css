@@ -203,6 +203,46 @@
   animation: podium-lineage 1.6s ease-out;
 }
 
+/* Row arrival (POD-167, §5 'Arrive'): a NEW work row makes room (wrapper
+   height 0→auto — siblings slide down as a consequence, only the new element
+   animates), materializes (fade + 4px settle), and washes its issue tint out
+   over ~1s. Yellow is never used: arrival is information, not a request.
+   `interpolate-size` lets the height keyframe reach auto where supported;
+   elsewhere the height snaps and the fade/wash still carry the arrival. */
+@keyframes podium-arrive-h {
+  from {
+    height: 0;
+  }
+  to {
+    height: auto;
+  }
+}
+@keyframes podium-arrive-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes podium-arrive-wash {
+  0% {
+    background: color-mix(in srgb, var(--arrive-tint, #64748b) 26%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+.row-arrive {
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  animation: podium-arrive-h 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.row-arrive > * {
+  border-radius: 7px;
+  animation:
+    podium-arrive-in 0.3s 0.06s cubic-bezier(0.22, 1, 0.36, 1) backwards,
+    podium-arrive-wash 1.1s 0.1s ease-out backwards;
+}
+
 /* Base transition every phase-coloured surface (row, ID square, rail icon)
    carries, so background/border/opacity glide 0.4s on any phase change. */
 .phase-surface {
@@ -228,7 +268,9 @@
   .morph-tick-in,
   .morph-flip-ago,
   .morph-icon-flash,
-  .morph-lineage {
+  .morph-lineage,
+  .row-arrive,
+  .row-arrive > * {
     animation: none;
   }
   .phase-surface {

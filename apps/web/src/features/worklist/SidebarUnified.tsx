@@ -67,7 +67,7 @@ import {
   unifiedWorkList,
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
-import { PhaseTimer, usePhaseMorph } from '@/lib/motion'
+import { PhaseTimer, useArrivals, usePhaseMorph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
@@ -714,10 +714,23 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     setIssueColor,
   } = useUnifiedWork(derivation)
 
-  const renderWorkRow = (row: UnifiedWorkRow) =>
-    row.kind === 'issue' ? (
+  // Row arrival one-shot (POD-167): keys derived BEFORE the pinned split, so a
+  // pin/unpin move (key stays present) never re-arrives — only genuinely new
+  // rows animate, and never on a fresh mount.
+  const workKeys = useMemo(
+    () =>
+      work.map((row) =>
+        row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`,
+      ),
+    [work],
+  )
+  const { arrivals, settle } = useArrivals(workKeys)
+
+  const renderWorkRow = (row: UnifiedWorkRow) => {
+    const key = row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`
+    const arriving = arrivals.has(key)
+    const inner = row.kind === 'issue' ? (
       <UnifiedIssueRow
-        key={`issue:${row.issue.id}`}
         row={row}
         allWorktreePaths={allWorktreePaths}
         sessions={sessions}
@@ -734,7 +747,6 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       />
     ) : (
       <UnifiedWorktreeRow
-        key={`wt:${row.worktree.path}`}
         row={row}
         active={selectedIssueId === null && selectedWorktree === row.worktree.path}
         paneA={paneA}
@@ -744,6 +756,30 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
         onPinned={(sid, p) => void setPinned('panel', sid, p)}
       />
     )
+    return (
+      <div
+        key={key}
+        className={cn('min-w-0', arriving && 'row-arrive')}
+        style={
+          arriving && row.kind === 'issue'
+            ? ({ '--arrive-tint': issueColorHex(row.issue.color) } as CSSProperties)
+            : undefined
+        }
+        onAnimationEnd={
+          arriving
+            ? (e) => {
+                // The wash is the longest of the three one-shots — its end (which
+                // bubbles up from the row) means the arrival is fully over.
+                if (e.animationName === 'podium-arrive-wash') settle(key)
+              }
+            : undefined
+        }
+        data-arriving={arriving ? 'true' : undefined}
+      >
+        {inner}
+      </div>
+    )
+  }
 
   if (work.length === 0) {
     return (
