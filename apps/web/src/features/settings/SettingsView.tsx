@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { MachinesPanel } from './MachinesPanel'
@@ -403,7 +404,10 @@ export function SettingsView(): JSX.Element {
       className="settings-overlay fixed inset-0 z-40 flex flex-col bg-background"
       aria-label="Settings"
     >
-      <header className="flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5">
+      <header
+        className="settings-header flex h-11 flex-none items-center gap-2.5 border-border border-b px-2.5"
+        {...(nativeDesktopBridge() ? { 'data-tauri-drag-region': true } : undefined)}
+      >
         <Button
           type="button"
           variant="ghost"

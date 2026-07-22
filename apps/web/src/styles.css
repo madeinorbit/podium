@@ -74,6 +74,11 @@ html[data-podium-platform="macos"] .desktop-topbar {
 html[data-podium-platform="macos"] .desktop-topbar-nav {
   margin-left: 6px;
 }
+/* The settings takeover covers the title bar, so its header inherits the
+   traffic-light inset and drag duty from .desktop-topbar. */
+html[data-podium-platform="macos"] .settings-header {
+  padding-left: 84px;
+}
 .native-window-controls {
   display: flex;
   align-self: stretch;
