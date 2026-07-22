@@ -105,6 +105,33 @@ describe('PhaseTimer', () => {
     expect(container.textContent).toBe('')
   })
 
+  it('supports a surrounding lifecycle lockup without duplicating its spinner', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW)
+    const { container, rerender } = render(
+      <PhaseTimer
+        phase="working"
+        sinceMs={NOW - 390_000}
+        showSpinner={false}
+        plainLanguage
+        leadingSeparator
+      />,
+    )
+    expect(container.querySelector('.spb')).toBeNull()
+    expect(container.textContent).toBe('·6:30')
+    rerender(
+      <PhaseTimer
+        phase="done"
+        sinceMs={NOW}
+        totalMs={340_000}
+        showSpinner={false}
+        plainLanguage
+        leadingSeparator
+      />,
+    )
+    expect(container.textContent).toBe('· 5:40 total')
+    vi.restoreAllMocks()
+  })
+
   it('queued: renders nothing (dim stillness is the row treatment)', () => {
     const { container } = render(<PhaseTimer phase="queued" sinceMs={NOW} />)
     expect(container.textContent).toBe('')

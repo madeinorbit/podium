@@ -78,6 +78,10 @@ vi.mock('@/app/store', () => {
       sess('s-run', 'partial', 'working'), // partial: working…
       sess('s-ask', 'partial', 'question'), // …but a question waits → amber row
       sess('s-merge', 'merge', 'idle'),
+      {
+        ...sess('s-finished', 'finished', 'idle'),
+        agentState: { phase: 'idle', idle: { kind: 'done' }, workingMsTotal: 340_000 },
+      },
       sess('s-parent', 'parent', 'idle'),
       sess('s-child', 'child', 'idle'),
     ],
@@ -96,6 +100,17 @@ vi.mock('@/app/store', () => {
           branch: 'issue/9-reviewable',
           shared: false,
           ahead: 2,
+          dirtyFiles: 0,
+        },
+      }),
+      issue('finished', 'Finished issue', {
+        stage: 'done',
+        closedAt: '2026-07-06T12:00:00.000Z',
+        unread: true,
+        gitState: {
+          updatedAt: '2026-07-06T12:00:00.000Z',
+          branch: 'main',
+          shared: true,
           dirtyFiles: 0,
         },
       }),
@@ -160,6 +175,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // The fully-working issue wears the working phase: spinner + counting timer.
     expect(workingRow.querySelector('[data-phase="working"]')).toBeTruthy()
     expect(workingRow.querySelector('.spb')).toBeTruthy()
+    const workingStatus = workingRow.querySelector('[data-testid="row-lifecycle-status"]')
+    expect(workingStatus?.textContent).toContain('working')
+    expect(workingStatus?.textContent).toContain('·')
     // The partially-working issue has a question waiting → the row reads
     // waiting (stillness) with the amber count pill, working elsewhere or not.
     const waitingRow = screen
@@ -174,7 +192,9 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     const waitingRow = screen
       .getByText('Partly working issue')
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
-    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    const fleet = waitingRow.querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
+    expect(fleet).toBeTruthy()
+    expect(fleet.querySelector('.rounded-full')).toBeNull()
     expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeTruthy()
 
     const collapse = screen.getByRole('button', { name: 'Collapse Partly working issue' })
@@ -187,6 +207,19 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
         .getByRole('button', { name: 'Expand Partly working issue' })
         .getAttribute('aria-expanded'),
     ).toBe('false')
+  })
+
+  it('makes completion explicit and keeps clean git silent', () => {
+    render(<SidebarUnified />)
+    const doneRow = screen
+      .getByText('Finished issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    const status = doneRow.querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
+    expect(status.getAttribute('data-phase')).toBe('done')
+    expect(status.textContent).toContain('done')
+    expect(status.textContent).toContain('5:40 total')
+    expect(status.querySelector('svg')).toBeTruthy()
+    expect(doneRow.querySelector('[data-testid="git-stamp"]')).toBeNull()
   })
 
   it('makes nested issues direct children of one tinted connector rail', () => {

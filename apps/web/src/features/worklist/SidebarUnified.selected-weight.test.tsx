@@ -186,16 +186,16 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
     expect(plain.getAttribute('data-issue-row')).toBe('a')
   })
 
-  it('an unread, unselected row carries the unread beacon dot; the selected row never does (POD-81)', () => {
+  it('an unread, unselected row names the new result; the selected row never does', () => {
     render(<SidebarUnified />)
     const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]') as HTMLElement
-    expect(dot).toBeTruthy()
-    // R5 (POD-166): the beacon is a PLAIN still dot — the halo ring is gone.
-    expect(dot.className).not.toContain('ring')
+    const chip = unreadRow.querySelector('[data-testid="row-unread-chip"]') as HTMLElement
+    expect(chip).toBeTruthy()
+    expect(chip.textContent).toBe('new result')
+    expect(chip.getAttribute('aria-label')).toBe('Unread update')
     const activeRow = rowButton('Read selected issue').closest(
       '[class*="group/row"]',
     ) as HTMLElement
-    expect(activeRow.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
+    expect(activeRow.querySelector('[data-testid="row-unread-chip"]')).toBeNull()
   })
 })

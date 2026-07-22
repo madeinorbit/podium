@@ -7,9 +7,11 @@ import {
   AlarmClock,
   Archive,
   BarChart3,
+  Check,
   ChevronDown,
   ChevronRight,
   Circle,
+  CircleAlert,
   FolderPlus,
   GitBranch,
   Pin,
@@ -76,7 +78,7 @@ import {
   unifiedWorkList,
 } from '@/lib/derive'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
-import { PhaseTimer, useArrivals, usePhaseMorph } from '@/lib/motion'
+import { BrailleSpinner, PhaseTimer, useArrivals, usePhaseMorph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/SessionContextMenu'
 import { useFeature } from '@/lib/use-feature'
 import { useNow } from '@/lib/useNow'
@@ -100,13 +102,7 @@ function agentIconFor(kind: AgentKind) {
 /** Compact execution presence that survives a collapsed issue row. The full
  * roster remains below the row; this summary answers "who is here?" without
  * making the operator keep every fleet expanded. */
-function IssueFleetSummary({
-  sessions,
-  phase,
-}: {
-  sessions: SessionMeta[]
-  phase: MotionPhase
-}): JSX.Element | null {
+function IssueFleetSummary({ sessions }: { sessions: SessionMeta[] }): JSX.Element | null {
   if (sessions.length === 0) return null
   const shown = sessions.slice(0, 2)
   const overflow = Math.max(0, sessions.length - shown.length)
@@ -133,6 +129,7 @@ function IssueFleetSummary({
         return (
           <span
             key={session.sessionId}
+            data-agent-kind={session.agentKind}
             className={cn(
               'flex size-[17px] items-center justify-center rounded-[5px] border border-[#2c3958] bg-[#111b2d] text-[#d97757]',
               index > 0 && '-ml-1',
@@ -152,17 +149,6 @@ function IssueFleetSummary({
           ×{nativeCount}
         </span>
       )}
-      <span
-        className={cn(
-          'absolute right-[-2px] bottom-[-2px] size-[5px] rounded-full ring-1 ring-[#16161c]',
-          phase === 'waiting'
-            ? 'bg-warning'
-            : phase === 'working'
-              ? 'bg-live'
-              : 'bg-muted-foreground',
-        )}
-        aria-hidden="true"
-      />
     </span>
   )
 }
@@ -1113,14 +1099,14 @@ function WorkRowShell({
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
   label: string
-  /** Line 2's status phrase (`rowStatusLine`). */
+  /** Line 2's status phrase (`rowStatusLine`), grouped with phase icon + timer. */
   statusLine: ReactNode
   /** The issue colour hex, undefined for the neutral/slate flow. */
   hex: string | undefined
   phase: MotionPhase
   /** Amber line-1 pill count (0 = no pill). */
   waitingCount: number
-  /** Line 2's right meta (the PhaseTimer). */
+  /** Line 2's lifecycle meta (the PhaseTimer). */
   timeMeta?: ReactNode
   active: boolean
   /** Email-style unread emphasis (#126): the label reads bold until opened. */
@@ -1190,6 +1176,7 @@ function WorkRowShell({
           !active && !hex && 'hover:bg-[#20202a]',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
+          phase === 'done' && !active && !unread && 'opacity-70',
           morph === 'waiting' && 'morph-row-flash',
           deemphasized && !active && 'scale-[0.98] opacity-70',
         )}
@@ -1256,16 +1243,19 @@ function WorkRowShell({
               >
                 {label}
               </span>
-              {/* Unread beacon (POD-81, R5): a plain still info-toned dot marks
-                  where the news is — no ring, no halo; nothing glows. Hidden on
-                  the selected row: you are already looking at it. */}
+              {/* Unread is explicit copy instead of another blue dot. Blue dots
+                  elsewhere mean live agent / git state, so a position-dependent
+                  third meaning made completed rows look active (POD-236). */}
               {unread && !active && (
                 <span
-                  className="size-[7px] flex-none rounded-full bg-info"
+                  className="flex-none rounded-[4px] bg-info/15 px-1 text-[8px] font-semibold tracking-wide text-info uppercase"
                   role="img"
                   aria-label="Unread update"
-                  data-testid="row-unread-dot"
-                />
+                  title="New result since you last opened this issue"
+                  data-testid="row-unread-chip"
+                >
+                  new result
+                </span>
               )}
               {extras}
               {waitingCount > 0 && (
@@ -1286,11 +1276,40 @@ function WorkRowShell({
               className="flex min-w-0 items-center gap-1.5 text-[10px]"
               style={{ color: tints.status }}
             >
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                {statusLine}
+              {/* One lifecycle lockup is the row's first-glance answer. Agent
+                  tiles remain identity-only; git renders only exceptions. */}
+              <span
+                className="flex min-w-0 flex-1 items-center gap-1.5"
+                data-testid="row-lifecycle-status"
+                data-phase={phase}
+                style={
+                  phase === 'working'
+                    ? { color: 'var(--motion-working)' }
+                    : phase === 'waiting'
+                      ? { color: 'var(--motion-waiting)' }
+                      : phase === 'done'
+                        ? { color: 'var(--motion-total)' }
+                        : undefined
+                }
+              >
+                {phase === 'working' && <BrailleSpinner size={9} />}
+                {phase === 'waiting' && (
+                  <CircleAlert size={9} strokeWidth={2} className="flex-none" aria-hidden="true" />
+                )}
+                {phase === 'done' && (
+                  <Check
+                    size={10}
+                    strokeWidth={2.4}
+                    className="flex-none text-success"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-medium">
+                  {statusLine}
+                </span>
+                {timeMeta}
               </span>
               {gitStamp}
-              {timeMeta}
               {statusExtra}
             </span>
           </button>
@@ -1526,6 +1545,9 @@ function UnifiedIssueRow({
             baseMs={timing.baseMs ?? 0}
             totalMs={timing.totalMs}
             size={9}
+            showSpinner={false}
+            plainLanguage
+            leadingSeparator
             className="flex-none"
           />
         }
@@ -1587,7 +1609,7 @@ function UnifiedIssueRow({
                 internal
               </span>
             )}
-            {!draftAgentOnly && <IssueFleetSummary sessions={mine} phase={phase} />}
+            {!draftAgentOnly && <IssueFleetSummary sessions={mine} />}
             {/* No started-by/epic jargon chips (POD-85): the dashed provenance
                 nest and the expand chevron already say it visually. */}
             {issue.pinned && (

@@ -27,7 +27,37 @@ export function GitStamp({
   const m = deriveGitStamp(issueBranch, git)
   if (m.kind === 'hidden') return null
 
-  const showBranch = density !== 'stamp' && m.branch !== null
+  // Sidebar rows are for decisions, not a miniature git dashboard. Clean/no-op
+  // states stay silent; actionable exceptions use short copy instead of another
+  // positional dot or expert-only arrow glyph (POD-236).
+  if (density === 'stamp') {
+    if (m.kind !== 'ready') return null
+    const hasAction = m.mismatch || m.dirty !== undefined || m.ahead !== undefined || m.unpushed
+    if (!hasAction) return null
+    return (
+      <span
+        data-testid="git-stamp"
+        data-density="stamp"
+        title={m.title}
+        className={`inline-flex flex-none items-center gap-1 rounded-[4px] border px-1 font-mono text-[9px] leading-[13px] ${
+          m.mismatch
+            ? 'border-destructive/40 bg-destructive/10 text-destructive'
+            : 'border-warning/35 bg-warning/10 text-warning'
+        } ${className}`}
+      >
+        {m.mismatch && <span>Wrong branch</span>}
+        {m.dirty !== undefined && <span>{m.dirty} uncommitted</span>}
+        {m.ahead !== undefined && (
+          <span>
+            {m.ahead} commit{m.ahead === 1 ? '' : 's'} ahead
+          </span>
+        )}
+        {m.unpushed && <span>Unpushed</span>}
+      </span>
+    )
+  }
+
+  const showBranch = m.branch !== null
 
   if (m.kind === 'loading') {
     // First probe in flight: shimmer skeleton in the same footprint so the
@@ -37,7 +67,9 @@ export function GitStamp({
         data-testid="git-stamp-loading"
         title={m.title}
         className={`inline-flex animate-pulse items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground/60 ${
-          density === 'chip' ? 'rounded-[6px] border issue-hairline-35 bg-background/50 px-2 py-1' : ''
+          density === 'chip'
+            ? 'rounded-[6px] border issue-hairline-35 bg-background/50 px-2 py-1'
+            : ''
         } ${className}`}
       >
         <GitBranch size={11} aria-hidden="true" />
@@ -77,23 +109,21 @@ export function GitStamp({
       {m.dirty !== undefined && (
         <span className="text-warning">
           +{m.dirty}
-          {density !== 'stamp' && ` ${m.dirtyLabel}`}
+          {` ${m.dirtyLabel}`}
         </span>
       )}
       {m.unpushed && <span className="text-warning">⇡</span>}
-      {m.note && density !== 'stamp' && <span className="text-muted-foreground/70">{m.note}</span>}
+      {m.note && <span className="text-muted-foreground/70">{m.note}</span>}
     </>
   )
 
   const body = (
     <>
-      {density !== 'stamp' && (
-        <GitBranch
-          size={density === 'panel' ? 13 : 11}
-          aria-hidden="true"
-          className="flex-none text-muted-foreground/70"
-        />
-      )}
+      <GitBranch
+        size={density === 'panel' ? 13 : 11}
+        aria-hidden="true"
+        className="flex-none text-muted-foreground/70"
+      />
       {showBranch && (
         <span
           className={`${

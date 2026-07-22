@@ -9,8 +9,8 @@
  *   waiting — the counter freezes and flips into an amber "just now"/"Nm ago"
  *             stamp (one-shot flip, then perfectly still — the text updates at
  *             minute granularity but nothing animates).
- *   done    — grey `∑ m:ss` cumulative compute total; renders nothing until a
- *             total is supplied (backend `workingMsTotal` is a separate issue).
+ *   done    — grey cumulative compute total; renders nothing until a total is
+ *             supplied (backend `workingMsTotal` is a separate issue).
  *
  * The component is stateless about accumulation: `sinceMs` is the last phase
  * change (`agentState.since`) and `baseMs` is compute time accumulated before
@@ -33,6 +33,9 @@ export function PhaseTimer({
   baseMs = 0,
   totalMs,
   size = 9,
+  showSpinner = true,
+  plainLanguage = false,
+  leadingSeparator = false,
   className,
 }: {
   phase: MotionPhase
@@ -44,6 +47,12 @@ export function PhaseTimer({
   totalMs?: number
   /** Font size in px: 9 sidebar rows/tabs, 10 mobile menu. */
   size?: number
+  /** False when a surrounding lifecycle lockup already owns the working icon. */
+  showSpinner?: boolean
+  /** Prefer short human copy (`5:40 total`) over symbolic telemetry (`∑ 5:40`). */
+  plainLanguage?: boolean
+  /** Prefix the time with a quiet middle dot when it follows a status phrase. */
+  leadingSeparator?: boolean
   className?: string
 }): JSX.Element | null {
   const morph = usePhaseMorph(phase)
@@ -64,7 +73,8 @@ export function PhaseTimer({
         style={{ fontSize: size, color: 'var(--motion-working)' }}
         title={`Working since ${new Date(sinceMs).toLocaleString()}`}
       >
-        <BrailleSpinner size={size} />
+        {showSpinner && <BrailleSpinner size={size} />}
+        {leadingSeparator && <span aria-hidden="true">·</span>}
         {formatClock(baseMs + (now - sinceMs))}
       </span>
     )
@@ -77,6 +87,7 @@ export function PhaseTimer({
         style={{ fontSize: size, color: 'var(--motion-waiting)' }}
         title={`Waiting since ${new Date(sinceMs).toLocaleString()}`}
       >
+        {leadingSeparator && <span aria-hidden="true">· </span>}
         {relativeTime(new Date(sinceMs).toISOString(), now)}
       </span>
     )
@@ -89,7 +100,8 @@ export function PhaseTimer({
         style={{ fontSize: size, color: 'var(--motion-total)' }}
         title="Total compute time"
       >
-        {`∑ ${formatClock(totalMs)}`}
+        {leadingSeparator && <span aria-hidden="true">· </span>}
+        {plainLanguage ? `${formatClock(totalMs)} total` : `∑ ${formatClock(totalMs)}`}
       </span>
     )
   }
