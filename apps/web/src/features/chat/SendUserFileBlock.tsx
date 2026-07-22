@@ -80,9 +80,10 @@ export function SendUserFileBlock({
   )
 }
 
-/** One SendUserFile image thumbnail. Falls back to the file chip if the image
- *  fails to load (file moved/deleted, or read denied) — no broken-image glyph. */
-function SentImageThumb({
+/** One inline image thumbnail (SendUserFile shares it with user-upload tags in
+ *  ChatBlockView). Falls back to the file chip if the image fails to load
+ *  (file moved/deleted, or read denied) — no broken-image glyph. */
+export function SentImageThumb({
   url,
   name,
   onOpen,

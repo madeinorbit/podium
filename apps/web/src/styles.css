@@ -416,7 +416,7 @@ html[data-podium-platform="macos"] .settings-header {
 .transcript-you .chat-md {
   color: var(--foreground);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 13.5px;
 }
 .transcript-you-label {
   display: flex;
@@ -520,10 +520,47 @@ html[data-podium-platform="macos"] .settings-header {
   letter-spacing: 0;
 }
 
+/* Native-pane offer dock (POD-178): the offer sits BELOW the terminal on its
+   own surface — never painted on the PTY background — and animates in by
+   reclaiming height from the terminal (grid-rows) with a slight rise. The
+   reverse plays when the offer is consumed. */
+.offer-dock {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.offer-dock--open {
+  grid-template-rows: 1fr;
+}
+.offer-dock-clip {
+  overflow: hidden;
+  min-height: 0;
+}
+.offer-dock-inner {
+  padding: 8px 13px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--background);
+  transform: translateY(12px);
+  opacity: 0;
+  transition:
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease-out;
+}
+.offer-dock--open .offer-dock-inner {
+  transform: none;
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .offer-dock,
+  .offer-dock-inner {
+    transition: none;
+  }
+}
+
 /* ── Chat markdown body ──────────────────────────────────────────────────── */
 
 .chat-md {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.6;
   color: var(--foreground);
   overflow-wrap: anywhere;

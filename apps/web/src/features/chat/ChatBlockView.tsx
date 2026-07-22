@@ -1,7 +1,8 @@
-import { formatChurn, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
+import { formatChurn, isImagePath, MACHINE_CONTEXT_RE } from '@podium/client-core/viewmodels'
 import { Clock, FileText, Image as ImageIcon, Mail as MailIcon } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import { memo, useMemo } from 'react'
+import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
 import { isKnownRefPrefix, renderMarkdown } from '@/lib/markdown'
@@ -11,7 +12,7 @@ import { AskUserQuestionCard } from './AskUserQuestionCard'
 import type { ChatBlock } from './chat'
 import { MachineContextRow } from './MachineContextRow'
 import { envelopePrincipal, parseMessageEnvelope } from './message-envelope'
-import { SendUserFileBlock } from './SendUserFileBlock'
+import { SendUserFileBlock, SentImageThumb } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 
 /** Shared chat-md click handling: code-copy buttons, ref-link chips (#474 —
@@ -182,7 +183,10 @@ export const ChatBlockView = memo(function ChatBlockView({
         )}
       >
         <span className="h-px flex-1 bg-border/60" />
-        <Clock size={11} aria-hidden="true" /> Churned for {formatChurn(item.durationMs ?? 0)}
+        <span className="inline-flex items-center gap-1.5 px-0.5">
+          <Clock size={11} aria-hidden="true" />
+          <span>Churned for {formatChurn(item.durationMs ?? 0)}</span>
+        </span>
         <span className="h-px flex-1 bg-border/60" />
       </div>
     )
@@ -293,28 +297,48 @@ export const ChatBlockView = memo(function ChatBlockView({
           // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by DOMPurify above
           dangerouslySetInnerHTML={{ __html: html }}
         />
-        {item.tags && item.tags.length > 0 && (
-          <div className="mt-1.5 flex gap-1.5">
-            {item.tags.map((tag, i) => {
-              const filePath =
-                tag.kind === 'file' && item.toolPaths?.[0]
-                  ? resolveAgainstCwd(cwd, item.toolPaths[0])
-                  : null
-              return filePath ? (
+        {/* Attached media (POD-178): a turn's referenced files render as real
+            inline previews — images as clickable thumbnails (→ lightbox), other
+            files (artifacts, docs) as openable chips — instead of anonymous
+            "image"/"file" tag chips. Tags without a resolvable path (older
+            transcripts) keep the labelled chip. */}
+        {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
+          <div className="mt-1.5 flex flex-wrap items-start gap-2">
+            {(item.toolPaths ?? []).map((p) => {
+              const abs = resolveAgainstCwd(cwd, p)
+              const name = p.split('/').pop() ?? p
+              const chip = (
                 <button
-                  key={`${tag.kind}-${i}`}
+                  key={p}
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
-                    openFile(sessionId, filePath)
+                    openFile(sessionId, abs)
                   }}
                   className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title={`Open ${filePath}`}
+                  title={`Open ${p}`}
                 >
                   <FileText size={12} aria-hidden="true" />
-                  {tag.label ?? tag.kind}
+                  {name}
                 </button>
-              ) : (
+              )
+              if (isImagePath(p)) {
+                const url = assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })
+                if (url)
+                  return (
+                    <SentImageThumb
+                      key={p}
+                      url={url}
+                      name={name}
+                      onOpen={() => onOpenImage(url)}
+                      fallback={chip}
+                    />
+                  )
+              }
+              return chip
+            })}
+            {(item.toolPaths?.length ?? 0) === 0 &&
+              item.tags?.map((tag, i) => (
                 <span
                   key={`${tag.kind}-${i}`}
                   className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
@@ -326,8 +350,7 @@ export const ChatBlockView = memo(function ChatBlockView({
                   )}
                   {tag.label ?? tag.kind}
                 </span>
-              )
-            })}
+              ))}
           </div>
         )}
       </div>

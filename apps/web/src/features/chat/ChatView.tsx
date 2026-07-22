@@ -695,28 +695,18 @@ export function ChatView({
     taRef.current?.focus()
   }, [sessionId, composerEnabled, loadingTranscript, isMobile])
 
-  // The composer's action cluster (stop / attach / voice / send). Compact
-  // (superagent dock) renders it INLINE on the input row with small plain
-  // icons — the mock's composer is a single ~36px-high row — while the regular
-  // chat composer keeps its own bottom row with the round primary send button.
+  // The composer's action cluster (stop / attach / voice / send), rendered
+  // INLINE on the input row (POD-178: a separate bottom row read as an
+  // unreachable empty line in the box). Compact keeps plain ghost icons; the
+  // regular chat composer keeps a primary send button, just inline and small.
   const composerActions = (
-    <div
-      className={cn(
-        'flex items-center',
-        compact ? 'flex-none gap-0.5 self-end' : 'justify-end gap-1',
-      )}
-    >
+    <div className="flex flex-none items-center gap-0.5 self-end">
       {headless && turnRunning && superThread && (
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className={cn(
-            'rounded-full text-destructive hover:bg-transparent hover:text-destructive',
-            compact
-              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-              : "[&_svg:not([class*='size-'])]:size-4",
-          )}
+          className="size-6 rounded-md text-destructive hover:bg-transparent hover:text-destructive [&_svg:not([class*='size-'])]:size-3.5"
           title="Stop this turn"
           onClick={() => {
             trpc.superagent.interruptTurn
@@ -732,10 +722,8 @@ export function ChatView({
         variant="ghost"
         size="icon"
         className={cn(
-          'rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground',
-          compact
-            ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-            : "[&_svg:not([class*='size-'])]:size-4",
+          'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+          "[&_svg:not([class*='size-'])]:size-3.5",
         )}
         title="Attach image"
         onClick={() => fileInputRef.current?.click()}
@@ -748,10 +736,8 @@ export function ChatView({
           variant="ghost"
           size="icon"
           className={cn(
-            'rounded-full text-muted-foreground hover:bg-transparent hover:text-foreground',
-            compact
-              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-              : "[&_svg:not([class*='size-'])]:size-4",
+            'size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground',
+            "[&_svg:not([class*='size-'])]:size-3.5",
             voice.listening && 'animate-pulse text-destructive hover:text-destructive',
           )}
           title={voice.listening ? 'Stop voice input' : 'Voice input'}
@@ -767,7 +753,7 @@ export function ChatView({
         className={cn(
           compact
             ? "size-6 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:bg-transparent disabled:opacity-40 [&_svg:not([class*='size-'])]:size-3.5"
-            : "rounded-full bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-4",
+            : "size-7 rounded-md bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-secondary disabled:text-muted-foreground/70 disabled:opacity-100 [&_svg:not([class*='size-'])]:size-3.5",
         )}
         disabled={
           !composerEnabled ||
@@ -1203,7 +1189,7 @@ export function ChatView({
                 }
               }}
             />
-            {compact && composerActions}
+            {composerActions}
           </div>
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-0.5 pt-1">
@@ -1239,7 +1225,6 @@ export function ChatView({
               ))}
             </div>
           )}
-          {!compact && composerActions}
         </div>
         {compact && (
           <div className="flex items-center gap-2 px-1 pt-1.5 text-[10.5px] text-[#4d4d59]">

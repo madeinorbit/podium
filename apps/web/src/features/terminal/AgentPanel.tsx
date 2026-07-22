@@ -337,6 +337,11 @@ export function AgentPanel({
     session.offer.createdAt !== dismissedOfferAt
       ? session.offer
       : null
+  // Keep the last offer rendered while the dock animates closed (POD-178): the
+  // grid-rows collapse needs content in the DOM to animate over.
+  const lastOfferRef = useRef<NonNullable<typeof session>['offer'] | null>(null)
+  if (nativeOffer) lastOfferRef.current = nativeOffer
+  const dockOffer = nativeOffer ?? lastOfferRef.current
   const sendOfferPrompt = async (prompt: string, offerAt: string) => {
     setDismissedOfferAt(offerAt)
     try {
@@ -969,14 +974,22 @@ export function AgentPanel({
           {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
               counterpart of the chat composer's bar, so offers aren't invisible
               in native mode. Clicking a button sends its prompt as a user turn. */}
-          {nativeOffer && (
-            <div className="flex-none px-[13px] pt-1.5 pb-2" style={{ backgroundColor: termBg }}>
-              <OfferBar
-                offer={nativeOffer}
-                disabled={false}
-                onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
-                {...(session ? { session } : {})}
-              />
+          {dockOffer && (
+            <div
+              className={cn('offer-dock flex-none', nativeOffer && 'offer-dock--open')}
+              data-testid="native-offer-dock"
+              aria-hidden={!nativeOffer}
+            >
+              <div className="offer-dock-clip">
+                <div className="offer-dock-inner">
+                  <OfferBar
+                    offer={dockOffer}
+                    disabled={!nativeOffer}
+                    onAction={(prompt, offerAt) => void sendOfferPrompt(prompt, offerAt)}
+                    {...(session ? { session } : {})}
+                  />
+                </div>
+              </div>
             </div>
           )}
           {/* Second key row above the soft-keyboard bar: submit/newline/paste, then the
