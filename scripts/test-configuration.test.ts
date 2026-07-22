@@ -78,14 +78,19 @@ describe('test lane configuration', () => {
   it('runs every vitest invocation under the Bun runtime [spec:SP-3f93]', () => {
     // The suite must exercise bun:sqlite and Bun process semantics, so a bare `vitest run`
     // (Node runtime) in any script is doctrine drift — POD-622 caught test:multi-instance
-    // regressing this way. Every vitest call must be spelled `bun --bun vitest`.
+    // regressing this way. `bun --bun vitest` (the bin) silently comes up on real
+    // Node too (POD-195), so every vitest call must invoke the entry module
+    // directly: `bun --bun node_modules/vitest/vitest.mjs`. The runtime itself is
+    // asserted in-worker by scripts/vitest-bun-runtime.test.ts.
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
     for (const [name, script] of Object.entries(pkg.scripts)) {
       for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
-        expect(match[1].trim(), `script "${name}" must run vitest via bun --bun`).toMatch(
-          /^(?:[A-Z_]+=\S+\s+)*bun --bun vitest\b/,
+        expect(
+          match[1].trim(),
+          `script "${name}" must run vitest via bun --bun node_modules/vitest/vitest.mjs`,
+        ).toMatch(/^(?:[A-Z_]+=\S+\s+)*bun --bun node_modules\/vitest\/vitest\.mjs\b/,
         )
       }
     }
