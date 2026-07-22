@@ -312,6 +312,9 @@ This is agent mail, not the operator's latest prompt.
     expect(sticky?.textContent).toContain('LATEST PROMPT after tools')
     expect(sticky?.textContent).not.toContain('agent mail')
     expect(sticky?.querySelector('.transcript-you')).not.toBeNull()
+    expect(sticky?.className).toContain('py-3')
+    expect(sticky?.className).toContain('duration-200')
+    expect(sticky?.className).toContain('motion-reduce:animate-none')
 
     const scrollIntoView = vi.fn()
     userRow.scrollIntoView = scrollIntoView

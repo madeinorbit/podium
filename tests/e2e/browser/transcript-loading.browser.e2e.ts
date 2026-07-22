@@ -263,6 +263,14 @@ DELIVERED_AGENT_MAIL must not replace the operator prompt
   await expect(sticky).toContainText('STICKY_USER_PROMPT keep this visible')
   await expect(sticky).not.toContainText('DELIVERED_AGENT_MAIL')
   await expect(sticky.locator('.transcript-you')).toBeVisible()
+  await expect(sticky).toHaveCSS('padding-top', '12px')
+  await expect(sticky).toHaveCSS('padding-bottom', '12px')
+  await expect(sticky).toHaveCSS('animation-duration', '0.2s')
+
+  // The one-shot settle is progressive enhancement: motion-sensitive users
+  // get the same sticky state without spatial movement.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(sticky).toHaveCSS('animation-name', 'none')
 
   // Drive the real interaction too: clicking the sticky copy scrolls the real
   // user row back into view.

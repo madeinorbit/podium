@@ -886,13 +886,25 @@ export function ChatView({
             title="Jump to this message"
             data-testid="sticky-user-message"
             className={cn(
-              'absolute top-0 right-[18px] left-0 z-[3] bg-background/90 pt-2 text-left backdrop-blur-sm',
-              compact ? 'px-3.5' : 'px-5',
+              'group absolute top-0 right-[18px] left-0 z-[3] cursor-pointer bg-background/90 text-left outline-none backdrop-blur-sm',
+              'animate-in fade-in-0 slide-in-from-top-2 duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:animate-none',
+              compact ? 'px-3.5 py-2' : 'px-5 py-3',
             )}
           >
-            <span className="transcript-you mx-auto block w-full max-w-[960px]">
-              <span className="transcript-you-label">You</span>
-              <span className="block whitespace-pre-wrap text-[13.5px] leading-relaxed font-medium text-foreground">
+            <span className="transcript-you mx-auto block w-full max-w-[960px] transition-[border-color,background-color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:border-info/35 group-focus-visible:border-ring group-focus-visible:ring-2 group-focus-visible:ring-ring/40 group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background group-active:translate-y-px motion-reduce:transition-none">
+              <span className="transcript-you-label">
+                You
+                <span className="ml-auto inline-flex items-center gap-1 text-[8px] tracking-normal text-muted-foreground/65 normal-case opacity-60 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none">
+                  Jump to prompt
+                  <ArrowUp size={10} aria-hidden="true" />
+                </span>
+              </span>
+              <span
+                className={cn(
+                  'block whitespace-pre-wrap text-[13.5px] leading-relaxed font-medium text-foreground',
+                  compact ? 'line-clamp-4' : 'line-clamp-6',
+                )}
+              >
                 {lastUserText}
               </span>
             </span>
