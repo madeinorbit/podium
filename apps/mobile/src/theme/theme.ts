@@ -127,17 +127,19 @@ export const font = {
 } as const
 
 /**
- * Geist / Geist Mono, one static family per weight (loaded in app/_layout).
- * Use these instead of fontWeight — mixing a weight-specific family with
- * fontWeight makes Android synthesize fake bolds.
+ * Geist / Geist Mono, with regular and semibold static faces loaded in
+ * app/_layout (POD-143). Medium and bold requests intentionally use semibold
+ * so the app keeps its emphasis hierarchy without shipping near-identical
+ * extra files. Use these instead of fontWeight — mixing a weight-specific
+ * family with fontWeight makes Android synthesize fake bolds.
  */
 export const sans = (weight: 400 | 500 | 600 | 700 = 400) =>
   ({
     fontFamily: {
       400: 'Geist_400Regular',
-      500: 'Geist_500Medium',
+      500: 'Geist_600SemiBold',
       600: 'Geist_600SemiBold',
-      700: 'Geist_700Bold',
+      700: 'Geist_600SemiBold',
     }[weight],
   }) as const
 
@@ -145,9 +147,9 @@ export const mono = (weight: 400 | 500 | 600 | 700 = 400) =>
   ({
     fontFamily: {
       400: 'GeistMono_400Regular',
-      500: 'GeistMono_500Medium',
+      500: 'GeistMono_600SemiBold',
       600: 'GeistMono_600SemiBold',
-      700: 'GeistMono_700Bold',
+      700: 'GeistMono_600SemiBold',
     }[weight],
   }) as const
 
