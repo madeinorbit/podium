@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react'
 import { serverConfig } from '@/app/trpc'
+import { setTextIfChanged, startAsciiAnimation } from '@/lib/ascii-animation'
 import { ASCII_COVERAGE } from './podium-ascii'
 
 type GatePhase = 'loading' | 'login' | 'success' | 'reveal' | 'ready'
@@ -104,15 +105,14 @@ function AsciiWordmark({ color }: { color: string }): ReactNode {
   useEffect(() => {
     const pre = preRef.current
     if (!pre) return
-    pre.textContent = asciiFrame(null)
-    if (prefersReducedMotion()) return
-    const start = performance.now()
-    let raf = requestAnimationFrame(function loop() {
-      raf = requestAnimationFrame(loop)
-      if (preRef.current)
-        preRef.current.textContent = asciiFrame((performance.now() - start) / 1000)
+    return startAsciiAnimation({
+      renderStatic: () => asciiFrame(null),
+      renderFrame: asciiFrame,
+      commit: (frame) => {
+        if (preRef.current) setTextIfChanged(preRef.current, frame)
+      },
+      reducedMotion: prefersReducedMotion(),
     })
-    return () => cancelAnimationFrame(raf)
   }, [])
 
   return (

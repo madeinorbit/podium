@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
+import { setTextIfChanged, startAsciiAnimation } from '@/lib/ascii-animation'
 import logoUrl from '@/lib/icons/podium-logo.svg'
 
 /** viewBox of podium-logo.svg — the asset has no intrinsic width/height. */
@@ -33,7 +34,7 @@ export function AsciiLoader(): JSX.Element {
     const label = labelRef.current
     if (!pre) return
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    let raf = 0
+    let stopAnimation: (() => void) | null = null
     let disposed = false
 
     const start = (img: HTMLImageElement): void => {
@@ -61,9 +62,8 @@ export function AsciiLoader(): JSX.Element {
         revealAt[cell] = (k / inked.length) ** REVEAL_EXP * REVEAL_SECONDS
       })
 
-      const startTime = performance.now()
       const n = RAMP.length - 1
-      const render = (t: number): void => {
+      const render = (t: number): { ascii: string; label: string } => {
         let out = ''
         for (let y = 0; y < rows; y++) {
           for (let x = 0; x < COLS; x++) {
@@ -88,21 +88,25 @@ export function AsciiLoader(): JSX.Element {
           }
           out += '\n'
         }
-        pre.textContent = out
-        if (label) label.textContent = `LOADING${'.'.repeat(1 + (Math.floor(t * 2) % 3))}`
+        return { ascii: out, label: `LOADING${'.'.repeat(1 + (Math.floor(t * 2) % 3))}` }
       }
 
-      if (reduceMotion) {
-        // One fully-revealed static frame: past the reveal window, wave frozen.
-        render(REVEAL_SECONDS + SPARKLE_SECONDS + 1)
-        if (label) label.textContent = 'LOADING'
-        return
-      }
-      const loop = (): void => {
-        raf = requestAnimationFrame(loop)
-        render((performance.now() - startTime) / 1000)
-      }
-      loop()
+      stopAnimation = startAsciiAnimation({
+        renderStatic: () =>
+          reduceMotion
+            ? {
+                // One fully-revealed static frame: past the reveal window, wave frozen.
+                ...render(REVEAL_SECONDS + SPARKLE_SECONDS + 1),
+                label: 'LOADING',
+              }
+            : render(0),
+        renderFrame: render,
+        commit: (frame) => {
+          setTextIfChanged(pre, frame.ascii)
+          if (label) setTextIfChanged(label, frame.label)
+        },
+        reducedMotion: reduceMotion,
+      })
     }
 
     const img = new Image()
@@ -112,7 +116,7 @@ export function AsciiLoader(): JSX.Element {
     img.src = logoUrl
     return () => {
       disposed = true
-      cancelAnimationFrame(raf)
+      stopAnimation?.()
     }
   }, [])
 
