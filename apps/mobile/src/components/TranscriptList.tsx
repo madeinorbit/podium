@@ -41,17 +41,54 @@ function buildRows(items: TranscriptItem[]): Row[] {
   return rows
 }
 
+/** POD-refs in message text become tappable (→ the task peek sheet). */
+const REF_RE = /\b(POD-\d+)\b/g
+
+function MessageText({
+  text,
+  onRefPress,
+}: {
+  text: string
+  onRefPress?: ((ref: string) => void) | undefined
+}) {
+  if (!onRefPress || !REF_RE.test(text)) {
+    return (
+      <Text style={styles.bubbleText} selectable>
+        {text}
+      </Text>
+    )
+  }
+  const parts = text.split(REF_RE)
+  return (
+    <Text style={styles.bubbleText} selectable>
+      {parts.map((part, i) =>
+        /^POD-\d+$/.test(part) ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: split parts are positional
+          <Text key={`${part}:${i}`} style={styles.refLink} onPress={() => onRefPress(part)}>
+            {part}
+          </Text>
+        ) : (
+          part
+        ),
+      )}
+    </Text>
+  )
+}
+
 export function TranscriptList({
   items,
   live,
   onAnswer,
   onLoadOlder,
+  onRefPress,
 }: {
   items: TranscriptItem[]
   live: boolean
   onAnswer: (choices: { optionIndices: number[] }[]) => Promise<void>
   /** Called when the user scrolls back to the oldest loaded item (paging). */
   onLoadOlder?: () => void
+  /** Tap handler for POD-refs in message text (opens the task peek sheet). */
+  onRefPress?: (ref: string) => void
 }) {
   const rows = useMemo(() => buildRows(items), [items])
   const pending = useMemo(() => latestPendingQuestion(items), [items])
@@ -103,9 +140,7 @@ export function TranscriptList({
               ]}
             >
               {item.role === 'system' ? <Text style={styles.systemLabel}>system</Text> : null}
-              <Text style={styles.bubbleText} selectable>
-                {item.text.trim()}
-              </Text>
+              <MessageText text={item.text.trim()} onRefPress={onRefPress} />
             </View>
           </View>
         )
@@ -151,6 +186,10 @@ const styles = StyleSheet.create({
     color: color.body,
     fontSize: font.body,
     lineHeight: 19,
+  },
+  refLink: {
+    color: color.accentTint,
+    textDecorationLine: 'underline',
   },
   systemLabel: {
     ...mono(500),

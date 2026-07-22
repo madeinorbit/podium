@@ -1,122 +1,142 @@
-import { compareRecency, withoutShells } from '@podium/client-core/focus'
+import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { sessionCardModel } from '@podium/client-core/viewmodels'
-import type { SessionMeta } from '@podium/protocol'
+import type { IssueWire, SessionMeta } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { Plus } from 'lucide-react-native'
 import { useMemo, useState } from 'react'
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native'
+import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useMobileClient } from '../client/MobileClientProvider'
 import { Icon } from '../components/Icon'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
+import { CountPill } from '../components/StatusGlyphs'
+import { TaskPeekSheet } from '../components/TaskPeekSheet'
 import { EmptyState } from '../components/ui'
-import { color, font, radius, sans, space } from '../theme/theme'
+import { color, font, mono, monoLabel, space } from '../theme/theme'
 
-type Filter = 'active' | 'all' | 'archived'
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: 'active', label: 'Active' },
-  { key: 'all', label: 'All' },
-  { key: 'archived', label: 'Archived' },
-]
-
+/**
+ * Agents — the roster [POD-131]. Sessions grouped by attention (needs you /
+ * working / idle), each row naming its attached task via the ID square.
+ * Long-press peeks the task (TaskPeekSheet) without leaving the roster.
+ */
 export function SessionsScreen() {
   const router = useRouter()
   const client = useMobileClient()
-  const [filter, setFilter] = useState<Filter>('active')
   const now = Date.now()
+  const [peek, setPeek] = useState<{ issue: IssueWire; session: SessionMeta } | null>(null)
 
-  const sessions = useMemo(() => {
-    const base = withoutShells(client.sessions)
-    const filtered =
-      filter === 'archived'
-        ? base.filter((s) => s.archived)
-        : filter === 'active'
-          ? base.filter((s) => !s.archived && s.status !== 'exited')
-          : base.filter((s) => !s.archived)
-    return [...filtered].sort((a, b) => compareRecency(a, b, now))
-  }, [client.sessions, filter, now])
+  const groups = useMemo(() => groupSessions(withoutShells(client.sessions)), [client.sessions])
+  const sections = useMemo(
+    () =>
+      [
+        { key: 'needsYou' as const, title: 'Needs you', data: groups.needsYou },
+        { key: 'working' as const, title: 'Working', data: groups.working },
+        { key: 'idle' as const, title: 'Idle', data: groups.idle },
+      ].filter((s) => s.data.length > 0),
+    [groups],
+  )
 
-  const issueFor = (session: SessionMeta) =>
+  const issueFor = (session: SessionMeta): IssueWire | undefined =>
     session.issueId ? client.issueById(session.issueId) : undefined
 
   return (
     <Screen
       large
-      title="Sessions"
+      title="Agents"
+      subtitle={
+        client.connected
+          ? `${groups.working.length} working · ${groups.idle.length} idle`
+          : 'reconnecting…'
+      }
       right={
         <HeaderButton label="New session" onPress={() => router.push('/new-session')}>
           <Icon as={Plus} size={19} color={color.text} />
         </HeaderButton>
       }
     >
-      <View style={styles.filters}>
-        {FILTERS.map((f) => (
-          <Pressable
-            key={f.key}
-            accessibilityRole="button"
-            accessibilityLabel={`Show ${f.label} sessions`}
-            onPress={() => setFilter(f.key)}
-            style={[styles.filter, filter === f.key && styles.filterActive]}
-          >
-            <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>
-              {f.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <FlatList
-        data={sessions}
-        keyExtractor={(s) => s.sessionId}
+      <SectionList
+        sections={sections}
+        keyExtractor={(session) => session.sessionId}
+        stickySectionHeadersEnabled={false}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item: session }) => (
-          <SessionCard
-            model={sessionCardModel(session, issueFor(session), now)}
-            issue={issueFor(session)}
-            agentColor={session.agentColor}
-            onPress={() => router.push(`/session/${session.sessionId}`)}
-          />
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text
+              style={[
+                styles.sectionLabel,
+                section.key === 'needsYou' && styles.needsYouLabel,
+                section.key === 'working' && styles.workingLabel,
+              ]}
+            >
+              {section.title.toUpperCase()}
+            </Text>
+            {section.key === 'needsYou' ? (
+              <CountPill count={section.data.length} />
+            ) : (
+              <Text style={styles.sectionCount}>{section.data.length}</Text>
+            )}
+            <View style={styles.sectionRule} />
+          </View>
         )}
+        renderItem={({ item: session }) => {
+          const issue = issueFor(session)
+          return (
+            <SessionCard
+              model={sessionCardModel(session, issue, now)}
+              issue={issue}
+              agentColor={session.agentColor}
+              onPress={() => router.push(`/session/${session.sessionId}`)}
+              onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
+            />
+          )
+        }}
         ListEmptyComponent={
           <EmptyState
-            title="No sessions here"
-            body={filter === 'archived' ? 'Nothing archived yet.' : 'Start one with the + button.'}
+            title="No agents running"
+            body="Start a session with the + button, or fire off a task from the board."
           />
         }
+      />
+      <TaskPeekSheet
+        issue={peek?.issue ?? null}
+        session={peek?.session}
+        onClose={() => setPeek(null)}
       />
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  filters: {
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: space.md + 2,
-    paddingBottom: space.sm + 2,
-  },
-  filter: {
-    borderRadius: radius.sm,
-    paddingHorizontal: space.md,
-    paddingVertical: 5,
-    backgroundColor: color.surface,
-    borderColor: color.hairlineBar,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  filterActive: {
-    backgroundColor: color.accentSoft,
-    borderColor: color.accentBorder,
-  },
-  filterText: {
-    ...sans(600),
-    color: color.textDim,
-    fontSize: font.tiny + 1,
-  },
-  filterTextActive: {
-    color: color.accent,
-  },
   listContent: {
-    paddingBottom: 120,
+    paddingBottom: space.xl,
     flexGrow: 1,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md + 2,
+    paddingTop: space.lg,
+    paddingBottom: 5,
+  },
+  sectionLabel: {
+    ...monoLabel(9),
+    color: color.label,
+  },
+  needsYouLabel: {
+    color: color.needsYou,
+  },
+  workingLabel: {
+    color: color.working,
+  },
+  sectionCount: {
+    ...mono(600),
+    color: color.textFaint,
+    fontSize: font.micro,
+  },
+  sectionRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: color.hairline,
   },
 })

@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar'
 import { View } from 'react-native'
 import { AuthGate } from '../src/client/AuthGate'
 import { MobileClientProvider } from '../src/client/MobileClientProvider'
+import { BootSplash } from '../src/components/BootSplash'
 import { color } from '../src/theme/theme'
 
 export default function RootLayout() {
@@ -30,7 +31,7 @@ export default function RootLayout() {
     GeistMono_700Bold,
   })
   // A load error falls back to system fonts; only block while still loading.
-  if (!fontsLoaded && !fontsError) return <View style={{ flex: 1, backgroundColor: color.bg }} />
+  if (!fontsLoaded && !fontsError) return <BootSplash />
   return (
     <View style={{ flex: 1, backgroundColor: color.bg }}>
       <AuthGate>

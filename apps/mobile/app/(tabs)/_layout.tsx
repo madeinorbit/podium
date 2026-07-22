@@ -4,6 +4,12 @@ import type { ComponentProps } from 'react'
 import { useMobileClient } from '../../src/client/MobileClientProvider'
 import { TabBar } from '../../src/components/TabBar'
 
+/**
+ * Three tabs [POD-131]: Tray (the global decision queue + the superagent's
+ * standing composer), Tasks (the board/MAP), Agents (the session roster).
+ * The superagent conversation is a pushed route (/superagent), not a tab —
+ * the composer on Tray is its one-shot entry.
+ */
 export default function TabsLayout() {
   const client = useMobileClient()
   const needsYou = groupSessions(withoutShells(client.sessions)).needsYou.length
@@ -11,19 +17,14 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <TabBar {...(props as unknown as ComponentProps<typeof TabBar>)} />}
-      screenOptions={{
-        headerShown: false,
-        // The floating bar overlays content; screens pad their own scroll ends.
-        sceneStyle: { backgroundColor: 'transparent' },
-      }}
+      screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Inbox', tabBarBadge: needsYou > 0 ? needsYou : undefined }}
+        options={{ title: 'Tray', tabBarBadge: needsYou > 0 ? needsYou : undefined }}
       />
-      <Tabs.Screen name="sessions" options={{ title: 'Sessions' }} />
-      <Tabs.Screen name="agent" options={{ title: 'Superagent' }} />
       <Tabs.Screen name="issues" options={{ title: 'Tasks' }} />
+      <Tabs.Screen name="sessions" options={{ title: 'Agents' }} />
     </Tabs>
   )
 }

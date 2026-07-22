@@ -2,6 +2,19 @@ import { useSocketHub, useTerminalSession } from '@podium/terminal-client-react'
 import { useMemo } from 'react'
 import { Text, View } from 'react-native'
 import { readServerConfig } from '../client/trpc'
+import { color, font, mono } from '../theme/theme'
+
+/**
+ * Mobile default appearance for the native agent view [POD-131]: a much
+ * smaller mono size than the desktop default (13px) so agent TUI frames fit a
+ * phone width crisply on retina screens. Applied via the terminal-client
+ * appearance channel — the same one the web's terminal themability settings
+ * use — so a future mobile settings surface can override it live.
+ */
+const MOBILE_APPEARANCE = {
+  fontSize: 10,
+  lineHeight: 1.12,
+} as const
 
 export function TerminalPane({ sessionId }: { sessionId: string }) {
   const config = useMemo(readServerConfig, [])
@@ -17,20 +30,21 @@ export function TerminalPane({ sessionId }: { sessionId: string }) {
     sessionId,
     enabled: connected,
     focusOnMount: true,
+    appearance: MOBILE_APPEARANCE,
   })
 
   return (
     <View style={{ flex: 1 }}>
-      {!connected ? (
-        <Text style={{ color: '#94a3b8', padding: 12 }}>Connecting terminal...</Text>
-      ) : null}
-      {connected && !ready ? (
-        <Text style={{ color: '#94a3b8', padding: 12 }}>Attaching terminal...</Text>
-      ) : null}
-      <div
-        ref={containerRef}
-        style={{ flex: 1, minHeight: 420, height: 'calc(100vh - 92px)', width: '100%' }}
-      />
+      {!connected ? <Text style={statusStyle}>Connecting terminal…</Text> : null}
+      {connected && !ready ? <Text style={statusStyle}>Attaching terminal…</Text> : null}
+      <div ref={containerRef} style={{ flex: 1, minHeight: 260, width: '100%' }} />
     </View>
   )
 }
+
+const statusStyle = {
+  ...mono(400),
+  color: color.textDim,
+  fontSize: font.small,
+  padding: 12,
+} as const

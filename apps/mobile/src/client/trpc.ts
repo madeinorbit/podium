@@ -106,6 +106,10 @@ interface MobileTrpcExtras {
       body: string
       mutationId?: string
     }>
+    /** Quiet-dismiss a humanQuestion card (the tray's resolve ✓). */
+    clearNeedsHuman: MutationProcedure<{ id: string }>
+    /** Acknowledge a finished task — removes its card and board row. */
+    archive: MutationProcedure<{ id: string }>
   }
   repos: {
     /** Flat list of registered repo root paths. */

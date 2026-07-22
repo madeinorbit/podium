@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import type { IncomingMessage, Server } from 'node:http'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
@@ -409,10 +410,13 @@ export async function startServer(
       mobileWebDir = ''
     }
   }
-  const expoMobileServed = mobileWebDir
-    ? registerWebStatic(app, mobileWebDir, { basePath: '/mobile' })
-    : false
-  registerMobileRouting(app, { expoMobileServed })
+  // Routing first so its /mobile fallback middleware owns the dist-absent case;
+  // presence is probed per request (the mobile dist may be exported after boot).
+  const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
+  registerMobileRouting(app, {
+    expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
+  })
+  if (mobileWebDir) registerWebStatic(app, mobileWebDir, { basePath: '/mobile', lazy: true })
 
   let webDir = process.env.PODIUM_WEB_DIR
   if (!webDir) {

@@ -39,6 +39,11 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export interface StaticWebOptions {
   basePath?: string
+  /** Register routes even when the build is currently absent; each request
+   *  re-checks. Lets a dist built after boot start serving without a restart
+   *  (routes registered earlier, e.g. registerMobileRouting's fallback, own
+   *  the absent case). */
+  lazy?: boolean
 }
 
 function contentType(p: string): string {
@@ -79,28 +84,35 @@ const PHONE_UA = /Android.+Mobile|iPhone|iPod/i
  * When the Expo build is absent, /mobile falls back to / instead of loading the
  * main SPA under a wrong base path. Every redirect preserves the query string
  * (?server, ?e2e).
+ *
+ * Presence is a live probe, not a boot-time flag: the mobile dist is gitignored
+ * and built separately from the web dist, so a deploy can restart the server
+ * before (or without) exporting it. With a boot-time flag that ordering silently
+ * disabled the phone redirect until the next restart.
  */
-export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boolean }): void {
+export function registerMobileRouting(app: Hono, opts: { expoMobilePresent: () => boolean }): void {
+  const present = opts.expoMobilePresent
   const toRoot = (c: Context) => c.redirect('/' + new URL(c.req.url).search)
-  if (!opts.expoMobileServed) {
-    app.get('/desktop', toRoot)
-    app.get('/mobile', toRoot)
-    app.get('/mobile/*', toRoot)
-    return
-  }
   app.get('/', async (c, next) => {
     const url = new URL(c.req.url)
     const ua = c.req.header('user-agent') ?? ''
-    if (PHONE_UA.test(ua) && !url.searchParams.has('desktop')) {
+    if (present() && PHONE_UA.test(ua) && !url.searchParams.has('desktop')) {
       return c.redirect('/mobile' + url.search)
     }
     await next()
   })
   app.get('/desktop', (c) => {
+    if (!present()) return toRoot(c)
     // Raw-string append keeps the original encoding of ?server=wss://… intact.
     const search = new URL(c.req.url).search
     return c.redirect('/' + (search ? search + '&desktop=1' : '?desktop=1'))
   })
+  const mobileFallback = async (c: Context, next: () => Promise<void>) => {
+    if (!present()) return toRoot(c)
+    await next()
+  }
+  app.get('/mobile', mobileFallback)
+  app.get('/mobile/*', mobileFallback)
 }
 
 /**
@@ -110,10 +122,12 @@ export function registerMobileRouting(app: Hono, opts: { expoMobileServed: boole
  * source/dev run or an API-only server is unaffected. Call AFTER the API routes.
  */
 export function registerWebStatic(app: Hono, webDir: string, opts: StaticWebOptions = {}): boolean {
-  if (!existsSync(join(webDir, 'index.html'))) return false
+  const indexPath = join(webDir, 'index.html')
+  if (!opts.lazy && !existsSync(indexPath)) return false
 
   const basePath = normalizedBasePath(opts.basePath)
   const handler = (c: Context) => {
+    if (opts.lazy && !existsSync(indexPath)) return c.notFound()
     const pathname = new URL(c.req.url).pathname
     const inside = pathInsideBase(pathname, basePath)
     if (inside === null) return c.notFound()

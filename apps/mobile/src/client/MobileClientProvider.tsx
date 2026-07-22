@@ -37,6 +37,7 @@ import {
   useMemo,
   useState,
 } from 'react'
+import { BootSplash } from '../components/BootSplash'
 import {
   DEMO_ISSUES,
   DEMO_SESSIONS,
@@ -160,7 +161,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     () => ({ error: (message) => setError(message), info: () => {} }),
     [],
   )
-  if (!replica) return null
+  if (!replica) return <BootSplash />
   return (
     <StoreProvider
       config={config}

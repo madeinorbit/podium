@@ -39,12 +39,15 @@ export function SessionCard({
   issue,
   agentColor,
   onPress,
+  onLongPress,
   children,
 }: {
   model: SessionCardModel
   issue?: IssueWire
   agentColor?: string
   onPress: () => void
+  /** Long-press peek (the task peek sheet) — forwarded to the pressable. */
+  onLongPress?: () => void
   children?: React.ReactNode
 }) {
   const toneKey = DOT_TONE[model.dotTone]
@@ -59,6 +62,7 @@ export function SessionCard({
       accessibilityRole="button"
       accessibilityLabel={model.title}
       onPress={onPress}
+      onLongPress={onLongPress}
       style={[
         styles.row,
         hex ? { backgroundColor: flow.rowBg(hex) } : styles.rowNeutral,
@@ -186,9 +190,9 @@ const styles = StyleSheet.create({
   },
   quote: {
     backgroundColor: tone.needsYou.bg,
-    borderLeftWidth: 3,
-    borderLeftColor: color.needsYou,
-    borderRadius: radius.xs,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: tone.needsYou.border,
+    borderRadius: radius.sm,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },

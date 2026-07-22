@@ -11,9 +11,9 @@ import { mix } from './mix'
  * renderers.
  *
  * RESERVED COLOURS — never pickable, never reused as issue accents, never used
- * for status: amber #f59e0b (attention), terracotta #d97757 (Claude), green
- * #10b981 (working). Slate #94a3b8 is the default no-colour flow accent — a
- * state, not a choice.
+ * for status: Superade Yellow #f5c518 (attention/signal), terracotta #d97757
+ * (Claude), Accent Blue #2f6bff (working). Slate #94a3b8 is the default
+ * no-colour flow accent — a state, not a choice.
  */
 
 /** The neutral no-colour flow slate — same value as the web --flow token. */
@@ -66,17 +66,17 @@ export function issueSquareFg(hex: string): string {
  */
 export const flow = {
   /** Workspace pane behind content: 10% over the app bg. */
-  paneBg: (c: string) => mix(c, 10, '#0e0e12'),
+  paneBg: (c: string) => mix(c, 10, '#0a0f1c'),
   /** Tinted chrome bar (session header): 16% over the card surface. */
-  headerBg: (c: string) => mix(c, 16, '#16161c'),
+  headerBg: (c: string) => mix(c, 16, '#121b30'),
   /** Stronger pane-chrome bar: 24% over the app bg. */
-  paneHeaderBg: (c: string) => mix(c, 24, '#0e0e12'),
+  paneHeaderBg: (c: string) => mix(c, 24, '#0a0f1c'),
   /** Unselected coloured list row: ~12% over the card surface. */
-  rowBg: (c: string) => mix(c, 12, '#16161c'),
+  rowBg: (c: string) => mix(c, 12, '#121b30'),
   /** Selected list row: 28% over the card surface (+ .8-alpha border). */
-  rowSelectedBg: (c: string) => mix(c, 28, '#16161c'),
+  rowSelectedBg: (c: string) => mix(c, 28, '#121b30'),
   /** Active row inside a panel menu: 18% over the card surface. */
-  rowActiveBg: (c: string) => mix(c, 18, '#16161c'),
+  rowActiveBg: (c: string) => mix(c, 18, '#121b30'),
   /** Near-white tinted title text (ctxText). */
   text: (c: string) => mix(c, 8, '#f3f3f8'),
   /** Tinted body text. */

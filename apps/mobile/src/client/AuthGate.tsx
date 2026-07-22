@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { BootSplash } from '../components/BootSplash'
 import { LoginScreen } from '../screens/LoginScreen'
-import { color, font } from '../theme/theme'
 import { fetchAuthStatus } from './auth'
 import { readServerConfig } from './trpc'
 
@@ -34,30 +33,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, [config.httpOrigin])
 
-  if (state === 'checking') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={color.accent} />
-        <Text style={styles.text}>Connecting to {config.httpOrigin}…</Text>
-      </View>
-    )
-  }
+  if (state === 'checking') return <BootSplash />
   if (state === 'login') {
     return <LoginScreen httpOrigin={config.httpOrigin} onAuthed={() => setState('open')} />
   }
   return <>{children}</>
 }
-
-const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    backgroundColor: color.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  text: {
-    color: color.textFaint,
-    fontSize: font.small,
-  },
-})
