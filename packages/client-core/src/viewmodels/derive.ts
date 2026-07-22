@@ -1263,6 +1263,14 @@ function issueFinishedAt(issue: IssueWire): number {
   return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
 }
 
+/** Closed human work at the top of an issue tree remains addressable in the
+ * sidebar's project-local disclosure until it is explicitly archived. This is
+ * deliberately narrower than `stage === 'done'`: done children keep the
+ * acknowledgment decay introduced by POD-100. */
+function isClosedTopLevelIssue(issue: IssueWire): boolean {
+  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
+}
+
 /** A finished private issue branch that still contains work not landed on its
  *  parent branch. The explicit ahead check keeps a never-moved/empty branch in
  *  plain done, while `merged !== true` reuses the cleanup guard's ancestry
@@ -1283,6 +1291,9 @@ export function issueAwaitingMerge(issue: IssueWire): boolean {
 export function issueVisibleInSidebar(issue: IssueWire, now: number): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished) return true
+  // POD-183: closed top-level issues visually decay into a fold; they do not
+  // disappear with time. Unread and selected presentation is handled later.
+  if (isClosedTopLevelIssue(issue)) return true
   // Review/merge is still a human action. It does not decay like shipped work.
   if (issueAwaitingMerge(issue)) return true
   const finishedAt = issueFinishedAt(issue)
@@ -1325,14 +1336,18 @@ function buildUnifiedRows(
       issue.coordinatorSessionId,
     )
     // Active work requires a session. Sessionless rows are allowed only for
-    // finished MILESTONE CHILDREN (a parent to nest under) inside the unread →
-    // 24h-grace decay window — a sessionless top-level done issue (or the
-    // historical backlog of done issues, unread since before readAt existed)
-    // must never resurface here. [spec:SP-6144]
+    // finished MILESTONE CHILDREN inside the unread → 24h-grace decay window,
+    // actionable awaiting-merge work, or closed top-level human issues that
+    // POD-183 keeps in the project-local fold. A sessionless top-level issue
+    // that is merely `done` must never resurface here. [spec:SP-6144]
     if (mine.length === 0) {
       const finished = issue.stage === 'done' || issue.closedReason != null
       const awaitingMerge = issueAwaitingMerge(issue)
-      if (!finished || (!awaitingMerge && (!issue.parentId || issue.audience === 'agent'))) {
+      const closedTopLevel = isClosedTopLevelIssue(issue)
+      if (
+        !finished ||
+        (!awaitingMerge && !closedTopLevel && (!issue.parentId || issue.audience === 'agent'))
+      ) {
         continue
       }
       if (!issueVisibleInSidebar(issue, now)) continue
@@ -1781,6 +1796,29 @@ export interface UnifiedWorkGroup {
   key: string
   label: string
   rows: UnifiedWorkRow[]
+  /** Settled top-level closures hidden behind the project's local disclosure. */
+  closedRows: UnifiedIssueRow[]
+}
+
+/** POD-183 fold membership. Attention always outranks structure: unread,
+ * selected, working, needs-you, and awaiting-merge closures keep their full
+ * row. Pinned rows are removed before grouping, so pinning also wins. */
+export function rowInClosedFold(
+  row: UnifiedWorkRow,
+  selectedIssueId: string | null,
+): row is UnifiedIssueRow {
+  if (row.kind !== 'issue') return false
+  const { issue } = row
+  return (
+    isClosedTopLevelIssue(issue) &&
+    !issue.unread &&
+    Boolean(issue.readAt) &&
+    issue.id !== selectedIssueId &&
+    !issue.needsHuman &&
+    !issueAwaitingMerge(issue) &&
+    rowWaitingCount(row) === 0 &&
+    !rowSessions(row).some(isSessionWorking)
+  )
 }
 
 /**
@@ -1788,8 +1826,13 @@ export interface UnifiedWorkGroup {
  * otherwise — so the same repo on two machines/paths merges into one group).
  * Row order inside a group and group order both follow the incoming fixed
  * creation order: a group sits where its first (newest-created) row would.
+ * Settled top-level closures retain that order in `closedRows`; expanding the
+ * disclosure never rewrites sort keys or group arithmetic.
  */
-export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[] {
+export function groupUnifiedWorkRows(
+  rows: UnifiedWorkRow[],
+  selectedIssueId: string | null = null,
+): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []
   const byKey = new Map<string, UnifiedWorkGroup>()
   for (const row of rows) {
@@ -1803,11 +1846,12 @@ export function groupUnifiedWorkRows(rows: UnifiedWorkRow[]): UnifiedWorkGroup[]
         row.kind === 'worktree'
           ? row.worktree.repoName
           : row.issue.repoPath.split('/').pop() || row.issue.repoPath
-      group = { key, label, rows: [] }
+      group = { key, label, rows: [], closedRows: [] }
       byKey.set(key, group)
       groups.push(group)
     }
-    group.rows.push(row)
+    if (rowInClosedFold(row, selectedIssueId)) group.closedRows.push(row)
+    else group.rows.push(row)
   }
   return groups
 }

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -78,6 +78,34 @@ vi.mock('@/app/store', () => {
     issues: [
       issue('pin', 'Pinned issue', { pinned: true, color: 'violet' }),
       issue('plain', 'Plain issue'),
+      issue('closed-a', 'Closed alpha', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-06-10T00:00:00.000Z',
+        readAt: '2026-06-11T00:00:00.000Z',
+        unread: false,
+      }),
+      issue('closed-b', 'Closed beta', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-06-09T00:00:00.000Z',
+        readAt: '2026-06-11T00:00:00.000Z',
+        unread: false,
+      }),
+      issue('closed-unread', 'Closed result unseen', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-06-12T00:00:00.000Z',
+        readAt: undefined,
+        unread: true,
+      }),
+      issue('closed-selected', 'Closed result selected', {
+        stage: 'done',
+        closedReason: 'done',
+        closedAt: '2026-06-08T00:00:00.000Z',
+        readAt: '2026-06-11T00:00:00.000Z',
+        unread: false,
+      }),
     ],
     trpc: {
       settings: {
@@ -87,7 +115,7 @@ vi.mock('@/app/store', () => {
     },
     selectedWorktree: null,
     setSelectedWorktree: vi.fn(),
-    selectedIssueId: null,
+    selectedIssueId: 'closed-selected',
     setSelectedIssueId: vi.fn(),
     setOpenIssueId: vi.fn(),
     paneA: null,
@@ -146,5 +174,28 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(row.className).toContain('bg-[var(--row-bg)]')
     expect(row.className).toContain('hover:bg-[var(--row-hover-bg)]')
     expect(row.getAttribute('style')).toContain('--row-hover-bg')
+  })
+
+  it('folds read closures per project while unread and selected closures keep full rows', () => {
+    render(<SidebarUnified />)
+
+    const toggle = screen.getByRole('button', { name: 'Closed · 2' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Closed alpha')).toBeNull()
+    expect(screen.queryByText('Closed beta')).toBeNull()
+    expect(screen.getByText('Closed result unseen')).toBeTruthy()
+    expect(screen.getByText('Closed result selected')).toBeTruthy()
+
+    fireEvent.click(toggle)
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Closed alpha')).toBeTruthy()
+    expect(screen.getByText('Closed beta')).toBeTruthy()
+    expect(rowButton('Closed alpha').closest('[data-drag-key="closed-a"]')?.className).toContain(
+      'opacity-50',
+    )
+
+    fireEvent.click(toggle)
+    expect(screen.queryByText('Closed alpha')).toBeNull()
   })
 })

@@ -23,7 +23,7 @@ import type {
   ReactNode,
   PointerEvent as ReactPointerEvent,
 } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { NEW_AGENTS } from '@/app/NewPanelMenu'
 import { useStoreSelector } from '@/app/store'
 import { GitStamp } from '@/components/GitStamp'
@@ -544,6 +544,46 @@ function PinnedSectionLabel(): JSX.Element {
     </div>
   )
 }
+/** Project-local disclosure for settled top-level closures (POD-183). Folding
+ * is presentation only: expansion preserves the rows' derived manual order,
+ * and no archive or sort mutation is fired. */
+function ClosedIssueFold({
+  groupKey,
+  rows,
+  renderRow,
+}: {
+  groupKey: string
+  rows: UnifiedIssueRowView[]
+  renderRow: (row: UnifiedIssueRowView) => JSX.Element
+}): JSX.Element {
+  const [collapsed, toggle] = useCollapsed(`podium:sidebar:closed-fold:${groupKey}`, true)
+  const contentId = useId()
+  return (
+    <div className="min-w-0" data-testid="closed-issue-fold">
+      <button
+        type="button"
+        className="group/fold flex min-h-[31px] w-full items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-left font-mono text-[10px] font-medium tracking-[.035em] text-[#525c78] hover:text-[#9a9aa8] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#364a78] focus-visible:outline-offset-[-2px]"
+        aria-expanded={!collapsed}
+        aria-controls={contentId}
+        onClick={toggle}
+        data-testid="closed-fold-toggle"
+      >
+        <ChevronRight
+          size={11}
+          className={cn('flex-none transition-transform duration-150', !collapsed && 'rotate-90')}
+          aria-hidden="true"
+        />
+        <span>Closed · {rows.length}</span>
+        <span className="h-px min-w-4 flex-1 bg-[#1e2a4c]" aria-hidden="true" />
+      </button>
+      {!collapsed && (
+        <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
+          {rows.map(renderRow)}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * The work list: ONE list of issue/worktree rows, always grouped by project
@@ -788,7 +828,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     settleDrag()
   }, [work, settleDrag])
 
-  const renderWorkRow = (row: UnifiedWorkRow) => {
+  const renderWorkRow = (row: UnifiedWorkRow, folded = false) => {
     const key = row.kind === 'issue' ? `issue:${row.issue.id}` : `wt:${row.worktree.path}`
     const arriving = arrivals.has(key)
     const inner =
@@ -823,7 +863,12 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       <div
         key={key}
         {...(row.kind === 'issue' ? { 'data-drag-key': row.issue.id } : {})}
-        className={cn('min-w-0', arriving && 'row-arrive')}
+        className={cn(
+          'min-w-0',
+          arriving && 'row-arrive',
+          folded &&
+            'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
+        )}
         style={
           arriving && row.kind === 'issue'
             ? ({ '--arrive-tint': issueColorHex(row.issue.color) } as CSSProperties)
@@ -864,10 +909,10 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           data-drag-scope="pinned"
         >
           <PinnedSectionLabel />
-          {pinned.map(renderWorkRow)}
+          {pinned.map((row) => renderWorkRow(row))}
         </div>
       )}
-      {groupUnifiedWorkRows(rest).map((group, index) => (
+      {groupUnifiedWorkRows(rest, selectedIssueId).map((group, index) => (
         <div
           key={group.key}
           className="flex min-w-0 flex-col gap-[3px]"
@@ -875,7 +920,14 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           data-drag-scope={`group:${group.key}`}
         >
           <ProjectGroupLabel label={group.label} first={index === 0 && pinned.length === 0} />
-          {group.rows.map(renderWorkRow)}
+          {group.rows.map((row) => renderWorkRow(row))}
+          {group.closedRows.length > 0 && (
+            <ClosedIssueFold
+              groupKey={group.key}
+              rows={group.closedRows}
+              renderRow={(row) => renderWorkRow(row, true)}
+            />
+          )}
         </div>
       ))}
     </>

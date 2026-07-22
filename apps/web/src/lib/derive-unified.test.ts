@@ -716,6 +716,46 @@ describe('groupUnifiedWorkRows', () => {
     expect(groups[0]?.key).toBe('repo-a')
     expect(groups[0]?.label).toBe('a')
   })
+
+  it('folds only settled top-level closures while attention and selection stay visible', () => {
+    const closedRow = (
+      id: string,
+      over: Partial<IssueWire> = {},
+      sessions: SessionMeta[] = [],
+    ): UnifiedWorkRow => ({
+      kind: 'issue',
+      issue: issue({
+        id,
+        stage: 'done',
+        closedReason: 'done',
+        unread: false,
+        readAt: new Date(NOW - HOUR).toISOString(),
+        ...over,
+      }),
+      sessions,
+      activityAt: NOW,
+      rank: 4,
+    })
+    const rows: UnifiedWorkRow[] = [
+      closedRow('settled'),
+      closedRow('unread', { unread: true, readAt: undefined }),
+      closedRow('selected'),
+      closedRow('child', { parentId: 'parent' }),
+      closedRow('awaiting', {
+        branch: 'issue/awaiting',
+        gitState: { shared: false, merged: false, ahead: 1 } as IssueWire['gitState'],
+      }),
+      closedRow('needs-human', { needsHuman: true }),
+      closedRow('working', {}, [working('worker', '/r/a')]),
+      closedRow('done-only', { closedReason: undefined }),
+    ]
+
+    const [group] = groupUnifiedWorkRows(rows, 'selected')
+    expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['settled'])
+    expect(
+      group?.rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)),
+    ).toEqual(['unread', 'selected', 'child', 'awaiting', 'needs-human', 'working', 'done-only'])
+  })
 })
 
 describe('repoUsageAt', () => {
@@ -792,6 +832,37 @@ describe('POD-996 review fixes: ancestor-chain surfacing, decay anchors, no doub
     )
     // No live human ancestor: the long-closed epic must not reappear.
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).not.toContain('p')
+  })
+
+  it('POD-183: closed top-level human issues persist for folding without changing done decay', () => {
+    const old = new Date(NOW - 30 * DAY).toISOString()
+    expect(
+      issueVisibleInSidebar(
+        issue({
+          stage: 'done',
+          closedReason: 'done',
+          audience: 'human',
+          unread: true,
+          readAt: undefined,
+          closedAt: old,
+        }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      issueVisibleInSidebar(
+        issue({
+          stage: 'done',
+          closedReason: 'done',
+          audience: 'human',
+          unread: false,
+          readAt: old,
+          closedAt: old,
+        }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(issueVisibleInSidebar(issue({ stage: 'done', closedAt: old }), NOW)).toBe(false)
   })
 
   it('B5: unread keeps a finished issue visible only within 7 days of finishing (closedAt anchor)', () => {
