@@ -55,6 +55,54 @@ export function claudeRecordEffort(record: unknown): string | undefined {
   return typeof r.effort === 'string' && r.effort !== '' ? r.effort : undefined
 }
 
+const IMAGE_SOURCE_MARKER_RE = /\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g
+
+/**
+ * A pasted/uploaded image's file path arrives as a SEPARATE isMeta user record
+ * — `[Image: source: /abs/path.png]` — following the user turn that carries
+ * the image block. isMeta records are otherwise dropped (injected content),
+ * but a marker-ONLY record is surfaced as a text-less user item carrying the
+ * paths: the chat folds it into the preceding user block as an inline
+ * thumbnail, and the server's file-relay policy allow-lists exactly the paths
+ * a transcript references. Any other isMeta content stays dropped.
+ */
+function metaImageSourceItems(
+  uuid: string | undefined,
+  ts: string | undefined,
+  r: Record<string, unknown>,
+): TranscriptItem[] {
+  if (r.type !== 'user') return []
+  const message = (r.message ?? {}) as Record<string, unknown>
+  const content = message.content
+  let text: string
+  if (typeof content === 'string') text = content
+  else if (Array.isArray(content)) {
+    const parts: string[] = []
+    for (const block of content) {
+      const b = block as Record<string, unknown> | null
+      if (b && b.type === 'text' && typeof b.text === 'string') parts.push(b.text)
+      else return [] // any non-text block → not a pure marker record
+    }
+    text = parts.join('\n')
+  } else return []
+  if (!/^\s*(?:\[Image(?: #\d+)?: source: [^\]\n]+\]\s*)+$/.test(text)) return []
+  const paths = [...text.matchAll(IMAGE_SOURCE_MARKER_RE)].map((m) => (m[1] ?? '').trim())
+  if (paths.length === 0) return []
+  return [
+    {
+      id: uuid ?? freshId('u'),
+      role: 'user',
+      ts,
+      text: '',
+      toolPaths: paths,
+      tags: paths.map((p) => ({
+        kind: 'image' as const,
+        ...(p.split('/').pop() ? { label: p.split('/').pop() as string } : {}),
+      })),
+    },
+  ]
+}
+
 export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
@@ -64,7 +112,12 @@ export function claudeRecordToItems(record: unknown): TranscriptItem[] {
   // the auto "Continue from where you left off." prompt, SessionStart context.
   // Its own UI hides them; rendering them as user messages dumps what looks like
   // the system prompt into the chat view (and poisons the /btw seed downstream).
-  if (r.isMeta === true) return []
+  if (r.isMeta === true)
+    return metaImageSourceItems(
+      typeof r.uuid === 'string' ? r.uuid : undefined,
+      typeof r.timestamp === 'string' ? r.timestamp : undefined,
+      r,
+    )
   const uuid = typeof r.uuid === 'string' ? r.uuid : undefined
   const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
   const message = (r.message ?? {}) as Record<string, unknown>

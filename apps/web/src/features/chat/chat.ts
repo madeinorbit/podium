@@ -131,14 +131,42 @@ export function dedupeByCursor(items: TranscriptItem[]): TranscriptItem[] {
   return out
 }
 
+/** A text-less user item that only carries uploaded-image paths — the
+ *  parser's companion to a user turn whose image marker rode in a separate
+ *  record. Folded into the preceding user block so the upload renders inside
+ *  the turn it belongs to. */
+function isUserMediaMarker(item: TranscriptItem): boolean {
+  return (
+    item.role === 'user' &&
+    item.text === '' &&
+    (item.toolPaths?.length ?? 0) > 0 &&
+    (item.tags ?? []).every((t) => t.kind === 'image')
+  )
+}
+
 /**
  * Collapse the raw item stream into renderable blocks: tool results fold into
- * their originating tool call; everything else passes through in order.
+ * their originating tool call; a media-marker user item folds its paths into
+ * the preceding user block; everything else passes through in order.
  */
 export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
   const blocks: ChatBlock[] = []
   const callByToolUseId = new Map<string, ChatBlock>()
   for (const item of items) {
+    if (isUserMediaMarker(item)) {
+      const prev = blocks[blocks.length - 1]
+      if (prev && prev.item.role === 'user' && prev.item.event === undefined) {
+        prev.item = {
+          ...prev.item,
+          toolPaths: [...(prev.item.toolPaths ?? []), ...(item.toolPaths ?? [])],
+          tags: [...(prev.item.tags ?? []), ...(item.tags ?? [])],
+        }
+        continue
+      }
+      // No preceding user turn (window seam) — render it as a media-only turn.
+      blocks.push({ item })
+      continue
+    }
     if (item.role === 'tool' && item.toolResult !== undefined && item.toolUseId) {
       const call = callByToolUseId.get(item.toolUseId)
       if (call) {

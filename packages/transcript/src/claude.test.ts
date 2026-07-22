@@ -78,6 +78,40 @@ describe('claudeRecordToItems', () => {
     })
   })
 
+  it('surfaces a marker-only isMeta record as a text-less media item', () => {
+    const items = claudeRecordToItems({
+      type: 'user',
+      isMeta: true,
+      uuid: 'm1',
+      timestamp: '2026-06-12T10:00:01.000Z',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: '[Image: source: /home/u/.podium/uploads/s1/shot.png]' }],
+      },
+    })
+    expect(items).toEqual([
+      {
+        id: 'm1',
+        role: 'user',
+        ts: '2026-06-12T10:00:01.000Z',
+        text: '',
+        toolPaths: ['/home/u/.podium/uploads/s1/shot.png'],
+        tags: [{ kind: 'image', label: 'shot.png' }],
+      },
+    ])
+  })
+
+  it('still drops isMeta records with any non-marker content', () => {
+    expect(
+      claudeRecordToItems({
+        type: 'user',
+        isMeta: true,
+        uuid: 'm2',
+        message: { role: 'user', content: 'Base directory for this skill: /x' },
+      }),
+    ).toEqual([])
+  })
+
   it('maps an assistant turn with text + tool calls into separate items', () => {
     const items = claudeRecordToItems({
       type: 'assistant',

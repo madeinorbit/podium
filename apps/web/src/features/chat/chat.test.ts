@@ -49,6 +49,36 @@ const it_ = (id: string, cursor?: string): TranscriptItem => ({
   text: id,
 })
 
+describe('pairToolResults media-marker folding', () => {
+  const user = (over: Partial<TranscriptItem>): TranscriptItem => ({
+    id: 'u1',
+    role: 'user',
+    text: 'look at this',
+    ...over,
+  })
+  const marker: TranscriptItem = {
+    id: 'm1',
+    role: 'user',
+    text: '',
+    toolPaths: ['/home/u/.podium/uploads/s1/shot.png'],
+    tags: [{ kind: 'image', label: 'shot.png' }],
+  }
+
+  it('folds a media marker into the preceding user block', () => {
+    const blocks = pairToolResults([user({}), marker])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.item.text).toBe('look at this')
+    expect(blocks[0]!.item.toolPaths).toEqual(['/home/u/.podium/uploads/s1/shot.png'])
+    expect(blocks[0]!.item.tags).toEqual([{ kind: 'image', label: 'shot.png' }])
+  })
+
+  it('keeps a marker standalone when no user block precedes it', () => {
+    const blocks = pairToolResults([marker])
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]!.item.toolPaths).toEqual(['/home/u/.podium/uploads/s1/shot.png'])
+  })
+})
+
 describe('mergeByCursor', () => {
   it('appends delta items not already present (by cursor)', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
