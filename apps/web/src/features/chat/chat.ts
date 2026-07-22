@@ -282,6 +282,33 @@ export function toolBatchTitle(blocks: ChatBlock[]): string {
     .join(', ')
 }
 
+/** Per-call outcome shown as a glyph on the collapsed tool row (Flat Field
+ *  design, POD-159). The transcript carries no structured error flag, so this
+ *  is a conservative heuristic over the result text: only patterns that
+ *  reliably open real failure output flag 'err'; anything ambiguous stays
+ *  'ok' so successes never read as failures. 'none' = no result captured. */
+export type ToolVerdict = 'ok' | 'err' | 'none'
+
+const TOOL_ERR_RE =
+  /^\s*(?:error(?::|\b)|[A-Za-z]*Error:|exception\b|traceback \(most recent call last\)|fatal:|command failed|exit code [1-9]|exited with (?:code [1-9]|non-zero))/i
+
+export function toolVerdict(result: string | undefined): ToolVerdict {
+  if (result === undefined || result.trim() === '') return 'none'
+  const firstLine = result.trimStart().split('\n', 1)[0] ?? ''
+  return TOOL_ERR_RE.test(firstLine) ? 'err' : 'ok'
+}
+
+/** The line shown inline under a failed tool row: the first non-empty line of
+ *  the result, truncated by CSS. */
+export function failLine(result: string | undefined): string {
+  if (!result) return ''
+  for (const line of result.split('\n')) {
+    const t = line.trim()
+    if (t) return t
+  }
+  return ''
+}
+
 /** Case-insensitive keyword match over everything a block shows. */
 export function blockMatches(block: ChatBlock, query: string): boolean {
   const q = query.trim().toLowerCase()

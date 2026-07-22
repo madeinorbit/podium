@@ -93,11 +93,49 @@ export function AskUserQuestionCard({
     livePending && submitState !== 'sending' && questions.some((q) => q.multiSelect)
   const allAnswered = questions.length > 0 && questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0)
 
+  // Flat Field (POD-159): an ANSWERED question collapses to a one-line receipt
+  // (question + chosen option) so past decisions stay auditable without
+  // spending attention. Pending/unanswered cards keep the full form.
+  if (!livePending && answer.trim() !== '' && questions.length > 0) {
+    return (
+      <div className={cn(cls)} data-block={index} data-testid="ask-receipt">
+        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+        <div className="transcript-body flex flex-col gap-1 py-0.5">
+          {questions.map((q, qi) => {
+            const chosen = q.options.filter((o) => isChosen(o.label)).map((o) => o.label)
+            return (
+              <div
+                key={`${q.header ?? q.question}-${qi}`}
+                className="flex min-w-0 items-baseline gap-2 text-xs text-muted-foreground"
+              >
+                <span className="tool-glyph flex-none" aria-hidden="true">
+                  ?
+                </span>
+                <span className="min-w-0 truncate" title={q.question}>
+                  {q.question}
+                </span>
+                <span className="flex-none rounded-[5px] border border-border px-[7px] text-[11px] font-medium text-foreground">
+                  {chosen.length > 0 ? chosen.join(', ') : 'answered'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={cn(cls)} data-block={index}>
-      {/* Amber rail to match the "attention" tone of AskUserQuestion */}
-      <div className="transcript-rail transcript-rail--answer" aria-hidden="true" />
-      <div className="transcript-body">
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      {/* A pending question is a "needs you" surface — it earns the signal
+          frame; a parked/unparseable one stays a quiet read-only block. */}
+      <div
+        className={cn(
+          'transcript-body',
+          livePending && 'rounded-lg border border-primary/45 bg-primary/[0.04] px-3.5 py-2.5',
+        )}
+      >
         <div className="transcript-header">
           <span className="transcript-role transcript-role--answer">Question for you</span>
           {livePending && submitState === 'sending' && (

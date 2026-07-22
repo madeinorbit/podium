@@ -78,7 +78,7 @@ describe('OfferBar', () => {
     const sendBack = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.startsWith('Send back'),
     )
-    expect(sendBack?.textContent).toBe('Send back…')
+    expect(sendBack?.textContent).toBe('Send back✎')
     act(() => sendBack?.click())
     // Nothing sent yet — the feedback field is up instead of the button row.
     expect(onAction).not.toHaveBeenCalled()

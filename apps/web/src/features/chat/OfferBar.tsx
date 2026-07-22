@@ -1,6 +1,7 @@
 import type { SessionMeta, SessionOffer } from '@podium/protocol'
 import { Lightbulb } from 'lucide-react'
 import { type JSX, useState } from 'react'
+import { cn } from '@/lib/utils'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
 
 /** The user's feedback rides the action's prompt as one turn. */
@@ -45,12 +46,23 @@ export function OfferBar({
   return (
     <div
       data-testid="offer-bar"
-      className="rounded-xl border border-primary/40 bg-primary/[0.06] px-3 py-2"
+      className="rounded-[10px] border border-primary/40 bg-primary/[0.05] px-3.5 py-2.5"
     >
-      <div className="flex items-start gap-1.5 text-xs text-foreground">
-        <Lightbulb size={13} aria-hidden="true" className="mt-0.5 shrink-0 text-primary" />
-        <span className="whitespace-pre-wrap">{offer.message}</span>
+      {/* The offer is the turn's single "needs you" surface — it owns the
+          signal color while it is live (Flat Field, POD-159). */}
+      <div className="mb-1 flex items-baseline gap-2 font-mono text-[8.5px] font-medium tracking-[0.12em] text-primary uppercase">
+        <Lightbulb size={11} aria-hidden="true" className="self-center" />
+        Offer · needs you
       </div>
+      {/* First line = the five-second headline; the rest is supporting detail. */}
+      <div className="text-[13px] font-semibold text-foreground">
+        {offer.message.split('\n', 1)[0]}
+      </div>
+      {offer.message.includes('\n') && (
+        <div className="mt-0.5 max-w-[66ch] text-xs whitespace-pre-wrap text-muted-foreground">
+          {offer.message.slice(offer.message.indexOf('\n') + 1)}
+        </div>
+      )}
       {session && <OfferArtifactStrip offer={offer} session={session} className="mt-2" />}
       {pendingAction ? (
         <div className="mt-2 flex flex-col gap-1.5" data-testid="offer-feedback">
@@ -91,7 +103,7 @@ export function OfferBar({
         </div>
       ) : (
         offer.actions.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             {offer.actions.map((action, ai) => (
               <button
                 key={`${action.label}:${action.prompt}`}
@@ -101,10 +113,17 @@ export function OfferBar({
                   action.input === true ? setPending(ai) : onAction(action.prompt, offer.createdAt)
                 }
                 title={action.prompt}
-                className="rounded-md border border-primary/50 bg-primary/[0.12] px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-primary/20 disabled:cursor-default disabled:opacity-50"
+                className={cn(
+                  'inline-flex h-[26px] items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50',
+                  // The recommended action renders first and primary; the rest
+                  // are quiet outlines so one button reads as the default.
+                  ai === 0
+                    ? 'bg-primary text-primary-foreground hover:opacity-85'
+                    : 'border border-input bg-secondary text-foreground hover:bg-muted',
+                )}
               >
                 {action.label}
-                {action.input === true && '…'}
+                {action.input === true && <span className="text-[10px] opacity-70">✎</span>}
               </button>
             ))}
           </div>

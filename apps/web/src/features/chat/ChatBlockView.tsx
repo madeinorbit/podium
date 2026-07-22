@@ -268,42 +268,23 @@ export const ChatBlockView = memo(function ChatBlockView({
       </div>
     )
 
-  // Rail: user → blue accent, final answer → primary/amber, everything else → none
-  const hasUserRail = item.role === 'user'
-  const hasAnswerRail = item.role === 'assistant' && !!item.answer
-  const hasRail = hasUserRail || hasAnswerRail
+  // Flat Field (POD-159): agent prose lies flat on the chassis; the operator's
+  // turn is the only elevated (embossed) surface; the final answer is marked by
+  // the field's single yellow keyline rather than a box.
+  const isUser = item.role === 'user'
+  const isAnswer = item.role === 'assistant' && !!item.answer
 
   return (
     <div className={rowClass} data-block={index}>
-      {hasRail ? (
-        <div
-          className={cn(
-            'transcript-rail',
-            hasUserRail && 'transcript-rail--user',
-            hasAnswerRail && 'transcript-rail--answer',
-          )}
-          aria-hidden="true"
-        />
-      ) : (
-        // No rail: spacer so body lines up with railed rows
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      )}
-      <div className="transcript-body">
-        {item.role === 'user' && (
-          <div className="transcript-header">
-            <span className="transcript-role">You</span>
-          </div>
-        )}
+      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+      <div className={cn('transcript-body', isUser && 'transcript-you', isAnswer && 'transcript-answer')}>
+        {isUser && <div className="transcript-you-label">You</div>}
         {item.role === 'system' && (
           <div className="transcript-header">
             <span className="transcript-role transcript-role--system">System</span>
           </div>
         )}
-        {item.role === 'assistant' && item.answer && (
-          <div className="transcript-header">
-            <span className="transcript-role transcript-role--answer">Answer</span>
-          </div>
-        )}
+        {isAnswer && <div className="transcript-answer-label">Answer</div>}
         <div
           className="chat-md"
           onClick={(e) => {

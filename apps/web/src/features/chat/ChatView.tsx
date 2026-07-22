@@ -852,7 +852,7 @@ export function ChatView({
             title="Jump to this message"
             className="absolute top-0 right-[18px] left-0 z-[3] flex items-start gap-2 border-b border-border bg-card/95 px-5 py-1.5 text-left backdrop-blur supports-[backdrop-filter]:bg-card/80"
           >
-            <span className="mt-px flex-none text-[10px] font-semibold tracking-[0.06em] text-blue-500 uppercase">
+            <span className="mt-px flex-none font-mono text-[8.5px] font-medium tracking-[0.12em] text-info uppercase">
               You
             </span>
             <span className="line-clamp-2 min-w-0 flex-1 text-xs whitespace-pre-wrap text-muted-foreground">
@@ -958,14 +958,17 @@ export function ChatView({
                 p.state === 'failed' && 'opacity-60',
               )}
             >
-              {/* User rail */}
-              <div className="transcript-rail transcript-rail--user" aria-hidden="true" />
-              <div className="transcript-body">
-                <div className="transcript-header">
-                  <span className="transcript-role">You</span>
-                  {p.state === 'sending' && <span className="transcript-meta">sending…</span>}
+              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+              <div className="transcript-body transcript-you">
+                <div className="transcript-you-label">
+                  You
+                  {p.state === 'sending' && (
+                    <span className="ml-2 tracking-normal normal-case opacity-60">sending…</span>
+                  )}
                   {p.state === 'failed' && (
-                    <span className="transcript-meta text-destructive">not delivered</span>
+                    <span className="ml-2 tracking-normal normal-case text-destructive">
+                      not delivered
+                    </span>
                   )}
                 </div>
                 <div className="chat-md whitespace-pre-wrap">{p.text}</div>
@@ -1060,9 +1063,10 @@ export function ChatView({
         // set from visualViewport by the shell when a soft keyboard is tracked.
         className={cn(
           'border-t border-border px-3 pt-2.5 pb-[calc(10px+(1-var(--kb-open,0))*env(safe-area-inset-bottom,0px))]',
-          // The superagent dock composer mirrors the native Claude Code prompt
-          // box: mono, CLI `>` prefix, flat background.
-          compact ? 'bg-background px-3.5 font-mono' : 'bg-card',
+          // Flat Field (POD-159): every chat composer mirrors the native
+          // Claude Code / superagent prompt box — mono, CLI `>` prefix, block
+          // caret, flat background.
+          'bg-background px-3.5 font-mono',
         )}
         onDragOver={(e) => {
           e.preventDefault()
@@ -1111,10 +1115,7 @@ export function ChatView({
         )}
         <div
           className={cn(
-            'relative flex flex-col gap-0.5 border bg-background focus-within:border-primary',
-            compact
-              ? 'rounded-lg border-[#3a3a46] px-3 py-1.5'
-              : 'rounded-2xl border-input px-2.5 pt-2 pb-1.5',
+            'relative flex flex-col gap-0.5 rounded-lg border border-[#3a3a46] bg-background px-3 py-1.5 focus-within:border-primary',
           )}
         >
           {dragOver && (
@@ -1133,16 +1134,14 @@ export function ChatView({
               e.target.value = ''
             }}
           />
-          {compact && <BlockCaret taRef={taRef} value={draft} />}
+          <BlockCaret taRef={taRef} value={draft} />
           <div className="flex items-start gap-2">
-            {compact && (
-              <span
-                className="flex-none pt-[5px] text-[13px] leading-[1.45] text-[#6c6c78]"
-                aria-hidden="true"
-              >
-                &gt;
-              </span>
-            )}
+            <span
+              className="flex-none pt-[5px] text-[13px] leading-[1.45] text-[#6c6c78]"
+              aria-hidden="true"
+            >
+              &gt;
+            </span>
             <Textarea
               ref={taRef}
               rows={1}
@@ -1160,8 +1159,7 @@ export function ChatView({
                       : 'Session is not running.'
               }
               className={cn(
-                'block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-sm leading-[1.45] text-foreground outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
-                compact && 'text-[13px] caret-transparent placeholder:text-[#4d4d59]',
+                'block max-h-44 min-h-0 w-full resize-none overflow-y-auto rounded-none border-0 bg-transparent p-0.5 text-[13px] leading-[1.45] text-foreground caret-transparent outline-none transition-[height] duration-300 ease-[cubic-bezier(0.25,1,0.35,1)] [field-sizing:fixed] placeholder:text-[#4d4d59] focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:text-muted-foreground disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent',
               )}
               value={draft}
               disabled={!composerEnabled}

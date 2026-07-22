@@ -381,30 +381,107 @@ html[data-podium-platform="macos"] .settings-header {
 .transcript-row {
   display: flex;
   flex-direction: row;
-  gap: 12px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  gap: 0;
+  padding-top: 12px;
+  padding-bottom: 12px;
 }
 
-/* The narrow coloured strip on the left edge */
+/* Flat Field (POD-159): the rails are gone — agent output lies flat on the
+   chassis and only user-facing surfaces get elevation. The rail element stays
+   in the DOM (several row renderers emit it as an alignment spacer) but is
+   collapsed to zero width so every voice shares the same left edge. */
 .transcript-rail {
-  flex: 0 0 3px;
-  align-self: stretch;
-  border-radius: 2px;
-  min-height: 1.2em;
+  flex: 0 0 0px;
+  width: 0;
+  overflow: hidden;
 }
-.transcript-rail--user {
-  background-color: var(--info); /* matches the minimap's user tick (bg-info) */
-}
-.transcript-rail--answer {
-  /* The per-theme live hue, matching the minimap's final-answer tick (bg-live).
-     The activity tokens keep dot-appropriate hues in every preset, unlike
-     var(--primary), which is near-black in the light theme. */
-  background-color: var(--live);
-}
-/* No rail — transparent spacer so body column stays aligned */
+.transcript-rail--user,
+.transcript-rail--answer,
 .transcript-rail--none {
   background-color: transparent;
+}
+
+/* The operator's turn — the ONLY elevated surface class in the field. Embossed
+   per the Carved Rule: depth goes inward, so the panel is engraved into the
+   chassis rather than floated above it. */
+.transcript-you {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--background) 82%, black);
+  padding: 10px 15px;
+  box-shadow:
+    inset 0 3px 7px -2px rgb(0 0 0 / 0.55),
+    inset 0 -1px 0 color-mix(in oklab, var(--border) 45%, transparent);
+}
+.transcript-you .chat-md {
+  color: var(--foreground);
+  font-weight: 500;
+  font-size: 13px;
+}
+.transcript-you-label {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--info);
+  margin-bottom: 3px;
+}
+
+/* The final answer — flat like all agent prose, marked by the page's only
+   signal-color keyline instead of a box (The Signal Rule: yellow marks what
+   is for you). */
+.transcript-answer {
+  border-top: 2px solid color-mix(in oklab, var(--primary) 55%, transparent);
+  padding-top: 10px;
+}
+.transcript-answer-label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 8.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin-bottom: 5px;
+}
+
+/* Muted one-line tool rows: mono machine voice, verdict glyph, right-aligned
+   magnitude. Boxless — activity recedes, verdicts remain legible. */
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.tool-glyph {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-size: 10px;
+  color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+}
+.tool-glyph--ok {
+  color: var(--info);
+}
+.tool-glyph--err {
+  color: var(--destructive);
+}
+.tool-fail-line {
+  margin: 1px 0 2px 21px;
+  padding: 2px 9px;
+  border-left: 2px solid var(--border);
+  color: color-mix(in oklab, var(--destructive) 75%, var(--muted-foreground));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The main content column */

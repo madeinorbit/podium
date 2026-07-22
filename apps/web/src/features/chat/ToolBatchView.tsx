@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { ToolBatchRow } from './chat'
+import { type ToolBatchRow, toolVerdict } from './chat'
 import { ToolBlock } from './ToolBlock'
 
 /**
@@ -37,10 +37,11 @@ export function ToolBatchView({
     dimmed && 'opacity-35',
   )
   const count = row.blocks.length
-  const toolNames = row.blocks
-    .map((b) => b.item.toolName)
-    .filter(Boolean)
-    .join(' · ')
+  // Any failed call in the run is surfaced on the collapsed line — failure must
+  // never be invisible behind a disclosure (Flat Field, POD-159).
+  const failed = row.blocks.filter(
+    (b) => toolVerdict(b.result ?? b.item.toolResult) === 'err',
+  ).length
   return (
     <div className={rowClass} data-block={index}>
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
@@ -48,21 +49,26 @@ export function ToolBatchView({
       <div className="transcript-body py-0.5">
         <button
           type="button"
-          className="flex w-full min-w-0 items-baseline gap-[7px] py-0.5 text-left text-xs text-muted-foreground hover:text-foreground"
+          className="tool-row cursor-pointer py-0.5 text-left hover:text-foreground"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={expanded}
           title={row.title}
         >
-          <span className="flex-none font-mono text-[10px] text-[#6c6c78]">
+          <span className="tool-glyph" aria-hidden="true">
             {expanded ? '▾' : '▸'}
           </span>
-          <span className="flex-none text-[12px] font-semibold text-foreground">
-            {count} tool{count === 1 ? '' : 's'}
+          <span className="min-w-0 truncate font-sans text-[12px] text-muted-foreground">
+            {row.title}
           </span>
-          <span className="min-w-0 truncate font-mono text-[11px] text-[#6c6c78]">{toolNames}</span>
+          {failed > 0 && (
+            <span className="flex-none font-semibold text-[10px] text-destructive">
+              ✕ {failed} failed
+            </span>
+          )}
+          <span className="ml-auto flex-none text-[10px] tabular-nums opacity-60">{count}</span>
         </button>
         {expanded && (
-          <div className="mt-0.5 ml-[5px] flex flex-col gap-0.5 border-l border-border/60 pl-2.5">
+          <div className="mt-0.5 ml-[5px] flex flex-col gap-0.5 pl-2.5">
             {row.blocks.map((b) => (
               <ToolBlock
                 key={b.item.id}
