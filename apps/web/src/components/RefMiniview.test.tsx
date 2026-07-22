@@ -80,8 +80,8 @@ describe('RefCard issue summary (#517)', () => {
     // Computed values (not passthrough copy): blocker count from blockedBy.length,
     // childDoneCount/childCount, done/total todos, and the resolved parent ref.
     expect(text).toContain('blocked (2)')
-    expect(text).toContain('2/4 subissues')
-    expect(text).toContain('2 of 3 tasks')
+    expect(text).toContain('2/4 done')
+    expect(text).toContain('2 of 3 done')
     expect(text).toContain('in POD-500')
   })
 
@@ -242,11 +242,11 @@ describe('seedCardPosition', () => {
   it('clamps into the viewport on every edge', () => {
     expect(seedCardPosition({ x: 2, y: 2 }, viewport)).toEqual({ x: 12, y: 16 })
     const r = seedCardPosition({ x: 1195, y: 795 }, viewport)
-    expect(r.x).toBe(1200 - 340 - 12)
+    expect(r.x).toBe(1200 - 400 - 12)
     expect(r.y).toBe(800 - 120)
   })
 
   it('falls back to the top-right seed without an anchor', () => {
-    expect(seedCardPosition(undefined, viewport)).toEqual({ x: 1200 - 340 - 20, y: 88 })
+    expect(seedCardPosition(undefined, viewport)).toEqual({ x: 1200 - 400 - 20, y: 88 })
   })
 })

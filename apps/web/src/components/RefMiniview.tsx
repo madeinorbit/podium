@@ -1,11 +1,20 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { formatLong, issueDisplayRef, truncateTitle } from '@podium/protocol'
+import { formatLong, truncateTitle } from '@podium/protocol'
 import { Copy, ExternalLink, GripVertical, PanelRight, Play, User, X } from 'lucide-react'
-import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  type JSX,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
 import { copyToClipboard } from '@/lib/clipboard'
+import { cn } from '@/lib/utils'
 import { relativeTime } from '@/lib/home'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { setKnownRefPrefixes } from '@/lib/markdown'
@@ -100,7 +109,7 @@ export function RefMiniviewHost(): JSX.Element | null {
   )
 }
 
-const CARD_WIDTH = 340
+const CARD_WIDTH = 400
 const VIEWPORT_MARGIN = 12
 
 /** Seed the card near the activating click: slightly below-left, clamped into
@@ -203,106 +212,160 @@ export function RefCard({
     return () => window.removeEventListener('pointerdown', onPointerDown, true)
   }, [onClose])
 
+  // Drag handlers, shared by whichever region acts as the handle (the compact
+  // session header bar, or the issue card's head). Pointer events + capture:
+  // one code path for mouse and touch, and move/up keep arriving even when the
+  // pointer leaves the handle mid-drag.
+  const dragHandlers = {
+    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.target instanceof Element && e.target.closest('button')) return
+      drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
+      e.currentTarget.setPointerCapture(e.pointerId)
+    },
+    onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!drag.current) return
+      setPos({
+        x: Math.max(0, Math.min(window.innerWidth - 80, e.clientX - drag.current.dx)),
+        y: Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.current.dy)),
+      })
+    },
+    onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
+      drag.current = null
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    },
+    onPointerCancel: () => {
+      drag.current = null
+    },
+  }
+
+  const closeButton = (
+    <button
+      type="button"
+      className="flex size-6 flex-none items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+      title="Close"
+      aria-label="Close"
+      onClick={onClose}
+    >
+      <X size={13} aria-hidden="true" />
+    </button>
+  )
+
   return (
     <div
       ref={cardEl}
-      className="fixed z-40 w-[340px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-2xl"
+      className="fixed z-40 w-[min(400px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-2xl"
       style={{ left: pos.x, top: pos.y }}
       role="dialog"
       aria-label={`Reference ${refToken}`}
     >
-      {/* Drag handle header. Pointer events + capture: one code path for mouse
-          and touch, and move/up keep arriving even when the pointer leaves the
-          header mid-drag. */}
-      <div
-        className="flex cursor-grab touch-none items-center gap-1.5 border-b border-border/60 bg-muted/40 px-2 py-1.5 active:cursor-grabbing"
-        onPointerDown={(e) => {
-          if (e.target instanceof Element && e.target.closest('button')) return
-          drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
-          e.currentTarget.setPointerCapture(e.pointerId)
-        }}
-        onPointerMove={(e) => {
-          if (!drag.current) return
-          setPos({
-            x: Math.max(0, Math.min(window.innerWidth - 80, e.clientX - drag.current.dx)),
-            y: Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.current.dy)),
-          })
-        }}
-        onPointerUp={(e) => {
-          drag.current = null
-          e.currentTarget.releasePointerCapture(e.pointerId)
-        }}
-        onPointerCancel={() => {
-          drag.current = null
-        }}
-      >
-        <GripVertical size={13} className="flex-none text-muted-foreground/60" aria-hidden="true" />
-        {/* Canonical long form (#474 spec §display): `POD-13 · title` truncated,
-            with the FULL title on hover. Falls back to the bare ref while unresolved. */}
-        {/* Issues carry ref + title (+ stage) in the body — the drag header stays
-            a quiet handle with just the token. Sessions keep the long form. */}
-        <span
-          className="flex-1 truncate font-mono text-[12px] font-medium"
-          title={targetTitle ? `${refToken} · ${targetTitle}` : refToken}
-        >
-          {target?.kind === 'session' && targetTitle ? formatLong(refToken, targetTitle) : refToken}
-        </span>
-        {target?.kind === 'session' && (
-          <button
-            type="button"
-            className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="Open full view"
-            aria-label="Open full view"
-            onClick={onOpenFull}
+      {target?.kind === 'issue' ? (
+        <>
+          {/* The head IS the drag handle: identity + stage, then title + the
+              one primary action, then the quiet meta line. */}
+          <div
+            className="cursor-grab touch-none px-4 pt-3.5 pb-3.5 active:cursor-grabbing"
+            {...dragHandlers}
           >
-            <ExternalLink size={13} aria-hidden="true" />
-          </button>
-        )}
-        <button
-          type="button"
-          className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-          title="Close"
-          aria-label="Close"
-          onClick={onClose}
-        >
-          <X size={14} aria-hidden="true" />
-        </button>
-      </div>
-      <div className="text-[13px]">
-        {!target ? (
-          <p className="px-3 py-2.5 text-muted-foreground">Reference not found.</p>
-        ) : target.kind === 'issue' ? (
-          <>
-            <div className="px-3 py-2.5">
-              <IssueSummary issue={target.issue} issues={issues} onStart={onStart} />
-            </div>
-            {/* Footer: the two ways out. Escalation stays one rung (POD-95) —
-                "Open full page" raises the peek drawer, not the /issues route. */}
-            <div className="flex items-center gap-1.5 border-t border-border/60 bg-muted/30 px-2 py-1.5">
+            <div className="mb-2 flex items-center justify-between gap-3">
               <button
                 type="button"
-                className="inline-flex h-6.5 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background text-[11.5px] font-medium hover:bg-accent"
-                onClick={onOpenFull}
-              >
-                Open full page
-                <PanelRight size={11} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-6.5 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11.5px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="cursor-pointer font-mono text-[11px] font-semibold tracking-[0.04em] text-muted-foreground hover:text-foreground"
+                title={`Copy "${refToken}"`}
                 onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
               >
-                <Copy size={11} aria-hidden="true" />
-                Copy ref
+                {refToken}
               </button>
+              <span className="flex flex-none items-center gap-1.5">
+                {target.issue.stage && <StageChip stage={target.issue.stage} />}
+                {closeButton}
+              </span>
             </div>
-          </>
-        ) : (
-          <div className="px-3 py-2.5">
-            <SessionSummary session={target.session} issues={issues} />
+            <IssueSummary issue={target.issue} issues={issues} onStart={onStart} />
           </div>
-        )}
-      </div>
+          {target.issue.activityNotes && (
+            <div className="mx-3 mb-3 rounded-[10px] border border-border/60 bg-muted/40 px-3.5 py-3">
+              <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[10px]">
+                <span className="font-semibold tracking-[0.09em] text-muted-foreground/70 uppercase">
+                  Latest update
+                </span>
+                {target.issue.notesUpdatedAt && (
+                  <span className="flex-none text-muted-foreground/60">
+                    {relativeTime(target.issue.notesUpdatedAt, Date.now())}
+                  </span>
+                )}
+              </div>
+              <div
+                className="overflow-hidden text-[12.5px] leading-[1.5] text-foreground/90"
+                style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
+                title={target.issue.activityNotes}
+              >
+                {target.issue.activityNotes}
+              </div>
+            </div>
+          )}
+          <IssueDetailsStrip issue={target.issue} />
+          {/* Footer: the two ways out. Escalation stays one rung (POD-95) —
+              "Open full page" raises the peek drawer, not the /issues route. */}
+          <div className="flex items-center gap-2 p-3">
+            <button
+              type="button"
+              className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-muted/40 text-[12px] font-medium text-foreground/85 hover:bg-accent hover:text-foreground"
+              onClick={onOpenFull}
+            >
+              Open full page
+              <PanelRight size={12} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-muted/40 px-3 text-[12px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
+            >
+              <Copy size={11} aria-hidden="true" />
+              Copy ref
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Session / unresolved: compact drag bar with the canonical long form
+              (#474 spec §display) — `POD-13-A · title` truncated, full on hover. */}
+          <div
+            className="flex cursor-grab touch-none items-center gap-1.5 border-b border-border/60 bg-muted/40 px-2 py-1.5 active:cursor-grabbing"
+            {...dragHandlers}
+          >
+            <GripVertical
+              size={13}
+              className="flex-none text-muted-foreground/60"
+              aria-hidden="true"
+            />
+            <span
+              className="flex-1 truncate font-mono text-[12px] font-medium"
+              title={targetTitle ? `${refToken} · ${targetTitle}` : refToken}
+            >
+              {targetTitle ? formatLong(refToken, targetTitle) : refToken}
+            </span>
+            {target && (
+              <button
+                type="button"
+                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Open full view"
+                aria-label="Open full view"
+                onClick={onOpenFull}
+              >
+                <ExternalLink size={13} aria-hidden="true" />
+              </button>
+            )}
+            {closeButton}
+          </div>
+          <div className="px-3 py-2.5 text-[13px]">
+            {!target ? (
+              <p className="text-muted-foreground">Reference not found.</p>
+            ) : (
+              <SessionSummary session={target.session} issues={issues} />
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -375,11 +438,11 @@ function RunNowAction({
   >({ kind: 'idle' })
   const busy = state.kind === 'busy' || state.kind === 'started'
   return (
-    <div className="mt-1 flex flex-col gap-1">
+    <div className="flex flex-none flex-col items-end gap-1">
       <button
         type="button"
         disabled={busy}
-        className="inline-flex h-7 w-fit items-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
         onClick={() => {
           setState({ kind: 'busy' })
           onStart(issueId).then(
@@ -393,17 +456,18 @@ function RunNowAction({
         {state.kind === 'busy' ? 'Starting…' : state.kind === 'started' ? 'Started' : 'Run now'}
       </button>
       {state.kind === 'error' && (
-        <span className="text-[11px] leading-snug text-red-400">{state.message}</span>
+        <span className="max-w-44 text-right text-[10.5px] leading-snug text-red-400">
+          {state.message}
+        </span>
       )}
     </div>
   )
 }
 
-/** At-a-glance issue body — the POD-155 concept: identity + stage own the top,
- *  one primary action (Run now), an update-not-decoration note box, and one
- *  quiet evidence line. "Ready" is intentionally absent: normal availability is
- *  silent, blockers appear only when actionable. Every enrichment row degrades
- *  to nothing when the field is absent (lean/legacy rows). */
+/** Title row + one primary action + the quiet meta line — the head's lower half
+ *  (identity + stage render above it, in the card head). "Ready" is intentionally
+ *  absent: normal availability is silent, blockers appear only when actionable
+ *  (plain dot, no icon). Every enrichment degrades to nothing when absent. */
 function IssueSummary({
   issue,
   issues,
@@ -413,82 +477,97 @@ function IssueSummary({
   issues: readonly RefIssueLike[]
   onStart?: (issueId: string) => Promise<unknown>
 }): JSX.Element {
-  const todos = issue.panel?.todos ?? []
-  const todosDone = todos.filter((t) => t.done).length
-  const artifacts = issue.panel?.artifacts?.length ?? 0
-  const comments = issue.commentCount ?? 0
   // Parent chip only when the parent is resolvable to a displayRef.
   const parentRef = issue.parentId
     ? issues.find((i) => i.id === issue.parentId)?.displayRef
     : undefined
-  const evidence: string[] = []
-  if (todos.length > 0) evidence.push(`${todosDone} of ${todos.length} tasks`)
-  if ((issue.childCount ?? 0) > 0)
-    evidence.push(`${issue.childDoneCount ?? 0}/${issue.childCount} subissues`)
-  if (artifacts > 0) evidence.push(`${artifacts} artifact${artifacts === 1 ? '' : 's'}`)
-  if (comments > 0) evidence.push(`${comments} comment${comments === 1 ? '' : 's'}`)
+  const meta: JSX.Element[] = []
+  if (issue.priority !== undefined)
+    meta.push(
+      <span key="p" className="font-mono font-semibold text-foreground/85">
+        P{issue.priority}
+      </span>,
+    )
+  if (issue.assignee)
+    meta.push(
+      <span key="a" className="inline-flex min-w-0 items-center gap-1">
+        <User size={11} className="flex-none" aria-hidden="true" />
+        <span className="truncate">{issue.assignee}</span>
+      </span>,
+    )
+  if (parentRef)
+    meta.push(
+      <span key="in" className="font-mono">
+        in {parentRef}
+      </span>,
+    )
+  if (issue.blocked)
+    meta.push(
+      <span key="b" className="inline-flex items-center gap-1.5 text-red-400">
+        <span className="size-1.5 flex-none rounded-full bg-red-400" aria-hidden="true" />
+        blocked{issue.blockedBy?.length ? ` (${issue.blockedBy.length})` : null}
+      </span>,
+    )
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="font-mono text-[11px] text-muted-foreground">
-            {issueDisplayRef(issue)}
-          </div>
-          <div className="mt-0.5 text-[13.5px] leading-snug font-semibold text-foreground">
-            {truncateTitle(issue.title, 120)}
-          </div>
+    <>
+      <div className="flex items-start gap-2.5">
+        <div className="min-w-0 flex-1 text-[15px] leading-[1.32] font-semibold tracking-[-0.01em] text-foreground">
+          {truncateTitle(issue.title, 120)}
         </div>
-        {issue.stage && <StageChip stage={issue.stage} />}
+        {onStart && isIssueStartable(issue) && <RunNowAction issueId={issue.id} onStart={onStart} />}
       </div>
-      {onStart && isIssueStartable(issue) && <RunNowAction issueId={issue.id} onStart={onStart} />}
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
-        {issue.priority !== undefined && <span className="font-mono">P{issue.priority}</span>}
-        {issue.assignee && (
-          <span className="inline-flex min-w-0 items-center gap-1">
-            <User size={11} className="flex-none" aria-hidden="true" />
-            <span className="truncate">{issue.assignee}</span>
-          </span>
-        )}
-        {parentRef && (
-          <span className="rounded border border-border/60 bg-muted/60 px-1 py-px font-mono text-[10px]">
-            in {parentRef}
-          </span>
-        )}
-        {/* Blocked is the only availability state worth words — and it gets a
-            plain dot, not an icon. Normal availability stays silent. */}
-        {issue.blocked && (
-          <span className="inline-flex items-center gap-1.5 text-red-400">
-            <span className="size-1.5 flex-none rounded-full bg-red-400" aria-hidden="true" />
-            blocked{issue.blockedBy?.length ? ` (${issue.blockedBy.length})` : null}
-          </span>
-        )}
-      </div>
-      {issue.activityNotes && (
-        <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-2">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="font-mono text-[9.5px] font-medium tracking-[0.1em] text-muted-foreground/80 uppercase">
-              Latest update
+      {meta.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center text-[11px] text-muted-foreground">
+          {meta.map((el, i) => (
+            <span key={el.key} className="inline-flex min-w-0 items-center">
+              {i > 0 && (
+                <span
+                  className="mx-2 size-0.5 flex-none rounded-full bg-muted-foreground/50"
+                  aria-hidden="true"
+                />
+              )}
+              {el}
             </span>
-            {issue.notesUpdatedAt && (
-              <span className="flex-none text-[10px] text-muted-foreground/60">
-                {relativeTime(issue.notesUpdatedAt, Date.now())}
-              </span>
-            )}
-          </div>
-          <div
-            className="mt-1 overflow-hidden text-[12px] leading-snug text-foreground/85"
-            style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
-            title={issue.activityNotes}
-          >
-            {issue.activityNotes}
-          </div>
+          ))}
         </div>
       )}
-      {evidence.length > 0 && (
-        <div className="font-mono text-[10.5px] tabular-nums text-muted-foreground/80">
-          {evidence.join(' · ')}
+    </>
+  )
+}
+
+/** The mock's three-cell evidence strip: labeled cells between hairlines, each
+ *  degrading away when it has no data (the strip vanishes entirely when empty).
+ *  Evidence stays a quiet table, not a dashboard. */
+function IssueDetailsStrip({ issue }: { issue: RefIssueLike }): JSX.Element | null {
+  const todos = issue.panel?.todos ?? []
+  const todosDone = todos.filter((t) => t.done).length
+  const artifacts = issue.panel?.artifacts?.length ?? 0
+  const comments = issue.commentCount ?? 0
+  const cells: { label: string; value: string }[] = []
+  if (todos.length > 0) cells.push({ label: 'Tasks', value: `${todosDone} of ${todos.length} done` })
+  if ((issue.childCount ?? 0) > 0)
+    cells.push({
+      label: 'Subissues',
+      value: `${issue.childDoneCount ?? 0}/${issue.childCount} done`,
+    })
+  if (artifacts > 0) cells.push({ label: 'Artifacts', value: `${artifacts}` })
+  if (comments > 0)
+    cells.push({ label: 'Activity', value: `${comments} comment${comments === 1 ? '' : 's'}` })
+  if (cells.length === 0) return null
+  return (
+    <div
+      className="grid border-y border-border/60"
+      style={{ gridTemplateColumns: `repeat(${Math.min(cells.length, 3)}, 1fr)` }}
+    >
+      {cells.slice(0, 3).map((c, i) => (
+        <div
+          key={c.label}
+          className={cn('min-w-0 px-3 py-2.5', i > 0 && 'border-l border-border/60')}
+        >
+          <div className="text-[10px] text-muted-foreground/70">{c.label}</div>
+          <div className="mt-1 truncate text-[11px] tabular-nums text-foreground/85">{c.value}</div>
         </div>
-      )}
+      ))}
     </div>
   )
 }
