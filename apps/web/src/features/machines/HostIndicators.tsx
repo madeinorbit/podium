@@ -7,6 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { hostMemoryView } from '@/lib/derive'
 import { cn } from '@/lib/utils'
 import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
+import { HealthPopover } from './HealthPopover'
+import { LoadPanel } from './LoadPanel'
 import { type HostInfoTab, HostInfoView, useHibernationSetting } from './HostMemoryView'
 import { QuotaIndicator } from './QuotaIndicator'
 import { machineNeedsUpdate, useServerAppVersion } from './version-skew'
@@ -178,7 +180,6 @@ export function HeaderHostIndicators(): JSX.Element {
   // features, so skew earns a spot in the 44px header, not just Settings → Machines.
   const serverAppVersion = useServerAppVersion(trpc)
   const { health } = useStableConnection()
-  const hibernation = useHibernationSetting()
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: string } | null>(null)
   const announce =
     health.status === 'ok'
@@ -219,68 +220,61 @@ export function HeaderHostIndicators(): JSX.Element {
         const tone = SEVERITY[memory.severity]
         const machine = machines.find((m) => m.id === host.machineId)
         const needsUpdate = machine != null && machineNeedsUpdate(machine, serverAppVersion)
-        const hibernationNote = hibernation?.enabled
-          ? memory.pct >= hibernation.memoryPct
-            ? 'Hibernating stale agents to free memory'
-            : 'Auto-hibernation on'
-          : null
         return (
-          <Tooltip key={host.machineId}>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  className="header-machine-chip"
-                  aria-label={`${host.hostname}: ${memory.title} — click for the breakdown`}
-                  onClick={() =>
-                    setInfo({
-                      tab: health.status === 'ok' ? 'memory' : 'connection',
-                      machineId: host.machineId,
-                    })
-                  }
-                >
-                  <span
-                    className={cn(
-                      'size-1.5 flex-none rounded-full',
-                      health.status === 'ok'
-                        ? 'bg-success'
-                        : health.status === 'degraded'
-                          ? 'bg-warning'
-                          : 'bg-destructive',
-                    )}
-                    aria-hidden="true"
-                  />
-                  <span className="max-w-[12ch] truncate">{host.hostname}</span>
-                  {needsUpdate && (
-                    <CircleArrowUp
-                      size={12}
-                      className="flex-none text-warning"
-                      aria-label="Update available"
-                    />
+          <HealthPopover
+            key={host.machineId}
+            trigger={
+              <button
+                type="button"
+                className="header-machine-chip"
+                aria-label={`${host.hostname}: ${memory.title}`}
+              >
+                <span
+                  className={cn(
+                    'size-1.5 flex-none rounded-full',
+                    health.status === 'ok'
+                      ? 'bg-success'
+                      : health.status === 'degraded'
+                        ? 'bg-warning'
+                        : 'bg-destructive',
                   )}
-                  <span className="header-meter" role="presentation">
-                    <span
-                      className={cn('block h-full', tone.fill)}
-                      style={{ width: `${memory.pct}%` }}
-                    />
-                  </span>
-                </button>
-              }
-            />
-            <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
-              <strong>
-                {memory.label} ({memory.pct}%)
-              </strong>
-              {needsUpdate && (
-                <span className="text-warning">
-                  Update available: {machine?.inventory?.podiumVersion} → {serverAppVersion} — run
-                  podium update on this machine
+                  aria-hidden="true"
+                />
+                <span className="max-w-[12ch] truncate">{host.hostname}</span>
+                {needsUpdate && (
+                  <CircleArrowUp
+                    size={12}
+                    className="flex-none text-warning"
+                    aria-label="Update available"
+                  />
+                )}
+                <span className="header-meter" role="presentation">
+                  <span
+                    className={cn('block h-full', tone.fill)}
+                    style={{ width: `${memory.pct}%` }}
+                  />
                 </span>
-              )}
-              {hibernationNote && <span className="text-background/70">{hibernationNote}</span>}
-              <span className="text-background/70">Click for the breakdown</span>
-            </TooltipContent>
-          </Tooltip>
+              </button>
+            }
+          >
+            {(pinned) => (
+              <LoadPanel
+                machineId={host.machineId}
+                pinned={pinned}
+                updateNote={
+                  needsUpdate ? (
+                    <div className="hp-dim-line text-warning">
+                      Update available: {machine?.inventory?.podiumVersion} → {serverAppVersion} —
+                      run podium update on this machine
+                    </div>
+                  ) : undefined
+                }
+                onOpenConnection={() =>
+                  setInfo({ tab: 'connection', machineId: host.machineId })
+                }
+              />
+            )}
+          </HealthPopover>
         )
       })}
       <QuotaIndicator header />

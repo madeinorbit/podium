@@ -6,6 +6,8 @@ import { useStoreSelector } from '@/app/store'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { HealthPopover } from './HealthPopover'
+import { QuotaPanel } from './QuotaPanel'
 import {
   type AccountQuotaGroup,
   agentLabel,
@@ -77,7 +79,8 @@ export function QuotaIndicator({
   header = false,
 }: {
   compact?: boolean
-  /** Use the 44px desktop-header label + 34×3.5px meter treatment. */
+  /** 44px desktop-header treatment: label + 34×3.5px meter chip whose hover
+   *  previews the quota panel and whose click pins the full breakdown. */
   header?: boolean
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
   detail?: boolean
@@ -115,6 +118,25 @@ export function QuotaIndicator({
   const tone = TONE[percentTone(worst)]
   const worstW = worstWindow(groups)
 
+  // Desktop 44px header: hover previews the panel, click pins the breakdown —
+  // no tooltip, no modal (POD-173). Other placements keep the legacy pair.
+  if (header) {
+    return (
+      <HealthPopover
+        trigger={
+          <button type="button" className="header-quota-chip" aria-label="Agent quota">
+            <span>quota</span>
+            <span className="header-meter" role="presentation">
+              <span className={cn('block h-full', tone.fill)} style={{ width: `${worst}%` }} />
+            </span>
+          </button>
+        }
+      >
+        {(pinned) => <QuotaPanel groups={groups} pinned={pinned} now={Date.now()} />}
+      </HealthPopover>
+    )
+  }
+
   return (
     <>
       <Tooltip>
@@ -125,28 +147,20 @@ export function QuotaIndicator({
               className={cn(
                 'group inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border-0 bg-transparent p-0 text-[11px] text-muted-foreground',
                 compact && cn('min-w-[30px] justify-center px-1', tone.compact),
-                header && 'header-quota-chip',
               )}
               aria-label="Agent quota — click for the breakdown"
               onClick={() => setOpen(true)}
             >
-              {header ? (
-                <span>quota</span>
-              ) : (
-                <Gauge size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
-              )}
+              <Gauge size={14} aria-hidden="true" className={cn(!compact && tone.icon)} />
               {!compact && (
                 <span
-                  className={cn(
-                    'overflow-hidden rounded-sm bg-secondary',
-                    header ? 'h-[3.5px] w-[34px]' : 'h-1 w-9',
-                  )}
+                  className="h-1 w-9 overflow-hidden rounded-sm bg-secondary"
                   role="presentation"
                 >
                   <span className={cn('block h-full', tone.fill)} style={{ width: `${worst}%` }} />
                 </span>
               )}
-              {!compact && !header && detail && worstW && (
+              {!compact && detail && worstW && (
                 <span className="whitespace-nowrap text-[#6c6c78]">
                   {agentLabel(worstW.g.agent)} {Math.round(worstW.w.usedPercent)}% ·{' '}
                   {formatReset(worstW.w.resetsAt, Date.now())}

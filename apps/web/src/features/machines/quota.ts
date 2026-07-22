@@ -22,7 +22,12 @@ export function percentTone(p: number): QuotaTone {
   return 'ok'
 }
 export function toneBarClass(t: QuotaTone): string {
-  return t === 'crit' ? 'bg-red-500' : t === 'warn' ? 'bg-warning' : 'bg-success'
+  return t === 'crit' ? 'bg-destructive' : t === 'warn' ? 'bg-warning' : 'bg-success'
+}
+
+/** "5-hour" → "5h", "Weekly" → "wk" — the compact mono window label. */
+export function windowShortLabel(label: string): string {
+  return label.replace(/-hour/i, 'h').replace(/weekly/i, 'wk')
 }
 
 const AGENT_LABELS: Record<string, string> = {
@@ -138,7 +143,10 @@ const PACE_TOLERANCE = 8
 export function quotaPace(usedPercent: number, elapsedPercent: number | null): QuotaPace | null {
   if (elapsedPercent === null || elapsedPercent <= 0) return null
   const delta = usedPercent - elapsedPercent
-  if (delta > PACE_TOLERANCE) return 'hot'
+  // A fresh window makes the used-vs-elapsed comparison meaningless (14% used at
+  // 1% elapsed is not a trend) — don't cry "hot" until 10% of the window has
+  // passed, unless usage is already substantial.
+  if (delta > PACE_TOLERANCE) return elapsedPercent >= 10 || usedPercent >= 50 ? 'hot' : 'on-pace'
   if (delta < -PACE_TOLERANCE) return 'comfortable'
   return 'on-pace'
 }
@@ -157,6 +165,33 @@ export function paceLabel(pace: QuotaPace): string {
     case 'hot':
       return "Won't last"
   }
+}
+
+/**
+ * The one-line answer to "will quota get me to the reset?" shown in the quota
+ * popover header. Derived from the worst window across every ok account:
+ *  - any window effectively spent (>90%) → crit "5h nearly spent";
+ *  - any window burning faster than time (`hot` pace) → warn "5h window won't last";
+ *  - otherwise → ok "lasts until reset".
+ */
+export interface QuotaVerdict {
+  tone: QuotaTone
+  label: string
+}
+
+export function quotaVerdict(groups: AccountQuotaGroup[], nowMs: number): QuotaVerdict {
+  let spent: QuotaWindowWire | null = null
+  let hot: QuotaWindowWire | null = null
+  for (const g of groups) {
+    if (g.status !== 'ok') continue
+    for (const w of g.windows) {
+      if (w.usedPercent > 90 && (!spent || w.usedPercent > spent.usedPercent)) spent = w
+      if (windowPace(w, nowMs) === 'hot' && (!hot || w.usedPercent > hot.usedPercent)) hot = w
+    }
+  }
+  if (spent) return { tone: 'crit', label: `${windowShortLabel(spent.label)} nearly spent` }
+  if (hot) return { tone: 'warn', label: `${windowShortLabel(hot.label)} window won't last` }
+  return { tone: 'ok', label: 'lasts until reset' }
 }
 
 export function paceHint(pace: QuotaPace, usedPercent: number, elapsedPercent: number): string {

@@ -8,10 +8,13 @@ import {
   paceLabel,
   percentTone,
   quotaPace,
+  quotaVerdict,
   statusNote,
   windowElapsedPercent,
   windowPace,
+  windowShortLabel,
 } from './quota'
+import type { AccountQuotaGroup } from './quota'
 
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 
@@ -42,6 +45,70 @@ describe('agentLabel / statusNote', () => {
     expect(agentLabel('codex')).toBe('Codex')
     expect(statusNote({ status: 'unauthenticated' })).toBe('Not signed in')
     expect(statusNote({ status: 'ok' })).toBe('')
+  })
+})
+
+describe('quotaPace early-window guard', () => {
+  it('does not flag hot in a fresh window unless usage is substantial', () => {
+    expect(quotaPace(14, 1)).toBe('on-pace')
+    expect(quotaPace(60, 1)).toBe('hot')
+    expect(quotaPace(30, 12)).toBe('hot')
+  })
+})
+
+describe('windowShortLabel', () => {
+  it('compacts window labels for the mono column', () => {
+    expect(windowShortLabel('5-hour')).toBe('5h')
+    expect(windowShortLabel('Weekly')).toBe('wk')
+    expect(windowShortLabel('Session')).toBe('Session')
+  })
+})
+
+describe('quotaVerdict', () => {
+  const group = (
+    windows: AccountQuotaGroup['windows'],
+    status: AccountQuotaGroup['status'] = 'ok',
+  ): AccountQuotaGroup => ({
+    key: 'k',
+    agent: 'claude-code',
+    machineNames: ['podium-host'],
+    status,
+    windows,
+    fetchedAt: '2026-06-19T00:00:00.000Z',
+  })
+  const window = (usedPercent: number, minutesLeft: number) => ({
+    key: '5h' as const,
+    label: '5-hour',
+    usedPercent,
+    resetsAt: new Date(now + minutesLeft * 60_000).toISOString(),
+    windowMinutes: 300,
+  })
+
+  it('says quota lasts when every window paces at or below time', () => {
+    // 40% used with 50% elapsed — comfortable.
+    expect(quotaVerdict([group([window(40, 150)])], now)).toEqual({
+      tone: 'ok',
+      label: 'lasts until reset',
+    })
+  })
+
+  it("warns with the hot window's label when usage outruns time", () => {
+    // 70% used with only 50% elapsed — hot.
+    expect(quotaVerdict([group([window(70, 150)])], now)).toEqual({
+      tone: 'warn',
+      label: "5h window won't last",
+    })
+  })
+
+  it('escalates to crit when a window is effectively spent', () => {
+    expect(quotaVerdict([group([window(95, 150)])], now)).toEqual({
+      tone: 'crit',
+      label: '5h nearly spent',
+    })
+  })
+
+  it('ignores non-ok accounts and reads ok with no data', () => {
+    expect(quotaVerdict([group([window(99, 10)], 'expired')], now).tone).toBe('ok')
   })
 })
 
