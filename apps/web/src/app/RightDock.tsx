@@ -44,8 +44,14 @@ export function RightDock({
   tab: RightPanelTab
   onClose: () => void
 }): JSX.Element {
-  const { paneA, fileTabs, sessions, issues } = useStoreSelector(
-    (s) => ({ paneA: s.paneA, fileTabs: s.fileTabs, sessions: s.sessions, issues: s.issues }),
+  const { paneA, fileTabs, sessions, issues, selectedIssueId } = useStoreSelector(
+    (s) => ({
+      paneA: s.paneA,
+      fileTabs: s.fileTabs,
+      sessions: s.sessions,
+      issues: s.issues,
+      selectedIssueId: s.selectedIssueId,
+    }),
     shallowEqual,
   )
   const active = useMemo(
@@ -57,6 +63,12 @@ export function RightDock({
     label: 'Panel',
     icon: FolderTree,
   }
+  // Task navigation is issue-first: selecting a sidebar row must update this
+  // dock even when the issue has no live session to become the active pane.
+  // The other dock tabs remain pane/worktree-driven.
+  const selectedIssue = selectedIssueId
+    ? issues.find((issue) => issue.id === selectedIssueId && !issue.archived && !issue.deletedAt)
+    : undefined
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-right-dock-panel={tab}>
@@ -113,7 +125,13 @@ export function RightDock({
           <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
         ))}
       {tab === 'issue' &&
-        (active ? (
+        (selectedIssue ? (
+          <IssuePanelView
+            cwd={selectedIssue.worktreePath ?? selectedIssue.repoPath}
+            machineId={selectedIssue.machineId}
+            issueId={selectedIssue.id}
+          />
+        ) : active ? (
           <IssuePanelView
             cwd={active.cwd}
             machineId={active.machineId}
