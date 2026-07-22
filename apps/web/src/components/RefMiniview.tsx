@@ -1,19 +1,12 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { formatLong, issueDisplayRef, truncateTitle } from '@podium/protocol'
-import {
-  CircleAlert,
-  CircleCheck,
-  ExternalLink,
-  GripVertical,
-  PanelRight,
-  Play,
-  User,
-  X,
-} from 'lucide-react'
+import { Copy, ExternalLink, GripVertical, PanelRight, Play, User, X } from 'lucide-react'
 import { type JSX, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { useStoreSelector } from '@/app/store'
 import { StageChip } from '@/features/issues/IssuePanelView'
+import { copyToClipboard } from '@/lib/clipboard'
+import { relativeTime } from '@/lib/home'
 import { isIssueStartable } from '@/features/issues/issue-startable'
 import { setKnownRefPrefixes } from '@/lib/markdown'
 import {
@@ -246,25 +239,23 @@ export function RefCard({
         <GripVertical size={13} className="flex-none text-muted-foreground/60" aria-hidden="true" />
         {/* Canonical long form (#474 spec §display): `POD-13 · title` truncated,
             with the FULL title on hover. Falls back to the bare ref while unresolved. */}
+        {/* Issues carry ref + title (+ stage) in the body — the drag header stays
+            a quiet handle with just the token. Sessions keep the long form. */}
         <span
           className="flex-1 truncate font-mono text-[12px] font-medium"
           title={targetTitle ? `${refToken} · ${targetTitle}` : refToken}
         >
-          {targetTitle ? formatLong(refToken, targetTitle) : refToken}
+          {target?.kind === 'session' && targetTitle ? formatLong(refToken, targetTitle) : refToken}
         </span>
-        {target && (
+        {target?.kind === 'session' && (
           <button
             type="button"
             className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            title={target.kind === 'issue' ? 'Open in side panel' : 'Open full view'}
-            aria-label={target.kind === 'issue' ? 'Open in side panel' : 'Open full view'}
+            title="Open full view"
+            aria-label="Open full view"
             onClick={onOpenFull}
           >
-            {target.kind === 'issue' ? (
-              <PanelRight size={13} aria-hidden="true" />
-            ) : (
-              <ExternalLink size={13} aria-hidden="true" />
-            )}
+            <ExternalLink size={13} aria-hidden="true" />
           </button>
         )}
         <button
@@ -277,18 +268,39 @@ export function RefCard({
           <X size={14} aria-hidden="true" />
         </button>
       </div>
-      <div className="px-3 py-2.5 text-[13px]">
+      <div className="text-[13px]">
         {!target ? (
-          <p className="text-muted-foreground">Reference not found.</p>
+          <p className="px-3 py-2.5 text-muted-foreground">Reference not found.</p>
         ) : target.kind === 'issue' ? (
           <>
-            <IssueSummary issue={target.issue} issues={issues} />
-            {onStart && isIssueStartable(target.issue) && (
-              <RunNowAction issueId={target.issue.id} onStart={onStart} />
-            )}
+            <div className="px-3 py-2.5">
+              <IssueSummary issue={target.issue} issues={issues} onStart={onStart} />
+            </div>
+            {/* Footer: the two ways out. Escalation stays one rung (POD-95) —
+                "Open full page" raises the peek drawer, not the /issues route. */}
+            <div className="flex items-center gap-1.5 border-t border-border/60 bg-muted/30 px-2 py-1.5">
+              <button
+                type="button"
+                className="inline-flex h-6.5 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background text-[11.5px] font-medium hover:bg-accent"
+                onClick={onOpenFull}
+              >
+                Open full page
+                <PanelRight size={11} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-6.5 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11.5px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => copyToClipboard(refToken, `Copied ${refToken}`)}
+              >
+                <Copy size={11} aria-hidden="true" />
+                Copy ref
+              </button>
+            </div>
           </>
         ) : (
-          <SessionSummary session={target.session} issues={issues} />
+          <div className="px-3 py-2.5">
+            <SessionSummary session={target.session} issues={issues} />
+          </div>
         )}
       </div>
     </div>
@@ -387,82 +399,94 @@ function RunNowAction({
   )
 }
 
-/** At-a-glance issue body (#517) — mirrors the docked panel's SummaryHeader,
- *  compacted to the card's ~340px. Every enrichment row degrades to nothing
- *  when the field is absent (lean/legacy rows). */
+/** At-a-glance issue body — the POD-155 concept: identity + stage own the top,
+ *  one primary action (Run now), an update-not-decoration note box, and one
+ *  quiet evidence line. "Ready" is intentionally absent: normal availability is
+ *  silent, blockers appear only when actionable. Every enrichment row degrades
+ *  to nothing when the field is absent (lean/legacy rows). */
 function IssueSummary({
   issue,
   issues,
+  onStart,
 }: {
   issue: RefIssueLike
   issues: readonly RefIssueLike[]
+  onStart?: (issueId: string) => Promise<unknown>
 }): JSX.Element {
   const todos = issue.panel?.todos ?? []
   const todosDone = todos.filter((t) => t.done).length
+  const artifacts = issue.panel?.artifacts?.length ?? 0
+  const comments = issue.commentCount ?? 0
   // Parent chip only when the parent is resolvable to a displayRef.
   const parentRef = issue.parentId
     ? issues.find((i) => i.id === issue.parentId)?.displayRef
     : undefined
+  const evidence: string[] = []
+  if (todos.length > 0) evidence.push(`${todosDone} of ${todos.length} tasks`)
+  if ((issue.childCount ?? 0) > 0)
+    evidence.push(`${issue.childDoneCount ?? 0}/${issue.childCount} subissues`)
+  if (artifacts > 0) evidence.push(`${artifacts} artifact${artifacts === 1 ? '' : 's'}`)
+  if (comments > 0) evidence.push(`${comments} comment${comments === 1 ? '' : 's'}`)
   return (
     <div className="flex flex-col gap-2">
-      <div className="font-mono text-[11px] text-muted-foreground">{issueDisplayRef(issue)}</div>
-      <div className="text-[13px] font-medium leading-snug">{truncateTitle(issue.title, 120)}</div>
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
-        {issue.stage && <StageChip stage={issue.stage} />}
-        {issue.priority !== undefined && <span className="font-mono">P{issue.priority}</span>}
-        {issue.blocked ? (
-          <span className="inline-flex items-center gap-1 text-red-400">
-            <CircleAlert size={11} aria-hidden="true" /> blocked
-            {issue.blockedBy?.length ? ` (${issue.blockedBy.length})` : null}
-          </span>
-        ) : issue.ready ? (
-          <span className="inline-flex items-center gap-1 text-success">
-            <CircleCheck size={11} aria-hidden="true" /> ready
-          </span>
-        ) : null}
-      </div>
-      {(issue.assignee || (issue.childCount ?? 0) > 0 || parentRef) && (
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
-          {issue.assignee && (
-            <span className="inline-flex min-w-0 items-center gap-1">
-              <User size={11} className="flex-none" aria-hidden="true" />
-              <span className="truncate">{issue.assignee}</span>
-            </span>
-          )}
-          {(issue.childCount ?? 0) > 0 && (
-            <span className="font-mono tabular-nums">
-              {issue.childDoneCount ?? 0}/{issue.childCount} subissues done
-            </span>
-          )}
-          {parentRef && (
-            <span className="rounded border border-border/60 bg-muted/60 px-1 py-px font-mono text-[10px]">
-              in {parentRef}
-            </span>
-          )}
-        </div>
-      )}
-      {todos.length > 0 && (
-        <div className="flex items-center gap-2">
-          {/* Same bar as the docked panel's Todo section, inlined (that one is
-              built into a larger interactive block). */}
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-success/80"
-              style={{ width: `${(todosDone / todos.length) * 100}%` }}
-            />
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-mono text-[11px] text-muted-foreground">
+            {issueDisplayRef(issue)}
           </div>
-          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-            {todosDone}/{todos.length} todos
+          <div className="mt-0.5 text-[13.5px] leading-snug font-semibold text-foreground">
+            {truncateTitle(issue.title, 120)}
+          </div>
+        </div>
+        {issue.stage && <StageChip stage={issue.stage} />}
+      </div>
+      {onStart && isIssueStartable(issue) && <RunNowAction issueId={issue.id} onStart={onStart} />}
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
+        {issue.priority !== undefined && <span className="font-mono">P{issue.priority}</span>}
+        {issue.assignee && (
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <User size={11} className="flex-none" aria-hidden="true" />
+            <span className="truncate">{issue.assignee}</span>
           </span>
+        )}
+        {parentRef && (
+          <span className="rounded border border-border/60 bg-muted/60 px-1 py-px font-mono text-[10px]">
+            in {parentRef}
+          </span>
+        )}
+        {/* Blocked is the only availability state worth words — and it gets a
+            plain dot, not an icon. Normal availability stays silent. */}
+        {issue.blocked && (
+          <span className="inline-flex items-center gap-1.5 text-red-400">
+            <span className="size-1.5 flex-none rounded-full bg-red-400" aria-hidden="true" />
+            blocked{issue.blockedBy?.length ? ` (${issue.blockedBy.length})` : null}
+          </span>
+        )}
+      </div>
+      {issue.activityNotes && (
+        <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-mono text-[9.5px] font-medium tracking-[0.1em] text-muted-foreground/80 uppercase">
+              Latest update
+            </span>
+            {issue.notesUpdatedAt && (
+              <span className="flex-none text-[10px] text-muted-foreground/60">
+                {relativeTime(issue.notesUpdatedAt, Date.now())}
+              </span>
+            )}
+          </div>
+          <div
+            className="mt-1 overflow-hidden text-[12px] leading-snug text-foreground/85"
+            style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
+            title={issue.activityNotes}
+          >
+            {issue.activityNotes}
+          </div>
         </div>
       )}
-      {issue.activityNotes && (
-        <div
-          className="overflow-hidden text-[12px] leading-snug text-muted-foreground"
-          style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}
-          title={issue.activityNotes}
-        >
-          {issue.activityNotes}
+      {evidence.length > 0 && (
+        <div className="font-mono text-[10.5px] tabular-nums text-muted-foreground/80">
+          {evidence.join(' · ')}
         </div>
       )}
     </div>

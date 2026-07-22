@@ -33,7 +33,13 @@ export interface RefIssueLike {
   childDoneCount?: number
   parentId?: string
   activityNotes?: string
-  panel?: { todos?: readonly { text: string; done: boolean }[] }
+  /** When `activityNotes` was last posted — the update box's timestamp. */
+  notesUpdatedAt?: string
+  commentCount?: number
+  panel?: {
+    todos?: readonly { text: string; done: boolean }[]
+    artifacts?: readonly { path: string; title?: string }[]
+  }
   // Startability fields for the card's "Run now" action (POD-110) — the same
   // structural subset `isIssueStartable` reads off IssueWire.
   worktreePath?: string | null

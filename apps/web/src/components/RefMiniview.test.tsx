@@ -80,22 +80,22 @@ describe('RefCard issue summary (#517)', () => {
     // Computed values (not passthrough copy): blocker count from blockedBy.length,
     // childDoneCount/childCount, done/total todos, and the resolved parent ref.
     expect(text).toContain('blocked (2)')
-    expect(text).toContain('2/4 subissues done')
-    expect(text).toContain('2/3 todos')
+    expect(text).toContain('2/4 subissues')
+    expect(text).toContain('2 of 3 tasks')
     expect(text).toContain('in POD-500')
   })
 
-  it('blocked wins over ready', () => {
+  it('blocked renders even when ready is also set', () => {
     renderCard(root, { ...rich, ready: true, blocked: true })
     const text = container.textContent ?? ''
     expect(text).toContain('blocked')
     expect(text).not.toContain('ready')
   })
 
-  it('shows the ready chip when unblocked and ready', () => {
+  it('normal availability is silent — no ready chip (POD-155)', () => {
     renderCard(root, { ...rich, blocked: false, blockedBy: [], ready: true })
     const text = container.textContent ?? ''
-    expect(text).toContain('ready')
+    expect(text).not.toContain('ready')
     expect(text).not.toContain('blocked')
   })
 

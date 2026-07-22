@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Podium issue peek — card concept</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --canvas: #070b16;
+        --surface: #0a0f1c;
+        --surface-raised: #121b30;
+        --surface-soft: #16223c;
+        --line: #243356;
+        --line-strong: #364a78;
+        --text: #f3f3f8;
+        --muted: #9a9aa8;
+        --quiet: #6c7690;
+        --amber: #2f6bff;
+        --amber-soft: color-mix(in srgb, #2f6bff 14%, transparent);
+        --violet: #f5c518;
+        --violet-soft: color-mix(in srgb, #f5c518 12%, transparent);
+        --red: #e5303f;
+        --red-soft: color-mix(in srgb, #e5303f 12%, transparent);
+        --shadow: 0 34px 80px rgba(0, 0, 0, 0.45), 0 2px 12px rgba(0, 0, 0, 0.4);
+        font-family:
+          "Geist Variable", Geist, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--text);
+        background: var(--canvas);
+      }
+
+      button { font: inherit; }
+
+      .page {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 42px 0 56px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 36px;
+      }
+
+      .eyebrow {
+        margin: 0 0 9px;
+        color: var(--muted);
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 590;
+        letter-spacing: -0.035em;
+      }
+
+      .subtitle {
+        max-width: 560px;
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .scenario-switch {
+        display: flex;
+        gap: 3px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(16, 19, 25, 0.72);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+      }
+
+      .scenario-switch button {
+        border: 0;
+        border-radius: 7px;
+        padding: 8px 11px;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 12px;
+        transition: 140ms ease;
+      }
+
+      .scenario-switch button:hover { color: var(--text); }
+      .scenario-switch button[aria-pressed="true"] {
+        color: var(--text);
+        background: var(--surface-soft);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        align-items: center;
+        gap: 70px;
+      }
+
+      .stage {
+        min-height: 580px;
+        display: grid;
+        place-items: center;
+        border: 1px solid rgba(255, 255, 255, 0.045);
+        border-radius: 7px;
+        background: #070b16;
+        box-shadow: inset 3px 0 6px -3px rgb(0 0 0 / 0.85), inset -3px 0 6px -3px rgb(0 0 0 / 0.85), inset 0 3px 6px -3px rgb(0 0 0 / 0.85);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .stage::after {
+        z-index: 3;
+        content: "400 px dock width";
+        position: absolute;
+        right: 17px;
+        bottom: 14px;
+        color: rgba(255, 255, 255, 0.2);
+        font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .stage-chrome {
+        position: absolute;
+        inset: 28px;
+        display: grid;
+        grid-template-columns: 104px 1fr 148px;
+        gap: 1px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--line);
+        opacity: 1;
+      }
+
+      .stage-chrome > div { padding: 14px 12px; background: #121b30; }
+      .stage-chrome span { display: block; height: 7px; margin-bottom: 10px; border-radius: 2px; background: #243356; }
+      .stage-chrome span:nth-child(2n) { width: 68%; }
+      .stage-chrome span:nth-child(3n) { width: 82%; background: #121b30; }
+      .stage-chrome .chrome-main { background: #070b16; }
+      .stage-chrome .chrome-main span { width: 92%; height: 9px; margin-bottom: 16px; background: #16223c; }
+      .stage-chrome .chrome-main span:nth-child(2n) { width: 76%; }
+      .stage-scrim {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        background: rgb(5 9 18 / 0.4);
+        -webkit-backdrop-filter: blur(5px);
+        backdrop-filter: blur(5px);
+      }
+
+      .peek-card {
+        width: min(400px, calc(100% - 40px));
+        overflow: hidden;
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        z-index: 2;
+        background: rgb(10 15 28 / 0.78);
+        -webkit-backdrop-filter: blur(18px);
+        backdrop-filter: blur(18px);
+        box-shadow: none;
+        transform: translateZ(0);
+      }
+
+      .card-head { padding: 19px 20px 18px; }
+
+      .identity {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .issue-ref {
+        border: 0;
+        padding: 0;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.04em;
+      }
+
+      .issue-ref:hover { color: var(--text); }
+
+      .stage-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border-radius: 99px;
+        padding: 5px 9px;
+        color: #f4d28d;
+        background: var(--amber-soft);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .stage-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--amber);
+      }
+
+      .peek-card.review .stage-chip { color: #d5c9ff; background: var(--violet-soft); }
+      .peek-card.review .stage-dot { background: var(--violet); }
+
+      .title-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .issue-title {
+        flex: 1;
+        margin: 0;
+        font-size: 17px;
+        font-weight: 620;
+        line-height: 1.32;
+        letter-spacing: -0.018em;
+      }
+
+      .more {
+        display: grid;
+        flex: none;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        margin-top: -3px;
+        border: 0;
+        border-radius: 7px;
+        color: var(--quiet);
+        background: transparent;
+        cursor: pointer;
+        font-size: 17px;
+        letter-spacing: 1px;
+      }
+
+      .more:hover { color: var(--text); background: var(--surface-soft); }
+
+      .run-now {
+        display: none;
+        flex: none;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        border: 0;
+        border-radius: 6px;
+        padding: 0 10px;
+        color: #0a0f1c;
+        background: #f5c518;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .peek-card.proposed .run-now { display: inline-flex; }
+      .run-now:hover { background: #d5ab15; }
+      .run-now:disabled { cursor: wait; opacity: 0.64; }
+
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 11px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .priority { color: #e4e7eb; font: 650 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .meta-sep { width: 2px; height: 2px; border-radius: 50%; background: #555d69; }
+
+      .blocker {
+        display: none;
+        align-items: flex-start;
+        gap: 9px;
+        margin: 0 20px 15px;
+        padding: 10px 11px;
+        border: 1px solid rgba(255, 121, 126, 0.16);
+        border-radius: 9px;
+        color: #ffb2b5;
+        background: var(--red-soft);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .peek-card.blocked .blocker { display: flex; }
+      .blocker svg { flex: none; margin-top: 1px; }
+      .blocker strong { color: #ffd4d6; font-weight: 620; }
+
+      .update {
+        margin: 0 12px 12px;
+        padding: 14px 15px 13px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface-raised);
+      }
+
+      .update-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+        color: var(--quiet);
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .update-time { font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+      .update p {
+        margin: 0;
+        color: #d8dbe0;
+        font-size: 13px;
+        line-height: 1.52;
+      }
+
+      .details {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .detail {
+        min-width: 0;
+        padding: 12px 13px 11px;
+      }
+
+      .detail + .detail { border-left: 1px solid var(--line); }
+      .detail-label { color: var(--quiet); font-size: 10px; }
+      .detail-value { margin-top: 4px; color: #d7dae0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+      .card-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 34px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 0 11px;
+        color: #c8cdd4;
+        background: var(--surface-raised);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 580;
+      }
+
+      .action:hover { color: var(--text); border-color: rgba(255, 255, 255, 0.2); }
+      .action.primary { flex: 1; color: #0a0f1c; border-color: #f5c518; background: #f5c518; }
+      .action.primary:hover { background: #d5ab15; }
+      .peek-card.proposed .action.primary { color: #d7d7e0; border-color: var(--line-strong); background: var(--surface-raised); }
+      .peek-card.proposed .action.primary:hover { color: var(--text); background: var(--surface-soft); }
+
+      .notes { display: grid; gap: 22px; }
+
+      .note {
+        padding: 15px 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .note-index {
+        display: none;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border: 1px solid var(--line-strong);
+        border-radius: 50%;
+        color: var(--muted);
+        font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      .note h2 { margin: 1px 0 5px; font-size: 13px; font-weight: 620; }
+      .note p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+      .principle {
+        margin-top: 8px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        color: #cdd1d7;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .principle strong { color: var(--text); }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        z-index: 10;
+        transform: translate(-50%, 16px);
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 9px 12px;
+        color: #e8eaed;
+        background: #1b2028;
+        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        font-size: 12px;
+        transition: 180ms ease;
+      }
+
+      .toast.show { transform: translate(-50%, 0); opacity: 1; }
+
+      button:focus-visible { outline: 2px solid #f5c518; outline-offset: 2px; }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { transition-duration: 0.01ms !important; }
+      }
+
+      @media (max-width: 860px) {
+        .topbar { align-items: flex-start; flex-direction: column; }
+        .workspace { grid-template-columns: 1fr; gap: 38px; }
+        .stage { min-height: 520px; }
+        .notes { grid-template-columns: repeat(2, 1fr); }
+        .principle { grid-column: 1 / -1; }
+      }
+
+      @media (max-width: 560px) {
+        .page { width: min(100% - 24px, 1120px); padding-top: 26px; }
+        .scenario-switch { width: 100%; }
+        .scenario-switch button { flex: 1; padding-inline: 6px; }
+        .stage { min-height: 500px; margin-inline: -12px; border-radius: 0; }
+        .notes { grid-template-columns: 1fr; }
+        .principle { grid-column: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Podium · interaction concept</p>
+          <h1>A quieter, actionable issue peek</h1>
+          <p class="subtitle">
+            One primary state, a clear start action, and less system detail competing with the
+            issue itself. “Ready” is intentionally absent.
+          </p>
+        </div>
+        <nav class="scenario-switch" aria-label="Preview card scenarios">
+          <button type="button" data-scenario="proposed" aria-pressed="true">Proposed</button>
+          <button type="button" data-scenario="working" aria-pressed="false">Working</button>
+          <button type="button" data-scenario="blocked" aria-pressed="false">Blocked</button>
+          <button type="button" data-scenario="review" aria-pressed="false">In review</button>
+        </nav>
+      </header>
+
+      <section class="workspace">
+        <div class="stage">
+          <div class="stage-chrome" aria-hidden="true">
+            <div class="chrome-sidebar"><span></span><span></span><span></span><span></span></div>
+            <div class="chrome-main"><span></span><span></span><span></span><span></span></div>
+            <div class="chrome-dock"><span></span><span></span><span></span><span></span></div>
+          </div>
+          <div class="stage-scrim" aria-hidden="true"></div>
+          <article class="peek-card proposed" id="peekCard" aria-label="Redesigned issue peek card">
+            <div class="card-head">
+              <div class="identity">
+                <button class="issue-ref" type="button" data-copy="POD-155">POD-155</button>
+                <span class="stage-chip"><span class="stage-dot"></span><span id="stageText">Proposed</span></span>
+              </div>
+              <div class="title-row">
+                <h2 class="issue-title">Issue peek card redesign</h2>
+                <button class="run-now" id="runNow" type="button">
+                  <span aria-hidden="true">▶</span><span id="runNowText">Run now</span>
+                </button>
+                <button class="more" type="button" aria-label="More issue actions" title="More actions">•••</button>
+              </div>
+              <div class="meta" aria-label="Issue metadata">
+                <span class="priority">P1</span><span class="meta-sep"></span><span>Design</span>
+                <span class="meta-sep"></span><span>Codex</span>
+              </div>
+            </div>
+
+            <div class="blocker" id="blocker">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 8v5m0 3.5v.1M10.3 3.7 2.1 18a2 2 0 0 0 1.7 3h16.4a2 2 0 0 0 1.7-3L13.7 3.7a2 2 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+              <span><strong>Blocked by POD-149.</strong> Waiting on the panel spacing tokens.</span>
+            </div>
+
+            <section class="update" aria-labelledby="latest-update">
+              <div class="update-label">
+                <span id="latest-update">Latest update</span>
+                <span class="update-time">2m ago</span>
+              </div>
+              <p id="updateText">The direction is scoped. Start an agent here without leaving the peek.</p>
+            </section>
+
+            <div class="details" aria-label="Issue details">
+              <div class="detail"><div class="detail-label">Tasks</div><div class="detail-value">1 of 2 done</div></div>
+              <div class="detail"><div class="detail-label">Artifacts</div><div class="detail-value">1 concept</div></div>
+              <div class="detail"><div class="detail-label">Activity</div><div class="detail-value">3 updates</div></div>
+            </div>
+
+            <footer class="card-actions">
+              <button class="action primary" type="button">Open full page <span aria-hidden="true">↗</span></button>
+              <button class="action" type="button" data-copy="POD-155" aria-label="Copy issue reference">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="8" y="8" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.7" />
+                  <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" stroke-width="1.7" />
+                </svg>
+                Copy ref
+              </button>
+            </footer>
+          </article>
+        </div>
+
+        <aside class="notes" aria-label="Design rationale">
+          <div class="note">
+            <h2>Start in context</h2><p>Run now stays at the top of every startable peek. It enters a guarded Starting… state, then disappears when the worktree lands.</p></div>
+          <div class="note">
+            <h2>One primary state</h2><p>Stage owns the status position. Normal availability is silent; blockers appear only when actionable.</p></div>
+          <div class="note">
+            <h2>Update, not decoration</h2><p>The agent-maintained note is named and timestamped, so its role is immediately legible.</p></div>
+          <div class="note">
+            <h2>Compact evidence</h2><p>Tasks, artifacts, and activity stay in one quiet line instead of becoming a dashboard.</p></div>
+          <p class="principle"><strong>Design rule:</strong> show the happy path through hierarchy, not labels. Reserve warning color and extra status language for states that need intervention.</p>
+        </aside>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status">Copied POD-155</div>
+
+    <script>
+      const card = document.querySelector('#peekCard');
+      const stageText = document.querySelector('#stageText');
+      const updateText = document.querySelector('#updateText');
+      const runNow = document.querySelector('#runNow');
+      const runNowText = document.querySelector('#runNowText');
+      const toast = document.querySelector('#toast');
+      let toastTimer;
+
+      const scenarios = {
+        proposed: {
+          className: 'proposed',
+          stage: 'Proposed',
+          update: 'The direction is scoped. Start an agent here without leaving the peek.'
+        },
+        working: {
+          className: '',
+          stage: 'In Progress',
+          update: 'The direction is scoped. Start an agent here without leaving the peek.'
+        },
+        blocked: {
+          className: 'blocked',
+          stage: 'In Progress',
+          update: 'The visual direction is settled; implementation is waiting on the panel spacing tokens.'
+        },
+        review: {
+          className: 'review',
+          stage: 'Review',
+          update: 'The refined peek card is attached and awaiting a visual sign-off.'
+        }
+      };
+
+      function selectScenario(name) {
+        const selected = scenarios[name];
+        card.className = `peek-card ${selected.className}`.trim();
+        stageText.textContent = selected.stage;
+        updateText.textContent = selected.update;
+        runNow.disabled = false;
+        runNowText.textContent = 'Run now';
+        document.querySelectorAll('[data-scenario]').forEach((item) => {
+          item.setAttribute('aria-pressed', String(item.dataset.scenario === name));
+        });
+      }
+
+      document.querySelectorAll('[data-scenario]').forEach((button) => {
+        button.addEventListener('click', () => {
+          selectScenario(button.dataset.scenario);
+        });
+      });
+
+      runNow.addEventListener('click', () => {
+        if (runNow.disabled) return;
+        runNow.disabled = true;
+        runNowText.textContent = 'Starting…';
+        updateText.textContent = 'Creating a worktree and starting the default agent…';
+        setTimeout(() => {
+          selectScenario('working');
+          toast.textContent = 'Agent started';
+          toast.classList.add('show');
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(() => toast.classList.remove('show'), 1400);
+        }, 900);
+      });
+
+      document.querySelectorAll('[data-copy]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const value = button.dataset.copy;
+          try { await navigator.clipboard.writeText(value); } catch (_) {}
+          toast.textContent = `Copied ${value}`;
+          toast.classList.add('show');
+          clearTimeout(toastTimer);
+          toastTimer = setTimeout(() => toast.classList.remove('show'), 1400);
+        });
+      });
+    </script>
+  </body>
+</html>
