@@ -281,6 +281,15 @@ export function RefCard({
               </span>
             </div>
             <IssueSummary issue={target.issue} issues={issues} onStart={onStart} />
+            {target.issue.description?.trim() && (
+              <div
+                className="mt-2 overflow-hidden text-[12px] leading-[1.5] text-muted-foreground"
+                style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}
+                title={target.issue.description}
+              >
+                {target.issue.description}
+              </div>
+            )}
           </div>
           {target.issue.activityNotes && (
             <div className="mx-3 mb-3 rounded-[10px] border border-border/60 bg-muted/40 px-3.5 py-3">

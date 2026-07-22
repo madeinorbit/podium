@@ -32,6 +32,8 @@ export interface RefIssueLike {
   childCount?: number
   childDoneCount?: number
   parentId?: string
+  /** The short human summary — shown in the miniview when present. */
+  description?: string
   activityNotes?: string
   /** When `activityNotes` was last posted — the update box's timestamp. */
   notesUpdatedAt?: string

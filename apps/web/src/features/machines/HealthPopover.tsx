@@ -42,7 +42,7 @@ export function HealthPopover({
         if (!next) setPinned(false)
       }}
     >
-      <Popover.Trigger render={trigger} openOnHover delay={250} />
+      <Popover.Trigger render={trigger} openOnHover delay={80} />
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="end" sideOffset={6} className="isolate z-50">
           <Popover.Popup

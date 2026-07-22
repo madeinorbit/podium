@@ -1,4 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
+import { Loader2 } from 'lucide-react'
 import type { AgentMemoryWire, HostMemoryWire, ProjectMemoryWire } from '@podium/protocol'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
@@ -130,7 +131,10 @@ export function LoadPanel({
         ) : error ? (
           <div className="hp-dim-line">Could not load the breakdown: {error}</div>
         ) : (
-          <div className="hp-dim-line">Reading the per-process breakdown…</div>
+          <div className="hp-dim-line flex items-center gap-2 py-1.5">
+            <Loader2 size={12} className="flex-none animate-spin" aria-hidden="true" />
+            <span>Measuring memory per process…</span>
+          </div>
         )}
         {updateNote}
         {!pinned && hibernation && (
