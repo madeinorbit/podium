@@ -1263,10 +1263,28 @@ function issueFinishedAt(issue: IssueWire): number {
   return Date.parse(issue.closedAt ?? issue.updatedAt) || 0
 }
 
+/** A finished private issue branch that still contains work not landed on its
+ *  parent branch. The explicit ahead check keeps a never-moved/empty branch in
+ *  plain done, while `merged !== true` reuses the cleanup guard's ancestry
+ *  verdict. Unknown/computing git state stays conservative (not actionable). */
+export function issueAwaitingMerge(issue: IssueWire): boolean {
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  const git = issue.gitState
+  return (
+    finished &&
+    Boolean(issue.branch) &&
+    git?.shared === false &&
+    git.merged !== true &&
+    (git.ahead ?? 0) > 0
+  )
+}
+
 /** Acknowledgment-gated completion decay for the live sidebar. [spec:SP-6144] */
 export function issueVisibleInSidebar(issue: IssueWire, now: number): boolean {
   const finished = issue.stage === 'done' || issue.closedReason != null
   if (!finished) return true
+  // Review/merge is still a human action. It does not decay like shipped work.
+  if (issueAwaitingMerge(issue)) return true
   const finishedAt = issueFinishedAt(issue)
   // Unread keeps a finished row visible only within 7 days of finishing —
   // beyond that it is history, not pending acknowledgment.
@@ -1313,7 +1331,10 @@ function buildUnifiedRows(
     // must never resurface here. [spec:SP-6144]
     if (mine.length === 0) {
       const finished = issue.stage === 'done' || issue.closedReason != null
-      if (!finished || !issue.parentId || issue.audience === 'agent') continue
+      const awaitingMerge = issueAwaitingMerge(issue)
+      if (!finished || (!awaitingMerge && (!issue.parentId || issue.audience === 'agent'))) {
+        continue
+      }
       if (!issueVisibleInSidebar(issue, now)) continue
     }
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
@@ -2016,6 +2037,7 @@ export function formatClock(ms: number): string {
  * whose sessions are merely idle/ready reads `queued` (dimmed stillness).
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
+  if (row.kind === 'issue' && awaitingMergeStats(row).count > 0) return 'waiting'
   const sessions = rowSessions(row)
   if (
     sessions.length === 0 &&
@@ -2043,7 +2065,29 @@ export function aggregateMotionPhase(sessions: SessionMeta[]): MotionPhase {
  *  pill sums needs-you across the WHOLE branch — visible children and rolled-up
  *  depth alike. Nothing yellow ⇒ nothing needs you (POD-100 L3). */
 export function rowWaitingCount(row: UnifiedWorkRow): number {
-  return rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
+  const sessions = rowSessions(row).filter((s) => motionPhase(s) === 'waiting').length
+  return sessions + (row.kind === 'issue' ? awaitingMergeStats(row).count : 0)
+}
+
+/** Count awaiting-merge issues in a visible row's full formal subtree and find
+ *  the oldest completion anchor for the static waiting-age stamp. Cycle-safe. */
+function awaitingMergeStats(row: UnifiedIssueRow): { count: number; sinceMs?: number } {
+  let count = 0
+  let sinceMs: number | undefined
+  const seen = new Set<string>()
+  const stack: UnifiedIssueRow[] = [row]
+  while (stack.length > 0) {
+    const current = stack.pop() as UnifiedIssueRow
+    if (seen.has(current.issue.id)) continue
+    seen.add(current.issue.id)
+    if (issueAwaitingMerge(current.issue)) {
+      count += 1
+      const finishedAt = issueFinishedAt(current.issue)
+      if (finishedAt > 0 && (sinceMs === undefined || finishedAt < sinceMs)) sinceMs = finishedAt
+    }
+    for (const child of current.startedByChildren ?? []) stack.push(child)
+  }
+  return { count, ...(sinceMs !== undefined ? { sinceMs } : {}) }
 }
 
 /** Roll-up stats for a subtree hidden behind the sidebar's depth cap (POD-100
@@ -2084,15 +2128,20 @@ export function branchRollup(
  *  `row` (1 = direct child). Null when no descendant is waiting. */
 export function deepAttentionSource(
   row: UnifiedIssueRow,
-): { issue: IssueWire; depth: number } | null {
-  let best: { issue: IssueWire; depth: number } | null = null
+): { issue: IssueWire; depth: number; kind: 'session' | 'merge' } | null {
+  let best: { issue: IssueWire; depth: number; kind: 'session' | 'merge' } | null = null
   const stack: Array<{ row: UnifiedIssueRow; depth: number }> = [{ row, depth: 0 }]
   while (stack.length > 0) {
     const { row: r, depth } = stack.shift() as { row: UnifiedIssueRow; depth: number }
-    if (depth > 0 && r.sessions.some((s) => motionPhase(s) === 'waiting')) {
+    const kind = issueAwaitingMerge(r.issue)
+      ? 'merge'
+      : r.sessions.some((s) => motionPhase(s) === 'waiting')
+        ? 'session'
+        : null
+    if (depth > 0 && kind !== null) {
       // Breadth-first + `>=` keeps the LAST deepest hit, so ties resolve to the
       // later sibling deterministically; any deepest source serves the whisper.
-      if (best === null || depth >= best.depth) best = { issue: r.issue, depth }
+      if (best === null || depth >= best.depth) best = { issue: r.issue, depth, kind }
     }
     for (const child of r.startedByChildren ?? []) stack.push({ row: child, depth: depth + 1 })
   }
@@ -2104,6 +2153,7 @@ export function deepAttentionSource(
  *  one hidden behind the roll-up (the parent must whisper the source). */
 function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
   if (row.sessions.some((s) => motionPhase(s) === 'waiting')) return true
+  if (issueAwaitingMerge(row.issue)) return true
   if (depth <= 0) return false
   return (row.startedByChildren ?? []).some((child) => waitingWithinDepth(child, depth - 1))
 }
@@ -2140,6 +2190,9 @@ export function rowStatusLine(
   const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
   const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
+    if (row.kind === 'issue' && issueAwaitingMerge(row.issue)) {
+      return `${head}ready to merge${progress}`
+    }
     // Branch attention whisper (POD-100 L3): the yellow comes from a descendant
     // hidden behind the depth cap — no visible row explains the pill, so the
     // sub-line names the deepest source instead of a bare "needs you".
@@ -2147,7 +2200,8 @@ export function rowStatusLine(
       const deep = deepAttentionSource(row)
       if (deep && deep.depth > visibleDepth && !waitingWithinDepth(row, visibleDepth)) {
         const own = row.sessions.some(isSessionWorking) ? 'working · ' : ''
-        return `${head}${own}deep: ${issueDisplayRef(deep.issue)} needs you${progress}`
+        const request = deep.kind === 'merge' ? 'ready to merge' : 'needs you'
+        return `${head}${own}deep: ${issueDisplayRef(deep.issue)} ${request}${progress}`
       }
     }
     const urgent = mostUrgentSession(
@@ -2194,6 +2248,10 @@ export function rowMotionTiming(row: UnifiedWorkRow): MotionTiming {
   if (phase === 'waiting') {
     const anchor = earliest(sessions.filter((s) => motionPhase(s) === 'waiting'))
     if (anchor) return { phase, sinceMs: since(anchor) }
+    if (row.kind === 'issue') {
+      const merge = awaitingMergeStats(row)
+      if (merge.sinceMs !== undefined) return { phase, sinceMs: merge.sinceMs }
+    }
   }
   if (phase === 'done') {
     const totals = sessions

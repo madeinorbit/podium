@@ -62,6 +62,37 @@ describe('rowMotionPhase — aggregate row phase (#41)', () => {
     expect(rowMotionPhase(issueRow([done(), done()]))).toBe('done')
   })
 
+  it('finished branch delta becomes ready-to-merge attention until it lands', () => {
+    const closedAt = new Date(NOW - 3_600_000).toISOString()
+    const row = issueRow([done()], false, {
+      stage: 'done',
+      branch: 'issue/1-reviewable',
+      closedAt,
+      gitState: {
+        updatedAt: new Date(NOW).toISOString(),
+        branch: 'issue/1-reviewable',
+        shared: false,
+        ahead: 2,
+        dirtyFiles: 0,
+      },
+    })
+    expect(rowMotionPhase(row)).toBe('waiting')
+    expect(rowWaitingCount(row)).toBe(1)
+    expect(rowStatusLine(row, NOW)).toBe('ready to merge')
+    expect(rowMotionTiming(row)).toMatchObject({ phase: 'waiting', sinceMs: NOW - 3_600_000 })
+
+    const landed = issueRow([done()], false, {
+      ...row.issue,
+      gitState: { ...row.issue.gitState, merged: true },
+    })
+    expect(rowMotionPhase(landed)).toBe('done')
+    const empty = issueRow([done()], false, {
+      ...row.issue,
+      gitState: { ...row.issue.gitState, ahead: 0 },
+    })
+    expect(rowMotionPhase(empty)).toBe('done')
+  })
+
   it('idle-ready or empty rows read queued (dimmed stillness)', () => {
     expect(rowMotionPhase(issueRow([sess()]))).toBe('queued')
     expect(rowMotionPhase(issueRow([]))).toBe('queued')

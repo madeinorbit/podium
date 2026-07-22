@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Circle,
   FolderPlus,
+  GitBranch,
   Pin,
   Plus,
   Search,
@@ -46,6 +47,7 @@ import {
   groupUnifiedWorkRows,
   isCoordinatorSession,
   isIssueSnoozed,
+  issueAwaitingMerge,
   issueReturnedFromDefer,
   lastUsedMaps,
   type MotionPhase,
@@ -68,7 +70,7 @@ import {
   sidebarSections,
   spawnTargetForRepo,
   splitPinnedWork,
-  type UnifiedIssueRow,
+  type UnifiedIssueRow as UnifiedIssueRowView,
   type UnifiedWorkRow,
   unifiedWorkList,
 } from '@/lib/derive'
@@ -938,7 +940,7 @@ function WorkRowShell({
   square: ReactNode
   label: string
   /** Line 2's status phrase (`rowStatusLine`). */
-  statusLine: string
+  statusLine: ReactNode
   /** The issue colour hex, undefined for the neutral/slate flow. */
   hex: string | undefined
   phase: MotionPhase
@@ -1193,7 +1195,7 @@ function UnifiedIssueRow({
   /** Visual nesting depth for started-by children (0 = top-level). */
   startedByDepth = 0,
 }: {
-  row: UnifiedIssueRow
+  row: UnifiedIssueRowView
   sessions: SessionMeta[]
   /** Whole issue list — the context menu's label pool / duplicate targets. */
   issues: IssueWire[]
@@ -1318,7 +1320,19 @@ function UnifiedIssueRow({
         deemphasized={issue.audience === 'agent'}
         square={square}
         label={label}
-        statusLine={rowStatusLine(row, now, capped ? 0 : 1)}
+        statusLine={
+          issueAwaitingMerge(issue) ? (
+            <span
+              data-testid="awaiting-merge-status"
+              className="inline-flex h-3 items-center gap-1 rounded-[3px] border border-attention/35 bg-attention/10 px-1 text-attention"
+            >
+              <GitBranch size={9} strokeWidth={1.8} aria-hidden="true" />
+              ready to merge
+            </span>
+          ) : (
+            rowStatusLine(row, now, capped ? 0 : 1)
+          )
+        }
         hex={hex}
         phase={phase}
         waitingCount={waitingCount}

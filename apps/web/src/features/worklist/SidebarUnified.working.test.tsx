@@ -77,11 +77,27 @@ vi.mock('@/app/store', () => {
       sess('s-work', 'fully', 'working'), // fully-working issue → spinner row
       sess('s-run', 'partial', 'working'), // partial: working…
       sess('s-ask', 'partial', 'question'), // …but a question waits → amber row
+      sess('s-merge', 'merge', 'idle'),
     ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
-    issues: [issue('fully', 'Fully working issue'), issue('partial', 'Partly working issue')],
+    issues: [
+      issue('fully', 'Fully working issue'),
+      issue('partial', 'Partly working issue'),
+      issue('merge', 'Reviewable issue', {
+        stage: 'done',
+        branch: 'issue/9-reviewable',
+        closedAt: '2026-07-06T12:00:00.000Z',
+        gitState: {
+          updatedAt: '2026-07-06T12:00:00.000Z',
+          branch: 'issue/9-reviewable',
+          shared: false,
+          ahead: 2,
+          dirtyFiles: 0,
+        },
+      }),
+    ],
     trpc: {
       settings: {
         get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } })) },
@@ -129,6 +145,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // Both issues render exactly once, inside the group.
     expect(screen.getAllByText('Fully working issue')).toHaveLength(1)
     expect(screen.getAllByText('Partly working issue')).toHaveLength(1)
+    expect(screen.getAllByText('Reviewable issue')).toHaveLength(1)
   })
 
   it('working rows show the braille spinner + timer; waiting rows the amber pill', () => {
@@ -146,5 +163,18 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(waitingRow.querySelector('[data-phase="waiting"]')).toBeTruthy()
     expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+  })
+
+  it('shows unmerged done work as a tint-only branch attention chip', () => {
+    render(<SidebarUnified />)
+    const row = screen
+      .getByText('Reviewable issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    expect(row.querySelector('[data-phase="waiting"]')).toBeTruthy()
+    expect(row.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+    const chip = screen.getByTestId('awaiting-merge-status')
+    expect(chip.textContent).toBe('ready to merge')
+    expect(chip.querySelector('svg')).toBeTruthy()
+    expect(chip.className).toContain('bg-attention/10')
   })
 })
