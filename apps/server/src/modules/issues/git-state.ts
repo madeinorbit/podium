@@ -111,16 +111,24 @@ export async function probeGitState(
   const unpushed = unpushedRes.ok ? Number.parseInt(unpushedRes.output, 10) : Number.NaN
 
   // Merge-axis "landed" check, only worth a subprocess once nothing is ahead.
-  // A fresh branch still sitting AT its start point is contained too — require
-  // a moved parent tip is unknowable here, so `merged` deliberately reads as
-  // "nothing on this branch is missing from the parent".
+  // Containment alone can't tell "landed" from "fresh branch still sitting AT
+  // its start point" (both are ancestors of the parent), so also require the
+  // tip to have moved off the branch's creation point — the oldest reflog
+  // entry. No reflog (unlikely on locally-created worktrees) → fall back to
+  // the containment answer rather than never reporting merged.
   let merged = false
   if (!target.shared && ahead === 0 && target.branch !== null) {
     const res = await op('isMergedInto', {
       branch: target.branch,
       parentBranch: target.parentBranch,
     })
-    merged = res.ok
+    if (res.ok) {
+      const reflog = await op('branchReflog', { branch: target.branch })
+      const shas = reflog.output.split('\n').filter(Boolean)
+      const creationSha = shas[shas.length - 1]
+      const tipSha = head.ok ? head.output.split('\t')[0]?.trim() : undefined
+      merged = !reflog.ok || !creationSha || !tipSha || tipSha !== creationSha
+    }
   }
 
   const lastCommitAt = head.ok ? head.output.split('\t')[1]?.trim() : undefined

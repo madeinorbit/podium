@@ -214,6 +214,10 @@ export const RepoOp = z.enum([
   'worktreeRemove',
   'branchDelete',
   'isMergedInto',
+  // branchReflog: full reflog shas of a branch, oldest last — its creation
+  // point. Lets the git-state probe tell "merged" (branch moved, then landed)
+  // apart from "fresh branch still at its start point" [POD-156].
+  'branchReflog',
   // integrate (issue #70) — rebuild an epic's integration branch from its closed
   // children. worktreeAddReset/checkoutReset use -B (reset-to-startPoint is the
   // POINT: every run rebuilds); rebaseAbort cleanly unwinds a conflicted rebase;

@@ -148,6 +148,14 @@ export function repoOpCommand(op: RepoOp, args: Record<string, string> = {}): Re
       if (!branch || !parentBranch) return { error: 'missing args' }
       return { bin: 'git', argv: ['merge-base', '--is-ancestor', '--', branch, parentBranch] }
     }
+    case 'branchReflog': {
+      // Reflog shas for a branch, oldest last (last line = creation point).
+      // refs/heads/ prefix neutralizes a leading-dash branch name; trailing
+      // `--` keeps the ref from being read as a path.
+      const { branch } = args
+      if (!branch) return { error: 'missing args' }
+      return { bin: 'git', argv: ['log', '-g', '--format=%H', `refs/heads/${branch}`, '--'] }
+    }
     case 'worktreeAddReset': {
       // -B (vs worktreeAdd's -b): resets the branch to startPoint if it already
       // exists — integrate (issue #70) REBUILDS its integration branch every run.

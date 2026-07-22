@@ -95,6 +95,36 @@ describe('probeGitState', () => {
     expect(calls.some((c) => c.op === 'isMergedInto')).toBe(true)
   })
 
+  test('fresh branch still at its creation point is NOT merged', async () => {
+    const state = await probeGitState(
+      io({
+        statusProbe: { ok: true, output: '## issue/143-fonts' },
+        logHead: { ok: true, output: 'base00\t2026-07-20T10:00:00Z' },
+        'revListCount:main..HEAD': { ok: true, output: '0' },
+        isMergedInto: { ok: true, output: '' },
+        branchReflog: { ok: true, output: 'base00' },
+      }),
+      { cwd: '/wt', shared: false, parentBranch: 'main', branch: 'issue/143-fonts' },
+      now,
+    )
+    expect(state.merged).toBeUndefined()
+  })
+
+  test('branch that moved off its creation point and landed IS merged', async () => {
+    const state = await probeGitState(
+      io({
+        statusProbe: { ok: true, output: '## issue/98-viz' },
+        logHead: { ok: true, output: 'tip999\t2026-07-20T11:00:00Z' },
+        'revListCount:main..HEAD': { ok: true, output: '0' },
+        isMergedInto: { ok: true, output: '' },
+        branchReflog: { ok: true, output: 'tip999\nmid555\nbase00' },
+      }),
+      { cwd: '/wt', shared: false, parentBranch: 'main', branch: 'issue/98-viz' },
+      now,
+    )
+    expect(state.merged).toBe(true)
+  })
+
   test('shared checkout: merge axis suppressed, attribution carried', async () => {
     const calls: Array<{ op: string; args?: Record<string, string> }> = []
     const state = await probeGitState(
