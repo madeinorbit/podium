@@ -299,6 +299,10 @@ describe('sendTurn (headless harness turns)', () => {
     expect(h.registry.sessionStore.superagent.getSuperagentThread('global')?.agentKind).toBe(
       'claude-code',
     )
+    expect(h.sa.listThreads().find((thread) => thread.id === 'global')?.turnRunning).toBe(true)
+    h.resolveTurn(req, { harnessSessionId: 'h1' })
+    await h.settle()
+    expect(h.sa.listThreads().find((thread) => thread.id === 'global')?.turnRunning).toBe(false)
   })
 
   it('forwards turn events + boundary markers as headlessActivity broadcasts', async () => {

@@ -335,8 +335,14 @@ export class SuperagentService {
     }
   }
 
-  listThreads(): SuperagentThreadRow[] {
-    return this.store.superagent.listSuperagentThreads()
+  listThreads(): (SuperagentThreadRow & { turnRunning: boolean })[] {
+    // headlessActivity is intentionally ephemeral, but the composer must still
+    // know that a turn is running after a browser reload/reconnect. The durable
+    // pending rows repopulate turnInFlight at boot, so this query-backed flag is
+    // the late-joiner/reload source of truth while live events keep it current.
+    return this.store.superagent
+      .listSuperagentThreads()
+      .map((thread) => ({ ...thread, turnRunning: this.turnInFlight.has(thread.id) }))
   }
 
   /**

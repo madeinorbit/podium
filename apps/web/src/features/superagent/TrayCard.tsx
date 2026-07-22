@@ -3,9 +3,14 @@ import { type IssueGitState, type IssueWire, issueDisplayRef } from '@podium/pro
 import { type CSSProperties, type JSX, useState } from 'react'
 import { OfferArtifactStrip } from '@/features/chat/OfferArtifactStrip'
 import { composeOfferPrompt } from '@/features/chat/OfferBar'
-import { effectiveIssueColorHex, FLOW_SLATE } from '@/lib/issueColors'
+import { effectiveIssueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
 import { offerKey, type TrayItem } from './derive-tray'
+
+/** No-colour cards should recede behind user-selected identity colours. This is
+ * intentionally local to the tray: other flow surfaces keep their established
+ * neutral until they can be reviewed together. */
+const TRAY_NEUTRAL = '#565965'
 
 export interface TrayActions {
   /** Reply…: focus the chat composer with the question as context. */
@@ -53,7 +58,7 @@ function StateLine({ issue }: { issue: IssueWire }): JSX.Element {
   return (
     <div
       data-testid="tray-state-line"
-      className="truncate font-mono text-[9px] tracking-[.02em] tabular-nums text-muted-foreground"
+      className="truncate font-mono text-[10.5px] leading-[1.5] tracking-[.02em] tabular-nums text-muted-foreground"
     >
       {segments.map((s, i) => (
         <span key={s.text} className={s.warn ? 'text-destructive' : undefined}>
@@ -65,9 +70,9 @@ function StateLine({ issue }: { issue: IssueWire }): JSX.Element {
   )
 }
 
-/* 24px xs control scale (§2.3-v3): 11px label, 3px 12px padding, r6. */
+/* 28px card control scale: 12px label, comfortable inline padding, r7. */
 const BTN =
-  'inline-flex min-h-6 flex-none cursor-pointer items-center rounded-[6px] px-3 py-[3px] text-[11px] transition-colors'
+  'inline-flex min-h-7 flex-none cursor-pointer items-center rounded-[7px] px-3.5 py-1 text-[12px] leading-[1.35] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--issue) focus-visible:ring-offset-1 focus-visible:ring-offset-background'
 const BTN_SEC = `${BTN} border border-[rgba(243,243,248,.28)] bg-transparent text-foreground hover:border-[rgba(243,243,248,.5)]`
 const BTN_TER = `${BTN} border border-border-strong bg-transparent text-muted-foreground hover:border-text-dim hover:text-foreground`
 
@@ -88,7 +93,10 @@ function PrimaryButton({
       title={title}
       disabled={disabled}
       className={`${BTN} border-0 font-semibold hover:opacity-85 disabled:cursor-default disabled:opacity-50`}
-      style={{ background: 'var(--issue)', color: 'color-mix(in srgb, var(--issue) 25%, #000)' }}
+      style={{
+        background: 'var(--issue)',
+        color: 'var(--issue-action-fg, color-mix(in srgb, var(--issue) 25%, #000))',
+      }}
       onClick={(e) => {
         e.stopPropagation()
         onClick()
@@ -104,7 +112,7 @@ function SessionLink({ item, actions }: { item: TrayItem; actions: TrayActions }
     <button
       type="button"
       data-testid="tray-session-link"
-      className="ml-auto flex-none cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[10px] text-text-dim hover:text-muted-foreground"
+      className="ml-auto inline-flex min-h-6 flex-none cursor-pointer items-center whitespace-nowrap rounded-sm border-0 bg-transparent px-1 py-0 text-[11px] leading-5 text-text-dim hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--issue)"
       onClick={(e) => {
         e.stopPropagation()
         actions.onOpenSession(item)
@@ -148,7 +156,7 @@ export function TrayCard({
   const [pending, setPending] = useState<number | null>(null)
   const [feedback, setFeedback] = useState('')
   const flowHex = effectiveIssueColorHex(issue, (id) => issues.find((i) => i.id === id))
-  const hex = flowHex ?? FLOW_SLATE
+  const hex = flowHex ?? TRAY_NEUTRAL
   const colored = flowHex !== undefined
   // An offer belongs to a SPECIFIC session; question cards fall back to the
   // issue's first live agent session for the name chip.
@@ -166,10 +174,12 @@ export function TrayCard({
       : { mix: 'issue-mix-16 issue-hairline-55', hover: 'hover:issue-hairline-80' }
   const cardStyle = {
     '--issue': hex,
+    ...(!colored ? { '--issue-action-fg': '#f3f3f8' } : {}),
     ...(selected
       ? {
-          boxShadow:
-            '0 0 0 1px color-mix(in srgb, var(--issue) 35%, transparent), 0 0 14px -4px color-mix(in srgb, var(--issue) 45%, transparent)',
+          boxShadow: colored
+            ? '0 0 0 1px color-mix(in srgb, var(--issue) 35%, transparent), 0 0 14px -4px color-mix(in srgb, var(--issue) 45%, transparent)'
+            : '0 0 0 1px rgba(174,176,187,.38), 0 0 12px -5px rgba(174,176,187,.24)',
         }
       : {}),
   } as CSSProperties
@@ -186,7 +196,7 @@ export function TrayCard({
       data-issue-colored={colored ? 'true' : 'false'}
       data-selected={selected || undefined}
       className={cn(
-        'issue-scope flex cursor-pointer flex-col gap-1.5 rounded-[10px] border px-[11px] py-[9px] transition-[border-color]',
+        'issue-scope flex cursor-pointer flex-col gap-2.5 rounded-[11px] border px-3.5 py-3 transition-[border-color,background-color,box-shadow] focus-within:border-(--issue)',
         tier.mix,
         tier.hover,
         arrived && 'morph-card-flash',
@@ -197,27 +207,32 @@ export function TrayCard({
       onClick={() => actions.onOpenSession(item)}
     >
       {/* Header row (§2.3-v3): square · mono ref · title · ◆ agent · frozen ago */}
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex min-w-0 items-center gap-2">
         <span
           className="size-2 flex-none rounded-[3px]"
           style={{ background: 'var(--issue)' }}
           aria-hidden="true"
         />
         <span
-          className="flex-none font-mono text-[9.5px]"
+          className="flex-none font-mono text-[10.5px] leading-5"
           style={{ color: 'color-mix(in srgb, var(--issue) 65%, #f3f3f8)' }}
         >
           {issueDisplayRef(issue)}
         </span>
-        <span className="min-w-0 truncate text-[10.5px] text-muted-foreground">{issue.title}</span>
+        <span
+          data-testid="tray-title"
+          className="min-w-0 truncate text-[12px] leading-5 text-muted-foreground"
+        >
+          {issue.title}
+        </span>
         {agentSession?.name && (
-          <span className="flex-none truncate whitespace-nowrap text-[9.5px] text-text-dim">
+          <span className="max-w-[32%] flex-none truncate whitespace-nowrap text-[10.5px] leading-5 text-text-dim">
             · <span className="text-claude">◆</span> {agentSession.name}
           </span>
         )}
         <span
           className={cn(
-            'ml-auto flex-none font-mono text-[9px] tabular-nums text-attention',
+            'ml-auto flex-none font-mono text-[10px] leading-5 tabular-nums text-attention',
             arrived && 'morph-flip-ago',
           )}
         >
@@ -232,10 +247,13 @@ export function TrayCard({
           // biome-ignore lint/a11y/useKeyWithClickEvents: not an interactive target, just a propagation fence
           <div
             data-testid="tray-offer-feedback"
-            className="flex flex-col gap-1.5"
+            className="flex flex-col gap-2.5"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-[12px] font-semibold leading-[1.35] text-(--issue-text)">
+            <div
+              data-testid="tray-headline"
+              className="text-[14px] font-semibold leading-[1.4] text-(--issue-text)"
+            >
               {item.offer.actions[pending].label} — add your feedback
             </div>
             <textarea
@@ -252,9 +270,9 @@ export function TrayCard({
                 }
                 if (e.key === 'Escape') setPending(null)
               }}
-              className="w-full resize-none rounded-[6px] border bg-[rgba(8,8,12,.7)] px-[9px] py-1.5 text-[11px] leading-[1.45] text-foreground outline-none issue-hairline-40 placeholder:text-text-dim focus:issue-hairline-70"
+              className="w-full resize-none rounded-[7px] border bg-[rgba(8,8,12,.7)] px-2.5 py-2 text-[12.5px] leading-[1.55] text-foreground outline-none issue-hairline-40 placeholder:text-text-dim focus:issue-hairline-70"
             />
-            <div className="flex min-w-0 items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-2">
               <PrimaryButton
                 label="Send"
                 disabled={!feedback.trim()}
@@ -276,7 +294,7 @@ export function TrayCard({
               >
                 Cancel
               </button>
-              <span className="ml-auto min-w-0 truncate font-mono text-[8px] tracking-[.04em] text-text-faint">
+              <span className="ml-auto min-w-0 truncate font-mono text-[9px] tracking-[.04em] text-text-faint">
                 appended to “{item.offer.actions[pending].prompt.slice(0, 32)}…”
               </span>
             </div>
@@ -286,13 +304,16 @@ export function TrayCard({
             {/* Headline = first message line; state line = machine-set git facts;
                 body = the rest, clamped — overflow reads in the session. */}
             {headline && (
-              <div className="text-[12px] font-semibold leading-[1.35] text-(--issue-text) [text-wrap:balance]">
+              <div
+                data-testid="tray-headline"
+                className="text-[14px] font-semibold leading-[1.4] text-(--issue-text) [text-wrap:balance]"
+              >
                 {headline}
               </div>
             )}
             <StateLine issue={issue} />
             {body && (
-              <div className="line-clamp-2 whitespace-pre-wrap text-[11px] leading-[1.5] text-(--issue-bright)">
+              <div className="line-clamp-2 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-(--issue-bright)">
                 {body}
               </div>
             )}
@@ -302,7 +323,7 @@ export function TrayCard({
             <OfferArtifactStrip offer={item.offer} session={item.session} />
             <div
               className={cn(
-                'flex min-w-0 flex-wrap items-center gap-1.5',
+                'flex min-w-0 flex-wrap items-center gap-2',
                 arrived && 'morph-tick-in',
               )}
             >
@@ -340,7 +361,10 @@ export function TrayCard({
         // offer (with its buttons) is the richer form; this only guarantees a
         // review-stage issue is never invisible. Card click opens the session.
         <>
-          <div className="text-[12px] font-semibold leading-[1.35] text-(--issue-text) [text-wrap:balance]">
+          <div
+            data-testid="tray-headline"
+            className="text-[14px] font-semibold leading-[1.4] text-(--issue-text) [text-wrap:balance]"
+          >
             Ready for review
           </div>
           <StateLine issue={issue} />
@@ -350,14 +374,14 @@ export function TrayCard({
         </>
       ) : (
         <>
-          <div className="text-[11px] leading-[1.5] text-(--issue-bright)">
+          <div
+            data-testid="tray-copy"
+            className="text-[12.5px] leading-[1.6] text-(--issue-bright)"
+          >
             asks: <span className="text-text-strong">“{item.text}”</span>
           </div>
           <div
-            className={cn(
-              'flex min-w-0 flex-wrap items-center gap-1.5',
-              arrived && 'morph-tick-in',
-            )}
+            className={cn('flex min-w-0 flex-wrap items-center gap-2', arrived && 'morph-tick-in')}
           >
             {/* Answer chips render here once the backend carries options (#53);
                 until then Reply… routes the answer through the composer. */}

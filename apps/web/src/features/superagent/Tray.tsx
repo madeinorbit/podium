@@ -91,14 +91,16 @@ export function Tray({
     return (
       <div
         data-testid="tray-empty"
-        className="flex flex-none items-center justify-center gap-[9px] px-3 pt-4 pb-[17px]"
+        className="flex flex-none flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 px-4 pt-5 pb-5"
       >
         <span className="text-[12px] text-[#3f3f4a]" aria-hidden="true">
           ✓
         </span>
-        <span className="text-[11px] text-text-dim">Nothing waiting on you — anywhere</span>
+        <span className="text-[12px] leading-5 text-text-dim">
+          Nothing waiting on you — anywhere
+        </span>
         {working > 0 && (
-          <span className="flex items-center gap-1.5 font-mono text-[9px] text-live">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] leading-5 text-live">
             <BrailleSpinner size={9} className="min-w-2" />
             {working} agent{working === 1 ? '' : 's'} working
           </span>
@@ -111,7 +113,7 @@ export function Tray({
     <div
       data-testid="tray-cards"
       className={cn(
-        'flex flex-none flex-col gap-1.5 overflow-y-auto px-3 pt-2 pb-2.5',
+        'flex flex-none flex-col gap-2.5 overflow-y-auto px-3.5 pt-3 pb-3.5',
         // No split-handle height → a static viewport-relative cap [POD-198]:
         // the card stack scrolls internally instead of pushing the chat and
         // section bars off screen. A CSS max-height, never animated (the

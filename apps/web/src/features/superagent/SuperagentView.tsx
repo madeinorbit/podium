@@ -38,6 +38,9 @@ interface SuperThread {
   podiumSessionId?: string
   /** The harness's own session id — present once the thread has a real session. */
   harnessSessionId?: string
+  /** Query-backed running state for reloads/late joiners. Live events keep the
+   * embedded chat current after mount. */
+  turnRunning?: boolean
 }
 
 interface AtOption {
@@ -112,6 +115,7 @@ export function SuperagentView({
   const [threads, setThreads] = useState<SuperThread[]>([])
   const [error, setError] = useState<string | null>(null)
   const [pendingDraft, setPendingDraft] = useState('')
+  const [pendingFirstTurn, setPendingFirstTurn] = useState<string | null>(null)
   const thread = threads.find((t) => t.id === THREAD_ID)
   const podiumSessionId = thread?.podiumSessionId
 
@@ -421,7 +425,10 @@ export function SuperagentView({
       {(mobile || chatOpen) && (
         <>
           {error && (
-            <div className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] text-destructive">
+            <div
+              role="alert"
+              className="flex-none border-b border-hairline-soft px-[18px] py-2 text-[12px] leading-5 text-destructive"
+            >
               {error}
             </div>
           )}
@@ -445,6 +452,8 @@ export function SuperagentView({
                 active
                 superThread={{ threadId: THREAD_ID, kind: 'global' }}
                 compact
+                initialTurnRunning={thread?.turnRunning === true}
+                initialPendingText={pendingFirstTurn ?? undefined}
               />
             </div>
           ) : (
@@ -454,7 +463,10 @@ export function SuperagentView({
                 threadId={THREAD_ID}
                 initialDraft={pendingDraft}
                 onError={setError}
-                onSent={() => void refreshThreads()}
+                onSent={(text) => {
+                  setPendingFirstTurn(text)
+                  void refreshThreads()
+                }}
               />
             </div>
           )}
@@ -480,7 +492,7 @@ function FreshThreadComposer({
   threadId: string
   initialDraft?: string
   onError: (message: string | null) => void
-  onSent: () => void
+  onSent: (text: string) => void
 }): JSX.Element {
   const { trpc, repos, getUserFocus } = useStoreSelector(
     (s) => ({ trpc: s.trpc, repos: s.repos, getUserFocus: s.getUserFocus }),
@@ -587,11 +599,15 @@ function FreshThreadComposer({
     setSentText(text)
     onError(null)
     try {
-      await trpc.superagent.sendTurn.mutate({ threadId, text, focus: getUserFocus() })
+      await trpc.superagent.sendTurn.mutate({
+        threadId,
+        text,
+        focus: getUserFocus(),
+      })
       // The ack minted the headless session — refresh the thread list so the
       // parent swaps to the embedded ChatView (the bubble carries over there
       // via the transcript itself).
-      onSent()
+      onSent(text)
     } catch (e) {
       onError(e instanceof Error ? e.message : String(e))
       setSentText(null)
@@ -619,7 +635,11 @@ function FreshThreadComposer({
               </div>
               <div className="chat-md whitespace-pre-wrap">{sentText}</div>
             </div>
-            <div className="mx-auto w-full max-w-[960px] animate-pulse text-xs text-muted-foreground/70">
+            <div
+              role="status"
+              aria-live="polite"
+              className="mx-auto w-full max-w-[960px] animate-pulse text-xs text-muted-foreground/70"
+            >
               Starting the conversation…
             </div>
           </>

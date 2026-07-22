@@ -114,8 +114,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   /** Headless superagent sessions: collapse machine-authored [BTW/CONCIERGE
    *  CONTEXT/UPDATE] user blocks into a quiet disclosure row. */
   collapseContext?: boolean
-  /** Superagent-column compact treatment (engraved-column.md §2.5): 11px body,
-   *  8.5px role labels with mono clocks, accent bars, mono amber `→ next:`. */
+  /** Superagent-column treatment: shared Flat Field messages at narrow-column
+   * dimensions, with mono clocks, context labels, and an amber `→ next:` row. */
   compact?: boolean
   /** Issue seq the LATEST turn was answered with (compact only) — renders the
    *  `· POD-x context` suffix on that answer's SUPER AGENT label. */

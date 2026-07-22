@@ -159,6 +159,41 @@ describe('engraved column structure', () => {
 })
 
 describe('tray filtering (human-actionable only)', () => {
+  it('uses a muted neutral only for uncolored cards while preserving selected issue colors', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'quiet',
+        seq: 21,
+        title: 'No color selected',
+        needsHuman: true,
+        humanQuestion: 'Quiet fallback?',
+      }),
+      makeIssue({
+        id: 'violet',
+        seq: 22,
+        title: 'Violet selected',
+        color: 'violet',
+        needsHuman: true,
+        humanQuestion: 'Keep my color?',
+      }),
+    ]
+    await mount()
+    const quiet = container.querySelector(
+      '[data-testid="tray-card-question"][data-issue-seq="21"]',
+    ) as HTMLElement
+    const violet = container.querySelector(
+      '[data-testid="tray-card-question"][data-issue-seq="22"]',
+    ) as HTMLElement
+    expect(quiet.dataset.issueColored).toBe('false')
+    expect(quiet.style.getPropertyValue('--issue')).toBe('#565965')
+    expect(quiet.style.getPropertyValue('--issue-action-fg')).toBe('#f3f3f8')
+    expect(violet.dataset.issueColored).toBe('true')
+    expect(violet.style.getPropertyValue('--issue')).toBe('#8b5cf6')
+    expect(violet.style.getPropertyValue('--issue-action-fg')).toBe('')
+    expect(quiet.className).toContain('gap-2.5')
+    expect(quiet.className).toContain('px-3.5')
+  })
+
   it('renders cards GLOBALLY and NEVER working rows; selection only adds the ring', async () => {
     storeIssues = [
       makeIssue({ id: 'p', seq: 1, title: 'Parent epic' }),

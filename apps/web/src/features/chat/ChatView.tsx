@@ -85,6 +85,8 @@ export function ChatView({
   active = true,
   superThread,
   compact = false,
+  initialTurnRunning = false,
+  initialPendingText,
 }: {
   sessionId: string
   /** False when this panel is mounted but hidden (keep-mounted deck). On
@@ -96,6 +98,11 @@ export function ChatView({
   /** Narrow-dock mode (the superagent side panel): hides the search header,
    *  minimap + tl;dr. */
   compact?: boolean
+  /** Query-backed headless state for clients that mounted after turn-start. */
+  initialTurnRunning?: boolean
+  /** The first prompt shown optimistically while the freshly-created headless
+   * transcript catches up to the thread/session swap. */
+  initialPendingText?: string
 }): JSX.Element {
   const {
     hub,
@@ -135,14 +142,14 @@ export function ChatView({
   // and mid-turn partial text streams into an overlay row below the transcript.
   const headless = session?.headless === true
   // True while a headless turn runs (turn-start → turn-end).
-  const [turnRunning, setTurnRunning] = useState(false)
+  const [turnRunning, setTurnRunning] = useState(initialTurnRunning)
   // Streaming overlay: cumulative partial assistant text, or a status label
   // ("running Bash…"), whichever the driver last reported. Null = no overlay.
   const [overlay, setOverlay] = useState<{ text?: string; status?: string } | null>(null)
   // sendTurn rejection / turn error, surfaced inline above the composer.
   const [turnError, setTurnError] = useState<string | null>(null)
   useEffect(() => {
-    setTurnRunning(false)
+    setTurnRunning(initialTurnRunning)
     setOverlay(null)
     setTurnError(null)
     if (!headless) return
@@ -178,7 +185,7 @@ export function ChatView({
           break
       }
     })
-  }, [hub, sessionId, headless])
+  }, [hub, sessionId, headless, initialTurnRunning])
   // Full-screen image preview (SendUserFile / image tags), null when closed.
   const [lightbox, setLightbox] = useState<string | null>(null)
   // Whether the last user prompt is stuck to the top (scrolled up past it).
@@ -197,7 +204,11 @@ export function ChatView({
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const [atBottom, setAtBottom] = useState(true)
-  const [pending, setPending] = useState<PendingItem[]>([])
+  const initialPending = (): PendingItem[] =>
+    initialPendingText
+      ? [{ id: 'pending-first-turn', text: initialPendingText, at: Date.now(), state: 'sent' }]
+      : []
+  const [pending, setPending] = useState<PendingItem[]>(initialPending)
   const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([])
   const pendingSeq = useRef(0)
   // Block ids seen on the previous render — lets us detect *newly arrived* user
@@ -336,7 +347,7 @@ export function ChatView({
   // row from the previous session bleeds into the newly selected one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on session switch
   useEffect(() => {
-    setPending([])
+    setPending(initialPending())
     setQueuedMessages([])
     setJustSent(false)
     seenUserIds.current = new Set()
@@ -678,7 +689,13 @@ export function ChatView({
             })
           }
         } catch (e) {
-          setTurnError(e instanceof Error ? e.message : String(e))
+          const message = e instanceof Error ? e.message : String(e)
+          if (message.includes('turn is already running')) setTurnRunning(true)
+          setTurnError(
+            message.includes('turn is already running')
+              ? 'Super agent is still working on the previous message. Wait for it to finish or stop the turn before sending another.'
+              : message,
+          )
           throw e
         }
         return
@@ -970,7 +987,7 @@ export function ChatView({
           ref={scrollerRef}
           onScroll={onScroll}
         >
-          {blocks.length === 0 && loadingTranscript && (
+          {blocks.length === 0 && loadingTranscript && pending.length === 0 && (
             <div
               className="mx-auto my-8 flex items-center gap-2 text-[13px] text-muted-foreground"
               role="status"
@@ -983,7 +1000,7 @@ export function ChatView({
               Loading transcript…
             </div>
           )}
-          {blocks.length === 0 && !loadingTranscript && (
+          {blocks.length === 0 && !loadingTranscript && pending.length === 0 && (
             <div className="mx-auto my-6 max-w-[52ch] text-center text-[13px] text-muted-foreground/70">
               No transcript yet. For Claude, Codex, and Grok sessions the feed starts with the first
               prompt; shells have no structured transcript.
@@ -1135,7 +1152,7 @@ export function ChatView({
               </div>
             </div>
           )}
-          {activity && (
+          {activity && !overlay?.status && (
             <div
               role="status"
               aria-live="polite"
@@ -1274,7 +1291,7 @@ export function ChatView({
               placeholder={
                 headless
                   ? turnRunning
-                    ? 'Working — stop the turn to interject…'
+                    ? 'Working — stop to interject…'
                     : compact
                       ? 'Ask Superagent to plan, delegate, or review — @ for context'
                       : 'Message the agent…'
