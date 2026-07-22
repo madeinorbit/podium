@@ -136,8 +136,10 @@ const EFFORT_SHORT: Record<string, string> = {
 /**
  * The header's model token [POD-121]: "fable 5 · med". The model is the
  * transcript-OBSERVED one when known (`observedModel` — resolves a spawn-time
- * `auto` and follows `/model` switches), else the spawn selection; effort only
- * exists as the spawn-time request. Null until either model source is known.
+ * `auto` and follows `/model` switches), else the spawn selection — including
+ * an explicit "auto", shown literally until observation resolves it [POD-158].
+ * Effort renders even before any model is known ("· med"→ effort-only label).
+ * Null only when neither a model nor an effort is known.
  *
  * Id compaction: "claude-fable-5" → "fable 5", "claude-opus-4-8" → "opus 4.8",
  * "claude-haiku-4-5-20251001" → "haiku 4.5" (date suffix dropped, consecutive
@@ -149,27 +151,31 @@ export function modelToken(session: {
   model?: string
   effort?: string
 }): string | null {
-  const raw =
-    session.observedModel ?? (session.model && session.model !== 'auto' ? session.model : undefined)
-  if (!raw) return null
-  const parts = raw
-    .replace(/^claude-/, '')
-    .replace(/-\d{8}$/, '')
-    .split('-')
-  const words: string[] = []
-  for (const part of parts) {
-    const last = words.at(-1)
-    if (/^\d+$/.test(part) && last !== undefined && /^\d/.test(last)) {
-      words[words.length - 1] = `${last}.${part}`
-    } else {
-      words.push(part)
+  const raw = session.observedModel ?? session.model
+  let label: string | undefined
+  if (raw === 'auto') {
+    label = 'auto'
+  } else if (raw) {
+    const parts = raw
+      .replace(/^claude-/, '')
+      .replace(/-\d{8}$/, '')
+      .split('-')
+    const words: string[] = []
+    for (const part of parts) {
+      const last = words.at(-1)
+      if (/^\d+$/.test(part) && last !== undefined && /^\d/.test(last)) {
+        words[words.length - 1] = `${last}.${part}`
+      } else {
+        words.push(part)
+      }
     }
+    label = words.join(' ')
   }
-  const label = words.join(' ')
   const rawEffort =
     session.observedEffort ??
     (session.effort && session.effort !== 'auto' ? session.effort : undefined)
   const effort = rawEffort ? (EFFORT_SHORT[rawEffort] ?? rawEffort) : undefined
+  if (!label) return effort ?? null
   return effort ? `${label} · ${effort}` : label
 }
 

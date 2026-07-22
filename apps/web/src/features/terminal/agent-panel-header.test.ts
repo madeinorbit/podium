@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { modelToken } from './AgentPanel'
 
 // The header's model token [POD-121]: observed model beats the spawn selection,
-// `auto` never shows, effort renders compacted after a middle dot.
+// a spawn-time `auto` shows literally until observed [POD-158], effort renders
+// compacted after a middle dot (alone if no model is known yet).
 describe('modelToken', () => {
   it('compacts an observed model id with effort', () => {
     expect(modelToken({ observedModel: 'claude-fable-5', effort: 'medium' })).toBe('fable 5 · med')
@@ -18,10 +19,20 @@ describe('modelToken', () => {
     expect(modelToken({ observedModel: 'claude-fable-5', model: 'opus' })).toBe('fable 5')
   })
 
-  it('falls back to a concrete spawn selection, never to auto', () => {
+  it('falls back to the spawn selection, showing auto literally', () => {
     expect(modelToken({ model: 'opus' })).toBe('opus')
-    expect(modelToken({ model: 'auto' })).toBeNull()
+    expect(modelToken({ model: 'auto' })).toBe('auto')
+    expect(modelToken({ model: 'auto', effort: 'medium' })).toBe('auto · med')
     expect(modelToken({})).toBeNull()
+  })
+
+  it('renders effort alone before any model is known', () => {
+    expect(modelToken({ effort: 'high' })).toBe('high')
+    expect(modelToken({ effort: 'auto' })).toBeNull()
+  })
+
+  it('observation replaces a spawn-time auto', () => {
+    expect(modelToken({ observedModel: 'claude-fable-5', model: 'auto' })).toBe('fable 5')
   })
 
   it('hides an auto effort and passes unknown efforts through', () => {
