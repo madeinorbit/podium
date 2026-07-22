@@ -211,15 +211,18 @@ export function SuperagentView({
     void refreshThreads()
   }
 
-  const selectedIssue = selectedIssueId
-    ? issues.find((i) => i.id === selectedIssueId && !i.archived && !i.deletedAt)
-    : undefined
-
   // Agent action offers [spec:SP-c7f1]: a clicked offer hides optimistically
   // until the server clears it off the session meta (mirrors ChatView's
   // dismissedOfferAt). Keyed by offerKey so a NEW offer re-shows.
   const [dismissedOffers, setDismissedOffers] = useState<ReadonlySet<string>>(new Set())
-  const itemCount = trayCount(issues, selectedIssueId ?? null, dismissedOffers)
+  const itemCount = trayCount(issues, dismissedOffers)
+  // The amber count pill pops exactly when the count INCREASES (motion.md
+  // §2.2) — decreases and steady renders stay still.
+  const prevCountRef = useRef(itemCount)
+  const pillPop = itemCount > prevCountRef.current
+  useEffect(() => {
+    prevCountRef.current = itemCount
+  })
 
   // ---- tray actions (v1 wiring — real backend verbs are #53/#54) ----
   const focusComposer = (): void => {
@@ -298,10 +301,18 @@ export function SuperagentView({
             testId="tray-bar"
             glyph="▤"
             title="Tray"
-            scope={selectedIssue ? 'TASK SCOPE' : 'ALL TASKS'}
+            scope="ALL TASKS · NEWEST FIRST"
             open={trayOpen}
             onToggle={() => setTrayOpen(!trayOpen)}
-            badge={!trayOpen ? <CountPill count={itemCount} /> : undefined}
+            badge={
+              // The pill rides the bar open OR collapsed (mock v3) — the
+              // "needs you" count never disappears with the section.
+              itemCount > 0 ? (
+                <span key={itemCount} className={cn('flex', pillPop && 'morph-pop')}>
+                  <CountPill count={itemCount} />
+                </span>
+              ) : undefined
+            }
             className="border-b"
             actions={
               onClose ? (
@@ -414,7 +425,6 @@ export function SuperagentView({
           <EventFeed
             events={feed.events}
             issues={issues}
-            selectedIssueId={selectedIssueId ?? null}
             dividerId={feed.dividerId}
             dividerTs={feed.dividerTs}
             onSelectIssue={(issueId) => setSelectedIssueId(issueId)}

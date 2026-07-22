@@ -116,8 +116,9 @@ export function OfferArtifactStrip({
             data-testid="offer-artifact-thumb"
             className={
               media
-                ? 'relative flex-none cursor-zoom-in overflow-hidden rounded-md border border-border/70 transition-colors hover:border-primary/60'
-                : 'flex max-w-40 flex-none cursor-pointer items-center gap-1 rounded-md border border-border/70 bg-muted/30 px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground'
+                ? // 70×44 thumbs on the r5 radius (engraved-column.md §2.3-v3).
+                  'relative h-11 w-[70px] flex-none cursor-zoom-in overflow-hidden rounded-[5px] border border-border/70 transition-colors hover:border-primary/60'
+                : 'flex max-w-40 flex-none cursor-pointer items-center gap-1 rounded-[5px] border border-border/70 bg-muted/30 px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground'
             }
             onClick={(e) => {
               e.stopPropagation()
@@ -125,18 +126,14 @@ export function OfferArtifactStrip({
             }}
           >
             {media && kind === 'image' ? (
-              <img
-                src={src as string}
-                alt={label}
-                className="block h-12 w-auto max-w-24 object-cover"
-              />
+              <img src={src as string} alt={label} className="block size-full object-cover" />
             ) : media ? (
               <>
                 <video
                   src={src as string}
                   preload="metadata"
                   muted
-                  className="pointer-events-none block h-12 w-auto max-w-24 object-cover"
+                  className="pointer-events-none block size-full object-cover"
                 />
                 <span className="absolute inset-0 flex items-center justify-center">
                   <span className="flex size-5 items-center justify-center rounded-full bg-black/55 text-white">
@@ -156,7 +153,7 @@ export function OfferArtifactStrip({
       {extra > 0 && (
         <span
           data-testid="offer-artifact-extra"
-          className="flex-none text-[10px] text-muted-foreground"
+          className="flex-none font-mono text-[8.5px] text-text-faint"
         >
           +{extra}
         </span>

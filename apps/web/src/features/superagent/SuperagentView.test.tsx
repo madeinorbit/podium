@@ -143,20 +143,23 @@ describe('engraved column structure', () => {
     expect(container.querySelector('[data-testid="tray-empty"]')?.textContent).toContain(
       'Nothing waiting on you',
     )
-    // No issue selected — the tray is unscoped.
-    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain('ALL TASKS')
+    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain(
+      'ALL TASKS · NEWEST FIRST',
+    )
   })
 
-  it('scopes the bar label to the selected issue', async () => {
+  it('the scope label is STATIC (§5): a selection never rescopes the tray', async () => {
     storeIssues = [makeIssue({ id: 'p', seq: 7 })]
     storeSelectedIssueId = 'p'
     await mount()
-    expect(container.querySelector('[data-testid="tray-bar"]')?.textContent).toContain('TASK SCOPE')
+    const label = container.querySelector('[data-testid="tray-bar"]')?.textContent
+    expect(label).toContain('ALL TASKS · NEWEST FIRST')
+    expect(label).not.toContain('TASK SCOPE')
   })
 })
 
 describe('tray filtering (human-actionable only)', () => {
-  it('renders question cards from the selected subtree and NEVER working rows', async () => {
+  it('renders cards GLOBALLY and NEVER working rows; selection only adds the ring', async () => {
     storeIssues = [
       makeIssue({ id: 'p', seq: 1, title: 'Parent epic' }),
       makeIssue({
@@ -173,14 +176,18 @@ describe('tray filtering (human-actionable only)', () => {
       makeIssue({ id: 'w', seq: 4, parentId: 'p', stage: 'in_progress', title: 'Worker issue' }),
       makeIssue({ id: 'x', seq: 9, needsHuman: true, humanQuestion: 'Outside the subtree?' }),
     ]
-    storeSelectedIssueId = 'p'
+    storeSelectedIssueId = 'q'
     await mount()
     const cards = [...container.querySelectorAll('[data-testid^="tray-card-"]')]
-    expect(cards.map((c) => c.getAttribute('data-issue-seq'))).toEqual(['2', '3'])
+    // The tray is global (§5): the unrelated seq-9 question renders too.
+    expect(cards.map((c) => c.getAttribute('data-issue-seq'))).toEqual(['2', '3', '9'])
+    // Only the selected issue's card carries the ring marker.
+    expect(cards.map((c) => c.getAttribute('data-selected'))).toEqual(['true', null, null])
     expect(container.querySelector('[data-testid="tray-card-review"]')?.textContent).toContain(
-      'Ready for review.',
+      'Ready for review',
     )
     expect(container.textContent).toContain('Ship behind a flag?')
+    expect(container.textContent).toContain('Outside the subtree?')
     expect(container.textContent).toContain('Refresh-timer fix')
     expect(container.textContent).not.toContain('Worker issue')
     expect(container.querySelector('[data-testid="tray-empty"]')).toBeNull()
@@ -227,10 +234,39 @@ describe('tray filtering (human-actionable only)', () => {
     expect(setPane).not.toHaveBeenCalled()
     // Optimistically consumed — the card is gone before the server clears it.
     expect(container.querySelector('[data-testid="tray-card-offer"]')).toBeNull()
-    // No redundant session link — the whole card already opens the session.
-    expect(
-      [...container.querySelectorAll('button')].some((b) => b.textContent?.includes('session')),
-    ).toBe(false)
+  })
+
+  it('the session → link opens the offer session without firing the action', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'o',
+        seq: 6,
+        sessions: [
+          {
+            sessionId: 'agent-1',
+            agentKind: 'claude-code',
+            status: 'live',
+            cwd: '/r/wt',
+            createdAt: 't',
+            lastActiveAt: 't',
+            offer: {
+              message: 'Pick one.',
+              actions: [{ label: 'Merge it', prompt: 'merge' }],
+              createdAt: '2026-07-14T12:00:00Z',
+            },
+          },
+        ] as never,
+      }),
+    ]
+    await mount()
+    const link = container.querySelector<HTMLButtonElement>('[data-testid="tray-session-link"]')
+    expect(link).not.toBeNull()
+    await act(async () => {
+      link?.click()
+    })
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+    expect(setPane).toHaveBeenCalledWith('A', 'agent-1')
+    expect(setView).toHaveBeenCalledWith('workspace')
   })
 
   it('offer input actions collect feedback in the card, then send prompt + feedback', async () => {
@@ -276,9 +312,7 @@ describe('tray filtering (human-actionable only)', () => {
       setter?.call(field, 'Dock icon still dead.')
       field.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    const confirm = [...container.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Send back',
-    )
+    const confirm = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Send')
     await act(async () => {
       confirm?.click()
       await Promise.resolve()
@@ -306,7 +340,6 @@ describe('tray filtering (human-actionable only)', () => {
     ]
     await mount()
     const card = container.querySelector('[data-testid="tray-card-finished"]')
-    expect(card?.textContent).toContain('finished')
     expect(card?.textContent).toContain('merged to main')
     const archive = [...container.querySelectorAll('button')].find((b) =>
       b.textContent?.includes('Archive'),

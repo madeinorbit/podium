@@ -8,19 +8,18 @@ import type { IssueWire, SessionMeta, SessionOffer } from '@podium/protocol'
 const FINISHED_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /**
- * The Tray's whole contract (.design/specs/engraved-column.md §2.3–§2.4): the
- * ONLY things it ever shows are items that need a HUMAN — an agent's question
- * (`needsHuman`), an agent's action offer (SessionOffer [spec:SP-c7f1],
- * which is how review-ready work announces itself richly), a deterministic
- * review backstop for stage=review issues with no live offer [POD-118], or a
- * deterministic finished-task card awaiting Archive. Working/status rows never
- * appear; when nothing waits, the tray collapses to the quiet empty line whose
- * live counter comes from {@link workingSessionCount}.
+ * The Tray's whole contract (.design/specs/engraved-column.md §2.3-v3 + §5):
+ * the ONLY things it ever shows are items that need a HUMAN — an agent's
+ * question (`needsHuman`), an agent's action offer (SessionOffer
+ * [spec:SP-c7f1], which is how review-ready work announces itself richly), a
+ * deterministic review backstop for stage=review issues with no live offer
+ * [POD-118], or a deterministic finished-task card awaiting Archive. Working/
+ * status rows never appear; when nothing waits, the tray collapses to the
+ * quiet empty line whose live counter comes from {@link workingSessionCount}.
  *
- * Scope (spec §5): the selected issue AND its descendants — the handoff shows
- * children of the selected issue in the tray. With no issue selected the tray
- * widens to all live issues: a question waiting on the human must not vanish
- * just because nothing is selected.
+ * Scope (spec §5, POD-113): the tray is GLOBAL — every live item across all
+ * tasks, always. The selected issue influences rendering only via the colour
+ * ring on its cards; it never narrows or re-sorts the list.
  */
 export type TrayItem = {
   issue: IssueWire
@@ -48,31 +47,8 @@ export const offerKey = (sessionId: string, createdAt: string): string =>
 
 const live = (issue: IssueWire): boolean => !issue.archived && !issue.deletedAt
 
-/** The selected issue + its descendants (live issues only). Unknown/absent
- *  root ⇒ every live issue (global scope). */
-export function trayScopeIssues(issues: IssueWire[], selectedIssueId: string | null): IssueWire[] {
-  const alive = issues.filter(live)
-  if (!selectedIssueId || !alive.some((issue) => issue.id === selectedIssueId)) return alive
-  const byParent = new Map<string, IssueWire[]>()
-  for (const issue of alive) {
-    if (!issue.parentId) continue
-    const siblings = byParent.get(issue.parentId) ?? []
-    siblings.push(issue)
-    byParent.set(issue.parentId, siblings)
-  }
-  const scope: IssueWire[] = []
-  const queue = alive.filter((issue) => issue.id === selectedIssueId)
-  while (queue.length > 0) {
-    const issue = queue.shift() as IssueWire
-    scope.push(issue)
-    queue.push(...(byParent.get(issue.id) ?? []))
-  }
-  return scope
-}
-
 export function deriveTrayItems(
   issues: IssueWire[],
-  selectedIssueId: string | null,
   /** Offers optimistically consumed by a button click, keyed by
    *  {@link offerKey} — hidden until the server's cleared meta arrives
    *  (the same pattern as ChatView's dismissedOfferAt). */
@@ -82,7 +58,7 @@ export function deriveTrayItems(
   now: number = Date.now(),
 ): TrayItem[] {
   const items: TrayItem[] = []
-  for (const issue of trayScopeIssues(issues, selectedIssueId)) {
+  for (const issue of issues.filter(live)) {
     if (issue.needsHuman) {
       items.push({
         kind: 'question',
@@ -127,18 +103,22 @@ export function deriveTrayItems(
       items.push({ kind: 'finished', issue, since: issue.closedAt ?? issue.updatedAt })
     }
   }
-  // Newest first — the handoff's cards read top-down by recency.
-  return items.sort((a, b) => b.since.localeCompare(a.since))
+  // Stable global sort (§2.3-v3): decisions first (offers, questions, review
+  // backstops), finished last, newest-first within each — identical whatever
+  // is selected. Selection never re-sorts.
+  const rank = (item: TrayItem): number => (item.kind === 'finished' ? 1 : 0)
+  return items.sort((a, b) => rank(a) - rank(b) || b.since.localeCompare(a.since))
 }
 
 /**
- * The empty state's "N agents working" counter: live agent sessions attached to
- * the tray's scope. Shells and headless (superagent-embedded) sessions are not
- * "agents working on this task" any more than they are on the board.
+ * The empty state's "N agents working" counter (§2.4, global): live agent
+ * sessions across ALL live issues, machine-wide. Shells and headless
+ * (superagent-embedded) sessions are not "agents working on this task" any
+ * more than they are on the board.
  */
-export function workingSessionCount(issues: IssueWire[], selectedIssueId: string | null): number {
+export function workingSessionCount(issues: IssueWire[]): number {
   const seen = new Set<string>()
-  for (const issue of trayScopeIssues(issues, selectedIssueId)) {
+  for (const issue of issues.filter(live)) {
     for (const session of issue.sessions ?? []) {
       if (session.archived || session.headless === true || session.agentKind === 'shell') continue
       if (attentionGroup(session) === 'working') seen.add(session.sessionId)
@@ -151,9 +131,8 @@ export function workingSessionCount(issues: IssueWire[], selectedIssueId: string
  *  (spec §6.11 working assumption), not the waiting-session count. */
 export function trayCount(
   issues: IssueWire[],
-  selectedIssueId: string | null,
   dismissedOffers?: ReadonlySet<string>,
   now?: number,
 ): number {
-  return deriveTrayItems(issues, selectedIssueId, dismissedOffers, now).length
+  return deriveTrayItems(issues, dismissedOffers, now).length
 }

@@ -8,8 +8,8 @@ import { IssuePeekOverlay } from '@/components/IssuePeekOverlay'
 import { RefMiniviewHost, RefPrefixSync } from '@/components/RefMiniview'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { SettingsView } from '@/features/settings/SettingsView'
+import { OnboardingWizard } from '@/features/setup/OnboardingWizard'
 import { SUPER_CHAT_OPEN_KEY, TRAY_OPEN_KEY } from '@/features/superagent/column-state'
 import { trayCount } from '@/features/superagent/derive-tray'
 import { SuperagentView } from '@/features/superagent/SuperagentView'
@@ -326,7 +326,7 @@ function AppBody(): JSX.Element {
           {superMode === 'folded' && (
             <FoldedSuperagentBar
               issue={selectedIssue}
-              trayCount={trayCount(issues, selectedIssue?.id ?? null)}
+              trayCount={trayCount(issues)}
               unread={foldedFeed.unread}
               onExpand={(target) => {
                 // Land on the clicked half (3b/3d): pre-open that section so

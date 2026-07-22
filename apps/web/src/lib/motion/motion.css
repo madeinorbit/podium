@@ -155,6 +155,35 @@
 .morph-icon-flash {
   animation: podium-icon-flash 1s ease-out;
 }
+/* Tray-card arrival flash (POD-113 v3): the tray card owns a tinted background,
+   so the one-shot amber flash rides an inset shadow overlay instead of
+   background-color, ending fully transparent (the card's own tint returns). */
+@keyframes podium-card-flash {
+  0% {
+    box-shadow: inset 0 0 0 200px rgba(245, 158, 11, 0.32);
+  }
+  100% {
+    box-shadow: inset 0 0 0 200px rgba(245, 158, 11, 0);
+  }
+}
+.morph-card-flash {
+  animation: podium-card-flash 0.9s ease-out;
+}
+/* Tray-card insertion unfold (POD-113 v3): grid-template-rows 0fr→1fr — the
+   only sanctioned way to animate a card's arrival height (height:auto
+   transitions snap; see the repo's height-transition trap). */
+.tray-ins {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.tray-ins-open {
+  grid-template-rows: 1fr;
+}
+.tray-ins > div {
+  overflow: hidden;
+  min-height: 0;
+}
 /* Lineage flash (POD-85): selecting a spin-off briefly outlines its ORIGIN row —
    provenance as a gesture, not persistent chrome. */
 @keyframes podium-lineage {
@@ -193,6 +222,7 @@
   .morph-pop,
   .morph-pop-soft,
   .morph-row-flash,
+  .morph-card-flash,
   .morph-tick-in,
   .morph-flip-ago,
   .morph-icon-flash,
@@ -200,6 +230,11 @@
     animation: none;
   }
   .phase-surface {
+    transition: none;
+  }
+  /* Cards appear instantly — no unfold morph. */
+  .tray-ins {
+    grid-template-rows: 1fr;
     transition: none;
   }
 }

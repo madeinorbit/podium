@@ -1,7 +1,6 @@
 import type { IssueWire } from '@podium/protocol'
 import type { JSX } from 'react'
 import { FLOW_SLATE, issueColorHex } from '@/lib/issueColors'
-import { trayScopeIssues } from './derive-tray'
 import type { FeedEvent } from './useIssueEvents'
 
 const VERBS: Record<string, string> = {
@@ -46,21 +45,23 @@ const landsInTray = (kind: string, payload: unknown): boolean =>
 export function EventFeed({
   events,
   issues,
-  selectedIssueId,
   dividerId,
   dividerTs,
   onSelectIssue,
 }: {
   events: FeedEvent[]
   issues: IssueWire[]
-  selectedIssueId: string | null
   dividerId: number
   dividerTs: string | null
   onSelectIssue: (issueId: string) => void
 }): JSX.Element | null {
   if (events.length === 0) return null
   const byId = new Map(issues.map((issue) => [issue.id, issue]))
-  const scopeIds = new Set(trayScopeIssues(issues, selectedIssueId).map((issue) => issue.id))
+  // The tray is GLOBAL (POD-113 §5): every live issue's decisions land in THIS
+  // tray, so "in scope" = the issue is alive; dead issues keep the → pointer.
+  const scopeIds = new Set(
+    issues.filter((i) => !i.archived && !i.deletedAt).map((issue) => issue.id),
+  )
   const firstUnseen = events.findIndex((event) => event.id > dividerId)
   return (
     <div
