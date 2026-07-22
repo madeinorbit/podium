@@ -41,7 +41,9 @@ export function trayStateSegments(
   if (git.branch) out.push({ text: `⎇ ${git.branch}` })
   if (!git.shared && git.ahead !== undefined && git.ahead > 0)
     out.push({ text: `${git.ahead} ahead` })
-  const dirty = git.shared && git.dirtyOwn !== undefined ? git.dirtyOwn : git.dirtyFiles
+  // Shared checkout dirt is meaningful here only when the attribution probe
+  // can tie files to this issue. Global worktree state belongs in Git surfaces.
+  const dirty = git.shared ? (git.fallback ? 0 : (git.dirtyOwn ?? 0)) : git.dirtyFiles
   out.push(dirty > 0 ? { text: `${dirty} dirty`, warn: true } : { text: 'clean' })
   return out
 }

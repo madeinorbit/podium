@@ -121,6 +121,26 @@ test('closed rows fold locally after their result is read and focus moves away',
   await expect(fold).toHaveAttribute('aria-expanded', 'true')
   await expect(aside.getByText(alphaTitle)).toBeVisible()
   await expect(aside.getByText(betaTitle)).toBeVisible()
+
+  const closedRows = project.getByTestId('closed-fold-rows')
+  const settledRow = closedRows
+    .getByTestId('unified-issue-row')
+    .filter({ hasText: alphaTitle })
+    .first()
+  const orderBeforeSelection = await closedRows
+    .getByTestId('unified-issue-row')
+    .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-issue-row')))
+  await settledRow.locator('button.flex-1').first().click()
+  await expect(settledRow).toBeVisible()
+  await expect(settledRow.locator(':scope > [data-selected="true"]')).toBeVisible()
+  await expect
+    .poll(() =>
+      closedRows
+        .getByTestId('unified-issue-row')
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-issue-row'))),
+    )
+    .toEqual(orderBeforeSelection)
+
   await fold.click()
 
   await handoffRow.locator('button.flex-1').first().click()
@@ -143,7 +163,25 @@ test('closed rows fold locally after their result is read and focus moves away',
   )
   expect(closed.every((issue) => issue.archived === false)).toBe(true)
 
+  // Closed rows expose one quiet removal action on hover/focus. Drive the real
+  // button and verify the server mutation removes only that issue from the
+  // sidebar; closing and archiving remain separate lifecycle transitions.
+  const betaFoldRow = closedRows
+    .getByTestId('closed-fold-row')
+    .filter({ hasText: betaTitle })
+    .first()
+  const archiveButton = betaFoldRow.getByTestId('closed-issue-archive')
+  await betaFoldRow.hover()
+  await expect(archiveButton).toBeVisible()
   if (process.env.CLOSED_FOLD_SHOT) {
     await aside.screenshot({ path: process.env.CLOSED_FOLD_SHOT })
   }
+  await archiveButton.click()
+  await expect
+    .poll(async () => {
+      const issues = await rpc<WireIssue[]>(request, 'issues.list', { repoPath }, 'get')
+      return issues.find((issue) => issue.id === beta)?.archived
+    })
+    .toBe(true)
+  await expect(aside.getByText(betaTitle)).toHaveCount(0)
 })

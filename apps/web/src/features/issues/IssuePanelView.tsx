@@ -18,6 +18,7 @@ import { artifactKind, artifactUrl, basename, issueForPanel, panelNonEmpty } fro
 import { relativeTime } from '@/lib/home'
 import { cn } from '@/lib/utils'
 import { DockSection } from './DockSection'
+import { IssueCompactControls } from './IssueCompactControls'
 import { issueIdTitle, STAGE_LABELS } from './issue-card'
 import { groupRelations } from './issue-relations'
 
@@ -188,6 +189,7 @@ function SummaryHeader({ issue }: { issue: IssueWire }): JSX.Element {
           </div>
         )}
       </div>
+      <IssueCompactControls issue={issue} />
       <CommentsBlock issue={issue} />
     </header>
   )

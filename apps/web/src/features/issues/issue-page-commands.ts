@@ -115,6 +115,9 @@ export function issuePageCommands({ trpc, issue, run }: IssuePageDeps) {
     togglePinned: (): void => {
       update({ pinned: !issue.pinned })
     },
+    toggleArchived: (): void => {
+      update({ archived: !issue.archived })
+    },
     deleteIssue: (onDeleted: () => void): void => {
       void run(async () => {
         await trpc.issues.delete.mutate({ id })

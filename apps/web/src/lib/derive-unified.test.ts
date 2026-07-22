@@ -191,30 +191,30 @@ describe('sessionUrgencyRank / mostUrgentSession', () => {
 })
 
 describe('unifiedWorkList (content filter + status ordering)', () => {
-  it('hides every issue with no live session — worktree/stage alone is not enough', () => {
+  it('keeps started human work visible without a live session, but not backlog or plain done', () => {
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'b1', stage: 'backlog' }),
         issue({ id: 'd1', stage: 'done' }),
-        issue({ id: 'p1', stage: 'planning' }), // non-backlog stage, but no session → hidden now
+        issue({ id: 'p1', stage: 'planning' }), // started lifecycle survives session retirement
         issue({ id: 'wt1', stage: 'backlog', worktreePath: '/r/a/.worktrees/wt1' }), // worktree, no session → hidden
       ],
       [],
       ['/r/a/.worktrees/wt1'],
       NOW,
     )
-    expect(rows).toEqual([])
+    expect(rows.map((row) => (row.kind === 'issue' ? row.issue.id : ''))).toEqual(['p1'])
   })
 
-  it('includes an issue only when it has ≥1 non-archived live session', () => {
+  it('keeps an active issue when its only session is archived', () => {
     const wt = '/r/a/.worktrees/i1'
     const rows = unifiedWorkList(
       emptySections([]),
       [
         issue({ id: 'w1', stage: 'backlog', worktreePath: wt }), // worktree, no session → hidden
         issue({ id: 's1', stage: 'backlog' }), // has a session → shown
-        issue({ id: 'a1', stage: 'in_progress' }), // only an ARCHIVED session → hidden
+        issue({ id: 'a1', stage: 'in_progress' }), // issue lifecycle outlives retired session
       ],
       [
         sess('x', '/elsewhere', { issueId: 's1' }),
@@ -223,7 +223,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       [wt],
       NOW,
     )
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['s1'])
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['a1', 's1'])
   })
 
   it('includes drafts only when they have sessions; internal (audience:agent) issues stay out even with a session (#198)', () => {
@@ -705,7 +705,7 @@ describe('groupUnifiedWorkRows', () => {
     expect(groups).toEqual([])
   })
 
-  it('folds only settled top-level closures while attention and selection stay visible', () => {
+  it('folds only settled top-level closures while open selection stays visible', () => {
     const closedRow = (
       id: string,
       over: Partial<IssueWire> = {},
@@ -743,6 +743,31 @@ describe('groupUnifiedWorkRows', () => {
     expect(
       group?.rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path)),
     ).toEqual(['unread', 'selected', 'child', 'awaiting', 'needs-human', 'working', 'done-only'])
+  })
+
+  it('keeps a selected closure in its closed-time order', () => {
+    const closedRow = (id: string, daysAgo: number): UnifiedWorkRow => ({
+      kind: 'issue',
+      issue: issue({
+        id,
+        stage: 'done',
+        closedReason: 'done',
+        unread: false,
+        readAt: new Date(NOW - HOUR).toISOString(),
+        closedAt: new Date(NOW - daysAgo * 24 * HOUR).toISOString(),
+      }),
+      sessions: [],
+      activityAt: NOW,
+      rank: 4,
+    })
+
+    const [group] = groupUnifiedWorkRows(
+      [closedRow('oldest', 3), closedRow('selected', 2), closedRow('newest', 1)],
+      'selected',
+      true,
+    )
+
+    expect(group?.closedRows.map((row) => row.issue.id)).toEqual(['newest', 'selected', 'oldest'])
   })
 })
 

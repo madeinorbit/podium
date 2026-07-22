@@ -1,6 +1,7 @@
 import { shallowEqual } from '@podium/client-core'
 import { type IssuePanelArtifact, type IssueWire, issueDisplayRef } from '@podium/protocol'
 import {
+  Archive,
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
@@ -52,6 +53,7 @@ import { cn } from '@/lib/utils'
 import { issueIdTitle, issueRefLong, STAGE_LABELS } from './issue-card'
 import type { IssueEventIcon } from './issue-events'
 import { AssigneeAvatar, StageGlyph } from './issue-glyphs'
+import { IssueCloseDialog, type IssueCloseReason } from './issue-lifecycle'
 import {
   type IssueMailMessage,
   type IssuePageCommands,
@@ -95,6 +97,7 @@ export function IssuePage({
   const [editingDesc, setEditingDesc] = useState(false)
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
+  const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
 
   // Reset transient compose/edit state on issue switch so a half-typed comment or
   // an open editor never carries across to the next issue.
@@ -469,6 +472,7 @@ export function IssuePage({
                   busy={busy}
                   commands={commands}
                   onNavigate={onNavigate}
+                  onRequestClose={setCloseReason}
                 />
               </div>
             </details>
@@ -573,9 +577,23 @@ export function IssuePage({
           data-testid="issue-aside"
           className="hidden w-[280px] shrink-0 overflow-y-auto border-border border-l px-4 py-4 md:block"
         >
-          <IssueProperties issue={issue} busy={busy} commands={commands} onNavigate={onNavigate} />
+          <IssueProperties
+            issue={issue}
+            busy={busy}
+            commands={commands}
+            onNavigate={onNavigate}
+            onRequestClose={setCloseReason}
+          />
         </aside>
       </div>
+
+      <IssueCloseDialog
+        issue={issue}
+        reason={closeReason}
+        busy={busy}
+        onOpenChange={(open) => !open && setCloseReason(null)}
+        onConfirm={(reason) => commands.selectStatus(`close:${reason}`)}
+      />
 
       {toast && (
         <div
@@ -1175,6 +1193,15 @@ function IssueOverflowMenu({
     commands.deleteIssue(onDeleted)
   }
   const handleRestore = (): void => commands.restoreIssue(onDeleted)
+  const handleArchive = (): void => {
+    if (!issue.archived && !issue.closedReason && issue.stage !== 'done') {
+      const ok = window.confirm(
+        'Archive this open issue? It will leave active views, but it will not be closed and its sessions will not be retired.',
+      )
+      if (!ok) return
+    }
+    commands.toggleArchived()
+  }
 
   return (
     <DropdownMenu>
@@ -1210,6 +1237,19 @@ function IssueOverflowMenu({
             ) : (
               <>
                 <Pin size={14} aria-hidden="true" /> Pin
+              </>
+            )}
+          </DropdownMenuItem>
+        )}
+        {!issue.deletedAt && (
+          <DropdownMenuItem onClick={handleArchive}>
+            {issue.archived ? (
+              <>
+                <ArchiveRestore size={14} aria-hidden="true" /> Unarchive issue
+              </>
+            ) : (
+              <>
+                <Archive size={14} aria-hidden="true" /> Archive issue
               </>
             )}
           </DropdownMenuItem>

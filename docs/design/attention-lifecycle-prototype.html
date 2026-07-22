@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POD-203 · Attention lifecycle prototype</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#0e0e12; --sidebar:#141419; --panel:#16161c; --engraved:#0a0a0e;
+    --chip:#1b1b22; --bar:#101016; --seam:#2a2a34; --hair:#25252f; --strong:#3a3a46;
+    --text:#d7d7e0; --bright:#f3f3f8; --muted:#9a9aa8; --dim:#6c6c78; --faint:#5a5a66;
+    --amber:#f59e0b; --amber-fg:#161006; --green:#10b981; --green-soft:#34d399;
+    --blue:#3b82f6; --red:#f87171; --slate:#94a3b8; --violet:#8b5cf6;
+    --cyan:#06b6d4; --teal:#14b8a6;
+    --sans:"Geist Variable",Geist,Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"Geist Mono Variable","Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  html, body { min-height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans); font-size:13px; -webkit-font-smoothing:antialiased; }
+  button { font:inherit; }
+  button:focus-visible { outline:1px solid var(--amber); outline-offset:2px; }
+  .shell { min-height:100vh; display:grid; grid-template-rows:46px 1fr; }
+  .topbar { display:flex; align-items:center; gap:14px; padding:0 16px; border-bottom:1px solid var(--seam); background:#111116; }
+  .brand { display:flex; align-items:center; gap:9px; color:var(--bright); font-weight:650; letter-spacing:-.01em; }
+  .brand-mark { display:grid; place-items:center; width:22px; height:22px; border-radius:6px; background:var(--bright); color:#111116; font:800 11px var(--mono); }
+  .top-rule { width:1px; height:18px; background:var(--seam); }
+  .crumb { color:var(--dim); font:500 10px var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+  .top-spacer { flex:1; }
+  .prototype-badge { border:1px solid color-mix(in srgb,var(--cyan) 45%,transparent); background:color-mix(in srgb,var(--cyan) 10%,transparent); color:#9ce8f5; border-radius:99px; padding:3px 8px; font:600 9px var(--mono); letter-spacing:.08em; text-transform:uppercase; }
+  .main { min-height:0; display:grid; grid-template-columns:282px minmax(510px,1fr) 332px; }
+
+  /* Sidebar */
+  .sidebar { min-height:0; border-right:1px solid var(--seam); background:var(--sidebar); padding:11px 8px 14px; overflow:auto; }
+  .new-row { display:flex; align-items:center; justify-content:space-between; height:31px; margin:0 4px 8px; padding:0 9px; border:1px solid var(--seam); border-radius:7px; color:var(--muted); background:#18181f; }
+  .new-row span:last-child { color:var(--dim); font:500 11px var(--mono); }
+  .section-label { display:flex; align-items:center; gap:6px; padding:10px 5px 5px; color:#7a7a86; font:600 8.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  .section-label::after { content:""; height:1px; flex:1; background:var(--hair); }
+  .issue-row { --issue:var(--slate); position:relative; display:flex; align-items:center; gap:8px; width:100%; min-height:41px; padding:5px 8px; margin:2px 0; border:0; border-radius:7px; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+  .issue-row:hover { background:#20202a; }
+  .issue-row.selected { background:color-mix(in srgb,var(--issue) 20%,#16161c); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--issue) 68%,transparent); }
+  .issue-row.attention:not(.selected) { background:color-mix(in srgb,var(--amber) 6%,#16161c); }
+  .id-square { position:relative; display:grid; place-items:center; flex:none; width:27px; height:27px; border-radius:7px; border:1px solid #8d8d9a; color:#c5c5d0; background:#25252f; font:650 6.5px var(--mono); }
+  .selected .id-square { box-shadow:0 0 0 2px color-mix(in srgb,var(--issue) 35%,transparent); }
+  .corner { position:absolute; right:-5px; top:-5px; min-width:13px; height:13px; display:grid; place-items:center; border-radius:99px; border:1px solid var(--panel); background:var(--amber); color:var(--amber-fg); font:800 7.5px var(--mono); }
+  .corner.paused { background:#1b2029; border-color:#58606e; color:#a9b1bf; font-size:8px; }
+  .corner.working { background:#0c1f18; border-color:var(--green); color:var(--green-soft); }
+  .row-copy { min-width:0; flex:1; }
+  .row-title { display:flex; align-items:center; gap:5px; min-width:0; color:var(--text); font-size:11.5px; line-height:1.25; }
+  .row-title b { min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-weight:500; }
+  .selected .row-title b { color:var(--bright); font-weight:650; }
+  .unread-dot { width:6px; height:6px; flex:none; border-radius:50%; background:var(--blue); }
+  .row-sub { display:flex; align-items:center; gap:5px; margin-top:2px; min-width:0; color:var(--dim); font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .attention .row-sub { color:#d2ad69; }
+  .status-pill { flex:none; border-radius:99px; background:var(--amber); color:var(--amber-fg); padding:1px 5px; font:800 8px var(--mono); }
+  .fold { width:100%; display:flex; align-items:center; gap:7px; min-height:31px; padding:3px 8px; border:0; background:transparent; color:#525c78; cursor:pointer; text-align:left; font:550 10px var(--mono); }
+  .fold:hover { color:var(--muted); }
+  .fold .chev { transition:transform .16s ease; }
+  .fold.open .chev { transform:rotate(90deg); }
+  .fold .line { flex:1; height:1px; background:#1e2a4c; }
+  .closed-list[hidden] { display:none; }
+  .closed-list .issue-row { opacity:.48; cursor:default; }
+  .closed-list .issue-row:hover, .closed-list .issue-row:focus-within { opacity:.8; }
+  .archive-action { flex:none; opacity:0; min-height:24px; padding:0 7px; border:1px solid color-mix(in srgb,var(--red) 35%,transparent); border-radius:5px; background:#18181e; color:#c98787; cursor:pointer; font-size:9px; transition:opacity .12s ease; }
+  .closed-list .issue-row:hover .archive-action, .closed-list .issue-row:focus-within .archive-action { opacity:1; }
+  .archive-action:hover { border-color:color-mix(in srgb,var(--red) 65%,transparent); color:#f3a7a7; }
+
+  /* Center */
+  .workspace { min-width:0; min-height:0; overflow:auto; background:radial-gradient(circle at 70% -20%,color-mix(in srgb,var(--violet) 8%,transparent),transparent 42%),var(--bg); }
+  .workspace-inner { max-width:880px; margin:0 auto; padding:28px 28px 80px; }
+  .eyebrow { color:#7a7a86; font:650 9px var(--mono); letter-spacing:.14em; text-transform:uppercase; }
+  h1 { margin:7px 0 7px; color:var(--bright); font-size:25px; line-height:1.1; letter-spacing:-.025em; }
+  .lede { max-width:68ch; margin:0; color:var(--muted); font-size:13px; line-height:1.55; }
+  .scenario-tabs { display:flex; gap:7px; margin:22px 0 16px; }
+  .scenario-tab { display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid var(--seam); border-radius:7px; background:#141419; color:var(--muted); cursor:pointer; }
+  .scenario-tab.active { border-color:color-mix(in srgb,var(--slate) 55%,transparent); background:color-mix(in srgb,var(--slate) 10%,#16161c); color:var(--bright); }
+  .mini-id { color:var(--slate); font:700 8px var(--mono); }
+  .card { border:1px solid var(--hair); border-radius:11px; background:color-mix(in srgb,var(--panel) 94%,transparent); box-shadow:0 18px 50px rgba(0,0,0,.16); }
+  .issue-head { display:flex; align-items:flex-start; gap:12px; padding:18px 18px 16px; border-bottom:1px solid var(--hair); }
+  .large-id { display:grid; place-items:center; width:37px; height:37px; flex:none; border-radius:9px; background:var(--slate); color:#141a24; font:800 8px var(--mono); }
+  .head-copy { min-width:0; flex:1; }
+  .head-title { color:var(--bright); font-size:16px; font-weight:650; letter-spacing:-.015em; }
+  .head-meta { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-top:6px; }
+  .stage { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--strong); border-radius:99px; padding:2px 7px; color:var(--muted); font:650 9px var(--mono); text-transform:uppercase; letter-spacing:.06em; }
+  .stage.review { border-color:color-mix(in srgb,var(--amber) 40%,transparent); color:#e8c477; background:color-mix(in srgb,var(--amber) 7%,transparent); }
+  .stage.progress { border-color:color-mix(in srgb,var(--green) 40%,transparent); color:#86d9ba; background:color-mix(in srgb,var(--green) 7%,transparent); }
+  .stage.done { color:#81818e; }
+  .visibility { color:var(--dim); font:500 10px var(--mono); }
+  .head-actions { display:flex; gap:7px; }
+  .icon-btn { min-height:29px; padding:0 9px; border:1px solid var(--seam); border-radius:6px; background:#1b1b22; color:var(--muted); cursor:pointer; }
+  .icon-btn:hover { border-color:var(--strong); color:var(--bright); }
+  .body-grid { display:grid; grid-template-columns:minmax(0,1fr) 238px; }
+  .primary { padding:17px 18px 20px; border-right:1px solid var(--hair); }
+  .aside { padding:16px; background:#121217; border-radius:0 0 11px 0; }
+  .block-title { display:flex; align-items:center; gap:8px; margin:0 0 9px; color:var(--bright); font-size:12px; font-weight:650; }
+  .block-title .rule { height:1px; flex:1; background:var(--hair); }
+  .offer-card { position:relative; padding:13px; border:1px solid color-mix(in srgb,var(--amber) 38%,transparent); border-radius:9px; background:linear-gradient(135deg,color-mix(in srgb,var(--amber) 9%,#17171d),#17171d 58%); }
+  .offer-label { color:var(--amber); font:700 8.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  .offer-title { margin:6px 0 4px; color:var(--bright); font-size:13px; font-weight:650; }
+  .offer-copy { color:var(--muted); font-size:11.5px; line-height:1.5; }
+  .actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+  .btn { min-height:29px; padding:0 10px; border:1px solid var(--strong); border-radius:6px; background:transparent; color:var(--text); cursor:pointer; font-size:11px; }
+  .btn:hover { border-color:#686875; color:var(--bright); }
+  .btn.primary { border:0; background:var(--amber); color:var(--amber-fg); font-weight:700; }
+  .btn.green { border-color:color-mix(in srgb,var(--green) 55%,transparent); background:color-mix(in srgb,var(--green) 11%,transparent); color:#a5e7ce; }
+  .btn.danger { border-color:color-mix(in srgb,var(--red) 45%,transparent); color:#f7a2a2; }
+  .btn.ghost { border-color:transparent; color:var(--dim); }
+  .empty-offer { display:grid; place-items:center; min-height:116px; padding:18px; border:1px dashed var(--strong); border-radius:9px; color:var(--dim); text-align:center; line-height:1.5; }
+  .session-card { padding:12px; border:1px solid var(--seam); border-radius:8px; background:#18181e; }
+  .session-top { display:flex; align-items:center; gap:8px; }
+  .agent-glyph { display:grid; place-items:center; width:24px; height:24px; border-radius:7px; background:#24242c; color:#d97757; font-size:12px; }
+  .session-name { flex:1; min-width:0; color:var(--text); font-size:11.5px; font-weight:600; }
+  .session-state { margin-top:7px; color:var(--dim); font:500 9px var(--mono); }
+  .session-state strong { color:#aeb6c5; font-weight:600; }
+  .session-actions { display:flex; gap:5px; margin-top:9px; }
+  .session-actions .btn { min-height:25px; padding:0 8px; font-size:10px; }
+  .retired-box { padding:11px; border:1px dashed #34343e; border-radius:8px; color:var(--dim); background:#141419; }
+  .retired-box .retired-title { display:flex; align-items:center; justify-content:space-between; color:#858592; font-size:10.5px; }
+  .retired-box .btn { min-height:24px; font-size:9.5px; }
+  .why { margin-top:13px; padding:11px 12px; border-left:2px solid var(--amber); background:#15151b; color:var(--muted); font-size:11px; line-height:1.48; }
+  .why b { color:var(--text); }
+  .fact-list { display:flex; flex-direction:column; gap:8px; }
+  .fact { padding:9px 10px; border:1px solid var(--hair); border-radius:7px; background:#17171d; }
+  .fact-k { color:#737380; font:650 8px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+  .fact-v { margin-top:4px; color:var(--text); font-size:10.5px; line-height:1.4; }
+  .fact-v.info { color:#9fb4d4; }
+  .fact-v.good { color:#9ad9bd; }
+  .fact-v.warn { color:#d9b774; }
+  .lifecycle { display:flex; align-items:center; gap:5px; margin-top:14px; overflow:auto; padding-bottom:2px; }
+  .life-node { flex:none; color:#5f5f6b; font:600 8.5px var(--mono); text-transform:uppercase; }
+  .life-node.on { color:var(--bright); }
+  .life-node.past { color:#8d8d98; }
+  .life-arrow { color:#3d3d46; }
+
+  /* Right rail */
+  .rail { min-height:0; border-left:1px solid var(--seam); background:var(--engraved); overflow:auto; }
+  .rail-section { border-bottom:1px solid #202028; }
+  .rail-head { display:flex; align-items:center; gap:7px; min-height:36px; padding:0 13px; background:#0d0d12; color:var(--bright); font-size:11px; font-weight:650; }
+  .rail-head .count { min-width:16px; height:16px; display:grid; place-items:center; border-radius:99px; background:var(--amber); color:var(--amber-fg); font:800 8px var(--mono); }
+  .rail-body { padding:12px; }
+  .law { display:grid; grid-template-columns:24px 1fr; gap:8px; margin-bottom:10px; }
+  .law-n { display:grid; place-items:center; width:24px; height:24px; border-radius:7px; background:#17171e; border:1px solid #282832; color:var(--amber); font:750 8px var(--mono); }
+  .law h3 { margin:1px 0 2px; color:var(--text); font-size:10.5px; }
+  .law p { margin:0; color:var(--dim); font-size:10px; line-height:1.42; }
+  .event-log { display:flex; flex-direction:column; gap:7px; max-height:255px; overflow:auto; }
+  .event { display:grid; grid-template-columns:36px 1fr; gap:7px; color:var(--dim); font-size:9.5px; line-height:1.4; }
+  .event time { color:#484854; font:500 8px var(--mono); }
+  .event strong { color:#a4a4af; font-weight:550; }
+  .reset { width:100%; min-height:29px; margin-top:10px; border:1px solid #2d2d36; border-radius:6px; background:#121217; color:var(--dim); cursor:pointer; font-size:10px; }
+  .reset:hover { color:var(--text); border-color:var(--strong); }
+
+  /* Guard dialog */
+  .scrim { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:20px; background:rgba(4,4,7,.72); backdrop-filter:blur(3px); }
+  .scrim[hidden] { display:none; }
+  .dialog { width:min(440px,100%); border:1px solid var(--strong); border-radius:12px; background:#18181f; box-shadow:0 24px 80px rgba(0,0,0,.65); overflow:hidden; }
+  .dialog-head { padding:17px 18px 12px; }
+  .dialog-kicker { color:var(--amber); font:700 8.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
+  .dialog h2 { margin:6px 0 4px; color:var(--bright); font-size:18px; letter-spacing:-.02em; }
+  .dialog p { margin:0; color:var(--muted); font-size:11.5px; line-height:1.5; }
+  .guard-list { padding:0 18px 13px; display:flex; flex-direction:column; gap:7px; }
+  .guard { display:flex; align-items:flex-start; gap:9px; padding:9px 10px; border:1px solid var(--hair); border-radius:7px; background:#141419; }
+  .guard-icon { color:var(--amber); }
+  .guard.info .guard-icon { color:var(--blue); }
+  .guard strong { display:block; color:var(--text); font-size:10.5px; }
+  .guard span { color:var(--dim); font-size:10px; line-height:1.4; }
+  .dialog-actions { display:flex; justify-content:flex-end; gap:7px; padding:11px 18px; border-top:1px solid var(--hair); background:#141419; }
+  .toast { position:fixed; z-index:30; left:50%; bottom:24px; transform:translate(-50%,12px); opacity:0; pointer-events:none; min-width:280px; max-width:min(480px,calc(100vw - 30px)); padding:10px 12px; border:1px solid var(--strong); border-radius:8px; background:#1b1b22; color:var(--text); box-shadow:0 14px 40px rgba(0,0,0,.5); transition:.18s ease; font-size:11px; text-align:center; }
+  .toast.show { opacity:1; transform:translate(-50%,0); }
+
+  @media (max-width:1080px) {
+    .main { grid-template-columns:260px minmax(470px,1fr); }
+    .rail { display:none; }
+  }
+  @media (max-width:760px) {
+    .main { display:block; }
+    .sidebar { min-height:auto; border-right:0; border-bottom:1px solid var(--seam); }
+    .workspace-inner { padding:22px 14px 70px; }
+    .body-grid { grid-template-columns:1fr; }
+    .primary { border-right:0; }
+    .aside { border-top:1px solid var(--hair); border-radius:0 0 11px 11px; }
+    .topbar .crumb, .prototype-badge { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">P</span><span>Podium</span></div>
+    <span class="top-rule"></span>
+    <span class="crumb">Lifecycle prototype · POD-203</span>
+    <span class="top-spacer"></span>
+    <span class="prototype-badge">Interactive concept</span>
+  </header>
+
+  <main class="main">
+    <aside class="sidebar" aria-label="Prototype work sidebar">
+      <div class="new-row"><span>New agent in podium</span><span>⌘ N</span></div>
+      <div class="section-label">Podium</div>
+
+      <button class="issue-row selected attention" data-row="203" style="--issue:var(--violet)" type="button">
+        <span class="id-square">POD<br>203<span class="corner">1</span></span>
+        <span class="row-copy">
+          <span class="row-title"><b>Attention lifecycle consistency</b><span class="unread-dot" data-unread-dot></span></span>
+          <span class="row-sub" data-row-sub="203">review · decision pending</span>
+        </span>
+        <span class="status-pill" data-attention-pill>1</span>
+      </button>
+
+      <button class="issue-row" data-row="181" style="--issue:var(--slate)" type="button">
+        <span class="id-square">POD<br>181<span class="corner paused" data-181-corner>Ⅱ</span></span>
+        <span class="row-copy">
+          <span class="row-title"><b>VPS failure root cause</b></span>
+          <span class="row-sub" data-row-sub="181">review · agent paused</span>
+        </span>
+      </button>
+
+      <button class="issue-row" style="--issue:var(--teal)" type="button">
+        <span class="id-square">POD<br>207<span class="corner working">⠋</span></span>
+        <span class="row-copy">
+          <span class="row-title"><b>Terminal resize telemetry</b></span>
+          <span class="row-sub">working · 8:14</span>
+        </span>
+      </button>
+
+      <button class="fold" id="fold" type="button" aria-expanded="false">
+        <span class="chev">›</span><span>Closed · <span id="closed-count">2</span></span><span class="line"></span>
+      </button>
+      <div class="closed-list" id="closed-list" hidden></div>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-inner">
+        <div class="eyebrow">Proposed interaction model</div>
+        <h1>Attention is state, not unread</h1>
+        <p class="lede">Read status only says whether information is new. Offers, review, and session retirement remain explicit—and cannot silently turn into “closed.”</p>
+
+        <nav class="scenario-tabs" aria-label="Prototype scenarios">
+          <button class="scenario-tab active" data-scenario="203" type="button"><span class="mini-id">POD-203</span> Offer + close guard</button>
+          <button class="scenario-tab" data-scenario="181" type="button"><span class="mini-id">POD-181</span> Retire a session</button>
+        </nav>
+
+        <article class="card">
+          <header class="issue-head">
+            <div class="large-id" id="large-id">POD<br>203</div>
+            <div class="head-copy">
+              <div class="head-title" id="head-title">Attention lifecycle consistency</div>
+              <div class="head-meta">
+                <span class="stage review" id="stage">Review</span>
+                <span class="visibility" id="visibility">Visible because 1 decision is pending</span>
+              </div>
+            </div>
+            <div class="head-actions">
+              <button class="icon-btn" id="read-btn" type="button">Mark read</button>
+              <button class="icon-btn" id="close-btn" type="button">Close issue</button>
+            </div>
+          </header>
+
+          <div class="body-grid">
+            <div class="primary">
+              <div class="block-title"><span id="primary-title">Decision</span><span class="rule"></span></div>
+              <div id="primary-content"></div>
+              <div class="lifecycle" id="lifecycle" aria-label="Issue lifecycle"></div>
+            </div>
+            <aside class="aside">
+              <div class="block-title"><span>Why this row stays</span><span class="rule"></span></div>
+              <div class="fact-list" id="facts"></div>
+              <div class="why" id="why"></div>
+            </aside>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <aside class="rail" aria-label="Prototype rationale">
+      <section class="rail-section">
+        <div class="rail-head">Design laws <span class="count">5</span></div>
+        <div class="rail-body">
+          <div class="law"><span class="law-n">01</span><div><h3>Attention outranks read</h3><p>Reading clears the blue dot. It never clears an offer, question, or review obligation.</p></div></div>
+          <div class="law"><span class="law-n">02</span><div><h3>Issue owns visibility</h3><p>Planning, working, and review issues stay addressable even with no active agent.</p></div></div>
+          <div class="law"><span class="law-n">03</span><div><h3>Sessions are execution</h3><p>Pause frees compute. Retire hides a conversation. Neither closes the issue.</p></div></div>
+          <div class="law"><span class="law-n">04</span><div><h3>Issue views stay scoped</h3><p>Only task-owned changes or delivery state appear here. Checkout-wide activity belongs in Git and workspace views.</p></div></div>
+          <div class="law"><span class="law-n">05</span><div><h3>Closed is chronological</h3><p>Newest closures sit first. Hover Archive removes a quiet row from the sidebar; manual sorting ends at close.</p></div></div>
+        </div>
+      </section>
+      <section class="rail-section">
+        <div class="rail-head">Interaction log</div>
+        <div class="rail-body">
+          <div class="event-log" id="event-log"></div>
+          <button class="reset" id="reset" type="button">Reset prototype</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<div class="scrim" id="guard-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="guard-title">
+  <div class="dialog">
+    <div class="dialog-head">
+      <div class="dialog-kicker">Close guard</div>
+      <h2 id="guard-title">This issue still needs you</h2>
+      <p>Closing is an issue-level transition. Podium checks unresolved attention and task-owned delivery state first.</p>
+    </div>
+    <div class="guard-list" id="guard-list"></div>
+    <div class="dialog-actions">
+      <button class="btn ghost" id="force-close" type="button">Close anyway…</button>
+      <button class="btn primary" id="keep-review" type="button">Keep in review</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+  const initialState = () => ({
+    scenario: '203',
+    issue203: { stage: 'review', unread: true, offer: true, session: 'waiting', closed: false, closedAt: null },
+    issue181: { stage: 'review', session: 'paused', retired: false },
+    closedItems: [
+      { id:'176', title:'Token cleanup', closedAt:Date.now() - 18 * 60_000 },
+      { id:'169', title:'Pin control removal', closedAt:Date.now() - 26 * 60 * 60_000 },
+    ],
+    archivedClosed: [],
+    events: [{ time: 'now', text: '<strong>Prototype ready.</strong> Try Mark read, Close issue, and Retire session.' }],
+  })
+  let state = initialState()
+  let toastTimer
+
+  const $ = (s) => document.querySelector(s)
+  const $$ = (s) => [...document.querySelectorAll(s)]
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+  const log = (text) => {
+    const stamp = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' })
+    state.events.unshift({ time: stamp, text })
+    state.events = state.events.slice(0, 8)
+  }
+  const toast = (text) => {
+    const el = $('#toast')
+    el.textContent = text
+    el.classList.add('show')
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2400)
+  }
+
+  function renderLifecycle(stage) {
+    const nodes = ['planning','working','review','done']
+    const active = stage === 'in_progress' ? 'working' : stage
+    const idx = nodes.indexOf(active)
+    $('#lifecycle').innerHTML = nodes.map((n,i) => `${i ? '<span class="life-arrow">→</span>' : ''}<span class="life-node ${i === idx ? 'on' : i < idx ? 'past' : ''}">${n}</span>`).join('')
+  }
+
+  function render203() {
+    const i = state.issue203
+    $('#large-id').innerHTML = 'POD<br>203'
+    $('#head-title').textContent = 'Attention lifecycle consistency'
+    $('#stage').textContent = i.closed ? 'Done' : i.stage === 'in_progress' ? 'Working' : 'Review'
+    $('#stage').className = `stage ${i.closed ? 'done' : i.stage === 'in_progress' ? 'progress' : 'review'}`
+    $('#visibility').textContent = i.closed ? 'Eligible for the quiet closed fold' : i.offer ? 'Visible because 1 decision is pending' : i.stage === 'in_progress' ? 'Visible because work resumed' : 'Visible because the issue is in review'
+    $('#read-btn').hidden = i.closed || !i.unread
+    $('#close-btn').hidden = i.closed
+    $('#primary-title').textContent = i.offer ? 'Decision' : i.stage === 'in_progress' ? 'Agent resumed' : i.closed ? 'Completed' : 'Review state'
+
+    if (i.offer) {
+      $('#primary-content').innerHTML = `
+        <div class="offer-card">
+          <div class="offer-label">Decision pending · survives read</div>
+          <div class="offer-title">Lifecycle UX model ready for review</div>
+          <div class="offer-copy">Offers are issue attention. Reading this result removes only the blue unread dot; the amber decision and full sidebar row remain.</div>
+          <div class="actions">
+            <button class="btn primary" id="continue-work" type="button">Continue work</button>
+            <button class="btn" id="accept-close" type="button">Accept & close</button>
+          </div>
+        </div>`
+    } else if (i.stage === 'in_progress') {
+      $('#primary-content').innerHTML = `<div class="empty-offer"><div><b style="color:var(--green-soft)">⠋ Agent working</b><br>The decision was consumed and the issue automatically returned to Working.</div></div>`
+    } else if (i.closed) {
+      $('#primary-content').innerHTML = `<div class="empty-offer"><div><b style="color:var(--text)">✓ Result accepted</b><br>No offers, questions, active work, task-owned changes, or unmerged delivery remain.</div></div>`
+    } else {
+      $('#primary-content').innerHTML = `<div class="empty-offer">Review remains an issue state even without a live session.</div>`
+    }
+
+    $('#facts').innerHTML = `
+      <div class="fact"><div class="fact-k">Attention</div><div class="fact-v ${i.offer ? 'warn' : 'good'}">${i.offer ? '1 pending offer' : 'No unresolved decision'}</div></div>
+      <div class="fact"><div class="fact-k">Session</div><div class="fact-v">${i.session === 'working' ? 'Running · executing choice' : i.closed ? 'Ready to retire' : 'Waiting · visible'}</div></div>`
+    $('#why').innerHTML = i.closed
+      ? '<b>Quiet is now honest.</b> The row can fold because no actionable signal remains.'
+      : i.offer
+        ? '<b>Offer beats unread.</b> Marking this issue read cannot move it into Closed while this decision exists.'
+        : '<b>Lifecycle beats session state.</b> The row remains in active work while its issue is open.'
+    renderLifecycle(i.closed ? 'done' : i.stage)
+
+    const row = $('[data-row="203"]')
+    row.classList.toggle('attention', i.offer)
+    row.classList.toggle('selected', state.scenario === '203')
+    row.hidden = i.closed
+    $('[data-unread-dot]').hidden = !i.unread
+    $('[data-attention-pill]').hidden = !i.offer
+    $('[data-row-sub="203"]').textContent = i.closed ? 'closed · quiet' : i.offer ? 'review · decision pending' : i.stage === 'in_progress' ? 'working · decision consumed' : 'review'
+    const corner = row.querySelector('.corner')
+    corner.hidden = !i.offer
+    syncClosedRows()
+    bindDynamic()
+  }
+
+  function render181() {
+    const i = state.issue181
+    $('#large-id').innerHTML = 'POD<br>181'
+    $('#head-title').textContent = 'VPS failure root cause'
+    $('#stage').textContent = 'Review'
+    $('#stage').className = 'stage review'
+    $('#visibility').textContent = i.retired ? 'Visible because review belongs to the issue' : `Visible with 1 ${i.session} agent`
+    $('#read-btn').hidden = true
+    $('#close-btn').hidden = false
+    $('#primary-title').textContent = 'Agent roster'
+    $('#primary-content').innerHTML = i.retired ? `
+      <div class="retired-box">
+        <div class="retired-title"><span>Retired sessions · 1</span><button class="btn" id="restore-session" type="button">Restore</button></div>
+        <div style="margin-top:7px;font-size:10px">POD-181-A · Server health triage</div>
+      </div>
+      <div class="why"><b>The issue row did not move.</b> Retiring removed an execution conversation from the active roster—not the review obligation.</div>` : `
+      <div class="session-card">
+        <div class="session-top"><span class="agent-glyph">◆</span><span class="session-name">Server health triage</span><span class="stage">${esc(i.session)}</span></div>
+        <div class="session-state"><strong>POD-181-A</strong> · conversation resumable</div>
+        <div class="session-actions">
+          <button class="btn" id="pause-session" type="button">${i.session === 'paused' ? 'Resume agent' : 'Pause agent'}</button>
+          <button class="btn danger" id="retire-session" type="button">Retire session</button>
+        </div>
+      </div>`
+    $('#facts').innerHTML = `
+      <div class="fact"><div class="fact-k">Issue</div><div class="fact-v warn">Open · review</div></div>
+      <div class="fact"><div class="fact-k">Execution</div><div class="fact-v">${i.retired ? 'No active sessions' : `${i.session} · resumable`}</div></div>
+      <div class="fact"><div class="fact-k">Visibility</div><div class="fact-v good">Active sidebar · issue-owned</div></div>`
+    $('#why').innerHTML = '<b>Two separate axes.</b> Pause controls compute. Retire controls conversation visibility. Close controls the issue.'
+    renderLifecycle('review')
+
+    const row = $('[data-row="181"]')
+    row.classList.toggle('selected', state.scenario === '181')
+    $('[data-row-sub="181"]').textContent = i.retired ? 'review · no active agent' : `review · agent ${i.session}`
+    const c = $('[data-181-corner]')
+    c.textContent = i.retired ? '0' : i.session === 'paused' ? 'Ⅱ' : '⠋'
+    c.className = `corner ${i.retired || i.session === 'paused' ? 'paused' : 'working'}`
+    bindDynamic()
+  }
+
+  function closedAgo(ts) {
+    const minutes = Math.max(0, Math.round((Date.now() - ts) / 60_000))
+    if (minutes < 2) return 'closed now'
+    if (minutes < 60) return `closed ${minutes}m ago`
+    const hours = Math.round(minutes / 60)
+    if (hours < 24) return `closed ${hours}h ago`
+    if (hours < 48) return 'closed yesterday'
+    return `closed ${Math.round(hours / 24)}d ago`
+  }
+
+  function syncClosedRows() {
+    const items = [
+      ...state.closedItems,
+      ...(state.issue203.closed ? [{ id:'203', title:'Attention lifecycle consistency', closedAt:state.issue203.closedAt ?? Date.now() }] : []),
+    ]
+      .filter((item) => !state.archivedClosed.includes(item.id))
+      .sort((a,b) => b.closedAt - a.closedAt)
+    $('#closed-list').innerHTML = items.map((item) => `
+      <div class="issue-row" data-closed="${item.id}" tabindex="0">
+        <span class="id-square">POD<br>${item.id}</span>
+        <span class="row-copy"><span class="row-title"><b>${esc(item.title)}</b></span><span class="row-sub">${closedAgo(item.closedAt)}</span></span>
+        <button class="archive-action" data-archive="${item.id}" type="button" aria-label="Archive POD-${item.id}">Archive</button>
+      </div>`).join('')
+    $('#closed-count').textContent = String(items.length)
+    $$('[data-archive]').forEach((button) => button.addEventListener('click', () => {
+      const id = button.dataset.archive
+      state.archivedClosed.push(id)
+      log(`<strong>Archived POD-${id}.</strong> Removed from the sidebar; still available in issue history.`)
+      toast(`POD-${id} archived · removed from sidebar`)
+      syncClosedRows()
+      renderEvents()
+    }))
+  }
+
+  function bindDynamic() {
+    $('#continue-work')?.addEventListener('click', () => {
+      state.issue203.offer = false
+      state.issue203.stage = 'in_progress'
+      state.issue203.session = 'working'
+      log('<strong>Offer consumed.</strong> Issue moved Review → Working; unread was not consulted.')
+      toast('Decision consumed · issue returned to Working')
+      render()
+    })
+    $('#accept-close')?.addEventListener('click', () => {
+      state.issue203.offer = false
+      state.issue203.closed = true
+      state.issue203.stage = 'done'
+      state.issue203.session = 'retired'
+      state.issue203.closedAt = Date.now()
+      log('<strong>Result accepted.</strong> Attention cleared, issue closed, session ready to retire.')
+      toast('Result accepted · issue closed honestly')
+      render()
+    })
+    $('#pause-session')?.addEventListener('click', () => {
+      state.issue181.session = state.issue181.session === 'paused' ? 'running' : 'paused'
+      log(`<strong>Agent ${state.issue181.session === 'paused' ? 'paused' : 'resumed'}.</strong> Issue remains in Review.`)
+      toast(state.issue181.session === 'paused' ? 'Compute paused · issue unchanged' : 'Agent resumed · issue unchanged')
+      render()
+    })
+    $('#retire-session')?.addEventListener('click', () => {
+      state.issue181.retired = true
+      log('<strong>Session retired.</strong> Conversation moved to history; POD-181 remains visible in Review.')
+      toast('Session retired · issue stays visible')
+      render()
+    })
+    $('#restore-session')?.addEventListener('click', () => {
+      state.issue181.retired = false
+      state.issue181.session = 'paused'
+      log('<strong>Session restored.</strong> Conversation returned paused and resumable.')
+      toast('Session restored')
+      render()
+    })
+  }
+
+  function renderEvents() {
+    $('#event-log').innerHTML = state.events.map((e) => `<div class="event"><time>${esc(e.time)}</time><div>${e.text}</div></div>`).join('')
+  }
+
+  function render() {
+    $$('.scenario-tab').forEach((t) => t.classList.toggle('active', t.dataset.scenario === state.scenario))
+    $('[data-row="203"]').classList.toggle('selected', state.scenario === '203')
+    $('[data-row="181"]').classList.toggle('selected', state.scenario === '181')
+    state.scenario === '203' ? render203() : render181()
+    renderEvents()
+  }
+
+  function openGuard() {
+    const is203 = state.scenario === '203'
+    const blockers = []
+    if (is203 && state.issue203.offer) blockers.push({ icon:'!', title:'1 pending decision', copy:'Resolve or explicitly dismiss the offer before closing.' })
+    if (!is203 && !state.issue181.retired) blockers.push({ icon:'◆', title:'1 active session', copy:'Retire or keep the session; closing should make that consequence explicit.' })
+    if (blockers.length === 0) {
+      if (is203) {
+        state.issue203.closed = true; state.issue203.stage = 'done'; state.issue203.closedAt = Date.now()
+        log('<strong>Issue closed.</strong> No unresolved attention remained.')
+        toast('Issue closed')
+      } else toast('POD-181 would close after an explicit review decision')
+      render(); return
+    }
+    $('#guard-list').innerHTML = blockers.map((b) => `<div class="guard"><span class="guard-icon">${b.icon}</span><div><strong>${b.title}</strong><span>${b.copy}</span></div></div>`).join('')
+    $('#guard-dialog').hidden = false
+    $('#keep-review').focus()
+  }
+
+  $$('.scenario-tab, [data-row="203"], [data-row="181"]').forEach((el) => el.addEventListener('click', () => {
+    state.scenario = el.dataset.scenario || el.dataset.row
+    log(`<strong>Focused ${state.scenario === '203' ? 'POD-203' : 'POD-181'}.</strong>`)
+    render()
+  }))
+  $('#read-btn').addEventListener('click', () => {
+    state.issue203.unread = false
+    log('<strong>Marked read.</strong> Blue novelty dot cleared; amber decision stayed.')
+    toast('Unread cleared · pending decision remains')
+    render()
+  })
+  $('#close-btn').addEventListener('click', openGuard)
+  $('#keep-review').addEventListener('click', () => {
+    $('#guard-dialog').hidden = true
+    log('<strong>Close cancelled.</strong> Issue remains in Review.')
+    toast('Kept in Review')
+    render()
+  })
+  $('#force-close').addEventListener('click', () => {
+    $('#guard-dialog').hidden = true
+    if (state.scenario === '203') {
+      state.issue203.offer = false; state.issue203.closed = true; state.issue203.stage = 'done'; state.issue203.session = 'retired'; state.issue203.closedAt = Date.now()
+      log('<strong>Closed anyway.</strong> Pending offer was explicitly dismissed and session retired.')
+    } else {
+      state.issue181.retired = true
+      log('<strong>Closed anyway.</strong> Session retirement was acknowledged explicitly.')
+    }
+    toast('Explicit override recorded')
+    render()
+  })
+  $('#guard-dialog').addEventListener('click', (e) => { if (e.target === $('#guard-dialog')) $('#keep-review').click() })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#guard-dialog').hidden) $('#keep-review').click() })
+  $('#fold').addEventListener('click', () => {
+    const list = $('#closed-list')
+    list.hidden = !list.hidden
+    $('#fold').classList.toggle('open', !list.hidden)
+    $('#fold').setAttribute('aria-expanded', String(!list.hidden))
+  })
+  $('#reset').addEventListener('click', () => { state = initialState(); $('#guard-dialog').hidden = true; toast('Prototype reset'); render() })
+
+  render()
+</script>
+</body>
+</html>

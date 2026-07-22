@@ -5,6 +5,7 @@ import { type AgentKind, type IssueWire, issueDisplayRef, type SessionMeta } fro
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
+  Archive,
   BarChart3,
   ChevronDown,
   ChevronRight,
@@ -614,17 +615,18 @@ function PinnedSectionLabel(): JSX.Element {
     </div>
   )
 }
-/** Project-local disclosure for settled top-level closures (POD-183). Folding
- * is presentation only: expansion preserves the rows' derived manual order,
- * and no archive or sort mutation is fired. */
+/** Project-local disclosure for settled top-level closures (POD-183). Rows are
+ * derived newest-closed-first; Archive is the explicit removal gesture. */
 function ClosedIssueFold({
   groupKey,
   rows,
   renderRow,
+  onArchive,
 }: {
   groupKey: string
   rows: UnifiedIssueRowView[]
   renderRow: (row: UnifiedIssueRowView) => JSX.Element
+  onArchive: (id: string) => void
 }): JSX.Element {
   const [collapsed, toggle] = useCollapsed(`podium:sidebar:closed-fold:${groupKey}`, true)
   const contentId = useId()
@@ -648,7 +650,29 @@ function ClosedIssueFold({
       </button>
       {!collapsed && (
         <div id={contentId} className="min-w-0" data-testid="closed-fold-rows">
-          {rows.map(renderRow)}
+          {rows.map((row) => (
+            <div
+              key={row.issue.id}
+              className="group/closed relative min-w-0"
+              data-testid="closed-fold-row"
+            >
+              {renderRow(row)}
+              <button
+                type="button"
+                className="absolute top-1.5 right-1 z-20 flex size-6 items-center justify-center rounded-[5px] border border-[#30303b] bg-[#1a1a22] text-[#777785] opacity-0 shadow-sm transition-[color,opacity,background-color] group-hover/closed:opacity-100 group-focus-within/closed:opacity-100 hover:bg-[#24242e] hover:text-[#d7d7e0] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#526b9d]"
+                aria-label={`Archive ${issueDisplayRef(row.issue)}`}
+                title="Archive — remove from sidebar"
+                data-testid="closed-issue-archive"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onArchive(row.issue.id)
+                }}
+              >
+                <Archive size={12} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -797,6 +821,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   }
   const setIssueColor = (id: string, color: IssueColorSlot | null): Promise<unknown> =>
     trpc.issues.update.mutate({ id, patch: { color } })
+  const archiveIssue = (id: string): void => {
+    void trpc.issues.archive.mutate({ id }).catch(() => {})
+  }
   // Manual-sort persistence (POD-168): one patch per row whose key changes
   // (fast path = exactly the dragged row; legacy backfill = the whole scope).
   const applySortPatches = (
@@ -827,6 +854,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     openIssuePage,
     renameIssue,
     setIssueColor,
+    archiveIssue,
     applySortPatches,
   }
 }
@@ -848,8 +876,18 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
     openIssuePage,
     renameIssue,
     setIssueColor,
+    archiveIssue,
     applySortPatches,
   } = useUnifiedWork(derivation)
+  const [selectedClosedPlacement, setSelectedClosedPlacement] = useState<{
+    issueId: string
+    folded: boolean
+  } | null>(null)
+  useEffect(() => {
+    setSelectedClosedPlacement((placement) =>
+      placement && placement.issueId !== selectedIssueId ? null : placement,
+    )
+  }, [selectedIssueId])
 
   // Row arrival one-shot (POD-167): keys derived BEFORE the pinned split, so a
   // pin/unpin move (key stays present) never re-arrives — only genuinely new
@@ -911,8 +949,14 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           selectedIssueId={selectedIssueId}
           paneA={paneA}
           now={now}
-          onSelectIssue={selectIssue}
-          onSelectPanelForIssue={selectPanelForIssue}
+          onSelectIssue={(issue) => {
+            setSelectedClosedPlacement({ issueId: issue.id, folded })
+            selectIssue(issue)
+          }}
+          onSelectPanelForIssue={(issue, sessionId) => {
+            setSelectedClosedPlacement({ issueId: issue.id, folded })
+            selectPanelForIssue(issue, sessionId)
+          }}
           onOpenIssue={openIssuePage}
           onRenameIssue={renameIssue}
           onColorChangeIssue={setIssueColor}
@@ -982,7 +1026,11 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
           {pinned.map((row) => renderWorkRow(row))}
         </div>
       )}
-      {groupUnifiedWorkRows(rest, selectedIssueId).map((group, index) => (
+      {groupUnifiedWorkRows(
+        rest,
+        selectedIssueId,
+        selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded,
+      ).map((group, index) => (
         <div
           key={group.key}
           className="flex min-w-0 flex-col gap-[3px]"
@@ -996,6 +1044,7 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
               groupKey={group.key}
               rows={group.closedRows}
               renderRow={(row) => renderWorkRow(row, true)}
+              onArchive={archiveIssue}
             />
           )}
         </div>

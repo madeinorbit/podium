@@ -42,6 +42,7 @@ import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { issueRefLong, STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import type { IssueCloseReason } from './issue-lifecycle'
 import type { IssuePageCommands } from './issue-page-commands'
 import {
   assigneeOptionsOf,
@@ -158,11 +159,13 @@ export function IssueProperties({
   busy,
   commands,
   onNavigate,
+  onRequestClose,
 }: {
   issue: IssueWire
   busy: boolean
   commands: IssuePageCommands
   onNavigate: (id: string) => void
+  onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
   const { trpc, issues, machines, sessions, navigateToSession } = useStoreSelector(
     (s) => ({
@@ -215,9 +218,8 @@ export function IssueProperties({
     (s) => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived,
   )
 
-  // ---- Status: 6 stages + Close done/wontfix. Reopen is intentionally omitted:
-  // the `update` router can't clear `closedReason` (string, no null), and an empty
-  // string still reads as closed server-side (isClosed: closedReason != null). ----
+  // ---- Status: lifecycle stages reopen a closed issue; close choices are guarded
+  // by the shared dialog mounted on the full page. ----
   const statusOptions: PropertyOption[] = [
     ...ISSUE_STAGES.map((s) => ({
       value: `stage:${s}`,
@@ -236,7 +238,11 @@ export function IssueProperties({
           <PropertyMenu
             selectedValue={`stage:${issue.stage}`}
             options={statusOptions}
-            onSelect={commands.selectStatus}
+            onSelect={(value) => {
+              if (value === 'close:done') onRequestClose('done')
+              else if (value === 'close:wontfix') onRequestClose('wontfix')
+              else commands.selectStatus(value)
+            }}
             trigger={
               <TriggerButton disabled={busy} testId="status-trigger">
                 <StageGlyph stage={issue.stage} />

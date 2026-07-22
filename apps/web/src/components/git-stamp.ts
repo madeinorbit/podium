@@ -29,7 +29,7 @@ export interface GitStampModel {
   ahead?: number
   /** Task axis: attributed commit count (shared checkout, N > 0). */
   commits?: number
-  /** Uncommitted count: dirtyOwn when attributed, dirtyFiles otherwise. */
+  /** Issue-attributed uncommitted count. Checkout-wide fallback is omitted. */
   dirty?: number
   /** Dirty counter suffix: 'yours' when attributed on a shared checkout. */
   dirtyLabel: 'files' | 'yours'
@@ -83,7 +83,7 @@ export function deriveGitStamp(
   const attributedDirty = git.shared && git.dirtyOwn !== undefined && !git.fallback
   const commits = git.shared ? (git.commits?.length ?? 0) : 0
   const ahead = git.shared ? 0 : (git.ahead ?? 0)
-  const dirty = git.shared && git.dirtyOwn !== undefined ? git.dirtyOwn : git.dirtyFiles
+  const dirty = git.shared ? (attributedDirty ? (git.dirtyOwn ?? 0) : 0) : git.dirtyFiles
   const committed = git.shared ? commits > 0 : ahead > 0
   const merged = git.merged === true && !git.shared
   // Red is reserved for one anomaly: the issue HAS a private branch but its
@@ -124,7 +124,6 @@ export function deriveGitStamp(
   if (attributedDirty && git.dirtyFiles > dirty)
     titleParts.push(`+${git.dirtyFiles - dirty} more from other sessions`)
   if (unpushed) titleParts.push('not pushed')
-  if (git.fallback) titleParts.push('checkout-level data (no per-task attribution)')
   if (mismatch) titleParts.push(`issue branch is ${issueBranch} — changes sit on ${git.branch}`)
 
   return {

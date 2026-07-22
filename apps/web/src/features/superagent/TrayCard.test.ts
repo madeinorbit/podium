@@ -50,4 +50,12 @@ describe('trayStateSegments (§2.3-v3 machine-set state line)', () => {
       ),
     ).toEqual([{ text: 'in progress' }])
   })
+
+  it('does not warn about unrelated dirt from an unattributed shared checkout', () => {
+    expect(
+      trayStateSegments(
+        makeIssue({ gitState: git({ shared: true, dirtyFiles: 26, fallback: true }) }),
+      ),
+    ).toEqual([{ text: 'in progress' }, { text: '⎇ pod-105' }, { text: 'clean' }])
+  })
 })

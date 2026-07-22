@@ -1335,22 +1335,28 @@ function buildUnifiedRows(
       ),
       issue.coordinatorSessionId,
     )
-    // Active work requires a session. Sessionless rows are allowed only for
-    // finished MILESTONE CHILDREN inside the unread → 24h-grace decay window,
-    // actionable awaiting-merge work, or closed top-level human issues that
-    // POD-183 keeps in the project-local fold. A sessionless top-level issue
-    // that is merely `done` must never resurface here. [spec:SP-6144]
+    // Once human work has started, retiring its last session must not erase the
+    // issue from the sidebar. Backlog/proposed issues still need execution to
+    // earn a live row; planning/in-progress/review issues carry their own work
+    // lifecycle independently of any particular session. Finished milestone
+    // children, awaiting-merge work, and explicitly closed top-level issues use
+    // their existing completion visibility rules. [spec:SP-6144]
     if (mine.length === 0) {
       const finished = issue.stage === 'done' || issue.closedReason != null
+      const activeHumanIssue =
+        issue.audience === 'human' &&
+        (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
       const awaitingMerge = issueAwaitingMerge(issue)
       const closedTopLevel = isClosedTopLevelIssue(issue)
-      if (
-        !finished ||
-        (!awaitingMerge && !closedTopLevel && (!issue.parentId || issue.audience === 'agent'))
-      ) {
-        continue
+      if (!activeHumanIssue) {
+        if (
+          !finished ||
+          (!awaitingMerge && !closedTopLevel && (!issue.parentId || issue.audience === 'agent'))
+        ) {
+          continue
+        }
+        if (!issueVisibleInSidebar(issue, now)) continue
       }
-      if (!issueVisibleInSidebar(issue, now)) continue
     }
     const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
     rows.push({
@@ -1781,11 +1787,14 @@ export interface UnifiedWorkGroup {
 }
 
 /** POD-183 fold membership. Attention always outranks structure: unread,
- * selected, working, needs-you, and awaiting-merge closures keep their full
- * row. Pinned rows are removed before grouping, so pinning also wins. */
+ * working, needs-you, and awaiting-merge closures keep their full row. A
+ * selected closure keeps the lane it occupied when clicked: a settled folded
+ * row stays folded, while a newly-read open row stays open until focus moves.
+ * Pinned rows are removed before grouping, so pinning also wins. */
 export function rowInClosedFold(
   row: UnifiedWorkRow,
   selectedIssueId: string | null,
+  selectedIssueWasFolded = false,
 ): row is UnifiedIssueRow {
   if (row.kind !== 'issue') return false
   const { issue } = row
@@ -1793,7 +1802,7 @@ export function rowInClosedFold(
     isClosedTopLevelIssue(issue) &&
     !issue.unread &&
     Boolean(issue.readAt) &&
-    issue.id !== selectedIssueId &&
+    (issue.id !== selectedIssueId || selectedIssueWasFolded) &&
     !issue.needsHuman &&
     !issueAwaitingMerge(issue) &&
     rowWaitingCount(row) === 0 &&
@@ -1804,14 +1813,14 @@ export function rowInClosedFold(
 /**
  * Bucket unified WORK rows by repo (stable repoId when known, repoPath
  * otherwise — so the same repo on two machines/paths merges into one group).
- * Row order inside a group and group order both follow the incoming fixed
- * creation order: a group sits where its first (newest-created) row would.
- * Settled top-level closures retain that order in `closedRows`; expanding the
- * disclosure never rewrites sort keys or group arithmetic.
+ * Open-row and group order follow the incoming fixed creation order. Closed
+ * rows deliberately ignore manual sort keys: the fold is a small history list,
+ * ordered by the moment of closing, newest first.
  */
 export function groupUnifiedWorkRows(
   rows: UnifiedWorkRow[],
   selectedIssueId: string | null = null,
+  selectedIssueWasFolded = false,
 ): UnifiedWorkGroup[] {
   const groups: UnifiedWorkGroup[] = []
   const byKey = new Map<string, UnifiedWorkGroup>()
@@ -1830,8 +1839,12 @@ export function groupUnifiedWorkRows(
       byKey.set(key, group)
       groups.push(group)
     }
-    if (rowInClosedFold(row, selectedIssueId)) group.closedRows.push(row)
-    else group.rows.push(row)
+    if (rowInClosedFold(row, selectedIssueId, selectedIssueWasFolded)) {
+      group.closedRows.push(row)
+    } else group.rows.push(row)
+  }
+  for (const group of groups) {
+    group.closedRows.sort((a, b) => issueFinishedAt(b.issue) - issueFinishedAt(a.issue))
   }
   return groups
 }

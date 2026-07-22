@@ -87,7 +87,7 @@ describe('deriveGitStamp', () => {
     expect(m.title).toContain('+3 more from other sessions')
   })
 
-  test('shared checkout without attribution falls back to checkout counts', () => {
+  test('shared checkout without attribution omits checkout-wide dirt', () => {
     const m = deriveGitStamp(null, {
       ...base,
       branch: 'main',
@@ -95,9 +95,9 @@ describe('deriveGitStamp', () => {
       dirtyFiles: 7,
       fallback: true,
     })
-    expect(m.dirty).toBe(7)
-    expect(m.dirtyLabel).toBe('files')
-    expect(m.title).toContain('checkout-level data')
+    expect(m.dirty).toBeUndefined()
+    expect(m.dot).toBe('none')
+    expect(m.title).not.toContain('checkout-level')
   })
 
   test('shared clean, no attributed commits → "no changes"', () => {
@@ -106,7 +106,7 @@ describe('deriveGitStamp', () => {
     expect(m.note).toBe('no changes')
   })
 
-  test('marker-only attribution never labels checkout dirt as yours', () => {
+  test('marker-only attribution never shows checkout dirt as issue-owned', () => {
     const m = deriveGitStamp(null, {
       ...base,
       branch: 'main',
@@ -115,8 +115,7 @@ describe('deriveGitStamp', () => {
       commits: ['a', 'b', 'c'], // history markers; no touched-file set
     })
     expect(m.commits).toBe(3)
-    expect(m.dirty).toBe(7)
-    expect(m.dirtyLabel).toBe('files')
+    expect(m.dirty).toBeUndefined()
   })
 
   test('clean-for-you on a dirty shared checkout says "none yours"', () => {

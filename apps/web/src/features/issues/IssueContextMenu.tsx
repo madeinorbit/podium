@@ -44,6 +44,7 @@ import {
   toggleLabelAcross,
 } from './issue-context-menu'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
+import type { IssueCloseReason } from './issue-lifecycle'
 import { isIssueStartable } from './issue-startable'
 
 /** Which flat second-level flyout is open (SessionContextMenu-style, no nesting). */
@@ -65,6 +66,7 @@ export function IssueContextMenu({
   onClose,
   onOpen,
   onRename,
+  onRequestClose,
   surface = 'board',
 }: {
   /** The issues the menu acts on (the clicked issue, or the multi-selection). */
@@ -78,6 +80,9 @@ export function IssueContextMenu({
   /** Start an inline rename for a single target (#170). When omitted (e.g. the
    *  board, which has no in-place editor) the Rename item is not offered. */
   onRename?: (id: string) => void
+  /** Compact/full-detail hosts can replace the menu's immediate close with the
+   * shared lifecycle guard while board rows retain their existing behavior. */
+  onRequestClose?: (reason: IssueCloseReason) => void
   /** Host surface — gates per-surface items like "Duplicate of…" (POD-169). */
   surface?: IssueMenuSurface
 }): JSX.Element | null {
@@ -177,8 +182,14 @@ export function IssueContextMenu({
         ? trpc.issues.addSession.mutate(agentKind ? { id: first.id, agentKind } : { id: first.id })
         : trpc.issues.start.mutate(agentKind ? { id: first.id, agentKind } : { id: first.id }),
     )
-  const close = (reason: 'done' | 'wontfix'): void =>
+  const close = (reason: IssueCloseReason): void => {
+    if (onRequestClose) {
+      onClose()
+      onRequestClose(reason)
+      return
+    }
     run(() => trpc.issues.close.mutate({ id: first.id, reason }))
+  }
   const defer = (until: string | null): void =>
     run(() => trpc.issues.defer.mutate({ id: first.id, until }))
   // Unsnooze via the dedicated route (issue #133): ends the snooze and floats the
