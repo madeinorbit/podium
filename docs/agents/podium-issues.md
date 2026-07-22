@@ -72,16 +72,45 @@ The artifact renders in the issue's sidebar and survives across sessions. Two ru
 `podium offer` posts your suggested next steps as clickable buttons [spec:SP-c7f1]:
 
 ```
-podium offer --message "PR is green and rebased." \
-  --action "Merge it::Merge the PR under the merge lock and close the issue" \
-  --action "Hold::Summarize the diff for review instead"
+podium issue artifact 12 --add e2e/login-final.png --title "Login · final"
+
+podium offer --message "Login screen ready to merge — fused bar landed, shot attached.
+Branch pod-12, 2 ahead, clean. Riskiest bit: wordmark scaling under 380px." \
+  --artifact e2e/login-final.png \
+  --action "Merge to main::Merge POD-12 to main under the merge lock" \
+  --action-input "Send back::Revise the login screen:"
 ```
 
 Each `--action` is `Label::prompt` — clicking the button sends the prompt to you as a normal
-user turn (up to 6 actions; `podium offer clear` removes the offer). The offer renders under
-your chat composer, beneath your native terminal, and as a card in the workspace Tray. It is
-ephemeral: the next user turn consumes it, and it self-clears when you start another turn —
-so it never announces yesterday's choice.
+user turn (`podium offer clear` removes the offer). `--action-input` collects the user's
+freeform feedback first and appends it to the prompt — required for any action that only makes
+sense with an explanation (send back, request changes). `--artifact <path>` references issue
+artifacts (published the same turn via `podium issue artifact --add`) that render as thumbnails
+on the offer card. The offer renders under your chat composer, beneath your native terminal,
+and as a card in the workspace Tray. It is ephemeral: the next user turn consumes it, and it
+self-clears when you start another turn — so it never announces yesterday's choice.
+
+**Write the offer to be judged in five seconds, cold.** The tray card is read among many,
+with none of your session's context. Five rules:
+
+1. **Lead with the outcome, stated as done.** The first line of `--message` becomes the card
+   headline — "Login screen ready to merge", never "I've been working on the login screen".
+   At most two more lines: where things stand, and the one thing to judge.
+2. **One decision per offer.** A second topic is a discovered issue or the next turn's offer —
+   no "by the way". Prefer 2–3 actions; up to 6 only when the decision genuinely branches that
+   wide. Labels are imperative and ≤3 words; the recommended action goes FIRST — it renders as
+   the primary button.
+3. **Restate state.** Assume the reader remembers nothing: name the stage, branch, and
+   progress in one clause. The card also shows machine-set git state — don't contradict it.
+4. **Attach the evidence.** If the decision needs eyes (UI, docs, output), publish the
+   artifact and name it with `--artifact` so the user can judge from the card. An offer that
+   claims "screenshots attached" without artifacts is a broken promise.
+5. **Failures are offers too.** Cause → fix → decision, matter-of-fact: "E2E fails at
+   osc52.spec:42 — Safari shim, ~20 min fix" with actions like `Fix it` / `Drop Safari`.
+   No apologies, no hedging.
+
+Before posting, test it: reading only the first line and the buttons, does the user know
+(a) what happened and (b) what to decide?
 
 **Review handoffs ride offers.** The Tray shows review-ready work only through your offer —
 moving an issue to `review` renders nothing by itself. When you set `--stage review`, always
