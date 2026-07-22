@@ -1316,7 +1316,7 @@ export function sessionVisibleInSidebar(s: SessionMeta, now: number): boolean {
 }
 
 function buildUnifiedRows(
-  sections: SidebarSections,
+  _sections: SidebarSections,
   issues: IssueWire[],
   sessions: SessionMeta[],
   allWorktreePaths: string[],
@@ -1395,29 +1395,9 @@ function buildUnifiedRows(
       parentId = parent.parentId
     }
   }
-  const liveIssueIds = new Set(issues.filter((i) => !i.archived && !i.deletedAt).map((i) => i.id))
-  const seen = new Set<string>()
-  const navWorktrees = [
-    ...sections.pinnedWorktrees,
-    ...sections.pinnedRepos.flatMap((r) => r.worktrees),
-    ...sections.repos.flatMap((r) => r.worktrees),
-  ]
-  for (const wt of navWorktrees) {
-    if (seen.has(wt.path) || wt.issues.length > 0) continue
-    seen.add(wt.path)
-    const unowned = wt.sessions.filter((s) => !(s.issueId && liveIssueIds.has(s.issueId)))
-    if (unowned.length === 0) continue
-    const lastSession = unowned.reduce(
-      (max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0),
-      0,
-    )
-    rows.push({
-      kind: 'worktree',
-      worktree: { ...wt, sessions: unowned },
-      activityAt: lastSession,
-      rank: rowRank(unowned, now),
-    })
-  }
+  // The work sidebar is issue-only. Unattached and orphaned sessions remain
+  // available through session/history surfaces, but a repository branch is
+  // never promoted into a pseudo-issue row (for example "podium · main").
   return nestStartedByIssues(rows, sessions, allWorktreePaths, issues, now, ownership)
 }
 

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import { RELAY } from './_harness'
 
 /**
@@ -12,6 +12,24 @@ import { RELAY } from './_harness'
  * Desktop-only: the <aside> Sidebar is not rendered by the mobile layout.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop test (the <aside> Sidebar is desktop-only)')
+test.setTimeout(120_000)
+
+const HTTP = RELAY.replace(/^ws/, 'http')
+
+async function rpc<T>(
+  request: APIRequestContext,
+  proc: string,
+  input?: unknown,
+  method: 'post' | 'get' = 'post',
+): Promise<T> {
+  const response =
+    method === 'post'
+      ? await request.post(`${HTTP}/trpc/${proc}`, { data: input ?? {} })
+      : await request.get(`${HTTP}/trpc/${proc}`)
+  if (!response.ok()) throw new Error(`${proc} → ${response.status()}: ${await response.text()}`)
+  const body = (await response.json()) as { result?: { data?: T } }
+  return body.result?.data as T
+}
 
 async function openShell(page: Page): Promise<void> {
   await page.goto(`/?server=${RELAY}&e2e=1`)
@@ -122,4 +140,118 @@ test('sidebar width is draggable via the right-edge handle and persists', async 
   })
   const reloaded = (await page.locator('aside').first().boundingBox())?.width ?? 0
   expect(Math.abs(reloaded - after)).toBeLessThan(3)
+})
+
+test('nested fleets fold cleanly and unattached main sessions never become sidebar rows', async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const repos = await rpc<string[]>(request, 'repos.list', undefined, 'get')
+  const repoPath = repos[0]
+  if (!repoPath) throw new Error('harness registered no repo')
+
+  const stamp = Date.now().toString(36)
+  const parentTitle = `Fleet hierarchy ${stamp}`
+  const childTitle = `Fleet child ${stamp}`
+  const parent = await rpc<{ id: string }>(request, 'issues.create', {
+    repoPath,
+    title: parentTitle,
+    startNow: true,
+  })
+  await rpc(request, 'issues.update', { id: parent.id, patch: { color: 'pink' } })
+  await rpc<{ id: string }>(request, 'issues.create', {
+    repoPath,
+    title: childTitle,
+    parentId: parent.id,
+    startNow: true,
+  })
+
+  await expect
+    .poll(
+      async () =>
+        (
+          await rpc<Array<{ sessionId: string; cwd: string; issueId?: string }>>(
+            request,
+            'sessions.list',
+            undefined,
+            'get',
+          )
+        ).some((session) => session.issueId === parent.id),
+      { timeout: 30_000 },
+    )
+    .toBe(true)
+  const parentSession = (
+    await rpc<Array<{ sessionId: string; cwd: string; issueId?: string }>>(
+      request,
+      'sessions.list',
+      undefined,
+      'get',
+    )
+  ).find((session) => session.issueId === parent.id)
+  if (!parentSession) throw new Error('parent session did not materialize')
+  await rpc(request, 'sessions.create', {
+    agentKind: 'claude-code',
+    cwd: parentSession.cwd,
+    issueId: parent.id,
+    title: `Fleet peer ${stamp}`,
+  })
+  await rpc(request, 'sessions.create', {
+    agentKind: 'claude-code',
+    cwd: repoPath,
+    title: `Abandoned session sentinel ${stamp}`,
+  })
+
+  await openShell(page)
+  const aside = page.locator('aside').first()
+  const parentRow = aside.getByTestId('unified-issue-row').filter({ hasText: parentTitle }).first()
+  await expect(parentRow).toBeVisible({ timeout: 30_000 })
+  const parentSurface = parentRow.locator(':scope > [data-phase]')
+  const parentFleet = parentSurface.getByTestId('issue-fleet-summary')
+  const tree = parentRow.getByTestId('started-by-children')
+  await expect(tree).toBeVisible()
+  await expect(tree.locator(':scope > [data-drag-key]')).toContainText(childTitle)
+  await expect(parentRow.getByTestId('agent-roster-band')).toBeVisible()
+  await expect(parentFleet).toHaveAttribute('aria-label', '2 agents')
+
+  const geometry = await parentRow.evaluate((row) => {
+    const surface = row.querySelector<HTMLElement>('[data-phase]')
+    const grip = row.querySelector<HTMLElement>('[data-testid="row-grip"]')
+    const square = row.querySelector<HTMLElement>('[data-testid="issue-id-square"]')
+    const guide = row.querySelector<HTMLElement>('.tree-guide')
+    const child = row.querySelector<HTMLElement>('[data-drag-key]')
+    if (!surface || !grip || !square || !guide || !child) return null
+    const rect = (el: HTMLElement) => {
+      const r = el.getBoundingClientRect()
+      return { x: r.x, y: r.y, width: r.width, height: r.height }
+    }
+    return {
+      surface: rect(surface),
+      grip: rect(grip),
+      square: rect(square),
+      guide: rect(guide),
+      child: rect(child),
+      treeGuide: getComputedStyle(guide).backgroundColor,
+    }
+  })
+  expect(geometry).not.toBeNull()
+  if (geometry) {
+    expect(geometry.grip.x + geometry.grip.width).toBeLessThanOrEqual(geometry.square.x)
+    expect(geometry.child.x).toBeGreaterThan(geometry.surface.x)
+    expect(geometry.guide.x).toBeLessThan(geometry.child.x)
+    expect(geometry.treeGuide).not.toBe('rgba(0, 0, 0, 0)')
+  }
+
+  await parentRow.getByRole('button', { name: `Collapse ${parentTitle}` }).click()
+  await expect(parentRow.getByTestId('agent-roster-band')).toHaveCount(0)
+  await expect(parentRow.getByTestId('started-by-children')).toHaveCount(0)
+  await expect(parentFleet).toBeVisible()
+
+  await parentRow.getByRole('button', { name: `Expand ${parentTitle}` }).click()
+  await expect(parentRow.getByTestId('agent-roster-band')).toBeVisible()
+  await expect(parentRow.getByTestId('started-by-children')).toBeVisible()
+
+  await expect(aside.getByText(`Abandoned session sentinel ${stamp}`)).toHaveCount(0)
+  await expect(aside.getByTestId('unified-worktree-row')).toHaveCount(0)
+  await aside.screenshot({ path: 'test-results/sidebar-fleet-hierarchy.png' })
 })

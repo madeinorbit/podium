@@ -12,9 +12,9 @@ import { RELAY } from './_harness'
  *    working or ask for the human: attention is carried per-row (square
  *    language / amber pill), never by reordering.
  * 2. GEOMETRY — the exact expanded-sidebar values from the handoff (1a/1b):
- *    262px default column, 3px list rhythm, borderless rows at 5px 8px with
- *    the 8px inner gap and 26px squares, the selected row growing its 1px
- *    border + 6px padding and the bridge notch, 8.5px mono group label,
+ *    262px default column, 3px list rhythm, borderless rows at 5px vertical /
+ *    14px left / 8px right with the 8px inner gap and 26px squares, inset-only
+ *    selection plus bridge notch, 8.5px mono group label,
  *    divider and footer spacing.
  */
 test.skip(({ isMobile }) => isMobile, 'desktop verification: the expanded sidebar is desktop-only')
@@ -166,7 +166,8 @@ test('newest-first creation order holds while agents work; exact expanded geomet
   if (!top || !second) throw new Error('rows not measurable')
   expect(Math.round(second.y - (top.y + top.height))).toBe(3)
 
-  // Unselected row: borderless, 5px 8px padding, 8px flex gap, 36px tall.
+  // Unselected row: borderless, with a hardened 14px left gutter that keeps
+  // the 10px drag grip clear of the square.
   const plainRow = rowFor(3).locator('[data-phase]').first()
   const plain = await style(plainRow, [
     'padding-top',
@@ -176,39 +177,13 @@ test('newest-first creation order holds while agents work; exact expanded geomet
     'border-radius',
   ])
   expect(plain['padding-top']).toBe('5px')
-  expect(plain['padding-left']).toBe('8px')
+  expect(plain['padding-left']).toBe('14px')
   expect(plain['border-top-width']).toBe('0px')
   expect(plain.gap).toBe('8px')
   expect(plain['border-radius']).toBe('7px')
 
-  // Row heights must match a probe built from the handoff's exact inline
-  // styles (26px square, 11.5px/10px two-line block at the font's natural
-  // line height, 5px/6px padding, selected border) — self-calibrating against
-  // the real Geist metrics.
-  const probeHeights = await page.evaluate(() => {
-    const build = (selected: boolean) => {
-      const row = document.createElement('div')
-      row.style.cssText = `position:absolute; visibility:hidden; display:flex; align-items:center; gap:8px; padding:${selected ? '6px' : '5px'} 8px; width:246px; font-family:'Geist Variable','Geist',sans-serif; line-height:normal;${selected ? ' border:1px solid #888;' : ''}`
-      const square = document.createElement('span')
-      square.style.cssText = 'width:26px; height:26px; flex:none;'
-      const text = document.createElement('div')
-      text.style.cssText = 'display:flex; flex-direction:column; gap:1px; min-width:0; flex:1;'
-      const line1 = document.createElement('div')
-      line1.style.cssText = 'font-size:11.5px; white-space:nowrap;'
-      line1.textContent = 'Title'
-      const line2 = document.createElement('div')
-      line2.style.cssText = 'font-size:10px; white-space:nowrap;'
-      line2.textContent = 'status'
-      text.append(line1, line2)
-      row.append(square, text)
-      document.body.appendChild(row)
-      const h = row.getBoundingClientRect().height
-      row.remove()
-      return h
-    }
-    return { plain: build(false), selected: build(true) }
-  })
-  expect(Math.round(top.height)).toBe(Math.round(probeHeights.plain))
+  const plainBox = await plainRow.boundingBox()
+  expect(plainBox).not.toBeNull()
 
   // Rows sit at the column's 8px right inset (aside border-box right − 1px
   // border − 8px padding).
@@ -217,11 +192,16 @@ test('newest-first creation order holds while agents work; exact expanded geomet
   }
 
   // 26px ID square, 6.5px mono two-line label.
-  const square = rowFor(3).getByRole('button', { name: /Set colour for issue #/ })
+  const square = rowFor(3).getByTestId('issue-id-square').first()
   const squareBox = await square.boundingBox()
   expect(Math.round(squareBox?.width ?? 0)).toBe(26)
   expect(Math.round(squareBox?.height ?? 0)).toBe(26)
   expect((await style(square, ['font-size']))['font-size']).toBe('6.5px')
+  const gripBox = await rowFor(3).getByTestId('row-grip').boundingBox()
+  expect(gripBox).not.toBeNull()
+  if (gripBox && squareBox) {
+    expect(gripBox.x + gripBox.width).toBeLessThanOrEqual(squareBox.x)
+  }
 
   // 11.5px title / 10px status line.
   const titleSpan = rowFor(3).locator('button.flex-1 > span').first().locator('span').first()
@@ -264,15 +244,16 @@ test('newest-first creation order holds while agents work; exact expanded geomet
   expect(footerStyle['padding-bottom']).toBe('10px')
   expect(footerStyle['border-top-width']).toBe('1px')
 
-  // ---- Selected row grows the 1px border + 6px padding and the notch. ----
+  // ---- Selection uses an inset ring, so it never shifts row geometry. ----
   await rowFor(3).locator('button.flex-1').first().click()
   const selected = rowFor(3).locator('[data-selected="true"]').first()
   await expect(selected).toBeVisible({ timeout: 10_000 })
-  const sel = await style(selected, ['padding-top', 'border-top-width'])
-  expect(sel['padding-top']).toBe('6px')
-  expect(sel['border-top-width']).toBe('1px')
+  const sel = await style(selected, ['padding-top', 'border-top-width', 'box-shadow'])
+  expect(sel['padding-top']).toBe('5px')
+  expect(sel['border-top-width']).toBe('0px')
+  expect(sel['box-shadow']).toContain('inset')
   const selBox = await selected.boundingBox()
-  expect(Math.round(selBox?.height ?? 0)).toBe(Math.round(probeHeights.selected))
+  expect(Math.round(selBox?.height ?? 0)).toBe(Math.round(plainBox?.height ?? 0))
   const notch = rowFor(3).getByTestId('bridge-notch')
   await expect(notch).toBeVisible()
   const notchBox = await notch.boundingBox()

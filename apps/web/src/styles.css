@@ -609,15 +609,15 @@ html[data-podium-platform="macos"] .settings-header {
    vertical tree-guide line (the line itself is the .tree-guide span in the
    wrapper — excluded here, or this rule's position:relative would override
    its Tailwind `absolute` and give it a stub of its own). */
-.tree-children > :not(.tree-guide) {
+.tree-children > :not(.tree-guide):not([data-tree-band]) {
   position: relative;
 }
-.tree-children > :not(.tree-guide)::before {
+.tree-children > :not(.tree-guide):not([data-tree-band])::before {
   content: "";
   position: absolute;
-  left: 16px;
+  left: -4px;
   top: 50%;
-  width: 9px;
+  width: 6px;
   height: 1px;
   /* Inherits a coloured issue's tint when the wrapper sets --tree-guide. */
   background: var(--tree-guide, var(--border));

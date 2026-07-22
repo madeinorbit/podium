@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -78,6 +78,8 @@ vi.mock('@/app/store', () => {
       sess('s-run', 'partial', 'working'), // partial: working…
       sess('s-ask', 'partial', 'question'), // …but a question waits → amber row
       sess('s-merge', 'merge', 'idle'),
+      sess('s-parent', 'parent', 'idle'),
+      sess('s-child', 'child', 'idle'),
     ],
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
@@ -97,6 +99,8 @@ vi.mock('@/app/store', () => {
           dirtyFiles: 0,
         },
       }),
+      issue('parent', 'Nested parent', { childCount: 1, color: 'pink' }),
+      issue('child', 'Nested child', { parentId: 'parent', audience: 'agent' }),
     ],
     trpc: {
       settings: {
@@ -163,6 +167,37 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
       .closest('[data-testid="unified-issue-row"]') as HTMLElement
     expect(waitingRow.querySelector('[data-phase="waiting"]')).toBeTruthy()
     expect(waitingRow.querySelector('[aria-label="1 waiting on you"]')).toBeTruthy()
+  })
+
+  it('keeps a compact fleet summary when an agent roster is collapsed', () => {
+    render(<SidebarUnified />)
+    const waitingRow = screen
+      .getByText('Partly working issue')
+      .closest('[data-testid="unified-issue-row"]') as HTMLElement
+    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeTruthy()
+
+    const collapse = screen.getByRole('button', { name: 'Collapse Partly working issue' })
+    fireEvent.click(collapse)
+
+    expect(waitingRow.querySelector('[data-testid="agent-roster-band"]')).toBeNull()
+    expect(waitingRow.querySelector('[data-testid="issue-fleet-summary"]')).toBeTruthy()
+    expect(
+      screen
+        .getByRole('button', { name: 'Expand Partly working issue' })
+        .getAttribute('aria-expanded'),
+    ).toBe('false')
+  })
+
+  it('makes nested issues direct children of one tinted connector rail', () => {
+    render(<SidebarUnified />)
+    const tree = screen.getByTestId('started-by-children')
+    const child = tree.querySelector(':scope > [data-drag-key="child"]')
+
+    expect(tree.getAttribute('data-drag-scope')).toBe('children:parent')
+    expect(tree.style.getPropertyValue('--tree-guide')).toContain('#ec4899')
+    expect(child).toBeTruthy()
+    expect(child?.querySelector('[data-testid="unified-issue-row-started-by"]')).toBeTruthy()
   })
 
   it('shows unmerged done work as a tint-only branch attention chip', () => {

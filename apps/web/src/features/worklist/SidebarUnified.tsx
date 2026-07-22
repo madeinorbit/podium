@@ -96,6 +96,76 @@ function agentIconFor(kind: AgentKind) {
   return NEW_AGENTS.find((a) => a.kind === kind)?.Icon
 }
 
+/** Compact execution presence that survives a collapsed issue row. The full
+ * roster remains below the row; this summary answers "who is here?" without
+ * making the operator keep every fleet expanded. */
+function IssueFleetSummary({
+  sessions,
+  phase,
+}: {
+  sessions: SessionMeta[]
+  phase: MotionPhase
+}): JSX.Element | null {
+  if (sessions.length === 0) return null
+  const shown = sessions.slice(0, 2)
+  const overflow = Math.max(0, sessions.length - shown.length)
+  const nativeCount = sessions.reduce(
+    (sum, session) => sum + (session.agentState?.nativeSubagentCount ?? 0),
+    0,
+  )
+  const label = [
+    `${sessions.length} agent${sessions.length === 1 ? '' : 's'}`,
+    nativeCount > 0 ? `${nativeCount} native subagent${nativeCount === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <span
+      className="relative ml-0.5 flex flex-none items-center"
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="issue-fleet-summary"
+    >
+      {shown.map((session, index) => {
+        const AgentIcon = agentIconFor(session.agentKind)
+        return (
+          <span
+            key={session.sessionId}
+            className={cn(
+              'flex size-[17px] items-center justify-center rounded-[5px] border border-[#2c3958] bg-[#111b2d] text-[#d97757]',
+              index > 0 && '-ml-1',
+            )}
+          >
+            {AgentIcon ? <AgentIcon size={10} strokeWidth={1.8} aria-hidden="true" /> : '✳'}
+          </span>
+        )
+      })}
+      {overflow > 0 && (
+        <span className="-ml-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-[5px] border border-[#2c3958] bg-[#111b2d] px-0.5 font-mono text-[8px] text-[#9aa4c0]">
+          +{overflow}
+        </span>
+      )}
+      {nativeCount > 0 && (
+        <span className="-mt-2 -ml-1 rounded-[4px] border border-[#50392f] bg-[#241915] px-[2px] font-mono text-[7px] leading-[11px] text-[#d97757]">
+          ×{nativeCount}
+        </span>
+      )}
+      <span
+        className={cn(
+          'absolute right-[-2px] bottom-[-2px] size-[5px] rounded-full ring-1 ring-[#16161c]',
+          phase === 'waiting'
+            ? 'bg-warning'
+            : phase === 'working'
+              ? 'bg-live'
+              : 'bg-muted-foreground',
+        )}
+        aria-hidden="true"
+      />
+    </span>
+  )
+}
+
 /** Lineage flash (POD-85): briefly outline another issue's row — provenance as
  *  a gesture when a spin-off is selected, not persistent chrome. DOM-level on
  *  purpose: the origin row is a sibling React branch, and a one-shot class
@@ -987,6 +1057,9 @@ function WorkRowShell({
   gitStamp,
   onGripDown,
   band,
+  hasTreeChildren,
+  childDragScope,
+  childrenTestId,
 }: {
   /** The leading 26px identity square (owns its own click). */
   square: ReactNode
@@ -1030,10 +1103,15 @@ function WorkRowShell({
   /** Manual-sort grip (POD-168): when set, a ⠿ handle fades in on the row's
    *  left edge on hover and pointerdown starts a drag. */
   onGripDown?: (e: ReactPointerEvent) => void
-  /** Agent roster band (POD-170, L2): rendered ADJACENT to the row, outside
-   *  the subtask tree and independent of the chevron — the chevron's one
-   *  promise is subtasks, and execution never hides behind it. */
+  /** Agent roster band (POD-170, L2): rendered adjacent to the row, outside
+   * the subtask tree, and folded with the row's other secondary detail. */
   band?: ReactNode
+  /** True when the detail block contains issue-tree/roll-up content. */
+  hasTreeChildren: boolean
+  /** Drag scope and test marker belong on the actual tree container so each
+   * child can be a direct descendant and receive a correctly aligned stub. */
+  childDragScope?: string
+  childrenTestId?: string
 }): JSX.Element {
   // One-shot transition morphs (§2.6): fire only on a REAL phase change under a
   // mounted row — queued→working ignites the square, →waiting flashes the row.
@@ -1059,7 +1137,7 @@ function WorkRowShell({
     <div className="min-w-0" data-testid={testId}>
       <div
         className={cn(
-          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] px-2 py-[5px]',
+          'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] py-[5px] pr-2 pl-3.5',
           !active && !hex && 'hover:bg-[#20202a]',
           !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
@@ -1075,7 +1153,7 @@ function WorkRowShell({
           // Manual-sort grip (POD-168, §4): 10px zone on the row's left edge,
           // visible only on hover — order is the user's, nothing else moves it.
           <span
-            className="absolute inset-y-0 left-0 z-[1] flex w-[10px] cursor-grab select-none items-center justify-center text-[9px] leading-none text-transparent transition-colors duration-150 group-hover/row:text-muted-foreground/70"
+            className="absolute inset-y-0 left-0.5 z-[1] flex w-2.5 cursor-grab select-none items-center justify-center text-[9px] leading-none text-transparent transition-colors duration-150 group-hover/row:text-muted-foreground/70"
             style={{ touchAction: 'none' }}
             data-testid="row-grip"
             aria-hidden="true"
@@ -1189,7 +1267,6 @@ function WorkRowShell({
       </div>
       {/* Agent roster band (L2): adjacent to the row, one tone tier below the
           panel, NEVER inside the subtask tree or behind the chevron. */}
-      {band}
       {/* Subtask rows (L1 — the chevron's one promise): a tree guide (vertical
           line + per-row stubs, via .tree-children CSS) ties the child ISSUES to
           their parent; sessions render in the band above. A coloured issue
@@ -1197,9 +1274,12 @@ function WorkRowShell({
           children, a tinted guide, and colour-mixed active/hover on the child
           rows — all via vars with neutral fallbacks so uncoloured rows (and
           every other PanelRow context) are untouched. */}
-      {!collapsed && children && (
+      {!collapsed && band && !hasTreeChildren && band}
+      {!collapsed && hasTreeChildren && (
         <div
           className="tree-children relative rounded-b-[7px] pt-0.5 pb-1"
+          data-drag-scope={childDragScope}
+          data-testid={childrenTestId}
           style={
             hex
               ? ({
@@ -1217,6 +1297,7 @@ function WorkRowShell({
             className="tree-guide absolute top-0 bottom-3 left-4 w-px bg-[var(--tree-guide,var(--border))]"
             aria-hidden="true"
           />
+          {band && <div data-tree-band>{band}</div>}
           {children}
         </div>
       )}
@@ -1286,8 +1367,8 @@ function UnifiedIssueRow({
     />
   ) : undefined
   // Sessions earning visibility (multi-agent / remote spawn / native subagents)
-  // render in the ADJACENT roster band (L2), never inside the tree. The chevron
-  // keeps exactly one promise (L1): started-by subtask children.
+  // render in the ADJACENT roster band (L2), never inside the issue tree. The
+  // issue disclosure folds all detail while the compact fleet summary remains.
   const showSessions = sessionsNeedChildRows(mine)
   const hasStartedBy = startedByChildren.length > 0
   // Depth cap (L4): the sidebar renders parent + children, then numbers. A
@@ -1300,6 +1381,7 @@ function UnifiedIssueRow({
   // A lone driver next to nested subtasks still shows in the band, so the
   // session doing the driving never vanishes behind plan structure.
   const showBand = showSessions || (hasStartedBy && mine.length > 0)
+  const hasFoldableDetail = showBand || showRollup || (!capped && hasStartedBy)
   const { visible, stale } = partitionStaleSessions(mine, now)
   const phase = rowMotionPhase(row)
   const waitingCount = rowWaitingCount(row)
@@ -1410,16 +1492,11 @@ function UnifiedIssueRow({
           )
         }
         unread={unread}
-        expandable={!draftAgentOnly && !capped && hasStartedBy}
-        collapsed={
-          capped
-            ? !showRollup // the roll-up line is always-on — no chevron, no fold
-            : draftAgentOnly || !hasStartedBy
-              ? true
-              : collapsed
-        }
+        expandable={!draftAgentOnly && hasFoldableDetail}
+        collapsed={draftAgentOnly || !hasFoldableDetail ? true : collapsed}
         onToggle={toggle}
         band={band}
+        hasTreeChildren={showRollup || (!capped && hasStartedBy)}
         // A draft is just its agent — clicking the row opens the session itself.
         onSelect={
           draftAgentOnly && first
@@ -1431,6 +1508,8 @@ function UnifiedIssueRow({
         }
         domMark={issue.id}
         onGripDown={onGripDown ? (e) => onGripDown(e, issue.id) : undefined}
+        childDragScope={!capped && hasStartedBy ? `children:${issue.id}` : undefined}
+        childrenTestId={!capped && hasStartedBy ? 'started-by-children' : undefined}
         statusExtra={
           origin && (
             <span
@@ -1459,6 +1538,7 @@ function UnifiedIssueRow({
                 internal
               </span>
             )}
+            {!draftAgentOnly && <IssueFleetSummary sessions={mine} phase={phase} />}
             {/* No started-by/epic jargon chips (POD-85): the dashed provenance
                 nest and the expand chevron already say it visually. */}
             {issue.pinned && (
@@ -1502,36 +1582,33 @@ function UnifiedIssueRow({
             </span>
           </button>
         )}
-        {!draftAgentOnly && !capped && hasStartedBy && (
-          <div
-            className="mt-0.5 ml-1 border-l border-dashed border-teal-500/35 pl-1"
-            data-testid="started-by-children"
-            // A parent's children are their own sibling drag scope (POD-168):
-            // children drag within their parent, never across parents.
-            data-drag-scope={`children:${issue.id}`}
-          >
-            {startedByChildren.map((child) => (
-              <div key={`issue:${child.issue.id}`} data-drag-key={child.issue.id}>
-                <UnifiedIssueRow
-                  row={child}
-                  allWorktreePaths={allWorktreePaths}
-                  sessions={_all}
-                  issues={issues}
-                  selectedIssueId={selectedIssueId}
-                  paneA={paneA}
-                  now={now}
-                  onSelectIssue={onSelectIssue}
-                  onSelectPanelForIssue={onSelectPanelForIssue}
-                  onOpenIssue={onOpenIssue}
-                  onRenameIssue={onRenameIssue}
-                  onColorChangeIssue={onColorChangeIssue}
-                  onGripDown={onGripDown}
-                  startedByDepth={startedByDepth + 1}
-                />
-              </div>
-            ))}
-          </div>
-        )}
+        {!draftAgentOnly &&
+          !capped &&
+          hasStartedBy &&
+          startedByChildren.map((child) => (
+            <div
+              key={`issue:${child.issue.id}`}
+              className="ml-5 min-w-0"
+              data-drag-key={child.issue.id}
+            >
+              <UnifiedIssueRow
+                row={child}
+                allWorktreePaths={allWorktreePaths}
+                sessions={_all}
+                issues={issues}
+                selectedIssueId={selectedIssueId}
+                paneA={paneA}
+                now={now}
+                onSelectIssue={onSelectIssue}
+                onSelectPanelForIssue={onSelectPanelForIssue}
+                onOpenIssue={onOpenIssue}
+                onRenameIssue={onRenameIssue}
+                onColorChangeIssue={onColorChangeIssue}
+                onGripDown={onGripDown}
+                startedByDepth={startedByDepth + 1}
+              />
+            </div>
+          ))}
       </WorkRowShell>
       {menu}
     </>
