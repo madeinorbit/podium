@@ -1170,6 +1170,15 @@ export function ChatView({
                 // Desktop: Enter submits, Shift+Enter is a newline (⌘/Ctrl+Enter
                 // still submits). Mobile keeps plain Enter as a newline — the
                 // send button submits there.
+                // Some browsers clear isComposing on the Enter keydown that
+                // confirms a candidate, but continue to report the legacy IME
+                // keyCode. In either case, let the composition finish untouched.
+                if (
+                  e.key === 'Enter' &&
+                  (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                ) {
+                  return
+                }
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault()
                   void send()

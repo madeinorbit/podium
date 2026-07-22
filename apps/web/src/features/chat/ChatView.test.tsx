@@ -43,6 +43,7 @@ const fakeTrpc = {
 }
 
 let storeSessions: SessionMeta[] = []
+let storeDrafts: Record<string, string> = {}
 
 // Inert replica stub — the offline-copy path has its own suite (ChatView.offline.test.tsx).
 const fakeReplica = {
@@ -62,7 +63,7 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     replica: fakeReplica,
     sessions: storeSessions,
-    drafts: {},
+    drafts: storeDrafts,
     setSessionDraft: vi.fn(),
     resumeAndSend: vi.fn(async () => {}),
     openFile: vi.fn(),
@@ -116,6 +117,7 @@ beforeEach(() => {
   reads.length = 0
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]
+  storeDrafts = {}
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -247,5 +249,72 @@ describe('ChatView read-then-subscribe', () => {
     await flush()
     expect(container.textContent).toContain('parked history')
     expect(fakeHub.subscribes).toHaveLength(1)
+  })
+})
+
+describe('ChatView composer', () => {
+  it('does not submit Enter during composition and submits after composition ends', async () => {
+    storeDrafts = { s1: '日本語' }
+    act(() => {
+      root.render(<ChatView sessionId="s1" />)
+    })
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+
+    await act(async () => {
+      textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      for (const modifiers of [{}, { ctrlKey: true }, { metaKey: true }]) {
+        textarea.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Enter',
+            bubbles: true,
+            cancelable: true,
+            isComposing: true,
+            ...modifiers,
+          }),
+        )
+      }
+      textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1)
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', text: '日本語' }),
+    )
+  })
+
+  it('does not submit Enter when the browser only reports IME keyCode 229', async () => {
+    storeDrafts = { s1: '中文' }
+    act(() => {
+      root.render(<ChatView sessionId="s1" />)
+    })
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+
+    const enter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    Object.defineProperty(enter, 'keyCode', { value: 229 })
+    await act(async () => {
+      textarea.dispatchEvent(enter)
+      await Promise.resolve()
+    })
+
+    expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
   })
 })
