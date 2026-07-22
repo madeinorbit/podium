@@ -33,12 +33,14 @@ describe('web shell structure', () => {
     expect(src).not.toContain('ConnectScreen')
   })
 
-  it('sidebar renders always-on project groups and pin controls (#41)', () => {
+  it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
     const src = read('features/worklist/SidebarUnified.tsx')
     expect(src).toContain('sidebarSections')
     expect(src).toContain('groupUnifiedWorkRows')
     expect(src).toContain('ProjectGroupLabel')
-    expect(src).toContain('setPinned')
+    // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
+    expect(src).toContain('splitPinnedWork')
+    expect(src).not.toContain('setPinned')
   })
 
   it('workspace tabs keep the fixed actions outside the sortable scrolling strip', () => {
