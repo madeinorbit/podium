@@ -16,6 +16,7 @@ import {
   FEATURES,
   type FeatureId,
   isAgentKind,
+  type LocalDaemonLink,
   resolveFeatureState,
 } from '@podium/protocol'
 import {
@@ -734,6 +735,8 @@ export interface DaemonStartOptions {
   installCodexHooks?: boolean
   /** Production daemons install env-gated Grok Build lifecycle hooks at boot. */
   installGrokHooks?: boolean
+  /** In-process daemon↔server channel [POD-196] — all-in-one mode only. */
+  localLink?: LocalDaemonLink
 }
 
 /** Build the daemon auth/options for modes that actually run a daemon. */
@@ -802,7 +805,13 @@ export function alreadyRunningMessage(
  * host modules; every other subcommand path never loads them.
  */
 export interface HostModules {
-  startServer(opts: { port: number }): Promise<{ port: number; bootstrapToken?: string }>
+  startServer(opts: { port: number }): Promise<{
+    port: number
+    bootstrapToken?: string
+    /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
+     *  so per-frame traffic skips the loopback WebSocket entirely. */
+    localDaemonLink?: LocalDaemonLink
+  }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
     opts: DaemonStartOptions & {
@@ -855,6 +864,7 @@ async function runInProcess(
 
   let serverPort = port
   let localBootstrapToken: string | undefined
+  let localDaemonLink: LocalDaemonLink | undefined
   const host = roles.server || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
@@ -873,6 +883,7 @@ async function runInProcess(
     }
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
+    localDaemonLink = server.localDaemonLink
     console.log(`podium server up on http://localhost:${serverPort}`)
     if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  http://localhost:${serverPort}/\n`)
@@ -898,6 +909,11 @@ async function runInProcess(
       } catch (e) {
         console.error((e as Error).message)
         process.exit(2)
+      }
+      // All-in-one: hand the daemon the server's in-process channel [POD-196]
+      // so per-frame traffic never touches the loopback WebSocket.
+      if (modePlan.mode === 'all-in-one' && localDaemonLink) {
+        daemonOptions.localLink = localDaemonLink
       }
     }
     const { startDaemon } = host

@@ -15,7 +15,9 @@ import {
   type ControlMessage,
   type DaemonHandshake,
   type DaemonHandshakeReply,
+  type DaemonMessage,
   encode,
+  type LocalDaemonLink,
   parseControlMessage,
   parseDaemonHandshakeReply,
   WIRE_VERSION,
@@ -134,6 +136,13 @@ export interface DaemonOptions {
    * no paired credential of its own.
    */
   bootstrapToken?: string
+  /**
+   * In-process daemon↔server channel [POD-196], supplied by the composition
+   * root in all-in-one mode (ServerHandle.localDaemonLink). When set, the
+   * daemon never opens the loopback WebSocket: messages pass by reference in
+   * both directions, skipping encode/parse/schema validation per frame.
+   */
+  localLink?: LocalDaemonLink
   /**
    * A one-time pairing code (UI-issued) for a NEW remote daemon with no stored
    * token yet. Used only when there's no bootstrapToken and no persisted token.
@@ -378,7 +387,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   // to a new connection after a reconnect. Everything below (observers, relay hub,
   // injectors, discovery loop) captures this one `send`.
   let currentWs: WebSocket | undefined
+  // In-process fast path [POD-196]: set once at startup when the composition
+  // root supplies a LocalDaemonLink (all-in-one mode). Messages pass by
+  // reference — no encode/WS/parse — so a sent message must not be mutated.
+  let localDeliver: ((msg: DaemonMessage) => void) | undefined
+  let detachLocalLink: (() => void) | undefined
   const send: DaemonContext['send'] = (msg) => {
+    if (localDeliver) {
+      localDeliver(msg)
+      return
+    }
     const w = currentWs
     if (!w || w.readyState !== WebSocket.OPEN) return
     // Mirror the server's safeSend: a send/encode throw (socket transitioning to
@@ -709,6 +727,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       await agentRelay.close()
       return new Promise<void>((resolve) => {
         disposeAll(closeOpts?.reapSessions ?? false)
+        detachLocalLink?.()
         const w = currentWs
         if (!w || w.readyState === WebSocket.CLOSED) {
           resolve()
@@ -1001,6 +1020,31 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
         // Remember the reason so the connectivity file can explain the disconnect.
         lastSocketError = err instanceof Error ? err.message : String(err)
       })
+    }
+    // In-process fast path [POD-196]: the composition root handed us a direct
+    // channel to the same-process server. No socket, no handshake, no
+    // reconnect loop — attach is the successful handshake. Inbound control
+    // messages arrive as already-typed objects, so the WS path's size guard
+    // and parse step don't apply; the dispatch instrumentation is kept.
+    if (opts.localLink) {
+      const link = opts.localLink.attach({
+        deliver: (msg) => {
+          if (closing) return
+          const finishControlTurn = beginControlTurn()
+          try {
+            timeTask(`controlDispatch(${msg.type})`, () => dispatchControlMessage(ctx, msg))
+          } finally {
+            finishControlTurn(msg.type)
+          }
+        },
+      })
+      localDeliver = (msg) => link.deliver(msg)
+      detachLocalLink = () => {
+        localDeliver = undefined
+        link.close()
+      }
+      startBackground()
+      return
     }
     // Don't hang the entrypoint if the server isn't up yet — resolve after a grace
     // window; the daemon keeps retrying in the background and authenticates on real open.
