@@ -9,7 +9,7 @@ const LOGO_H = 317.7
 const COLS = 120
 /** Character-cell aspect correction: a monospace cell is ~0.6 as wide as tall. */
 const CELL_ASPECT = 0.6
-/** Brightness ramp, darkest → densest (design handoff SP: Podion ASCII Loader). */
+/** Brightness ramp, darkest → densest (design handoff SP: Podium ASCII Loader). */
 const RAMP = ' .`\'^",:;!i~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$'
 /** Cells reveal in random order across this window, sparkling as they resolve.
  *  Kept short and front-loaded (REVEAL_EXP > 1 → most cells land in the first
