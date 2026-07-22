@@ -147,6 +147,15 @@ export interface ConversationProvider {
   agentKind: AgentKind
   defaultRoots(context: ConversationProviderContext): readonly string[]
   listRoot(root: string): Promise<ProviderRootListing>
+  /**
+   * Targeted variant of {@link listRoot} for the event-driven active refresh
+   * (POD-196): derive listing entries for JUST these already-known paths
+   * without walking the root. Only providers whose per-file listing metadata
+   * is a pure function of the path implement this; providers that need
+   * sibling-derived listing state (e.g. codex) omit it and the scanner falls
+   * back to the full `listRoot` walk.
+   */
+  listPathsWithinRoot?(root: string, paths: readonly string[]): ProviderRootListing
   summarizeFile(
     root: string,
     file: ConversationProviderFile,

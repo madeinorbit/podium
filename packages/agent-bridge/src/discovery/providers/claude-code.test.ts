@@ -43,6 +43,31 @@ async function writeClaudeSession(
   return file
 }
 
+describe('listPathsWithinRoot', () => {
+  const provider = createClaudeCodeConversationProvider()
+  const root = '/home/tester/.claude'
+
+  test('derives the same entries as the full walk from path shape alone', () => {
+    const top = `${root}/projects/-repo-project/abc.jsonl`
+    const sub = `${root}/projects/-repo-project/conv-1/subagents/def.jsonl`
+    expect(provider.listPathsWithinRoot?.(root, [top, sub])).toEqual({
+      files: [{ path: top }, { path: sub, parentConversationId: 'conv-1' }],
+      diagnostics: [],
+    })
+  })
+
+  test('drops paths outside the root, non-jsonl files, and unknown shapes', () => {
+    expect(
+      provider.listPathsWithinRoot?.(root, [
+        '/elsewhere/projects/-repo/abc.jsonl',
+        `${root}/projects/-repo/notes.txt`,
+        `${root}/projects/-repo/conv-1/not-subagents/def.jsonl`,
+        `${root}/projects/loose.jsonl`,
+      ]),
+    ).toEqual({ files: [], diagnostics: [] })
+  })
+})
+
 describe('createClaudeCodeConversationProvider', () => {
   test('uses ~/.claude as the default root', () => {
     const provider = createClaudeCodeConversationProvider()

@@ -176,7 +176,14 @@ async function scanAgentConversationsCachedInternal(
         activeRoots.map(async (root) => {
           let listing: Awaited<ReturnType<ConversationProvider['listRoot']>>
           try {
-            listing = await provider.listRoot(root)
+            // Targeted refresh on a provider whose listing metadata is derivable
+            // from the path alone (POD-196): skip the full root walk and list
+            // just the dirty paths. Providers with sibling-derived listing state
+            // (no listPathsWithinRoot) keep the full walk.
+            listing =
+              internal.onlyPaths && provider.listPathsWithinRoot
+                ? provider.listPathsWithinRoot(root, [...internal.onlyPaths])
+                : await provider.listRoot(root)
           } catch (cause) {
             diagnostics.push({
               severity: 'error',
