@@ -512,7 +512,20 @@ export abstract class IssueServiceCore {
   protected broadcastIssue(row: IssueRow): void {
     this.bumpIssueInputs()
     const spec = this.deps.publishSpecs.issueUpdated(this.toWire(row))
-    this.deps.ledger.reconcile('issue', spec.rows)
+    // capture, NOT reconcile: reconcile treats its rows as the FULL truth for
+    // the entity kind and diffs removes against the whole baseline — fed a
+    // single row it would journal a remove for every OTHER issue, which the
+    // next full-list broadcast re-upserts (the POD-210 ledger flapping: ~185
+    // remove+upsert pairs per targeted git-state publish). capture dedups the
+    // one row against the baseline and never diffs the list.
+    this.deps.ledger.capture(
+      spec.rows.map((r) => ({
+        entity: 'issue' as const,
+        id: r.id,
+        op: 'upsert' as const,
+        value: r.value,
+      })),
+    )
     this.deps.funnel.publishComputed(spec.snapshot)
   }
 

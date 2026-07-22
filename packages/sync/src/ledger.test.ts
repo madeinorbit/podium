@@ -291,6 +291,71 @@ describe('Ledger', () => {
     expect(ledger.reconcile('conversation', []).map((c) => c.op)).toEqual(['remove'])
   })
 
+  it('issue commits ignore session-heartbeat churn but ship full payloads on stable changes', () => {
+    const issue = (over: Record<string, unknown> = {}): EntityChangeSpec => ({
+      entity: 'issue',
+      id: 'i1',
+      op: 'upsert',
+      value: {
+        id: 'i1',
+        title: 'fix the thing',
+        stage: 'in_progress',
+        unread: false,
+        sessions: [{ sessionId: 's1', agentState: { phase: 'idle' }, readAt: 'T1' }],
+        sessionSummary: { total: 1, byPhase: { idle: 1 } },
+        ...over,
+      },
+    })
+    const ledger = makeLedger()
+    expect(commit(ledger, [issue()]).changes).toHaveLength(1) // first sight
+    // Session heartbeats (phase flip / read receipt / roll-up) changed no stable
+    // field -> nothing recorded (the POD-210 ledger churn fix).
+    expect(
+      commit(ledger, [
+        issue({
+          unread: true,
+          sessions: [{ sessionId: 's1', agentState: { phase: 'working' }, readAt: 'T2' }],
+          sessionSummary: { total: 1, byPhase: { working: 1 } },
+        }),
+      ]).changes,
+    ).toEqual([])
+    // A stable-field change records — full wire payload, sessions included.
+    const changed = commit(ledger, [issue({ stage: 'review', unread: true })]).changes
+    expect(changed).toHaveLength(1)
+    expect(changed[0]).toMatchObject({
+      op: 'upsert',
+      value: { stage: 'review', unread: true },
+    })
+    // Removal and reconcile-driven disappearance still record.
+    expect(
+      commit(ledger, [{ entity: 'issue', id: 'i1', op: 'remove' }]).changes.map((c) => c.op),
+    ).toEqual(['remove'])
+  })
+
+  it('the issue projection baseline survives a restart', () => {
+    const repo = createTestSyncRepository()
+    const before = new Ledger({ repo, now: Date.now, transact: passthrough })
+    commit(before, [
+      {
+        entity: 'issue',
+        id: 'i1',
+        op: 'upsert',
+        value: { id: 'i1', title: 't', sessions: [{ sessionId: 's1', phase: 'idle' }] },
+      },
+    ])
+    const after = new Ledger({ repo, now: Date.now, transact: passthrough })
+    expect(
+      commit(after, [
+        {
+          entity: 'issue',
+          id: 'i1',
+          op: 'upsert',
+          value: { id: 'i1', title: 't', sessions: [{ sessionId: 's1', phase: 'working' }] },
+        },
+      ]).changes,
+    ).toEqual([]) // heartbeat-only drift across the restart must not re-record
+  })
+
   it('the conversation projection baseline survives a restart', () => {
     const repo = createTestSyncRepository()
     const before = new Ledger({ repo, now: Date.now, transact: passthrough })

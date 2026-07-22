@@ -1,4 +1,5 @@
 import type { SessionMeta } from '@podium/protocol'
+import type { Ledger } from '@podium/sync'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
@@ -16,6 +17,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
     const output = repoOpScript[key]
     return output !== undefined ? { ok: true, output } : { ok: false, output: '' }
   })
+  const plumbing = issueTestPlumbing((msg) => broadcast(msg))
   const deps: IssueDeps = {
     store,
     listSessions: () => sessions,
@@ -30,11 +32,13 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
       }),
     spawnSession: vi.fn(() => ({ sessionId: 's1' })),
     repoOp: repoOp as IssueDeps['repoOp'],
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...plumbing,
     setSessionArchived: vi.fn(),
     now: () => '2026-07-20T00:00:00.000Z',
   }
-  return { svc: new IssueService(deps), repoOp, broadcast }
+  // The plumbing wires a REAL Ledger; widen from the narrow IssueLedger face so
+  // tests can read the log back (cursor/changesSince).
+  return { svc: new IssueService(deps), repoOp, broadcast, ledger: plumbing.ledger as Ledger }
 }
 
 const member = (sessionId: string, issueId: string): SessionMeta =>
@@ -162,6 +166,29 @@ describe('POD-98 git-state service wiring', () => {
     await svc.refreshGitState(id, '/repo')
     expect(repoOp).toHaveBeenCalledTimes(4)
     expect(broadcast.mock.calls.map(([msg]) => msg.type)).toEqual(['issueUpdated'])
+  })
+
+  it('a targeted git-state publish never journals removes for other issues [POD-210]', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc, ledger } = harness(sessions, {
+      statusProbe: '## main',
+      logHead: 'abc\t2026-07-20T11:00:00Z',
+    })
+    const probed = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    svc.create({ repoPath: '/repo', title: 'two', startNow: false })
+    svc.create({ repoPath: '/repo', title: 'three', startNow: false })
+    sessions.push(member('sess-1', probed))
+
+    const cursor = ledger.cursor()
+    await svc.refreshGitState(probed, '/repo')
+
+    // broadcastIssue must CAPTURE the one row, not reconcile it as full truth:
+    // a full-truth reconcile of a single row journals a remove for every other
+    // issue (the boot-adjacent ledger flapping — thousands of remove+upsert
+    // pairs per probe wave).
+    const appended = ledger.changesSince(cursor) ?? []
+    expect(appended.filter((c) => c.op === 'remove')).toEqual([])
+    expect(appended.map((c) => [c.id, c.op])).toEqual([[probed, 'upsert']])
   })
 
   it('runs one trailing probe for attribution recorded during an active refresh', async () => {

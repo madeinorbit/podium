@@ -41,6 +41,9 @@ export interface IssueLedger {
     changes: MetadataChange[]
   }
   reconcile(entity: 'issue', rows: { id: string; value: unknown }[]): MetadataChange[]
+  /** Partial-truth append for a single derived row (POD-210): dedups against
+   *  the baseline, never diffs the list — see Ledger.capture. */
+  capture(specs: EntityChangeSpec[]): MetadataChange[]
 }
 
 /** Publish-spec factory for the two issue wire shapes. The relay implements it
