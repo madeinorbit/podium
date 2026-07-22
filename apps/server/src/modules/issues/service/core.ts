@@ -503,6 +503,18 @@ export abstract class IssueServiceCore {
     this.deps.ledger.reconcile('issue', spec.rows)
     this.deps.funnel.publishComputed(spec.snapshot)
   }
+
+  /** Publish one write-less derived issue update (for example ephemeral Git
+   * state). Unlike broadcastList this does not rebuild every issue merely
+   * because one row's computed field changed. The reconcile keeps delta clients
+   * and the durable change log aligned with the legacy single-row snapshot. */
+  protected broadcastIssue(row: IssueRow): void {
+    this.bumpIssueInputs()
+    const spec = this.deps.publishSpecs.issueUpdated(this.toWire(row))
+    this.deps.ledger.reconcile('issue', spec.rows)
+    this.deps.funnel.publishComputed(spec.snapshot)
+  }
+
   /** @internal */
   protected rowOrThrow(id: string): IssueRow {
     const r = this.rows.get(this.resolveRef(id))

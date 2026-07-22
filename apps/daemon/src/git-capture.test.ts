@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createGitCapture, type SessionGitActivityOut } from './git-capture'
 
 /** Scripted fake git: maps `args.join(' ')` → output (null = failure). */
@@ -88,6 +88,25 @@ describe('git-capture', () => {
     cap.onHookPayload('s1', { hook_event_name: 'SessionStart', cwd: '/not-a-repo' })
     await settle()
     expect(sent).toEqual([])
+  })
+
+  it('does not launch Git processes around BashOutput polling', async () => {
+    const sent: SessionGitActivityOut[] = []
+    const run = vi.fn(async () => 'aaa')
+    const cap = createGitCapture({
+      send: (msg) => sent.push(msg),
+      run,
+    })
+    cap.onHookPayload('s1', { hook_event_name: 'SessionStart', cwd: '/repo' })
+    await settle()
+    expect(run).toHaveBeenCalledTimes(1)
+    run.mockClear()
+
+    cap.onHookPayload('s1', pre('BashOutput'))
+    cap.onHookPayload('s1', post('BashOutput'))
+    await settle()
+    expect(run).not.toHaveBeenCalled()
+    expect(sent).toEqual([{ type: 'sessionGitActivity', sessionId: 's1' }])
   })
 
   it('reports edit-tool touches once per file', async () => {

@@ -6,8 +6,8 @@ import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
 
 // POD-98: the git-state service wiring end-to-end at the service layer —
-// turn-end trigger → computing broadcast → probe (via repoOp) → gitState on
-// the wire, with attribution unioned from recorded session activity.
+// turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
+// with attribution unioned from recorded session activity.
 function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) {
   const store = new SessionStore(':memory:')
   const broadcast = vi.fn()
@@ -34,7 +34,7 @@ function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) 
     setSessionArchived: vi.fn(),
     now: () => '2026-07-20T00:00:00.000Z',
   }
-  return { svc: new IssueService(deps), repoOp }
+  return { svc: new IssueService(deps), repoOp, broadcast }
 }
 
 const member = (sessionId: string, issueId: string): SessionMeta =>
@@ -140,6 +140,95 @@ describe('POD-98 git-state service wiring', () => {
       state = gs && gs.updatedAt !== '' && gs.computing !== true ? gs : undefined
     }
     expect(state).toMatchObject({ shared: true, branch: 'main' })
+  })
+
+  it('coalesces rapid turn ends and publishes one targeted final update', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc, repoOp, broadcast } = harness(sessions, {
+      statusProbe: '## main',
+      logHead: 'abc\t2026-07-20T11:00:00Z',
+    })
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    sessions.push(member('sess-1', id))
+    repoOp.mockClear()
+    broadcast.mockClear()
+
+    svc.onSessionTurnEnd('sess-1')
+    svc.onSessionTurnEnd('sess-1')
+    svc.onSessionTurnEnd('sess-1')
+    expect(repoOp).not.toHaveBeenCalled()
+    expect(broadcast).not.toHaveBeenCalled()
+
+    await svc.refreshGitState(id, '/repo')
+    expect(repoOp).toHaveBeenCalledTimes(4)
+    expect(broadcast.mock.calls.map(([msg]) => msg.type)).toEqual(['issueUpdated'])
+  })
+
+  it('runs one trailing probe for attribution recorded during an active refresh', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc, repoOp, broadcast } = harness(sessions, {})
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    sessions.push(member('sess-1', id))
+    let releaseStatus!: () => void
+    const statusGate = new Promise<void>((resolve) => {
+      releaseStatus = resolve
+    })
+    let statusCalls = 0
+    repoOp.mockImplementation(async (op: string) => {
+      if (op === 'statusProbe') {
+        statusCalls += 1
+        if (statusCalls === 1) await statusGate
+        return { ok: true, output: '## main' }
+      }
+      return { ok: false, output: '' }
+    })
+    broadcast.mockClear()
+
+    const initial = svc.refreshGitState(id, '/repo')
+    for (let i = 0; i < 50 && statusCalls === 0; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
+    expect(statusCalls).toBe(1)
+    svc.recordSessionGitActivity('sess-1', { commits: ['late-sha'] })
+    releaseStatus()
+    await initial
+
+    expect(statusCalls).toBe(2)
+    expect(repoOp).toHaveBeenCalledTimes(8)
+    expect(svc.get(id)?.gitState?.commits).toEqual(['late-sha'])
+    expect(broadcast.mock.calls.map(([msg]) => msg.type)).toEqual(['issueUpdated'])
+  })
+
+  it('drops archived or removed sessions from file and commit attribution', async () => {
+    const sessions: SessionMeta[] = []
+    const { svc } = harness(sessions, {
+      statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
+    })
+    const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
+    sessions.push(member('sess-1', id), member('sess-2', id))
+    svc.recordSessionGitActivity('sess-1', {
+      commits: ['sha-1'],
+      touched: ['/repo/apps/a.ts'],
+    })
+    svc.recordSessionGitActivity('sess-2', {
+      commits: ['sha-2'],
+      touched: ['/repo/apps/b.ts'],
+    })
+    await svc.refreshGitState(id, '/repo')
+    expect(svc.get(id)?.gitState).toMatchObject({
+      commits: ['sha-1', 'sha-2'],
+      dirtyOwn: 2,
+    })
+
+    svc.onSessionRemovedOrArchived('sess-1')
+    await svc.refreshGitState(id, '/repo')
+    expect(svc.get(id)?.gitState).toMatchObject({ commits: ['sha-2'], dirtyOwn: 1 })
+
+    svc.onSessionRemovedOrArchived('sess-2')
+    await svc.refreshGitState(id, '/repo')
+    expect(svc.get(id)?.gitState).toMatchObject({ fallback: true })
+    expect(svc.get(id)?.gitState?.commits).toBeUndefined()
+    expect(svc.get(id)?.gitState?.dirtyOwn).toBeUndefined()
   })
 
   it('sessions without an issue are a no-op on turn end', () => {

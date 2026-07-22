@@ -5,7 +5,7 @@
  */
 
 import type { ControlMessage } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 
 const registries: SessionRegistry[] = []
@@ -60,7 +60,9 @@ describe('archive parks the session process [POD-108]', () => {
     reg.modules.sessions.markSessionRead(sessionId)
     expect(meta(reg, sessionId)?.status).toBe('live')
 
+    const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')
     reg.modules.sessions.setArchived({ sessionId, archived: true })
+    expect(gitCleanup).toHaveBeenCalledWith(sessionId)
 
     const m = meta(reg, sessionId)
     expect(m?.archived).toBe(true)
@@ -151,5 +153,19 @@ describe('archive parks the session process [POD-108]', () => {
     expect(m?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
     expect(reattached.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
     expect(reattached.some((c) => c.type === 'reattach' && c.sessionId === sessionId)).toBe(false)
+  })
+
+  it('permanent removal clears issue-owned session attribution', () => {
+    const { reg } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+    })
+    const gitCleanup = vi.spyOn(reg.modules.issues, 'onSessionRemovedOrArchived')
+
+    reg.modules.sessions.killSession({ sessionId })
+
+    expect(gitCleanup).toHaveBeenCalledWith(sessionId)
+    expect(meta(reg, sessionId)).toBeUndefined()
   })
 })

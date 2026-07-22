@@ -2269,6 +2269,7 @@ export class SessionsService {
     })
     // Archiving can leave its draft issue with no living sessions — reap it.
     if (archived) {
+      this.issues().onSessionRemovedOrArchived(sessionId)
       this.maybeReapDraftIssue(this.sessions.get(sessionId)?.issueId)
       this.parkArchivedSession(sessionId)
     }
@@ -3209,6 +3210,10 @@ export class SessionsService {
    *  can batch many rows in one transaction and one sessions broadcast. */
   private removeSessionRuntime(sessionId: string): void {
     const session = this.sessions.get(sessionId)
+    // The issues service owns the per-session Git attribution ledger. Notify it
+    // while membership/cwd are still resolvable, before this permanent removal.
+    this.issues().onSessionRemovedOrArchived(sessionId)
+
     this.toMachine(session?.machineId ?? LOCAL_PLACEHOLDER, {
       type: 'kill',
       sessionId,

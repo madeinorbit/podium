@@ -841,7 +841,10 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
   // comes from the daemon's hook-ingest HEAD-delta capture, recorded per session
   // here and unioned per issue at probe time; without it a shared checkout runs
   // in disclosed fallback mode.
-  private gitProbeInflight = new Set<string>()
+  private gitRefreshes = new Map<
+    string,
+    { promise: Promise<void>; rerun: boolean; fallbackCwd?: string }
+  >()
   private gitCommitsBySession = new Map<string, string[]>()
   private gitTouchedBySession = new Map<string, Set<string>>()
 
@@ -879,6 +882,17 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
   }
 
+  /** A session was archived or permanently removed. Drop its ephemeral
+   * attribution ledger immediately; if its issue remains visible, queue a fresh
+   * derived state so commits/files from the departed session do not linger. */
+  onSessionRemovedOrArchived(sessionId: string): void {
+    const resolved = this.issueForSession(sessionId)
+    const removedCommits = this.gitCommitsBySession.delete(sessionId)
+    const removedTouched = this.gitTouchedBySession.delete(sessionId)
+    if ((!removedCommits && !removedTouched) || !resolved) return
+    void this.refreshGitState(resolved.row.id, resolved.sess.cwd).catch(() => {})
+  }
+
   /** The issue's human ref (`POD-98`, or `#98` before a prefix exists) — the
    *  commit-message marker logIssueCommits greps for. */
   private issueRef(row: IssueRow): string {
@@ -896,26 +910,50 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
     return row ? { row, sess } : null
   }
 
-  /** Probe the issue's checkout and publish the result. Broadcasts a
-   *  `computing` marker first so clients can shimmer the stamp; concurrent
-   *  requests coalesce onto the in-flight probe. */
+  /** Queue a checkout probe. Requests arriving in the same short window share
+   * one probe; requests arriving while it runs share one trailing probe, so a
+   * late attribution update is never dropped. Scheduling happens before any
+   * list/Git work, keeping daemon hooks and turn-end handlers fire-and-forget. */
   async refreshGitState(id: string, fallbackCwd?: string): Promise<void> {
+    const active = this.gitRefreshes.get(id)
+    if (active) {
+      active.rerun = true
+      active.fallbackCwd ??= fallbackCwd
+      return active.promise
+    }
+    const refresh = {
+      rerun: false,
+      fallbackCwd,
+      promise: Promise.resolve(),
+    }
+    refresh.promise = (async () => {
+      let changed = false
+      do {
+        // Coalesce rapid daemon messages/turn-end edges before starting four
+        // read-only repo operations. A request during the probe flips rerun and
+        // is folded into exactly one trailing pass.
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        refresh.rerun = false
+        changed = (await this.probeGitStateOnce(id, refresh.fallbackCwd)) || changed
+      } while (refresh.rerun)
+      if (changed) {
+        const current = this.rows.get(id)
+        if (current && !current.deletedAt) this.broadcastIssue(current)
+      }
+    })().finally(() => {
+      if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)
+    })
+    this.gitRefreshes.set(id, refresh)
+    return refresh.promise
+  }
+
+  /** Run one coalesced probe and retain its issue's final state for publication. */
+  private async probeGitStateOnce(id: string, fallbackCwd?: string): Promise<boolean> {
     const row = this.rows.get(id)
-    if (!row || row.deletedAt) return
+    if (!row || row.deletedAt) return false
     const shared = row.worktreePath === null
     const cwd = row.worktreePath ?? fallbackCwd
-    if (!cwd) return
-    if (this.gitProbeInflight.has(id)) return
-    this.gitProbeInflight.add(id)
-    const prev = this.gitStates.get(id)
-    this.gitStates.set(
-      id,
-      prev
-        ? { ...prev, computing: true }
-        : // updatedAt '' = "no completed probe yet" — the client's shimmer state.
-          { updatedAt: '', computing: true, branch: null, shared, dirtyFiles: 0 },
-    )
-    this.broadcastList()
+    if (!cwd) return false
     try {
       const members = sessionsForIssue(row.worktreePath, this.d.listSessions(), row.id)
       const attribution = this.gitAttributionFor(members)
@@ -939,13 +977,10 @@ export abstract class IssueServiceWorkflow extends IssueServiceMail {
         this.now(),
       )
       this.gitStates.set(id, state)
+      return true
     } catch {
-      // Probe failure: drop the computing marker, keep the previous state.
-      if (prev) this.gitStates.set(id, prev)
-      else this.gitStates.delete(id)
-    } finally {
-      this.gitProbeInflight.delete(id)
-      this.broadcastList()
+      // Probe failure leaves the last completed state intact.
+      return false
     }
   }
 

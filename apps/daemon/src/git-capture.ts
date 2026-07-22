@@ -26,8 +26,10 @@ export interface GitCapture {
 }
 
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
-/** Tools whose shell access can create commits — bracket these with HEAD reads. */
-const SHELL_TOOLS = new Set(['Bash', 'BashOutput'])
+/** Tools whose shell access can create commits — bracket these with HEAD reads.
+ * BashOutput only polls an already-running command and cannot create a commit
+ * itself, so bracketing it pays two Git processes without adding attribution. */
+const SHELL_TOOLS = new Set(['Bash'])
 
 function runGit(args: string[], cwd: string): Promise<string | null> {
   return new Promise((resolve) => {
