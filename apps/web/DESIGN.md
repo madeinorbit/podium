@@ -11,6 +11,7 @@ colors:
   tabstrip-navy: "#0c1322"
   rail-navy: "#0e1626"
   alert-red: "#e5303f"
+  live-mint: "#3eb489"
   accent-blue: "#2f6bff"
   royal-blue: "#1d4ed8"
   ink-strong: "#f3f3f8"
@@ -113,8 +114,9 @@ Team colors: deep navy chassis, Superade Yellow signal, with red and blue as the
 - **Royal Blue** (#1d4ed8): Carries the primary role in the light variant, where yellow can't hold contrast on paper-white; yellow remains the brand mark.
 
 ### Secondary
-- **Alert Red** (#e5303f): Destructive actions and live agent activity in the Superade theme. It is the theme's pulse — use sparingly so it stays alarming.
-- **Accent Blue** (#2f6bff): Success, host health, info, quota meters. Superade has no green; blue is the calm "all good."
+- **Alert Red** (#e5303f): Destructive actions only. Use sparingly so it stays alarming — it no longer doubles as the live-activity color.
+- **Live Mint** (#3eb489, light: #17916b): Live agent activity and clean/committed state (`--live`). A darker mint so "running/clean" reads positive instead of alarming next to alert red.
+- **Accent Blue** (#2f6bff): Success, host health, info, quota meters. Blue remains the calm "all good."
 
 ### Tertiary
 - **Claude Terracotta** (#d97757): Reserved for the Claude brand — agent icons, cursor blocks, ⏺ glyphs. Never an issue color, never a UI accent.
@@ -197,7 +199,7 @@ Refined and restrained: quiet borders, subtle states, nothing decorative. Every 
 Every issue-tinted surface derives from one `--issue` custom property scoped per subtree, mixed over its base surface (`issue-mix-*` utilities), with a derived text ramp per scope. Reselecting or recoloring crossfades every derived mix together over 0.4s via a registered `@property`. Uncolored issues run identical mechanics in Flow Slate, slightly quieter.
 
 ### Agent State Grammar (signature)
-The braille spinner (10-frame CSS `content` animation) plus a counting mono timer are the ONLY perpetual motion, running only while an agent computes. Phase changes are single one-shot morphs (~150–400ms, ease-out), then total stillness. In Superade, live activity reads red, calm states blue. No pulses, no glows, no breathing rings.
+The braille spinner (10-frame CSS `content` animation) plus a counting mono timer are the ONLY perpetual motion, running only while an agent computes. Phase changes are single one-shot morphs (~150–400ms, ease-out), then total stillness. In Superade, live activity reads mint green, calm states blue. No pulses, no glows, no breathing rings.
 
 ## 6. Do's and Don'ts
 

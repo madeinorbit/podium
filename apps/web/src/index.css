@@ -385,7 +385,7 @@
   --ring: #1d4ed8;
   --success: #059669;
   --warning: #b45309;
-  --live: #dc2626;
+  --live: #17916b;
   --info: #1d4ed8;
   --sidebar: #edf0f8;
   --sidebar-foreground: #17203a;
@@ -438,11 +438,13 @@
   --border: #243356;
   --input: #364a78;
   --ring: #f5c518;
-  /* The Superman mock has no green at all: host-health dots and quota meters
-     render in its blue (#2f6bff), live agent activity in its red (#e5303f). */
+  /* The Superman mock rendered live activity in its red (#e5303f), but red
+     reads as an alert next to --destructive; live/clean state now uses a
+     darker mint green instead. Host-health dots and quota meters keep the
+     mock's blue (#2f6bff). */
   --success: #2f6bff;
   --warning: #f5c518;
-  --live: #e5303f;
+  --live: #3eb489;
   --info: #2f6bff;
   --sidebar: #0f1626;
   --sidebar-foreground: #d7d7e0;
