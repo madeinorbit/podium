@@ -907,10 +907,34 @@ html[data-podium-platform="macos"] .settings-header {
   transform: none;
   opacity: 1;
 }
+
+@keyframes offer-feedback-reveal {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    max-height: 160px;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The input action grows the offer smoothly instead of snapping the chat
+   composer or native dock to its taller layout. */
+.offer-feedback {
+  max-height: 160px;
+  overflow: hidden;
+  animation: offer-feedback-reveal 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 @media (prefers-reduced-motion: reduce) {
   .offer-dock,
   .offer-dock-inner {
     transition: none;
+  }
+  .offer-feedback {
+    animation: none;
   }
 }
 

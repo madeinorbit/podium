@@ -305,6 +305,33 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
+if (process.env.PODIUM_E2E_OFFER === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Native offer layout',
+    startNow: false,
+  })
+  const { sessionId } = server.registry.modules.sessions.createSession({
+    agentKind: 'codex',
+    cwd: REPO_ROOT,
+    issueId: issue.id,
+    machineId: LOCAL_MACHINE_ID,
+  })
+  setTimeout(() => {
+    server.registry.modules.sessions.setOffer({
+      sessionId,
+      message: 'Native offer layout check',
+      actions: [
+        { label: 'Keep it', prompt: 'Keep the verified layout' },
+        {
+          label: 'Request changes',
+          prompt: 'Revise the layout per this feedback:',
+          input: true,
+        },
+      ],
+    })
+  }, 2_000)
+}
 if (process.env.PODIUM_E2E_HANDOFF === '1') {
   server.registry.modules.sessions.createSession({
     agentKind: 'claude-code',

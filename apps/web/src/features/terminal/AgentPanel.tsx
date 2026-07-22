@@ -982,7 +982,7 @@ export function AgentPanel({
             )}
             style={{ backgroundColor: termBg }}
           >
-            <div ref={termRef} className="term min-h-0 flex-1 px-[13px] py-3" />
+            <div ref={termRef} className="term min-h-0 flex-1 px-[13px] pt-3 pb-5" />
             {!ready && (
               <div
                 className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 text-[13px] text-zinc-400"

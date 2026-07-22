@@ -65,11 +65,11 @@ export function OfferBar({
       )}
       {session && <OfferArtifactStrip offer={offer} session={session} className="mt-2" />}
       {pendingAction ? (
-        <div className="mt-2 flex flex-col gap-1.5" data-testid="offer-feedback">
+        <div className="offer-feedback mt-2 flex flex-col gap-1.5" data-testid="offer-feedback">
           <textarea
             // biome-ignore lint/a11y/noAutofocus: the field appears on the user's own click; focus is the expected next step
             autoFocus
-            rows={2}
+            rows={4}
             value={feedback}
             disabled={disabled}
             placeholder={`${pendingAction.label} — add your feedback…`}
@@ -78,7 +78,7 @@ export function OfferBar({
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send()
               if (e.key === 'Escape') setPending(null)
             }}
-            className="w-full resize-none rounded-md border border-primary/40 bg-transparent px-2 py-1.5 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/70"
+            className="min-h-24 w-full resize-none rounded-md border border-primary/40 bg-transparent px-2.5 py-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/70"
           />
           <div className="flex gap-1.5">
             <button
