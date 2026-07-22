@@ -2315,6 +2315,138 @@ describe('sendText (chat send path)', () => {
     }
   })
 
+  it('POD-152: resends the CR (bounded) while the submit never lands — no echo, phase idle', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      // An image send: the composer converts the pasted path to an attachment,
+      // which outlasts the CR delay — the CR is swallowed, nothing submits.
+      reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual(['\x1b[200~/up/img.png\nlook at this\x1b[201~', '\r'])
+      // No user-turn echo and the phase never left idle → verify resends the CR.
+      vi.advanceTimersByTime(1600)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
+      vi.advanceTimersByTime(1600)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
+      // Bounded: SUBMIT_MAX_RETRIES exhausted, no CR drip-feed forever.
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: no CR retry once the agent phase leaves idle (the turn started)', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
+      vi.advanceTimersByTime(100)
+      reg.modules.sessions.onDaemonMessageFrom('local', agentStateMsg(sessionId, 'working'))
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: no CR retry once the user turn echoes in the transcript tail', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
+      vi.advanceTimersByTime(100)
+      // The turn ran so fast the phase is already back to idle — but the user turn
+      // reached the transcript cache, which is submit evidence on its own.
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'transcriptDelta',
+        sessionId,
+        items: [{ id: 'u1', role: 'user' as const, text: 'quick one', cursor: 'c1' }],
+        tail: 'c1',
+      })
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: an assistant-only delta is NOT submit evidence — the retry still fires', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'hello' })
+      vi.advanceTimersByTime(100)
+      // A trailing assistant item from the PREVIOUS turn arrives late; it must not
+      // be mistaken for the echo of the just-sent user turn.
+      reg.modules.sessions.onDaemonMessageFrom('local', {
+        type: 'transcriptDelta',
+        sessionId,
+        items: [{ id: 'a9', role: 'assistant' as const, text: 'earlier reply', cursor: 'c9' }],
+        tail: 'c9',
+      })
+      vi.advanceTimersByTime(1600)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('POD-152: the verify NEVER CRs into a menu that appeared meanwhile (needs_user)', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry()
+      const daemon: ControlMessage[] = []
+      reg.modules.sessions.attachDaemon('local', (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.modules.sessions.onDaemonMessageFrom('local', bind(sessionId))
+      reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
+      vi.advanceTimersByTime(100)
+      // The turn started and hit an AskUserQuestion before the verify fired. A
+      // retry CR would answer the menu's highlighted default (#473) — forbidden.
+      reg.modules.sessions.onDaemonMessageFrom(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon).filter((d) => d === '\r')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('#473: NEVER types into a session waiting on a menu (needs_user) — no paste, no CR', () => {
     vi.useFakeTimers()
     try {

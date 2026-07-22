@@ -86,6 +86,16 @@ export const DEFAULT_GEOMETRY: Geometry = { cols: 80, rows: 24 }
 // lands in a separate PTY read (the new Claude renderer swallows a CR fused to the
 // paste-end marker → the message types in but never submits). See sendText().
 const SUBMIT_CR_DELAY_MS = 90
+// Submit verification [POD-152]: the delayed CR can STILL be swallowed when the
+// renderer is busy processing the paste past the delay — an image path pasted into
+// the composer is converted to an attachment (file read + encode), which reliably
+// outlasts SUBMIT_CR_DELAY_MS. The paste then sits in the composer unsent and
+// nobody notices (an operator body is confirmed on injection, with no echo to
+// await). So after the CR, verify the turn actually started — the user-turn echo
+// in the transcript tail or the agent phase leaving idle — and resend the CR while
+// it hasn't, a bounded number of times. See typeText().
+const SUBMIT_VERIFY_DELAY_MS = 1600
+const SUBMIT_MAX_RETRIES = 2
 // Resume/spawn readiness (sendTextWhenReady): the PTY binds ('live') BEFORE the
 // agent's TUI has finished drawing / loading the resumed conversation. Typing then
 // lands in a half-built UI and the message is dropped (codex especially). Deliver
@@ -1651,7 +1661,50 @@ export class SessionsService {
     // A short delay separates the reads so the CR submits; it's imperceptible next to
     // agent latency. Verified against real claude in the e2e harness.
     setTimeout(() => send('\r'), SUBMIT_CR_DELAY_MS)
+    // The delay is a heuristic, not a handshake — verify the submit landed and
+    // retry the CR while it didn't [POD-152]. Baseline the user-turn echo count
+    // now, before the CR can produce one.
+    if (session.agentKind === 'claude-code') {
+      this.scheduleSubmitVerify(sessionId, this.userTurnCount(session), 1)
+    }
     return { ok: true }
+  }
+
+  /** User-role items in the bounded transcript cache — the submit-echo signal.
+   *  (Bounded/resettable, so compare counts captured moments apart, nothing more.) */
+  private userTurnCount(session: Session): number {
+    return session.transcriptItems().filter((it) => it.role === 'user').length
+  }
+
+  /**
+   * Post-submit verification [POD-152]: fires after typeText's CR and resends a
+   * lone CR while there's no evidence the turn started. Evidence = the agent phase
+   * left idle (working/compacting — the stop-hook pipeline reports fast) OR a new
+   * user-role item reached the transcript cache (covers turns so quick the phase
+   * is already back to idle). The retry CR is safe by construction: the pasted
+   * text is still in the composer (that's the failure being fixed) or the
+   * composer is empty, where a CR is a no-op. It explicitly does NOT fire when
+   * the phase is needs_user (a CR would answer the on-screen menu's highlighted
+   * default, #473) or errored (nothing to submit into), or once the session is
+   * no longer running.
+   */
+  private scheduleSubmitVerify(sessionId: string, baselineUserTurns: number, attempt: number): void {
+    const timer = setTimeout(() => {
+      const session = this.sessions.get(sessionId)
+      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
+      const phase = session.agentState?.phase
+      if (phase !== undefined && phase !== 'idle') return
+      if (this.userTurnCount(session) > baselineUserTurns) return
+      this.toMachine(session.machineId, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from('\r').toString('base64'),
+      })
+      if (attempt < SUBMIT_MAX_RETRIES) {
+        this.scheduleSubmitVerify(sessionId, baselineUserTurns, attempt + 1)
+      }
+    }, SUBMIT_VERIFY_DELAY_MS)
+    timer.unref?.()
   }
 
   /**
