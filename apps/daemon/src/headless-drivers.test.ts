@@ -1,10 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import type { HarnessBins } from './harness-exec.js'
-import { buildHeadlessExec } from './headless-drivers.js'
+import { buildClaudeSdkOptions, buildHeadlessExec } from './headless-drivers.js'
 
 const bins: HarnessBins = { opencode: () => '/opt/opencode', cursor: () => '/opt/cursor-agent' }
 
 describe('buildHeadlessExec argv shapes', () => {
+  it('reapplies the current system prompt when resuming a Claude SDK thread', () => {
+    const options = buildClaudeSdkOptions({
+      agent: 'claude-code',
+      cwd: '/repo',
+      prompt: 'Why?',
+      systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
+      contextPrompt: 'current context',
+      resumeValue: 'claude-thread-1',
+    })
+
+    expect(options.resume).toBe('claude-thread-1')
+    expect(options).not.toHaveProperty('sessionId')
+    expect(options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: 'NORMAL: HARD LIMIT 80 words total\n\ncurrent context',
+    })
+  })
+
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
     const { cmd, args } = buildHeadlessExec('codex', { prompt: 'hi there' }, bins)
     expect(cmd).toBe('codex')

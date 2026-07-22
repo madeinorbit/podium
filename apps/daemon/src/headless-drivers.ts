@@ -110,7 +110,7 @@ function sdkMcpServers(mcpConfig: string | undefined): Record<string, McpServerC
  * long-lived process. First turn mints the session id via `sessionId` (must be
  * a UUID) so the thread ↔ transcript binding is deterministic.
  */
-function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
+export function buildClaudeSdkOptions(spec: HeadlessTurnSpec): Options {
   const mode: PermissionMode =
     spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
       ? (spec.permissionMode as PermissionMode)
@@ -154,7 +154,11 @@ function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurn
   }
   const mcpServers = sdkMcpServers(spec.mcpConfig)
   if (mcpServers) options.mcpServers = mcpServers
+  return options
+}
 
+function runClaudeTurn(spec: HeadlessTurnSpec, emit: HeadlessEmit): HeadlessTurnHandle {
+  const options = buildClaudeSdkOptions(spec)
   const q = query({ prompt: spec.prompt, options })
   let interrupted = false
   const timer = setTimeout(() => {
