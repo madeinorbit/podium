@@ -605,6 +605,34 @@ describe('chatActivity', () => {
       chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), true),
     ).toEqual({ label: 'Sending…', tone: 'working' })
   })
+  it('never shows Working… for a parked session with a preserved working phase (#161)', () => {
+    for (const status of ['hibernated', 'exited'] as const) {
+      expect(
+        chatActivity(
+          base({ status, agentState: { phase: 'working', since: '', nativeSubagentCount: 0 } }),
+          false,
+        ),
+      ).toBeNull()
+    }
+    // The PTY-busy fallback is parked-guarded too.
+    expect(chatActivity(base({ status: 'hibernated', agentKind: 'shell', busy: true }), false)).toBeNull()
+  })
+  it('keeps last-state attention labels on a hibernated session', () => {
+    expect(
+      chatActivity(
+        base({
+          status: 'hibernated',
+          agentState: {
+            phase: 'needs_user',
+            since: '',
+            nativeSubagentCount: 0,
+            need: { kind: 'question' },
+          },
+        }),
+        false,
+      ),
+    ).toEqual({ label: 'needs answer', tone: 'attention' })
+  })
   it('shows nothing when idle and not just-sent', () => {
     expect(
       chatActivity(base({ agentState: { phase: 'idle', since: '', nativeSubagentCount: 0 } }), false),
@@ -651,6 +679,9 @@ describe('sessionDotTone', () => {
         }),
       ),
     ).toBe('attention')
+  })
+
+  it('never reads a hibernated session as working (#161) — parked overrides the preserved phase', () => {
     expect(
       sessionDotTone(
         base({
@@ -658,7 +689,15 @@ describe('sessionDotTone', () => {
           agentState: { phase: 'working', since: '', nativeSubagentCount: 0 },
         }),
       ),
-    ).toBe('working')
+    ).toBe('ready')
+    expect(
+      sessionDotTone(
+        base({
+          status: 'hibernated',
+          agentState: { phase: 'compacting', since: '', nativeSubagentCount: 0 },
+        }),
+      ),
+    ).toBe('ready')
   })
 
   it('still drains an exited session to grey (phase is cleared server-side)', () => {

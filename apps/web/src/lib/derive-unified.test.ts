@@ -544,6 +544,24 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
+  it('keeps a hibernated session with a preserved working phase out of WORKING (#161)', () => {
+    // The server intentionally keeps agentState.phase='working' across a
+    // hibernate; the parked status is ground truth and overrides it.
+    const parked = {
+      ...owned('h', working, 'i'),
+      status: 'hibernated',
+    } as SessionMeta
+    const { working: w, work } = partitionUnifiedWork(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [parked],
+      [],
+      NOW,
+    )
+    expect(w).toEqual([])
+    expect(work.map((r) => r.kind)).toEqual(['issue'])
+  })
+
   it('moves a fully-working unowned worktree to WORKING', () => {
     const wt = navWt('/r/a/.worktrees/x', {
       isMain: false,

@@ -1839,18 +1839,24 @@ export interface ChatActivity {
  * nothing. Reuses `agentBadge` for instrumented agents; falls back to the PTY
  * `busy` signal for uninstrumented kinds; and shows an optimistic "Sending…"
  * immediately after a submit (`justSent`) before the first `working` event lands.
+ *
+ * A parked process (hibernated/exited) cannot be working, however fresh the
+ * preserved `working` phase — the header already says so, and the activity row
+ * must not contradict it. Last-state *attention* labels are kept: a parked
+ * "needs answer" is still true and worth surfacing. [spec:SP-8b0e]
  */
 export function chatActivity(
   meta: SessionMeta | undefined,
   justSent: boolean,
 ): ChatActivity | null {
   if (!meta) return null
+  const parked = meta.status === 'hibernated' || meta.status === 'exited'
   const badge = agentBadge(meta)
-  if (badge?.tone === 'working') {
+  if (badge?.tone === 'working' && !parked) {
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }
   if (badge?.tone === 'attention') return { label: badge.label, tone: 'attention' }
-  if (!meta.agentState && meta.busy) return { label: 'Working…', tone: 'working' }
+  if (!meta.agentState && meta.busy && !parked) return { label: 'Working…', tone: 'working' }
   if (justSent) return { label: 'Sending…', tone: 'working' }
   return null
 }
@@ -1868,11 +1874,14 @@ export type DotTone = 'working' | 'attention' | 'error' | 'ready' | 'neutral'
  * The status-dot tone for a session row/tab/card — the single source of truth
  * for agent colour, shared by every mode so the semantics never drift.
  *
- * Hibernated sessions KEEP their last real status colour: the server preserves
- * `agentState` across a hibernate (the kill is the expected result, so `onExit`
- * leaves the phase intact), so a hibernated agent that "needs input" still reads
- * yellow. Hibernation is conveyed only by the grayed/italic `.dot.parked` row, not
- * by draining the dot to grey.
+ * Hibernated sessions KEEP their last *attention-worthy* status colour: the
+ * server preserves `agentState` across a hibernate (the kill is the expected
+ * result, so `onExit` leaves the phase intact), so a hibernated agent that
+ * "needs input" still reads yellow. Hibernation is conveyed only by the
+ * grayed/italic `.dot.parked` row, not by draining the dot to grey. The one
+ * exception is `working`: a parked process cannot be working, however fresh
+ * its preserved phase, so a hibernated "working" session reads ready (blue)
+ * — matching `attentionGroup`, which already treats it as idle. [spec:SP-8b0e]
  */
 export function sessionDotTone(s: SessionMeta): DotTone {
   // Exited (process gone, phase cleared server-side): no live status colour.
@@ -1883,7 +1892,7 @@ export function sessionDotTone(s: SessionMeta): DotTone {
   if (badge) {
     switch (badge.tone) {
       case 'working':
-        return 'working'
+        return s.status === 'hibernated' ? 'ready' : 'working'
       case 'attention':
         return 'attention'
       case 'error':
