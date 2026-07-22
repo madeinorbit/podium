@@ -56,6 +56,7 @@ import {
   rowUnreadEmphasized,
   rowWaitingCount,
   type SidebarSections,
+  splitPinnedWork,
   sessionsForIssueNav,
   sessionsForWorktree,
   sessionsNeedChildRows,
@@ -513,6 +514,21 @@ function ProjectGroupLabel({ label, first }: { label: string; first: boolean }):
   )
 }
 
+/** PINNED section label (POD-166, R3): the one section above all project
+ *  groups — same mono hairline voice, led by an attention-toned pin. */
+function PinnedSectionLabel(): JSX.Element {
+  return (
+    <div
+      data-testid="pinned-section-label"
+      className="flex items-center gap-1.5 px-1 pt-1 pb-0.5 font-mono text-[8.5px] leading-[normal] tracking-[.12em] uppercase text-[#7a7a86]"
+    >
+      <Pin size={9} className="flex-none text-attention" aria-hidden="true" />
+      <span>Pinned</span>
+      <span className="h-px min-w-4 flex-1 bg-[#25252f]" aria-hidden="true" />
+    </div>
+  )
+}
+
 /**
  * The work list: ONE list of issue/worktree rows, always grouped by project
  * (repo), banded urgency order inside each group. The old WORKING / PINNED
@@ -736,15 +752,24 @@ export function WorkSections({ derivation }: { derivation?: SidebarDerivation } 
       </div>
     )
   }
+  // Pinned issues MOVE above all project groups (POD-166, R3) — they leave
+  // their group entirely; unpinning returns them to its banded order.
+  const { pinned, rest } = splitPinnedWork(work)
   return (
     <>
-      {groupUnifiedWorkRows(work).map((group, index) => (
+      {pinned.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-[3px]" data-testid="pinned-section">
+          <PinnedSectionLabel />
+          {pinned.map(renderWorkRow)}
+        </div>
+      )}
+      {groupUnifiedWorkRows(rest).map((group, index) => (
         <div
           key={group.key}
           className="flex min-w-0 flex-col gap-[3px]"
           data-testid="project-group"
         >
-          <ProjectGroupLabel label={group.label} first={index === 0} />
+          <ProjectGroupLabel label={group.label} first={index === 0 && pinned.length === 0} />
           {group.rows.map(renderWorkRow)}
         </div>
       ))}
@@ -857,7 +882,12 @@ function WorkRowShell({
         boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${accent} ${hex ? 80 : 70}%, transparent)`,
       }
     : hex
-      ? { background: `color-mix(in srgb, ${hex} 12%, #16161c)` }
+      ? // Var-driven so the hover class can override it — an inline `background`
+        // would always beat `hover:` (POD-166: tint-aware hover, +5% mix).
+        ({
+          '--row-bg': `color-mix(in srgb, ${hex} 12%, #16161c)`,
+          '--row-hover-bg': `color-mix(in srgb, ${hex} 17%, #16161c)`,
+        } as CSSProperties)
       : {}
   return (
     <div className="min-w-0" data-testid={testId}>
@@ -865,6 +895,7 @@ function WorkRowShell({
         className={cn(
           'phase-surface group/row relative flex min-w-0 items-center gap-2 rounded-[7px] px-2 py-[5px]',
           !active && !hex && 'hover:bg-[#20202a]',
+          !active && hex && 'bg-[var(--row-bg)] hover:bg-[var(--row-hover-bg)]',
           phase === 'queued' && !active && 'opacity-65',
           morph === 'waiting' && 'morph-row-flash',
           deemphasized && !active && 'scale-[0.98] opacity-70',
@@ -919,12 +950,12 @@ function WorkRowShell({
               >
                 {label}
               </span>
-              {/* Unread beacon (POD-81): the weight bump alone was invisible in
-                  a scan — an info-toned dot marks where the news is. Hidden on
+              {/* Unread beacon (POD-81, R5): a plain still info-toned dot marks
+                  where the news is — no ring, no halo; nothing glows. Hidden on
                   the selected row: you are already looking at it. */}
               {unread && !active && (
                 <span
-                  className="size-[7px] flex-none rounded-full bg-info ring-2 ring-info/25"
+                  className="size-[7px] flex-none rounded-full bg-info"
                   role="img"
                   aria-label="Unread update"
                   data-testid="row-unread-dot"

@@ -151,7 +151,7 @@
   --ring: oklch(0.708 0 0);
   --success: oklch(0.6 0.13 163);
   --warning: oklch(0.78 0.16 70);
-  --live: #10b981;
+  --live: #2f6bff;
   --info: #3b82f6;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -213,7 +213,7 @@
   --ring: oklch(0.556 0 0);
   --success: oklch(0.7 0.15 162);
   --warning: oklch(0.83 0.16 82);
-  --live: #10b981;
+  --live: #6f9dff;
   --info: #3b82f6;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -272,7 +272,7 @@
   --ring: #d97706;
   --success: #059669;
   --warning: #d97706;
-  --live: #10b981;
+  --live: #2f6bff;
   --info: #3b82f6;
   --sidebar: #f0f0f3;
   --sidebar-foreground: #1a1a22;
@@ -326,8 +326,8 @@
   --ring: #f59e0b;
   --success: #34d399;
   --warning: #fbbf24;
-  /* Mock activity hues: live/working dots are emerald-500, user/ready is blue-500. */
-  --live: #10b981;
+  /* Activity hues (POD-166 R10): live/working reads calm blue, user/ready blue-500. */
+  --live: #6f9dff;
   --info: #3b82f6;
   /* Handoff v2 sidebar is the plain panel surface (#16161c / #2a2a34) — the old
      mock's distinct #141419/#22222b tint is gone; sidebar tokens collapse onto
@@ -385,7 +385,7 @@
   --ring: #1d4ed8;
   --success: #059669;
   --warning: #b45309;
-  --live: #17916b;
+  --live: #2f6bff;
   --info: #1d4ed8;
   --sidebar: #edf0f8;
   --sidebar-foreground: #17203a;
@@ -438,13 +438,12 @@
   --border: #243356;
   --input: #364a78;
   --ring: #f5c518;
-  /* The Superman mock rendered live activity in its red (#e5303f), but red
-     reads as an alert next to --destructive; live/clean state now uses a
-     darker mint green instead. Host-health dots and quota meters keep the
-     mock's blue (#2f6bff). */
+  /* The Superman mock has no green at all: host-health dots and quota meters
+     render in its blue (#2f6bff). Live agent activity reads calm blue too
+     (POD-166 R10) — red stays reserved for alerts/destructive. */
   --success: #2f6bff;
   --warning: #f5c518;
-  --live: #3eb489;
+  --live: #6f9dff;
   --info: #2f6bff;
   --sidebar: #0f1626;
   --sidebar-foreground: #d7d7e0;

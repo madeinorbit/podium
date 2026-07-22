@@ -30,7 +30,8 @@ describe('issue colour palette', () => {
     expect(pickable.size).toBe(10)
     expect(pickable.has('#f59e0b')).toBe(false) // attention
     expect(pickable.has('#d97757')).toBe(false) // Claude
-    expect(pickable.has('#10b981')).toBe(false) // working
+    expect(pickable.has('#10b981')).toBe(false) // retired working green
+    expect(pickable.has('#6f9dff')).toBe(false) // working (calm blue, POD-166)
     expect(pickable.has(FLOW_SLATE)).toBe(false) // no-colour flow
   })
 

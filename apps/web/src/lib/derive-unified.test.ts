@@ -16,6 +16,7 @@ import {
   type SidebarSections,
   sessionUrgencyRank,
   spawnTargetForRepo,
+  splitPinnedWork,
   type UnifiedWorkRow,
   unifiedWorkList,
   type WorktreeNavView,
@@ -352,6 +353,38 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(ids.slice(0, 2).sort()).toEqual(['pin', 'ret']) // top band
     expect(ids[2]).toBe('norm') // middle band
     expect(ids[3]).toBe('snz') // bottom band
+  })
+})
+
+describe('splitPinnedWork (PINNED section, POD-166)', () => {
+  it('moves pinned issue rows out into the pinned list, preserving order', () => {
+    const pinA = issue({ id: 'pinA', pinned: true })
+    const pinB = issue({ id: 'pinB', pinned: true, createdAt: new Date(NOW - HOUR).toISOString() })
+    const norm = issue({ id: 'norm' })
+    const sessions = [
+      idle('a', '/x', { issueId: 'pinA' }),
+      idle('b', '/x', { issueId: 'pinB' }),
+      idle('c', '/x', { issueId: 'norm' }),
+    ]
+    const rows = unifiedWorkList(emptySections([]), [norm, pinA, pinB], sessions, [], NOW)
+    const { pinned, rest } = splitPinnedWork(rows)
+    // Banded creation order carries over: pinB is newer-created, so it leads.
+    expect(pinned.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['pinB', 'pinA'])
+    // Move, not copy: the pinned rows are gone from the rest of the list.
+    expect(rest.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['norm'])
+  })
+
+  it('leaves worktree rows and unpinned issues untouched', () => {
+    const rows = unifiedWorkList(
+      emptySections([]),
+      [issue({ id: 'i' })],
+      [idle('a', '/x', { issueId: 'i' })],
+      [],
+      NOW,
+    )
+    const { pinned, rest } = splitPinnedWork(rows)
+    expect(pinned).toEqual([])
+    expect(rest).toEqual(rows)
   })
 })
 

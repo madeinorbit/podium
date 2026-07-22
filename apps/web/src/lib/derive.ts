@@ -12,8 +12,8 @@ import type { SessionMeta } from '@podium/protocol'
 import { cn } from './utils'
 
 // Tone → hue via the activity tokens (--live/--info) plus semantic --warning,
-// so each theme preset recolors agent activity (the Superade mock's live dots
-// are red, not emerald). The tokens keep stable, dot-appropriate hues in every
+// so each theme preset recolors agent activity (working reads calm blue in
+// every preset, POD-166 R10). The tokens keep stable, dot-appropriate hues in every
 // preset — the old reason to avoid tokens (near-black light-mode --primary)
 // doesn't apply to them. Error stays an explicit red so a broken session never
 // blends in with a preset's live/destructive hue (matching the minimap palette).

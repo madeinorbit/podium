@@ -1734,6 +1734,30 @@ export function partitionUnifiedWork(
   return { working, work: sortUnifiedWorkRows(work, now) }
 }
 
+export interface PinnedWorkSplit {
+  /** Pinned issue rows, in banded order — the PINNED section above all groups. */
+  pinned: UnifiedWorkRow[]
+  /** Everything else, ready for {@link groupUnifiedWorkRows}. */
+  rest: UnifiedWorkRow[]
+}
+
+/**
+ * PINNED section split (POD-166, R3): pinned issues MOVE out of their project
+ * group into one section above all groups — Linear-favorites style, move not
+ * copy. Unpinning drops the row back into its group's banded order. Input
+ * order is preserved on both sides (pinned rows already float via band 0, so
+ * the pinned list reads in the same banded creation order).
+ */
+export function splitPinnedWork(rows: UnifiedWorkRow[]): PinnedWorkSplit {
+  const pinned: UnifiedWorkRow[] = []
+  const rest: UnifiedWorkRow[] = []
+  for (const row of rows) {
+    if (row.kind === 'issue' && row.issue.pinned) pinned.push(row)
+    else rest.push(row)
+  }
+  return { pinned, rest }
+}
+
 export interface UnifiedWorkGroup {
   key: string
   label: string

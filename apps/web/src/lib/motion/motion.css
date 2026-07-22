@@ -1,16 +1,18 @@
 /* Motion grammar (redesign handoff option 1d, .design/specs/motion.md).
-   The braille spinner + the green counting timer are the ONLY permanent motion,
-   running only while an agent computes; every phase change is a single one-shot
-   morph, then total stillness — stillness means "needs you". No pulses, no
-   glows, no breathing rings. Keyframe values are verbatim from the handoff. */
+   The braille spinner + the calm-blue counting timer are the ONLY permanent
+   motion, running only while an agent computes; every phase change is a single
+   one-shot morph, then total stillness — stillness means "needs you". No
+   pulses, no glows, no breathing rings. Keyframe values are verbatim from the
+   handoff. */
 
 :root {
-  /* Reserved motion colours (handoff 4b): the issue palette deliberately
-     excludes the emerald and amber bands, so these never collide with an
-     issue colour and are safe to hardcode here. */
-  --motion-working: #10b981; /* spinner + counting timer */
-  --motion-working-bright: #34d399; /* spinner/✓ glyph inside dark badges */
-  --motion-badge-bg: #0c1f18; /* dark green badge fill behind the glyph */
+  /* Reserved motion colours (handoff 4b, retuned by POD-166 R10: working is
+     calm blue, never green or red). The issue palette's blue slot (#3b82f6)
+     stays a different hue band, and the amber band is excluded entirely, so
+     these never collide with an issue colour and are safe to hardcode here. */
+  --motion-working: #6f9dff; /* spinner + counting timer */
+  --motion-working-bright: #9dbcff; /* spinner/✓ glyph inside dark badges */
+  --motion-badge-bg: #0e1a2e; /* dark navy badge fill behind the glyph */
   --motion-waiting: #f59e0b; /* amber: waiting on you */
   --motion-waiting-ink: #161006; /* text on an amber pill */
   --motion-total: #6c6c78; /* grey ∑ total on done rows */
@@ -99,7 +101,7 @@
 @keyframes podium-flip-ago {
   0% {
     transform: scale(1.35);
-    color: #10b981;
+    color: #6f9dff;
     opacity: 0.4;
   }
   45% {
@@ -126,7 +128,7 @@
   min-width: 8px;
   font-family: var(--font-mono, ui-monospace, monospace);
   /* Contexts retint via --spb-color (e.g. the dark badge uses the brighter
-     emerald); default is the reserved working green. */
+     blue); default is the reserved working blue. */
   color: var(--spb-color, var(--motion-working));
 }
 .spb::before {
@@ -211,7 +213,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* The spinner freezes on its first frame — the green mono glyph alone still
+  /* The spinner freezes on its first frame — the blue mono glyph alone still
      reads "computing" (colour + the ticking timer carry the state). */
   .spb::before {
     animation: none;

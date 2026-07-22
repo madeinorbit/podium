@@ -10,7 +10,8 @@
  * conversely never to be used for status:
  *   - amber   #f59e0b (--attention): "waiting on you"
  *   - terracotta #d97757 (--claude): the Claude brand
- *   - green   #10b981 (--live): "agent working"
+ *   - calm blue #6f9dff (--live / --motion-working): "agent working" (POD-166
+ *     R10 — was green #10b981, which stays retired from the palette too)
  *   - slate   #94a3b8 (--flow): the default no-colour flow accent — a state,
  *     not a choice, so it is absent from the picker.
  * The yellow/orange/amber band is deliberately missing from the palette and red

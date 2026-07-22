@@ -189,7 +189,10 @@ describe('SidebarUnified selection weight (#41 redesign)', () => {
   it('an unread, unselected row carries the unread beacon dot; the selected row never does (POD-81)', () => {
     render(<SidebarUnified />)
     const unreadRow = rowButton('Unread issue').closest('[class*="group/row"]') as HTMLElement
-    expect(unreadRow.querySelector('[data-testid="row-unread-dot"]')).toBeTruthy()
+    const dot = unreadRow.querySelector('[data-testid="row-unread-dot"]') as HTMLElement
+    expect(dot).toBeTruthy()
+    // R5 (POD-166): the beacon is a PLAIN still dot — the halo ring is gone.
+    expect(dot.className).not.toContain('ring')
     const activeRow = rowButton('Read selected issue').closest(
       '[class*="group/row"]',
     ) as HTMLElement
